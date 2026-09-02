@@ -1187,15 +1187,6 @@ function cancelFinalize(state: ConductorState, em: Emitter, events: AiEvent[]): 
   return finalize({ ...state, cancelled: true }, em, events);
 }
 
-/** The one-line budget announcement for a run about to start. */
-export function budgetNotice(config: ConductorConfig): string {
-  const minutes = Math.round(config.maxWallMs / 60_000);
-  return (
-    `This run may use up to ${String(config.maxSteps)} steps, $${config.maxUsd.toFixed(2)} ` +
-    `and ${String(minutes)} minutes; it stops and reports what it applied if it reaches any of them.`
-  );
-}
-
 /**
  * Why the run must stop now on its cost or time budget, or `undefined` while within both.
  * Cost is only ever compared when a turn reported a price; an unpriced run (usd 0) is
@@ -1271,9 +1262,15 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
   // (each step's `run_turn` streams its own `${turnId}:reasoning:${index}` node), so there
   // is no shared per-run reasoning node to open here — that node was the one every later
   // step overwrote.
-  // The budget is SAID before the first model call, so an expensive run starts with the
-  // editor knowing what bounds it (goal.md D). One line, plain words.
-  const events: AiEvent[] = [em.status('thinking'), em.notification(budgetNotice(config))];
+  // The budget is NOT announced here. It is a setting the editor shows permanently
+  // (Settings → AI → Run budget), so the user can read the same three numbers whenever
+  // they want; repeating them as the second event of every run spent a transcript line
+  // on something nothing had changed. This supersedes the earlier reading of goal.md
+  // Workstream D ("surfaced before an expensive operation starts") — the maintainer chose
+  // a permanent surface over a per-run one. Do not put the notice back. What the run
+  // still owes the user is the REASON it stopped, which `budgetExhausted` says at the
+  // moment a limit is actually reached.
+  const events: AiEvent[] = [em.status('thinking')];
 
   const resuming = !!(ao.resume && ao.resume.ops.length > 0);
   const planning = !resuming && !!ao.planFirst && !command.stream.signal?.aborted;

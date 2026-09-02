@@ -35,7 +35,12 @@ import {
 import {
   type Density,
   type Theme,
+  MAX_RUN_MINUTES,
+  MAX_RUN_USD,
+  MIN_RUN_MINUTES,
+  MIN_RUN_USD,
   OVERLAY_SECONDS_BOUNDS,
+  RUN_USD_STEP,
   useSettings,
 } from '../editor/useSettings.js';
 import type { TimeDisplay } from '../editor/selectors.js';
@@ -1256,6 +1261,117 @@ function isRealProvider(name: AiProviderName): name is Exclude<AiProviderName, '
   return (REAL_PROVIDERS as readonly AiProviderName[]).includes(name);
 }
 
+/** Said in the dialog, in the words the run itself uses when it stops. */
+const RUN_BUDGET_HINT =
+  'The AI stops at the next step once a run reaches either limit, and tells you what it applied.';
+
+/** Clamp a typed budget into range, falling back to `fallback` for anything that is not a
+    finite number. Only a COMMITTED value goes through here, so a half-entered "1." never
+    becomes the bound; and because a commit clamps, the store can safely distrust anything
+    it later reads back out of range (see `mergeSettings`). */
+function clampRunBudget(
+  raw: string,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number {
+  const text = raw.trim();
+  // A number input reports '' for anything it cannot parse ("lots") as well as for an
+  // emptied field. Both mean "no value entered" — `Number('')` is 0, which would silently
+  // become the floor of the range instead of leaving the last real choice alone.
+  if (text === '') return fallback;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) return fallback;
+  const clamped = Math.min(max, Math.max(min, parsed));
+  return integer ? Math.round(clamped) : clamped;
+}
+
+/**
+ * The run budget (goal.md Workstream D) — a preference, not a per-run announcement.
+ *
+ * It sits in Settings because it is set once and applies to every agent run; the SDK no
+ * longer spends a transcript line restating it before each run. Typing is a draft so a
+ * half-entered number never reaches the wire; blur and Enter commit it, clamped, through
+ * the shared settings store — one key, every panel reading the same figure.
+ */
+function RunBudgetSettings(): JSX.Element {
+  const { settings, update } = useSettings();
+  const [usdDraft, setUsdDraft] = useState(() => String(settings.maxRunUsd));
+  const [minutesDraft, setMinutesDraft] = useState(() => String(settings.maxRunMinutes));
+
+  const commitUsd = (raw: string): void => {
+    const next = clampRunBudget(raw, settings.maxRunUsd, MIN_RUN_USD, MAX_RUN_USD, false);
+    setUsdDraft(String(next));
+    update({ maxRunUsd: next });
+  };
+  const commitMinutes = (raw: string): void => {
+    const next = clampRunBudget(
+      raw,
+      settings.maxRunMinutes,
+      MIN_RUN_MINUTES,
+      MAX_RUN_MINUTES,
+      true,
+    );
+    setMinutesDraft(String(next));
+    update({ maxRunMinutes: next });
+  };
+
+  return (
+    <SettingGroup
+      title="Run budget"
+      description="Applied to every agent run, from the moment you save it."
+    >
+      <div className="setting-row">
+        <div className="setting-text">
+          <span className="setting-label">Stop a run after</span>
+          <span className="setting-hint">{RUN_BUDGET_HINT}</span>
+        </div>
+        <div className="setting-budget">
+          <span className="setting-budget-unit" aria-hidden="true">
+            $
+          </span>
+          <input
+            type="number"
+            className="setting-number"
+            inputMode="decimal"
+            aria-label="Stop a run after, dollars"
+            min={MIN_RUN_USD}
+            max={MAX_RUN_USD}
+            step={RUN_USD_STEP}
+            value={usdDraft}
+            data-testid="ai-max-usd"
+            onChange={(event) => setUsdDraft(event.target.value)}
+            onBlur={(event) => commitUsd(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+          />
+          <input
+            type="number"
+            className="setting-number"
+            inputMode="numeric"
+            aria-label="Stop a run after, minutes"
+            min={MIN_RUN_MINUTES}
+            max={MAX_RUN_MINUTES}
+            step={1}
+            value={minutesDraft}
+            data-testid="ai-max-minutes"
+            onChange={(event) => setMinutesDraft(event.target.value)}
+            onBlur={(event) => commitMinutes(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+          />
+          <span className="setting-budget-unit" aria-hidden="true">
+            min
+          </span>
+        </div>
+      </div>
+    </SettingGroup>
+  );
+}
+
 function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element {
   const { config, setActiveProvider } = useAiConfig();
   const { settings, update } = useSettings();
@@ -1294,6 +1410,7 @@ function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element
             />
           ))}
       </SettingGroup>
+      <RunBudgetSettings />
       <AsrSettings />
       <MediaIntelligenceSettings {...(projectId ? { projectId } : {})} />
       <StockMediaSettings />

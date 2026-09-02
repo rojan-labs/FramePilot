@@ -8,6 +8,8 @@ import { createContext, useCallback, useContext, useLayoutEffect, useMemo, useSt
 import type { ReactNode } from 'react';
 import {
   DEFAULT_ASR_PROVIDER,
+  DEFAULT_MAX_RUN_MINUTES,
+  DEFAULT_MAX_RUN_USD,
   migrateAsrProviderName,
   type AsrProviderName,
   type UserAsrProviderName,
@@ -45,6 +47,19 @@ export interface EditorSettings {
   readonly asrProvider: UserAsrProviderName;
   readonly transcribeOnImport: boolean;
   readonly showAiUsageDetails: boolean;
+  /**
+   * The run budget (goal.md Workstream D): every agent run stops once it has spent
+   * this much money or this much wall clock.
+   *
+   * It lives here, in Settings, rather than beside the composer — set once, applied to
+   * every run. The maintainer chose a permanent, always-inspectable control over the
+   * per-run announcement the SDK used to emit: a line of transcript that repeated the
+   * same three numbers before every run is noise, and a number the user can look up at
+   * any time does not need restating. The run still says WHY it stopped when it
+   * actually reaches a limit. Do not reintroduce the per-run notice.
+   */
+  readonly maxRunUsd: number;
+  readonly maxRunMinutes: number;
 }
 
 /** Legacy provider values are accepted only as transient migration input. */
@@ -53,6 +68,15 @@ export type EditorSettingsUpdate = Omit<Partial<EditorSettings>, 'asrProvider'> 
 };
 
 export const OVERLAY_SECONDS_BOUNDS = { min: 0.5, max: 30 } as const;
+
+/** Bounds on the bound. Below the floor a run cannot finish even a trivial edit; above
+    the ceiling the budget stops being a guard rail. Defined once, here with the field
+    they constrain, so the store and the Settings control cannot drift apart. */
+export const MIN_RUN_USD = 0.5;
+export const MAX_RUN_USD = 50;
+export const RUN_USD_STEP = 0.5;
+export const MIN_RUN_MINUTES = 1;
+export const MAX_RUN_MINUTES = 120;
 
 export const DEFAULT_SETTINGS: EditorSettings = {
   timeDisplay: 'timecode',
@@ -73,6 +97,9 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   asrProvider: DEFAULT_ASR_PROVIDER,
   transcribeOnImport: false,
   showAiUsageDetails: false,
+  // The SDK owns what "unbudgeted" means; the editor only ever overrides it.
+  maxRunUsd: DEFAULT_MAX_RUN_USD,
+  maxRunMinutes: DEFAULT_MAX_RUN_MINUTES,
 };
 
 const STORAGE_KEY = 'framepilot.settings';
@@ -82,6 +109,22 @@ const clampOverlaySeconds = (value: number): number =>
 
 const clampPreviewVolume = (value: unknown): number =>
   typeof value === 'number' && Number.isFinite(value) ? Math.min(1, Math.max(0, value)) : 1;
+
+/** Read a persisted run budget. A missing, malformed or OUT-OF-RANGE stored value falls
+    back to the SDK default rather than being clamped — a stored value outside the range
+    was never a choice this UI could have written, so it is not trusted as one. Commits
+    from the dialog are clamped on the way IN, so a legitimate choice always survives. */
+const coerceRunBudget = (
+  value: unknown,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number => {
+  if (typeof value !== 'number' || !Number.isFinite(value)) return fallback;
+  if (value < min || value > max) return fallback;
+  return integer ? Math.round(value) : value;
+};
 
 const coerceSectionMap = (value: unknown): Record<string, boolean> => {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return {};
@@ -121,6 +164,20 @@ export function mergeSettings(partial: unknown): EditorSettings {
     asrProvider: migrateAsrProviderName(p.asrProvider),
     transcribeOnImport: p.transcribeOnImport === true,
     showAiUsageDetails: p.showAiUsageDetails === true,
+    maxRunUsd: coerceRunBudget(
+      p.maxRunUsd,
+      DEFAULT_SETTINGS.maxRunUsd,
+      MIN_RUN_USD,
+      MAX_RUN_USD,
+      false,
+    ),
+    maxRunMinutes: coerceRunBudget(
+      p.maxRunMinutes,
+      DEFAULT_SETTINGS.maxRunMinutes,
+      MIN_RUN_MINUTES,
+      MAX_RUN_MINUTES,
+      true,
+    ),
   };
 }
 

@@ -13,14 +13,6 @@
       "status": "thinking"
     },
     {
-      "id": "turn_parity:notice:2",
-      "conversationId": "conv_parity",
-      "ts": 1000,
-      "turnId": "turn_parity",
-      "type": "notification",
-      "text": "This run may use up to 300 steps, $5.00 and 20 minutes; it stops and reports what it applied if it reaches any of them."
-    },
-    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -104,7 +96,7 @@
       }
     },
     {
-      "id": "turn_parity:status:3",
+      "id": "turn_parity:status:2",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -232,7 +224,7 @@
       }
     },
     {
-      "id": "turn_parity:delta:4",
+      "id": "turn_parity:delta:3",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -372,7 +364,7 @@
       "text": "Trimming the dead air now."
     },
     {
-      "id": "turn_parity:status:5",
+      "id": "turn_parity:status:4",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -403,7 +395,7 @@
       "argsSummary": "trackId: \"video_1\", start: 0, end: 3"
     },
     {
-      "id": "turn_parity:result:6",
+      "id": "turn_parity:result:5",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -412,7 +404,7 @@
       "summary": "Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_parity:diff:7",
+      "id": "turn_parity:diff:6",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -522,7 +514,7 @@
       "runId": "run:turn_parity"
     },
     {
-      "id": "turn_parity:action:8",
+      "id": "turn_parity:action:7",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -648,7 +640,7 @@
       }
     },
     {
-      "id": "turn_parity:status:9",
+      "id": "turn_parity:status:8",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -778,7 +770,7 @@
       }
     },
     {
-      "id": "turn_parity:delta:10",
+      "id": "turn_parity:delta:9",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1030,7 +1022,7 @@
       }
     },
     {
-      "id": "turn_parity:notice:11",
+      "id": "turn_parity:notice:10",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1038,7 +1030,7 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
-      "id": "turn_parity:notice:12",
+      "id": "turn_parity:notice:11",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1170,7 +1162,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:13",
+      "id": "turn_parity:usage:12",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -1188,7 +1180,7 @@
       "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_parity:status:14",
+      "id": "turn_parity:status:13",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

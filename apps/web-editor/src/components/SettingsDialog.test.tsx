@@ -11,6 +11,7 @@ import { applyBrowserUpdate, loadBrowserAiConfig } from '../editor/aiConfigStora
 import { loadUserMemory } from '../editor/userMemoryStorage.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import type { FramePilotBridge } from '@framepilot/shared-types';
+import { DEFAULT_MAX_RUN_MINUTES, DEFAULT_MAX_RUN_USD } from '@framepilot/ai-sdk';
 
 afterEach(() => {
   localStorage.clear();
@@ -219,6 +220,78 @@ describe('SettingsDialog', () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(loadSettings().showAiUsageDetails).toBe(true);
+  });
+
+  // goal.md Workstream D: the run budget is a SETTING — set once here, applied to every
+  // agent run — rather than a pair of fields under the composer plus a line the run
+  // emitted before every first model call.
+  describe('AI → Run budget', () => {
+    const openBudget = (): { usd: HTMLInputElement; minutes: HTMLInputElement } => {
+      open();
+      fireEvent.click(screen.getByText('AI'));
+      return {
+        usd: screen.getByLabelText('Stop a run after, dollars') as HTMLInputElement,
+        minutes: screen.getByLabelText('Stop a run after, minutes') as HTMLInputElement,
+      };
+    };
+
+    it('renders the stored budget and the sentence that makes the numbers mean something', () => {
+      const { usd, minutes } = openBudget();
+      expect(usd.value).toBe(String(DEFAULT_MAX_RUN_USD));
+      expect(minutes.value).toBe(String(DEFAULT_MAX_RUN_MINUTES));
+      expect(screen.getByText('Stop a run after')).toBeTruthy();
+      expect(
+        screen.getByText(
+          'The AI stops at the next step once a run reaches either limit, and tells you what it applied.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('commits on blur and persists through the shared settings store', () => {
+      const { usd, minutes } = openBudget();
+      fireEvent.change(usd, { target: { value: '2.5' } });
+      // Typing alone is a draft — nothing is stored until the field is committed.
+      expect(loadSettings().maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+      fireEvent.blur(usd);
+      fireEvent.change(minutes, { target: { value: '7' } });
+      fireEvent.blur(minutes);
+      expect(loadSettings()).toMatchObject({ maxRunUsd: 2.5, maxRunMinutes: 7 });
+      // One key, not a second budget-only one.
+      expect(localStorage.getItem('framepilot.ai.maxUsd')).toBeNull();
+      expect(localStorage.getItem('framepilot.ai.maxMinutes')).toBeNull();
+    });
+
+    it('commits on Enter without leaving the field by hand', () => {
+      const { minutes } = openBudget();
+      // Enter commits by blurring the field, so the field has to be focused — which it
+      // always is for the keyboard user this is for.
+      minutes.focus();
+      fireEvent.change(minutes, { target: { value: '9' } });
+      fireEvent.keyDown(minutes, { key: 'Enter' });
+      expect(document.activeElement).not.toBe(minutes);
+      expect(loadSettings().maxRunMinutes).toBe(9);
+    });
+
+    it('clamps a typed value into range rather than storing an impossible bound', () => {
+      const { usd, minutes } = openBudget();
+      fireEvent.change(usd, { target: { value: '999' } });
+      fireEvent.blur(usd);
+      fireEvent.change(minutes, { target: { value: '0' } });
+      fireEvent.blur(minutes);
+      expect(usd.value).toBe('50');
+      expect(minutes.value).toBe('1');
+      expect(loadSettings()).toMatchObject({ maxRunUsd: 50, maxRunMinutes: 1 });
+    });
+
+    it('keeps the committed budget when the field is left as nonsense', () => {
+      const { usd } = openBudget();
+      fireEvent.change(usd, { target: { value: '3' } });
+      fireEvent.blur(usd);
+      fireEvent.change(usd, { target: { value: 'lots' } });
+      fireEvent.blur(usd);
+      expect(usd.value).toBe('3');
+      expect(loadSettings().maxRunUsd).toBe(3);
+    });
   });
 
   // Media understanding became automatic: the standalone "Embeddings" sub-view, its

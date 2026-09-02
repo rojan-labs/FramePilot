@@ -147,8 +147,9 @@ describe('onCommand', () => {
     ]);
     // No run-level reasoning node any more — reasoning is opened PER STEP inside each
     // run_turn (`${turnId}:reasoning:${index}`). onCommand only emits the header spinner.
-    // The header spinner, then the run's budget said before any model call (goal.md D).
-    expect(types(events)).toEqual(['status', 'notification']);
+    // Just the header spinner: the run budget is a permanent editor setting, not a line
+    // the run opens with (see the 'run budgets' block below).
+    expect(types(events)).toEqual(['status']);
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
 
@@ -1452,23 +1453,23 @@ describe('onEffectResult — turn stop/continue decisions', () => {
   });
 });
 
-// goal.md Workstream D: every run is bounded by explicit turn, time and cost budgets,
-// surfaced before the first model call.
+// goal.md Workstream D: every run is bounded by explicit turn, time and cost budgets.
+// The bound is SURFACED as a permanent editor setting (Settings → AI → Run budget), not
+// as a line the run emits before its first model call — so the opener spends no transcript
+// on it, and the run only speaks about the budget when it actually stops on one.
 describe('run budgets', () => {
-  it('announces the budget before the first turn', () => {
+  it('does not announce the budget — the opener is just the status', () => {
     const { events } = onCommand(idle, command());
-    const notice = events.find((e) => e.type === 'notification');
-    expect(notice).toMatchObject({
-      text: expect.stringMatching(/^This run may use up to \d+ steps, \$5\.00 and 20 minutes;/),
-    });
-    // Said before anything runs: the status opener, then the budget, then the work.
-    expect(types(events).slice(0, 2)).toEqual(['status', 'notification']);
+    expect(events.some((e) => e.type === 'notification')).toBe(false);
+    expect(types(events)).toEqual(['status']);
   });
 
-  it('honours the caller\'s own caps in the announcement', () => {
+  it("honours the caller's own caps", () => {
     const { events, state } = onCommand(idle, command({ maxUsd: 1.5, maxMinutes: 3 }));
+    // The caps live in the run's config, where every later budget check reads them; there
+    // is no announcement left to read them out of.
     expect(state.config).toMatchObject({ maxUsd: 1.5, maxWallMs: 180_000 });
-    expect(events[1]).toMatchObject({ text: expect.stringContaining('$1.50 and 3 minutes') });
+    expect(events.some((e) => e.type === 'notification')).toBe(false);
   });
 
   it('stops at the cost budget and verifies what was applied', () => {

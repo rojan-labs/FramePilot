@@ -461,6 +461,23 @@
   text-align: right;
 }
 
+/* Two numbers and their units read as one sentence ("$ 5  20 min"), which no single
+   existing control class expresses — the row itself only knows text-left/control-right. */
+.settings-dialog .setting-budget {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-dialog .setting-budget .setting-number {
+  width: 58px;
+}
+
+.settings-dialog .setting-budget-unit {
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+}
+
 .settings-dialog .setting-text-input:hover,
 .settings-dialog .setting-number:hover {
   border-color: var(--border-strong);

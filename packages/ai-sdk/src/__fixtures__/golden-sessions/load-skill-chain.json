@@ -13,14 +13,6 @@
       "status": "thinking"
     },
     {
-      "id": "turn_golden:notice:2",
-      "conversationId": "conv_golden",
-      "ts": 1000,
-      "turnId": "turn_golden",
-      "type": "notification",
-      "text": "This run may use up to 300 steps, $5.00 and 20 minutes; it stops and reports what it applied if it reaches any of them."
-    },
-    {
       "id": "turn_golden:run-state",
       "conversationId": "conv_golden",
       "ts": 1000,
@@ -104,7 +96,7 @@
       }
     },
     {
-      "id": "turn_golden:status:3",
+      "id": "turn_golden:status:2",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -241,7 +233,7 @@
       "done": true
     },
     {
-      "id": "turn_golden:status:4",
+      "id": "turn_golden:status:3",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -272,7 +264,7 @@
       "argsSummary": "name: \"pacing\""
     },
     {
-      "id": "turn_golden:result:5",
+      "id": "turn_golden:result:4",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -413,7 +405,7 @@
       }
     },
     {
-      "id": "turn_golden:status:6",
+      "id": "turn_golden:status:5",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -552,7 +544,7 @@
       "done": true
     },
     {
-      "id": "turn_golden:status:7",
+      "id": "turn_golden:status:6",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -583,7 +575,7 @@
       "argsSummary": "trackId: \"video_1\", start: 0, end: 3"
     },
     {
-      "id": "turn_golden:result:8",
+      "id": "turn_golden:result:7",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -592,7 +584,7 @@
       "summary": "Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_golden:diff:9",
+      "id": "turn_golden:diff:8",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -702,7 +694,7 @@
       "runId": "run:turn_golden"
     },
     {
-      "id": "turn_golden:action:10",
+      "id": "turn_golden:action:9",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -850,7 +842,7 @@
       }
     },
     {
-      "id": "turn_golden:status:11",
+      "id": "turn_golden:status:10",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -980,7 +972,7 @@
       }
     },
     {
-      "id": "turn_golden:delta:12",
+      "id": "turn_golden:delta:11",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1138,7 +1130,7 @@
       }
     },
     {
-      "id": "turn_golden:notice:13",
+      "id": "turn_golden:notice:12",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1146,7 +1138,7 @@
       "text": "Deterministic self-check: Passed with 1 warning(s)."
     },
     {
-      "id": "turn_golden:notice:14",
+      "id": "turn_golden:notice:13",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1297,7 +1289,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:15",
+      "id": "turn_golden:usage:14",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1315,7 +1307,7 @@
       "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
-      "id": "turn_golden:status:16",
+      "id": "turn_golden:status:15",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

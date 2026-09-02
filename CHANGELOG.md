@@ -8,10 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
-- **You can set what a single AI run may spend and how long it may take.** The AI panel
-  now carries a run budget — `Stop a run after $__ / __ min` — under the agent options. Set it
-  once and it is remembered. A run states its budget on its first line, and when it reaches
-  either limit it stops at the next step and tells you what it applied.
+- **You can set what a single AI run may spend and how long it may take.** Settings → AI
+  now carries a run budget — `Stop a run after $__ / __ min`. Set it once and it applies to
+  every AI run from then on. Runs no longer open by reciting it; when one reaches either
+  limit it stops at the next step and tells you what it applied.
 - **You can point the quick routing step at a cheaper model.** Every turn starts with one
   short call that decides what you asked for — a greeting, a question, an edit — before any
   editing model runs. That call can now go to a smaller, cheaper, faster model while your

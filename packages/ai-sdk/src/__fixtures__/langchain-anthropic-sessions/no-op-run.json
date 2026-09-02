@@ -13,14 +13,6 @@
       "status": "thinking"
     },
     {
-      "id": "turn_parity:notice:2",
-      "conversationId": "conv_parity",
-      "ts": 1000,
-      "turnId": "turn_parity",
-      "type": "notification",
-      "text": "This run may use up to 300 steps, $5.00 and 20 minutes; it stops and reports what it applied if it reaches any of them."
-    },
-    {
       "id": "turn_parity:run-state",
       "conversationId": "conv_parity",
       "ts": 1000,
@@ -104,7 +96,7 @@
       }
     },
     {
-      "id": "turn_parity:status:3",
+      "id": "turn_parity:status:2",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -232,7 +224,7 @@
       }
     },
     {
-      "id": "turn_parity:delta:4",
+      "id": "turn_parity:delta:3",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -455,7 +447,7 @@
       }
     },
     {
-      "id": "turn_parity:notice:5",
+      "id": "turn_parity:notice:4",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -566,7 +558,7 @@
       }
     },
     {
-      "id": "turn_parity:usage:6",
+      "id": "turn_parity:usage:5",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",
@@ -576,7 +568,7 @@
       "modelCalls": 1
     },
     {
-      "id": "turn_parity:status:7",
+      "id": "turn_parity:status:6",
       "conversationId": "conv_parity",
       "ts": 1000,
       "turnId": "turn_parity",

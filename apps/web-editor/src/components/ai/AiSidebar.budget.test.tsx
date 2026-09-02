@@ -1,12 +1,16 @@
 /**
- * Workstream D: the run budget is the editor's to set.
+ * Workstream D: the run budget is a setting the sidebar OBEYS, not one it owns.
  *
- * The SDK bounds every agent run by cost and wall clock and announces the bound as the
- * run's second event. Before this the renderer never sent one, so the panel could only
- * ever be *told* the default it had no way to change. These tests hold the three things
- * that makes true: the defaults go on the wire, a changed budget survives a reload and
- * goes on the wire next run, and a stored value this UI could never have written is not
- * trusted as a choice.
+ * The SDK bounds every agent run by cost and wall clock. The bound used to be two fields
+ * docked under the composer (plus a notification the run emitted before its first model
+ * call); it now lives in Settings → AI → Run budget — set once, applied to every run,
+ * readable at any time, and never restated in the transcript. What still has to be true
+ * here is what always was: the SDK defaults go on the wire, a budget changed in Settings
+ * survives a reload and goes on the wire on the next run, and a stored value this UI
+ * could never have written is not trusted as a choice.
+ *
+ * The control itself is covered in `SettingsDialog.test.tsx` ("AI → Run budget"); the
+ * store's validation policy in `editor/useSettings.test.tsx`.
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it } from 'vitest';
@@ -19,6 +23,7 @@ import {
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { MemoryPersistence } from '../../ai/conversationPersistence.js';
 import { resetConversationsRemountCache } from '../../ai/useConversations.js';
+import { DEFAULT_SETTINGS, SettingsProvider } from '../../editor/useSettings.js';
 import type { AiSession, AiSessionInput } from '../../editor/ai.js';
 import { AiSidebar, resetAiSidebarScrollCache } from './AiSidebar.js';
 
@@ -47,12 +52,19 @@ class RecordAgent implements AiSession {
   public answer(): void {}
 }
 
-const USD_LABEL = 'Stop a run after $';
-const MINUTES_LABEL = 'min';
+/** Write a budget the way Settings does: through the one settings key, before mount. */
+function storeBudget(patch: Record<string, unknown>): void {
+  window.localStorage.setItem(
+    'framepilot.settings',
+    JSON.stringify({ ...DEFAULT_SETTINGS, ...patch }),
+  );
+}
 
 function renderSidebar(session: AiSession): ReturnType<typeof render> {
   return render(
-    <AiSidebar project={project} session={session} persistence={new MemoryPersistence()} />,
+    <SettingsProvider>
+      <AiSidebar project={project} session={session} persistence={new MemoryPersistence()} />
+    </SettingsProvider>,
   );
 }
 
@@ -70,20 +82,9 @@ beforeEach(() => {
 });
 
 describe('AI sidebar — run budget (Workstream D)', () => {
-  it('renders the SDK defaults and sends them in agentOptions', async () => {
+  it('sends the SDK defaults in agentOptions when nothing has been set', async () => {
     const session = new RecordAgent();
     renderSidebar(session);
-
-    const usd = screen.getByLabelText(USD_LABEL) as HTMLInputElement;
-    const minutes = screen.getByLabelText(MINUTES_LABEL) as HTMLInputElement;
-    expect(usd.value).toBe(String(DEFAULT_MAX_RUN_USD));
-    expect(minutes.value).toBe(String(DEFAULT_MAX_RUN_MINUTES));
-    // The sentence that makes the two numbers mean something is on screen, not in a tooltip.
-    expect(
-      screen.getByText(
-        'The AI stops at the next step once a run reaches either limit, and tells you what it applied.',
-      ),
-    ).toBeTruthy();
 
     await send('edit it');
     await waitFor(() => expect(session.seen).toHaveLength(1));
@@ -93,66 +94,34 @@ describe('AI sidebar — run budget (Workstream D)', () => {
     });
   });
 
-  it('persists a changed budget and sends it on the next run', async () => {
+  it('owns no budget control of its own — it is set in Settings', () => {
+    renderSidebar(new RecordAgent());
+    // The fields moved; a run is no longer configured from the composer, and the panel
+    // does not repeat the sentence that belongs to the setting.
+    expect(screen.queryByLabelText('Stop a run after, dollars')).toBeNull();
+    expect(screen.queryByLabelText('Stop a run after, minutes')).toBeNull();
+    expect(screen.queryByTestId('ai-max-usd')).toBeNull();
+    expect(screen.queryByTestId('ai-max-minutes')).toBeNull();
+  });
+
+  it('sends a budget saved in Settings — it survives a reload and goes on the wire', async () => {
+    // What a commit in Settings → AI leaves behind, read fresh by a new sidebar.
+    storeBudget({ maxRunUsd: 2.5, maxRunMinutes: 7 });
+
     const session = new RecordAgent();
-    const { unmount } = renderSidebar(session);
-
-    const usd = screen.getByLabelText(USD_LABEL);
-    fireEvent.change(usd, { target: { value: '2.5' } });
-    fireEvent.blur(usd);
-    const minutes = screen.getByLabelText(MINUTES_LABEL);
-    fireEvent.change(minutes, { target: { value: '7' } });
-    fireEvent.blur(minutes);
-
-    expect(window.localStorage.getItem('framepilot.ai.maxUsd')).toBe('2.5');
-    expect(window.localStorage.getItem('framepilot.ai.maxMinutes')).toBe('7');
-
+    renderSidebar(session);
     await send('edit it');
     await waitFor(() => expect(session.seen).toHaveLength(1));
     expect(session.seen[0]).toMatchObject({ maxUsd: 2.5, maxMinutes: 7 });
-
-    // A reload reads the saved budget, not the default.
-    unmount();
-    const next = new RecordAgent();
-    renderSidebar(next);
-    expect((screen.getByLabelText(USD_LABEL) as HTMLInputElement).value).toBe('2.5');
-    expect((screen.getByLabelText(MINUTES_LABEL) as HTMLInputElement).value).toBe('7');
-  });
-
-  it('clamps an out-of-range entry into the allowed range', async () => {
-    const session = new RecordAgent();
-    renderSidebar(session);
-
-    const usd = screen.getByLabelText(USD_LABEL);
-    fireEvent.change(usd, { target: { value: '999' } });
-    fireEvent.blur(usd);
-    const minutes = screen.getByLabelText(MINUTES_LABEL);
-    fireEvent.change(minutes, { target: { value: '0' } });
-    fireEvent.blur(minutes);
-
-    expect((usd as HTMLInputElement).value).toBe('50');
-    expect((minutes as HTMLInputElement).value).toBe('1');
-
-    await send('edit it');
-    await waitFor(() => expect(session.seen).toHaveLength(1));
-    expect(session.seen[0]).toMatchObject({ maxUsd: 50, maxMinutes: 1 });
   });
 
   it('falls back to the default for a garbage or out-of-range stored value', async () => {
-    // Neither of these is a value this UI could have written, so neither is trusted
-    // as a choice — and a NaN must never reach the SDK as a bound.
-    window.localStorage.setItem('framepilot.ai.maxUsd', 'lots');
-    window.localStorage.setItem('framepilot.ai.maxMinutes', '9999');
+    // Neither is a value the Settings control could have written (it clamps on commit),
+    // so neither is trusted as a choice — and a NaN must never reach the SDK as a bound.
+    storeBudget({ maxRunUsd: 'lots', maxRunMinutes: 9999 });
 
     const session = new RecordAgent();
     renderSidebar(session);
-    expect((screen.getByLabelText(USD_LABEL) as HTMLInputElement).value).toBe(
-      String(DEFAULT_MAX_RUN_USD),
-    );
-    expect((screen.getByLabelText(MINUTES_LABEL) as HTMLInputElement).value).toBe(
-      String(DEFAULT_MAX_RUN_MINUTES),
-    );
-
     await send('edit it');
     await waitFor(() => expect(session.seen).toHaveLength(1));
     expect(session.seen[0]).toMatchObject({
@@ -186,11 +155,8 @@ describe('AI sidebar — run budget (Workstream D)', () => {
       public abort(): void {}
       public answer(): void {}
     }
+    storeBudget({ maxRunUsd: 3 });
     renderSidebar(new CheckpointSession());
-
-    const usd = screen.getByLabelText(USD_LABEL);
-    fireEvent.change(usd, { target: { value: '3' } });
-    fireEvent.blur(usd);
 
     await send('edit it');
     const resume = await screen.findByRole('button', { name: 'Resume' });
@@ -208,7 +174,6 @@ describe('AI sidebar — run budget (Workstream D)', () => {
     fireEvent.click(screen.getByRole('button', { name: 'AI mode' }));
     fireEvent.click(screen.getByRole('menuitem', { name: /Chat/ }));
 
-    expect(screen.queryByLabelText(USD_LABEL)).toBeNull();
     await send('question');
     await waitFor(() => expect(session.seen).toHaveLength(1));
     expect(session.seen[0]).toBeUndefined();

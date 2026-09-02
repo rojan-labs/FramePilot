@@ -91,7 +91,14 @@ reconcileInheritedFailures`: a health check failing identically before and after
 - `[x]` GOLDEN-F.5 — a run that throws shows a plain sentence with the next action (`reliability/plain-failure.ts`), raw text in `detail`; a rejected tool call is explained in the editor's words too (`tool-dispatch.ts#describeArgValidationForEditor`, raw Zod text kept for the model); every message passes the harness's failure-quality predicate.
 - `[x]` GOLDEN-C.4 — paid/slow tools state their cost, latency and caching in their descriptions (+60 tokens/request measured).
 - `[x]` GOLDEN-A.2 — a wrong clip id is answered with the nearest real ids and what is on the timeline (mirrors `dca15af` for tracks), so mistargeting costs a sentence, not a turn.
-- `[x]` GOLDEN-D.3 — the run budget is the editor's to set: "Stop a run after $__ / __ min" in the AI panel, persisted per user, sent as `maxUsd`/`maxMinutes`.
+- `[x]` GOLDEN-D.3 — the run budget is the editor's to set: "Stop a run after $__ / __ min" in **Settings → AI**, persisted in `framepilot.settings`, sent as `maxUsd`/`maxMinutes` on every run including a resumed one. Maintainer decision (2026-09-02): the budget is surfaced **permanently in Settings**, not announced per run — the SDK's opening `budgetNotice` is deleted, so a run's first event is the `thinking` status. This supersedes goal.md D's "surfaced before an expensive operation starts"; `budgetExhausted` still says why a run stopped.
+- `[ ]` GOLDEN-D.5 — **the wall-clock budget cannot fire during a step.** Captured run
+  `369e8c82` (`run.md`) hung at 15:16:45 mid-`generating` and died with the app at 15:55:33 —
+  68 minutes against a 37-minute bound. `budgetExhausted` is read only by `advance()`, which
+  runs on a TURN RESULT, and `runElapsedMs` is stamped only on a finished turn, so the bound
+  covers the gaps between model calls and not the calls themselves. Arm the deadline on the
+  in-flight step and finalize through verify, so a run that runs out of time still reports
+  what it applied instead of dying with the app.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
