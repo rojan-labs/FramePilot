@@ -1587,7 +1587,13 @@ describe('streamAgent', () => {
       }
     }
     const events = await drain(new Orchestrator(new ThrowingProvider()).streamAgent(input, opts()));
-    expect(events.some((e) => e.type === 'error' && /network exploded/.test(e.message))).toBe(true);
+    // GOLDEN-F.5: the card is a sentence the editor can act on; the raw throw text
+    // survives untouched in `detail` (behind "details"), never in the headline.
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message:
+        'The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it.',
+      detail: 'network exploded',
+    });
     expect(events.some((e) => e.type === 'reasoning' && e.done)).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });
@@ -1613,7 +1619,9 @@ describe('streamAgent', () => {
       ).streamAgent(input, opts()),
     );
     expect(permanent.find((e) => e.type === 'error')).toMatchObject({
-      message: expect.stringContaining('Key limit exceeded'),
+      message:
+        "FramePilot can't sign in to mock. Check the API key in Settings → AI, then try again.",
+      detail: expect.stringContaining('Key limit exceeded'),
       retryable: false,
     });
     expect(permanent.at(-1)).toMatchObject({ status: 'failed' });
@@ -1642,9 +1650,10 @@ describe('streamAgent', () => {
       }
     }
     const events = await drain(new Orchestrator(new ThrowNonError()).streamAgent(input, opts()));
-    expect(events.some((e) => e.type === 'error' && /failed unexpectedly/.test(e.message))).toBe(
-      true,
-    );
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('The AI run stopped unexpectedly.'),
+      detail: 'not-an-error-object',
+    });
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });
 
@@ -2328,9 +2337,7 @@ describe('streamAgent robustness (parity with agent())', () => {
       ],
     });
     // Sanity: the starting project already fails the reframing check on its own.
-    expect(
-      critique(portrait).checks.find((c) => c.id === 'reframe_coverage')?.status,
-    ).toBe('fail');
+    expect(critique(portrait).checks.find((c) => c.id === 'reframe_coverage')?.status).toBe('fail');
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
       { text: 'done' },
@@ -2344,9 +2351,9 @@ describe('streamAgent robustness (parity with agent())', () => {
     );
     expect(events.at(-1)).toMatchObject({ status: 'completed' });
     // Said, once, as an advisory — not withheld, not blocking.
-    expect(
-      events.some((e) => e.type === 'notification' && e.text.includes(INHERITED_PREFIX)),
-    ).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && e.text.includes(INHERITED_PREFIX))).toBe(
+      true,
+    );
     expect(events.some((e) => e.type === 'warning' && e.text.startsWith('Reframing'))).toBe(false);
     expect(events.some((e) => e.type === 'error')).toBe(false);
   });
@@ -2389,16 +2396,22 @@ describe('streamAgent robustness (parity with agent())', () => {
     let t = 1_000;
     const now = () => (t += 11 * 60_000);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(input, { ...opts(), now }, {
-        maxMinutes: 2,
-        autoRepair: false,
-      }),
+      new Orchestrator(provider).streamAgent(
+        input,
+        { ...opts(), now },
+        {
+          maxMinutes: 2,
+          autoRepair: false,
+        },
+      ),
     );
     expect(events[1]).toMatchObject({
       type: 'notification',
       text: expect.stringContaining('$5.00 and 2 minutes'),
     });
-    expect(events.some((e) => e.type === 'notification' && e.text.includes('2-minute limit'))).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && e.text.includes('2-minute limit'))).toBe(
+      true,
+    );
     // One turn landed; the second scripted edit never ran.
     expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
     expect(events.at(-1)).toMatchObject({ status: 'completed' });

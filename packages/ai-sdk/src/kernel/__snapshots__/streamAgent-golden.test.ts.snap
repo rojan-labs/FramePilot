@@ -3639,6 +3639,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "detail": "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited).",
       "id": "turn_1:notice:4",
       "message": "The model returned an empty response — no answer and no tool call, on every attempt. This is usually the provider dropping the request (overloaded or rate-limited).",
       "retryable": true,
@@ -13685,8 +13686,9 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "detail": "not-an-error-object",
       "id": "turn_1:notice:4",
-      "message": "The agent run failed unexpectedly.",
+      "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it.",
       "retryable": true,
       "ts": 1000,
       "turnId": "turn_1",
@@ -13950,8 +13952,9 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
+      "detail": "network exploded",
       "id": "turn_1:notice:4",
-      "message": "network exploded",
+      "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it.",
       "retryable": true,
       "ts": 1000,
       "turnId": "turn_1",

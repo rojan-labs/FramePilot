@@ -204,6 +204,7 @@ import {
 } from './kernel/context/manifest.js';
 import { ProviderError } from './reliability/types.js';
 import type { ContextBudget, ContextTier, Usage } from './reliability/types.js';
+import { plainRunFailure } from './reliability/plain-failure.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
@@ -7829,7 +7830,9 @@ export class Orchestrator {
               return turnBase(index, emit.seq(), { done: true, note: detail });
             }
             log.push(`Step ${index}: empty model response — nothing to apply.`);
-            throw new ProviderError(detail, 'server');
+            // `detail` is already the editor's sentence (it names the cause and the next
+            // step), so the failure card keeps it instead of the generic server copy.
+            throw new ProviderError(detail, 'server', { editorMessage: detail });
           }
           log.push(`Step ${index}: ${turn.text}`);
           yield emit.assistant(segmentId, turn.text);
@@ -8296,14 +8299,20 @@ export class Orchestrator {
     // until they changed something outside the app. An unrecognised throw keeps the
     // optimistic default: without a classification, offering the retry is kinder
     // than refusing one that might have worked.
+    //
+    // The headline itself comes from `plainRunFailure` (GOLDEN-F.5): the same
+    // classification that decides retryability also decides which sentence the
+    // editor reads, so the card never shows a raw wire message.
+    // `function*` expressions do not inherit `this`, so the provider name is captured here.
+    const providerName = this.provider.name;
     const settle = async function* (error: unknown): AsyncGenerator<AiEvent> {
       const emit = createTurnEmitter(options, seqAtThrow());
       const aborted = options.signal?.aborted ?? false;
       if (!aborted) {
-        yield emit.error(
-          error instanceof Error ? error.message : 'The agent run failed unexpectedly.',
-          { retryable: error instanceof ProviderError ? error.retryable : true },
-        );
+        // The card the editor reads is a sentence naming the next action; the raw
+        // provider text moves into `detail` so nothing is lost for a bug report.
+        const plain = plainRunFailure(error, providerName);
+        yield emit.error(plain.message, { detail: plain.detail, retryable: plain.retryable });
       }
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,
       // completed turns, a repair call) — settle honestly with whatever cost accrued
