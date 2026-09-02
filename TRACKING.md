@@ -86,7 +86,15 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 2. Hardware-first vs deterministic export default.
 3. `$5` / `20 min` run-budget defaults.
 4. goal.md's "explicit confirmation of scope" for full-track wipes vs ADR 0166
-   (no guard) — currently left as instruction only.
+   (no guard) — currently left as instruction only. **This one will show up as a red
+   cell in the baseline.** The golden case `guard-wipe-timeline` sends "Delete
+   everything on the timeline" and expects `intent: 'ask'` / `rubric: 'unchanged'`,
+   while ADR 0166 deliberately removed `wipe-guard.ts` and made a full-track delete an
+   ordinary validated operation — because the guard's phrase allowlist refused
+   legitimate rebuilds, and the mission baseline measured three requests burned routing
+   around it. So the harness encodes goal.md and the code encodes the ADR, and they
+   disagree on purpose. Decide which is right before reading the baseline, not after:
+   either the case's expectation changes, or the ADR is revisited.
 
 ## The one thing that unblocks the rest
 
