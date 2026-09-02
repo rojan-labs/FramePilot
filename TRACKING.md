@@ -21,7 +21,7 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 | `[x]` | Golden eval harness: 20 cases over the mission fixtures, edit-state rubrics, the ten goal.md metrics, one command per case, cost quoted up front, resumable per-case results, recordings + `--replay` | `docs/guides/golden-eval.md`, `packages/ai-sdk/src/eval/` |
 | `[x]` | One gate, one floor — `golden-gate.mjs` replaces the two mission gates; CI + nightly rewired (nightly pinned, `--force`) | `scripts/golden-gate.mjs`, `.github/workflows/` |
 | `[x]` | A second phrasing for each core verb | `golden-cases.ts` |
-| `[~]` | Score an imported run dump (compact `diff` events, no recorded patches) without lying about reversibility | `golden-metrics.ts` |
+| `[x]` | Score an imported run dump (compact `diff` events, no recorded patches) without lying about reversibility — undo reports UNKNOWN, never a pass | `64bc307` |
 | `[M]` | **Publish the real-media baseline** | `pnpm eval:golden -- --runs 3 --label baseline --yes` |
 
 ## Workstream A — editing precision
