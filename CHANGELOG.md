@@ -14,6 +14,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   advisory ("Already so before this edit, not caused by it") instead of failing the run
   and spending a repair turn that could not fix it. Anything the request asked for (a
   target length, a shot count) is still held to the letter.
+- **Every export is now checked against what you asked for.** After encoding, FramePilot
+  verifies the file's size and frame rate match the chosen export target, that a
+  timeline with sound produced sound, and that the picture and the audio run to the end —
+  an export that ends on black, or on a second of silence when the sound was meant to
+  continue, is refused rather than handed over. When a check fails, the message says what
+  is wrong in plain words ("The export ends on black (1.5 s)") instead of listing internal
+  check names.
 - **A run that applies edits and then cannot finish says so in one place.** Instead of a
   bare "failed" over a timeline that had changed, you now get a single error card — what
   was applied, why the run stopped, and that undo takes it back — followed by the usual

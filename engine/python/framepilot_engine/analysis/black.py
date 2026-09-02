@@ -81,7 +81,8 @@ def parse_black_seconds(logs: str) -> float:
     return sum(float(m) for m in _BLACK_DURATION_RE.findall(logs))
 
 
-def _blackdetect_argv(path: Path, filter_params: str) -> list[str]:
+def blackdetect_argv(path: Path, filter_params: str) -> list[str]:
+    """The ffmpeg argv for one ``blackdetect`` pass over ``path`` (shared with render QC)."""
     return [
         find_ffmpeg(),
         "-hide_banner",
@@ -117,7 +118,7 @@ def detect_black(
     :returns: The detected black spans.
     """
     invoke = runner or (lambda argv: run_logs(argv, timeout=timeout))
-    argv = _blackdetect_argv(
+    argv = blackdetect_argv(
         path,
         f"d={min_black_seconds}:pic_th={picture_threshold}:pix_th={pixel_threshold}",
     )
@@ -131,5 +132,5 @@ def detect_black_seconds(path: Path, *, runner: Runner) -> float:
     black", so even the shortest black run must be counted. The ``runner``
     already carries any timeout.
     """
-    argv = _blackdetect_argv(path, "d=0.05:pic_th=0.98:pix_th=0.10")
+    argv = blackdetect_argv(path, "d=0.05:pic_th=0.98:pix_th=0.10")
     return parse_black_seconds(runner(argv))

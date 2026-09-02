@@ -37,6 +37,13 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   emits one `error` card (`conductor.ts#failedAfterApplyMessage`) and still gets its receipt.
   Real-media effect on `trim-first-clip-10s`/`reorder-last-first`: **pending manual
   verification** (expected: `completed`, advisory notice, no repair turn).
+- `[x]` GOLDEN-F.1 — **export validated against the intended spec.** `render_validation.py`
+  gained resolution, frame-rate, black-tail and silent-tail checks (one blackdetect pass
+  serves ratio + tail; silencedetect at −50 dB for the tail); `compiler.py#expected_render`
+  now carries the preset's frame/rate, counts a probed video source (`media.peaks`) as sound,
+  and says whether sound is meant to reach the end; a failed export reads as sentences
+  (`plain_failures`). 159 engine tests green across validation/compiler/pipeline. Real export
+  on `mission-export-30s/60s`: **pending manual verification** (expected: all new checks PASS).
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

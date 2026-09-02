@@ -242,7 +242,11 @@ def test_render_fails_validation_on_black_output(
 
     assert job.state == RenderState.FAILED
     assert job.validation is not None and not job.validation.ok
-    assert job.error is not None and "black_frames" in job.error
+    # The check name stays in the report for the details pane; the editor reads a sentence.
+    assert any(c.name == "black_frames" and c.status.value == "fail" for c in job.validation.checks)
+    assert (
+        job.error == "The export did not pass its checks. The export is black — nothing was drawn."
+    )
 
 
 # --- master-bus audio pass (plan Phase 6 sound) ------------------------------

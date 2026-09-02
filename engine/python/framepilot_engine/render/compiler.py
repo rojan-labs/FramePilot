@@ -275,12 +275,52 @@ def unsupported_track_types(
 
 
 def expected_render(project: Project, preset: ExportPreset) -> ExpectedRender:
+    """What the export must come out as, from the timeline and the chosen target.
+
+    The spec is the preset's frame and rate (validated exactly), the timeline's duration,
+    and whether sound is expected at all and expected to run to the end. Sound comes from
+    audio clips AND from video clips whose source was probed with audio (``media.peaks``);
+    a video asset that was never probed is not assumed to carry sound, so the audio checks
+    skip rather than fail on a silent screen recording.
+    """
     asset_kinds = _asset_kinds_from_project(project)
+    duration = timeline_duration(project.timeline)
+    audio_end = _audio_content_end(project)
     return ExpectedRender(
-        duration_seconds=timeline_duration(project.timeline),
+        duration_seconds=duration,
         expect_video=has_video_content(project.timeline, asset_kinds),
-        expect_audio=has_audio_content(project.timeline, asset_kinds),
+        expect_audio=has_audio_content(project.timeline, asset_kinds) or audio_end > 0.0,
+        width=preset.width,
+        height=preset.height,
+        fps=preset.fps,
+        # Sound that stops before the picture is the edit, not a defect; only a timeline
+        # whose sound reaches the end is held to "no silent tail".
+        expect_audio_to_end=audio_end >= duration - _AUDIO_END_SLACK_SECONDS,
     )
+
+
+#: Sound may end this close to the picture's end and still count as "to the end" — a
+#: single frame of slack for a clip whose audio was trimmed on the frame grid.
+_AUDIO_END_SLACK_SECONDS = 0.1
+
+
+def _audio_content_end(project: Project) -> float:
+    """The latest timeline second at which some unmuted clip carries sound (0 when none)."""
+    assets = {asset.id: asset for asset in project.assets}
+    end = 0.0
+    for track in project.timeline.tracks:
+        if track.muted:
+            continue
+        for clip in track.clips:
+            asset = assets.get(clip.asset_id)
+            if asset is None:
+                continue
+            has_sound = asset.kind == "audio" or (
+                asset.kind == "video" and bool(asset.media and asset.media.peaks)
+            )
+            if has_sound:
+                end = max(end, clip.end)
+    return end
 
 
 def unsupported_animated_properties(timeline: Timeline) -> list[str]:
