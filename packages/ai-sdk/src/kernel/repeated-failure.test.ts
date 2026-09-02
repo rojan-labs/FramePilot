@@ -294,3 +294,187 @@ describe('streamAgent refuses a call the run has already been refused', () => {
     for (const result of results) expect(result.summary).not.toContain('already failed');
   });
 });
+
+// ---------------------------------------------------------------------------
+// `add_stock` — the same ADR 0140 rule, reached AFTER a paid download.
+// ---------------------------------------------------------------------------
+
+/**
+ * The second instance of run `369e8c82`'s loop, on the tool a user reaches for when they
+ * ask for b-roll.
+ *
+ * `add_stock` refuses a placement over existing picture twice over: `stock-host.ts` checks
+ * BEFORE spending the download, and — because the timeline can move between the two
+ * moments — `stockOpsFromPayload` checks again in-process AFTER it. The second refusal is
+ * the one keyed here. It is a policy decision, not a host failure: the download completed,
+ * and the verdict comes from the orchestrator's own working copy through the same
+ * `editor-core` occupancy predicate `assertNoPictureStacking` uses for `add_clip`.
+ *
+ * The fixture's `video_1` holds picture across 0–10s, so 2s and 3s are both refused by that
+ * rule and the free moment is 10s. The refusal sentence names the requested span and the
+ * free moment, so the two attempts produce two DIFFERENT sentences and one identical rule —
+ * exactly the shape that gave run `369e8c82` four keys and no match.
+ *
+ * The cost boundary is the thing these tests exist to hold still. A download is metered, so
+ * the guard must neither block a corrected retry (wasting what was paid for) nor wave an
+ * identical refused placement through (paying again for the same "no").
+ */
+const STOCK_REMOTE_ID = '9001';
+
+const stockPayload = (atSeconds?: number): unknown => ({
+  asset: {
+    id: `stock_pexels_${STOCK_REMOTE_ID}`,
+    path: 'media/stock/9001.mp4',
+    kind: 'video',
+    durationSeconds: 4,
+    source: {
+      provider: 'pexels',
+      remoteId: STOCK_REMOTE_ID,
+      license: 'CC0',
+      attributionRequired: false,
+      fetchedAt: '2026-01-01T00:00:00.000Z',
+    },
+  },
+  ...(atSeconds === undefined ? {} : { atSeconds }),
+});
+
+const addStock = (id: string, atSeconds?: number): AiResponse => ({
+  text: '',
+  toolCalls: [
+    {
+      id,
+      name: 'add_stock',
+      arguments: {
+        remoteId: STOCK_REMOTE_ID,
+        kind: 'video',
+        ...(atSeconds === undefined ? {} : { atSeconds }),
+      },
+    },
+  ],
+});
+
+/** A host that always reports a SUCCESSFUL download, echoing the position it was asked for. */
+const downloadingHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async (call) => {
+    counter.calls += 1;
+    const { atSeconds } = call.arguments as { atSeconds?: number };
+    return {
+      status: 'completed',
+      summary: 'Downloaded "stock/9001.mp4".',
+      data: stockPayload(atSeconds),
+    };
+  },
+});
+
+const stockInput: ContextInput = { project: makeProject(), userPrompt: 'add some b-roll' };
+
+const toolResults = (events: readonly AiEvent[]): Extract<AiEvent, { type: 'tool_result' }>[] =>
+  events.filter((e): e is Extract<AiEvent, { type: 'tool_result' }> => e.type === 'tool_result');
+
+describe('add_stock — a placement refused after the download is keyed on the rule', () => {
+  it('refuses the second refused placement even though the sentence differs', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 3), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: downloadingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    // First attempt: the refusal in its own words, naming the free moment.
+    expect(results[0]?.summary).toContain('already picture on the timeline');
+    expect(results[0]?.summary).toContain('10.0s');
+    expect(results[0]?.summary).not.toContain('already failed');
+    // Second attempt: a DIFFERENT sentence (3.0s–7.0s, not 2.0s–6.0s) and the same rule.
+    expect(results[1]?.summary).toBe('Refused repeat of "add_stock" — it already failed this run');
+    expect(modelFacingText(provider)).toContain('already failed this run for this same reason');
+  });
+
+  it('lets the second call SETTLE — the guard never pre-empts a metered tool on its name', async () => {
+    // The key is `name:cause` and the cause is produced by the attempt, so the only thing
+    // knowable before execution is the tool's name. Blocking on that would refuse an
+    // `add_stock` into a free span because an earlier one overlapped, which is the worse
+    // bug: it wastes a download the run already paid for and strands the request.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 3), done]);
+    await drain(
+      new Orchestrator(provider, { executor: downloadingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+    expect(counter.calls).toBe(2);
+  });
+
+  it('does not block a CORRECTED placement into a free span', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 12), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: downloadingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('already picture on the timeline');
+    // 12s–16s is past the fixture's picture, so the placement succeeds and never
+    // computes a key to match against the banked one.
+    expect(results[1]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toContain('Downloaded');
+  });
+
+  it('does not block a bin-only download — the gathering path has no placement to refuse', async () => {
+    // `atSeconds` omitted means "into the media bin", which cannot conflict with anything.
+    // Blocking it would break the gather-then-cut flow the absent argument exists for.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2'), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: downloadingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[1]?.summary).not.toContain('already failed');
+  });
+
+  it('never keys a HOST refusal — the pre-download check must stay retryable', async () => {
+    // THE METERED BOUNDARY, pinned. `stock-host.ts` refuses the same ADR 0140 conflict
+    // BEFORE spending the download and returns a plain host `failed`. That outcome carries
+    // no `deterministicFailure` and must never acquire one by association with the
+    // in-process refusal above: `failed` from the host is also what a download timeout, a
+    // provider 5xx and an unresolvable remoteId look like, and a permanent block on any of
+    // those would lose the tool for the rest of the run over a fault it had no part in.
+    //
+    // Simplifying this away — keying every `add_stock` failure rather than only the
+    // post-download policy verdict — is what this test exists to fail.
+    let calls = 0;
+    const executor: HostToolExecutor = {
+      run: async () => {
+        calls += 1;
+        // Byte-identical both times: the key WOULD match if the outcome carried one.
+        return { status: 'failed', summary: 'Stock provider is unreachable right now.' };
+      },
+    };
+    const provider = new RecordingProvider([addStock('s1', 2), addStock('s2', 2), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor }).streamAgent(stockInput, baseOpts(), {}),
+    );
+
+    expect(calls).toBe(2);
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    for (const result of results) expect(result.summary).not.toContain('already failed');
+  });
+});

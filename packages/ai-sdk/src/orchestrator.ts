@@ -4340,10 +4340,43 @@ export class Orchestrator {
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {
           const note = `Rejected "add_stock" — ${placement.reason}`;
-          // The refusal goes back as DATA, not only as prose: the sentence is
-          // what the model reads, the fields are what a caller acts on, and both
-          // are built from the same numbers so they cannot disagree.
-          return { ops: [], note, summary: note, status: 'failed', data: placement.refusal };
+          // BANKED — and this sits on the IN-PROCESS side of the metered line, despite
+          // arriving after a paid download.
+          //
+          // The download SUCCEEDED: this branch runs only under `status === 'completed'`.
+          // What refuses here is `stockOpsFromPayload` reading the orchestrator's own
+          // working copy through the same `editor-core` occupancy predicate that
+          // `assertNoPictureStacking` uses for `add_clip` — the ADR 0140 picture-over-
+          // picture rule, same inputs, same verdict every time. It is a policy decision
+          // reached by a different route, not a host failure, so the call-site invariant
+          // ("host work never reaches this test") still holds: a download timeout, a
+          // provider 5xx, or `stock-host.ts`'s pre-download refusal all settle as a plain
+          // host `failed` and still get no key.
+          //
+          // Un-keyed, this was the run `369e8c82` loop with a bill attached. The sentence
+          // names the requested span AND the free moment, so 4.5s → 4.2s → 4.2s read as
+          // three unrelated failures; each repeat spends another download. Keying is the
+          // strictly cheaper side: the key is computed only once the call has SETTLED, so
+          // it cannot stop the second download, but it ends the loop before the third.
+          // A CORRECTED placement is never touched — a free span (or an omitted
+          // `atSeconds`, which is bin-only) does not fail, so it has no key to match.
+          //
+          // `data` carries the SENTENCE, not the structured `refusal` record: a key
+          // promises `repeatedFailureOutcome` a sentence to quote back, and the record had
+          // no reader — the model reads `note`, the card's popup reads this.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: placement.reason,
+            deterministicFailure: true,
+            // `StockPlacementRefusal.kind === 'picture_occupied'` is this module's name for
+            // ADR 0140; the RULE is the one `add_clip` names, so run memory must call it
+            // the same thing. Keys stay per-tool (`add_stock:…` vs `add_clip:…`), so
+            // sharing the cause never blocks one tool on the other's refusal.
+            refusalCause: 'picture_over_picture',
+          };
         }
         const ops = [...placement.operations];
         const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
