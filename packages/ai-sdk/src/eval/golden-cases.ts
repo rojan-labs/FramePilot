@@ -23,7 +23,7 @@
  *   - `mission-overlay`  — the same narration, gapless on `video_1`, plus an EMPTY second
  *                          video track `b_roll` and two b-roll clips in the bin. Run
  *                          `369e8c82`'s shape: because the picture track is gapless, every
- *                          placement on `b_roll` overlaps picture and is refused (ADR 0140).
+ *                          placement on `b_roll` overlaps the picture beneath it — the shape ADR 0169 governs.
  */
 import type { MissionScenarioId } from './mission-rubric.js';
 
@@ -316,10 +316,12 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     category: 'broll',
     project: 'mission-overlay',
     why:
-      'Not a second sample of the cutaway — the trap around it. Run `369e8c82` met an empty ' +
-      'video track above a gapless picture track, where ADR 0140 refuses every placement, and ' +
-      'took it four times in fifteen minutes. `broll-first-20s` cannot see that: `mission-talk` ' +
-      'has no second video track, so the wrong move is not even expressible there.',
+      'Not a second sample of the cutaway — the shape around it. An empty video track above a ' +
+      'gapless picture track is where preview and export can disagree, and `broll-first-20s` ' +
+      'cannot see it: `mission-talk` has no second video track, so neither the right answer ' +
+      'nor the wrong one is expressible there. Since ADR 0169 both routes are correct — split ' +
+      'the programme and cut in, or take a front layer — so what is scored is the outcome the ' +
+      'editor sees, not the route: whatever the run stacks, the monitor must show it.',
     turns: [
       {
         prompt: 'Add b-roll from the bin over the first 20 seconds of the narration.',

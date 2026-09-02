@@ -8,9 +8,8 @@ import {
   checkFirstTwoSwapped,
   checkContentPreserved,
   checkCutawayInWindow,
-  checkCutawayOnOccupiedTrack,
   checkDurationKept,
-  checkNoPictureStacking,
+  checkStackedPictureIsPreviewable,
   checkFirstClipEndsAt,
   checkLastClipMovedFirst,
   checkMusicCovers,
@@ -392,22 +391,30 @@ describe('b-roll over an empty overlay track', () => {
   /** The trap: the same b-roll dropped on the empty layer, on top of the narration. */
   const stacked = () => overlay([clip('talk', 0, 100)], [b('bro', 5, 12, 'b_roll')]);
 
-  it('checkNoPictureStacking sees the overlap `checkNoOverlaps` cannot', () => {
-    expect(checkNoPictureStacking(cutIn()).ok).toBe(true);
-    const bad = checkNoPictureStacking(stacked());
-    expect(bad.ok).toBe(false);
-    expect(bad.detail).toContain('bro on b_roll');
-    // The per-track check is blind to it — which is exactly why the new one exists.
-    expect(checkNoOverlaps(stacked()).ok).toBe(true);
+  /** The other right answer since ADR 0169: a full-frame cutaway taking the front layer. */
+  const stackedOpaque = () => stacked();
+  /** The same stack, but cropped — the export blends the narration through it and the
+      monitor cannot show that, which is the case 0169 still refuses. */
+  const stackedCropped = () =>
+    overlay(
+      [clip('talk', 0, 100)],
+      [{ ...b('bro', 5, 12, 'b_roll'), crop: { x: 0, y: 0, width: 0.5, height: 1 } } as Clip],
+    );
+
+  it('checkStackedPictureIsPreviewable passes a stack the monitor can actually show', () => {
+    // Both routes score: the split-and-cut-in, and the full-frame front layer.
+    expect(checkStackedPictureIsPreviewable(cutIn()).ok).toBe(true);
+    const layered = checkStackedPictureIsPreviewable(stackedOpaque());
+    expect(layered.ok).toBe(true);
+    expect(layered.detail).toContain('full-frame');
   });
 
-  it('checkCutawayOnOccupiedTrack wants the b-roll cut into the programme', () => {
-    expect(checkCutawayOnOccupiedTrack({ before: before(), after: cutIn() }, ['asset_broll']).ok).toBe(true);
-    expect(checkCutawayOnOccupiedTrack({ before: before(), after: stacked() }, ['asset_broll']).ok).toBe(false);
-    // Refused everywhere and nothing placed is a miss too, and says so in its own words.
-    const none = checkCutawayOnOccupiedTrack({ before: before(), after: before() }, ['asset_broll']);
-    expect(none.ok).toBe(false);
-    expect(none.detail).toBe('no b-roll placed at all');
+  it('checkStackedPictureIsPreviewable fails the stack that previews differently', () => {
+    const bad = checkStackedPictureIsPreviewable(stackedCropped());
+    expect(bad.ok).toBe(false);
+    expect(bad.detail).toContain('bro on b_roll');
+    // The per-track check is blind to it — which is exactly why this one exists.
+    expect(checkNoOverlaps(stackedCropped()).ok).toBe(true);
   });
 
   it('scores the cut-in 1 and every wrong answer below it', () => {
@@ -417,8 +424,15 @@ describe('b-roll over an empty overlay track', () => {
       brollAssetIds: ['asset_broll'],
       cutawayWindowSeconds: [0, 20] as const,
     });
+    // BOTH right answers score 1 since ADR 0169: cut into the programme, or take the front
+    // layer with a full-frame clip. Scoring the second below the first would fail a run for
+    // choosing the other correct route.
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(cutIn())).score).toBe(1);
-    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stacked())).score).toBeLessThan(1);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedOpaque())).score).toBe(1);
+    // A stack the monitor cannot show is still wrong — that is what 0169 kept refusing.
+    expect(
+      scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedCropped())).score,
+    ).toBeLessThan(1);
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(before())).score).toBeLessThan(1);
     // A cutaway that lengthened the programme instead of covering part of it.
     const appended = overlay([clip('talk', 0, 100), b('bro', 100, 107, 'video_1')]);

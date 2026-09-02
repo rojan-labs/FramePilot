@@ -10,6 +10,7 @@
  * Critic's advisory judgment covers that and never gates.
  */
 import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
+import { isFullFrameOpaque } from '@framepilot/editor-core';
 import { timelineDuration } from '../critic.js';
 
 export interface RubricCheck {
@@ -47,8 +48,8 @@ export type MissionScenarioId =
   | 'captions'
   | 'hook-first'
   | 'broll-cutaway'
-  // The same request over a project with an empty overlay track that has no free picture
-  // span — run `369e8c82`'s shape. See the case branch for what it adds to `broll-cutaway`.
+  // The same request over a project with an empty overlay track above a gapless picture
+  // track — run `369e8c82`'s shape. See the case branch for what it adds to `broll-cutaway`.
   | 'broll-cutaway-empty-overlay'
   | 'music-bed'
   | 'compound-silence-captions'
@@ -397,72 +398,59 @@ export function checkCutawayInWindow(
 }
 
 /**
- * No two picture clips overlap in time across DIFFERENT video tracks — ADR 0140's rule,
- * asserted on the finished edit.
+ * Every cross-track picture overlap is one the PREVIEW CAN SHOW — i.e. the clip in front
+ * covers the frame opaquely, so the monitor and the export produce the same picture.
  *
- * WHY this is not {@link checkNoOverlaps}: that one walks each track on its own, so picture
- * stacked on a second video track is invisible to it. Every fixture had a single video
- * track, so the blind spot never showed. Run `369e8c82`'s project had two, and stacking
- * there is the failure that makes the preview disagree with the export.
+ * WHY this is not "no picture over picture". It was, until ADR 0169. Refusing every stack
+ * meant the agent could not build a montage or a layered cutaway at all on a project whose
+ * main track is occupied — which, on a talking head, is always — and
+ * `beat-grid-wiring.test.ts` sat at 2 of 10 for exactly that reason. 0169 narrowed the rule
+ * to what actually diverges: the preview resolves by z-order now, so a FULL-FRAME OPAQUE
+ * layer previews as it exports, while a cropped, blended, keyframed or masked one still
+ * does not.
+ *
+ * So this asserts the invariant directly rather than a proxy for it, which makes it a
+ * stronger check than the one it replaces: a run may stack picture, and every stack it
+ * makes must be one the editor will actually see before they approve it.
+ *
+ * `isFullFrameOpaque` is imported from `editor-core` — the same predicate the placement
+ * guard and the preview read. A second definition here is how a rubric starts grading a
+ * rule the product no longer has.
  */
-export function checkNoPictureStacking(project: Project): RubricCheck {
+export function checkStackedPictureIsPreviewable(project: Project): RubricCheck {
   const byTrack = pictureTracks(project).map((t) => ({ id: t.id, clips: t.clips }));
-  const stacked: string[] = [];
-  for (let i = 0; i < byTrack.length; i++) {
-    for (let j = i + 1; j < byTrack.length; j++) {
-      for (const a of byTrack[i]!.clips) {
-        for (const b of byTrack[j]!.clips) {
+  const divergent: string[] = [];
+  let stacks = 0;
+  // Tracks are front-to-back, so the LOWER index is the clip the viewer sees. Only that
+  // one has to cover the frame; what is behind it may be anything.
+  for (let front = 0; front < byTrack.length; front++) {
+    for (let back = front + 1; back < byTrack.length; back++) {
+      for (const a of byTrack[front]!.clips) {
+        for (const b of byTrack[back]!.clips) {
           if (a.start < b.end - FRAME_EPSILON && b.start < a.end - FRAME_EPSILON) {
-            stacked.push(`${a.id} on ${byTrack[i]!.id} over ${b.id} on ${byTrack[j]!.id}`);
+            stacks += 1;
+            if (!isFullFrameOpaque(a)) {
+              divergent.push(`${a.id} on ${byTrack[front]!.id} over ${b.id} on ${byTrack[back]!.id}`);
+            }
           }
         }
       }
     }
   }
   return {
-    id: 'no-picture-stacking',
-    ok: stacked.length === 0,
-    detail: stacked.length === 0 ? 'no picture over picture' : stacked.join('; '),
+    id: 'stacked-picture-is-previewable',
+    ok: divergent.length === 0,
+    detail:
+      divergent.length > 0
+        ? `previews differently from the export: ${divergent.join('; ')}`
+        : stacks === 0
+          ? 'no picture over picture'
+          : `${String(stacks)} stacked span(s), all full-frame`,
     weight: 2,
     facet: 'target',
   };
 }
 
-/**
- * The b-roll landed on a video track that ALREADY carried picture — cut into the programme,
- * not dropped on the empty overlay layer.
- *
- * On a project whose picture track is gapless this is the whole test of "it split and cut
- * in": the only non-overlapping home for a cutaway on an occupied track is a span the run
- * opened itself with splits, so no separate "did it split" check is needed. A run that took
- * the empty track instead fails here even when the placement itself was refused and nothing
- * landed at all — `checkCutawayInWindow` reports that absence.
- */
-export function checkCutawayOnOccupiedTrack(
-  ctx: RubricContext,
-  brollAssetIds: readonly string[],
-): RubricCheck {
-  const broll = new Set(brollAssetIds);
-  const occupied = new Set(
-    pictureTracks(ctx.before)
-      .filter((t) => t.clips.length > 0)
-      .map((t) => t.id),
-  );
-  const placed = pictureTracks(ctx.after)
-    .flatMap((t) => t.clips.map((c) => ({ clip: c, trackId: t.id })))
-    .filter(({ clip }) => broll.has(clip.assetId));
-  const strayed = placed.filter(({ trackId }) => !occupied.has(trackId));
-  return {
-    id: 'cutaway-on-occupied-track',
-    ok: placed.length > 0 && strayed.length === 0,
-    detail:
-      placed.length === 0
-        ? 'no b-roll placed at all'
-        : `${placed.length - strayed.length}/${placed.length} b-roll clip(s) on a track that already carried picture`,
-    weight: 2,
-    facet: 'target',
-  };
-}
 
 /** Duration is unchanged within half a second — a cutaway covers, it does not lengthen. */
 export function checkDurationKept(ctx: RubricContext, toleranceSeconds = 0.5): RubricCheck {
@@ -698,17 +686,19 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkDurationKept(ctx),
         ...COMMON(p),
       ]);
-    // `broll-cutaway` plus the two assertions that fixture could not make, because
-    // `mission-talk` has no second video track: nothing may land on the empty overlay
-    // layer, and no picture may end up over picture. A NEW rubric rather than more checks
-    // on `broll-cutaway`, so the existing case keeps measuring what its recorded floor was
+    // `broll-cutaway` plus the assertion that fixture cannot make, because `mission-talk`
+    // has no second video track: whatever the run stacks, the editor must be able to SEE it
+    // before approving it. Deliberately no check on WHICH track the b-roll landed on —
+    // since ADR 0169 both routes are correct (split the programme and cut in, or take a
+    // front layer), and a rubric that grades the route instead of the outcome would fail a
+    // run for choosing the other right answer. A NEW rubric rather than more checks on
+    // `broll-cutaway`, so the existing case keeps measuring what its recorded floor was
     // written against (`reports/golden/floor.json`).
     case 'broll-cutaway-empty-overlay':
       return scored(scenario, [
         checkChanged(ctx),
         checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
-        checkCutawayOnOccupiedTrack(ctx, ctx.brollAssetIds ?? []),
-        checkNoPictureStacking(p),
+        checkStackedPictureIsPreviewable(p),
         checkDurationKept(ctx),
         ...COMMON(p),
       ]);
