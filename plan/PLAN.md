@@ -86,6 +86,7 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
 - `[x]` GOLDEN-C.2 — a sidecar transport failure tells the model what to do next
   (`sidecar-executor.ts#describeTransportFailure`); 35 bare "fetch failed" refusals in the
   real log were the shape. Real-media effect: **pending manual verification**.
+- `[x]` GOLDEN-E.1 — model tiers are real: `FRAMEPILOT_TIER_*` (declared since the initial commit, read by nothing) now route `tier: 'small'` calls — the ADR 0055 route classifier — to a cheaper provider/model; opt-in, unset = byte-identical. Accuracy neutrality of classification on a small model: **pending manual verification** (run the golden set once with `FRAMEPILOT_TIER_SMALL_MODEL` set and compare intent accuracy).
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

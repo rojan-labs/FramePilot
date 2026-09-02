@@ -29,7 +29,15 @@ import {
   withResilience,
   type ResilientProviderOptions,
 } from './resilient-provider.js';
-import type { AiProvider, ProviderChunk, ProviderConfig, ProviderName } from './types.js';
+import {
+  isProviderName,
+  PROVIDER_NAMES,
+  type AiProvider,
+  type ProviderChunk,
+  type ProviderConfig,
+  type ProviderName,
+} from './types.js';
+import type { ModelTier } from '../kernel/proposers/types.js';
 import { DEFAULT_ENGINE_BASE_URL, LocalWhisperCliClient } from './local-asr.js';
 import { TwelveLabsTranscriptionProvider } from './twelvelabs-asr.js';
 import {
@@ -325,6 +333,71 @@ export function createProvider(name?: ProviderName): AiProvider {
  */
 export function createProviderFromConfig(config: ProviderConfig): AiProvider {
   return instantiateProvider(config);
+}
+
+/**
+ * Env var prefix for each {@link ModelTier}'s provider/model override.
+ *
+ * WHY a table rather than `tier.toUpperCase()`: the env names are a published contract
+ * (`.env.example`, `turbo.json` `globalEnv`), so the mapping is written out where a
+ * reader can compare it against those files by eye.
+ */
+const TIER_ENV_PREFIX: Readonly<Record<ModelTier, string>> = {
+  small: 'FRAMEPILOT_TIER_SMALL',
+  mid: 'FRAMEPILOT_TIER_MID',
+  large: 'FRAMEPILOT_TIER_LARGE',
+};
+
+const TIER_ORDER: readonly ModelTier[] = ['small', 'mid', 'large'];
+
+/**
+ * Resolve the per-tier provider overrides (`FRAMEPILOT_TIER_<TIER>_PROVIDER` / `_MODEL`).
+ *
+ * The point of tiering is that the cheap, mechanical calls — today the ADR 0055 route
+ * classifier, which is stamped `tier: 'small'` — need not run on the same expensive model
+ * as the editing turns. This is the one place that reads those variables.
+ *
+ * **Opt-in by construction.** A tier with neither variable set yields NO entry, and a
+ * runtime with no entry for a tier uses the host-selected provider exactly as before. That
+ * is what keeps an unconfigured install — and the golden-eval baseline — byte-identical.
+ *
+ * The tier's config starts from that provider's own env resolution, so its API key and
+ * base URL come from the same variables the provider always used; only the model is
+ * layered on top. An unset `_MODEL` therefore means "whatever that provider's configured
+ * or default model is", not "no model".
+ *
+ * @param base - The host-selected provider, used when only `_MODEL` is overridden.
+ * @param env - Environment to read (injectable for tests).
+ * @returns One {@link ProviderConfig} per overridden tier; tiers left alone are absent.
+ * @throws If a `_PROVIDER` value is not a known {@link ProviderName}.
+ */
+export function resolveTierProviderConfigs(
+  base: ProviderName,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = typeof process !== 'undefined'
+    ? process.env
+    : {},
+): Partial<Record<ModelTier, ProviderConfig>> {
+  const configs: Partial<Record<ModelTier, ProviderConfig>> = {};
+  for (const tier of TIER_ORDER) {
+    const prefix = TIER_ENV_PREFIX[tier];
+    const providerVar = `${prefix}_PROVIDER`;
+    const modelVar = `${prefix}_MODEL`;
+    const providerRaw = env[providerVar]?.trim();
+    const modelRaw = env[modelVar]?.trim();
+    if (!providerRaw && !modelRaw) continue;
+    let name: ProviderName = base;
+    if (providerRaw) {
+      if (!isProviderName(providerRaw)) {
+        throw new Error(
+          `${providerVar}="${providerRaw}" is not a known provider. Expected one of: ${PROVIDER_NAMES.join(', ')}.`,
+        );
+      }
+      name = providerRaw;
+    }
+    const resolved = resolveProviderConfig(name);
+    configs[tier] = modelRaw ? { ...resolved, model: modelRaw } : resolved;
+  }
+  return configs;
 }
 
 /** Create a provider already wrapped in the shared reliability policy. */

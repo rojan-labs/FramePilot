@@ -18,6 +18,8 @@ import { dirname } from 'node:path';
 import {
   isAsrProviderName,
   resolveProviderConfig,
+  resolveTierProviderConfigs,
+  type ModelTier,
   type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createLogger } from '@framepilot/shared-types';
@@ -302,6 +304,22 @@ export class AiConfigStore {
 
   public resolveConfig(name: AiProviderName): ProviderConfig {
     return this.resolveConfigFrom(name, this.current());
+  }
+
+  /**
+   * Per-tier provider overrides from `FRAMEPILOT_TIER_*` (goal.md Workstream E).
+   *
+   * Env-only by design: unlike the active provider there is no Settings surface for
+   * tiers, so there is no stored value to prefer. `electron/env.ts` has already merged the
+   * repo `.env` into `process.env` by the time the hub is built, so the SDK resolver sees
+   * the same variables a CLI run would. Returns `{}` — every tier on the active provider —
+   * when nothing is configured.
+   *
+   * @param name - The active provider, used for a tier that overrides only the model.
+   * @returns One resolved config per overridden tier.
+   */
+  public resolveTierConfigs(name: AiProviderName): Partial<Record<ModelTier, ProviderConfig>> {
+    return resolveTierProviderConfigs(name);
   }
 
   public resolveEmbeddingsKeys(): string | undefined {

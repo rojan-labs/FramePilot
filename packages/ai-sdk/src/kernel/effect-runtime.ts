@@ -76,6 +76,16 @@ export interface EffectRuntimeObserver {
 
 export interface EffectRuntimeDeps {
   readonly provider: AiProvider;
+  /**
+   * Per-{@link ModelTier} provider overrides (goal.md Workstream E). A model effect
+   * stamped with a tier present here runs on that provider; every other effect — and
+   * every tier absent from this map — runs on {@link EffectRuntimeDeps.provider}.
+   *
+   * Opt-in and normally absent: hosts build it from `resolveTierProviderConfigs`, which
+   * returns nothing unless `FRAMEPILOT_TIER_*` is set. With it absent, this runtime
+   * behaves exactly as it did when tiers were telemetry-only.
+   */
+  readonly tierProviders?: Partial<Record<ModelTier, AiProvider>>;
   readonly executor?: HostToolExecutor;
   readonly structuredExecutor?: StructuredEffectExecutor;
   readonly observer?: EffectRuntimeObserver;
@@ -252,20 +262,27 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
     return { kind: 'host_tool', outcome, cached: false };
   };
 
+  /** The provider serving one tier: its override when configured, else the base. */
+  const providerForTier = (tier: ModelTier): AiProvider =>
+    deps.tierProviders?.[tier] ?? deps.provider;
+
   const runModel = async (
     effect: ModelEffect,
     signal?: AbortSignal,
   ): Promise<ModelEffectResult> => {
     const tier = effect.tier ?? DEFAULT_MODEL_TIER;
+    const provider = providerForTier(tier);
     log.action('runModel → request', {
       tier,
-      provider: deps.provider.name,
+      provider: provider.name,
+      model: provider.modelId,
       messages: effect.request.messages.length,
     });
-    const response = await deps.provider.complete(effect.request, signal);
+    const response = await provider.complete(effect.request, signal);
     log.action('runModel ← response', {
       tier,
-      provider: deps.provider.name,
+      provider: provider.name,
+      model: provider.modelId,
       textChars: response.text.length,
       toolCalls: response.toolCalls?.length ?? 0,
       usage: response.usage,
@@ -379,15 +396,17 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
     async *streamModel(effect, signal) {
       await deps.observer?.onRequested(effect);
       const tier = effect.tier ?? DEFAULT_MODEL_TIER;
+      const provider = providerForTier(tier);
       const chunks: ProviderChunk[] = [];
       let terminalObserved = false;
       try {
         log.action('streamModel → request', {
           tier,
-          provider: deps.provider.name,
+          provider: provider.name,
+          model: provider.modelId,
           messages: effect.request.messages.length,
         });
-        for await (const chunk of streamProvider(deps.provider, effect, signal)) {
+        for await (const chunk of streamProvider(provider, effect, signal)) {
           chunks.push(chunk);
           yield chunk;
         }
@@ -400,7 +419,8 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
         await deps.observer?.onSettled(effect, result);
         log.action('streamModel ← settled', {
           tier,
-          provider: deps.provider.name,
+          provider: provider.name,
+          model: provider.modelId,
           chunks: chunks.length,
         });
         return result;

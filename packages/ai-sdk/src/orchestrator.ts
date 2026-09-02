@@ -1547,6 +1547,20 @@ export interface OrchestratorOptions {
   readonly replayRuntime?: () => EffectRuntime;
   /** Awaited durable audit observer for every fine-grained runtime effect. */
   readonly effectObserver?: EffectRuntimeObserver;
+  /**
+   * Per-{@link ModelTier} provider overrides (goal.md Workstream E): the cheap, mechanical
+   * calls need not run on the model the editing turns need. Today exactly one call is
+   * stamped `tier: 'small'` — the ADR 0055 route classifier — so a host that sets
+   * `FRAMEPILOT_TIER_SMALL_*` pays small-model prices for routing and nothing else.
+   *
+   * Opt-in and normally absent: hosts build it from `resolveTierProviderConfigs`, which
+   * returns no entries unless those variables are set. With it absent every call runs on
+   * the constructor's provider, exactly as before.
+   *
+   * `replayRuntime` bypasses this by design — a replayed run makes no provider calls at
+   * all, so which provider WOULD have served a tier is not a question it can answer.
+   */
+  readonly tierProviders?: Partial<Record<ModelTier, AiProvider>>;
 }
 
 /** Per-call host context threaded through {@link Orchestrator.runAgentCall}. */
@@ -3061,6 +3075,8 @@ export class Orchestrator {
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
   private readonly replayRuntime: (() => EffectRuntime) | undefined;
   private readonly effectObserver: EffectRuntimeObserver | undefined;
+  /** See {@link OrchestratorOptions.tierProviders}. Empty unless the host opted in. */
+  private readonly tierProviders: Partial<Record<ModelTier, AiProvider>>;
 
   public constructor(
     private readonly provider: AiProvider,
@@ -3071,6 +3087,16 @@ export class Orchestrator {
     this.onRecording = options.onRecording;
     this.replayRuntime = options.replayRuntime;
     this.effectObserver = options.effectObserver;
+    this.tierProviders = options.tierProviders ?? {};
+  }
+
+  /**
+   * The provider serving one {@link ModelTier}: its configured override, else the
+   * host-selected provider. The direct-call twin of the effect runtime's own tier lookup,
+   * for the one model call that does not go through a run runtime (the classifier).
+   */
+  private providerForTier(tier: ModelTier): AiProvider {
+    return this.tierProviders[tier] ?? this.provider;
   }
 
   /**
@@ -3087,6 +3113,9 @@ export class Orchestrator {
       ? this.replayRuntime()
       : createEffectRuntime({
           provider: this.provider,
+          ...(Object.keys(this.tierProviders).length === 0
+            ? {}
+            : { tierProviders: this.tierProviders }),
           ...(this.effectObserver === undefined ? {} : { observer: this.effectObserver }),
           ...(this.executor ? { executor: this.executor } : {}),
           ...(structuredExecutor ? { structuredExecutor } : {}),
@@ -6104,8 +6133,14 @@ export class Orchestrator {
       ...(input.selection ? { selection: input.selection } : {}),
       hasSelection: input.selection !== undefined,
     });
+    // Routing is the cheapest judgement the orchestrator makes, so it is the one call
+    // stamped `small`: with `FRAMEPILOT_TIER_SMALL_*` configured it runs on a cheap model
+    // and the editing turn still runs on the host-selected one. Unset, this IS
+    // `this.provider` and nothing about the call changes.
+    const provider = this.providerForTier('small');
     orchestratorLog.action('classifyCommand → request', {
-      provider: this.provider.name,
+      provider: provider.name,
+      model: provider.modelId,
       userTextChars: input.userPrompt.length,
     });
     const estimatedInput = messages.reduce(
@@ -6114,22 +6149,25 @@ export class Orchestrator {
     );
     // Classification is a small, self-contained call with no assembled tiers behind it,
     // so its manifest is payload-derived: honest about being coarse, but every figure
-    // real. It is what makes the "thinking" phase's occupancy explainable too.
-    const capabilities = capabilitiesFor(this.provider.name, this.provider.modelId);
+    // real. It is what makes the "thinking" phase's occupancy explainable too. The limits
+    // come from the provider that ACTUALLY serves this call — a small model's context
+    // window is smaller, and a manifest reporting the large model's would understate
+    // occupancy for the one request it describes.
+    const capabilities = capabilitiesFor(provider.name, provider.modelId);
     const manifest = buildRequestManifest({
       requestId: 'classify',
-      provider: this.provider.name,
-      ...(this.provider.modelId ? { model: this.provider.modelId } : {}),
-      contextWindow: contextWindowFor(input, this.provider),
+      provider: provider.name,
+      ...(provider.modelId ? { model: provider.modelId } : {}),
+      contextWindow: contextWindowFor(input, provider),
       windowSource: capabilities.source,
-      reservedOutputTokens: reservedOutputFor(input, this.provider),
+      reservedOutputTokens: reservedOutputFor(input, provider),
       request: { messages },
     });
     try {
-      const response = await this.provider.complete({ messages }, signal);
+      const response = await provider.complete({ messages }, signal);
       const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
-        provider: this.provider.name,
+        provider: provider.name,
         route: classification.route,
         usage: response.usage,
       });

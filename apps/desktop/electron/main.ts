@@ -88,6 +88,9 @@ import {
   type ChunkTranscriber,
   type AsrResult,
   type VisualIndexRequestInput,
+  type AiProvider,
+  type ModelTier,
+  type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import {
@@ -2309,6 +2312,46 @@ function registerIpcHandlers(): void {
     baseUrl: engineBaseUrl,
     fetchFn: electronFetch,
   });
+  /**
+   * Build the per-tier providers for one orchestrator, or `{}` when none are configured.
+   *
+   * A tier is an optimization, never a dependency: if its provider cannot be constructed —
+   * a missing API key for the provider the tier names is the realistic case — the hub must
+   * still come up and the tier simply falls back to the active provider. Degrading to a
+   * working (if pricier) editor beats an editor that will not start (goal.md B).
+   */
+  const buildTierProviders = (
+    name: AiProviderName,
+  ): { tierProviders?: Partial<Record<ModelTier, AiProvider>> } => {
+    let configs: Partial<Record<ModelTier, ProviderConfig>>;
+    try {
+      configs = aiConfig.resolveTierConfigs(name);
+    } catch (error) {
+      aiLog.warn('tier provider config is invalid — every tier uses the active provider', {
+        error: errorMessage(error),
+      });
+      return {};
+    }
+    const tierProviders: Partial<Record<ModelTier, AiProvider>> = {};
+    for (const [tier, config] of Object.entries(configs) as [ModelTier, ProviderConfig][]) {
+      try {
+        tierProviders[tier] = withResilience(createProviderFromConfig(config));
+        aiLog.action('tier provider selected', {
+          tier,
+          provider: config.name,
+          model: config.model,
+        });
+      } catch (error) {
+        aiLog.warn('tier provider unavailable — falling back to the active provider', {
+          tier,
+          provider: config.name,
+          error: errorMessage(error),
+        });
+      }
+    }
+    return Object.keys(tierProviders).length === 0 ? {} : { tierProviders };
+  };
+
   const getOrchestrator = (
     requested?: AiProviderName,
     effectObserver?: EffectRuntimeObserver,
@@ -2328,6 +2371,7 @@ function registerIpcHandlers(): void {
     const orchestratorOptions = {
       executor: toolExecutor,
       ...(effectObserver === undefined ? {} : { effectObserver }),
+      ...(name === 'mock' ? {} : buildTierProviders(name)),
     };
     // Every hosted provider is a LangChain adapter behind one seam (ADR 0105). This used
     // to be a seven-branch chain constructing native adapter classes directly, each handed

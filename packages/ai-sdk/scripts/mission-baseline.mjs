@@ -49,6 +49,7 @@ const {
   MockProvider,
   createProviderFromConfig,
   resolveProviderConfig,
+  resolveTierProviderConfigs,
   createSidecarExecutor,
   createVisualStatusDigester,
   createSessionContextDigester,
@@ -237,6 +238,17 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     };
   }
   const capture = new BaselineCaptureProvider(provider);
+  // Per-tier providers (goal.md Workstream E). Each gets its OWN capture wrapper: a tier
+  // exists to be priced separately, so folding its calls into the base capture would hide
+  // the very saving the tier was configured to produce. Absent unless FRAMEPILOT_TIER_* is
+  // set, so an unconfigured baseline run is unchanged.
+  const tierCaptures = {};
+  if (!REPLAY) {
+    for (const [tier, config] of Object.entries(resolveTierProviderConfigs(providerName))) {
+      tierCaptures[tier] = new BaselineCaptureProvider(createProviderFromConfig(config));
+    }
+    if (Object.keys(tierCaptures).length > 0) orchestratorOptions.tierProviders = tierCaptures;
+  }
   const orchestrator = new Orchestrator(capture, orchestratorOptions);
   // Same context inputs the desktop host injects (apps/desktop/electron/main.ts hub
   // options): visual-index status, cached footage map, session narrative — so the
@@ -307,7 +319,17 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     clearTimeout(timeout);
   }
   const wallMs = Date.now() - started;
-  const turns = capture.captured();
+  // Tier calls are real model calls: they belong in the run's call count and token totals,
+  // and `tierCalls` says how the total split so a cheap-routing run is legible at a glance.
+  const tierCalls = { small: 0, mid: 0, large: 0 };
+  const tierTurns = [];
+  for (const [tier, tierCapture] of Object.entries(tierCaptures)) {
+    const captured = tierCapture.captured();
+    tierCalls[tier] = captured.length;
+    tierTurns.push(...captured);
+  }
+  const baseTurns = capture.captured();
+  const turns = [...baseTurns, ...tierTurns];
   // On replay the provider is never called, so the capture is empty; the recording knows
   // how many model calls the live run made. Tokens, USD and latency are not reproduced —
   // they belong to the live run's case file.
@@ -344,6 +366,8 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     metrics: {
       wallMs,
       modelCalls: replayedModelCalls ?? turns.length,
+      /** How the run's model calls split across tiers; all zero unless tiers are configured. */
+      tierCalls,
       tokens: {
         /** input + cacheRead: the whole prompt the provider processed. */
         prompt: sum(turns, 'inputTokens') + sum(turns, 'cacheReadInputTokens'),

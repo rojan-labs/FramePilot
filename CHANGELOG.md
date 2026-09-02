@@ -6,6 +6,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **You can point the quick routing step at a cheaper model.** Every turn starts with one
+  short call that decides what you asked for — a greeting, a question, an edit — before any
+  editing model runs. That call can now go to a smaller, cheaper, faster model while your
+  edits stay on the model you chose: set `FRAMEPILOT_TIER_SMALL_MODEL` (and optionally
+  `FRAMEPILOT_TIER_SMALL_PROVIDER`) in your `.env`. Leave them unset and nothing changes.
+  See [the provider guide](docs/guides/ai-providers.md#model-tiers).
+
 ### Changed
 
 - **When the media engine is not running, the AI panel says so.** A tool that could not
