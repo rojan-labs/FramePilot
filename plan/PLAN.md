@@ -32,7 +32,7 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   a correct trim on the montage fixture (landscape sources, 9:16 frame) failed "Reframing is
   consistent" — a defect the footage had BEFORE the edit — bought a repair turn that could not
   fix it, and settled `failed` with the edit applied and no error card. `critic.ts#
-  reconcileInheritedFailures`: a health check failing identically before and after is an
+reconcileInheritedFailures`: a health check failing identically before and after is an
   advisory; request-derived checks are never excused. A failed run that applied work now
   emits one `error` card (`conductor.ts#failedAfterApplyMessage`) and still gets its receipt.
   Real-media effect on `trim-first-clip-10s`/`reorder-last-first`: **pending manual
@@ -87,6 +87,7 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   (`sidecar-executor.ts#describeTransportFailure`); 35 bare "fetch failed" refusals in the
   real log were the shape. Real-media effect: **pending manual verification**.
 - `[x]` GOLDEN-E.1 — model tiers are real: `FRAMEPILOT_TIER_*` (declared since the initial commit, read by nothing) now route `tier: 'small'` calls — the ADR 0055 route classifier — to a cheaper provider/model; opt-in, unset = byte-identical. Accuracy neutrality of classification on a small model: **pending manual verification** (run the golden set once with `FRAMEPILOT_TIER_SMALL_MODEL` set and compare intent accuracy).
+- `[x]` GOLDEN-F.4 — every reducer decision is one structured log line (`agent-graph.ts` `conductor decided`: stage, effects, guards/budget/verify texts, spend) so a run can be debugged from its log alone.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
@@ -8693,10 +8694,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                          **Last updated:** 2026-08-14
+                                                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                            a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                            **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

@@ -154,6 +154,31 @@ provider does not automatically choose the same service for ASR.
 | `FRAMEPILOT_LOG_LEVEL`       | `info`                                    | Python sidecar log level.                                                            |
 | `LOG_LEVEL`                  | `info`                                    | Engine/application log level used by existing settings paths.                        |
 
+`FRAMEPILOT_LOG_LEVEL` also sets the level of the TypeScript scoped logger
+(`createLogger`), so the same variable quiets or opens up the desktop app, the AI SDK and
+the sidecar together.
+
+### Reading a run from its log
+
+An agent run is debuggable from its log alone, which matters because most runs are ones
+nobody watched. Two greps carry it:
+
+- `conductor decided` — the **decision** trace, one line per reducer step from
+  `packages/ai-sdk/src/kernel/agent-graph.ts`. Each line carries `runId`, `stepIndex`,
+  `phase`, `stage`, the `effects` the step chose (`run_turn`, `run_verify`, `finalize`),
+  the cumulative `applied` / `rejected` op counts, `stallStreak`, `runUsd` /
+  `runElapsedMs`, and `said` — the notices, warnings and errors that step emitted,
+  truncated to 160 characters each. A guard firing, a budget stop, an inherited-finding
+  advisory and the verify verdict are all prose events, so `said` is where they become
+  greppable (`Reached this run's $5.00 budget…`). The finalizing step also carries
+  `outcome`: `completed`, `failed` or `cancelled`.
+- `runModel` / `runHostTool` — the **effect** trace from the effect runtime: each model
+  request and each tool call, with what it was given and how it settled.
+
+Together they answer the two questions an accuracy bug needs: what the agent decided and
+why, and what it actually acted on. The decision line is emitted at `action` level, so it
+is present at `debug` and `info` and dropped at `warn` and above.
+
 ## Desktop sidecar and packaged engine
 
 | Variable                        | Purpose                                                                                                                                               |

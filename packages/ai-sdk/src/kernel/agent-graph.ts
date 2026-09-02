@@ -60,7 +60,7 @@
  *    that no longer exists (`analysis-parallel.test.ts` pins both halves).
  */
 import { Annotation, END, START, StateGraph } from '@langchain/langgraph';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, getLogLevel, type LogLevel } from '@framepilot/shared-types';
 import { type AiEvent, createTurnEmitter } from '../events.js';
 import type { Command } from './commands.js';
 import {
@@ -84,6 +84,85 @@ import {
 } from './conductor.js';
 
 const log = createLogger('ai-sdk:kernel:agent-graph');
+
+/**
+ * How much of one notice survives into the decision line. Long enough that the guard,
+ * budget and verify sentences stay recognisable (and greppable) at the front, short
+ * enough that a run's log stays a trace rather than a transcript.
+ */
+const SAID_MAX_CHARS = 160;
+
+/**
+ * `Logger.action` emits at `info`, so these three levels drop it. The decision line is
+ * built behind this check rather than handed to a logger that will discard it: the
+ * `said` array walks every event a step produced, and a run that is deliberately quiet
+ * should not pay for prose nobody reads.
+ */
+const LEVELS_THAT_DROP_ACTIONS: ReadonlySet<LogLevel> = new Set(['warn', 'error', 'silent']);
+
+function decisionLineIsVisible(): boolean {
+  return !LEVELS_THAT_DROP_ACTIONS.has(getLogLevel());
+}
+
+function truncateSaid(text: string): string {
+  return text.length > SAID_MAX_CHARS ? `${text.slice(0, SAID_MAX_CHARS)}…` : text;
+}
+
+/**
+ * What the step SAID: the notices, warnings and failures it emitted. A guard firing, a
+ * budget stop, an inherited-finding advisory and the verify verdict are all prose events
+ * and nothing else — collecting their texts here is what makes them greppable in a log of
+ * a run nobody watched, without logging the deltas that make up the bulk of the stream.
+ */
+function saidTexts(events: readonly AiEvent[]): readonly string[] {
+  const said: string[] = [];
+  for (const event of events) {
+    if (event.type === 'notification' || event.type === 'warning')
+      said.push(truncateSaid(event.text));
+    else if (event.type === 'error') said.push(truncateSaid(event.message));
+  }
+  return said;
+}
+
+/** `completed` / `failed` / `cancelled` — present only on the step that ends the run. */
+function finalizeOutcome(
+  effects: readonly Effect[],
+): 'completed' | 'failed' | 'cancelled' | undefined {
+  const final = effects.find((effect): effect is FinalizeEffect => effect.kind === 'finalize');
+  if (final === undefined) return undefined;
+  if (final.cancelled) return 'cancelled';
+  return final.failed ? 'failed' : 'completed';
+}
+
+/**
+ * ONE line per reducer step — the decision trace (Workstream F).
+ *
+ * The effect runtime already logs what the run *did* (`runModel → request`,
+ * `runHostTool ← settled`). Nothing logged what it *decided*: which route was taken, a
+ * guard firing, a stage advance, the verify verdict, the terminal outcome. Those live in
+ * `conductor.ts`, which is a pure reducer and must stay one — so the line is emitted here,
+ * at the only place a step's result is in hand, and it is the whole decision rather than a
+ * per-event dribble.
+ */
+function logDecision(step: Step): void {
+  if (!decisionLineIsVisible()) return;
+  const { state } = step;
+  const outcome = finalizeOutcome(step.effects);
+  log.action('conductor decided', {
+    runId: state.working.runId,
+    stepIndex: state.stepIndex,
+    phase: state.phase,
+    stage: state.working.stage,
+    effects: step.effects.map((effect) => effect.kind),
+    applied: state.cumulativeOps.length,
+    rejected: state.rejectedOpCount,
+    stallStreak: state.stallStreak,
+    runUsd: state.runUsd,
+    runElapsedMs: state.runElapsedMs,
+    said: saidTexts(step.events),
+    ...(outcome === undefined ? {} : { outcome }),
+  });
+}
 
 /** Draft the up-front plan: streams any events, returns the parsed plan labels. */
 export type DraftPlanHandler = (
@@ -279,6 +358,7 @@ function createAgentGraph(
 ) {
   const fold = (snapshot: GraphSnapshot, result: ConductorResult): StateUpdate => {
     const next = decide(snapshot.step.state, result, emitterFor(snapshot.step.state, result));
+    logDecision(next);
     events.pushAll(next.events);
     events.push(createTurnEmitter(next.state.turnRef, next.state.seq).runState(next.state.working));
     return {
@@ -307,6 +387,7 @@ function createAgentGraph(
       mode: command.mode,
       effects: step.effects.map((effect) => effect.kind),
     });
+    logDecision(step);
     events.pushAll(step.events);
     if (command.mode === 'agent') {
       events.push(

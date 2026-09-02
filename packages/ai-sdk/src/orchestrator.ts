@@ -6239,6 +6239,12 @@ export class Orchestrator {
     orchestratorLog.action('streamAuto classified', {
       route: classification.route,
       conversationId: options.conversationId,
+      // WHICH model made the routing call, and what it cost. Routing runs on the `small`
+      // tier, so a run that routed oddly is often a run that routed on a different model
+      // than the reader assumes; without these the log cannot tell those apart.
+      provider: classifierManifest.provider,
+      model: classifierManifest.model,
+      ...(classifierUsage === undefined ? {} : { usage: classifierUsage }),
     });
     const sharedEditorControls: EditorRunControls = {
       ...(autoOptions.onLifecycleEvent === undefined
