@@ -223,8 +223,8 @@ export function pictureOverlapRefusal(
     `Refused: "${file}" at ${timeText(candidate.start)}–${timeText(candidate.end)}s ` +
     `would sit on top of ${first.clipId} on ${first.trackId}${others}, and `;
   const divergence =
-    'The preview shows one picture layer at a time, so only a layer that covers the whole ' +
-    'frame opaquely previews the way it exports (ADR 0169 / SUC-P1). ';
+    'The preview shows one picture layer at a time, so only a layer that hides everything ' +
+    'it covers previews the way it exports (ADR 0169 / 0170, SUC-P1). ';
   // The alternative that is legal WHATEVER the shapes are: a cutaway on the same track is
   // one picture layer, so there is nothing for the export to fold in.
   const hole =
@@ -250,7 +250,7 @@ export function pictureOverlapRefusal(
         : '';
     return (
       `${head}"${file}" is ${size} and ${verdict.detail ?? 'it does not cover them'}. ` +
-      `${divergence}${cropWay}${cropWay === '' ? 'Either ' : ''}${hole}`
+      `${divergence}${cropWay}${cropWay === '' ? hole.charAt(0).toUpperCase() + hole.slice(1) : hole}`
     );
   }
 

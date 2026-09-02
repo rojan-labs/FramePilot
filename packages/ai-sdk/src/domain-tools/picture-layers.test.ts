@@ -644,7 +644,7 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
       message = (error as Error).message;
     }
     expect(message).toContain('The preview shows one picture layer at a time');
-    expect(message).toContain('ADR 0169 / SUC-P1');
+    expect(message).toContain('ADR 0169 / 0170, SUC-P1');
     expect(message).toContain('put on its own front layer for you');
     expect(message).toContain('split at 4s and 10s and add it on the same track');
   });
