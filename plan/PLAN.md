@@ -163,12 +163,40 @@ reconcileInheritedFailures`: a health check failing identically before and after
   unresolvable id all look like `failed`, and blocking any of them would lose the tool for
   the run over a fault it had no part in. Eight other host outcomes were considered and
   rejected, each with its reason.
-- `[ ]` GOLDEN-A.7 — **a declared host refusal leaves no ledger trace.** The in-process
-  refusal sets `rejectedOpCount: 1` so the remedy reaches the durable ledger and the state
-  briefing (run `369e8c82`'s briefing never once carried the picture rule); the host one
-  does not. Left out of `28a5322` because it touches the empty-run notice, `rejectionNotes`
-  and the conductor's `lostOpsPerCall` — a second behaviour change with its own blast
-  radius — and the loop is bounded without it.
+- `[x]` GOLDEN-A.7 — **a declared host refusal now leaves the same trace an in-process one
+  does.** `rejectedOpCount: 1` on the host tail's declared-refusal spread, so the refusal
+  files through `lostOpsPerCall` as a `failed` operation whose `failureReason` is the
+  refusal sentence — and the remedy ("the first free moment is 10.0s") reaches the state
+  briefing's "FAILED — fix the cause" section instead of ageing out of the context window
+  with the tool result it lived in. Every consumer of the count was checked: the empty-run
+  notice (a run whose ONLY event is a refused host call now says "No edits were applied"
+  and why, where it used to say it "reviewed the footage but never made a change"), the
+  partial-run notice, the completion report's "Skipped" line, and the conductor's
+  `recordSucceeded`. The post-download stock refusal got the same line, so one rule refused
+  before and after the download leaves one shape of trace. Pinned end to end through
+  `streamAgent`'s warning events and at the conductor seam through the briefing.
+- `[x]` GOLDEN-A.8 — **the two refusals that still had no key** (same slice).
+  `add_music`'s duck-sidechain refusal is an in-process policy check after a completed paid
+  download — the `add_stock` shape, a different rule — and it put the raw host payload where
+  `deterministicFailureKey` needs a string, so it had no key on two grounds. Keyed on its
+  TEXT, not on a new `RefusalCause`: the only thing that varies in the sentence is the
+  `duckUnderTrackId` it names, which is the argument the refusal is asking the model to
+  correct, so the same bad id twice is the loop and two different bad ids are two different
+  corrections that each deserve their own answer. It also files a ledger trace.
+  The five host-backed validator probes (`transcribe`, `remove_silences`, `add_music`,
+  `add_stock`, `track_subject_automatically`) are collapsed into one helper and keyed. The
+  collision hazard — two different assets colliding on one validator sentence — is resolved,
+  not skipped: a key is computed only once a call has SETTLED and only a `failed` outcome
+  ever yields one, so the second asset is fetched and validated in full and one that
+  VALIDATES lands with no key to match. A collision can only replace the prose of a call
+  that had already failed, with the sentence of a call that failed for the identical stated
+  reason. Both halves pinned, including the two-different-assets case.
+  Desktop's WAL now records `refusalCause` on a host result, so a run nobody watched shows
+  WHY a repeat was refused rather than only that it was.
+- `[ ]` GOLDEN-A.9 — **the five host-backed validator probes still file no ledger trace.**
+  They lose real operations and set no `rejectedOpCount`, so a run that lost everything to
+  one of them still reports "reviewed the footage but never made a change". Left for its own
+  change: it moves the empty-run and partial-run notices for five tools.
 - `[x]` GOLDEN-A.5 — **a refused stock placement can no longer repeat without limit**
   (`760bc57`). `add_stock`'s placement refusal set no `deterministicFailure` and put a
   refusal RECORD where `deterministicFailureKey` needs a string, so it had no key on two

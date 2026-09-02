@@ -154,6 +154,41 @@ describe('describeEffectResult', () => {
     expect(JSON.stringify(described)).not.toContain('AAAA');
   });
 
+  it('records WHY a host refused, when the host said why', () => {
+    // `refusalCause` is the discriminator the orchestrator's repeat guard keys on, so a WAL
+    // that drops it shows only THAT a call was refused twice and never that the second was
+    // recognised as the first. Run `369e8c82` was diagnosed from records of this kind — a
+    // run nobody watched — and every behaviour has to be readable from the logs alone.
+    const result = {
+      kind: 'host_tool',
+      cached: false,
+      outcome: {
+        status: 'failed',
+        summary: 'That span (2.0s–6.0s) is already picture on the timeline.',
+        refusalCause: 'picture_over_picture',
+      },
+    } as unknown as EffectResult;
+
+    expect(describeEffectResult(result)).toEqual({
+      kind: 'host_tool',
+      cached: false,
+      status: 'failed',
+      summary: 'That span (2.0s–6.0s) is already picture on the timeline.',
+      refusalCause: 'picture_over_picture',
+    });
+  });
+
+  it('omits the cause entirely when the host declared none', () => {
+    // An undeclared host failure is never keyed, and the record must not imply it was.
+    const result = {
+      kind: 'host_tool',
+      cached: false,
+      outcome: { status: 'failed', summary: 'Stock provider is unreachable right now.' },
+    } as unknown as EffectResult;
+
+    expect(describeEffectResult(result)).not.toHaveProperty('refusalCause');
+  });
+
   it('records a streamed model result by chunk count, not by its chunks', () => {
     const result = {
       kind: 'model_stream',

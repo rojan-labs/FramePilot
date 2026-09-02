@@ -4174,12 +4174,7 @@ export class Orchestrator {
            references to check (see validator.ts), so a schema-valid word array can
            never fail validation; kept defensive, not reachable. */
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "transcribe" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('transcribe', probe.validation.issues);
         }
         /* v8 ignore stop */
         // The transcript itself was just rewritten, so transcript-derived evidence is
@@ -4237,12 +4232,7 @@ export class Orchestrator {
         }
         const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "remove_silences" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('remove_silences', probe.validation.issues);
         }
         const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
         return {
@@ -4271,7 +4261,45 @@ export class Orchestrator {
         const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
         if (duckIssue !== null) {
           const note = `Rejected "add_music" — ${duckIssue}`;
-          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+          // IN-PROCESS, despite arriving after a completed paid download — the same reading
+          // the post-download stock refusal below gets, for the same reasons. The download
+          // SUCCEEDED (this branch runs only under `status === 'completed'`); what refuses
+          // is `musicDuckSidechainIssue` reading the orchestrator's own working copy, an
+          // `editor-core` predicate over the track list with the same verdict every time.
+          // A policy decision reached by a different route, not host work, so the call
+          // site's "host work is never keyed" invariant is untouched: a download timeout or
+          // a provider 5xx still settles as a plain host `failed` and still gets no key.
+          //
+          // Keyed on the TEXT, not on a new `RefusalCause`, and the difference from run
+          // `369e8c82`'s picture rule is the whole argument. There the sentence varied with
+          // the asset and the timestamps — incidental detail around one unchanging rule, so
+          // four attempts banked four keys and matched none. Here the only thing that varies
+          // is the `duckUnderTrackId` the sentence names, which is the argument the refusal
+          // is asking the model to CORRECT. Two attempts with the same bad id are the loop
+          // and share a key; two attempts with different bad ids are two genuinely different
+          // corrections, and each deserves its own answer naming its own id. A rule-shaped
+          // cause would collapse them and quote back a sentence about a track the model is
+          // no longer asking for. A cause invented on speculation is vocabulary with no
+          // captured loop behind it.
+          //
+          // `data` carries the SENTENCE, not the raw host payload: a key promises
+          // `repeatedFailureOutcome` something to quote back, and an object yields no key
+          // at all (`deterministicFailureKey` requires a non-empty string).
+          //
+          // `rejectedOpCount: 1` files it through the ledger's existing route so the remedy
+          // — "pass the id of the dialogue track", "omit duckUnderTrackId" — reaches the
+          // briefing's "FAILED — fix the cause" section instead of ageing out of the context
+          // window with the tool result. One, not `ops.length`: the refusal is reached
+          // before `buildAddMusicOps` runs, so no operations were ever built to count.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: duckIssue,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
         }
         // Already in the bin. Deterministic asset ids make a re-add land as a
         // `duplicate_asset` validation error whose text ("Asset id already
@@ -4292,12 +4320,7 @@ export class Orchestrator {
         const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
         const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "add_music" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('add_music', probe.validation.issues);
         }
         // Tell the model about the credit rather than leaving it a surprise for the
         // user at publish time: it can then mention it in its own summary.
@@ -4381,6 +4404,13 @@ export class Orchestrator {
             status: 'failed',
             data: placement.reason,
             deterministicFailure: true,
+            // The same trace the HOST-side refusal of this rule now files (see the host
+            // tail). Without it, one rule refused before the download left a `failed`
+            // ledger row carrying its remedy and the same rule refused after it left
+            // nothing — and run `369e8c82`'s lesson is that a remedy living only in a tool
+            // result ages out of the window with it. One, not `ops.length`: the refusal is
+            // reached before any operation is built.
+            rejectedOpCount: 1,
             // `StockPlacementRefusal.kind === 'picture_occupied'` is this module's name for
             // ADR 0140; the RULE is the one `add_clip` names, so run memory must call it
             // the same thing. Keys stay per-tool (`add_stock:…` vs `add_clip:…`), so
@@ -4391,12 +4421,7 @@ export class Orchestrator {
         const ops = [...placement.operations];
         const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "add_stock" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('add_stock', probe.validation.issues);
         }
         // Same reasoning as `add_music`: tell the model about the credit now, so
         // it can mention it, rather than leaving it a surprise at publish time.
@@ -4435,12 +4460,7 @@ export class Orchestrator {
           const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
           const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
           if (!probe.validation.valid) {
-            const problems = probe.validation.issues
-              .filter((issue) => issue.severity === 'error')
-              .map((issue) => issue.message)
-              .join('; ');
-            const note = `Rejected "${call.name}" — ${problems}`;
-            return { ops: [], note, summary: note, status: 'failed', data: problems };
+            return hostBackedValidatorRejection(call.name, probe.validation.issues);
           }
           return {
             ops,
@@ -4526,6 +4546,24 @@ export class Orchestrator {
               deterministicFailure: true,
               refusalCause: declaredRefusal,
               data: typeof data === 'string' && data.trim() !== '' ? data : outcome.summary,
+              // THE REMEDY HAS TO OUTLIVE THE TOOL RESULT, and a bounded loop alone does
+              // not give it that. `28a5322` stopped the declared refusal repeating; it left
+              // the model able to lose the remedy to compaction anyway and be told only
+              // that something is forbidden, never what to do instead. Run `369e8c82`'s
+              // briefing never once carried the picture-over-picture rule for exactly that
+              // reason: only a landed patch's `describedActions` reach `recordOperation`,
+              // so a refusal's sentence lived in a tool result and aged out with it.
+              //
+              // This is the route the in-process refusals already take — the per-call
+              // rejection tally the conductor reads as `lostOpsPerCall`, which files the
+              // turn as a `failed` operation whose `failureReason` is this note. No
+              // parallel ledger, and the host side now leaves the same trace as the branch
+              // that refuses the same rule after the download.
+              //
+              // One, not a count of operations: the host refused before the orchestrator
+              // built any. The count is what the empty-run notice tallies, and one refused
+              // call is one thing the run could not do.
+              rejectedOpCount: 1,
             }),
       };
     }
@@ -8807,6 +8845,58 @@ function withheldCallOutcome(
       'need, or ask_user. It becomes available again on the next turn.',
     summary: `${call.name} is unavailable this turn`,
     status: 'warning',
+  };
+}
+
+/**
+ * The outcome for a HOST-BACKED tool whose built operations the validator refused.
+ *
+ * Five branches ran this probe after a host returned a usable payload — `transcribe`,
+ * `remove_silences`, `add_music`, `add_stock` and `track_subject_automatically` — and not
+ * one of them set {@link AgentCallOutcome.deterministicFailure}, while the generic mutate
+ * path's byte-identical branch always has. So the same rejection could be re-earned every
+ * turn for the length of the run, which is run `369e8c82`'s loop with a host in front of
+ * it. The probe itself is as deterministic as the generic one: `assembleEdit` reads only
+ * the working copy and the operations, so the same operations against the same project are
+ * refused the same way every time.
+ *
+ * THE COLLISION HAZARD, resolved rather than skipped. These operations are built from a
+ * DOWNLOADED payload, so two different assets can produce one validator sentence and share
+ * one key — and refusing a second asset because a first one failed is the mistake ADR 0166
+ * is the standing lesson about. It cannot happen here. The key is computed only once a
+ * call has SETTLED, and only a `failed` outcome ever yields one, so the second asset is
+ * fetched and validated in full and a payload that VALIDATES lands with no key to match
+ * against. The most a collision can do is replace the prose of a call that had already
+ * failed — with the sentence of a call that failed for the identical stated reason, since
+ * the validator names the clip ids, track ids and times it objected to and `failureCause`
+ * strips only the operation locator. The remedy transfers because it is the same remedy.
+ *
+ * `rejectedOpCount` is NOT set here, and that is a gap left open rather than a judgement
+ * that it should stay open: these five lose real operations, and `lostOpsPerCall`'s whole
+ * argument is that the ledger must show what a run TRIED — which is what the generic path's
+ * `rejectedOpCount: ops.length` gives it. Left for its own change, because it moves the
+ * empty-run and partial-run notices for five tools and deserves to be reviewed as that.
+ *
+ * @param callName - The tool being refused — the note the model reads and the key's prefix.
+ * @param issues - The probe's validation issues; only errors are quoted.
+ * @returns A failed outcome the run can remember for the rest of its life.
+ */
+function hostBackedValidatorRejection(
+  callName: string,
+  issues: readonly ValidationIssue[],
+): AgentCallOutcome {
+  const problems = issues
+    .filter((issue) => issue.severity === 'error')
+    .map((issue) => issue.message)
+    .join('; ');
+  const note = `Rejected "${callName}" — ${problems}`;
+  return {
+    ops: [],
+    note,
+    summary: note,
+    status: 'failed',
+    data: problems,
+    deterministicFailure: true,
   };
 }
 

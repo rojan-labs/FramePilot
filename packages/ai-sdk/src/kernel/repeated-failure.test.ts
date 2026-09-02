@@ -633,3 +633,351 @@ describe('add_stock — a placement the HOST refused before the download is keye
     expect(results[1]?.summary).toBe('Refused repeat of "add_stock" — it already failed this run');
   });
 });
+
+// ---------------------------------------------------------------------------
+// `add_music` — the duck-sidechain refusal, and the validator probe behind it.
+// ---------------------------------------------------------------------------
+
+/**
+ * The third in-process route out of run `369e8c82`'s loop, on the tool that scores an edit.
+ *
+ * `musicDuckSidechainIssue` refuses a duck at a track that does not exist or holds no
+ * clips, and it refuses AFTER a completed paid download — the same shape as `add_stock`'s
+ * post-download placement refusal, a different rule. Un-keyed it could be re-earned every
+ * turn, at the price of a download each time.
+ *
+ * It is keyed on its TEXT, not on a rule name, and that is the whole difference from the
+ * picture rule. There the sentence varied with the asset and the timestamps — incidental
+ * detail around one unchanging verdict — so four attempts banked four keys. Here the only
+ * thing that varies is the `duckUnderTrackId` the sentence names, which is the argument the
+ * refusal is asking the model to correct: the same bad id twice is the loop, two different
+ * bad ids are two different corrections, and each deserves an answer naming its own id.
+ */
+const musicAsset = (id: string, durationSeconds: number): unknown => ({
+  id,
+  path: `media/music/${id}.mp3`,
+  kind: 'audio',
+  durationSeconds,
+  source: {
+    provider: 'openverse',
+    remoteId: id,
+    license: 'CC0',
+    attributionRequired: false,
+    fetchedAt: '2026-01-01T00:00:00.000Z',
+  },
+});
+
+const addMusic = (id: string, duckUnderTrackId?: string, atSeconds = 0): AiResponse => ({
+  text: '',
+  toolCalls: [
+    {
+      id,
+      name: 'add_music',
+      arguments: {
+        remoteId: 'ov_1',
+        atSeconds,
+        ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
+      },
+    },
+  ],
+});
+
+/** A host that always reports a SUCCESSFUL download, echoing the sidechain it was asked for. */
+const musicHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async (call) => {
+    counter.calls += 1;
+    const { duckUnderTrackId } = call.arguments as { duckUnderTrackId?: string };
+    return {
+      status: 'completed',
+      summary: 'Downloaded "music/ov_1.mp3".',
+      data: {
+        asset: musicAsset(`music_openverse_${counter.calls}`, 30),
+        ...(duckUnderTrackId === undefined ? {} : { duckUnderTrackId }),
+      },
+    };
+  },
+});
+
+const musicInput: ContextInput = { project: makeProject(), userPrompt: 'put music under it' };
+
+const warnings = (events: readonly AiEvent[]): string[] =>
+  events
+    .filter((e): e is Extract<AiEvent, { type: 'warning' }> => e.type === 'warning')
+    .map((e) => e.text);
+
+describe('add_music — a duck refused after the download is keyed on its sentence', () => {
+  it('refuses the second identical duck, remedy intact', async () => {
+    const counter = { calls: 0 };
+    // The arguments are NUDGED between the two, exactly as run `369e8c82`'s were: a
+    // different `atSeconds` makes this a call the run has never made, and the duck is
+    // resolved before placement so the answer is the identical sentence. An args-keyed
+    // guard waves this through; a novelty-keyed run keeps going and asks again.
+    const provider = new RecordingProvider([
+      addMusic('m1', 'voiceover', 0),
+      addMusic('m2', 'voiceover', 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: musicHost(counter) }).streamAgent(
+        musicInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('is not a track in this project');
+    expect(results[0]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toBe('Refused repeat of "add_music" — it already failed this run');
+    // The remedy has to survive the wrapper, or a closed loop is worse than an open one.
+    const seenByModel = modelFacingText(provider);
+    expect(seenByModel).toContain('already failed this run for this same reason');
+    expect(seenByModel).toContain('Pass the id of the dialogue track');
+  });
+
+  it('lets a DIFFERENT bad track id have its own answer', async () => {
+    // The text key's whole justification. `voiceover` and `narration` are two different
+    // guesses at the same missing thing, and the sentence that answers each one names it.
+    // A rule-shaped cause would collapse them and quote back a sentence about a track the
+    // model is no longer asking about.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([
+      addMusic('m1', 'voiceover', 0),
+      addMusic('m2', 'narration', 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: musicHost(counter) }).streamAgent(
+        musicInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('"voiceover"');
+    expect(results[1]?.summary).toContain('"narration"');
+    for (const result of results) expect(result.summary).not.toContain('already failed');
+  });
+
+  it('does not block a duck at a track that exists', async () => {
+    // The corrected retry, which must never be caught by the banked key: `audio_1` is a
+    // real track, so the placement succeeds and computes no key to match.
+    const counter = { calls: 0 };
+    const project = makeProject();
+    const withDialogue = makeProject({
+      timeline: {
+        ...project.timeline,
+        tracks: project.timeline.tracks.map((track) =>
+          track.id === 'audio_1'
+            ? {
+                ...track,
+                clips: [
+                  {
+                    id: 'dialogue_1',
+                    assetId: 'asset_1',
+                    trackId: 'audio_1',
+                    start: 0,
+                    end: 6,
+                    sourceStart: 0,
+                    sourceEnd: 6,
+                    effects: [],
+                    keyframes: [],
+                  },
+                ],
+              }
+            : track,
+        ),
+      },
+    });
+    const provider = new RecordingProvider([
+      addMusic('m1', 'voiceover', 0),
+      addMusic('m2', 'audio_1', 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: musicHost(counter) }).streamAgent(
+        { project: withDialogue, userPrompt: 'put music under it' },
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('is not a track in this project');
+    expect(results[1]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toContain('Downloaded');
+  });
+
+  it('files the refusal in the run’s account of itself, not only in the tool result', async () => {
+    // The other half of the fix: a bounded loop that forgets WHAT IT WAS TOLD TO DO leaves
+    // the model knowing only that something is forbidden. `rejectedOpCount` is the ledger's
+    // existing route in, and it is also what makes a run that landed nothing say why rather
+    // than reading as a silent no-op.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addMusic('m1', 'voiceover', 0), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: musicHost(counter) }).streamAgent(
+        musicInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const said = warnings(events).join('\n');
+    expect(said).toContain('No edits were applied');
+    expect(said).toContain('is not a track in this project');
+    // NOT the "reviewed the footage but never made a change" notice — the run did try.
+    expect(said).not.toContain('never made a change');
+  });
+});
+
+/**
+ * The host-backed VALIDATOR PROBE, and the collision the hazard analysis turns on.
+ *
+ * The fixture's picture ends at 10s and `buildAddMusicOps` trims a bed to the picture it
+ * scores, so a bed starting exactly `MIN_SCORED_SECONDS` (1/60s) before the end is trimmed
+ * to 1/60s — which the project's 30fps grid rounds to nothing, and `assembleEdit` refuses
+ * as `add_clip.end must be greater than start`. It is the one configuration that reaches
+ * any of these five probes end to end, and it is enough, because the branch is one shared
+ * helper.
+ *
+ * The sentence names the TIMES, not the asset, so two entirely different tracks produce it
+ * byte-identically — the collision a host-backed probe can have and the generic mutate
+ * path cannot. It loses nothing, and the tests below are why: a key is computed only once a
+ * call has SETTLED and only a `failed` outcome ever has one, so the second asset is
+ * downloaded and validated in full, and one that VALIDATES lands with no key to match.
+ */
+const ZERO_LENGTH_AT = 10 - 1 / 60;
+
+const musicHostAt = (
+  counter: { calls: number },
+  positions: readonly number[],
+): HostToolExecutor => ({
+  run: async () => {
+    const atSeconds = positions[Math.min(counter.calls, positions.length - 1)]!;
+    counter.calls += 1;
+    return {
+      status: 'completed',
+      summary: `Downloaded "music/track_${String(counter.calls)}.mp3".`,
+      // A DIFFERENT track each call — different id, different length, different file.
+      data: {
+        asset: musicAsset(`music_track_${String(counter.calls)}`, 20 + counter.calls),
+        atSeconds,
+      },
+    };
+  },
+});
+
+describe('a host-backed validator rejection is remembered like any other', () => {
+  it('answers the second identical rejection as a repeat', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([
+      addMusic('m1', undefined, 0),
+      addMusic('m2', undefined, 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, {
+        executor: musicHostAt(counter, [ZERO_LENGTH_AT, ZERO_LENGTH_AT]),
+      }).streamAgent(musicInput, baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('must be greater than start');
+    expect(results[0]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toBe('Refused repeat of "add_music" — it already failed this run');
+    // Two DIFFERENT assets collided on one sentence, and the guard treated them as one
+    // failure — which costs nothing, because the second had already failed on its own
+    // merits and for the identical stated reason.
+    expect(counter.calls).toBe(2);
+  });
+
+  it('never refuses an asset that VALIDATES, however the banked key was earned', async () => {
+    // The hazard, answered. If a key could pre-empt a call this would strand the request
+    // on the first collision; it cannot, because the key is read off a settled outcome and
+    // a successful placement never produces one.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([
+      addMusic('m1', undefined, 0),
+      addMusic('m2', undefined, 2),
+      done,
+    ]);
+    const events = await drain(
+      new Orchestrator(provider, {
+        executor: musicHostAt(counter, [ZERO_LENGTH_AT, 0]),
+      }).streamAgent(musicInput, baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toContain('must be greater than start');
+    expect(results[1]?.summary).not.toContain('already failed');
+    expect(results[1]?.summary).toContain('Downloaded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A declared HOST refusal leaves the same trace an in-process one does.
+// ---------------------------------------------------------------------------
+
+describe('a declared host refusal reaches the run’s durable account of itself', () => {
+  it('says what it could not do, instead of reading as a silent no-op', async () => {
+    // A run whose ONLY event is a refused host call. Before the trace it reported "this run
+    // reviewed the footage but never made a change" — true of the timeline, false about the
+    // run, and it left the editor with no idea a rule had refused anything.
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([addStock('s1', 2), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: declaringStockHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const said = warnings(events).join('\n');
+    expect(said).toContain('No edits were applied');
+    // The REMEDY, in the run's own account of itself — not only in a tool result that ages
+    // out of the context window with the turn that produced it (run `369e8c82`).
+    expect(said).toContain('The first free moment is 10.0s');
+    expect(said).not.toContain('never made a change');
+  });
+
+  it('records a FAILED operation carrying the refusal, and the briefing shows it', () => {
+    // The conductor half, at the seam the orchestrator now feeds: `rejectedOpCount` is what
+    // `lostOpsPerCall` reads, and a lost-ops turn is recorded as `failed` with the per-call
+    // note as its cause. Without the count the turn reports zero operations and nothing is
+    // recorded at all — the exact defect FIX 1 above closed for the validator path.
+    const sentence = conflictSentence(2);
+    const step = onEffectResult(
+      started(),
+      turn({
+        signature: 'add_stock:{"remoteId":"9001","atSeconds":2}',
+        rejectedOpCount: 1,
+        rejectionNotes: [sentence],
+        callFacts: [
+          {
+            key: 'add_stock:{"remoteId":"9001","atSeconds":2}',
+            status: 'failed',
+            fromCache: false,
+            role: 'mutation',
+            failureKey: 'add_stock:picture_over_picture',
+          },
+        ],
+      }),
+    );
+
+    expect(step.state.working.operations).toHaveLength(1);
+    expect(step.state.working.operations[0]?.status).toBe('failed');
+    expect(step.state.working.operations[0]?.failureReason).toBe(sentence);
+    const briefing = buildStateBriefing(step.state.working);
+    expect(briefing).toContain('FAILED — fix the cause, do not retry unchanged');
+    expect(briefing).toContain('The first free moment is 10.0s');
+    expect(briefing).not.toContain('ALREADY APPLIED');
+  });
+});
