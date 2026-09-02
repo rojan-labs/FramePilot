@@ -21,6 +21,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The assistant no longer gives up when a track or clip is already in your bin.** Asking
+  for music or stock it had already downloaded used to answer "place it from the bin" — an
+  instruction meant for a person looking at the bin, which the assistant has no way to
+  follow, so it abandoned the request. It now places what it already has.
+- **When footage hasn't been indexed yet, the assistant is told what to do instead.** It
+  used to get back the bare word `not_indexed` and kept asking the same question of the
+  same clip. It now hears that indexing may not finish during this run, and to look at a
+  few moments directly or work from what it already knows.
 - **The AI no longer stacks one picture over another on a second layer.** The preview
   can't show that yet, so it places a cutaway or tells you why it didn't — naming the clip
   it would have covered and where there is room.
