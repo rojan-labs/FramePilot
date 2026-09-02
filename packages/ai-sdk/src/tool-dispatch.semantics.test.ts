@@ -113,21 +113,35 @@ describe('a refusal is not a bad argument', () => {
             },
           ],
         },
-        { id: 'video_2', type: 'video', clips: [] },
+        {
+          id: 'video_2',
+          type: 'video',
+          clips: [
+            {
+              id: 'clip_b',
+              assetId: 'asset_b',
+              trackId: 'video_2',
+              start: 20,
+              end: 24,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              // A punch-in: the one thing that makes a stacked layer un-showable.
+              keyframes: [{ id: 'k1', time: 0, property: 'scale', value: 0.5, easing: 'linear' }],
+            },
+          ],
+        },
       ],
       markers: [],
     },
   });
 
+  // A bare `add_clip` over picture is no longer refused — ADR 0169 lifts it to a front
+  // layer. What is still refused is a layer the preview cannot show: here a scaled clip
+  // moved over `clip_a`.
   const stack = () =>
     operationsForCall(
-      call('add_clip', {
-        trackId: 'video_2',
-        assetId: 'asset_b',
-        start: 2,
-        end: 6,
-        sourceStart: 0,
-      }),
+      call('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 2 }),
       { project },
     );
 

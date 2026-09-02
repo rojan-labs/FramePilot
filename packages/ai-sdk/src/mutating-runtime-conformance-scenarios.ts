@@ -126,7 +126,10 @@ export const RUNTIME_CONFORMANCE_SCENARIOS: readonly RuntimeConformanceScenario[
     goal: 'cut a short montage on the music beats',
     rationale:
       'beat synchronisation is the capability `planned_edit` was written for; the one ' +
-      'runtime must reach it through detect_beats + add_clip',
+      'runtime must reach it through detect_beats + add_clip. The model names `video_2`, ' +
+      'which sits BEHIND `video_1` and its 0–6s clip, so the shots would be invisible there: ' +
+      'under ADR 0169 the runtime lifts them to a front layer opened in the same patch, ' +
+      'one `add_layer` for the whole montage, never one per shot',
     project: conformanceProject,
     agentScript: [
       turn(call('c1', 'detect_beats', { assetId: 'music' })),
@@ -151,7 +154,7 @@ export const RUNTIME_CONFORMANCE_SCENARIOS: readonly RuntimeConformanceScenario[
     executor: beatExecutor,
     expect: {
       terminalStatus: 'completed',
-      operationKinds: ['add_clip', 'add_clip'],
+      operationKinds: ['add_layer', 'add_clip', 'add_clip'],
       maxModelCalls: 4,
     },
   },

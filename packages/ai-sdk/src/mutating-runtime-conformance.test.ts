@@ -70,7 +70,9 @@ describe('single mutating AI runtime — conformance', () => {
   it('covers the beat-sync capability the retired planned_edit route was written for', async () => {
     const scenario = RUNTIME_CONFORMANCE_SCENARIOS.find((row) => row.id === 'beat-sync-montage')!;
     const observed = await observeRuntimeScenario(scenario);
-    expect(observed.operationKinds).toEqual(['add_clip', 'add_clip']);
+    // The named lane is behind the talking head, so the montage is lifted to ONE front
+    // layer, opened first so the same patch can place onto it (ADR 0169).
+    expect(observed.operationKinds).toEqual(['add_layer', 'add_clip', 'add_clip']);
     expect(observed.validated).toBe(true);
     expect(observed.reversible).toBe(true);
   });
