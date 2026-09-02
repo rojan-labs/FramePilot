@@ -59,12 +59,7 @@ import { analysisTool, askTool, noArgs, readTool } from './domain-tools/tool-fac
 // `tool-input-contract.ts` only imports the `ToolSpec`/`ToolParameterSchema` *types* from
 // this module (also erased at runtime), so importing its runtime export here is safe.
 import { withToolInputContract } from './tool-input-contract.js';
-import {
-  DOMAIN_INDEX,
-  LOADABLE_DOMAINS,
-  domainMembers,
-  type ToolDomain,
-} from './tool-domains.js';
+import { DOMAIN_INDEX, LOADABLE_DOMAINS, domainMembers, type ToolDomain } from './tool-domains.js';
 import { PROFESSIONAL_EDIT_TOOL } from './domain-tools/professional-edit.js';
 import { PROFESSIONAL_MOTION_TOOL } from './domain-tools/professional-motion.js';
 import { PROFESSIONAL_COLOR_TOOL } from './domain-tools/professional-color.js';
@@ -372,7 +367,13 @@ const readTools: ToolSpec[] = [
         'Load the tools for a kind of work. Only the tools every edit needs are advertised ' +
         'up front; the specialised ones arrive when you ask for them, and stay for the rest ' +
         'of the run. Call this BEFORE the work, in the same turn as the reads that set it ' +
-        'up — one call can load several. Domains — ' +
+        // The cap is stated because the model cannot see the schema's bound and a call that
+        // breaches it fails whole. Run `e8cb2636` opened by asking for the six domains a
+        // captioned, scored, stock-sourced edit genuinely needs, was refused "Too big:
+        // expected array to have <=4 items", and spent a call learning a number this
+        // sentence could have told it.
+        'up — one call can load up to FOUR domains; make a second call for the rest. ' +
+        'Domains — ' +
         DOMAIN_INDEX +
         '. Returns the tool names now available to you.',
       capabilities: ['skills'],
@@ -391,7 +392,10 @@ const readTools: ToolSpec[] = [
     },
     z
       .object({
-        domains: z.array(z.enum(LOADABLE_DOMAINS as [string, ...string[]])).min(1).max(4),
+        domains: z
+          .array(z.enum(LOADABLE_DOMAINS as [string, ...string[]]))
+          .min(1)
+          .max(4, 'Load at most 4 domains per call — make a second call for the rest.'),
       })
       .strict(),
     // The pin itself happens in the orchestrator (it owns the run-scoped ledger, exactly
