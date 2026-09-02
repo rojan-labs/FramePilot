@@ -95,6 +95,13 @@ reconcileInheritedFailures`: a health check failing identically before and after
 `35746d4c` (`run.md`), which spent 11 model calls, 230,473 tokens and $1.20 on a caption
 restyle and applied nothing.**
 
+- `[x]` GOLDEN-B.1 — **incremental + resumable indexing audited, no change:** `/brain/visual/index`
+  works in per-project slices under a lock, skips assets already prepared (resume), wipes and
+  redoes an asset whose `content_hash` changed, persists a per-asset outcome
+  (`brain/visual_outcomes.py`), and is cancellable. goal.md B holds by construction.
+- `[x]` GOLDEN-C.3 — **prompt-cache prefix audited, no change:** the 2026-08-29 real runs show
+  95–100% `cacheRead/prompt` per turn (Anthropic breakpoints on system+tools and the message
+  boundary), so the volatile sections already sit past the cached prefix.
 - `[x]` **The per-turn op cap was two different numbers.** `orchestrator.ts` enforced 100
   in the streaming path; `kernel/conductor.ts` reported 200 from the reducer. A 101–200-op
   turn was refused by one half and invisible to the other, and the refusing branch stated
