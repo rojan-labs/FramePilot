@@ -157,17 +157,41 @@ function assignWordsToCues(
 ): CaptionOwnership {
   const slack = frameSlack(fps);
   const ordered = [...cues].sort((a, b) => a.start - b.start);
+  // Both sequences are walked in time order together, so the cue pointer only ever moves
+  // forward: this is linear in cues + words rather than a scan of the whole track per word.
+  // A word-level caption pass on a ten-minute talk is ~1,500 cues against ~1,800 words, and
+  // `verify_captions` runs repeatedly within one run.
+  const sortedWords = [...words].sort((a, b) => a.start - b.start);
+  // The furthest any cue up to and including index `i` extends. Lets the backward scan
+  // below stop as soon as nothing earlier could still contain the word.
+  const reachBy: number[] = [];
+  let reach = 0;
+  for (const clip of ordered) {
+    reach = Math.max(reach, clip.end);
+    reachBy.push(reach);
+  }
   const byClip = new Map<string, MappedWord[]>();
   for (const clip of ordered) byClip.set(clip.id, []);
   const uncovered: MappedWord[] = [];
 
-  for (const word of words) {
-    // The last cue that has begun by the time this word starts. Scanned from the end so
-    // overlapping cues (a hand-authored track may have them) resolve to the latest, which
-    // is the one a viewer reads.
-    const owner = [...ordered]
-      .reverse()
-      .find((clip) => clip.start <= word.start + slack && word.start < clip.end + slack);
+  let begun = -1;
+  for (const word of sortedWords) {
+    // Advance to the last cue that has begun by the time this word starts.
+    while (begun + 1 < ordered.length && (ordered[begun + 1] as Clip).start <= word.start + slack) {
+      begun += 1;
+    }
+    // Walk back from there to the latest cue the word is still inside — the one a viewer
+    // reads when a hand-authored track overlaps two cues. Stops the moment no earlier cue
+    // reaches this word at all, which for an ordinary non-overlapping track is at once.
+    let owner: Clip | undefined;
+    for (let index = begun; index >= 0; index -= 1) {
+      if ((reachBy[index] as number) + slack <= word.start) break;
+      const candidate = ordered[index] as Clip;
+      if (word.start < candidate.end + slack) {
+        owner = candidate;
+        break;
+      }
+    }
     if (owner === undefined) {
       uncovered.push(word);
       continue;

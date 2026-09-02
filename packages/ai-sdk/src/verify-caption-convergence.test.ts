@@ -273,3 +273,91 @@ describe('verifyCaptions converges with the generator that produced the cues', (
     expect(report.speechCoverage).toBeLessThan(1);
   });
 });
+
+describe('ownership on a track the segmenter did not build', () => {
+  const cue = (
+    id: string,
+    start: number,
+    end: number,
+    words: readonly [string, number, number][],
+  ): Clip => ({
+    id,
+    assetId: '__caption__',
+    trackId: 'captions_main',
+    start,
+    end,
+    sourceStart: 0,
+    sourceEnd: end - start,
+    effects: [],
+    keyframes: [],
+    captionCue: {
+      text: words.map(([word]) => word).join(' '),
+      words: words.map(([word, wordStart, wordEnd]) => ({ word, start: wordStart, end: wordEnd })),
+      derivedFromRevision: 28,
+      source: { assetId: ASSET, clipId: 'clip_talk', start, end },
+    },
+  });
+
+  it('gives a word inside two overlapping cues to the later one — what a viewer reads', () => {
+    // Hand-authored tracks can overlap; the generator's never do. The later cue is the one
+    // on top, so it is the one answerable for the word.
+    const long = cue('cap_long', quantize(14.2), quantize(17.5), [
+      ['My', 14.2, 14.5],
+      ['design', 14.88, 15.26],
+      ['focus', 15.26, 15.57],
+      ['school', 15.57, 15.98],
+    ]);
+    const over = cue('cap_over', quantize(15.26), quantize(17.5), [
+      ['focus', 15.26, 15.57],
+      ['school', 15.57, 15.98],
+    ]);
+    const report = verifyCaptions(projectDoc([long, over]));
+    // The claim under test is which cue a shared word is MEASURED against. "focus" and
+    // "school" fall inside both; the later cue is the one on top, so its own first word is
+    // compared to "focus" and it is in sync. (A hand-authored track like this may still
+    // report staleness for words it does not account for — that finding is honest, and is
+    // not what this test is about.)
+    expect(
+      report.issues.filter(
+        (issue) => issue.clipId === 'cap_over' && issue.code === 'caption_out_of_sync',
+      ),
+    ).toEqual([]);
+    // And the earlier cue is no longer credited with them: it is measured from "My".
+    expect(
+      report.issues.filter(
+        (issue) => issue.clipId === 'cap_long' && issue.code === 'caption_out_of_sync',
+      ),
+    ).toEqual([]);
+  });
+
+  it('scales to a word-level track without walking every cue per word', () => {
+    // A ten-minute talk captioned word by word. The check is that it completes promptly:
+    // the previous implementation copied and reversed the whole cue list once per word.
+    const words: [string, number, number][] = [];
+    for (let index = 0; index < 1800; index += 1) {
+      words.push([`w${index}`, index * 0.3, index * 0.3 + 0.25]);
+    }
+    const cues = words.map(([word, start, end], index) =>
+      cue(`cap_${index}`, quantize(start), quantize(end), [[word, start, end]]),
+    );
+    const doc = {
+      ...projectDoc(cues),
+      transcript: words.map(([word, start, end]) => ({ word, start, end, assetId: ASSET })),
+      timeline: {
+        ...projectDoc(cues).timeline,
+        tracks: projectDoc(cues).timeline.tracks.map((track) =>
+          track.id === 'v_main'
+            ? {
+                ...track,
+                clips: [{ ...(track.clips[0] as Clip), end: 545, sourceEnd: 545 }],
+              }
+            : track,
+        ),
+      },
+    } as unknown as Project;
+    const started = Date.now();
+    const report = verifyCaptions(doc);
+    expect(Date.now() - started).toBeLessThan(2_000);
+    expect(report.cueCount).toBe(1800);
+  });
+});
