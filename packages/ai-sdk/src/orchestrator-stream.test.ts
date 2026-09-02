@@ -15,6 +15,7 @@ import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
 import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
 import type { TimerApi } from './reliability/timeout.js';
+import { MODEL_WAIT_HEARTBEAT_MS } from './reliability/wait-heartbeat.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -112,14 +113,39 @@ function handFiredTimers(): {
   api: TimerApi;
   fire: () => void;
   pending: () => number;
+  /**
+   * Fire only the timers armed for exactly `ms`.
+   *
+   * Two independent clocks now run inside one agent run — the run deadline
+   * (`maxMinutes` × 60_000) and the wait heartbeat (`MODEL_WAIT_HEARTBEAT_MS`) — and a
+   * test that could only fire both at once could never show one working without the
+   * other. The delay is what tells them apart.
+   */
+  fireDelay: (ms: number) => number;
+  /** How many timers armed for exactly `ms` are pending right now. */
+  armed: (ms: number) => number;
+  /** How many timers with exactly `ms` were EVER armed — a live, re-arming heartbeat. */
+  arms: (ms: number) => number;
 } {
-  const scheduled = new Map<number, () => void>();
+  const scheduled = new Map<number, { ms: number; handler: () => void }>();
+  const armedEver: number[] = [];
   let next = 1;
+  const fireMatching = (match: (ms: number) => boolean): number => {
+    let fired = 0;
+    for (const [id, entry] of [...scheduled]) {
+      if (!match(entry.ms)) continue;
+      scheduled.delete(id);
+      fired += 1;
+      entry.handler();
+    }
+    return fired;
+  };
   return {
     api: {
-      setTimeout: (handler: () => void) => {
+      setTimeout: (handler: () => void, ms: number) => {
         const id = next++;
-        scheduled.set(id, handler);
+        scheduled.set(id, { ms, handler });
+        armedEver.push(ms);
         return id;
       },
       clearTimeout: (handle: unknown) => {
@@ -127,11 +153,11 @@ function handFiredTimers(): {
       },
     },
     fire: () => {
-      for (const [id, handler] of [...scheduled]) {
-        scheduled.delete(id);
-        handler();
-      }
+      fireMatching(() => true);
     },
+    fireDelay: (ms) => fireMatching((armedMs) => armedMs === ms),
+    armed: (ms) => [...scheduled.values()].filter((entry) => entry.ms === ms).length,
+    arms: (ms) => armedEver.filter((armedMs) => armedMs === ms).length,
     pending: () => scheduled.size,
   };
 }
@@ -206,6 +232,58 @@ class ScriptedStreamProvider implements AiProvider {
     this.index += 1;
     for (const chunk of script) yield chunk;
   }
+}
+
+/**
+ * A provider whose Nth streamed call PARKS: the request was accepted, and nothing comes
+ * back until the test releases it. Run `369e8c82`'s `seg-20`, with a way out.
+ *
+ * `onPark` is invoked from inside the parked promise's executor, so it starts running
+ * before the call suspends but does its work afterwards — which is where the wait
+ * heartbeat arms its first timer. It respects the signal, so Stop and the run deadline
+ * still end the call exactly as a real transport would.
+ */
+class ParkedStreamProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  public constructor(
+    private readonly scripts: readonly (readonly ProviderChunk[])[],
+    private readonly parkAtCall: number,
+    private readonly onPark: (release: () => void) => Promise<void>,
+  ) {}
+  public async complete(): Promise<AiResponse> {
+    return { text: '' };
+  }
+  public async *stream(
+    _request: AiCompletionRequest,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ProviderChunk> {
+    const call = this.index;
+    this.index += 1;
+    if (call === this.parkAtCall) {
+      await new Promise<void>((resolve, reject) => {
+        const stop = (): void => {
+          reject(new ProviderError('The operation was aborted', 'network'));
+        };
+        if (signal?.aborted === true) stop();
+        else signal?.addEventListener('abort', stop, { once: true });
+        void this.onPark(resolve);
+      });
+    }
+    for (const chunk of this.scripts[Math.min(call, this.scripts.length - 1)]!) yield chunk;
+  }
+}
+
+/**
+ * Spin the event loop until `predicate` holds. Bounded and zero-delay — the wait is for
+ * the run's own microtasks to reach the point under test, never for wall time.
+ */
+async function until(predicate: () => boolean, what: string): Promise<void> {
+  for (let i = 0; i < 500; i += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 /** An in-scope read-only call for the question route's tool loop. */
@@ -2632,6 +2710,158 @@ describe('streamAgent robustness (parity with agent())', () => {
       ).toBe(false);
       expect(events.some((e) => e.type === 'error')).toBe(false);
       // The deadline it never reached is cleared all the same.
+      expect(timers.pending()).toBe(0);
+    });
+  });
+
+  // Run `369e8c82`'s last event was a context manifest at 15:16:45; the next thing that
+  // happened was the user force-quitting at 15:55:33. The deadline above bounds that
+  // silence — these cover SAYING it, which is the part the user actually needed.
+  describe('the waiting heartbeat (a run that is waiting says so)', () => {
+    const HEARTBEAT = MODEL_WAIT_HEARTBEAT_MS;
+    const editScript: readonly ProviderChunk[] = [
+      { type: 'text-delta', text: 'Trimming the intro.' },
+      { type: 'tool-call', call: deleteRange('a', 0, 1) },
+      { type: 'done' },
+    ];
+    const doneScript: readonly ProviderChunk[] = [
+      { type: 'text-delta', text: 'Done.' },
+      { type: 'done' },
+    ];
+
+    it('announces the wait, keeps announcing it, and clears it when the call lands', async () => {
+      const timers = handFiredTimers();
+      let pumpError: unknown;
+      // The first call parks. Two heartbeat intervals pass, then the model answers.
+      const provider = new ParkedStreamProvider([editScript, doneScript], 0, async (release) => {
+        try {
+          for (let beat = 1; beat <= 2; beat += 1) {
+            await until(() => timers.armed(HEARTBEAT) === 1, `heartbeat ${String(beat)}`);
+            timers.fireDelay(HEARTBEAT);
+          }
+          // Released with a beat still armed — the "call returned" path has to clear it.
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to re-arm');
+          release();
+        } catch (error) {
+          pumpError = error;
+          release();
+        }
+      });
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(pumpError).toBeUndefined();
+      const waits = events.filter((e) => e.type === 'progress');
+      // Two beats and the settle — one row, updated in place, not three transcript lines.
+      expect(waits.map((e) => `${e.label} @${String(e.value)}`)).toEqual([
+        'Waiting on the AI — no reply for 4 minutes @0',
+        'Waiting on the AI — no reply for 8 minutes @0',
+        'Waiting on the AI — no reply for 8 minutes @1',
+      ]);
+      expect(new Set(waits.map((e) => e.id)).size).toBe(1);
+      // It is not an error card, and it says nothing about what the run will do next.
+      expect(events.some((e) => e.type === 'error' || e.type === 'warning')).toBe(false);
+      // The heartbeat ended with the call: nothing waiting-shaped after the settle, and the
+      // run's own events carried on untouched.
+      const settleAt = events.indexOf(waits[2]!);
+      expect(events.slice(settleAt + 1).some((e) => e.type === 'progress')).toBe(false);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('says nothing at all when every call answers promptly', async () => {
+      // The test that stops this becoming noise on every turn.
+      const timers = handFiredTimers();
+      const provider = new ScriptedStreamProvider([editScript, doneScript]);
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.filter((e) => e.type === 'progress')).toHaveLength(0);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      // Armed on every call all the same — silent because no interval ever elapsed, not
+      // because the heartbeat was switched off.
+      expect(timers.arms(HEARTBEAT)).toBeGreaterThan(0);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('says nothing while a call streams, however many deltas it takes', async () => {
+      // Deltas ARE progress. Each one clears the armed beat and starts a fresh one, so a
+      // call that keeps producing can never reach an interval — see the re-arm count.
+      const timers = handFiredTimers();
+      const longStream: readonly ProviderChunk[] = [
+        ...Array.from(
+          { length: 200 },
+          (_, i): ProviderChunk => ({ type: 'text-delta', text: `word${String(i)} ` }),
+        ),
+        { type: 'tool-call', call: deleteRange('a', 0, 1) },
+        { type: 'done' },
+      ];
+      const provider = new ScriptedStreamProvider([longStream, doneScript]);
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.filter((e) => e.type === 'progress')).toHaveLength(0);
+      // One arm per chunk pulled: the watchdog was restarted 200-plus times and never
+      // survived long enough to fire.
+      expect(timers.arms(HEARTBEAT)).toBeGreaterThan(200);
+      expect(timers.armed(HEARTBEAT)).toBe(0);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('the deadline fires with a heartbeat armed — the run still stops and still reports', async () => {
+      // The adversarial one: two clocks alive at once inside the same call. The run must
+      // stop on ITS budget, still name what it applied, and leave no beat behind it.
+      const timers = handFiredTimers();
+      let pumpError: unknown;
+      const provider = new ParkedStreamProvider([editScript, []], 1, async () => {
+        try {
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to arm');
+          timers.fireDelay(HEARTBEAT);
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to re-arm');
+          // …and now the run runs out of time, mid-beat.
+          timers.fireDelay(37 * 60_000);
+        } catch (error) {
+          pumpError = error;
+        }
+      });
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(pumpError).toBeUndefined();
+      // The user was told it was waiting, once, and the row was settled on the way out.
+      const waits = events.filter((e) => e.type === 'progress');
+      expect(waits.map((e) => e.value)).toEqual([0, 1]);
+      expect(waits[0]?.label).toBe('Waiting on the AI — no reply for 4 minutes');
+      // The deadline still did its job: stopped, said why, and reported the edit.
+      expect(
+        events.filter((e) => e.type === 'notification' && e.text.includes('37-minute limit')),
+      ).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // No heartbeat outlives the run that armed it.
+      expect(timers.armed(HEARTBEAT)).toBe(0);
       expect(timers.pending()).toBe(0);
     });
   });

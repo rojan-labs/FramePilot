@@ -216,6 +216,12 @@ import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import { createRunDeadline } from './reliability/deadline.js';
+import type { TimerApi } from './reliability/timeout.js';
+import {
+  MODEL_WAIT_HEARTBEAT_MS,
+  modelWaitLabel,
+  withWaitHeartbeat,
+} from './reliability/wait-heartbeat.js';
 import {
   REVIEW_CONCURRENCY_ENV,
   REVIEW_STEERING_PREAMBLE,
@@ -5590,6 +5596,16 @@ export class Orchestrator {
       tier: 'mid',
       contextWindow: capabilitiesFor(this.provider.name, this.provider.modelId).contextWindow,
     },
+    /**
+     * The silence heartbeat for this call (`reliability/wait-heartbeat.ts`).
+     *
+     * Opt-in per caller, and today only the agent turn opts in: run `369e8c82` hung inside
+     * the agent loop's twentieth model call, and the single-call routes (chat, edit, plan)
+     * have a composer that is visibly disabled and a run that is over in one step — they
+     * are not the surface where a user was left guessing for thirty-nine minutes. Absent ⇒
+     * no timer is armed and the stream is drained exactly as it was before this existed.
+     */
+    wait?: { readonly timers?: TimerApi; readonly intervalMs?: number },
   ): AsyncGenerator<
     AiEvent,
     {
@@ -5653,6 +5669,18 @@ export class Orchestrator {
       ? segment.slice(emit.assistantId.length + 1)
       : undefined;
     const reasoningKey = explicitKey ?? segmentKey;
+    /**
+     * The waiting bar's stable id, scoped to THIS model call (`wait:seg-20`, `wait:seg-20:retry-1`).
+     *
+     * `emit.progress` upserts by id, so every beat of one silent call updates the same
+     * single row instead of stacking a new line every four minutes — and a later step's
+     * wait gets its own row, in its own place in the transcript, rather than reviving the
+     * previous step's. It also does NOT consume the turn's `seq` counter, so a run that
+     * beats and a run that does not produce byte-identical ids for every other event.
+     */
+    const waitKey = `wait:${segmentKey ?? 'main'}`;
+    /** The last wait announced, if any — the row exists only once this is set. */
+    let waitLabel: string | undefined;
     // Per-step reasoning (agent, explicitly keyed) opens its shimmer EAGERLY so every step
     // shows its own "Thinking…" → "Thought for Ns" (U3) in order, even when the model
     // streams no reasoning tokens. A segment-scoped node (chat/edit) stays LAZY so a call
@@ -5710,7 +5738,25 @@ export class Orchestrator {
           { kind: 'model_stream', request: modelRequest, tier: modelCall.tier },
           signal,
         ) ?? providerChunks(this.provider, modelRequest, signal);
-      for await (const chunk of chunks) {
+      // A CALL THAT IS WAITING SAYS IT IS WAITING (run `369e8c82`: a manifest at 15:16:45,
+      // then nothing at all until the user force-quit at 15:55:33). Every chunk — text,
+      // reasoning, tool-call fragment — resets the silence, so a call that streams says
+      // nothing extra; only a call that has genuinely gone quiet does.
+      for await (const step of withWaitHeartbeat(chunks, {
+        intervalMs: wait ? (wait.intervalMs ?? MODEL_WAIT_HEARTBEAT_MS) : 0,
+        ...(wait?.timers ? { timers: wait.timers } : {}),
+        ...(signal ? { signal } : {}),
+      })) {
+        if (step.kind === 'waiting') {
+          waitLabel = modelWaitLabel(step.waitedMs);
+          // `progress`, not `notification`: the editor renders a progress node as an
+          // indeterminate shimmer that updates in place and vanishes when it settles —
+          // ongoing progress, not a new fact filed in the transcript. A notice per beat
+          // would leave ten permanent info cards behind a slow call.
+          yield emit.progress(waitLabel, 0, waitKey);
+          continue;
+        }
+        const chunk = step.chunk;
         if (signal?.aborted) {
           settled = true;
           // A cancelled turn still owns whatever the narration filter was holding: it is a
@@ -5789,6 +5835,12 @@ export class Orchestrator {
         const settle = settleReasoning();
         if (settle) yield settle;
       }
+      // Settle the waiting row on EVERY exit — answered, aborted, deadline, or a consumer
+      // that stopped draining. A bar left under 1 shimmers forever (`ProgressBar` renders
+      // nothing at all once it reaches 1), and "waiting" outliving the wait is the same
+      // class of lie as the spinner that outlived run `369e8c82`. Skipped entirely when no
+      // beat ever fired, so a healthy call adds no event of any kind.
+      if (waitLabel !== undefined) yield emit.progress(waitLabel, 1, waitKey);
     }
   }
 
@@ -7878,6 +7930,11 @@ export class Orchestrator {
               /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
               ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
             },
+            // The waiting heartbeat, on the one call that actually went silent for
+            // thirty-nine minutes. Same injected timers as the run's deadline — one clock
+            // abstraction for the run, not two — and the same `runSignal`, so Stop and the
+            // deadline end the beat exactly where they end the call.
+            { ...(controls.timers ? { timers: controls.timers } : {}) },
           );
         let turn = yield* streamOnce(0);
         modelCalls += 1;
