@@ -193,10 +193,25 @@ provider's own description").
 "Place it from the bin" names no tool. Music did land later, so this cost turns
 rather than the outcome. Same class as the shared-panel-service policies.
 
-### R5 — every call ran with an assumed context limit `[ ]`
+### R5 — every call ran with an assumed context limit `[x]` `c3a5590` `f55c22a`
 
 `limitAssumed: true` on all 20 calls (`openrouter/auto`, 128000 guessed).
 goal.md E: read real limits from the provider and fail loudly if unknown.
+
+**Shipped:** the assumption is now visible at both places a user can act on it.
+The context meter reads "40K of 128K tokens (assumed), estimated", exposes
+`data-limit-assumed`, adds "Model capacity assumed" to its accessible name, and
+its panel names the model, says the run budget cannot be sized to the real
+limit, and points at Settings → AI (`c3a5590`). The Settings model field runs
+`capabilitiesFor` on what is typed and warns before the run rather than after
+it (`f55c22a`).
+
+**Deliberately not done:** no live provider lookup. `model-capabilities.ts`
+rule 4 keeps that table pure and offline — a desktop run must work with no
+network, and prompt assembly must not block on HTTP. The floor also errs in the
+safe direction: an under-promised ceiling trims the prompt early, where an
+over-promised one gets the request rejected. The honest fix was therefore to
+label the guess, not to replace it.
 
 ### R6 — 20 model calls and 29 minutes had not finished the request `[ ]`
 
@@ -204,7 +219,7 @@ goal.md E: read real limits from the provider and fail loudly if unknown.
 `stage: apply` with 1 remaining objective. Worth re-measuring once R1–R3 land,
 since R2 alone burned four of those steps.
 
-### R7 — `openrouter/auto` throws the prompt cache away every few turns `[ ]`
+### R7 — `openrouter/auto` throws the prompt cache away every few turns `[x]` `f55c22a`
 
 Per-call cache reads across the run's 20 model calls, from the manifests:
 
@@ -244,6 +259,15 @@ maintainer: 218k output tokens over 20 calls (~10.4k per call, one call at
 16,345) is the half of the bill no cache touches, and it is worth knowing how
 much of it is tool arguments versus the multi-sentence `reason` prose each
 proposal carries.
+
+**Shipped:** the advice now sits at the point of entry. An id whose normalized
+form is `auto`, on a provider that offers auto-routing (`openrouter`,
+`vercel-gateway`), draws a second hint under the Settings model field saying
+each model keeps its own prompt cache, so most of the prompt is re-sent and
+re-billed on every switch — pin one model. **Deliberately not done:** the id
+still saves exactly as typed. This is a hint, not validation: the capability
+table is a cache, and a model newer than the bundled catalog must stay usable.
+The output-token question above is still open.
 
 ---
 
@@ -337,6 +361,23 @@ placed at all` with a high `toolCalls` count, which is the refusal loop itself.
 Run `pnpm eval:golden -- --case broll-first-20s` alongside it: same request, same
 footage, no overlay track. That separates "the cutaway verb is broken" from "the
 empty track is a trap".
+
+### 6. An unknown or auto-routed model id says so `c3a5590` `f55c22a`
+
+**Do:** Settings → AI → OpenRouter → Model. Type `openrouter/auto`. Then start any
+agent request and hover the context meter in the AI header. Then go back and type a
+catalogued id (`anthropic/claude-sonnet-4-5`).
+
+**Expect:** with `openrouter/auto`, two hints under the field — one naming the assumed
+capacity ("context capacity will be assumed at 128K tokens"), one on the prompt cache
+("each model keeps its own prompt cache"). The meter's figures read "… of 128K tokens
+(assumed), estimated" and the panel carries the capacity line naming the model and
+Settings → AI. With the catalogued id, both hints and both meter qualifiers disappear,
+and the meter reads 200K.
+
+**A failure looks like:** no hints at all; only one of the two on `openrouter/auto`; or
+the meter reading a bare 128K with no qualifier while the manifest says
+`limitAssumed: true`.
 
 *(The run deadline is checked by §1: set a 2-minute budget and let a run exceed it — expect one
 notification naming the limit, a `completed` status, and the edits listed. Not `cancelled`; that

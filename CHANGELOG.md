@@ -34,6 +34,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   now carries a run budget — `Stop a run after $__ / __ min`. Set it once and it applies to
   every AI run from then on. Runs no longer open by reciting it; when one reaches either
   limit it stops at the next step and tells you what it applied.
+- **FramePilot now tells you when it is guessing how much a model can hold.** Type a model
+  id it does not recognise into Settings → AI and the field says so straight away: the
+  context capacity will be assumed at the provider's floor, and a run budget cannot be
+  sized to it. The context meter says the same thing while a run is going — "128K tokens
+  (assumed)" instead of a number that looks verified. The id still saves exactly as you
+  typed it, so a brand-new model stays usable. Auto-routing ids like `openrouter/auto` get
+  a second warning: they pick a different model for every request, each with its own prompt
+  cache, so most of your prompt is re-sent and re-billed each time it switches — pinning
+  one model keeps the cache.
 - **You can point the quick routing step at a cheaper model.** Every turn starts with one
   short call that decides what you asked for — a greeting, a question, an edit — before any
   editing model runs. That call can now go to a smaller, cheaper, faster model while your
