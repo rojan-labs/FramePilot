@@ -1042,6 +1042,127 @@ describe('picture_coverage', () => {
       },
     );
 
+  /**
+   * Run `25e06a6f`: the talking head laid down to frame 1493 (its real 49.783s, snapped)
+   * and the music bed to frame 1494 (49.8s — the rounded figure every summary of that
+   * asset prints). One frame apart, and that frame is the last thing the viewer sees.
+   */
+  const soundOneFrameLongerThanPicture = () =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'talk', trackId: 'v_main', start: 0, end: 1493 / 30 })],
+        },
+        {
+          id: 'music_1',
+          type: 'audio',
+          clips: [
+            clip({
+              id: 'bed',
+              assetId: 'asset_music',
+              trackId: 'music_1',
+              start: 0,
+              end: 1494 / 30,
+            }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 49.783 },
+          { id: 'asset_music', path: 'media/m.ogx', kind: 'audio', durationSeconds: 93.64 },
+        ] as Project['assets'],
+      },
+    );
+
+  it('reports a programme that ends on a single black frame', () => {
+    // One frame is not thirty, so this passed — and the only thing that caught it was the
+    // perceptual reviewer, twice, as "Program ending is black (frame 1493)": a symptom with
+    // no cause attached. The run spent two correction attempts on it and concluded it was
+    // "likely a render or transition-model defect rather than something this edit can fix".
+    // It was one frame of sound past the end of the picture, which this check's own sentence
+    // says how to fix.
+    const coverage = idOf(
+      critique(soundOneFrameLongerThanPicture(), { minShotCount: 1 }),
+      'picture_coverage',
+    );
+    expect(coverage).toMatchObject({ status: 'fail' });
+    expect(coverage?.detail).toMatch(/renders as black/);
+    expect(coverage?.detail).toMatch(/trim the sound back to the/);
+  });
+
+  it('still says nothing about a few frames of black BETWEEN two shots', () => {
+    // The middle of a piece is where a beat of black is a beat. Reporting it there would
+    // bury the real defects, which is what the one-second threshold is for.
+    const withBeat = withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'a', trackId: 'v_main', start: 0, end: 5 }),
+            clip({ id: 'b', trackId: 'v_main', start: 5 + 10 / 30, end: 10 }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 20 },
+        ] as Project['assets'],
+      },
+    );
+    expect(idOf(critique(withBeat, { minShotCount: 1 }), 'picture_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('says nothing when picture and sound end together', () => {
+    // Two clips that genuinely end together differ by float noise, not by a frame.
+    const together = withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'talk', trackId: 'v_main', start: 0, end: 1493 / 30 })],
+        },
+        {
+          id: 'music_1',
+          type: 'audio',
+          clips: [
+            clip({
+              id: 'bed',
+              assetId: 'asset_music',
+              trackId: 'music_1',
+              start: 0,
+              end: 1493 / 30,
+            }),
+          ],
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 49.783 },
+          { id: 'asset_music', path: 'media/m.ogx', kind: 'audio', durationSeconds: 93.64 },
+        ] as Project['assets'],
+      },
+    );
+    expect(idOf(critique(together, { minShotCount: 1 }), 'picture_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('repairs the single black frame it now reports, rather than only naming it', () => {
+    // The check and the repair share one tail rule. When they did not, this reported a
+    // defect the repair declined to fix — a finding the run cannot act on, which is how a
+    // run becomes a loop.
+    const ops = repairTrailingSoundOverrun(soundOneFrameLongerThanPicture(), {
+      minShotCount: 1,
+    });
+    expect(ops).toEqual([{ type: 'trim_clip', clipId: 'bed', start: 0, end: 1493 / 30 }]);
+  });
+
   it('regression: fails a montage whose music outruns its picture', () => {
     const report = critique(musicOutrunsPicture(), { minShotCount: 61 });
     const coverage = idOf(report, 'picture_coverage');
