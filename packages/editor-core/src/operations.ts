@@ -741,9 +741,36 @@ interface ClipLocation {
   readonly clipIndex: number;
 }
 
+/** At most this many real ids are listed back; beyond it the count carries the rest. */
+const NAMED_TRACK_IDS = 8;
+
+/**
+ * The ids that DO exist, appended to a not-found message.
+ *
+ * A missing track is almost always a typo on an id the author has already read — run
+ * `25e06a6f` asked twice for `captains_main` on a project whose one caption track is
+ * `captions_main`, and lost the turn to it. The list of real ids is in hand at the moment
+ * the error is thrown, and telling the reader to go and look it up instead is a round trip
+ * for a fact that is already here.
+ */
+const knownTrackIds = (timeline: Timeline): string => {
+  const ids = timeline.tracks.map((track) => track.id);
+  if (ids.length === 0) return ' This timeline has no tracks.';
+  const named = ids.slice(0, NAMED_TRACK_IDS);
+  const rest = ids.length - named.length;
+  return ` The tracks in this timeline are: ${named.join(', ')}${
+    rest > 0 ? `, and ${String(rest)} more` : ''
+  }.`;
+};
+
 const findTrack = (timeline: Timeline, trackId: string): { track: Track; index: number } => {
   const index = timeline.tracks.findIndex((t) => t.id === trackId);
-  if (index < 0) throw new OperationError('missing_track', `Track not found: ${trackId}`);
+  if (index < 0) {
+    throw new OperationError(
+      'missing_track',
+      `Track not found: ${trackId}.${knownTrackIds(timeline)}`,
+    );
+  }
   return { track: timeline.tracks[index]!, index };
 };
 

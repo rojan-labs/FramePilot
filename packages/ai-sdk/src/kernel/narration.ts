@@ -143,32 +143,49 @@ export function createNarrationFilter(): NarrationFilter {
   let held = '';
   let open = true;
   let stripped = 0;
+  /** Has any real text reached the reader yet? Gates the opening trim below. */
+  let surfaced = false;
+
+  /**
+   * Left-trim, but only while a dropped preamble's trailing whitespace could still be at
+   * the front of the message.
+   *
+   * `held = split.rest.trimStart()` handles the whitespace that arrived WITH the sentence
+   * being dropped. It cannot handle the whitespace that arrives after it — and a model
+   * streaming one sentence per delta puts the separating space at the head of the *next*
+   * chunk, which is the common case, not the exotic one. Without this the reader gets a
+   * message opening on a space or a blank line, which is precisely what the strip exists
+   * to avoid.
+   */
+  const openingTrim = (text: string): string =>
+    stripped > 0 && !surfaced ? text.trimStart() : text;
 
   /** Judge as many complete leading sentences as `held` currently contains. */
   const drain = (): string => {
     let out = '';
     for (;;) {
+      held = openingTrim(held);
       if (stripped >= MAX_STRIPPED_SENTENCES) {
         open = false;
         out += held;
         held = '';
-        return out;
+        break;
       }
       const split = firstSentence(held);
       if (!split) {
         // No terminator yet. Release only once the budget is spent, so an unusually long
         // first sentence cannot stall the stream.
-        if (held.length < PREAMBLE_BUDGET) return out;
+        if (held.length < PREAMBLE_BUDGET) break;
         open = false;
         out += held;
         held = '';
-        return out;
+        break;
       }
       if (!isRunChatter(split.sentence)) {
         open = false;
         out += held;
         held = '';
-        return out;
+        break;
       }
       // Drop it, and keep judging: a second preamble sentence can follow the first. The
       // whitespace that separated the two sentences goes with the one being dropped, so a
@@ -176,11 +193,17 @@ export function createNarrationFilter(): NarrationFilter {
       stripped += 1;
       held = split.rest.trimStart();
     }
+    if (out !== '') surfaced = true;
+    return out;
   };
 
   return {
     push(chunk: string): string {
-      if (!open) return chunk;
+      if (!open) {
+        const out = openingTrim(chunk);
+        if (out !== '') surfaced = true;
+        return out;
+      }
       held += chunk;
       return drain();
     },
@@ -189,10 +212,12 @@ export function createNarrationFilter(): NarrationFilter {
       // Stream ended while still deciding. Anything held is an incomplete sentence the
       // judge never got to rule on, so it is released rather than swallowed — unless it is
       // itself unmistakable run chatter with no terminator.
-      const rest = held;
+      const rest = openingTrim(held);
       held = '';
       open = false;
-      return stripped > 0 && isRunChatter(rest) ? '' : rest;
+      if (stripped > 0 && isRunChatter(rest)) return '';
+      if (rest !== '') surfaced = true;
+      return rest;
     },
   };
 }

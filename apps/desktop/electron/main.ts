@@ -2765,10 +2765,22 @@ function registerIpcHandlers(): void {
               durableRunId,
             );
             if (!committed.ok) {
+              // The commit path already produced a cause; SAY it. The manual commit branch
+              // above has always surfaced `issues`, and this one — the agent's — did not:
+              // every authoritative refusal reached the run, and the creator, as the bare
+              // sentence "The proposed edit failed authoritative validation", which names
+              // nothing to fix. That is the same defect shape #72 found in the turn-cap
+              // branch: a reason exists at the point of refusal and is discarded one line
+              // later. Run `e8cb2636` lost a whole turn to a refusal the log could not
+              // explain, and the cause was sitting in `committed.issues` unread.
+              const problem = committed.issues
+                ?.filter((issue) => issue.severity === 'error')
+                .map((issue) => issue.message)
+                .join('; ');
               const reason =
                 committed.code === 'revision_conflict'
                   ? 'The project changed and this edit overlaps newer work. Replan from the current revision.'
-                  : 'The proposed edit failed authoritative validation.';
+                  : (problem ?? 'The proposed edit failed authoritative validation.');
               commitLedger.record(patch.patchId, { state: 'stale', reason });
               await runGatewayCoordinator.recordPatchLifecycle({
                 runId: durableRunId,

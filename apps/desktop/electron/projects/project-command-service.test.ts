@@ -229,7 +229,52 @@ describe('ProjectCommandService.commitPatch', () => {
     expect(reloaded.project(initial.id)?.history).toHaveLength(1);
   });
 
-  it('rejects patch-id reuse with different content', async () => {
+  it('replays a repeat of the same operations even though the model reworded its reason', async () => {
+    // The captured defect. `patchIdFor` hashes the OPERATIONS; `reason` is the model's
+    // narration for the turn, which is different prose every time. Comparing the whole
+    // patch object therefore compared the prose, so a repeat of an edit the project had
+    // already committed — re-transcribing the same video to the same words — was refused
+    // as `invalid_patch` rather than replayed, and refused again on every retry, because
+    // the id is deterministic. Run `e8cb2636` spent its whole first turn on it and got
+    // back "the proposed edit failed authoritative validation" for a no-op.
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const operations = [{ type: 'add_marker' as const, id: 'marker_1', time: 1 }];
+    const first = await service.commitPatch(
+      initial.id,
+      revision,
+      {
+        patchId: 'agent_marker',
+        createdBy: 'agent',
+        reason: "I'm setting up the edit foundation first.",
+        operations,
+      },
+      async () => undefined,
+      'run_1',
+    );
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const write = vi.fn(async () => undefined);
+    const reworded = await service.commitPatch(
+      initial.id,
+      revision,
+      {
+        patchId: 'agent_marker',
+        createdBy: 'agent',
+        reason: 'Building this edit from the ground up.',
+        operations,
+      },
+      write,
+      'run_2',
+    );
+
+    expect(reworded).toMatchObject({ ok: true, replayed: true, revision: first.revision });
+    expect(write).not.toHaveBeenCalled();
+  });
+
+  it('rejects patch-id reuse with different content, and says which', async () => {
     const service = new ProjectCommandService(JSON.stringify);
     const initial = project([]);
     const revision = service.observe(initial).revision;
@@ -249,6 +294,10 @@ describe('ProjectCommandService.commitPatch', () => {
       'run_1',
     );
     expect(collision).toMatchObject({ ok: false, code: 'invalid_patch' });
+    // A reason the caller can show. Without it the desktop path had nothing to say but
+    // "the proposed edit failed authoritative validation", which names no cause at all.
+    if (collision.ok) return;
+    expect(collision.issues?.[0]?.message).toContain('agent_marker');
   });
 });
 

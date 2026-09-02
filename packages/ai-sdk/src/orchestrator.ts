@@ -153,6 +153,7 @@ import type { TemporalEvidenceAcquirer } from './temporal-evidence-client.js';
 import {
   planTemporalEvidenceForEdit,
   reviewTemporalEvidence,
+  type TemporalEvidenceRequest,
   type TemporalReviewReport,
 } from './temporal-review.js';
 import type { ProjectVisionFrameAcquirer } from './vision-evidence-client.js';
@@ -280,6 +281,13 @@ export interface ModelCallContext {
   /** Tokens held back for the reply; defaults to the selected model's output cap. */
   readonly reservedOutputTokens?: number;
   /**
+   * Whether {@link reservedOutputTokens} is a cap someone actually CHOSE — a caller's
+   * `budget.maxOutputTokens` — rather than the figure derived from the model's
+   * capabilities. See {@link outputRoomFor}: a derived figure for a model we do not
+   * recognise is a guess, and a guess must not go on the wire as a hard limit.
+   */
+  readonly explicitOutputCap?: boolean;
+  /**
    * The tier account from `assembleContext`. The ONLY way a dropped section reaches the
    * manifest — a trimmed tier leaves no trace in the payload, so a payload-derived
    * manifest cannot know compaction happened.
@@ -312,16 +320,46 @@ function reservedOutputFor(input: ContextInput, provider?: AiProvider): number {
 }
 
 /**
- * The `maxTokens` to put on the wire for one model call: the room the manifest reserved,
- * never more than the model's real output ceiling. Exported for tests.
+ * The `maxTokens` to put on the wire for one model call, or `undefined` to send none.
+ *
+ * ## Why an assumed ceiling must NOT be sent
+ *
+ * `maxOutputTokens` does two different jobs, and the conservative-floor rule is right for
+ * one of them and actively harmful for the other:
+ *
+ * - **Reserving room in the context budget.** Under-promising is safe: the prompt is
+ *   trimmed a little early and the request succeeds.
+ * - **The `max_tokens` we put on the wire.** Under-promising is not safe at all. It does
+ *   not make the request safer; it *cuts the model off mid-reply*.
+ *
+ * For a model the catalog does not carry, `capabilitiesFor` returns the provider's floor
+ * and says so via `source: 'provider_default'` — "we do not know this model". Sending that
+ * guess as a hard cap asserts a limit nobody measured.
+ *
+ * Run `e8cb2636` is what that costs. `openrouter/auto` is not in the catalog, so every
+ * request went out with `max_tokens: 8192` — and three consecutive steps came back having
+ * spent **exactly 8,192** output tokens. Two recovered on their retry; the third did not,
+ * and the run stopped with the stock footage it had just downloaded still sitting in the
+ * bin, unplaced. The model was never near its own limit. It was near ours.
+ *
+ * So a derived figure for an unrecognised model is omitted, and the provider applies the
+ * model's real maximum: `@langchain/openai` sends no `max_tokens` when it is not given one,
+ * and `@langchain/anthropic` — whose API requires the field — fills in its own per-model
+ * default. A cap a caller actually CHOSE is always sent, and a recognised model's ceiling
+ * is a measured number, so both still go on the wire.
+ *
+ * The reservation is unchanged: the budget still holds the conservative figure back, which
+ * is the half of this that was always right. Exported for tests.
  */
 export function outputRoomFor(
   provider: AiProvider | undefined,
-  modelCall: { readonly reservedOutputTokens?: number },
-): number {
-  const ceiling = capabilitiesFor(provider?.name, provider?.modelId).maxOutputTokens;
-  const reserved = modelCall.reservedOutputTokens ?? ceiling;
-  return Math.max(1, Math.min(reserved, ceiling));
+  modelCall: { readonly reservedOutputTokens?: number; readonly explicitOutputCap?: boolean },
+): number | undefined {
+  const capability = capabilitiesFor(provider?.name, provider?.modelId);
+  const assumed = capability.source === 'provider_default' && modelCall.explicitOutputCap !== true;
+  if (assumed) return undefined;
+  const reserved = modelCall.reservedOutputTokens ?? capability.maxOutputTokens;
+  return Math.max(1, Math.min(reserved, capability.maxOutputTokens));
 }
 
 /**
@@ -534,26 +572,95 @@ function bankedSearchCount(working: RunWorkingState | undefined): number {
  * produces an identical, identically cut-off reply. Telling it, and asking for smaller
  * steps, is what turns the second attempt into a different one.
  */
-export function truncationRetryHint(): string {
-  return (
+export function truncationRetryHint(dropped: readonly string[] = []): string {
+  const base =
     'Your previous reply was cut off before any tool call completed, so nothing was ' +
     'applied. Do the same work in smaller pieces: make at most four tool calls now, ' +
-    'with short arguments, and continue with the rest on the next turn.'
+    'with short arguments, and continue with the rest on the next turn.';
+  if (dropped.length === 0) return base;
+  // Naming the tools is what makes the second attempt DIFFERENT. Without it the model
+  // has no way to know which of its asks never arrived — the conversation, from its side,
+  // simply continues — so it repeats the same batch and it is cut at the same place.
+  const names = [...new Set(dropped)].join(', ');
+  return (
+    `${base} The arguments for ${names} arrived incomplete and were discarded, so ` +
+    'nothing from that call ran. Re-issue it on its own, with the shortest arguments ' +
+    'that still do the job.'
+  );
+}
+
+/**
+ * What to tell the creator when a step came back with no answer and no tool call.
+ *
+ * Two very different causes wear the same empty completion, and only one of them is the
+ * provider's fault:
+ *
+ * - the request was dropped after a 200 — an overloaded or rate-limited gateway;
+ * - the model spent its ENTIRE output budget on reasoning and had nothing left to say
+ *   with. A reasoning model behind a conservative output cap does this readily, and the
+ *   billing proves it: the turn is charged for the whole reservation.
+ *
+ * The captured run was the second, charged 8,192 output tokens against an 8,192-token
+ * reservation, and was told the provider was overloaded — an explanation that pointed the
+ * creator at the one thing they could not have changed. The fix for that run is a bigger
+ * output reservation or a smaller step, and the message now says so.
+ *
+ * `usage` absent ⇒ nothing was reported, so the cause is unknowable and the message stays
+ * the general one. Exported for tests.
+ */
+export function emptyResponseDetail(
+  usage: Usage | undefined,
+  /** The `max_tokens` this request actually carried, or `undefined` when it carried none. */
+  sentOutputCap: number | undefined,
+): string {
+  const spent = usage?.outputTokens ?? 0;
+  if (sentOutputCap !== undefined && spent > 0 && spent >= sentOutputCap) {
+    return (
+      `The model used its entire output allowance (${spent} tokens) without producing an ` +
+      'answer or a tool call, on every attempt — a reasoning model can spend the whole ' +
+      'budget thinking. Ask for a smaller step, or raise the output limit for this model.'
+    );
+  }
+  return (
+    'The model returned an empty response — no answer and no tool call, on every ' +
+    'attempt. This is usually the provider dropping the request (overloaded or ' +
+    'rate-limited).'
   );
 }
 
 export function unusableTurnReason(
-  turn: { readonly text: string; readonly calls: readonly unknown[]; readonly truncated?: boolean },
+  turn: {
+    readonly text: string;
+    readonly calls: readonly unknown[];
+    readonly truncated?: boolean;
+    readonly droppedToolCalls?: readonly string[];
+  },
   appliedOpsSoFar: number,
   stage: RunStage | undefined,
 ): 'empty' | 'truncated' | undefined {
   if (turn.calls.length > 0) return undefined;
-  if (turn.text.trim() === '') return 'empty';
-  // A truncated reply after work has landed is survivable — the run keeps the edits and the
-  // reducer settles it — and a run already at verify/complete is allowed to finish on prose.
-  if (appliedOpsSoFar > 0) return undefined;
-  if (stage === 'verify' || stage === 'complete') return undefined;
-  return turn.truncated === true ? 'truncated' : undefined;
+  const dropped = (turn.droppedToolCalls ?? []).length > 0;
+  // WHAT WE KNOW ABOUT WHY IT STOPPED COMES FIRST. Reading the empty case first — as this
+  // did — labels a reply the provider explicitly cut off at its token ceiling as a dropped
+  // request, and the two are retried differently: `empty` replays the turn verbatim, which
+  // for a model that has just spent its whole output budget produces the identical empty
+  // reply. In the captured run both attempts billed 8,192 output tokens and returned
+  // nothing, and the run failed telling the creator the gateway was overloaded.
+  if (turn.truncated === true || dropped) {
+    // A turn that ASKED for tools and lost every one of them to a cut-off stream was still
+    // asking: the run has more to do whatever it has already applied. That misreading is
+    // what ended the captured run's first turn as "completed" on a sentence that stopped
+    // mid-word, with the motion work it had promised one line earlier never attempted.
+    if (dropped) return 'truncated';
+    // Cut off with nothing said and nothing asked. There is no answer here to keep.
+    if (turn.text.trim() === '') return 'truncated';
+    // A truncated reply after work has landed is survivable — the run keeps the edits and
+    // the reducer settles it — and a run already at verify/complete may finish on prose.
+    if (appliedOpsSoFar > 0) return undefined;
+    if (stage === 'verify' || stage === 'complete') return undefined;
+    return 'truncated';
+  }
+  return turn.text.trim() === '' ? 'empty' : undefined;
 }
 
 // Named `orchestratorLog` (not `log`) because the agent-run closure has a local
@@ -1132,6 +1239,34 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
  * briefing's {@link distil} uses. When the tool and the operation are the same thing
  * (`trim_clip` → `trim_clip`), naming both would only restate it, and the line is unchanged.
  */
+/**
+ * The sentence `caption_the_edit` owes the run about how its cues will LOOK, or `''`.
+ *
+ * The tool writes cue text and cue timing. It does not touch the track's design, and its
+ * note — one line per operation — never mentioned the omission, so a run had no way to
+ * tell a styled caption track from an unstyled one except by reading the track back.
+ *
+ * Run `e8cb2636` did not read it back. It captioned the edit, told the editor the cues
+ * were "already styled to a boxed template", and moved on. Nothing was styled; the claim
+ * was invented out of the silence. That is the same shape as every other honesty fix in
+ * this file: the fact existed at the moment the note was written and was not put in it.
+ *
+ * Said only when there is something to say. A track that already carries a style gets no
+ * sentence, because there is nothing left to do about it.
+ *
+ * Exported for tests.
+ */
+export function captionStyleNote(project: Project, trackId: unknown): string {
+  if (typeof trackId !== 'string') return '';
+  const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
+  if (track === undefined || track.captionStyle !== undefined) return '';
+  return (
+    ' These cues carry no track style yet, so they render in the plain default look — ' +
+    'set_track_caption_style is what gives them a design, and auto_emphasize_captions ' +
+    'is what makes individual words pop.'
+  );
+}
+
 function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
@@ -2015,7 +2150,84 @@ export function evidencePayload(toolName: string, value: unknown): unknown {
   };
 }
 
-export function summarizeReadResult(toolName: string, value: unknown): string {
+/**
+ * A `## <assetId> (<path>)` heading in the brain's media-bin summary.
+ *
+ * Anchored to the line start so an id containing "## " (there are none, but the pattern
+ * should not depend on that) cannot open a section from the middle of a body line.
+ */
+const BIN_SUMMARY_HEADING = /^## (\S+) \(([^)]*)\)$/;
+
+/**
+ * The brain's media-bin summary, reconciled against the bin the project ACTUALLY has.
+ *
+ * ## Why the memory has to be filtered before the model reads it
+ *
+ * `binSummary` is the project brain's record of every asset it has ever analysed. The
+ * brain accumulates; the bin does not. Remove a track, re-import a recording, and the
+ * summary still describes what used to be there — and `session_context` handed that to the
+ * model as present-tense fact about the project.
+ *
+ * Run `e8cb2636` is what it costs. The summary listed
+ * `music_openverse_63510d28_…` from an earlier session; `list_assets`, called twice in the
+ * same run, returned one asset and no music at all. The agent reasonably placed the track
+ * it had been told the project held, and `add_clip` came back "Unknown asset
+ * 'music_openverse_63510d28_…'". The bed never landed, and the run's closing summary
+ * carried the failure to the creator as a change that "did not land".
+ *
+ * The same summary named the recording as `ISOM_Batch1_Assignment1.mp4` when the bin held
+ * `ISOM_Batch1_Assignment1_2.mp4` under that id — the user had re-imported it. So the path
+ * is refreshed from the live asset too: a memory is allowed to be old, and is not allowed
+ * to be wrong about what is on disk right now.
+ *
+ * Analysis for assets still in the bin is kept untouched — that is the whole value of the
+ * memory, and none of it is invalidated by an unrelated asset leaving.
+ *
+ * Exported for tests.
+ */
+export function reconcileBinSummary(
+  summary: string,
+  assets: readonly { readonly id: string; readonly path: string }[],
+): string {
+  const byId = new Map(assets.map((asset) => [asset.id, asset.path]));
+  const lines = summary.split('\n');
+  const kept: string[] = [];
+  let dropped = 0;
+  // `undefined` until the first heading: everything before it is the file's own header,
+  // which belongs to no asset and is always kept.
+  let keepingSection: boolean | undefined;
+  for (const line of lines) {
+    const heading = BIN_SUMMARY_HEADING.exec(line);
+    if (heading) {
+      const [, assetId] = heading as unknown as [string, string, string];
+      const path = byId.get(assetId);
+      keepingSection = path !== undefined;
+      if (!keepingSection) {
+        dropped += 1;
+        continue;
+      }
+      kept.push(`## ${assetId} (${path})`);
+      continue;
+    }
+    if (keepingSection === false) continue;
+    kept.push(line);
+  }
+  if (dropped === 0) return summary;
+  // Trailing blank lines left behind by a dropped section would otherwise accumulate.
+  while (kept.length > 0 && (kept[kept.length - 1] as string).trim() === '') kept.pop();
+  const noun = dropped === 1 ? 'asset is' : 'assets are';
+  return (
+    `${kept.join('\n')}\n\n_${dropped} analysed ${noun} no longer in this project's bin and ` +
+    'have been left out of this summary; call list_assets for what the bin holds now._\n'
+  );
+}
+
+export function summarizeReadResult(
+  toolName: string,
+  value: unknown,
+  /** The project's live media bin, when the caller has it (see {@link reconcileBinSummary}). */
+  assets: readonly { readonly id: string; readonly path: string }[] = [],
+): string {
   const obj = (value ?? {}) as Record<string, unknown>;
   switch (toolName) {
     case 'search_media':
@@ -2130,7 +2342,12 @@ export function summarizeReadResult(toolName: string, value: unknown): string {
         ['Media bin', 'binSummary'],
       ];
       const blocks = sections
-        .map(([label, key]) => [label, typeof obj[key] === 'string' ? obj[key].trim() : ''])
+        .map(([label, key]) => {
+          const body = typeof obj[key] === 'string' ? obj[key].trim() : '';
+          // The bin summary is the one section that makes claims the project can
+          // contradict, so it is the one section reconciled against it.
+          return [label, key === 'binSummary' ? reconcileBinSummary(body, assets).trim() : body];
+        })
         .filter(([, body]) => body !== '')
         .map(([label, body]) => `${label}:\n${body}`);
       return blocks.length === 0 ? 'nothing learned about this project yet' : blocks.join('\n\n');
@@ -2736,6 +2953,52 @@ function summarizeArgs(args: Record<string, unknown>, max = 80): string {
  * — better to offer no jump than to send someone to 0:00 and let them conclude the finding
  * is about the opening.
  */
+/**
+ * The frame an evidence request is about, whatever kind it is.
+ *
+ * A frame request carries `atFrame`; the windowed kinds (range, audio, loudness, motion,
+ * comparison) carry `startFrame`. Probed rather than switched on `kind` so a new request
+ * shape that carries either is located without a second place to update.
+ */
+export function requestFrame(request: TemporalEvidenceRequest): number | undefined {
+  const record = request as unknown as Record<string, unknown>;
+  for (const key of ['atFrame', 'startFrame']) {
+    const value = record[key];
+    if (typeof value === 'number' && Number.isFinite(value)) return value;
+  }
+  return undefined;
+}
+
+/**
+ * Where the earliest FAILING piece of temporal evidence sits, in seconds.
+ *
+ * `ReviewFinding.atSeconds` is documented as "where in the programme it sits, for a jump
+ * affordance", and it was filled with {@link earliestTouchedSecond} — the start of the
+ * earliest clip the reviewed TURN touched, stamped identically on every finding that turn
+ * produced. That is where the edit was, not where the defect is.
+ *
+ * Run `25e06a6f` reported `Program ending is black (frame 1493)` — 49.767s of a 49.8s
+ * programme — twice, at `0s` and at `0.067s`, because the turns that triggered those
+ * reviews had touched a clip starting at zero. An editor following the jump lands at the
+ * top of the timeline to look at a defect in its final frame.
+ *
+ * The failing request knows its own frame, so the finding is placed from that, earliest
+ * first when several failed. A review that fails with no frame anywhere (a whole-programme
+ * check) still falls back to the turn's location, which is better than nothing.
+ */
+export function failingReviewSecond(
+  requests: readonly TemporalEvidenceRequest[],
+  failing: readonly { readonly requestId: string }[],
+  fps: number,
+): number | undefined {
+  if (!(Number.isFinite(fps) && fps > 0)) return undefined;
+  const frameById = new Map(requests.map((request) => [request.requestId, requestFrame(request)]));
+  const frames = failing
+    .map((check) => frameById.get(check.requestId))
+    .filter((frame): frame is number => frame !== undefined);
+  return frames.length === 0 ? undefined : Math.min(...frames) / fps;
+}
+
 function earliestTouchedSecond(project: Project, region: TouchedRegion): number | undefined {
   let earliest: number | undefined;
   for (const track of project.timeline.tracks) {
@@ -4032,7 +4295,8 @@ export class Orchestrator {
       // Built from `data`, NOT `outcome.data`: this preview is what the model actually
       // reads (the payload is digested into the note), so a rewrite that skipped it would
       // fix the card and leave the model with the same false claim.
-      const preview = data !== undefined ? ` → ${summarizeReadResult(call.name, data)}` : '';
+      const preview =
+        data !== undefined ? ` → ${summarizeReadResult(call.name, data, ctx.project.assets)}` : '';
       return {
         ops: [],
         note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${hostEvidence ? ` [${hostEvidence.id}]` : ''}`,
@@ -4216,7 +4480,7 @@ export class Orchestrator {
         // (so it never has to invent asset/clip ids) plus the evidence handle that makes
         // the full payload retrievable for the rest of the run; the popup gets the full
         // object (`data`).
-        const preview = summarizeReadResult(call.name, value);
+        const preview = summarizeReadResult(call.name, value, ctx.project.assets);
         const note = stored ? `${desc} → ${preview} [${stored.id}]` : `${desc} → ${preview}`;
         return {
           ops: [],
@@ -4314,7 +4578,12 @@ export class Orchestrator {
       // One set of numbers, from here to the turn's patch to the ledger. `quantizePatch`
       // is idempotent, so re-normalizing at turn end is a no-op.
       const normalized = [...probe.patch.operations];
-      const note = summarizeOperations(normalized, names, call);
+      const applied = applyProjectPatch(ctx.project, probe.patch);
+      const note =
+        summarizeOperations(normalized, names, call) +
+        (call.name === 'caption_the_edit'
+          ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '');
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -4333,7 +4602,7 @@ export class Orchestrator {
         // A tool whose op count the model cannot influence does not spend the run's
         // blast-radius budget (see `ToolSpec.derivedFanOut`).
         ...derivedOps(call.name, normalized),
-        project: applyProjectPatch(ctx.project, probe.patch),
+        project: applied,
       };
     } catch (error) {
       // The old comment here claimed only a `ToolInvocationError` for invalid args could
@@ -4752,19 +5021,14 @@ export class Orchestrator {
           fromCache,
           images,
           derivedOpCount: callDerivedOps,
-        } = await this.runAgentCall(
-          call,
-          ctx,
-          names,
-          {
-            effectRuntime,
-            evidence,
-            beatEvidence,
-            loadedSkills,
-            loadedToolDomains,
-            analysisBudget,
-          },
-        );
+        } = await this.runAgentCall(call, ctx, names, {
+          effectRuntime,
+          evidence,
+          beatEvidence,
+          loadedSkills,
+          loadedToolDomains,
+          analysisBudget,
+        });
         turnOps.push(...ops);
         notes.push(note);
         if (callDerivedOps) derivedOpCount += callDerivedOps;
@@ -5171,7 +5435,14 @@ export class Orchestrator {
     },
   ): AsyncGenerator<
     AiEvent,
-    { text: string; calls: ToolCall[]; aborted: boolean; usage?: Usage; truncated?: boolean }
+    {
+      text: string;
+      calls: ToolCall[];
+      aborted: boolean;
+      usage?: Usage;
+      truncated?: boolean;
+      droppedToolCalls?: readonly string[];
+    }
   > {
     let text = '';
     // The narration boundary (kernel/narration.ts). Assistant text reaches the UI as live
@@ -5190,6 +5461,10 @@ export class Orchestrator {
     // The provider's own "I stopped because I ran out of room" (see `ProviderChunk`'s
     // `done.truncated`). Never inferred from the prose.
     let truncated = false;
+    // Tool calls the stream carried but could not be reassembled (see `done.droppedToolCalls`).
+    // Named so the retry can tell the model WHICH ask never arrived — a blind retry of a
+    // turn whose `add_clip` was cut in half asks for the same thing the same way.
+    let droppedToolCalls: readonly string[] = [];
     // Built once, just before the call, and reused when the provider settles.
     let manifest: ContextManifest | undefined;
     const captureReasoning = sink.kind === 'assistant' && sink.captureReasoning === true;
@@ -5237,10 +5512,9 @@ export class Orchestrator {
     // OpenAI-compatible path), so a long tool-call batch was cut mid-JSON, classified
     // "truncated", retried once at the same cap, and the run failed — while the window
     // accounting believed 128k of output was available (plan/system-mission P1.1).
+    const outputRoom = request.maxTokens ?? outputRoomFor(this.provider, modelCall);
     const withOutputRoom: AiCompletionRequest =
-      request.maxTokens !== undefined
-        ? request
-        : { ...request, maxTokens: outputRoomFor(this.provider, modelCall) };
+      outputRoom === undefined ? request : { ...request, maxTokens: outputRoom };
     const modelRequest: AiCompletionRequest = captureReasoning
       ? { ...withOutputRoom, reasoningEffort: withOutputRoom.reasoningEffort ?? 'medium' }
       : withOutputRoom;
@@ -5321,6 +5595,7 @@ export class Orchestrator {
           // The text is already accumulated from the deltas; what only 'done' carries is
           // whether the provider cut the reply off.
           truncated = chunk.truncated === true;
+          droppedToolCalls = chunk.droppedToolCalls ?? [];
         }
       }
       settled = true;
@@ -5350,6 +5625,7 @@ export class Orchestrator {
         aborted: signal?.aborted ?? false,
         ...(usage ? { usage } : {}),
         ...(truncated ? { truncated: true } : {}),
+        ...(droppedToolCalls.length > 0 ? { droppedToolCalls } : {}),
       };
     } finally {
       if (!settled) {
@@ -5558,9 +5834,7 @@ export class Orchestrator {
     // fails is discarded in silence — the serial call will make the same request and report
     // the failure through the normal path, so an error is never reported twice or early.
     const warmable = calls.filter(
-      (call) =>
-        (call.name === 'add_stock' || call.name === 'add_music') &&
-        admitCall(call),
+      (call) => (call.name === 'add_stock' || call.name === 'add_music') && admitCall(call),
     );
     if (warmable.length > 1) {
       orchestratorLog.action('warming sourcing downloads', {
@@ -6029,6 +6303,7 @@ export class Orchestrator {
             tier: 'mid',
             contextWindow: contextWindowFor(input, this.provider),
             reservedOutputTokens: reservedOutputFor(input, this.provider),
+            explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
             assembled,
           },
         );
@@ -6147,6 +6422,7 @@ export class Orchestrator {
           tier: 'mid',
           contextWindow: contextWindowFor(input, this.provider),
           reservedOutputTokens: reservedOutputFor(input, this.provider),
+          explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
           assembled,
         },
       );
@@ -6189,6 +6465,7 @@ export class Orchestrator {
         tier: 'mid',
         contextWindow: contextWindowFor(input, this.provider),
         reservedOutputTokens: reservedOutputFor(input, this.provider),
+        explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
         assembled,
       },
     );
@@ -6517,6 +6794,13 @@ export class Orchestrator {
     readonly repairable: boolean;
     readonly detail: string;
     readonly lineage: readonly string[];
+    /**
+     * Where in the programme the earliest FAILING evidence sits, when it has a frame.
+     *
+     * The finding's own location, as opposed to the reviewed turn's. See
+     * {@link failingReviewSecond}.
+     */
+    readonly atSeconds?: number;
   } | null> {
     const durationFrames = Math.max(
       1,
@@ -6546,11 +6830,13 @@ export class Orchestrator {
       .map((check) => `${check.requestId}: ${check.issues.join(' ')}`)
       .join(' ')
       .slice(0, 1000);
+    const atSeconds = failingReviewSecond(requests, failing, workingProject.fps);
     return {
       report,
       passed,
       repairable: failing.length > 0 && failing.every((check) => check.status === 'fail'),
       detail,
+      ...(atSeconds === undefined ? {} : { atSeconds }),
       lineage: [
         `temporal:revision=${report.projectRevision}`,
         `temporal:render-settings=${acquisition.renderSettings.identity}`,
@@ -6590,13 +6876,14 @@ export class Orchestrator {
       trackIds: region.trackIds,
       clipIds: region.clipIds,
     };
-    const atSeconds = earliestTouchedSecond(args.after, region);
+    // The turn's location, used only when a finding cannot place itself.
+    const turnSecond = earliestTouchedSecond(args.after, region);
     const found: ReviewFinding[] = [];
     const base = {
       turnIndex: args.turnIndex,
       scope,
       ...(args.planStepId === undefined ? {} : { planStepId: args.planStepId }),
-      ...(atSeconds === undefined ? {} : { atSeconds }),
+      ...(turnSecond === undefined ? {} : { atSeconds: turnSecond }),
     };
 
     if (args.temporal) {
@@ -6610,6 +6897,8 @@ export class Orchestrator {
       if (review && !review.passed) {
         found.push({
           ...base,
+          // The failing evidence places itself; `base`'s turn location is the fallback.
+          ...(review.atSeconds === undefined ? {} : { atSeconds: review.atSeconds }),
           id: `temporal:${args.edit.patch.patchId}`,
           detail: review.detail || 'Temporal review could not confirm this edit.',
           lineage: review.lineage,
@@ -6688,6 +6977,7 @@ export class Orchestrator {
         tier: 'mid',
         contextWindow: contextWindowFor(input, this.provider),
         reservedOutputTokens: reservedOutputFor(input, this.provider),
+        explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
         assembled,
       },
     );
@@ -7352,6 +7642,7 @@ export class Orchestrator {
               tier: 'mid',
               contextWindow: contextWindowFor(input, self.provider),
               reservedOutputTokens: reservedOutputFor(input, self.provider),
+              explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
               // What the project view actually held, tier by tier — the only way a dropped
               // section reaches the manifest, since a trimmed tier leaves no trace in the
               // payload. See `agentMessages`'s return type.
@@ -7383,7 +7674,13 @@ export class Orchestrator {
           const retryPrompt = built();
           const retryMessages =
             unusable === 'truncated'
-              ? [...retryPrompt.messages, { role: 'user' as const, content: truncationRetryHint() }]
+              ? [
+                  ...retryPrompt.messages,
+                  {
+                    role: 'user' as const,
+                    content: truncationRetryHint(turn.droppedToolCalls ?? []),
+                  },
+                ]
               : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
@@ -7409,12 +7706,23 @@ export class Orchestrator {
         }
         if (unusable === 'truncated' && !turn.aborted) {
           // Publishing the fragment would make a cut-off sentence the run's last word.
+          //
+          // Two shapes, and telling them apart is the whole point of the message. With
+          // nothing applied the run genuinely produced no edit. With edits already on the
+          // timeline the run STOPPED EARLY holding real work — which used to be reported
+          // as an ordinary finish, so a run that was cut off halfway through the plan it
+          // had just narrated closed as "completed" with the rest silently abandoned.
+          const applied = state.cumulativeOps.length > 0;
           yield emit.warning(
-            'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
+            applied
+              ? 'The model ran out of output room mid-reply on every attempt, so this run stopped early. The edits from the earlier steps are kept — ask for the rest in a smaller step.'
+              : 'The model ran out of output room mid-reply and asked for no tool call, on every attempt. Nothing was applied. Retry, or ask for a smaller step.',
           );
           return turnBase(index, emit.seq(), {
             done: true,
-            note: 'The model response was truncated before it proposed anything.',
+            note: applied
+              ? 'The model response was truncated; the run stopped early with the earlier edits kept.'
+              : 'The model response was truncated before it proposed anything.',
           });
         }
         if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
@@ -7430,10 +7738,20 @@ export class Orchestrator {
           if (!turn.text.trim()) {
             // The bounded retry above has already been spent, so this is the provider
             // failing repeatedly rather than a single dropped request.
-            const detail =
-              'The model returned an empty response — no answer and no tool call, on every ' +
-              'attempt. This is usually the provider dropping the request (overloaded or ' +
-              'rate-limited).';
+            //
+            // Unless it BILLED for the whole reply. A reasoning model handed a small output
+            // cap can spend every one of those tokens thinking and emit no visible answer:
+            // the wire carries an empty completion, but the cause is a budget, not an
+            // outage. Measured against the cap actually SENT, never against the budget's
+            // reservation — with no cap on the wire the model stopped for its own reasons
+            // and nothing here is entitled to name one.
+            const detail = emptyResponseDetail(
+              turn.usage,
+              outputRoomFor(self.provider, {
+                reservedOutputTokens: reservedOutputFor(input, self.provider),
+                explicitOutputCap: input.budget?.maxOutputTokens !== undefined,
+              }),
+            );
             if (state.cumulativeOps.length > 0) {
               log.push(`Step ${index}: empty model response — keeping the edits already applied.`);
               yield emit.warning(`${detail} The edits from earlier steps are kept.`);
@@ -7555,6 +7873,17 @@ export class Orchestrator {
           // sentence again (see `ConductorState.seenFailureKeys`).
           effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
         );
+        // Some calls survived the stream and some did not. The survivors already ran, so the
+        // turn is usable — but the model must be told which of its asks never arrived, or it
+        // will read the next turn's timeline as proof that the missing call did nothing and
+        // move on without it.
+        for (const lost of new Set(turn.droppedToolCalls ?? [])) {
+          const note =
+            `"${lost}" was not run: its arguments arrived incomplete and were discarded. ` +
+            'Nothing from that call happened. Call it again on its own.';
+          notes.push(note);
+          log.push(`Step ${index}: ${note}`);
+        }
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;

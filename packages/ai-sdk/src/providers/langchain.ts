@@ -49,9 +49,6 @@ import { capabilitiesFor } from './model-capabilities.js';
 import { anthropicContent } from './message-content.js';
 import type { AiCompletionRequest, AiMessage, FetchLike, ProviderConfig } from './types.js';
 
-/** Anthropic's default reply room when the caller asks for none. */
-const DEFAULT_MAX_TOKENS = 2048;
-
 // ---------------------------------------------------------------------------
 // Anthropic protocol shaping
 // ---------------------------------------------------------------------------
@@ -61,15 +58,52 @@ const DEFAULT_MAX_TOKENS = 2048;
 // whether the bytes are sent by raw `fetch` or by `ChatAnthropic`. It moved rather than
 // died because this adapter is now its only caller.
 /**
+ * The reply room for a NON-STREAMED Anthropic call that named none.
+ *
+ * Not an editorial choice, a protocol one: the Anthropic SDK refuses a non-streaming
+ * request whose `max_tokens` implies a reply that could take longer than ten minutes
+ * ("Streaming is required for operations that may take longer than 10 minutes"). So the
+ * model's real ceiling — 128,000 on `claude-sonnet-5` — cannot be sent here at all, and a
+ * bounded default is the only legal answer.
+ *
+ * Every FramePilot caller on this path is a short structured reply: the command classifier
+ * returns a few dozen tokens, `caption-emphasis` and `vision-judge` name their own smaller
+ * figures. A streamed call has no such limit and gets the ceiling.
+ */
+const UNSTREAMED_MAX_TOKENS = 8_192;
+
+/**
  * Honor a caller's requested reply room, clamped to what the selected model actually
  * accepts — Anthropic rejects a `max_tokens` above the model's ceiling, so an over-ask must
  * become the ceiling rather than a failed request.
+ *
+ * ## Why "no request" is answered differently on the two paths
+ *
+ * Anthropic's API REQUIRES `max_tokens`, so unlike the OpenAI-compatible path there is no
+ * option to send nothing and let the model decide: whatever this returns is a hard cut-off.
+ *
+ * It used to return a hardcoded 2,048 on both paths. That is an invented limit with no
+ * relation to the model selected — `claude-sonnet-5` accepts 128,000 — so a streamed agent
+ * turn that did not name a figure was cut at 2,048, which is the same defect `outputRoomFor`
+ * was fixed for one layer down. A streamed call now gets the model's own ceiling.
+ *
+ * A non-streamed one cannot: see {@link UNSTREAMED_MAX_TOKENS}. The asymmetry is the SDK's,
+ * not ours, and it is why this takes `streaming` rather than deciding from the model alone.
  */
-export function resolveMaxTokens(model: string, requested: number | undefined): number {
-  if (requested === undefined || !Number.isFinite(requested) || requested <= 0) {
-    return DEFAULT_MAX_TOKENS;
-  }
-  const ceiling = capabilitiesFor('anthropic', model).maxOutputTokens;
+export function resolveMaxTokens(
+  model: string,
+  requested: number | undefined,
+  streaming = true,
+): number {
+  // Two ceilings, and the SDK's applies to an explicit over-ask exactly as it applies to a
+  // default: a non-streamed request carrying a large `max_tokens` is REFUSED, so honouring
+  // it as asked would turn a truncated reply into no reply at all. Clamping is the same
+  // trade this function already makes for a figure above the model's own ceiling.
+  const ceiling = Math.min(
+    capabilitiesFor('anthropic', model).maxOutputTokens,
+    streaming ? Number.POSITIVE_INFINITY : UNSTREAMED_MAX_TOKENS,
+  );
+  if (requested === undefined || !Number.isFinite(requested) || requested <= 0) return ceiling;
   return Math.min(Math.floor(requested), ceiling);
 }
 
@@ -210,7 +244,7 @@ export function chatOptions(
   return {
     model,
     ...(config.apiKey !== undefined ? { apiKey: config.apiKey } : {}),
-    maxTokens: resolveMaxTokens(model, request.maxTokens),
+    maxTokens: resolveMaxTokens(model, request.maxTokens, streaming),
     streaming,
     ...SHARED_CHAT_OPTIONS,
     ...(request.temperature !== undefined ? { temperature: request.temperature } : {}),

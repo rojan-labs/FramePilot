@@ -31,6 +31,14 @@ export const DEFAULT_MUSIC_SECONDS = 30;
 export const DEFAULT_DUCK_DB = -12;
 
 /**
+ * The least picture a bed can be trimmed to: one frame at 60fps.
+ *
+ * Below this there is nothing to score. Trimming to it would produce a clip the frame grid
+ * rounds away to nothing, and the validator would refuse the whole placement.
+ */
+const MIN_SCORED_SECONDS = 1 / 60;
+
+/**
  * The next free `music_N` layer id for this timeline.
  *
  * Ids are per-project and stable within a run, so two placements in one turn
@@ -74,6 +82,20 @@ export function musicDuckSidechainIssue(
 }
 
 /**
+ * Where the picture ends — the latest clip end on any video track, 0 when there is none.
+ *
+ * The video tracks are the picture spine: captions and overlays sit *over* it and cannot
+ * stand in for it, and an audio track is the thing being measured against. Exported so a
+ * caller can see the number the bed was trimmed to.
+ */
+export function pictureEndSeconds(timeline: Timeline): number {
+  return timeline.tracks
+    .filter((track) => track.type === 'video')
+    .flatMap((track) => track.clips)
+    .reduce((latest, clip) => Math.max(latest, clip.end), 0);
+}
+
+/**
  * The operations that put a downloaded track on the timeline: bin, layer, clip,
  * and — when a sidechain was requested — the duck that keeps speech clear.
  *
@@ -106,8 +128,28 @@ export function buildAddMusicOps(
   duckUnderTrackId?: string,
 ): AnyOperation[] {
   const start = Math.max(0, atSeconds);
-  const duration = asset.durationSeconds ?? DEFAULT_MUSIC_SECONDS;
   const layerId = nextMusicLayerId(timeline);
+  const track = asset.durationSeconds ?? DEFAULT_MUSIC_SECONDS;
+  // A BED IS TRIMMED TO THE PICTURE IT SCORES. Laying the whole track down regardless of
+  // what it is scoring does not add music to a video — it adds video-length music and then
+  // however many seconds of black the track happens to be longer than the film.
+  //
+  // Run `e8cb2636` scored a 49.8-second talking head with a 93.6-second track and shipped
+  // a 93.6-second programme: 43.9 seconds of silence-under-music over an empty frame. The
+  // run's own self-check caught it — "43.867s of the 93.633s programme has no picture under
+  // it … that renders as black" — as a WARNING, after the edit, and the run completed
+  // anyway. It is not a thing to warn about. It is a thing not to do.
+  //
+  // With no picture on the timeline there is nothing to score yet — a music-led montage
+  // lays the song first and cuts to it — so the whole track goes down, which is also what
+  // every existing caller and test expects of an empty timeline.
+  const picture = pictureEndSeconds(timeline);
+  const room = picture - start;
+  // A sliver of room is not room. A bed starting a millisecond before the picture ends
+  // would otherwise be trimmed to a millisecond, which the frame grid rounds to nothing and
+  // the validator rejects as a zero-length clip. Below one frame at 60fps the placement
+  // reads as deliberately past the end — the end-card sting — and the whole track goes down.
+  const duration = room >= MIN_SCORED_SECONDS ? Math.min(track, room) : track;
   const sidechain = duckUnderTrackId?.trim();
   return [
     { type: 'add_asset', asset },

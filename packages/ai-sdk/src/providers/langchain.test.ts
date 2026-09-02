@@ -15,6 +15,7 @@ import {
   usageFromMetadata,
 } from './langchain.js';
 import type { AiCompletionRequest, FetchLike, ProviderChunk, ProviderConfig } from './types.js';
+import { capabilitiesFor } from './model-capabilities.js';
 import { ProviderError } from '../reliability/types.js';
 
 const CONFIG: ProviderConfig = { name: 'anthropic', apiKey: 'k', model: 'claude-opus-4-8' };
@@ -145,8 +146,33 @@ describe('chatOptions', () => {
   it('clamps maxTokens through the shared resolver', () => {
     const huge = chatOptions(CONFIG, { ...ASK, maxTokens: 10_000_000 }, false);
     expect(huge.maxTokens).toBeLessThan(10_000_000);
-    // No explicit ask falls back to the shared conversational default.
-    expect(chatOptions(CONFIG, ASK, false).maxTokens).toBe(2048);
+  });
+
+  it('gives a STREAMED call with no explicit ask the model’s own ceiling', () => {
+    // It used to get a hardcoded 2,048 whatever the model was, so every streamed Anthropic
+    // turn that did not name a figure was cut off at 2,048 of `claude-opus-4-8`'s 128,000.
+    expect(chatOptions(CONFIG, ASK, true).maxTokens).toBe(
+      capabilitiesFor('anthropic', 'claude-opus-4-8').maxOutputTokens,
+    );
+  });
+
+  it('keeps a NON-streamed call under the SDK’s long-request refusal', () => {
+    // Not an editorial choice: the Anthropic SDK refuses a non-streaming request whose
+    // `max_tokens` implies a reply that could run past ten minutes. The ceiling is illegal
+    // here, so a bounded figure is the only answer — every caller on this path returns a
+    // short structured reply anyway.
+    const unstreamed = chatOptions(CONFIG, ASK, false).maxTokens;
+    expect(unstreamed).toBe(8_192);
+    expect(unstreamed).toBeLessThan(chatOptions(CONFIG, ASK, true).maxTokens);
+  });
+
+  it('clamps an explicit over-ask on the non-streamed path too', () => {
+    // The SDK refuses the request outright rather than truncating the reply, so honouring
+    // a large ask as written would turn a shortened answer into no answer at all.
+    expect(chatOptions(CONFIG, { ...ASK, maxTokens: 100_000 }, false).maxTokens).toBe(8_192);
+    expect(chatOptions(CONFIG, { ...ASK, maxTokens: 100_000 }, true).maxTokens).toBe(100_000);
+    // A small explicit ask is honoured on both paths, unchanged.
+    expect(chatOptions(CONFIG, { ...ASK, maxTokens: 300 }, false).maxTokens).toBe(300);
   });
 
   it('omits optional fields entirely when unset', () => {

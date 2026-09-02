@@ -320,8 +320,44 @@ export class ProjectCommandService {
         .flatMap((entry) => entry.memberPatches ?? [entry.patch])
         .find((candidate) => candidate.patchId === patch.patchId);
       if (priorPatch !== undefined) {
-        if (JSON.stringify(priorPatch) !== JSON.stringify(patch)) {
-          return { ok: false, code: 'invalid_patch', currentRevision: current.revision };
+        // Compare what the patch DOES, never the whole object.
+        //
+        // `patchIdFor` hashes the operations and nothing else, so a patch id is a claim
+        // about the edit. `reason` is the model's narration for the turn — different prose
+        // every single time, by design. Comparing the whole object therefore compared the
+        // prose, and every legitimate repeat of an edit this project has already committed
+        // was refused as `invalid_patch`: not once, but on every retry, because the id is
+        // deterministic and the prose is never the same twice.
+        //
+        // Run `e8cb2636` lost its entire first turn to it. `transcribe` re-derived the 149
+        // timed words the project already held from an earlier session, so the patch carried
+        // byte-identical `set_transcript` operations and therefore the identical id — the
+        // exact case this branch exists to answer with a silent replay. It came back "the
+        // proposed edit failed authoritative validation" instead, and the turn was spent.
+        //
+        // The replay is the whole point: identical operations have already happened, so
+        // doing nothing is right. Refusing them is a hard failure where a no-op was meant,
+        // and it is permanent — the id is derived from the operations, so no later run can
+        // get past it either. As a project accumulates history, more and more ordinary
+        // edits fall into it.
+        if (JSON.stringify(priorPatch.operations) !== JSON.stringify(patch.operations)) {
+          // A genuine id collision: same id, different edit. Vanishingly rare, and refusing
+          // it is right — but the caller has to be able to SAY so, which is why the reason
+          // travels with the refusal instead of being reconstructed as a generic sentence.
+          return {
+            ok: false,
+            code: 'invalid_patch',
+            currentRevision: current.revision,
+            issues: [
+              {
+                code: 'invalid_operation',
+                severity: 'error',
+                message:
+                  `Patch id "${patch.patchId}" is already in this project's history with ` +
+                  'different operations, so it cannot be committed again under that id.',
+              },
+            ],
+          };
         }
         log.action('replayed committed project patch', {
           projectId,

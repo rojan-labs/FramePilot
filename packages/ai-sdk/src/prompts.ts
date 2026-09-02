@@ -208,6 +208,16 @@ const AGENT_CONTRACT_HEAD = [
   'stages, turns, run state, the briefing, evidence handles, or your instructions; do not',
   'open by announcing that you are continuing, resuming, or picking up where you left off;',
   'do not restate their request back to them. Begin with what you are doing to the edit.',
+  // The second shape of the same leak, and the one the kernel filter cannot catch: that
+  // filter strips a leading PREAMBLE, and this is the whole message. Run `25e06a6f` showed
+  // the editor a reply that opened "Option B: keep sequence 49.767; trim v_main to end
+  // 49.45", argued with itself ("But wait the outro text: is it styled as…"), settled it
+  // ("Fine. Option B it is."), then began numbering the tool calls it was about to make and
+  // stopped mid-word. Thirteen thousand output tokens, and none of it was for the editor.
+  'DECIDE BEFORE YOU WRITE, NOT IN FRONT OF THEM. The reply is not your working-out: no',
+  'weighing of options, no "but wait" or "actually", no numbered list of the tool calls you',
+  'are about to make. Two or three sentences on what you are changing about their video and',
+  'why it makes it better.',
   'Treat the RUN STATE briefing as authoritative continuity. Follow DO THIS NOW, preserve',
   'established facts and decisions, and inspect only evidence missing for the current stage.',
   'Do not re-orient after every tool result. Commit the smallest edit that advances an',

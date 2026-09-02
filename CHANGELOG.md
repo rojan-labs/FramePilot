@@ -38,6 +38,58 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An edit you have made before is no longer refused forever.** Every edit a project
+  had already committed became permanently un-repeatable: the check that recognises a
+  repeat compared the AI's written reason, which is different wording every time, so
+  repeating an edit that was already made was rejected with "the proposed edit failed
+  authoritative validation" instead of quietly doing nothing — and rejected again on
+  every retry. One run spent its whole first turn on it, re-transcribing a recording to
+  the words the project already had. When an edit genuinely cannot be committed, the
+  message now says why instead of naming nothing.
+- **Music is trimmed to the film it plays under.** Adding a downloaded track laid its
+  whole length down whatever it was scoring, so a 94-second song under a 50-second talk
+  produced a 94-second video with 44 seconds of black on the end. It now stops where the
+  picture stops — unless there is no picture yet, which is the music-first montage where
+  laying the whole song down is the point. Same for tracks you add yourself from the
+  Sounds panel.
+- **The AI is no longer cut off mid-edit by a limit nobody set.** For a model we don't
+  have measurements for, a conservative guess at how much it could write was being sent
+  as a hard limit — so three steps of one run stopped dead at exactly that number, and
+  the run ended with the stock footage it had just fetched still sitting in the bin.
+  Where the limit is a guess it is no longer sent, and the model writes up to its own
+  real maximum.
+- **The AI no longer reaches for media you have deleted.** Its memory of your media bin
+  kept every file it had ever analysed, and that memory was handed over as fact — so it
+  placed a music track from an earlier session that the project no longer had, and the
+  edit failed. The memory is now checked against the bin before the AI reads it, and
+  file paths are refreshed for anything you re-imported.
+
+- **The AI no longer loses tool calls in transit.** When a reply was cut off part-way
+  through asking for an edit, the half-finished request was sent to the tool anyway,
+  where it was rejected as malformed — and the run then refused to let the AI try that
+  tool again for the rest of the session, because from its side the tool had "already
+  failed". A run asked to lay a talking head down, bed music under it and transcribe the
+  speech spent three minutes restating its plan and landing none of it. A request that
+  does not arrive whole is now discarded rather than half-applied, the step is retried,
+  and the AI is told which of its asks went missing so the second attempt is a different
+  one. Requests the provider sent in one piece, which used to be dropped without a
+  trace, are read too.
+- **A run that was cut off no longer reports itself finished.** If the model ran out of
+  room mid-sentence after some edits had already landed, the run closed as "completed"
+  with whatever it had just promised to do next silently abandoned — you saw a count of
+  applied edits and no hint that anything was missing. It now says it stopped early and
+  kept the edits so far. And when a step comes back empty because the model spent its
+  entire output budget thinking, the message says that, instead of blaming the provider
+  for being overloaded — the first is something you can act on, the second was not.
+- **Captions no longer get regenerated forever.** The caption checker and the caption
+  generator disagreed about which words belong to which cue whenever a cue boundary
+  landed within a frame of a word, so the checker reported perfectly good captions as
+  out of sync or stale, the AI regenerated them exactly as they were, and the checker
+  reported the same faults again. One run burned a hundred operations deleting and
+  re-adding an identical caption track, and the rest of its turns on a loop it could not
+  win. They now agree, so a clean caption track verifies clean — and a caption that
+  really is off its words is still caught.
+
 - **Two titles at the same moment no longer fail.** Placing a clip, caption or text
   overlay where another already sits used to refuse the whole edit with an internal
   "clips overlap on track" error. It now goes on a free lane of the same kind, or a new

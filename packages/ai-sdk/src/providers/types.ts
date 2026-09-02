@@ -229,7 +229,23 @@ export type ProviderChunk =
    * on a fragment or retries a finished answer. Absent ⇒ the provider reported a normal
    * stop, or does not report one at all.
    */
-  | { readonly type: 'done'; readonly text: string; readonly truncated?: boolean };
+  | {
+      readonly type: 'done';
+      readonly text: string;
+      readonly truncated?: boolean;
+      /**
+       * Tool calls the stream carried but could NOT be reassembled into valid arguments —
+       * named here so the turn can say what was lost instead of pretending the model asked
+       * for nothing.
+       *
+       * A call reaches this list only when its accumulated argument text is not complete,
+       * parseable JSON: the model was cut off mid-`{`, or the gateway sent a fragment and
+       * never sent the rest. Such a call is NEVER dispatched (see `langchain-chat.ts`) —
+       * repairing truncated JSON would invent argument values, and an invented `start` on
+       * an `add_clip` is a wrong edit rather than an error.
+       */
+      readonly droppedToolCalls?: readonly string[];
+    };
 
 /**
  * The minimal subset of the global `fetch` the HTTP providers depend on. Kept as

@@ -27,6 +27,7 @@ export {
   buildAddMusicOps,
   musicDuckSidechainIssue,
   nextMusicLayerId,
+  pictureEndSeconds,
 } from '@framepilot/editor-core';
 
 /**

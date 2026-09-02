@@ -592,6 +592,39 @@ function pictureSpans(project: Project): readonly { start: number; end: number }
 const PICTURE_GAP_FRAMES = 30;
 
 /**
+ * A hole at the END of the programme is measured in single frames, not seconds.
+ *
+ * {@link PICTURE_GAP_FRAMES} is right in the middle of a piece: a few frames of black
+ * between two shots is a beat, and reporting it would bury the real defects. It is wrong at
+ * the end, because the last frame is not a beat — it is what the viewer is left looking at,
+ * and a video that finishes on black finishes wrong however briefly.
+ *
+ * The distinction is not theoretical. Run `25e06a6f` laid the picture down to frame 1493
+ * (the talking head's real 49.783s, snapped) and the music bed to frame 1494 (49.8s, the
+ * rounded figure every summary of that asset prints). One frame apart. `picture_coverage`
+ * passed — 1 frame is not 30 — so the only thing that caught it was the perceptual
+ * reviewer, twice, as `Program ending is black (frame 1493)`: a symptom with no cause and
+ * no fix attached. The run spent two correction attempts on it and gave up, concluding it
+ * was "likely a render or transition-model defect rather than something this edit can fix".
+ * It was neither. It was one frame of sound past the end of the picture, which is exactly
+ * what this check's own sentence tells an editor how to fix.
+ */
+const PROGRAMME_TAIL_FRAMES = 1;
+
+/**
+ * How much black at the end of the programme counts, in seconds at this project's rate.
+ *
+ * One function, because {@link checkPictureCoverage} and {@link repairTrailingSoundOverrun}
+ * have to agree: a check that reports what its own repair declines to fix hands the run a
+ * finding it cannot act on, which is the shape of defect that turns a run into a loop.
+ */
+function programmeTailThreshold(fps: number): number {
+  // A whole frame, less a hair for the float noise of a quantised boundary — two clips that
+  // genuinely end together differ by nanoseconds, and that is not a black frame.
+  return PROGRAMME_TAIL_FRAMES / fps - 1e-6;
+}
+
+/**
  * Does picture actually cover the programme?
  *
  * `picture_present` (ADR 0144) asks whether ANY picture exists and is satisfied by one
@@ -632,13 +665,14 @@ function checkPictureCoverage(project: Project, options: CritiqueOptions): Criti
   }
   const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
   const threshold = PICTURE_GAP_FRAMES / fps;
+  const tailThreshold = programmeTailThreshold(fps);
   const holes: { start: number; end: number }[] = [];
   let cursor = 0;
   for (const span of spans) {
     if (span.start - cursor >= threshold) holes.push({ start: cursor, end: span.start });
     cursor = Math.max(cursor, span.end);
   }
-  if (programme - cursor >= threshold) holes.push({ start: cursor, end: programme });
+  if (programme - cursor >= tailThreshold) holes.push({ start: cursor, end: programme });
   const covered = spans.reduce(
     (total, span) => total + (Math.min(span.end, programme) - Math.min(span.start, programme)),
     0,
@@ -721,7 +755,10 @@ export function repairTrailingSoundOverrun(
     if (span.start - cursor >= threshold) return [];
     cursor = Math.max(cursor, span.end);
   }
-  if (programme - cursor < threshold) return [];
+  // The SAME tail rule the check reports on. These used to be one shared constant, and the
+  // sharing was the point: a check that reports a black final frame while its repair holds
+  // out for a whole second of them leaves the run a finding it cannot act on.
+  if (programme - cursor < programmeTailThreshold(fps)) return [];
   const pictureEnd = cursor;
   const audioAssetIds = new Set(
     project.assets.filter((asset) => asset.kind === 'audio').map((asset) => asset.id),
