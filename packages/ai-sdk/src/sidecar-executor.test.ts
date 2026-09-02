@@ -584,8 +584,46 @@ describe('visual grounding (MI6.1)', () => {
         chapters: [],
       });
       expect(outcome.status).toBe('warning');
-      expect(outcome.summary).toContain('not_indexed');
-      expect((outcome.data as { reason: string }).reason).toBe('not_indexed');
+      // The bare token is what run `369e8c82` read six times and could not act on.
+      expect(outcome.summary).not.toContain('"map_footage": not_indexed');
+      expect(outcome.summary).toContain('do not call this again');
+      expect((outcome.data as { reason: string }).reason).toContain('chapters or highlights');
+    });
+
+    it('speaks about mapping, not describing, and offers a map-sized substitute', () => {
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'not_indexed',
+        chapters: [],
+      });
+      // A whole-asset map is replaced by sampling ACROSS the asset — one frame is the
+      // answer to `describe_footage`'s question, not to this one.
+      expect(outcome.summary).toContain('chapters or highlights');
+      expect(outcome.summary).toContain('across its duration');
+      expect(outcome.summary).not.toContain('nothing to describe');
+    });
+
+    it('passes an unrecognized reason through verbatim rather than decorating it', () => {
+      // `invalid_api_key` also comes back available:true with no chapters. We have no
+      // evidence about it, so it must reach the model exactly as the engine said it.
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'invalid_api_key',
+        chapters: [],
+      });
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).toBe('"map_footage": invalid_api_key');
+      expect((outcome.data as { reason: string }).reason).toBe('invalid_api_key');
+    });
+
+    it('expands pegasus_unavailable into a run-wide stop, not a per-clip one', () => {
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'pegasus_unavailable',
+        chapters: [],
+      });
+      expect(outcome.summary).toContain('no clip can be mapped in this run');
+      expect(outcome.summary).toContain('could not map the footage');
     });
 
     it('warns with a route the model can actually take on an empty map', () => {
@@ -1857,6 +1895,27 @@ describe('D1 — a machine reason the model can act on', () => {
 
   it('passes an unrecognized reason through untouched', () => {
     expect(visualReasonGuidance('quota_exhausted')).toBe('quota_exhausted');
+    // ...including when a tool asks for its own wording: an override table must not
+    // become a place where an unknown token gets swallowed or invented for.
+    expect(visualReasonGuidance('quota_exhausted', 'map_footage')).toBe('quota_exhausted');
+    expect(visualReasonGuidance('invalid_api_key', 'map_footage')).toBe('invalid_api_key');
+  });
+
+  it('keeps describe_footage wording while giving map_footage its own', () => {
+    const describing = visualReasonGuidance('not_indexed', 'describe_footage');
+    // describe_footage has no override, so it still gets the shared sentence verbatim.
+    expect(describing).toBe(visualReasonGuidance('not_indexed'));
+    expect(describing).toContain('nothing to describe yet');
+    const mapping = visualReasonGuidance('not_indexed', 'map_footage');
+    expect(mapping).not.toBe(describing);
+    expect(mapping).toContain('chapters or highlights');
+    expect(mapping).toContain('do not call this again');
+  });
+
+  it('gives a tool with no override the shared sentence rather than the raw token', () => {
+    expect(visualReasonGuidance('not_indexed', 'search_visual')).toBe(
+      visualReasonGuidance('not_indexed'),
+    );
   });
 
   it('reaches the model through the warning outcome', () => {

@@ -569,9 +569,43 @@ const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
     'plainly that you could not inspect the footage.',
 };
 
-/** Expand a machine reason into guidance; anything unrecognized is passed through. */
-export function visualReasonGuidance(reason: string): string {
-  return VISUAL_REASON_GUIDANCE[reason.trim()] ?? reason;
+/**
+ * Per-tool wording for the SAME reasons, where the INSTEAD differs by what was asked.
+ *
+ * `map_footage` asks a different question from `describe_footage`: chapters and highlights
+ * over a whole asset, not what is on screen at one moment. "Nothing to describe yet" is
+ * the wrong fact for it, and a single `get_frame` is the wrong scale of substitute — an
+ * asset-length map is replaced by sampling ACROSS the asset, or not at all.
+ *
+ * Keyed by the same reason token so there is still one vocabulary; a tool with no entry
+ * falls through to the shared sentence rather than losing its guidance.
+ */
+const TOOL_VISUAL_REASON_GUIDANCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  map_footage: {
+    not_indexed:
+      'this clip has not been indexed, so it has no chapters or highlights yet. Indexing ' +
+      'runs in the background and may not finish during this run — do not call this again ' +
+      'for the same clip. Sample it with get_frame at a few times across its duration, or ' +
+      'work from what you already know about it (its title, its duration, and the query ' +
+      'that found it) and say plainly that no map is available yet.',
+    pegasus_unavailable:
+      'the understanding backend is not available for this project, so no clip can be ' +
+      'mapped in this run. Do not call this again for any clip. Work from the titles and ' +
+      'durations you already have, look at a moment with get_frame if you need to see one, ' +
+      'and say plainly that you could not map the footage.',
+  },
+};
+
+/**
+ * Expand a machine reason into guidance; anything unrecognized is passed through.
+ *
+ * @param reason - The engine's reason token, verbatim.
+ * @param toolName - The tool that got it, when its INSTEAD differs from the shared one.
+ */
+export function visualReasonGuidance(reason: string, toolName?: string): string {
+  const key = reason.trim();
+  const perTool = toolName === undefined ? undefined : TOOL_VISUAL_REASON_GUIDANCE[toolName]?.[key];
+  return perTool ?? VISUAL_REASON_GUIDANCE[key] ?? reason;
 }
 
 /**
@@ -612,7 +646,7 @@ export function unwrapVisualSearch(toolName: string, data: unknown): HostToolOut
     // no reason is simply an empty search — index the footage or widen the query.
     const reason =
       typeof record.reason === 'string'
-        ? visualReasonGuidance(record.reason)
+        ? visualReasonGuidance(record.reason, toolName)
         : 'no visual evidence — this footage may not be indexed yet (indexing runs ' +
           'automatically in the background). Look at a moment with get_frame, widen the ' +
           'query, or say plainly that content search found nothing.';
@@ -781,9 +815,16 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
   const summary = typeof record.summary === 'string' ? record.summary : '';
   const durationSec = typeof record.durationSec === 'number' ? record.durationSec : 0;
   if (chapters.length === 0) {
+    // Through the SAME expansion `describe_footage` goes through. The engine answers
+    // `not_indexed` and nothing else, so this branch used to hand the model
+    // `"map_footage": not_indexed` — a token with no instruction in it, next to
+    // `durationSec: 0` and an empty summary. Captured run `369e8c82` read it six times
+    // over six freshly-downloaded stock clips and then placed that stock blind.
+    // Unrecognized reasons (`invalid_api_key`) still pass through verbatim: guidance is
+    // written from evidence, never invented for a token we have not seen fail.
     const reason =
       typeof record.reason === 'string'
-        ? record.reason
+        ? visualReasonGuidance(record.reason, 'map_footage')
         : 'no footage map yet — this footage may not be indexed (indexing runs ' +
           'automatically in the background). Look at a few moments with get_frame, or say ' +
           'plainly that no map is available yet.';

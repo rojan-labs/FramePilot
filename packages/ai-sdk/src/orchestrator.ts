@@ -4219,9 +4219,15 @@ export class Orchestrator {
         // exists: music_openverse_ov_1") reads to the model as a bug rather than
         // as an answer. Said plainly here, before an edit is even assembled.
         if (ctx.project.assets.some((existing) => existing.id === asset.id)) {
+          // "Place it from the bin" is the Sounds panel's instruction — true for a human
+          // looking at a bin, and a dead end for the caller here, which has no hands and
+          // no panel. Captured run `369e8c82` read it and gave up on the call. Name the
+          // tool and hand over the id it needs, the same way `localMusicAssetRefusal`
+          // already answers the sibling "that is a local id" case.
           const note =
-            `That track is already in your media bin — it was not downloaded again. ` +
-            `Place it from the bin, or pick a different track.`;
+            `That track is already in your media bin as asset "${asset.id}" — it was not ` +
+            `downloaded again. Place it with add_clip on an audio track (assetId ` +
+            `"${asset.id}"), or search for a different track.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
         }
         const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
@@ -4274,9 +4280,13 @@ export class Orchestrator {
         // Same as `add_music`: a deterministic id means a re-add would surface a
         // raw `duplicate_asset` message instead of an answer.
         if (ctx.project.assets.some((existing) => existing.id === stockAsset.id)) {
+          // Same dead end as `add_music`'s, and the same fix: this path's own success note
+          // three branches down already tells the model "place it with add_clip", so the
+          // refusal must not send it looking for a bin it cannot touch.
           const note =
-            `That clip is already in your media bin — it was not downloaded again. ` +
-            `Place it from the bin, or pick a different one.`;
+            `That clip is already in your media bin as asset "${stockAsset.id}" — it was ` +
+            `not downloaded again. Place it with add_clip (assetId "${stockAsset.id}"), ` +
+            `or search for a different one.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
         }
         const placement = stockOpsFromPayload(ctx.project, parsed.data);

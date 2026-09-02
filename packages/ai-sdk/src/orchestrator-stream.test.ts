@@ -2384,8 +2384,10 @@ describe('streamAgent robustness (parity with agent())', () => {
     });
   });
 
-  // goal.md Workstream D: a run is bounded by a wall-clock budget it announced up front.
-  it('announces its budget, then stops at the time limit and still reports what it applied', async () => {
+  // goal.md Workstream D: a run is bounded by a wall-clock budget. It is NOT announced —
+  // the bound lives in Settings → AI → Run budget, where the user set it (GOLDEN-D.4). What
+  // the run owes them is the REASON it stopped, at the moment it stops.
+  it('stops at the time limit, says why, and still reports what it applied', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
       { text: 'edit', toolCalls: [deleteRange('b', 6, 7)] },
@@ -2405,10 +2407,11 @@ describe('streamAgent robustness (parity with agent())', () => {
         },
       ),
     );
-    expect(events[1]).toMatchObject({
-      type: 'notification',
-      text: expect.stringContaining('$5.00 and 2 minutes'),
-    });
+    // Nothing recites the budget before the work: the only notification about it is the
+    // one that names the limit actually reached.
+    expect(
+      events.some((e) => e.type === 'notification' && e.text.includes('This run may use up to')),
+    ).toBe(false);
     expect(events.some((e) => e.type === 'notification' && e.text.includes('2-minute limit'))).toBe(
       true,
     );
@@ -3366,10 +3369,14 @@ describe('streamAgent host tool execution (Phase T)', () => {
       );
       expect(events.some((e) => e.type === 'diff')).toBe(false);
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
-      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
-        /already in your media bin/,
-      );
-      expect(result?.type === 'tool_result' ? result.summary : '').not.toMatch(/Asset id already/);
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already in your media bin/);
+      expect(summary).not.toMatch(/Asset id already/);
+      // "Place it from the bin" is a human's instruction; the caller here needs the tool
+      // name and the asset id, exactly as this path's own success note gives them.
+      expect(summary).not.toMatch(/Place it from the bin/);
+      expect(summary).toContain('add_clip');
+      expect(summary).toContain('stock_pexels_px_1');
     });
 
     it('fails closed when the span filled up between the host check and the placement', async () => {
@@ -3387,6 +3394,66 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
         /already picture on the timeline/,
       );
+    });
+  });
+
+  describe('add_music (host-backed mutation)', () => {
+    const musicCall = {
+      id: 'm1',
+      name: 'add_music',
+      arguments: { remoteId: 'ov_1', atSeconds: 0 },
+    };
+    const musicAsset = {
+      id: 'music_openverse_ov_1',
+      path: 'media/music/ov_1.mp3',
+      kind: 'audio' as const,
+      durationSeconds: 90,
+      source: {
+        provider: 'openverse',
+        remoteId: 'ov_1',
+        license: 'CC0',
+        attributionRequired: false,
+        fetchedAt: '2026-09-02T00:00:00.000Z',
+      },
+    };
+    const musicProvider = () =>
+      new ScriptedProvider([
+        { text: 'scoring it', toolCalls: [musicCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+    const hostRun = (data: unknown) => ({
+      run: async (): Promise<HostToolOutcome> => ({
+        status: 'completed' as const,
+        summary: 'Downloaded "media/music/ov_1.mp3".',
+        ...(data === undefined ? {} : { data }),
+      }),
+    });
+
+    it('answers a re-add by naming the tool that places it, not the media bin', async () => {
+      // Captured run `369e8c82`: the refusal was the Sounds panel's sentence ("Place it
+      // from the bin"), which names no tool and no id. The model has no bin to click, so
+      // it gave up on the call. The result must be an instruction it can execute.
+      const withMusic = makeProject({
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+          { ...musicAsset },
+        ],
+      });
+      const events = await drain(
+        new Orchestrator(musicProvider(), {
+          executor: hostRun({ asset: musicAsset, atSeconds: 0 }),
+        }).streamAgent({ project: withMusic, userPrompt: 'add music' }, opts()),
+      );
+      expect(events.some((e) => e.type === 'diff')).toBe(false);
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'm1');
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already in your media bin/);
+      // The deterministic-id validator message stays out of the model's way...
+      expect(summary).not.toMatch(/Asset id already/);
+      // ...and the dead-end instruction is gone, replaced by a tool and the id it needs.
+      expect(summary).not.toMatch(/Place it from the bin/);
+      expect(summary).toContain('add_clip');
+      expect(summary).toContain('music_openverse_ov_1');
     });
   });
 
