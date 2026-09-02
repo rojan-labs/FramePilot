@@ -395,12 +395,20 @@ commits' *source* changes are correctly separated, and the branch state is what 
 verified — 794 tests across 135 suites, no frozen fixture moved. Reviewing
 `f51fe20` alone will show its tests missing; they are in the commit before it.
 
-- **Seven dead-end failures the gate cannot reach** (`GOLDEN-C.7`). All in
-  `orchestrator.ts`, which was owned by another agent while the gate was built:
-  `:3923`, `:4141`, `:4180`, `:4238`, `:4310`, `:4373`, `:7854`. Plus
-  `apps/desktop/electron/main.ts:1970` / `:2012`, which still carry the OLD
-  transcribe sentence — the `hostTranscribe` override bypasses the copy that was
-  fixed. Fixing them is also what takes the gate past a quarter of the surface.
-- **`GOLDEN-E.3` and the briefing's 68 duplicate lines** are one slice, and it must
-  be done alone: both move token goldens, and the golden diff IS the measurement.
+- ~~Seven dead-end failures the gate cannot reach~~ — closed by `d95ec25`; six
+  fixed, `:7854` exempted with its reason, and the desktop copies now share the
+  SDK's producer.
+- ~~`GOLDEN-E.3` and the briefing's 68 duplicate lines~~ — closed by `b7a88da`,
+  measured: 306 → 20 tok/turn on the briefing, and the memory block is now flat in
+  the project's age instead of growing forever.
+- **Still not gated: the composed notes.** 33 of `orchestrator.ts`'s failure notes
+  interpolate their instruction from the validator or the engine, so the gate skips
+  them — judging the template would grade a sentence nobody reads. Also unwalked:
+  the domain tools' `ToolRefusalError` throws, `tool-dispatch.ts:235`'s "not
+  available **yet**" (the same defect fixed at `:3923`, on a surface the gate does
+  not reach), and the remaining desktop host overrides (`hostMusicSearch`,
+  `hostAddMusic`, `hostStockSearch`, `hostAddStock`).
+- **`recordAccepted`/`recordRejected` still append to `project.fp.json` forever.**
+  Only the RENDERING is bounded, which is what a request pays for. Capping storage
+  would discard the user's own data, so it needs a decision, not a patch.
 

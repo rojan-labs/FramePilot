@@ -44,6 +44,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   for music or stock it had already downloaded used to answer "place it from the bin" — an
   instruction meant for a person looking at the bin, which the assistant has no way to
   follow, so it abandoned the request. It now places what it already has.
+- **The desktop app no longer ships an older, less helpful failure message than the browser.**
+  When speech-to-text came back empty, the desktop took a different code path that still
+  carried the old dead-end wording. Both now say the same thing, from one place.
 - **When something the assistant tries fails, it is told what to do next — always.** A
   failure that named no next move used to send it round the same loop: one run asked the
   same unanswerable question six times. Thirteen such messages were rewritten to say what

@@ -151,13 +151,31 @@ reconcileInheritedFailures`: a health check failing identically before and after
   it cannot see (`orchestrator.ts`'s 36 note sites, the domain tools' 36 throw sites, the
   desktop host overrides). 13 dead ends fixed, 6 of them collapsed into 2 shared producers;
   1 exemption recorded with its reason.
-- `[ ]` GOLDEN-C.7 — **seven dead ends the gate cannot reach yet.** Fully-literal failures in
-  `orchestrator.ts` that name no next action: `:3923` skipped-tool, `:4141` transcribe
-  no-timed-words (the same defect fixed a layer down), `:4180` remove_silences no ranges,
-  `:4238` add_music no asset, `:4310` add_stock no asset, `:4373` tracking invalid payload,
-  `:7854` objective/plan not recovered. Plus `apps/desktop/electron/main.ts:1970` and
-  `:2012`, which carry the OLD transcribe sentence verbatim — the `hostTranscribe` override
-  bypasses the fixed copy. Fixing these is also what extends the gate past a quarter.
+- `[x]` GOLDEN-C.7 — **the dead ends the gate could not reach** (`d95ec25`). Six literal
+  failures in `orchestrator.ts` plus the two `apps/desktop/electron/main.ts` copies that
+  the `hostTranscribe` override shipped verbatim, bypassing the fix one layer down — live
+  on the primary surface. Lifted into `reliability/refusal-notes.ts` as named producers,
+  exported through the index so desktop consumes the SDK's sentence rather than a third
+  copy (the `localMusicAssetRefusal` pattern). Wording is honest about what it does not
+  know: `analyze_silence` is named as a PROBE that may fail the same way (shared engine
+  route), music/stock say "do not retry the same track" because the request was metered,
+  and tracking names no substitute because the manual path authors coordinates and the
+  model may not. `:7854` exempted with its reason — it returns `done: true`, so the model
+  never reads it, and the run's own objective is what could not be trusted. The gate now
+  walks the producers, asserts every table key is a REGISTERED tool (a rename fails the
+  build), and reads `orchestrator.ts`'s notes off the file with a stale-exemption check;
+  it still cannot judge the 33 COMPOSED notes whose instruction is interpolated. Two more
+  dead ends the walk exposed were fixed. 711 tests, nothing frozen moved.
+- `[x]` GOLDEN-E.4 — **the context stops growing with the project's age** (`b7a88da`).
+  `summarizeMemory` joined every accepted/rejected reason uncapped, and a reason is now a
+  four-sentence narration — 82 tokens per accepted turn on every future request, forever.
+  The briefing rendered one line per operation record, and `caption_the_edit` fans out per
+  cue: 34 + 34 identical lines. Measured: ALREADY APPLIED 306 → 20 tok/turn (−93%); memory
+  block at 40 turns 6,903 → 70 tok, and FLAT in project age. Both are gated tests now.
+  Accuracy argued: the truncation keeps the sentence saying what the edit DID; newest-first
+  rather than a spread because the store already encodes supersession; rejections get a
+  bigger budget than acceptances because losing one lets the agent redo what was refused.
+  Three recordings regenerated — every changed line a token estimate, every one a decrease.
 - `[x]` GOLDEN-E.2 — **the duplicated edit prose costs the model nothing: audited, no
   change.** Run `369e8c82` shows the same 4-sentence paragraph as the diff card's `Summary`
   and its `Reason` in all 6 (in the full export, 9) proposed-edit blocks. Mechanically
