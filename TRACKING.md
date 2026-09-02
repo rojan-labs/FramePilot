@@ -143,9 +143,31 @@ the model walked into it **four times** (14:56, 15:03, 15:07, 15:11) with
 `add_clips`/`add_clip`, losing ~15 minutes of the run.
 
 The refusal itself is good (it names the remedy: split at the in/out and place on
-the same track). What is wrong is upstream: state advertises a placement target
-that cannot hold a clip, and the repeat-call ledger records the identical
-`add_clips:{"trackId":"b_roll",…}` key each time without it changing anything.
+the same track). Three things upstream are not:
+
+1. **The proven-refusal memory is keyed on the refusal's prose.**
+   `deterministicFailureKey` is `` `${callName}:${failureCause(text)}` ``, and the
+   picture-layer refusal embeds the filename, the times and the conflicting clip
+   id — so four refusals of the same rule produced four different keys and the
+   guard never fired. `failureCause` already strips the *operation locator* for
+   exactly this reason; a policy refusal needs a stable machine cause next to its
+   sentence, and the key needs to use that.
+2. **A refused call leaves no ledger row at all.** Only `describedActions` from a
+   landed patch reach `recordOperation`, so nothing in run state records that
+   `add_clips` on `b_roll` was refused. The remedy lives only in a tool result,
+   which ages out of the payload window.
+3. **The arrangement line re-invites it every turn**, naming `b_roll [video]
+   empty` with no hint that nothing may go there while `v_main` is full.
+
+Not reproducible on the current golden set: `mission-talk` is one narration clip
+with no overlay track, so no case has the shape that trapped the run. The fix
+needs a fixture variant with an empty video track above a fully-occupied one
+(`scripts/mission-fixture-projects.mjs`, maintainer's machine).
+
+*(Checked and dismissed: the op-ledger idempotency keys read as misattributed —
+op\_92 "Set track caption style" keyed on `add_clips` — but `boundedKeySegment`
+appends a digest of the whole input, so equality survives truncation. Only the
+readable head is misleading. Not a correctness bug.)*
 
 ### R3 — `map_footage` answers `not_indexed` six times and says nothing useful `[x]` `92a0387`
 
