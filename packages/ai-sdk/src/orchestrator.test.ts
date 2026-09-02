@@ -30,6 +30,7 @@ import { toolContract } from './tool-contract.js';
 import { toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
+import { describeTransportFailure } from './sidecar-executor.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
 /** A provider that replays a scripted response and records the last request. */
@@ -2313,6 +2314,22 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     );
   });
 
+  it('detect_beats: a failed call keeps the instruction the executor wrote', () => {
+    // End-to-end pin for the unreachable-engine path: `sidecar-executor` puts its
+    // sentence in `data`, and `data` is what this digest turns into the model's note.
+    // This arm used to report the string as "no beats detected" — the model was told the
+    // track had no beats when the truth was that nothing had run, and it retried.
+    const data = describeTransportFailure(
+      'detect_beats',
+      new TypeError('fetch failed'),
+      'http://127.0.0.1:8765',
+    );
+    const note = summarizeReadResult('detect_beats', data);
+    expect(note).toContain('could not reach the media engine');
+    expect(note).toContain('retry this call once');
+    expect(note).not.toContain('no beats detected');
+  });
+
   it('detect_beats: omits the tempo when the engine could not determine one', () => {
     const note = summarizeReadResult('detect_beats', { beats: [{ time: 0 }, { time: 1 }] });
     expect(note).toContain('2 exact beat onsets');
@@ -2442,6 +2459,20 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 
   it('visual reads report "no visual evidence" when the packets key is entirely absent', () => {
     expect(summarizeReadResult('search_visual', {})).toBe('no visual evidence');
+  });
+
+  it('visual reads: a failed call keeps the instruction the executor wrote', () => {
+    // Same end-to-end pin as the detect_beats row: "no visual evidence" for a failure
+    // string reads as an answered question, and the model has nothing to act on.
+    const data = describeTransportFailure(
+      'describe_footage',
+      new TypeError('fetch failed'),
+      'http://127.0.0.1:8765',
+    );
+    const note = summarizeReadResult('describe_footage', data);
+    expect(note).toContain('could not reach the media engine');
+    expect(note).toContain('retry this call once');
+    expect(note).not.toContain('no visual evidence');
   });
 
   it('visual reads reject safety-only text as grounding and bound by whole packets', () => {
