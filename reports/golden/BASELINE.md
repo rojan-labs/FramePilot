@@ -22,7 +22,8 @@ Nothing below is a real-media number unless it says which file it came from.
 ## Prior real-media numbers (the six mission scenarios only)
 
 From `reports/system-mission/after-orchestration-merged.json` (2026-08-29, `claude-sonnet-5`
-via the `trial/` bridge, 3 runs each), reduced by the two older gates:
+via the `trial/` bridge, 3 runs each), reduced by `golden-gate.mjs` — this is the committed
+`reports/golden/floor.json` (its golden-metrics block is empty until the baseline run):
 
 | scenario | rubric p50 | calls p50 | tokens/turn p50 |
 | --- | --- | --- | --- |

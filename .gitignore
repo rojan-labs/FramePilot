@@ -35,7 +35,7 @@ reports/render/*
 reports/e2e/*
 # Per-turn agent event dumps from `mission-baseline.mjs --dump-events`: megabytes of raw
 # stream, useful while diagnosing one run and worthless a week later. The measurement
-# SUMMARIES beside them (`*-orchestration*.json`, `mission-score.json`) are the evidence
+# SUMMARIES beside them (`*-orchestration*.json`, `reports/golden/floor.json`) are the evidence
 # and stay tracked.
 reports/system-mission/runs/*
 # Playwright writes failure screenshots/traces here; only the run pointer is tracked.
@@ -151,3 +151,6 @@ tests/fixtures/mission/projects/**/sidecars/
 # turn, replayable locally; the per-case results and summaries beside them are committed.
 reports/golden/*/recordings/
 reports/golden/*/events/
+# The nightly's own run directory is uploaded as a workflow artifact, never committed.
+reports/golden/nightly/
+reports/golden/nightly.json

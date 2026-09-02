@@ -5,6 +5,7 @@ Written by `packages/ai-sdk/scripts/mission-baseline.mjs` (see `docs/guides/gold
 - `<label>/cases/*.json` — one result per case+run (committed: they are the evidence).
 - `<label>/summary.json` + `summary.md` — the run's metrics; hand `summary.json` back.
 - `<label>/recordings/` — effect recordings for `--replay` (gitignored: megabytes).
-- `<label>.json` — the merged run in the older mission-run shape.
-- `floor.json` — the committed regression floor `golden-gate.mjs` compares against.
+- `<label>.json` — the merged run (per-scenario rows + the golden summary); what the gate reads.
+- `floor.json` — the one committed regression floor `golden-gate.mjs` compares against
+  (rubric score, calls and tokens per turn per scenario; the goal.md metrics run-wide).
 - `BASELINE.md` — the published baseline and its provenance.

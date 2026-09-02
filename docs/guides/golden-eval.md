@@ -14,7 +14,7 @@ recipe.
 | Rubric | `packages/ai-sdk/src/eval/mission-rubric.ts` | Checkable assertions on the resulting **edit state** — clip geometry, source ranges, captions, music, transcript words. Never a string match on prose. Checks are faceted `target` / `boundary` so the metrics can read them. |
 | Metrics | `packages/ai-sdk/src/eval/golden-metrics.ts` | Intent accuracy, target resolution, boundary precision, operation validity, first-pass acceptance, silent successes, turns and tool calls, tokens and USD **per accepted edit**, latency to first progress and to done (p50/p95), reversibility (undo restores the prior project), failure quality. Pure functions over the event stream + applied patches. |
 | Runner | `packages/ai-sdk/scripts/mission-baseline.mjs` | Real `Orchestrator.streamAgent`, real provider, real sidecar. One command per case. Per-case result files (resumable). Effect recordings for replay. Cost estimate before the run. |
-| Gate | `packages/ai-sdk/scripts/golden-gate.mjs` | Compares a run's `summary.json` with `reports/golden/floor.json`; a regression is a non-zero exit. |
+| Gate | `packages/ai-sdk/scripts/golden-gate.mjs` | The one gate: rubric score, calls/tokens per turn, and the goal.md metrics against `reports/golden/floor.json`; a regression is a non-zero exit. |
 
 ## One-time setup (maintainer's machine)
 
@@ -54,7 +54,7 @@ reports/golden/<label>/
   recordings/<case>-r<n>-t<k>.json   every effect the run executed (gitignored; large)
   summary.json                  the machine-readable result (metrics + per-case table)
   summary.md                    the short human summary
-reports/golden/<label>.json     the merged run in the shape mission-score.mjs / mission-efficiency-gate.mjs read
+reports/golden/<label>.json     the merged run: per-scenario rows + the golden summary — what the gate reads
 ```
 
 **Hand back `summary.json` (or the whole `<label>/` folder).** It is the single artifact;
@@ -88,17 +88,24 @@ re-bill the paid analyzers either.
 ## Gating
 
 ```bash
-node packages/ai-sdk/scripts/golden-gate.mjs reports/golden/baseline/summary.json --write   # accept as the floor
-node packages/ai-sdk/scripts/golden-gate.mjs reports/golden/after/summary.json              # compare; exit 2 on regression
+pnpm eval:golden:gate reports/golden/baseline.json --write   # accept a run as the floor
+pnpm eval:golden:gate reports/golden/after.json              # compare; exit 2 on regression
 ```
 
-Fails on: any rate (intent, target, boundary, validity, first-pass, reversibility) dropping
-more than 5 points; any new silent success; tokens per accepted edit up more than 10%
-without a first-pass gain. Latency and failure-explained share are reported, not gated.
+One gate, one floor (`reports/golden/floor.json`), three families of numbers:
 
-The two older gates still run on the merged JSON:
-`node packages/ai-sdk/scripts/mission-score.mjs reports/golden/baseline.json` and
-`node packages/ai-sdk/scripts/mission-efficiency-gate.mjs reports/golden/baseline.json`.
+- **rubric** — per scenario, the p50 outcome score may not drop more than 0.05;
+- **efficiency** — per scenario, p50 model calls and tokens per turn may not rise more
+  than 10% unless the rubric score improved (paying more for a better edit is allowed);
+- **goal.md metrics** — run-wide: intent, target, boundary, validity, first-pass and
+  reversibility may not drop more than 5 points; no new silent success; tokens per
+  accepted edit may not rise more than 10% without a first-pass gain. Latency and the
+  failure-explained share are reported, never gated.
+
+The input is either a run JSON (`reports/golden/<label>.json`) or a `summary.json`; a
+family the input cannot supply is reported as n/a, never failed. CI runs the gate on the
+committed `reports/golden/baseline.json`; the nightly runs the six mission scenarios
+(`pnpm --filter @framepilot/ai-sdk eval:mission:real`) and gates the fresh run.
 
 ## Adding a case
 

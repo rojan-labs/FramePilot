@@ -1,52 +1,79 @@
 {
-  "recordedAt": "2026-08-29T13:31:41.605Z",
+  "recordedAt": "2026-09-02T12:35:36.366Z",
   "source": "reports/system-mission/after-orchestration-merged.json",
-  "tolerance": 0.05,
+  "label": "after (merged)",
+  "provider": "openai-compatible",
+  "model": "claude-sonnet-5",
+  "generatedAt": "2026-08-29T08:40:23.954Z",
+  "tolerances": {
+    "score": 0.05,
+    "cost": 0.1,
+    "rate": 0.05
+  },
   "scenarios": {
     "montage-30s": {
       "score": 1,
+      "calls": 31,
+      "tokensPerTurn": 33503,
       "runs": 3,
       "notDone": 1
     },
     "podcast-highlight-60s": {
       "score": 1,
+      "calls": 5,
+      "tokensPerTurn": 38814,
       "runs": 3,
       "notDone": 0
     },
     "remove-dead-air": {
       "score": 0.75,
+      "calls": 6,
+      "tokensPerTurn": 26979,
       "runs": 2,
       "notDone": 2
     },
     "beat-sync": {
       "score": 0.7777777777777778,
+      "calls": 18,
+      "tokensPerTurn": 30080,
       "runs": 3,
       "notDone": 0
     },
     "refine-tighten#t1": {
       "score": 0.625,
+      "calls": 18,
+      "tokensPerTurn": 32265,
       "runs": 3,
       "notDone": 2
     },
     "refine-tighten#t2": {
       "score": 0.875,
+      "calls": 12,
+      "tokensPerTurn": 34564,
       "runs": 3,
       "notDone": 2
     },
     "memory-captions#t1": {
       "score": 0.625,
+      "calls": 10,
+      "tokensPerTurn": 31328,
       "runs": 1,
       "notDone": 0
     },
     "memory-captions#t2": {
       "score": 0.7142857142857143,
+      "calls": 61,
+      "tokensPerTurn": 33070,
       "runs": 1,
       "notDone": 1
     },
     "memory-captions#t3": {
       "score": 0.42857142857142855,
+      "calls": 2,
+      "tokensPerTurn": 0,
       "runs": 1,
       "notDone": 1
     }
-  }
+  },
+  "summary": null
 }

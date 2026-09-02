@@ -28,8 +28,8 @@
     "typecheck": "tsc -b",
     "eval:golden": "node scripts/mission-baseline.mjs",
     "eval:golden:gate": "node scripts/golden-gate.mjs",
-    "eval:mission": "node scripts/mission-score.mjs reports/system-mission/after-orchestration-merged.json",
-    "eval:mission:real": "node scripts/mission-baseline.mjs --runs 3 --label after --dump-events reports/system-mission/runs --out reports/system-mission/after-orchestration.json"
+    "eval:mission": "node scripts/golden-gate.mjs reports/golden/baseline.json",
+    "eval:mission:real": "node scripts/mission-baseline.mjs --case montage-30s,podcast-highlight-60s,remove-dead-air,beat-sync,refine-tighten,memory-captions --runs 3 --label nightly --force --yes --dump-events --out reports/golden/nightly.json"
   },
   "dependencies": {
     "@framepilot/capability-packs": "workspace:*",

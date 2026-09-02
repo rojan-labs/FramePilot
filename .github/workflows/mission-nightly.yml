@@ -10,7 +10,7 @@ name: Mission nightly (real provider · desktop host)
 #
 # So these jobs run on the self-hosted mission runner named by the repository variable
 # `MISSION_DESKTOP_RUNNER`, and are skipped entirely when it is unset — which is why
-# the PR lane keeps only the cheap JSON gates (`mission-gates` in ci.yml).
+# the PR lane keeps only the cheap JSON gate (`mission-gates` in ci.yml).
 on:
   schedule:
     # 07:00 UTC — after the working day, so a red nightly is the first thing seen.
@@ -110,29 +110,23 @@ jobs:
           GOOGLE_API_KEY: ${{ secrets.GOOGLE_API_KEY }}
           ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pnpm --filter @framepilot/ai-sdk eval:mission:real
-      - name: Rubric floor against the fresh run (P9.3)
+      - name: Golden gate against the fresh run
         if: ${{ !cancelled() && steps.fixtures.outputs.present == 'true' }}
         shell: bash
         run: |
           set -eo pipefail
-          node packages/ai-sdk/scripts/mission-score.mjs \
-            reports/system-mission/after-orchestration.json | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Efficiency floor against the fresh run (P9.5)
-        if: ${{ !cancelled() && steps.fixtures.outputs.present == 'true' }}
-        shell: bash
-        run: |
-          set -eo pipefail
-          node packages/ai-sdk/scripts/mission-efficiency-gate.mjs \
-            reports/system-mission/after-orchestration.json | tee -a "$GITHUB_STEP_SUMMARY"
-      - name: Publish the run and both floors
+          node packages/ai-sdk/scripts/golden-gate.mjs \
+            reports/golden/nightly.json | tee -a "$GITHUB_STEP_SUMMARY"
+      - name: Publish the run and the floor
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@v7
         with:
           name: mission-nightly-reports
           path: |
-            reports/system-mission/after-orchestration.json
-            reports/system-mission/mission-score.json
-            reports/system-mission/mission-efficiency.json
+            reports/golden/nightly.json
+            reports/golden/nightly/summary.json
+            reports/golden/nightly/summary.md
+            reports/golden/floor.json
           if-no-files-found: warn
       - name: Stop the sidecar
         if: always()

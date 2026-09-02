@@ -66,6 +66,12 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   `editor-core/frame-grid.ts` and `render/frame_grid.py` audited: one shared fixture
   (`tests/fixtures/frame_grid_parity.json`), both runtimes tested — preview and export round
   seconds→frames identically by construction; no change.
+- `[x]` GOLDEN-0.3 — **one gate, one floor.** `mission-score.mjs` and `mission-efficiency-gate.mjs`
+  folded into `golden-gate.mjs` (rubric + efficiency per scenario, goal.md metrics run-wide);
+  `reports/golden/floor.json` written from the 2026-08-29 merged run; CI's PR lane gates
+  `reports/golden/baseline.json` (skips until it exists), the nightly runs the six mission
+  scenarios with `--force` (the runner resumes from per-case files by default, which would
+  otherwise make a nightly re-run nothing) and gates `reports/golden/nightly.json`.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
