@@ -1502,6 +1502,84 @@ describe('run budgets', () => {
   });
 });
 
+// goal.md Workstream D: "audit these guards together — overlapping stop conditions
+// silently kill valid long runs". Six stoppers act on a run (stall streak, semantic loop
+// window, research budget, diminishing returns, op caps, cost/time budget); this drives a
+// long run that keeps LEARNING and LANDING through all of them and asserts that only the
+// step cap ends it.
+describe('progress guards, audited together', () => {
+  const STOP_WORDS = /stopping|stall|circles|budget|limit|diminish|converg|cap of|no longer/i;
+
+  it('a long productive run is ended by the step cap and nothing else', () => {
+    const maxSteps = 40;
+    let s = started({ config: { ...started().config, maxSteps } });
+    const notices: string[] = [];
+    let usd = 0;
+    let elapsed = 0;
+    for (let i = 1; i < maxSteps; i += 1) {
+      usd += 0.05;
+      elapsed += 20_000;
+      const applied = i % 2 === 0;
+      const step = onEffectResult(
+        s,
+        turn({
+          stepIndex: i,
+          signature: `turn-${String(i)}`,
+          rationale: applied ? `Now placing shot ${String(i)}.` : `Reading scene ${String(i)} to choose the next shot.`,
+          callFacts: applied
+            ? []
+            : [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          ...(applied ? { applied: true, turnOpCount: 1, appliedOps: ops(1) } : {}),
+          runUsd: usd,
+          runElapsedMs: elapsed,
+        }),
+      );
+      notices.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
+      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({ kind: 'run_turn' });
+      expect(step.state.stallStreak, `turn ${String(i)} stall streak`).toBe(0);
+      expect(step.state.actionRecoveryPending, `turn ${String(i)} recovery`).toBe(false);
+      s = step.state;
+    }
+    // The step cap, and only the step cap, ends it.
+    const last = onEffectResult(
+      s,
+      turn({ stepIndex: maxSteps, signature: 'last', applied: true, turnOpCount: 1, appliedOps: ops(1) }),
+    );
+    expect(last.effects[0]).toMatchObject({ kind: 'run_verify' });
+    const stoppers = notices.filter((text) => STOP_WORDS.test(text));
+    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual([]);
+    expect(s.cumulativeOps.length).toBe(19);
+  });
+
+  it('a run that only ever reads something NEW is bounded by the cost budget, not the guards', () => {
+    // Each novel, successful read is progress by design (W3: reconnaissance is how an edit
+    // becomes possible), so the stall, loop and research guards correctly let a run read
+    // forty different scenes. What bounds it is money: without the cost budget such a run
+    // ran to the 300-step cap. Here the budget is the backstop, and it says so.
+    let s = started({ config: { ...started().config, maxSteps: 40, maxUsd: 1 } });
+    let ended: string | undefined;
+    let i = 1;
+    for (; i < 40 && ended === undefined; i += 1) {
+      const step = onEffectResult(
+        s,
+        turn({
+          stepIndex: i,
+          signature: `read-${String(i)}`,
+          rationale: `Reading scene ${String(i)}.`,
+          callFacts: [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          runUsd: i * 0.1,
+        }),
+      );
+      s = step.state;
+      if (step.effects[0]?.kind !== 'run_turn') {
+        ended = step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])).join(' | ');
+      }
+    }
+    expect(ended).toMatch(/Reached this run's \$1\.00 budget after 10 steps \(\$1\.00 spent\)/);
+    expect(i).toBe(11);
+  });
+});
+
 describe('onEffectResult — verify(+repair) → finalize', () => {
   it('surfaces the self-check summary + a warning per failed check, then finalizes', () => {
     const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });

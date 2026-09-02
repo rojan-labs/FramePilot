@@ -77,6 +77,12 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   "no core verb materially below the others" has six samples per verb at `--runs 3`.
   Validation rejections audited: `ValidationIssue{code, severity, message, operationIndex}`
   is already machine-readable (goal.md A); no change.
+- `[x]` GOLDEN-D.2 — **progress guards audited together** (goal.md D). A 40-step run that
+  alternates novel reads and landed edits passes stall, loop-window, research-budget,
+  diminishing-returns, op-cap and cost/time guards untouched; only the step cap ends it
+  (`conductor.test.ts › progress guards, audited together`). Finding: a run that only ever
+  reads something NEW is progress by design and was bounded by nothing but the 300-step
+  cap — the new cost budget (D.1) is now its backstop, pinned by the second test.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
