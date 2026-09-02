@@ -60,7 +60,7 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 | `[x]` | The progress guards, audited together (a 40-step productive run survives all five) | `b88b911` |
 | `[x]` | The reducer's decisions reach the log, not just its effects | `9efafb8` |
 | `[x]` | The run budget is a **setting**, not a per-run announcement — Settings → AI → Run budget; `budgetNotice` deleted | `2eeb92e` |
-| `[ ]` | **R1** — the wall-clock budget cannot fire during a step (see below) | `GOLDEN-D.5` |
+| `[x]` | **R1** — the wall-clock budget fires during a step; a run out of time still reports what it applied | `aa671ee` |
 
 ## Workstream E — token and cost efficiency
 
@@ -110,7 +110,7 @@ One agent run: 68 minutes wall clock, 20 model calls, 9 committed patches,
 final status **failed — "The app closed before this run finished."** Ranked by
 what it cost the user.
 
-### R1 — the run hung for 39 minutes and no budget stopped it `[ ]`
+### R1 — the run hung for 39 minutes and no budget stopped it `[x]` `aa671ee`
 
 Last event 15:16:45 (`generating`, `seg-20`); next event 15:55:33, the app
 closing. The run's 37-minute limit expired at 15:24 and never fired.
@@ -141,7 +141,7 @@ Fix, in one slice:
    between stream chunks are very long. Recommend cutting both once (2) makes
    the cost of a timeout visible.
 
-### R2 — an empty `b_roll` track the agent may never use, offered on every turn `[ ]`
+### R2 — an empty `b_roll` track the agent may never use, offered on every turn `[x]` `f51fe20`
 
 The timeline summary handed to the model every turn reads
 `b_roll [video] empty; v_main [video] N clips 0–49.77s`. `v_main` covers the
@@ -299,4 +299,49 @@ dump's compact `diff` events and reports undo as **unknown**, never as a pass. U
 when you want the ten metrics off a run that was not launched by the harness.
 
 *(Recipes for the run deadline and the repeated-refusal guard land with those slices.)*
+
+---
+
+# Follow-ups these two slices surfaced
+
+Small, real, and deliberately not done — each would have widened a slice past what
+its evidence justified.
+
+- **The golden set still cannot reproduce R2.** `mission-fixture-projects.mjs`
+  builds every mission project with exactly two tracks: `video_1` gapless across
+  the sequence and an empty `audio_1`. There is no second video track anywhere, so
+  no agent placement can cross picture over picture. The fixture that would
+  reproduce it needs a `mission-overlay` DEFS entry: the narration on a gapless
+  `v_main`, an **empty second video track** `b_roll`, b-roll in the bin but not on
+  the timeline. A `broll` case on it should then assert at most one
+  picture-over-picture refusal per run, and that the cutaway lands on `v_main` via
+  splits. Fixture generation is a maintainer job (live sidecar, media not committed).
+- **`add_stock`'s placement refusal gets no failure key at all** — it never sets
+  `deterministicFailure`, so the cause-keying in `f51fe20` does not reach it. A
+  plausible second instance of the same loop; the captured run used
+  `add_clip`/`add_clips`, so there is no evidence for it yet.
+- **Four caption refusals and one motion refusal still key on their text.**
+  `RefusalCause` is a one-member union on purpose — add a member only where the
+  sentence embeds varying particulars the way the picture one does.
+- **`get_timeline_summary`'s tool *description* does not mention free picture span.**
+  The payload field and the digest carry the parity; the description is prompt text
+  the token goldens track, so it is a one-line follow-up for whoever regenerates
+  them next.
+- **Provider retries are still silent** (cause 2 of R1). The cheap contained step is
+  passing `{ hooks: { onRetry } }` at `apps/desktop/electron/main.ts:2338` and
+  `:2383` — a log marker only. Making a retry a *user-visible event* is not cheap:
+  the provider is constructed before the run exists, so there is no event channel at
+  construction time. The run deadline bounds this from above either way.
+- **A hang inside `draftPlan` or the plan-approval gate still settles `failed`.**
+  Neither sits in the turn loop and neither has a route that converts an abort into
+  a report; both are bounded by `connectMs`.
+
+## One note on commit boundaries
+
+`aa671ee` (the deadline) also carries six of `f51fe20`'s tests in
+`orchestrator-stream.test.ts`. The two slices were built concurrently in one tree
+and I split `orchestrator.ts` by hunk; the test file was not split as finely. Both
+commits' *source* changes are correctly separated, and the branch state is what was
+verified — 794 tests across 135 suites, no frozen fixture moved. Reviewing
+`f51fe20` alone will show its tests missing; they are in the commit before it.
 

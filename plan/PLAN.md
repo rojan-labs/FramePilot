@@ -100,13 +100,31 @@ reconcileInheritedFailures`: a health check failing identically before and after
   names no tool; both now name `add_clip` and hand over the asset id. Unrecognized reasons
   still pass through verbatim. Open: the re-add case could simply succeed by placing the
   asset already in the project — **maintainer decision**, it changes what the tool does.
-- `[ ]` GOLDEN-D.5 — **the wall-clock budget cannot fire during a step.** Captured run
-  `369e8c82` (`run.md`) hung at 15:16:45 mid-`generating` and died with the app at 15:55:33 —
-  68 minutes against a 37-minute bound. `budgetExhausted` is read only by `advance()`, which
-  runs on a TURN RESULT, and `runElapsedMs` is stamped only on a finished turn, so the bound
-  covers the gaps between model calls and not the calls themselves. Arm the deadline on the
-  in-flight step and finalize through verify, so a run that runs out of time still reports
-  what it applied instead of dying with the app.
+- `[x]` GOLDEN-D.5 — **the wall-clock budget now fires during a step** (`aa671ee`). Run
+  `369e8c82` hung inside its twentieth model call and was still hanging 39 minutes past its
+  37-minute limit when the app closed, reporting none of its nine committed patches:
+  `budgetExhausted` is read only by `advance()`, on a TURN RESULT, so the bound covered the
+  gaps between calls and never a call. `reliability/deadline.ts` arms the run's own clock on
+  the step in flight — the third layer after the per-call timeout and the retry policy, and
+  the only one that knows the number the user set. It covers the turn loop ONLY: the plan
+  draft, approval gate and verify/repair stay on the editor's Stop signal, because
+  `toVerify` ISSUES a verify effect and a run-wide abort would kill the reporting it
+  triggers. A deadline takes the between-steps budget route, so the run still verifies and
+  still reports. `maxWallMsFor` is the one place `maxMinutes` meets its default. Found
+  on the way (pre-existing): the P4.3 verify fix turn fired even after a budget stop.
+  Real-run effect: **pending manual verification**.
+- `[x]` GOLDEN-A.4 — **a policy refusal names its rule, so the guard stops reading the
+  sentence** (`f51fe20`). Run `369e8c82` was refused ADR 0140's picture-over-picture rule
+  four times in fifteen minutes: `deterministicFailureKey` keyed on the refusal text, which
+  names the asset, both times and the conflicting clip, so a model that nudged 4.48–6s to
+  4.2–6s banked a second key. `RefusalCause` now rides from `ToolRefusalError` to the
+  outcome and the key prefers it; a causeless refusal keys on text as before, and a
+  corrected placement is never blocked (the key is computed after the call settles).
+  A refused call also now files as a `failed` operation via the existing `lostOpsPerCall`
+  route, so the remedy reaches the briefing instead of ageing out with the tool result;
+  and `arrangementLine` / `get_timeline_summary` mark a video track with no free picture
+  span, so the state stops advertising a layer nothing may go on. Not reproducible on the
+  golden set — every mission fixture has one video track; see TRACKING.md for the shape.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on

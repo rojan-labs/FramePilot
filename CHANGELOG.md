@@ -21,6 +21,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **A run that runs out of time now stops on time, and tells you what it applied.** The
+  limit you set in Settings was only checked between the AI's steps, so a step that never
+  came back could run past it indefinitely — one run sat silent for 39 minutes past its
+  37-minute limit and then reported nothing, despite having made nine edits. The clock now
+  runs on the step itself, and a run that hits it still checks its work and lists the edits
+  it made. Pressing Stop is still a cancellation, and reads as one.
+- **The assistant stops asking for the same impossible thing over and over.** When it is
+  told an edit can't be done — a second picture on top of another, say — it now remembers
+  *the reason*, not the sentence, so shifting the clip half a second and asking again gets
+  "you already tried this, here's what to do instead" rather than a fresh refusal. One run
+  spent fifteen minutes in that loop. A corrected edit that genuinely fits is never blocked.
+- **The timeline summary the assistant reads no longer offers a layer nothing can go on.**
+  An empty video track above a full one now says it has no free span, in the same words the
+  refusal uses — so the assistant plans a cutaway instead of walking into a wall.
 - **The assistant no longer gives up when a track or clip is already in your bin.** Asking
   for music or stock it had already downloaded used to answer "place it from the bin" — an
   instruction meant for a person looking at the bin, which the assistant has no way to
