@@ -25,8 +25,99 @@
  *
  * Overlap is measured in **time**, not by layer: which track the clips sit on
  * does not affect whether the preview can show both.
+ *
+ * ## What ADR 0169 changed
+ *
+ * The blanket answer above is still what `add_stock` and the Stock panel use:
+ * they pick the track themselves, so "is this moment occupied?" is the whole
+ * question for them. It is no longer the whole question for the AGENT, which
+ * names its own track and can be given a new one. A layer that covers the frame
+ * opaquely previews exactly as it exports — the preview shows the front-most
+ * clip and so does the composite — so that case is a legal placement rather than
+ * a divergence. {@link isFullFrameOpaque} is the predicate that separates the
+ * two, and it lives here so the guard and the preview cannot drift apart.
  */
-import type { Asset, Timeline } from '@framepilot/timeline-schema';
+import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
+import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
+
+// ---------------------------------------------------------------------------
+// Full-frame opacity — the predicate that decides whether a stacked picture
+// layer previews the way it exports (ADR 0169)
+// ---------------------------------------------------------------------------
+
+/**
+ * Clip effects that stop a picture layer covering the frame opaquely.
+ *
+ * - `mask` cuts a shape out of the layer, so the layer beneath shows through
+ *   the hole. The preview can only show one of the two.
+ * - `transition` / `transition_out` ramp the layer's own alpha (a dissolve), its
+ *   geometry (a push) or a wipe edge across the frame. For part of the clip the
+ *   layer is not covering, and the export blends whatever is under it.
+ *
+ * A colour grade, an audio adjustment or a text effect are deliberately absent:
+ * they change what the layer LOOKS like, never how much of the frame it covers
+ * or what shows through it.
+ */
+const COVERAGE_BREAKING_EFFECTS: ReadonlySet<string> = new Set([
+  'mask',
+  'transition',
+  TRANSITION_OUT_EFFECT_TYPE,
+]);
+
+/** The compositing fields {@link isFullFrameOpaque} reads. A whole {@link Clip} satisfies it. */
+export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
+  Partial<Pick<Clip, 'keyframes' | 'effects'>>;
+
+/**
+ * Does this clip paint the WHOLE output frame, with nothing showing through it?
+ *
+ * ## Why one predicate decides this for two processes
+ *
+ * A picture layer stacked over another previews correctly and exports
+ * identically **only** when the layer in front covers the frame opaquely: then
+ * the preview's "show the front-most clip" and the export's "composite the
+ * layers" produce the same pixels, and there is no divergence to guard against.
+ * The moment the front layer is scaled, positioned, cropped, masked, faded or
+ * blended, the export folds in what is underneath and the preview — which paints
+ * exactly one picture layer — cannot.
+ *
+ * So this one answer decides two things that must never disagree:
+ *
+ * - the agent's placement guard (`ai-sdk/domain-tools/picture-layers.ts`), which
+ *   allows a full-frame opaque overlay and refuses everything else;
+ * - the canvas preview's eligibility test
+ *   (`web-editor/editor/selectors-base.ts#canvasPreviewEligible`), which admits
+ *   overlapping picture only when every clip in the overlap satisfies this.
+ *
+ * Two copies of the rule would drift, and the way they would drift is that the
+ * guard starts allowing an overlay the preview cannot show.
+ *
+ * ## What it reads, and why each field is disqualifying
+ *
+ * - `keyframes` — transform animation. `scale` below 1, any `x`/`y`, a
+ *   `rotation`, or an `opacity` below 1 all uncover part of the frame. The
+ *   presence of ANY keyframe disqualifies rather than the evaluated value:
+ *   coverage would then be a function of time, and a clip that covers for two
+ *   seconds and uncovers for one is not a full-frame layer.
+ * - `crop` — a crop rect changes which part of the SOURCE is used. A cover crop
+ *   fills the frame and a narrower one letterboxes, and the two are not
+ *   distinguishable without the source's measured pixel dimensions, which this
+ *   is not given. Callers that generate a cover crop themselves (`add_clip`'s
+ *   auto-reframe) test the placement BEFORE that crop, because a cover crop can
+ *   only increase coverage.
+ * - `blendMode` — anything but `normal` is by definition a function of the
+ *   layer beneath (`render/compiler.py#_blend_layer_over`).
+ * - `effects` — see {@link COVERAGE_BREAKING_EFFECTS}.
+ *
+ * @param clip - The clip, or the compositing fields a placement would write.
+ * @returns TRUE when the layer covers the whole frame with no alpha of its own.
+ */
+export function isFullFrameOpaque(clip: FullFrameOpaqueFields): boolean {
+  if (clip.crop !== undefined) return false;
+  if (clip.blendMode !== undefined && clip.blendMode !== 'normal') return false;
+  if ((clip.keyframes ?? []).length > 0) return false;
+  return !(clip.effects ?? []).some((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
+}
 
 /** Asset kinds that flow through the preview's single picture chain. */
 const PICTURE_ASSET_KINDS: ReadonlySet<string> = new Set(['video', 'image']);

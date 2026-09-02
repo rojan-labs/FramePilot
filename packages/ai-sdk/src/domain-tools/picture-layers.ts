@@ -1,22 +1,37 @@
 /**
- * Would this agent placement put picture on top of picture?
+ * Where an agent placement of picture media actually goes.
  *
  * ## Why this exists
  *
- * The preview flattens picture clips from **every** track into one time-ordered
- * chain (`apps/web-editor/src/editor/selectors.ts`, `PictureSegment[]` — the
- * later clip simply overwrites the time), while the export composites the layers
- * properly (`render/compiler.py#_blend_layer_over`). Two picture clips
- * overlapping in time on two tracks therefore preview one way and render
- * another. That divergence is blocker #1 in
- * `plan/SCENE-UNDERSTANDING-AND-COMPOSITING.md` §0.2, and `SUC-P1` exists to
- * close it. It has not started.
+ * The preview paints ONE picture layer at a time. The DOM monitor shows the
+ * front-most picture clip at the playhead; the canvas compositor consumes
+ * `apps/web-editor/src/editor/selectors-base.ts#pictureSegments`, which resolves
+ * a stack the same way. The export does not: `render/compiler.py` composites
+ * every track's picture, bottom-up, with alpha and blend modes.
  *
- * ADR 0140 decided the answer for stock media: refuse the placement, say why,
- * and name the alternative. This is that same rule for every AGENT picture
- * placement — `add_clip`, `add_clips`, `move_clip` — because the agent is the
- * other path that places picture *for* the user rather than *by* the user, and
- * an edit the user approves in the preview must be the edit that exports.
+ * Those two agree exactly when the layer in front **covers the whole frame
+ * opaquely** — then "show the front clip" and "composite the layers" produce the
+ * same pixels. They disagree the moment the front layer is scaled, positioned,
+ * cropped, masked, faded or blended, because the export folds in what is
+ * underneath and the preview cannot.
+ *
+ * ## What this module does about it
+ *
+ * ADR 0140 refused every stacked picture placement, which was the safe answer
+ * before anything knew which layer was in front. ADR 0169 narrows it to the case
+ * that genuinely diverges:
+ *
+ * - a **full-frame opaque** placement over existing picture is legal, and lands
+ *   on a layer in FRONT of everything it covers — an existing one when there is
+ *   a usable one, otherwise a new layer opened at the visual front in the same
+ *   patch, so it applies atomically and one undo removes both;
+ * - anything else — scaled, positioned, cropped, masked, faded, blended — is
+ *   still refused, with the reason and the two legal moves.
+ *
+ * {@link isFullFrameOpaque} is the predicate, and it lives in `editor-core`
+ * because the canvas preview's eligibility test asks the identical question.
+ * Two copies would drift, and the way they would drift is that this one starts
+ * allowing an overlay the preview cannot show.
  *
  * Manual UI editing is deliberately out of scope: a person dragging a clip onto
  * a second layer can see both, chose it, and owns the result.
@@ -24,13 +39,18 @@
  * ## Why it is not `editor-core`'s `picturePlacementConflict`
  *
  * That predicate measures occupancy over the whole timeline, including the
- * target track, because the Stock panel picks the track itself. Here the track
- * is named by the caller, and same-track overlap is already the validator's job
- * — it rejects it with a better message than this could. What is left, and what
- * only this can catch, is the overlap ACROSS tracks that the validator allows
- * and the preview cannot show.
+ * target track, because the Stock panel and `add_stock` pick the track
+ * themselves and cannot be handed a new one. Here the track is named by the
+ * caller and CAN be replaced, and same-track overlap is already the validator's
+ * job — it rejects it with a better message than this could.
  */
 import type { Asset, Clip, Project, Track } from '@framepilot/timeline-schema';
+import type { Operation } from '@framepilot/editor-core';
+import {
+  isFullFrameOpaque,
+  trackHasRoomFor,
+  type FullFrameOpaqueFields,
+} from '@framepilot/editor-core';
 import { clipKindOf } from '../project-index.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 
@@ -48,6 +68,16 @@ export interface PictureCandidate {
    * cannot conflict with itself sitting at its old position.
    */
   readonly ignoreClipId?: string;
+  /**
+   * The compositing the placed clip will carry, when it is not a plain placement.
+   *
+   * `add_clip`/`add_clips` write a bare clip — no keyframes, no crop, no blend —
+   * so they omit this and the placement is full-frame by construction. (Their
+   * auto-reframe crop is applied AFTERWARDS and is a *cover* crop: it can only
+   * increase coverage, never reduce it.) `move_clip` moves a clip that already
+   * exists and may carry any of them, so it passes the real one.
+   */
+  readonly compositing?: FullFrameOpaqueFields;
 }
 
 /** One existing picture clip the candidate would sit on top of. */
@@ -56,6 +86,8 @@ export interface PictureConflict {
   readonly trackId: string;
   readonly start: number;
   readonly end: number;
+  /** The conflicting track's z-order slot — 0 is the visual front. */
+  readonly depth: number;
 }
 
 /** Only `video` layers carry the picture chain; overlay/caption/audio composite separately. */
@@ -93,9 +125,9 @@ export function pictureOverlapAcross(
   if (!PICTURE_KINDS.has(candidateKind)) return [];
 
   const conflicts: PictureConflict[] = [];
-  for (const track of project.timeline.tracks) {
-    if (track.id === candidate.trackId) continue;
-    if (!carriesPicture(track)) continue;
+  project.timeline.tracks.forEach((track, depth) => {
+    if (track.id === candidate.trackId) return;
+    if (!carriesPicture(track)) return;
     for (const clip of track.clips) {
       if (clip.id === candidate.ignoreClipId) continue;
       if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
@@ -105,9 +137,10 @@ export function pictureOverlapAcross(
         trackId: track.id,
         start: clip.start,
         end: clip.end,
+        depth,
       });
     }
-  }
+  });
   return conflicts.sort((a, b) => a.start - b.start);
 }
 
@@ -124,22 +157,44 @@ function assetLabel(project: Project, assetId: string): string {
 }
 
 /**
+ * Which field made the placement something other than a full-frame layer.
+ *
+ * Named, not merely reported, because "it is not full-frame" is a verdict the
+ * model cannot act on: the fix for a crop (drop it) is not the fix for a blend
+ * mode (set it to normal). Same order as {@link isFullFrameOpaque} tests them.
+ */
+function nonOpaqueReason(compositing: FullFrameOpaqueFields): string {
+  if (compositing.crop !== undefined) return 'it is cropped';
+  if (compositing.blendMode !== undefined && compositing.blendMode !== 'normal') {
+    return `it blends with what is under it (blendMode "${compositing.blendMode}")`;
+  }
+  if ((compositing.keyframes ?? []).length > 0) {
+    return 'it carries transform keyframes (a scaled, moved or faded layer)';
+  }
+  /* v8 ignore next -- reached only for a masked/transitioning clip; kept total on purpose */
+  return 'it carries a mask or a transition, so part of the frame shows through it';
+}
+
+/**
  * The refusal, worded once.
  *
- * It names the offending clip and track (so the model can act rather than
- * re-guess), states the preview/export divergence as the reason, and gives the
- * two legal moves: the cutaway, or a free span. Deliberately NOT "try a
- * different track" — every track has the same answer, and a run told otherwise
- * walks the placement across layers one at a time.
+ * It names the offending clip and track, says which property of the placement
+ * makes it un-showable, and gives the two legal moves: make it full-frame (and
+ * the placement lands on its own front layer, no further work), or cut a hole
+ * and place it as a cutaway. Deliberately NOT "try a different track" — every
+ * track has the same answer, and a run told otherwise walks the placement across
+ * layers one at a time.
  *
  * @param project - The project, for the asset's name.
  * @param candidate - The refused placement.
  * @param conflicts - What it would have covered, from {@link pictureOverlapAcross}.
+ * @param compositing - The compositing that disqualified it.
  */
 export function pictureOverlapRefusal(
   project: Project,
   candidate: PictureCandidate,
   conflicts: readonly PictureConflict[],
+  compositing: FullFrameOpaqueFields,
 ): string {
   const first = conflicts[0];
   /* v8 ignore next -- callers only build a refusal from a non-empty conflict list */
@@ -148,43 +203,144 @@ export function pictureOverlapRefusal(
   return (
     `Refused: "${assetLabel(project, candidate.assetId)}" at ` +
     `${timeText(candidate.start)}–${timeText(candidate.end)}s would sit on top of ` +
-    `${first.clipId} on ${first.trackId}${others}. The preview shows only one picture ` +
-    'layer, so what you would see is not what exports (ADR 0140 / SUC-P1). Place it as a ' +
-    `cutaway instead — split at ${timeText(candidate.start)}s and ${timeText(candidate.end)}s ` +
-    'and add it on the same track — or choose a free span.'
+    `${first.clipId} on ${first.trackId}${others}, and ${nonOpaqueReason(compositing)}. ` +
+    'The preview shows one picture layer at a time, so only a layer that covers the whole ' +
+    'frame opaquely previews the way it exports (ADR 0169 / SUC-P1). Either place it ' +
+    'full-frame — a plain placement with no crop, transform or blend mode is put on its own ' +
+    `front layer for you — or cut a hole for it: split at ${timeText(candidate.start)}s and ` +
+    `${timeText(candidate.end)}s and add it on the same track as a cutaway.`
   );
 }
 
+/** A resolved picture placement: the lane it lands on, and what must exist first. */
+export interface PicturePlacement {
+  /** The lane the clip should be placed on. */
+  readonly trackId: string;
+  /**
+   * Ops that must precede the placement. Empty when an existing lane was used; a
+   * single `add_layer` when a front layer had to be opened. They ride the SAME
+   * patch as the placement, so it applies atomically and one undo removes both.
+   */
+  readonly setupOps: readonly Operation[];
+}
+
 /**
- * Throw the refusal when `candidate` would stack picture over picture.
+ * A non-colliding, self-describing id for an auto-opened cutaway layer.
  *
- * A throw, not a return, because that is the tool boundary's own idiom: the
- * orchestrator catches it out of `buildOps`, settles the call as `failed` with
- * the sentence as its `data`, and marks it `deterministicFailure`. No patch is
- * assembled and nothing else in the turn is lost.
+ * Self-describing because the id is the only naming surface there is: `add_layer`
+ * carries no `name`, and both the timeline UI and the agent's own `projectNames`
+ * label a lane from its kind and position ("Video 1"). An editor scanning
+ * `get_timeline` can at least see which lane the agent opened and why.
  *
- * The refusal carries `picture_over_picture` as its `RefusalCause` (`tool-refusal.ts`), and that,
- * not the sentence, is what run memory keys on (`deterministicFailureKey`). This
- * comment used to claim the guard already stopped the model retrying; run `369e8c82`
- * proved otherwise. The sentence names the asset, both times and the conflicting clip,
- * so a model that nudged 4.48–6s to 4.2–6s — believing it was trying something new —
- * produced a second key and was refused from scratch, four times over fifteen minutes.
- * The cause is the same for all four, so the second one is answered "you already tried
- * this" instead. A CORRECTED placement is untouched: the key is computed after the call
- * settles, so a placement into a free span never refuses and so never has a key to
- * match.
- *
- * A {@link ToolRefusalError} specifically, so the note reads `Refused "add_clip":
- * <sentence>` and not `Invalid arguments for "add_clip"` — the arguments were
- * read and understood, and telling the model otherwise sends it to nudge a
- * `start` that was already right instead of placing the cutaway.
+ * Deterministic so the same placement produces the same patch twice — the
+ * property the patch/undo contract and the golden tests both rely on.
  */
-export function assertNoPictureStacking(project: Project, candidate: PictureCandidate): void {
-  const conflicts = pictureOverlapAcross(project, candidate);
-  if (conflicts.length === 0) return;
-  throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts), {
-    refusalCause: 'picture_over_picture',
-  });
+function nextCutawayLayerId(project: Project, opened: readonly string[]): string {
+  const taken = new Set<string>([...project.timeline.tracks.map((t) => t.id), ...opened]);
+  let n = 1;
+  while (taken.has(`video_cutaway_${String(n)}`)) n += 1;
+  return `video_cutaway_${String(n)}`;
+}
+
+/**
+ * Resolves picture placements for one tool call, remembering what it has already
+ * promised.
+ *
+ * Stateful by design and scoped to one call, exactly like `editor-core`'s
+ * {@link createLaneAllocator}: `add_clips` builds every operation against the
+ * timeline as it was before the call, so two entries that both need a front layer
+ * would each open one and the patch would carry two `add_layer` ops with the same
+ * id. The placer books each span as it hands it out, so a batch lays down exactly
+ * like a sequence of single calls. Across CALLS the orchestrator threads the
+ * turn's speculative working copy (`executeToolCalls`), so the second call sees
+ * the layer the first opened.
+ *
+ * @param project - The project the placements are being planned against.
+ */
+export function createPicturePlacer(project: Project): {
+  place: (candidate: PictureCandidate) => PicturePlacement;
+} {
+  /** Spans booked during this call, per lane id, on top of what the timeline holds. */
+  const booked = new Map<string, { start: number; end: number }[]>();
+  /** Front layers opened during this call, newest first (each went in at index 0). */
+  const opened: string[] = [];
+
+  const bookedHasRoom = (trackId: string, start: number, end: number): boolean =>
+    !(booked.get(trackId) ?? []).some((span) => span.start < end && span.end > start);
+
+  const book = (trackId: string, start: number, end: number): void => {
+    const spans = booked.get(trackId);
+    if (spans) spans.push({ start, end });
+    else booked.set(trackId, [{ start, end }]);
+  };
+
+  /** Can a clip spanning `[start, end)` land on this existing lane and be seen? */
+  const usableLane = (track: Track, start: number, end: number, frontOf: number): boolean => {
+    const depth = project.timeline.tracks.indexOf(track);
+    if (depth >= frontOf) return false; // behind the picture it must cover: invisible
+    if (!carriesPicture(track)) return false;
+    // A hidden lane renders nothing and a locked one refuses the edit; landing on
+    // either would report success and produce no picture (the same bargain
+    // `createLaneAllocator` refuses).
+    if (track.hidden === true || track.locked === true) return false;
+    return trackHasRoomFor(track, start, end) && bookedHasRoom(track.id, start, end);
+  };
+
+  return {
+    place(candidate) {
+      const conflicts = pictureOverlapAcross(project, candidate);
+      if (conflicts.length === 0) {
+        book(candidate.trackId, candidate.start, candidate.end);
+        return { trackId: candidate.trackId, setupOps: [] };
+      }
+      const compositing = candidate.compositing ?? {};
+      if (!isFullFrameOpaque(compositing)) {
+        throw new ToolRefusalError(
+          pictureOverlapRefusal(project, candidate, conflicts, compositing),
+          { refusalCause: 'picture_over_picture' },
+        );
+      }
+      // Everything it covers must end up BEHIND it, so the lane has to sit in
+      // front of the front-most thing it covers.
+      const frontOf = conflicts.reduce((min, c) => Math.min(min, c.depth), Infinity);
+
+      // The lane the caller named wins whenever it can be seen — the agent chose
+      // it, and relocating a placement it did not ask to relocate is its own kind
+      // of wrong.
+      const named = project.timeline.tracks.find((track) => track.id === candidate.trackId);
+      if (named && usableLane(named, candidate.start, candidate.end, frontOf)) {
+        book(named.id, candidate.start, candidate.end);
+        return { trackId: named.id, setupOps: [] };
+      }
+      // Then any lane already in front with room — front-most first, since
+      // `tracks` is ordered front to back. This is what stops a montage opening a
+      // fresh layer per clip: the second entry reuses the first entry's lane.
+      const reusableOpen = opened.find((id) => bookedHasRoom(id, candidate.start, candidate.end));
+      if (reusableOpen !== undefined) {
+        book(reusableOpen, candidate.start, candidate.end);
+        return { trackId: reusableOpen, setupOps: [] };
+      }
+      const existing = project.timeline.tracks.find((track) =>
+        usableLane(track, candidate.start, candidate.end, frontOf),
+      );
+      if (existing) {
+        book(existing.id, candidate.start, candidate.end);
+        return { trackId: existing.id, setupOps: [] };
+      }
+      // Nothing usable: open a video layer at the visual front (index 0). `video`
+      // rather than `overlay` deliberately — a clip's kind comes from its asset,
+      // so an `overlay` lane holding picture would still composite as picture at
+      // export while this module's own occupancy scan stopped counting it, and the
+      // next placement would be told the time was free.
+      const layerId = nextCutawayLayerId(project, opened);
+      opened.unshift(layerId);
+      book(layerId, candidate.start, candidate.end);
+      return {
+        trackId: layerId,
+        setupOps: [{ type: 'add_layer', layerId, layerType: 'video', atIndex: 0 }],
+      };
+    },
+  };
 }
 
 /**
@@ -194,59 +350,66 @@ export function assertNoPictureStacking(project: Project, candidate: PictureCand
 const COVERAGE_EPSILON = 1e-6;
 
 /**
- * The video tracks with nowhere left to put a picture clip — because picture on the
- * OTHER video tracks already covers every instant of the sequence.
+ * The video tracks that picture IN FRONT of them already covers end to end — so
+ * anything placed there would be composited behind it and never seen.
  *
  * ## Why the state summary needs this
  *
  * `arrangementLine` renders `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every
  * turn. In run `369e8c82` that was a standing invitation: an empty video track reads as a
- * free layer, and the run took it four times, each time meeting
- * {@link assertNoPictureStacking}. The refusal is a good sentence, but it arrives after
- * the call; the summary is what the model plans from, and it was saying the opposite.
+ * free layer, and the run took it four times. Under ADR 0140 each attempt met a refusal;
+ * under ADR 0169 the placement succeeds but is *lifted* to a new front layer, which is a
+ * better outcome and still not what the line described. Either way the summary is what the
+ * model plans from, and a lane that cannot show picture must not read as one that can.
  *
- * Exactly the rule {@link pictureOverlapAcross} enforces, asked track-wide instead of
- * placement-wide, so the two can never disagree about what is legal.
+ * Z-ORDER, not merely time, is what changed with ADR 0169. Picture BEHIND a track does not
+ * hide it; only picture in front does. So the sweep looks at the tracks nearer the viewer
+ * (a lower index — see `editor-core/operations.ts#AddLayerOp`), which is exactly the
+ * question {@link createPicturePlacer} asks when it decides a lane is unusable.
  *
  * Bounded like the line it feeds: one asset map, one pass over the clips to collect the
  * picture spans, then one sweep per video track. A project has few tracks.
  *
  * @param project - The project as the run currently holds it.
- * @returns The ids of the video tracks where every placement would be refused. Empty
- *   when the sequence is empty, since an empty timeline blocks nothing.
+ * @returns The ids of the video tracks nothing placed on could be seen on. Empty when the
+ *   sequence is empty, since an empty timeline hides nothing.
  */
-export function tracksWithNoFreePictureSpan(project: Project): ReadonlySet<string> {
+export function tracksCoveredByPictureInFront(project: Project): ReadonlySet<string> {
   const assetById = new Map<string, Asset>(
     (project.assets ?? []).map((asset) => [asset.id, asset]),
   );
-  const spansByTrack = new Map<string, { start: number; end: number }[]>();
+  const spansByDepth: { depth: number; spans: { start: number; end: number }[] }[] = [];
   let sequenceEnd = 0;
-  for (const track of project.timeline.tracks) {
+  project.timeline.tracks.forEach((track, depth) => {
     for (const clip of track.clips) sequenceEnd = Math.max(sequenceEnd, clip.end);
-    if (!carriesPicture(track)) continue;
-    spansByTrack.set(
-      track.id,
-      track.clips
+    if (!carriesPicture(track)) return;
+    spansByDepth.push({
+      depth,
+      spans: track.clips
         .filter((clip) => PICTURE_KINDS.has(clipKindOf(clip, assetById)))
         .map((clip) => ({ start: clip.start, end: clip.end })),
-    );
-  }
+    });
+  });
   if (sequenceEnd <= 0) return new Set();
   const blocked = new Set<string>();
-  for (const trackId of spansByTrack.keys()) {
-    // The other video tracks' picture, swept in time order: `covered` walks forward only
-    // while the spans keep touching, so the first real gap ends the sweep and the track
-    // still has somewhere to go.
-    const others = [...spansByTrack.entries()]
-      .filter(([id]) => id !== trackId)
-      .flatMap(([, spans]) => spans)
+  for (const { depth } of spansByDepth) {
+    // The picture on the tracks IN FRONT, swept in time order: `covered` walks forward
+    // only while the spans keep touching, so the first real gap ends the sweep and the
+    // track still has somewhere its picture would show.
+    const inFront = spansByDepth
+      .filter((entry) => entry.depth < depth)
+      .flatMap((entry) => entry.spans)
       .sort((a, b) => a.start - b.start);
     let covered = 0;
-    for (const span of others) {
+    for (const span of inFront) {
       if (span.start > covered + COVERAGE_EPSILON) break;
       covered = Math.max(covered, span.end);
     }
-    if (covered + COVERAGE_EPSILON >= sequenceEnd) blocked.add(trackId);
+    if (covered + COVERAGE_EPSILON >= sequenceEnd) {
+      const track = project.timeline.tracks[depth];
+      /* v8 ignore next -- depth came from the same array */
+      if (track) blocked.add(track.id);
+    }
   }
   return blocked;
 }

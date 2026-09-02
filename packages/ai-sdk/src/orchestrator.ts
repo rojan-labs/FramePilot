@@ -36,7 +36,7 @@ import {
   automaticTrackingOpsFromMeasurement,
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
-import { tracksWithNoFreePictureSpan } from './domain-tools/picture-layers.js';
+import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -1824,12 +1824,13 @@ const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
  * and clip counts, then a row per track with its span — so a run that reads the tool and a
  * run that reads this fact hold the timeline in the same terms.
  *
- * A video track with nowhere to put picture says so on its own row. Run `369e8c82` read
- * `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every turn and took the
- * invitation four times, each time meeting ADR 0140's picture-over-picture refusal
- * (`domain-tools/picture-layers.ts`) because the narration on `v_main` covers the whole
- * sequence. The refusal arrives after the call; this line is what the run PLANS from, and
- * it was advertising a layer that could not be used.
+ * A video track nothing placed on could be SEEN on says so on its own row. Run `369e8c82`
+ * read `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every turn and took the
+ * invitation four times, because the narration on `v_main` covers the whole sequence and
+ * `b_roll` sits behind it. Under ADR 0169 the placement is no longer refused — `add_clip`
+ * lifts a full-frame shot onto a new front layer — but the row still has to say so, because
+ * this line is what the run PLANS from and a lane that shows nothing must not read as one
+ * that does.
  *
  * Bounded by construction: one row per track, and a project has few of those.
  */
@@ -1840,13 +1841,13 @@ export function arrangementLine(project: Project): string {
     (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
     0,
   );
-  const blocked = tracksWithNoFreePictureSpan(project);
+  const blocked = tracksCoveredByPictureInFront(project);
   const rows = tracks
     .map((track) => {
-      // Same words the refusal uses ("a free span"), so the constraint the run reads here
-      // and the answer it gets from the tool are recognizably one rule.
+      // Same words `get_timeline_summary`'s `hiddenBehindPicture` flag stands for, so the
+      // constraint the run reads here and the answer it gets from the tool are one rule.
       const noRoom = blocked.has(track.id)
-        ? ` — no free span (picture covers 0–${round2(end)}s)`
+        ? ` — hidden behind picture 0–${round2(end)}s (a full-frame clip added here lands on a new front layer)`
         : '';
       if (track.clips.length === 0) return `${track.id} [${track.type}] empty${noRoom}`;
       const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
@@ -2578,7 +2579,11 @@ export function summarizeReadResult(
             // The same words `arrangementLine` uses for the same fact, per its doc comment:
             // the tool and the arrangement fact must describe the timeline identically, or
             // a run that read one plans against a constraint the other never mentioned.
-          }${t.noFreePictureSpan === true ? ` — no free span (picture covers 0–${duration})` : ''}`,
+          }${
+            t.hiddenBehindPicture === true
+              ? ` — hidden behind picture 0–${duration} (a full-frame clip added here lands on a new front layer)`
+              : ''
+          }`,
         'tracks',
       )}`;
     }
@@ -4389,9 +4394,10 @@ export class Orchestrator {
           //
           // The download SUCCEEDED: this branch runs only under `status === 'completed'`.
           // What refuses here is `stockOpsFromPayload` reading the orchestrator's own
-          // working copy through the same `editor-core` occupancy predicate that
-          // `assertNoPictureStacking` uses for `add_clip` — the ADR 0140 picture-over-
-          // picture rule, same inputs, same verdict every time. It is a policy decision
+          // working copy through `editor-core`'s occupancy predicate — ADR 0140's
+          // picture-over-picture rule, unchanged for `add_stock`, which picks the track
+          // itself and so cannot be handed a front layer the way `add_clip` now is
+          // (ADR 0169). Same inputs, same verdict every time. It is a policy decision
           // reached by a different route, not a host failure, so the call-site invariant
           // ("host work never reaches this test") still holds: a download timeout, a
           // provider 5xx, or `stock-host.ts`'s pre-download refusal all settle as a plain

@@ -5334,17 +5334,23 @@ describe('load_tools changes what the next turn is offered', () => {
 });
 
 /**
- * ADR 0140's picture-over-picture refusal, given once instead of four times.
+ * The picture-over-picture refusal, given once instead of four times — and, since
+ * ADR 0169, given only where it is still true.
  *
  * Run `369e8c82` (2026-09-02) had `v_main` carrying one narration clip across the whole
  * 0–49.77s sequence and an empty `b_roll`. Four times — 14:56:38, ~15:03, ~15:07,
  * 15:11:56 — it called `add_clips`/`add_clip` to put stock footage on `b_roll`, and four
- * times `assertNoPictureStacking` refused it. Roughly fifteen of the run's sixty-eight
+ * times ADR 0140's guard refused it. Roughly fifteen of the run's sixty-eight
  * minutes went into that loop, and the reason it could is that
  * `deterministicFailureKey` keyed on the refusal's PROSE. The sentence names the asset,
  * both times and the conflicting clip, so four refusals of one rule banked four keys and
  * nothing ever matched. The model was not repeating itself blindly: it nudged 4.48–6s to
  * 4.2–6s to 4.2–6.2s, believing each was a new attempt.
+ *
+ * That run's own request — plain full-frame b-roll over the narration — is now legal and
+ * lands on a layer opened in front (first test below). What is still refused is the
+ * placement the preview genuinely cannot show: a see-through or scaled layer over other
+ * picture. The banking mechanism is unchanged and is pinned here against that.
  */
 describe('picture over picture is refused once, not once per placement (run 369e8c82)', () => {
   const asset = (id: string, path: string) => ({
@@ -5392,10 +5398,64 @@ describe('picture over picture is refused once, not once per placement (run 369e
       },
     } as unknown as Partial<Project>);
 
-  /** Picture on `v_main` covers 0–10s with no gap: every span on `b_roll` is refused. */
+  /**
+   * The same shape with a SEE-THROUGH clip parked out at 20–22s on `b_roll`.
+   *
+   * Kept out of `overlayProject` deliberately: it extends the sequence to 22s, which the
+   * "hidden behind picture" digest below is measured against. This is the project for the
+   * refusal itself, which needs a clip the preview could not show over another.
+   */
+  const pipProject = (tailStart: number): Project =>
+    makeProject({
+      assets: [
+        asset('asset_main', 'media/narration.mp4'),
+        asset('asset_stock_a', 'media/Video_10374888-10374888.mp4'),
+        asset('asset_stock_b', 'media/Video_5495901-5495901.mp4'),
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
+          },
+          {
+            id: 'b_roll',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_pip',
+                assetId: 'asset_stock_a',
+                trackId: 'b_roll',
+                start: 20,
+                end: 22,
+                sourceStart: 0,
+                sourceEnd: 2,
+                effects: [],
+                keyframes: [],
+                blendMode: 'screen',
+              },
+            ],
+          },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<Project>);
+
+  /** Picture on `v_main` covers 0–10s with no gap. */
   const covered = (): ContextInput => ({
     project: overlayProject(5),
     userPrompt: 'add some b-roll over the intro',
+  });
+  /** The same, holding the see-through clip the refusal is about. */
+  const coveredPip = (): ContextInput => ({
+    project: pipProject(5),
+    userPrompt: 'lay that overlay across the intro',
+  });
+  /** …with a real 5–7s hole in the narration for the overlay to land in. */
+  const gappedPip = (): ContextInput => ({
+    project: pipProject(7),
+    userPrompt: 'lay that overlay across the intro',
   });
   /** The same, with a real 5–7s hole in the narration for a cutaway to land in. */
   const gapped = (): ContextInput => ({
@@ -5412,31 +5472,57 @@ describe('picture over picture is refused once, not once per placement (run 369e
   const fedBack = (provider: ScriptedProvider): string =>
     provider.requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n');
 
-  it('answers a second placement that hits the same rule as a repeat, remedy and all', async () => {
-    // Different asset, different times, different conflicting clip — everything the
-    // refusal sentence varies on. Under the prose key these were two unrelated failures
-    // and the run was told the whole story twice.
+  /** The overlay, moved onto the covered stretch — the placement still refused. */
+  const movePip = (id: string, toStart: number): ToolCall => ({
+    id,
+    name: 'move_clip',
+    arguments: { clipId: 'clip_pip', toTrackId: 'b_roll', toStart },
+  });
+
+  it('lands the run’s own request — plain b-roll over the narration — on a front layer', async () => {
+    // The captured run asked for exactly this and was refused four times. It is now a
+    // legal edit, because a full-frame cutaway previews the way it exports.
     const provider = new ScriptedProvider([
       { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
-      { text: 'trying again', toolCalls: [place('p2', 'asset_stock_b', 6, 8)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 4 }),
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }),
+    );
+    expect(JSON.stringify(events)).not.toMatch(/would sit on top of/);
+    const diff = events.filter((e) => e.type === 'diff').at(-1);
+    const ops = diff?.type === 'diff' ? diff.edit.patch.operations : [];
+    expect(ops.map((o: AnyOperation) => o.type)).toEqual(['add_layer', 'add_clip']);
+    // The layer went in at the visual front, and the clip went on it.
+    expect(ops[0]).toMatchObject({ type: 'add_layer', atIndex: 0 });
+    expect(ops[1]).toMatchObject({
+      type: 'add_clip',
+      trackId: (ops[0] as { layerId: string }).layerId,
+    });
+  });
+
+  it('answers a second placement that hits the same rule as a repeat, remedy and all', async () => {
+    // Different times, different conflicting clip — what the refusal sentence varies on.
+    // Under the prose key these were two unrelated failures and the run was told the
+    // whole story twice.
+    const provider = new ScriptedProvider([
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'trying again', toolCalls: [movePip('p2', 6)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 4 }),
     );
     // The first attempt gets the full refusal…
     expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
     // …and the second is answered as a repeat rather than run through the loop again.
     expect(JSON.stringify(events)).toMatch(/Refused repeat of[^,]*already failed this run/);
     const log = fedBack(provider);
-    expect(log).toMatch(/"add_clip" already failed this run for this same reason/);
+    expect(log).toMatch(/"move_clip" already failed this run for this same reason/);
     // The repeat answer REPLACES the refusal the model would otherwise have read, so it
-    // has to carry the way out with it. A repeat notice that drops "split at the in/out
-    // and place it on the same track" turns a helpful refusal into a dead end — worse
-    // than the loop it closes.
-    expect(log).toMatch(
-      /Place it as a cutaway instead — split at 6s and 8s and add it on the same track — or choose a free span/,
-    );
+    // has to carry the way out with it. A repeat notice that drops both remedies turns a
+    // helpful refusal into a dead end — worse than the loop it closes.
+    expect(log).toMatch(/split at 6s and 8s and add it on the same track as a cutaway/);
   });
 
   it('does not block a corrected placement that lands in a genuinely free span', async () => {
@@ -5446,12 +5532,12 @@ describe('picture over picture is refused once, not once per placement (run 369e
     // settles: a placement into the 5–7s hole never refuses, so it never has a key to
     // match, and the block never widens from the rule to the tool.
     const provider = new ScriptedProvider([
-      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
-      { text: 'taking the cutaway', toolCalls: [place('p2', 'asset_stock_b', 5, 7)] },
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'taking the cutaway', toolCalls: [movePip('p2', 5)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(gapped(), opts(), { maxSteps: 4 }),
+      new Orchestrator(provider).streamAgent(gappedPip(), opts(), { maxSteps: 4 }),
     );
     expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
     expect(JSON.stringify(events)).not.toMatch(/Refused repeat of/);
@@ -5459,7 +5545,7 @@ describe('picture over picture is refused once, not once per placement (run 369e
     const diff = events.filter((e) => e.type === 'diff').at(-1);
     const ops =
       diff?.type === 'diff' ? diff.edit.patch.operations.map((o: AnyOperation) => o.type) : [];
-    expect(ops).toContain('add_clip');
+    expect(ops).toContain('move_clip');
   });
 
   it('keys a refusal with no named cause on its text, exactly as before', async () => {
@@ -5492,23 +5578,23 @@ describe('picture over picture is refused once, not once per placement (run 369e
     // briefing never carried the rule once. A `failed` row puts it under the briefing's
     // "FAILED — fix the cause, do not retry unchanged", where it survives compaction.
     const provider = new ScriptedProvider([
-      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
       { text: 'done', toolCalls: [] },
     ]);
     const events = await drain(
-      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }),
+      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 3 }),
     );
     const last = events.filter((e) => e.type === 'run_state').at(-1);
     const working = last?.type === 'run_state' ? last.working : undefined;
     const failed = working?.operations.filter((op) => op.status === 'failed') ?? [];
     expect(failed.length).toBeGreaterThan(0);
     expect(failed.map((op) => op.failureReason ?? '').join('\n')).toMatch(
-      /Refused "add_clip"[\s\S]*Place it as a cutaway instead/,
+      /Refused "move_clip"[\s\S]*add it on the same track as a cutaway/,
     );
     // …and the row is not just stored, it is READ: the briefing puts it in front of the
     // model under the one heading that tells it what to do with a refusal.
     expect(fedBack(provider)).toMatch(
-      /FAILED — fix the cause, do not retry unchanged[\s\S]*Place it as a cutaway instead/,
+      /FAILED — fix the cause, do not retry unchanged[\s\S]*add it on the same track as a cutaway/,
     );
   });
 
@@ -5523,7 +5609,7 @@ describe('picture over picture is refused once, not once per placement (run 369e
     ]);
     await drain(new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }));
     expect(fedBack(provider)).toMatch(
-      /b_roll \[video\] 0 clips — no free span \(picture covers 0–10s\)/,
+      /b_roll \[video\] 0 clips — hidden behind picture 0–10s \(a full-frame clip added here lands on a new front layer\)/,
     );
   });
 
@@ -5536,6 +5622,6 @@ describe('picture over picture is refused once, not once per placement (run 369e
     await drain(new Orchestrator(provider).streamAgent(gapped(), opts(), { maxSteps: 3 }));
     const log = fedBack(provider);
     expect(log).toMatch(/b_roll \[video\] 0 clips/);
-    expect(log).not.toMatch(/no free span/);
+    expect(log).not.toMatch(/hidden behind picture/);
   });
 });

@@ -886,19 +886,22 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
         },
       } as unknown as Partial<Project>);
 
-    it('says so on its own row, in the refusal’s own words', () => {
+    it('says so on its own row, and says where a cutaway would go instead', () => {
       const line = arrangementLine(stacked(5));
-      expect(line).toContain('b_roll [video] empty — no free span (picture covers 0–10s)');
-      // The track doing the covering is not itself covered, and says nothing extra.
+      expect(line).toContain(
+        'b_roll [video] empty — hidden behind picture 0–10s ' +
+          '(a full-frame clip added here lands on a new front layer)',
+      );
+      // The track doing the covering is in FRONT of it, so it says nothing extra.
       expect(line).toContain('v_main [video] 2 clips 0–10s;');
       // Audio stacks freely — that is what layers are for.
       expect(line).toContain('audio_1 [audio] empty');
-      expect(line).not.toContain('audio_1 [audio] empty — no free span');
+      expect(line).not.toContain('audio_1 [audio] empty — hidden');
     });
 
     it('says nothing when the track still has a gap to land in', () => {
       // A 5–7s hole in the narration is a legal cutaway span, so the row must stay quiet.
-      expect(arrangementLine(stacked(7))).not.toContain('no free span');
+      expect(arrangementLine(stacked(7))).not.toContain('hidden behind picture');
     });
   });
 

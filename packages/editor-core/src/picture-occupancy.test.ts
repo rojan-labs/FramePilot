@@ -1,6 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
-import { firstFreePictureStart, picturePlacementConflict } from './picture-occupancy.js';
+import {
+  firstFreePictureStart,
+  isFullFrameOpaque,
+  picturePlacementConflict,
+} from './picture-occupancy.js';
 
 const video: Asset = { id: 'a_video', path: 'a.mp4', kind: 'video' };
 const image: Asset = { id: 'a_image', path: 'a.jpg', kind: 'image' };
@@ -161,5 +165,66 @@ describe('firstFreePictureStart', () => {
     expect(firstFreePictureStart(tl, assets, 5, -20)).toBe(10);
     // Nothing to fit, so nothing to move past.
     expect(firstFreePictureStart(tl, assets, 0, 3)).toBe(3);
+  });
+});
+
+/**
+ * ADR 0169 — the one predicate the agent's placement guard and the canvas preview's
+ * eligibility test both ask. It answers "does this layer paint the WHOLE frame with
+ * nothing showing through it", which is exactly when the preview's front-most clip and
+ * the export's composite are the same picture.
+ */
+describe('isFullFrameOpaque', () => {
+  it('is true for a plain clip', () => {
+    expect(isFullFrameOpaque({})).toBe(true);
+    expect(isFullFrameOpaque({ keyframes: [], effects: [] })).toBe(true);
+  });
+
+  it('is true for a normal blend mode written out explicitly', () => {
+    expect(isFullFrameOpaque({ blendMode: 'normal' })).toBe(true);
+  });
+
+  it('is false for any crop — a cover crop is indistinguishable from a letterboxing one', () => {
+    // Telling them apart needs the source's measured pixel dimensions, which this is not
+    // given. Callers that generate a cover crop themselves test the placement first.
+    expect(isFullFrameOpaque({ crop: { x: 0, y: 0, width: 0.5, height: 1 } })).toBe(false);
+  });
+
+  it('is false for a blend mode that folds in what is underneath', () => {
+    expect(isFullFrameOpaque({ blendMode: 'multiply' })).toBe(false);
+  });
+
+  it('is false for ANY transform keyframe, whatever its value', () => {
+    // Coverage would otherwise be a function of time: a clip that covers for two seconds
+    // and uncovers for one is not a full-frame layer.
+    expect(
+      isFullFrameOpaque({
+        keyframes: [{ id: 'k', time: 0, property: 'scale', value: 1, easing: 'linear' }],
+      }),
+    ).toBe(false);
+    expect(
+      isFullFrameOpaque({
+        keyframes: [{ id: 'k', time: 0, property: 'opacity', value: 0.4, easing: 'linear' }],
+      }),
+    ).toBe(false);
+  });
+
+  it('is false for a mask or a transition — both let the frame beneath through', () => {
+    for (const type of ['mask', 'transition', 'transition_out']) {
+      expect(isFullFrameOpaque({ effects: [{ id: 'e', type, params: {}, keyframes: [] }] })).toBe(
+        false,
+      );
+    }
+  });
+
+  it('is true with effects that change how the layer LOOKS, not what it covers', () => {
+    expect(
+      isFullFrameOpaque({
+        effects: [
+          { id: 'e1', type: 'color_grade', params: { exposure: 1 }, keyframes: [] },
+          { id: 'e2', type: 'adjust_audio', params: { gainDb: -6 }, keyframes: [] },
+        ],
+      }),
+    ).toBe(true);
   });
 });

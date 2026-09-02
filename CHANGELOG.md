@@ -6,6 +6,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI can lay b-roll and montages over your footage again.** Asking for a cutaway on a
+  talking head, or a photo montage cut to a music bed, was refused every time — the main
+  track has picture everywhere, and any second layer was rejected before it was tried. A
+  full-frame shot now goes onto a layer in front of what it covers, created for you if there
+  isn't one, and the whole thing is a single undo. What the monitor shows is what exports.
+  Shots that would only *partly* cover the frame — scaled or repositioned picture-in-picture,
+  a see-through or blended layer — are still refused, and now say which of those it was:
+  the preview can only show one picture layer at a time, so those really would export
+  differently from what you approved.
+
 ### Added
 
 - **You can set what a single AI run may spend and how long it may take.** Settings → AI

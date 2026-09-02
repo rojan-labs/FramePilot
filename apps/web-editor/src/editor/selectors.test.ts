@@ -730,8 +730,51 @@ describe('canvasPreviewEligible', () => {
     expect(canvasPreviewEligible(timelineOf(textClip), assets)).toBe(false);
   });
 
-  it('is false when two picture clips overlap', () => {
+  it('is false when two picture clips overlap ON ONE LANE — no defined order', () => {
     const timeline = timelineOf(vid('c1', 0, 5), vid('c2', 3, 8));
+    expect(canvasPreviewEligible(timeline, assets)).toBe(false);
+  });
+
+  it('is TRUE for a full-frame cutaway stacked on a second lane (ADR 0169)', () => {
+    // The front lane's clip covers the frame opaquely, so painting it alone is exactly
+    // what the export composites — there is nothing left underneath to blend in.
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'v_over', type: 'video', clips: [vid('c2', 2, 4)] },
+        { id: 'v_main', type: 'video', clips: [vid('c1', 0, 8)] },
+      ],
+    };
+    expect(canvasPreviewEligible(timeline, assets)).toBe(true);
+  });
+
+  it('is false when the clip IN FRONT of another cannot cover the frame', () => {
+    // A blended overlay: the export folds in what is under it and the canvas cannot.
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'v_over', type: 'video', clips: [vid('c2', 2, 4, { blendMode: 'multiply' })] },
+        { id: 'v_main', type: 'video', clips: [vid('c1', 0, 8)] },
+      ],
+    };
+    expect(canvasPreviewEligible(timeline, assets)).toBe(false);
+  });
+
+  it('is false when the clip UNDERNEATH is animated, because the stack slices it', () => {
+    // The covered clip becomes two spans, and the engine derives clip-relative time from
+    // each span's start — which a punch-in on the base clip would then read wrongly.
+    const timeline: Timeline = {
+      tracks: [
+        { id: 'v_over', type: 'video', clips: [vid('c2', 2, 4)] },
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            vid('c1', 0, 8, {
+              keyframes: [{ id: 'k1', time: 0, property: 'scale', value: 1.2, easing: 'linear' }],
+            }),
+          ],
+        },
+      ],
+    };
     expect(canvasPreviewEligible(timeline, assets)).toBe(false);
   });
 
@@ -913,32 +956,136 @@ describe('pictureSegments', () => {
   it('is contiguous (no gap segment) for back-to-back clips', () => {
     const segments = pictureSegments(timelineOf(vid('c1', 0, 3), vid('c2', 3, 6)), assets);
     expect(segments).toEqual([
-      { start: 0, end: 3, clip: expect.objectContaining({ id: 'c1' }) },
-      { start: 3, end: 6, clip: expect.objectContaining({ id: 'c2' }) },
+      {
+        start: 0,
+        end: 3,
+        clip: expect.objectContaining({ id: 'c1' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
+      {
+        start: 3,
+        end: 6,
+        clip: expect.objectContaining({ id: 'c2' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
     ]);
   });
 
   it('fills a gap between clips with a null-clip segment', () => {
     const segments = pictureSegments(timelineOf(vid('c1', 0, 3), vid('c2', 5, 8)), assets);
     expect(segments).toEqual([
-      { start: 0, end: 3, clip: expect.objectContaining({ id: 'c1' }) },
-      { start: 3, end: 5, clip: null },
-      { start: 5, end: 8, clip: expect.objectContaining({ id: 'c2' }) },
+      {
+        start: 0,
+        end: 3,
+        clip: expect.objectContaining({ id: 'c1' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
+      { start: 3, end: 5, clip: null, sourceStart: 0, sourceEnd: 0 },
+      {
+        start: 5,
+        end: 8,
+        clip: expect.objectContaining({ id: 'c2' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
     ]);
   });
 
   it('fills a leading gap when the first clip does not start at 0', () => {
     const segments = pictureSegments(timelineOf(vid('c1', 2, 5)), assets);
     expect(segments).toEqual([
-      { start: 0, end: 2, clip: null },
-      { start: 2, end: 5, clip: expect.objectContaining({ id: 'c1' }) },
+      { start: 0, end: 2, clip: null, sourceStart: 0, sourceEnd: 0 },
+      {
+        start: 2,
+        end: 5,
+        clip: expect.objectContaining({ id: 'c1' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
     ]);
   });
 
   it('ignores audio-only clips entirely', () => {
     const audioClip = { ...sampleClip, id: 'a1', assetId: 'aud', start: 0, end: 8 };
     const segments = pictureSegments(timelineOf(vid('c1', 0, 3), audioClip), assets);
-    expect(segments).toEqual([{ start: 0, end: 3, clip: expect.objectContaining({ id: 'c1' }) }]);
+    expect(segments).toEqual([
+      {
+        start: 0,
+        end: 3,
+        clip: expect.objectContaining({ id: 'c1' }),
+        sourceStart: 0,
+        sourceEnd: 3,
+      },
+    ]);
+  });
+
+  /**
+   * ADR 0169 — the chain resolves a stack by TRACK ORDER, the way the export does
+   * (`render/compiler.py` composites `reversed(picture_by_track)`, so index 0 is drawn
+   * last and is the visual front). The old projection sorted by `start` alone and let the
+   * later clip overwrite time, which is an order nothing had chosen.
+   */
+  describe('a stacked cutaway', () => {
+    const stacked = (front: Clip[], back: Clip[]): Timeline => ({
+      tracks: [
+        { id: 'v_over', type: 'video', clips: front },
+        { id: 'v_main', type: 'video', clips: back },
+      ],
+    });
+
+    it('shows the FRONT track’s clip for the span it covers', () => {
+      const segments = pictureSegments(stacked([vid('over', 2, 4)], [vid('base', 0, 8)]), assets);
+      expect(segments.map((s) => [s.start, s.end, s.clip?.id])).toEqual([
+        [0, 2, 'base'],
+        [2, 4, 'over'],
+        [4, 8, 'base'],
+      ]);
+    });
+
+    it('gives the resumed half of the covered clip the source time it resumes at', () => {
+      // The engine maps `sourceTime = sourceStart + (projectTime - start)`. Handing the
+      // second half the clip's original in-point would restart the shot at the cut.
+      const segments = pictureSegments(stacked([vid('over', 2, 4)], [vid('base', 0, 8)]), assets);
+      expect(segments[0]).toMatchObject({ sourceStart: 0, sourceEnd: 2 });
+      expect(segments[2]).toMatchObject({ sourceStart: 4, sourceEnd: 8 });
+    });
+
+    it('does not split a clip the stack never interrupts', () => {
+      // The cutaway starts where the base clip does, so the base contributes ONE span
+      // afterwards — a spurious segment boundary reads to the engine as a cut.
+      const segments = pictureSegments(stacked([vid('over', 0, 2)], [vid('base', 0, 8)]), assets);
+      expect(segments.map((s) => [s.start, s.end, s.clip?.id])).toEqual([
+        [0, 2, 'over'],
+        [2, 8, 'base'],
+      ]);
+    });
+
+    it('shows the base again where the front lane has a hole', () => {
+      const segments = pictureSegments(
+        stacked([vid('a', 1, 2), vid('b', 4, 5)], [vid('base', 0, 8)]),
+        assets,
+      );
+      expect(segments.map((s) => [s.start, s.end, s.clip?.id])).toEqual([
+        [0, 1, 'base'],
+        [1, 2, 'a'],
+        [2, 4, 'base'],
+        [4, 5, 'b'],
+        [5, 8, 'base'],
+      ]);
+    });
+
+    it('ignores a hidden front track, exactly as the render does', () => {
+      const timeline: Timeline = {
+        tracks: [
+          { id: 'v_over', type: 'video', clips: [vid('over', 2, 4)], hidden: true },
+          { id: 'v_main', type: 'video', clips: [vid('base', 0, 8)] },
+        ],
+      };
+      expect(pictureSegments(timeline, assets).map((s) => s.clip?.id)).toEqual(['base']);
+    });
   });
 });
 

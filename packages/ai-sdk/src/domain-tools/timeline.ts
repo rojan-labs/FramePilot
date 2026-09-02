@@ -28,12 +28,14 @@ import { createLaneAllocator } from '@framepilot/editor-core';
 
 /** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
 type LaneAllocator = ReturnType<typeof createLaneAllocator>;
+/** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
+type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { clipCandidates } from './clip-candidates.js';
-import { assertNoPictureStacking, tracksWithNoFreePictureSpan } from './picture-layers.js';
+import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
@@ -365,44 +367,40 @@ function addClipOperation(
   },
   ctx: ToolContext,
   lanes: LaneAllocator,
+  picture: PicturePlacer,
 ): Operation[] {
-  // Resolve the lane rather than trusting the one that was named — but NEVER for
-  // picture.
+  // Resolve the lane rather than trusting the one that was named — by two
+  // different rules, because picture and everything else fail differently.
   //
   // Clips on one track can never overlap, and a placement that collided used to
   // take the whole patch down with the validator's overlap error. For an overlay,
   // a caption or an audio bed that is a dead end for an intent lanes exist to
   // express, so those are relocated to a lane with room.
   //
-  // Picture is different, and `picture-occupancy.ts` says why in as many words:
-  // the preview flattens picture clips from EVERY track into one time-ordered
-  // chain while the export composites stacked layers properly, so two picture
-  // clips overlapping IN TIME render one way and preview another (blocker #1,
-  // SUC-P1). "Overlap is measured in time, not by layer" — which means moving a
-  // colliding video or image to another lane does not solve the problem, it
-  // creates it, and hands the user an edit that looks right until they export.
-  // `add_stock` already refuses for exactly this reason; so does this, by leaving
-  // the named lane in place and letting the validator reject as before.
+  // Picture is answered by `picture-layers.ts` (ADR 0169) because "a lane with
+  // room" is not enough for it: the preview paints ONE picture layer, so the
+  // clip has to end up in FRONT of everything it covers or the user approves a
+  // frame the export does not produce. That placer keeps the named lane when the
+  // lane can be seen, moves to an existing front lane when there is one, and
+  // otherwise opens a front lane in the same patch. A placement that could not
+  // preview honestly at all — scaled, cropped, faded, blended — it refuses.
   //
-  // The allocator, rather than a lookup, because `add_clips` plans every entry
+  // Both are allocators rather than lookups because `add_clips` plans every entry
   // against the same pre-call timeline: without booking each span as it is handed
-  // out, two overlapping entries in one batch would both be told the lane was free.
+  // out, two overlapping entries in one batch would both be told the lane was
+  // free, and two entries needing a front layer would each open one with the same id.
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
   const placed = isPicture
-    ? { trackId: clip.trackId, setupOps: [] as Operation[] }
+    ? // No `compositing`: `add_clip` writes a bare clip, and the auto-reframe crop
+      // below is a COVER crop applied afterwards, which can only increase coverage.
+      picture.place({
+        trackId: clip.trackId,
+        assetId: clip.assetId,
+        start: clip.start,
+        end: clip.end,
+      })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
-  // The lane is settled; now the ADR 0140 rule. Picture landing on a track that
-  // is not the one already holding picture at this time is the preview-vs-export
-  // lie in its general form — `add_stock` has refused it since ADR 0140, and
-  // there is no reason the same clip placed by `add_clip` should be allowed to
-  // tell it. Same-track overlap is left to the validator, which says it better.
-  assertNoPictureStacking(ctx.project, {
-    trackId: placed.trackId,
-    assetId: clip.assetId,
-    start: clip.start,
-    end: clip.end,
-  });
   const cropClip = { ...clip, trackId: placed.trackId };
   const crop = autoReframeCrop(ctx, cropClip);
   const clipId = crop ? placementClipId(cropClip) : undefined;
@@ -507,19 +505,19 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     },
     noArgs,
     (_args, ctx) => {
-      // Which video tracks have nowhere to put picture, because another video track
+      // Which video tracks nothing could be SEEN on, because picture in front of them
       // already covers the whole sequence. `arrangementLine` reports the same fact from
       // the same helper — a run that reads this tool and a run that reads the arrangement
       // fact must hold the timeline in the same terms, and run `369e8c82` spent fifteen
       // minutes placing stock onto an "empty" track neither of them said was unusable.
-      const blocked = tracksWithNoFreePictureSpan(ctx.project);
+      const blocked = tracksCoveredByPictureInFront(ctx.project);
       const tracks = ctx.project.timeline.tracks.map((track) => ({
         id: track.id,
         type: track.type,
         clipCount: track.clips.length,
         firstClipStart: track.clips.length ? Math.min(...track.clips.map((c) => c.start)) : null,
         lastClipEnd: track.clips.length ? Math.max(...track.clips.map((c) => c.end)) : null,
-        ...(blocked.has(track.id) ? { noFreePictureSpan: true } : {}),
+        ...(blocked.has(track.id) ? { hiddenBehindPicture: true } : {}),
         ...(track.muted !== undefined ? { muted: track.muted } : {}),
         ...(track.locked !== undefined ? { locked: track.locked } : {}),
         ...(track.hidden !== undefined ? { hidden: track.hidden } : {}),
@@ -830,21 +828,31 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     },
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
     (a, ctx) => {
-      // Moving picture onto a layer that already shows picture at the destination
-      // time creates the same divergence `add_clip` refuses, and by the same
-      // route — so it is refused in the same words. An unknown clip is left to
-      // the validator, which names the ids that do exist.
+      // Moving picture over picture is the same question `add_clip` answers, so it
+      // goes through the same placer: a full-frame clip lands in front of what it
+      // covers (on a layer opened here when there is none), and one that could not
+      // preview honestly is refused in the same words. Unlike a fresh placement
+      // this clip ALREADY carries compositing — a crop, a punch-in, a blend mode —
+      // so the real fields are handed over rather than assumed empty. An unknown
+      // clip is left to the validator, which names the ids that do exist.
       const found = findClipById(ctx.project.timeline, a.clipId);
-      if (found) {
-        assertNoPictureStacking(ctx.project, {
-          trackId: a.toTrackId,
-          assetId: found.clip.assetId,
-          start: a.toStart,
-          end: a.toStart + (found.clip.end - found.clip.start),
-          ignoreClipId: a.clipId,
-        });
+      if (!found) {
+        return [
+          { type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart },
+        ];
       }
-      return [{ type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart }];
+      const placed = createPicturePlacer(ctx.project).place({
+        trackId: a.toTrackId,
+        assetId: found.clip.assetId,
+        start: a.toStart,
+        end: a.toStart + (found.clip.end - found.clip.start),
+        ignoreClipId: a.clipId,
+        compositing: found.clip,
+      });
+      return [
+        ...placed.setupOps,
+        { type: 'move_clip', clipId: a.clipId, toTrackId: placed.trackId, toStart: a.toStart },
+      ];
     },
   ),
   mutateTool(
@@ -853,9 +861,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Create a new empty track (a "layer") to get a free lane for clips that ' +
         'would otherwise overlap. Clips on one track can never overlap, so this is ' +
-        'how you stack simultaneous elements — titles, captions, overlays or an audio ' +
-        'bed — not a second PICTURE layer, which is refused — when no existing track ' +
-        "has a free range. `type` is the track's advisory role " +
+        'how you stack simultaneous elements — titles, captions, overlays, an audio ' +
+        'bed, or full-frame picture over existing footage — when no existing track ' +
+        'has a free range. You rarely need it for picture: add_clip opens a front ' +
+        "layer itself when the shot has to go over what is already there. `type` is the track's advisory role " +
         '(video/audio/caption/overlay): it sets the default label/icon only, not a ' +
         'content limit, so any clip can live on any track. `atIndex` is the z-order ' +
         'slot where index 0 is the visual front (nearer the viewer); omit it to add ' +
@@ -919,8 +928,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'add_clip has no speed argument and the two must agree. To play a specific source ' +
         'range, set sourceStart and make the timeline span the same length. Read the ' +
         'timeline and assets first so you use real track/asset ids, and pick a ' +
-        'track whose range is free — clips on one track can never overlap, and ' +
-        'picture over picture on another track is refused — use a cutaway. ' +
+        'track whose range is free — clips on one track can never overlap. Placing ' +
+        'video or an image over footage that is already there is fine: the shot is put ' +
+        'on a layer in FRONT of what it covers, opening one if needed, and the result ' +
+        'is in the patch you get back. It covers the frame completely, so use it for a ' +
+        'cutaway or a montage, not for a picture-in-picture or a see-through overlay — ' +
+        'a scaled, cropped, faded or blended clip over other picture is refused, ' +
+        'because the preview can only show one picture layer at a time. ' +
         'In a PORTRAIT project, a source the engine has measured as landscape gets a ' +
         'centred fill crop on the way in (a set_clip_crop you will see in the result), ' +
         'because the renderer fits rather than fills and it would otherwise export with ' +
@@ -942,7 +956,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a, ctx) => addClipOperation(a, ctx, createLaneAllocator(ctx.project.timeline)),
+    (a, ctx) =>
+      addClipOperation(
+        a,
+        ctx,
+        createLaneAllocator(ctx.project.timeline),
+        createPicturePlacer(ctx.project),
+      ),
   ),
   mutateTool(
     {
@@ -981,11 +1001,12 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       })
       .strict(),
     (a, ctx) => {
-      // ONE allocator for the whole batch, so entry N sees the lanes entries
-      // 1..N-1 already took.
+      // ONE allocator and ONE picture placer for the whole batch, so entry N sees
+      // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
+      const picture = createPicturePlacer(ctx.project);
       return a.clips.flatMap((clip) =>
-        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes),
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture),
       );
     },
   ),

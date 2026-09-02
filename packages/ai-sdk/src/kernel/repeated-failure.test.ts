@@ -309,7 +309,9 @@ describe('streamAgent refuses a call the run has already been refused', () => {
  * moments — `stockOpsFromPayload` checks again in-process AFTER it. The second refusal is
  * the one keyed here. It is a policy decision, not a host failure: the download completed,
  * and the verdict comes from the orchestrator's own working copy through the same
- * `editor-core` occupancy predicate `assertNoPictureStacking` uses for `add_clip`.
+ * `editor-core` occupancy predicate. `add_clip` no longer shares it — ADR 0169 lets a
+ * full-frame placement open a layer in front instead — but `add_stock` picks the track
+ * itself and cannot, so ADR 0140's rule is still exactly what it answers with.
  *
  * The fixture's `video_1` holds picture across 0–10s, so 2s and 3s are both refused by that
  * rule and the free moment is 10s. The refusal sentence names the requested span and the

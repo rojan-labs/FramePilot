@@ -98,6 +98,14 @@ The predicate has to be about time, not about layers.
 
 ## Amendment (2026-09-02) — the same refusal now covers every agent picture placement
 
+> **Superseded in part by ADR 0169 (2026-09-03).** This amendment's blanket refusal cost
+> the agent the ability to build a montage or a layered cutaway on any project whose main
+> track is occupied — which is every talking head. ADR 0169 narrows it: a **full-frame
+> opaque** placement is legal and is lifted onto a layer in front of what it covers, and
+> only a scaled, positioned, cropped, masked, faded or blended one is still refused. The
+> decision below is unchanged for `add_stock` and the Stock panel, which choose the track
+> themselves. Read this amendment as the reasoning, and ADR 0169 as the current rule.
+
 This ADR was written about `add_stock`, because that was the feature in front of
 us. The reason it gave was never about stock: the preview flattens picture from
 every track into one chain and the export composites it, so **any** picture over
@@ -107,7 +115,7 @@ The general agent path was still creating exactly that. `add_track` invited it i
 as many words — "stack simultaneous elements — a title over b-roll,
 picture-in-picture" — and `add_clip`/`add_clips`/`move_clip` would then put a
 video or image clip on a second video layer over existing footage. The validator
-allows it (clips on *different* tracks may overlap), so nothing refused it, and
+allows it (clips on _different_ tracks may overlap), so nothing refused it, and
 the preview showed the later clip alone.
 
 **The refusal now applies to every agent placement of picture media.**
@@ -130,7 +138,7 @@ Three boundaries are deliberate:
   them is what layers are for, and they never enter the picture chain.
 - **Manual UI editing is untouched.** A person dragging a clip onto a second
   layer can see both, chose it, and owns the result. This constrains what the
-  agent does *for* the user.
+  agent does _for_ the user.
 
 Lifting it is still `SUC-P1` and still a maintainer decision. When multi-layer
 picture preview lands, this becomes a layer choice instead of a refusal, and the
@@ -139,7 +147,7 @@ callers are three lines in one file.
 ### A refusal is not a bad argument (follow-up)
 
 Extending the rule surfaced a defect in the tool boundary that predates it.
-`operationsForCall` wrapped *every* throw out of `buildOps` as `invalid_args`, so
+`operationsForCall` wrapped _every_ throw out of `buildOps` as `invalid_args`, so
 this refusal reached the model as `Invalid arguments for "add_clip": Refused: …`.
 That prefix argues against the sentence behind it: told its arguments are wrong,
 a model fixes arguments — nudging `start`, trying another `trackId` — instead of
