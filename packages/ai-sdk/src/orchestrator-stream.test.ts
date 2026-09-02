@@ -14,6 +14,7 @@ import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
 import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
+import type { TimerApi } from './reliability/timeout.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -98,6 +99,76 @@ const editCall = {
   name: 'delete_range',
   arguments: { trackId: 'video_1', start: 0, end: 3 },
 };
+
+/**
+ * A hand-fired timer, so "the run stopped on time" is a deterministic assertion.
+ *
+ * A never-returning step cannot be expressed with a `Date.now`-based `setTimeout`, and
+ * vitest's fake timers have raced under this repo's coverage instrumentation. This is the
+ * pattern `reliability/timeout.ts` already uses for the idle watchdog: inject the timer,
+ * fire it by hand, and the deadline lands exactly where the test says it does.
+ */
+function handFiredTimers(): {
+  api: TimerApi;
+  fire: () => void;
+  pending: () => number;
+} {
+  const scheduled = new Map<number, () => void>();
+  let next = 1;
+  return {
+    api: {
+      setTimeout: (handler: () => void) => {
+        const id = next++;
+        scheduled.set(id, handler);
+        return id;
+      },
+      clearTimeout: (handle: unknown) => {
+        scheduled.delete(handle as number);
+      },
+    },
+    fire: () => {
+      for (const [id, handler] of [...scheduled]) {
+        scheduled.delete(id);
+        handler();
+      }
+    },
+    pending: () => scheduled.size,
+  };
+}
+
+/**
+ * A provider whose Nth call never returns — run `369e8c82`'s `seg-20`, which was logged
+ * and then heard from no more.
+ *
+ * It respects the signal it is handed (as every real transport does), so the run's own
+ * deadline is the only thing that can end the call — which is exactly the property under
+ * test. `onStall` fires the injected deadline timer, so the stall and the clock running
+ * out are one deterministic sequence with no wall time in it.
+ */
+class StallingProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  private stalledOnce = false;
+  public constructor(
+    private readonly responses: readonly AiResponse[],
+    private readonly stallAtCall: number,
+    private readonly onStall: () => void,
+  ) {}
+  public async complete(_request: AiCompletionRequest, signal?: AbortSignal): Promise<AiResponse> {
+    const call = this.index;
+    this.index += 1;
+    if (call === this.stallAtCall && !this.stalledOnce) {
+      this.stalledOnce = true;
+      return new Promise<AiResponse>((_resolve, reject) => {
+        const stop = (): void => reject(new ProviderError('The operation was aborted', 'network'));
+        if (signal?.aborted) stop();
+        else signal?.addEventListener('abort', stop, { once: true });
+        this.onStall();
+      });
+    }
+    return this.responses[Math.min(call, this.responses.length - 1)] as AiResponse;
+  }
+}
 
 /**
  * A provider that returns a queued sequence of responses across successive
@@ -2423,6 +2494,148 @@ describe('streamAgent robustness (parity with agent())', () => {
     });
   });
 
+  // Run `369e8c82`: the 37-minute limit expired at 15:24:11 inside a model call that had
+  // been in flight since 15:16:45 and never returned. The between-steps check above is read
+  // on a TURN RESULT, so it never got a turn to be read on. These four cover the deadline
+  // that is now armed on the step itself.
+  describe('the run deadline (a step that never returns)', () => {
+    it('stops a hung model call on time and reports the edits applied before it', async () => {
+      const timers = handFiredTimers();
+      // Turn 1 lands an edit; turn 2's call never comes back.
+      const provider = new StallingProvider(
+        [{ text: 'edit', toolCalls: [deleteRange('a', 0, 1)] }],
+        1,
+        () => timers.fire(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      // Said once, naming the limit the editor actually set.
+      const stops = events.filter(
+        (e) => e.type === 'notification' && e.text.includes('37-minute limit'),
+      );
+      expect(stops).toHaveLength(1);
+      // NOT a cancellation, NOT a failure: the run ran out of time and reported.
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // The whole point — the captured run had nine committed patches and named none.
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+        text: expect.stringContaining('Applied 1 edit'),
+      });
+      // Every exit path clears the timer; a leaked one holds the process open.
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('stops a run whose FIRST call hangs, with nothing applied, and still says why', async () => {
+      const timers = handFiredTimers();
+      const provider = new StallingProvider([{ text: 'done' }], 0, () => timers.fire());
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 5, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(
+        events.some((e) => e.type === 'notification' && e.text.includes('5-minute limit')),
+      ).toBe(true);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(0);
+      // `failed`, and correctly so: ADR 0081 forbids `completed` without a traceable
+      // mutation, and this run has none. The point of the assertion is what it is NOT — a
+      // dead-end `failed` with no account of itself. It stopped on ITS OWN clock, said so,
+      // and raised no error card, exactly as a zero-edit between-steps budget stop does.
+      expect(events.at(-1)).toMatchObject({ status: 'failed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('still verifies and repairs after the deadline — the stop must not kill the report', async () => {
+      // The trap: `toVerify` does not finish a run, it ISSUES a verify effect. A deadline
+      // that aborted the run-wide signal would abort the verification it just triggered, and
+      // the run would report nothing — the captured failure, reproduced by its own fix.
+      const timers = handFiredTimers();
+      const provider = new StallingProvider(
+        [
+          { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
+          { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // the repair pass, post-deadline
+        ],
+        1,
+        () => timers.fire(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          // An unmeetable duration target, so verification fails and the repair pass runs.
+          { maxMinutes: 37, durationTargetSeconds: 1 },
+          { timers: timers.api },
+        ),
+      );
+      // The repair pass ran (its own turn-scoped diff) — verification was not aborted.
+      expect(events.filter((e) => e.type === 'diff').length).toBeGreaterThanOrEqual(2);
+      expect(
+        events.filter((e) => e.type === 'notification' && e.text.includes('37-minute limit')),
+      ).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+        text: expect.stringContaining('Applied'),
+      });
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('hands the handler seam its own disposer — nothing else there clears the timer', () => {
+      // `agentConductorHandlers` (the parity harness's seam) compiles the same run
+      // `streamAgent` does, deadline included, but has no `finally` of its own around it.
+      const timers = handFiredTimers();
+      const { dispose } = new Orchestrator(new MockProvider()).agentConductorHandlers(
+        input,
+        opts(),
+        { maxMinutes: 12 },
+        { timers: timers.api },
+      );
+      expect(timers.pending()).toBe(1);
+      dispose();
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('a user Stop still cancels — distinguishable from running out of time', async () => {
+      const timers = handFiredTimers();
+      const controller = new AbortController();
+      // Same hung-call shape; the editor presses Stop instead of the clock running out.
+      const provider = new StallingProvider(
+        [{ text: 'edit', toolCalls: [deleteRange('a', 0, 1)] }],
+        1,
+        () => controller.abort(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(controller.signal),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
+      // The two stops are told apart by what they say: Stop is silent about budgets, and
+      // it does not route through verification the way running out of time does.
+      expect(events.some((e) => e.type === 'notification' && e.text.includes('minute limit'))).toBe(
+        false,
+      );
+      expect(
+        events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic')),
+      ).toBe(false);
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // The deadline it never reached is cleared all the same.
+      expect(timers.pending()).toBe(0);
+    });
+  });
+
   it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
@@ -2509,7 +2722,18 @@ describe('streamAgent robustness (parity with agent())', () => {
     expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
   });
 
-  it('threads the run signal into every complete() call, including the repair pass', async () => {
+  // Two signals are in play now, and which one a stage gets is load-bearing.
+  //
+  // A turn's model call and tool calls run under the RUN signal — the editor's Stop combined
+  // with the run's own wall-clock deadline (`reliability/deadline.ts`), so a step that never
+  // returns is cut off. The verify/repair pass runs under the editor's signal ALONE, because
+  // it is the stage that reports what the run applied: a deadline that aborted it would kill
+  // the very report the deadline stop exists to produce.
+  //
+  // Asserted as behaviour, not identity. The turn loop's signal is derived, so it is no
+  // longer `controller.signal` by reference — what must stay true is that Stop still reaches
+  // every call.
+  it('every complete() aborts on Stop; the repair pass runs on the editor signal alone', async () => {
     const controller = new AbortController();
     const signals: (AbortSignal | undefined)[] = [];
     const responses: AiResponse[] = [
@@ -2536,7 +2760,15 @@ describe('streamAgent robustness (parity with agent())', () => {
     );
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
     expect(signals.length).toBeGreaterThanOrEqual(3);
-    expect(signals.every((s) => s === controller.signal)).toBe(true);
+    expect(signals.every((s) => s !== undefined)).toBe(true);
+    // The repair pass — the last call — is handed the editor's own signal, unwrapped. This
+    // is the property that keeps a deadline stop able to report: verification is not
+    // abortable by the clock that sent the run to it.
+    expect(signals.at(-1)).toBe(controller.signal);
+    // The turn loop's calls get the derived run signal instead — Stop OR the deadline. That
+    // Stop still reaches them is proved live by the deadline suite's Stop case, where an
+    // abort raised inside a turn's `complete()` settles the run `cancelled`.
+    expect(signals[0]).not.toBe(controller.signal);
   });
 
   it('emits no self-check when the run is cancelled (partial)', async () => {
@@ -4863,5 +5095,212 @@ describe('load_tools changes what the next turn is offered', () => {
     const second = provider.requests[1]?.tools ?? [];
     // Loading a domain grows the block; the point is that turn one never paid for it.
     expect(second.length).toBeGreaterThan(first.length);
+  });
+});
+
+/**
+ * ADR 0140's picture-over-picture refusal, given once instead of four times.
+ *
+ * Run `369e8c82` (2026-09-02) had `v_main` carrying one narration clip across the whole
+ * 0–49.77s sequence and an empty `b_roll`. Four times — 14:56:38, ~15:03, ~15:07,
+ * 15:11:56 — it called `add_clips`/`add_clip` to put stock footage on `b_roll`, and four
+ * times `assertNoPictureStacking` refused it. Roughly fifteen of the run's sixty-eight
+ * minutes went into that loop, and the reason it could is that
+ * `deterministicFailureKey` keyed on the refusal's PROSE. The sentence names the asset,
+ * both times and the conflicting clip, so four refusals of one rule banked four keys and
+ * nothing ever matched. The model was not repeating itself blindly: it nudged 4.48–6s to
+ * 4.2–6s to 4.2–6.2s, believing each was a new attempt.
+ */
+describe('picture over picture is refused once, not once per placement (run 369e8c82)', () => {
+  const asset = (id: string, path: string) => ({
+    id,
+    path,
+    kind: 'video' as const,
+    durationSeconds: 30,
+  });
+  const mainClip = (id: string, start: number, end: number) => ({
+    id,
+    assetId: 'asset_main',
+    trackId: 'v_main',
+    start,
+    end,
+    sourceStart: start,
+    sourceEnd: end,
+    effects: [],
+    keyframes: [],
+  });
+
+  /**
+   * The captured run's shape: two picture tracks, one carrying picture across every
+   * instant of the sequence, the other empty and therefore unusable.
+   *
+   * `v_main` holds TWO clips so the two refusals under test can name two different
+   * conflicting clip ids — the whole point being that they still key the same.
+   */
+  const overlayProject = (tailStart: number): Project =>
+    makeProject({
+      assets: [
+        asset('asset_main', 'media/narration.mp4'),
+        asset('asset_stock_a', 'media/Video_10374888-10374888.mp4'),
+        asset('asset_stock_b', 'media/Video_5495901-5495901.mp4'),
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
+          },
+          { id: 'b_roll', type: 'video', clips: [] },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<Project>);
+
+  /** Picture on `v_main` covers 0–10s with no gap: every span on `b_roll` is refused. */
+  const covered = (): ContextInput => ({
+    project: overlayProject(5),
+    userPrompt: 'add some b-roll over the intro',
+  });
+  /** The same, with a real 5–7s hole in the narration for a cutaway to land in. */
+  const gapped = (): ContextInput => ({
+    project: overlayProject(7),
+    userPrompt: 'add some b-roll over the intro',
+  });
+
+  const place = (id: string, assetId: string, start: number, end: number): ToolCall => ({
+    id,
+    name: 'add_clip',
+    arguments: { trackId: 'b_roll', assetId, start, end },
+  });
+
+  const fedBack = (provider: ScriptedProvider): string =>
+    provider.requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n');
+
+  it('answers a second placement that hits the same rule as a repeat, remedy and all', async () => {
+    // Different asset, different times, different conflicting clip — everything the
+    // refusal sentence varies on. Under the prose key these were two unrelated failures
+    // and the run was told the whole story twice.
+    const provider = new ScriptedProvider([
+      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
+      { text: 'trying again', toolCalls: [place('p2', 'asset_stock_b', 6, 8)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 4 }),
+    );
+    // The first attempt gets the full refusal…
+    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    // …and the second is answered as a repeat rather than run through the loop again.
+    expect(JSON.stringify(events)).toMatch(/Refused repeat of[^,]*already failed this run/);
+    const log = fedBack(provider);
+    expect(log).toMatch(/"add_clip" already failed this run for this same reason/);
+    // The repeat answer REPLACES the refusal the model would otherwise have read, so it
+    // has to carry the way out with it. A repeat notice that drops "split at the in/out
+    // and place it on the same track" turns a helpful refusal into a dead end — worse
+    // than the loop it closes.
+    expect(log).toMatch(
+      /Place it as a cutaway instead — split at 6s and 8s and add it on the same track — or choose a free span/,
+    );
+  });
+
+  it('does not block a corrected placement that lands in a genuinely free span', async () => {
+    // The regression the guard's own comment is afraid of ("blocking on the tool's name
+    // would refuse an add_clip at 30s because an earlier one overlapped a clip at 3s").
+    // Keying on the CAUSE is not that mistake, because the key is computed AFTER the call
+    // settles: a placement into the 5–7s hole never refuses, so it never has a key to
+    // match, and the block never widens from the rule to the tool.
+    const provider = new ScriptedProvider([
+      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
+      { text: 'taking the cutaway', toolCalls: [place('p2', 'asset_stock_b', 5, 7)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(gapped(), opts(), { maxSteps: 4 }),
+    );
+    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    expect(JSON.stringify(events)).not.toMatch(/Refused repeat of/);
+    // It LANDED — the corrected clip is on the timeline, not merely un-refused.
+    const diff = events.filter((e) => e.type === 'diff').at(-1);
+    const ops =
+      diff?.type === 'diff' ? diff.edit.patch.operations.map((o: AnyOperation) => o.type) : [];
+    expect(ops).toContain('add_clip');
+  });
+
+  it('keys a refusal with no named cause on its text, exactly as before', async () => {
+    // The fallback pin, in the same scenario so the contrast is visible. An unknown clip
+    // id is the VALIDATOR's rejection, not ADR 0140's refusal: it names no rule, so it
+    // still keys on `failureCause(text)` — and two different missing ids are two
+    // different failures, both of which are allowed to run.
+    const trimMissing = (id: string, clipId: string): ToolCall => ({
+      id,
+      name: 'trim_clip',
+      arguments: { clipId, start: 1, end: 3 },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trimMissing('m1', 'clip_zz')] },
+      { text: 'trimming again', toolCalls: [trimMissing('m2', 'clip_yy')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 4 }),
+    );
+    const text = JSON.stringify(events);
+    expect(text).toMatch(/clip_zz/);
+    expect(text).toMatch(/clip_yy/);
+    expect(text).not.toMatch(/Refused repeat of/);
+  });
+
+  it('records the refused call in the run working state, with the remedy as its reason', async () => {
+    // Only a landed patch's `describedActions` used to reach `recordOperation`, so the
+    // refusal survived exactly as long as its tool result did — and run `369e8c82`'s
+    // briefing never carried the rule once. A `failed` row puts it under the briefing's
+    // "FAILED — fix the cause, do not retry unchanged", where it survives compaction.
+    const provider = new ScriptedProvider([
+      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }),
+    );
+    const last = events.filter((e) => e.type === 'run_state').at(-1);
+    const working = last?.type === 'run_state' ? last.working : undefined;
+    const failed = working?.operations.filter((op) => op.status === 'failed') ?? [];
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed.map((op) => op.failureReason ?? '').join('\n')).toMatch(
+      /Refused "add_clip"[\s\S]*Place it as a cutaway instead/,
+    );
+    // …and the row is not just stored, it is READ: the briefing puts it in front of the
+    // model under the one heading that tells it what to do with a refusal.
+    expect(fedBack(provider)).toMatch(
+      /FAILED — fix the cause, do not retry unchanged[\s\S]*Place it as a cutaway instead/,
+    );
+  });
+
+  it('tells get_timeline_summary the same thing the arrangement line says', async () => {
+    // `arrangementLine`'s doc comment requires the two digests to describe the timeline in
+    // the same terms; a run that oriented with the tool would otherwise plan against a
+    // constraint the arrangement fact mentions and the tool does not.
+    const summary = (id: string): ToolCall => ({ id, name: 'get_timeline_summary', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'orienting', toolCalls: [summary('s1')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }));
+    expect(fedBack(provider)).toMatch(
+      /b_roll \[video\] 0 clips — no free span \(picture covers 0–10s\)/,
+    );
+  });
+
+  it('leaves get_timeline_summary silent about a track that still has a free span', async () => {
+    const summary = (id: string): ToolCall => ({ id, name: 'get_timeline_summary', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'orienting', toolCalls: [summary('s1')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(gapped(), opts(), { maxSteps: 3 }));
+    const log = fedBack(provider);
+    expect(log).toMatch(/b_roll \[video\] 0 clips/);
+    expect(log).not.toMatch(/no free span/);
   });
 });

@@ -4,12 +4,18 @@
  *
  * The desktop hub's coarse max-run cap can't tell "the model is thinking" from "the
  * socket is dead", which is why it is disabled (`AI_STREAM_TIMEOUT_MS = 0`) and the
- * bound lives HERE instead. These two independent timeouts are the only thing standing
- * between a dead socket and a run that never ends:
+ * per-call bound lives HERE instead. These two independent timeouts are what stands
+ * between a dead socket and a single call that never ends:
  *
  * - **connect timeout** — no response headers within N ms → abort as a timeout.
  * - **idle timeout** — no SSE chunk within N ms, reset on every chunk (a heartbeat)
  *   → abort as a timeout. This is why {@link ../providers/sse} calls `beat()` per chunk.
+ *
+ * They are NOT the whole story any more. A per-call bound multiplied by
+ * {@link ./types.ts DEFAULT_RETRY_POLICY}`.maxAttempts` is still a long silence — three
+ * attempts at the 15-minute `connectMs` below is a 45-minute ceiling — so the RUN itself
+ * also carries a deadline at the budget the editor set ({@link ./deadline.ts}). Three
+ * layers, narrowest first: this call, its retries, the whole run.
  *
  * Timers are injectable so the behavior is unit-testable without real waits.
  */
@@ -21,8 +27,16 @@ export interface TimerApi {
   clearTimeout(handle: unknown): void;
 }
 
-const realTimers: TimerApi = {
-  setTimeout: (handler, ms) => setTimeout(handler, ms),
+export const realTimers: TimerApi = {
+  setTimeout: (handler, ms) => {
+    const handle = setTimeout(handler, ms);
+    // Node keeps the event loop alive for a pending timer, and the run deadline
+    // (`./deadline.ts`) can be armed for tens of minutes. Every exit path disposes it, but
+    // an armed watchdog must never be the reason a process refuses to exit — so it does not
+    // vote. `unref` is Node-only; browsers return a number and skip this.
+    (handle as { unref?: () => void }).unref?.();
+    return handle;
+  },
   clearTimeout: (handle) => clearTimeout(handle as ReturnType<typeof setTimeout>),
 };
 

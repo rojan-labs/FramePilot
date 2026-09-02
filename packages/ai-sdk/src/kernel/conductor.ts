@@ -319,8 +319,20 @@ export type RunPhase =
  * nothing bounded it. An unpriced provider (usd stays 0) never trips this.
  */
 export const DEFAULT_MAX_RUN_USD = 5;
-/** Default wall-clock bound on one run, in minutes; checked at turn boundaries. */
+/** Default wall-clock bound on one run, in minutes. */
 export const DEFAULT_MAX_RUN_MINUTES = 20;
+
+/**
+ * The run's wall-clock bound in milliseconds — the ONE place `maxMinutes` meets its default.
+ *
+ * Shared with the orchestrator, which arms the same number as a live deadline on the step
+ * in flight (`reliability/deadline.ts`). Two copies of this expression is two budgets: run
+ * `369e8c82` stopped at neither, and a deadline that disagreed with the reducer's own cap
+ * would stop a run the reducer then refused to call over-budget.
+ */
+export function maxWallMsFor(maxMinutes: number | undefined): number {
+  return (maxMinutes ?? DEFAULT_MAX_RUN_MINUTES) * 60_000;
+}
 
 /** Run bounds resolved from the command's {@link AgentOptions} (with defaults). */
 export interface ConductorConfig {
@@ -732,6 +744,18 @@ export interface AgentTurnResult {
   readonly runElapsedMs?: number;
   /** The run's signal aborted at the turn boundary / mid-stream (no plan event). */
   readonly aborted: boolean;
+  /**
+   * The turn ended because the RUN'S OWN wall-clock deadline fired, not because the editor
+   * pressed Stop (`reliability/deadline.ts`). Set only when the interrupted turn folded
+   * nothing — a turn that finished its work first reports that work normally and is stopped
+   * by the ordinary between-steps budget check.
+   *
+   * A separate flag rather than a flavour of {@link aborted} because the two must not settle
+   * the same way. A cancellation is the editor saying "stop"; a deadline is the run saying
+   * "that is all the time you gave me" — and a run out of time still owes the editor the
+   * account of what it applied. See the fold in `onTurnResult`.
+   */
+  readonly deadlineExpired?: boolean;
   /** The model made no tool calls — it considers the goal met. */
   readonly done: boolean;
   /** A host tool was cancelled mid-turn (⇒ a `failed` 'Stopped by user' plan + cancel). */
@@ -1251,7 +1275,7 @@ export function onCommand(state: ConductorState, command: Command): ConductorSte
     maxOpsPerTurn: ao.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN,
     maxOpsPerRun: ao.maxOpsPerRun ?? DEFAULT_MAX_OPS_PER_RUN,
     maxUsd: ao.maxUsd ?? DEFAULT_MAX_RUN_USD,
-    maxWallMs: (ao.maxMinutes ?? DEFAULT_MAX_RUN_MINUTES) * 60_000,
+    maxWallMs: maxWallMsFor(ao.maxMinutes),
     planApprovalGated: !!ao.requirePlanApproval,
     diminishingReturnsTurns: ao.diminishingReturns?.turns ?? DIMINISHING_RETURNS_TURNS,
     diminishingReturnsMinOutputTokens:
@@ -1697,6 +1721,28 @@ export function onTurnResult(
   }, staged);
   state = learned === state.working ? state : { ...state, working: learned };
   const base = { ...state, log: [...r.log] };
+
+  // Out of time, not cancelled. Run `369e8c82` was given 37 minutes, hung inside its
+  // twentieth model call, and was still hanging 39 minutes later when the app closed — nine
+  // committed patches, and a final status of `failed` that mentioned none of them. The
+  // deadline that now cuts that call off must NOT settle it the way Stop does: it takes the
+  // same route the between-steps budget check has always taken (`advance` → the
+  // `budgetExhausted` notification → `toVerify`), so the run still verifies and still
+  // reports what it applied.
+  //
+  // The elapsed floor is what makes that route deterministic. The deadline fired, so at
+  // least `maxWallMs` of wall clock has passed by definition — but the reducer only ever
+  // learns the time a turn chose to report, and a turn cut off mid-flight may report a
+  // reading taken before it. Without the floor `budgetExhausted` could decline, `advance`
+  // would start another turn, and that turn would walk straight back into an expired
+  // deadline.
+  if (r.deadlineExpired === true) {
+    return advance(
+      { ...base, runElapsedMs: Math.max(base.runElapsedMs, base.config.maxWallMs) },
+      em,
+      events,
+    );
+  }
 
   // Turn-boundary / mid-stream abort — the interrupted turn is not applied and emits
   // NO plan event; finalize with a resume checkpoint.
@@ -2453,6 +2499,11 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     !r.ok &&
     r.failedChecks.length > 0 &&
     !state.cancelled &&
+    // A run that has already hit its cost or time budget cannot buy another model turn.
+    // Without this the run announced its limit, spent a fix turn anyway, came back through
+    // `advance`, and announced the SAME limit a second time — a run that stopped twice for
+    // one reason, and one more model call than the editor's budget allowed.
+    budgetExhausted(state) === undefined &&
     state.verifyFixTurns < MAX_VERIFY_FIX_TURNS &&
     canAdvance(working.stage, 'repair');
   if (fixable) {

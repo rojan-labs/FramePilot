@@ -118,6 +118,7 @@ import {
   DIMINISHING_RETURNS_TURNS,
   PLAN_STEP_HEADROOM,
   STALL_CONFIRM_TURNS,
+  maxWallMsFor,
   type RepairOutcome,
   type TurnCallFact,
   turnLearnedSomethingNew,
@@ -213,6 +214,7 @@ import { plainRunFailure } from './reliability/plain-failure.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
+import { createRunDeadline } from './reliability/deadline.js';
 import {
   REVIEW_CONCURRENCY_ENV,
   REVIEW_STEERING_PREAMBLE,
@@ -7231,7 +7233,7 @@ export class Orchestrator {
       requirePlanApproval: agentOptions.requirePlanApproval ?? false,
       conversationId: options.conversationId,
     });
-    const { command, handlers, settle } = this.agentRun(
+    const { command, handlers, settle, dispose } = this.agentRun(
       input,
       options,
       agentOptions,
@@ -7244,6 +7246,11 @@ export class Orchestrator {
     } catch (error) {
       orchestratorLog.error('streamAgent threw — settling partial run', { error: String(error) });
       yield* settle(error);
+    } finally {
+      // Normal completion, error, Stop, deadline — and the fourth path neither `finalize`
+      // nor `settle` reaches: a consumer that stops draining this generator. An armed
+      // deadline is a live `setTimeout`, and a leaked one keeps the process alive.
+      dispose();
     }
   }
 
@@ -7278,6 +7285,8 @@ export class Orchestrator {
     command: Command;
     handlers: ConductorHandlers;
     settle: (error: unknown) => AsyncGenerator<AiEvent>;
+    /** Clear the run's wall-clock deadline. Idempotent; a leaked timer holds the process open. */
+    dispose: () => void;
   } {
     // `async function*` handlers below carry their own `this`; capture the instance so
     // they can reuse the orchestrator's shared turn mechanics without `.bind` (which
@@ -7289,6 +7298,39 @@ export class Orchestrator {
     const now = options.now ?? Date.now;
     const runStartedAt = now();
     const signal = options.signal;
+    /**
+     * THE RUN'S OWN CLOCK, armed on the step that is in flight.
+     *
+     * The Conductor's budget check reads `runElapsedMs`, and `turnBase` below stamps that
+     * only when a turn FINISHES — so the wall-clock bound covered the gaps between model
+     * calls and never a call itself. Run `369e8c82` was given 37 minutes, hung inside its
+     * twentieth model call at 15:16:45, and was still hanging at 15:55:33 when the app
+     * closed: the limit expired at 15:24:11 and nothing was there to notice. A step that
+     * does not return was unbounded.
+     *
+     * Same number as the reducer's cap, from the same function, so the two can never
+     * disagree about when this run is over.
+     */
+    const deadline = createRunDeadline(
+      maxWallMsFor(agentOptions.maxMinutes),
+      options.signal,
+      controls.timers,
+    );
+    /**
+     * The signal for the run's IN-FLIGHT step work — the model stream and the turn's tool
+     * calls (which is also what reaches `withRetry`, so a retry loop is cut off too).
+     *
+     * Deliberately not threaded into the plan draft, the approval gate, or the verify /
+     * repair pass. None of those sits inside the turn loop, and none has a route that could
+     * turn an abort into a report: `toVerify` issues a `run_verify` effect, so a deadline
+     * that aborted the whole run would kill the very verification it triggered and the run
+     * would report nothing — the exact failure this exists to remove, reproduced by the fix.
+     * They stay on the editor's Stop signal, where an abort means what it says.
+     */
+    const runSignal = deadline.signal;
+    /** The run stopped on its own clock rather than on the editor's Stop. */
+    const deadlineStopped = (): boolean =>
+      deadline.expired() && !(options.signal?.aborted ?? false);
     const maxOpsPerTurn = agentOptions.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN;
     const { runtime: effectRuntime, finish: finishEffects } = this.createRunRuntime(
       this.controlEffectExecutor(controls),
@@ -7511,7 +7553,7 @@ export class Orchestrator {
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
 
-    const handlers: ConductorHandlers = {
+    const stepHandlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
       // ledger + emits `plan`/`status('thinking')`; here we emit `status('planning')`
       // and thread the labels into every turn's context.
@@ -7653,8 +7695,16 @@ export class Orchestrator {
         activeEmit = emit;
         const index = effect.stepIndex;
 
-        // Top-of-loop cancellation (streamAgent's `if (signal.aborted) break`).
-        if (signal?.aborted) return turnBase(index, emit.seq(), { aborted: true });
+        // Top-of-loop stop (streamAgent's `if (signal.aborted) break`) — now reading the
+        // run signal, so an expired deadline stops the loop here too. Which of the two
+        // fired decides how the run settles: Stop cancels, the clock running out reports.
+        if (runSignal.aborted) {
+          return turnBase(
+            index,
+            emit.seq(),
+            deadlineStopped() ? { deadlineExpired: true } : { aborted: true },
+          );
+        }
 
         // P11.4 mid-run steering: pop any message the editor queued while this run was
         // in flight and fold it into THIS turn's context — a queued, next-boundary
@@ -7759,7 +7809,7 @@ export class Orchestrator {
                 ? self.agentTools('action-recovery', undefined, loadedToolDomains)
                 : self.agentTools(turnScope, effect.stage, loadedToolDomains),
             },
-            signal,
+            runSignal,
             // Per-step thinking (U3, redesign §12): each step captures the model's
             // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
             // thinking blocks stay distinct, ordered, and interleaved with that step's tool
@@ -7859,7 +7909,13 @@ export class Orchestrator {
               : 'The model response was truncated before it proposed anything.',
           });
         }
-        if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
+        if (turn.aborted) {
+          return turnBase(
+            index,
+            emit.seq(),
+            deadlineStopped() ? { deadlineExpired: true } : { aborted: true },
+          );
+        }
 
         if (turn.calls.length === 0) {
           // A turn with NEITHER prose NOR a tool call is not a finished run — it is a turn
@@ -7979,7 +8035,7 @@ export class Orchestrator {
           loadedSkills,
           loadedToolDomains,
           controls.askUser,
-          signal,
+          runSignal,
           now,
           analysisBudget,
           // Enforced, not merely advertised. `allowedToolNames` used to be passed only on
@@ -8330,7 +8386,36 @@ export class Orchestrator {
         // No run-level reasoning settle here: each step settled its OWN reasoning node
         // (per-step ids), so there is no shared per-run node left spinning.
         yield emit.status(effect.cancelled ? 'cancelled' : effect.failed ? 'failed' : 'completed');
+        deadline.dispose();
         finishEffects();
+      },
+    };
+
+    /**
+     * The deadline's landing pad.
+     *
+     * A model call or host tool that the deadline aborts does not RETURN a turn result — it
+     * THROWS, out of `streamAssistant` and out of the handler, and the graph settles a
+     * throw as an error card plus a terminal `failed`. That is how run `369e8c82` reported
+     * `failed` with nine committed patches it never mentioned, and re-arming the clock
+     * without catching here would have reproduced it 39 minutes earlier.
+     *
+     * So: catch, and only when the run's own clock is what stopped it (a real provider
+     * failure, and the editor's Stop, both still settle exactly as before). The synthetic
+     * result folds nothing — the interrupted turn applied nothing — and carries the flag
+     * that routes it through the ordinary budget stop instead of the cancel path. Seeded at
+     * `seqAtThrow()`, the seq the throwing handler had reached, so the run's event ids stay
+     * continuous.
+     */
+    const handlers: ConductorHandlers = {
+      ...stepHandlers,
+      runTurn: async function* (effect, state) {
+        try {
+          return yield* stepHandlers.runTurn(effect, state);
+        } catch (error) {
+          if (!deadlineStopped()) throw error;
+          return turnBase(effect.stepIndex, seqAtThrow(), { deadlineExpired: true });
+        }
       },
     };
 
@@ -8383,23 +8468,31 @@ export class Orchestrator {
       // Per-step reasoning nodes each settled themselves (streamAssistant's abort-safe
       // settle) — no shared per-run node to close here.
       yield emit.status(aborted ? 'cancelled' : 'failed');
+      deadline.dispose();
       finishEffects();
     };
 
-    return { command, handlers, settle };
+    return { command, handlers, settle, dispose: () => deadline.dispose() };
   }
 
   /**
    * The Conductor execution handlers for one agent run — the parity harness's seam
    * onto {@link agentRun}. {@link streamAgent} itself uses `agentRun` directly so it
    * also gets the run's {@link Command} and the throw-settling generator.
+   *
+   * `dispose` comes with them because a run compiled here arms the same wall-clock
+   * deadline `streamAgent`'s does (that is the point of a parity seam — it must exercise
+   * what the real path runs), and this seam has no `finally` of its own to clear it. The
+   * caller owns the run, so the caller owns the timer: drive the handlers, then dispose.
    */
   public agentConductorHandlers(
     input: ContextInput,
     options: StreamOptions,
     agentOptions: AgentOptions = {},
-  ): ConductorHandlers {
-    return this.agentRun(input, options, agentOptions).handlers;
+    controls: AgentRunControls = {},
+  ): { handlers: ConductorHandlers; dispose: () => void } {
+    const { handlers, dispose } = this.agentRun(input, options, agentOptions, controls);
+    return { handlers, dispose };
   }
 }
 

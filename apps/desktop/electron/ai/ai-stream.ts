@@ -847,15 +847,28 @@ export interface StreamSender {
  * the backstop timer is simply not armed (see {@link AiStreamHub.start}). A caller that
  * wants a coarse bound can still pass an explicit `timeoutMs` to {@link AiStreamHub}.
  *
- * **This does NOT mean a run is unbounded.** The bound lives one layer down, where it can
- * actually distinguish the two cases: `DEFAULT_TIMEOUTS` in
- * `packages/ai-sdk/src/reliability/timeout.ts` arms a heartbeat-reset idle timeout (a
- * healthy slow stream keeps beating and is never aborted; total silence is) plus a connect
- * timeout around the heartbeat-less `complete()` calls. Disabling THOSE — setting either
- * budget back to `0` — while this cap is also `0` leaves an AI run with no time bound at
- * any layer, which is exactly the state this comment used to describe as safe. It was not:
- * a dead socket hung the run forever behind a spinner. Change one of the two only after
- * checking the other.
+ * **This does NOT mean a run is unbounded.** The bounds live one layer down, where they can
+ * actually distinguish the two cases:
+ *
+ * - `DEFAULT_TIMEOUTS` in `packages/ai-sdk/src/reliability/timeout.ts` arms a
+ *   heartbeat-reset idle timeout (a healthy slow stream keeps beating and is never aborted;
+ *   total silence is) plus a connect timeout around the heartbeat-less `complete()` calls.
+ *   Disabling THOSE — setting either budget back to `0` — while this cap is also `0` leaves
+ *   a run with no PER-CALL time bound at any layer, which is exactly the state this comment
+ *   used to describe as safe. It was not: a dead socket hung the run forever behind a
+ *   spinner. Change one of the two only after checking the other.
+ * - `packages/ai-sdk/src/reliability/deadline.ts` bounds the WHOLE run at the number the
+ *   editor set in Settings → AI → Run budget, armed on the step in flight. That deadline is
+ *   not the blind cap this constant disables and the objection above does not apply to it:
+ *   it guesses nothing about socket health, it just honours the minutes the user chose. It
+ *   also stops GRACEFULLY — through the Conductor's `budgetExhausted` → `toVerify` route,
+ *   so the run still verifies and still reports the edits it applied — which the abort
+ *   below cannot do.
+ *
+ * **Leave this at `0`.** Arming it with the same `maxMinutes` would put two independent
+ * aborts on one event, racing to publish two different terminal messages for it: this one's
+ * coarse abort plus {@link timeoutMessage}, against the SDK's notification and completion
+ * report. The SDK deadline is the single authority on when a run is out of time.
  */
 export const AI_STREAM_TIMEOUT_MS = 0;
 
