@@ -368,10 +368,10 @@ const readTools: ToolSpec[] = [
         'up front; the specialised ones arrive when you ask for them, and stay for the rest ' +
         'of the run. Call this BEFORE the work, in the same turn as the reads that set it ' +
         // The cap is stated because the model cannot see the schema's bound and a call that
-        // breaches it fails whole. Run `e8cb2636` opened by asking for the six domains a
-        // captioned, scored, stock-sourced edit genuinely needs, was refused "Too big:
-        // expected array to have <=4 items", and spent a call learning a number this
-        // sentence could have told it.
+        // breaches it fails whole. Run `e8cb2636` opened by asking for more domains than
+        // that, was refused "Too big: expected array to have <=4 items", and recovered with
+        // two calls covering seven — so the cap restrained nothing and cost a call on the
+        // very first turn, learning a number this sentence could have told it.
         'up — one call can load up to FOUR domains; make a second call for the rest. ' +
         'Domains — ' +
         DOMAIN_INDEX +
