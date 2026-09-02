@@ -453,3 +453,17 @@ Your run's prompt-cache misses and its 218k output tokens both point at
 `openrouter/auto` routing per request. Pinning a model is the cheapest cost lever
 available and costs no code — but it is a claim, not a measurement, until this runs.
 
+- **`HostToolOutcome` has no refusal channel** — the highest-value open item.
+  `apps/desktop/electron/ai/stock-host.ts` refuses the ADR 0140 conflict BEFORE
+  spending the download and returns an ordinary host failure, and host failures are
+  deliberately never keyed. So on the desktop path — the one a real b-roll request
+  hits first — that refusal loop is free of charge but still **unbounded**. Fixing it
+  means an optional `refusalCause?: RefusalCause` on `HostToolOutcome`
+  (`tool-executor.ts`), set at `stock-host.ts`, mapped through the orchestrator's
+  host-outcome handling. Not built yet because a field with no consumer is worse than
+  the gap.
+- **`namesNextAction` has a self-naming loophole.** A sentence whose subject is the
+  bare tool name ("search_stock needs something to search for") passes rule 2 by
+  naming itself. Those two are substantively fine, so nothing shipped is wrong — but
+  the predicate should not count a self-reference as an instruction.
+

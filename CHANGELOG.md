@@ -44,6 +44,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   for music or stock it had already downloaded used to answer "place it from the bin" — an
   instruction meant for a person looking at the bin, which the assistant has no way to
   follow, so it abandoned the request. It now places what it already has.
+- **Cancelling a music or stock search no longer leaves the assistant with nothing to go on.**
+  A cancelled search showed the assistant a failure with no text at all, so it had no idea
+  what had happened. Music, stock and automatic-tracking failures now all tell it what went
+  wrong and what to try — while the panels keep the shorter wording written for you.
 - **The desktop app no longer ships an older, less helpful failure message than the browser.**
   When speech-to-text came back empty, the desktop took a different code path that still
   carried the old dead-end wording. Both now say the same thing, from one place.

@@ -151,6 +151,30 @@ reconcileInheritedFailures`: a health check failing identically before and after
   it cannot see (`orchestrator.ts`'s 36 note sites, the domain tools' 36 throw sites, the
   desktop host overrides). 13 dead ends fixed, 6 of them collapsed into 2 shared producers;
   1 exemption recorded with its reason.
+- `[x]` GOLDEN-A.5 — **a refused stock placement can no longer repeat without limit**
+  (`760bc57`). `add_stock`'s placement refusal set no `deterministicFailure` and put a
+  refusal RECORD where `deterministicFailureKey` needs a string, so it had no key on two
+  independent grounds and `seenFailureKeys` could never match it — the same unbounded loop
+  `f51fe20` closed for `add_clip`, on the tool a b-roll request reaches for. It is on the
+  IN-PROCESS side of the metered boundary: the branch runs only after the paid download
+  SUCCEEDED, and what refuses is `picturePlacementConflict` on our own working copy. The
+  key is computed after a call settles, so a metered tool is never pre-empted and a
+  corrected placement never has a key to match; not keying costs unboundedly, since every
+  repeat buys another download.
+- `[x]` GOLDEN-C.8 — **every desktop host override answers the model as well as the SDK**
+  (`9d2162a`). `d95ec25` caught `hostTranscribe` by accident; the rest had never been
+  examined. SIX exist, not five — following the registrations rather than the `hostX`
+  naming found `automaticTrackingExecutor`, a whole-executor override with no `host`
+  prefix. `hostMusicSearch` forwarded the Sounds panel's vocabulary under a comment
+  claiming it was the provider's verbatim reason; `cancelled` renders as the EMPTY STRING
+  by design (right for a person, so a cancelled search reached the model as a failure with
+  no text); the tracking executor's `pack_missing` said only what NOT to report.
+  `reliability/sourcing-notes.ts` is the model's counterpart to the panel strings —
+  exhaustive over every music and stock code, so a new code is a compile error — and it
+  subsumes `search-failure-summary.ts`. A desktop gate now judges with `namesNextAction`
+  IMPORTED from the SDK, walking `createStockHost` and the tracking table at runtime and
+  `main.ts` by following its registration call; weaker than the SDK's, and its header says
+  how.
 - `[x]` GOLDEN-C.7 — **the dead ends the gate could not reach** (`d95ec25`). Six literal
   failures in `orchestrator.ts` plus the two `apps/desktop/electron/main.ts` copies that
   the `hostTranscribe` override shipped verbatim, bypassing the fix one layer down — live
