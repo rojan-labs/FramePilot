@@ -383,6 +383,41 @@ the meter reading a bare 128K with no qualifier while the manifest says
 notification naming the limit, a `completed` status, and the edits listed. Not `cancelled`; that
 is reserved for Stop.)*
 
+### 7. A cutaway over the talking head goes in front, and only what leaks is refused `bf16f10` `3f939da` `a203dd3` `30cc434` `aed7d94`
+
+Rebuild `@framepilot/editor-core` and `@framepilot/ai-sdk` first (desktop reads both from
+`dist`).
+
+**Do (A — same camera):** open a talking-head project whose main video track is occupied end
+to end, with a second clip from the *same* recording (or any measured clip of the same shape)
+in the bin. Ask: "put b-roll from `<file>` over 5–9s".
+
+**Expect:** a new lane at the top of the timeline (`video_cutaway_1`), the shot on it, one
+undo removing lane and clip together, the monitor showing the cutaway at 5–9s, and an export
+that shows the same frames. No refusal.
+
+**Do (B — a shape that leaks):** import a 1:1 clip (a square photo works) into a 16:9
+project and ask for it "over the intro as a layer". Measured is the normal case: the bin
+lists an aspect for it in `list_assets`, not `shape: "unmeasured"`.
+
+**Expect:** a refusal in the run log beginning `Refused: "<file>" … would sit on top of …`
+that names the bars in pixels (`fits it with 420px bars left and right` for a 1000x1000
+source in 1920x1080), names the clip that would show through, and offers
+`set_clip_crop … {"x":0,"y":0.21875,"width":1,"height":0.5625}`-style JSON first and a
+cutaway hole second. If the model takes the crop, the retry lands on a front lane.
+
+**Do (C — portrait project):** a 1080x1920 project, a 16:9 source, "b-roll over 3–6s".
+
+**Expect:** the clip lands on a front lane **with** `set_clip_crop` in the same patch
+(`{"x":0.341797,"y":0,"width":0.316406,"height":1}` for 1920x1080), one undo removes all
+three, and the export has no black bars in that span.
+
+**A failure looks like:** a refusal on case A mentioning bars or "has not been measured"
+(both sides are measured on desktop — if you see it, the asset probe did not run: check
+`list_assets` for `shape: "unmeasured"`); a cutaway visible in the monitor but absent, or
+edged by the base clip, in the export; or case C exporting with bars.
+
+
 
 ---
 
