@@ -1376,6 +1376,7 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
       const outcome = await postAnalysis({
         fetchFn,
         url: `${options.baseUrl}${plan.route}`,
+        baseUrl: options.baseUrl,
         call,
         body: plan.body,
         interpret: plan.interpret,
@@ -1456,10 +1457,69 @@ function trimEngineError(text: string): string {
     : `${text.slice(0, MAX_ENGINE_ERROR_CHARS)}… (truncated)`;
 }
 
+/**
+ * Node error codes that mean "the request never reached the engine": the socket was
+ * refused, the name did not resolve, the peer hung up, or undici gave up on the
+ * connection. `TypeError: fetch failed` is the message undici puts on ALL of them, and
+ * the real code hides one level down in `error.cause`.
+ */
+const TRANSPORT_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN'] as const;
+
+/** The one-line, engine-free sentence the EDITOR sees on the tool card. */
+const ENGINE_UNREACHABLE_SUMMARY =
+  "The media engine is not responding — check that FramePilot's engine is running";
+
+/** The `code` off an error's `cause`, when there is one (undici nests the real cause). */
+function transportErrorCode(error: unknown): string | undefined {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const code = (cause as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.length > 0 ? code : undefined;
+}
+
+/**
+ * Turn a transport-level failure into an instruction the MODEL can act on.
+ *
+ * In the captured run 35 tool failures reached the model as `"<tool>" failed: fetch
+ * failed` — undici's message for a refused socket, with the cause one level down and the
+ * base URL nowhere. The model cannot tell that from a bad argument, so it retried the
+ * identical call and burned turns on an engine that was not running. The sentence below
+ * says three things the raw message does not: WHERE we tried to reach, that the arguments
+ * are not the problem, and what a valid next action is.
+ *
+ * Deliberately NOT a deterministic failure (see `conductor.ts#mergeFailureKeys`): a dead
+ * socket is transient by nature, and banking it as a permanent refusal would keep the tool
+ * blocked for the rest of the run after the engine came back.
+ *
+ * @param toolName - The failing tool, quoted into the sentence.
+ * @param error - The rejection from `fetch`.
+ * @param baseUrl - The engine origin the call was aimed at.
+ * @returns The model-facing sentence, or `undefined` when this is not a transport failure.
+ */
+export function describeTransportFailure(
+  toolName: string,
+  error: unknown,
+  baseUrl: string,
+): string | undefined {
+  const code = transportErrorCode(error);
+  const message = error instanceof Error ? error.message : '';
+  const isTransport =
+    (code !== undefined &&
+      (TRANSPORT_ERROR_CODES.some((known) => known === code) || code.startsWith('UND_ERR_'))) ||
+    message.includes('fetch failed');
+  if (!isTransport) return undefined;
+  return (
+    `"${toolName}" could not reach the media engine at ${baseUrl} (${code ?? 'connection failed'}). ` +
+    'This is not about your arguments: retry this call once; if it fails again, continue ' +
+    'without this analysis and tell the editor the media engine is not responding.'
+  );
+}
+
 /** POST one analysis request and settle EVERY path (2xx/4xx/abort/timeout/network) to an outcome. */
 async function postAnalysis(args: {
   fetchFn: typeof fetch;
   url: string;
+  /** The engine origin, named in a transport failure so the model can see WHERE we tried. */
+  baseUrl: string;
   call: ToolCall;
   body: Record<string, unknown>;
   /** Settle a 2xx payload to an outcome (legacy pass-through vs. unified unwrap). */
@@ -1496,6 +1556,14 @@ async function postAnalysis(args: {
         status: 'failed',
         summary: `"${call.name}" timed out after ${Math.round(args.timeoutMs / 1000)}s`,
       };
+    }
+    // A dead socket gets the card's plain sentence and the model's instruction — the
+    // card is what the editor reads, `data` is what the model reads (see the
+    // `emit.toolResult` comment in orchestrator.ts: card gets the summary, popup +
+    // model get `data`).
+    const transport = describeTransportFailure(call.name, error, args.baseUrl);
+    if (transport !== undefined) {
+      return { status: 'failed', summary: ENGINE_UNREACHABLE_SUMMARY, data: transport };
     }
     const reason = error instanceof Error ? error.message : String(error);
     return { status: 'failed', summary: `"${call.name}" failed: ${reason}`, data: reason };

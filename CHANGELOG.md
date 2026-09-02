@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **When the media engine is not running, the AI panel says so.** A tool that could not
+  reach the engine used to fail with a cryptic `fetch failed`, and the assistant would
+  retry the identical call. The card now reads "The media engine is not responding —
+  check that FramePilot's engine is running", and the assistant is told to try once more
+  and then carry on without that analysis rather than looping on it.
 - **A problem your footage already had no longer fails a correct edit.** The agent's
   self-check now grades what the edit *changed*: a finding that was already true before
   the run — five landscape clips in a portrait sequence, say — is reported once as an

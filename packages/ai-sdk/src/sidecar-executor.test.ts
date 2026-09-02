@@ -10,6 +10,7 @@ import {
   canUseUnifiedRoute,
   createSidecarExecutor,
   describeFootageBody,
+  describeTransportFailure,
   engineErrorDetail,
   footageMapBody,
   frameBody,
@@ -1691,6 +1692,53 @@ describe('createSidecarExecutor', () => {
     const outcome = await executor.run(call('analyze_silence'), ctx);
     expect(outcome).toMatchObject({ status: 'failed' });
     expect(outcome.summary).toMatch(/ECONNREFUSED/);
+  });
+
+  it('tells the model what to do when the engine socket is refused', async () => {
+    // The captured run took 35 tool failures as `"<tool>" failed: fetch failed` — undici's
+    // message for a dead socket, with the real code one level down in `cause` and the base
+    // URL nowhere. The model cannot tell that from a bad argument, so it retried the same
+    // call. The card now says it plainly; `data` (what the model reads) says what to do.
+    const fetchFn = (async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    }) as unknown as typeof fetch;
+    const executor = createSidecarExecutor({ baseUrl: 'http://127.0.0.1:8765', fetchFn });
+    const outcome = await executor.run(call('detect_beats'), ctx);
+    expect(outcome.status).toBe('failed');
+    // The editor's card: plain, and about the engine rather than about fetch.
+    expect(outcome.summary).toBe(
+      "The media engine is not responding — check that FramePilot's engine is running",
+    );
+    const modelFacing = String(outcome.data);
+    expect(modelFacing).toContain('http://127.0.0.1:8765');
+    expect(modelFacing).toContain('ECONNREFUSED');
+    expect(modelFacing).toContain('retry this call once');
+    expect(modelFacing).toContain('not about your arguments');
+    // Transient by nature: nothing here may be banked as a permanent refusal
+    // (see `deterministicFailureKey` / `mergeFailureKeys`).
+    expect(outcome).not.toHaveProperty('deterministicFailure');
+  });
+
+  it('names the transport codes undici hides behind "fetch failed"', () => {
+    for (const code of ['ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN', 'UND_ERR_SOCKET']) {
+      const described = describeTransportFailure(
+        'get_frame',
+        Object.assign(new TypeError('fetch failed'), { cause: { code } }),
+        'http://x',
+      );
+      expect(described).toContain(code);
+    }
+    // A bare `fetch failed` with no cause still gets the instruction, just no code.
+    expect(
+      describeTransportFailure('get_frame', new TypeError('fetch failed'), 'http://x'),
+    ).toContain('(connection failed)');
+  });
+
+  it('leaves a non-transport error reading exactly as it did', () => {
+    // Only the unreachable-engine shape is rewritten; an engine that answered with a real
+    // fault must keep saying what the fault was.
+    expect(describeTransportFailure('x', new Error('boom'), 'http://x')).toBeUndefined();
+    expect(describeTransportFailure('x', 'boom', 'http://x')).toBeUndefined();
   });
 
   it('stringifies a non-Error rejection into the failure summary', async () => {

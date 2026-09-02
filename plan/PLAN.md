@@ -83,6 +83,9 @@ verification** (run recipe in `docs/guides/golden-eval.md`).
   (`conductor.test.ts › progress guards, audited together`). Finding: a run that only ever
   reads something NEW is progress by design and was bounded by nothing but the 300-step
   cap — the new cost budget (D.1) is now its backstop, pinned by the second test.
+- `[x]` GOLDEN-C.2 — a sidecar transport failure tells the model what to do next
+  (`sidecar-executor.ts#describeTransportFailure`); 35 bare "fetch failed" refusals in the
+  real log were the shape. Real-media effect: **pending manual verification**.
 
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run

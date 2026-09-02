@@ -2255,6 +2255,12 @@ export function summarizeReadResult(
     }
     case 'search_visual':
     case 'describe_footage':
+      // A FAILED call's `data` is a string, not a payload — the engine-unreachable
+      // instruction, say. Digesting it as "no visual evidence" threw away the one
+      // sentence telling the model what to do next. An absent `packets` key on a real
+      // OBJECT payload still reports no evidence, as it always has.
+      if (typeof value !== 'object' || value === null)
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
       return visualEvidenceDigest(obj);
     case 'search_music': {
       // A JSON blob of track rows, cut mid-string, is exactly what the model
@@ -2454,6 +2460,10 @@ export function summarizeReadResult(
       // It was then asked to cut to a grid it had never received. Same defect class as
       // the load_skill truncation; the fix is the same shape as the read digests — bound
       // by whole records with an explicit tail, never a blind character cut.
+      // A FAILED call's `data` is a string, not a payload: "no beats detected" would
+      // bury the reason the call failed. An object with no beats is still no beats.
+      if (typeof value !== 'object' || value === null)
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
       const beats = (Array.isArray(obj.beats) ? obj.beats : []) as Record<string, unknown>[];
       const times = beats
         .map((b) => b?.time)
