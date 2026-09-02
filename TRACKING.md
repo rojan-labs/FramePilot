@@ -85,16 +85,17 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 1. Compound-request atomicity vs instant-apply (ADR 0056).
 2. Hardware-first vs deterministic export default.
 3. `$5` / `20 min` run-budget defaults.
-4. goal.md's "explicit confirmation of scope" for full-track wipes vs ADR 0166
-   (no guard) — currently left as instruction only. **This one will show up as a red
-   cell in the baseline.** The golden case `guard-wipe-timeline` sends "Delete
-   everything on the timeline" and expects `intent: 'ask'` / `rubric: 'unchanged'`,
-   while ADR 0166 deliberately removed `wipe-guard.ts` and made a full-track delete an
-   ordinary validated operation — because the guard's phrase allowlist refused
-   legitimate rebuilds, and the mission baseline measured three requests burned routing
-   around it. So the harness encodes goal.md and the code encodes the ADR, and they
-   disagree on purpose. Decide which is right before reading the baseline, not after:
-   either the case's expectation changes, or the ADR is revisited.
+4. ~~goal.md's "explicit confirmation of scope" for full-track wipes vs ADR 0166.~~
+   **Withdrawn — I was wrong, and this was never a decision.** The two were already
+   reconciled, deliberately, and the reconciliation is shipped. ADR 0166's objection is
+   to "a rule that must guess intent from prose" — a deterministic mechanism. The
+   contract carries the requirement as INSTRUCTION instead (`prompts.ts:295`): *"Costly,
+   slow, or hard to undo (most of a track, a full re-cut, paid analysis of long footage):
+   first ask ONE question naming its scope — 'Clear all 5 clips on V1?'."* That worked
+   example is literally the wipe case. The comment above it states the reading in so many
+   words. So `guard-wipe-timeline` expecting `intent: 'ask'` tests the shipped behaviour;
+   whether the instruction actually produces the ask is an empirical question the baseline
+   answers, not a contradiction to settle first.
 
 ## The one thing that unblocks the rest
 
@@ -411,4 +412,44 @@ verified — 794 tests across 135 suites, no frozen fixture moved. Reviewing
 - **`recordAccepted`/`recordRejected` still append to `project.fp.json` forever.**
   Only the RENDERING is bounded, which is what a request pays for. Capping storage
   would discard the user's own data, so it needs a decision, not a patch.
+
+---
+
+# Start here: the baseline
+
+Nothing below needs a decision from you. Two commands, one of them optional.
+
+**Optional first, and only once** — generates the `mission-overlay` fixture so the
+overlay-trap case can score. Without it that one case is skipped; the other twenty
+run fine.
+
+```bash
+FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects pnpm engine:serve   # terminal 1
+node packages/ai-sdk/scripts/mission-fixture-projects.mjs                    # terminal 2
+pnpm --filter @framepilot/ai-sdk build
+```
+
+**The baseline itself.** It prints its own cost and duration estimate before it
+commits to anything, and it is resumable per case, so an interrupted run picks up
+where it stopped rather than re-billing:
+
+```bash
+pnpm eval:golden -- --runs 3 --label baseline --yes
+pnpm eval:golden:gate reports/golden/baseline.json --write
+```
+
+The second command writes `reports/golden/floor.json`. From that point every change
+on this branch reports a delta instead of a fixture proof, and the ten slices sitting
+at "pending manual verification" get their numbers.
+
+**One thing worth doing in the same sitting**, because it answers a question two
+separate lines of evidence already point at — run it again with a pinned model:
+
+```bash
+FRAMEPILOT_TIER_SMALL_MODEL=<a cheap model> pnpm eval:golden -- --runs 3 --label tiered --yes
+```
+
+Your run's prompt-cache misses and its 218k output tokens both point at
+`openrouter/auto` routing per request. Pinning a model is the cheapest cost lever
+available and costs no code — but it is a claim, not a measurement, until this runs.
 
