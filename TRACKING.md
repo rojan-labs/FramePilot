@@ -131,15 +131,14 @@ minutes of silence ending in a force-quit is exactly that shape. (Hypothesis fro
 the timings — the log has no retry marker to confirm it, because there is nothing
 to make one.)
 
-Fix, in one slice:
-1. Arm the deadline on the in-flight step, not between steps — abort at
-   `runStart + maxWallMs` and finalize through `toVerify` so the run still
-   reports what it applied. This is the promise the Settings control now makes.
-2. Wire `hooks.onRetry` so a retry is a visible event. A long wait a user can
-   see is a wait; a long wait they cannot see is a hang.
-3. Open question for the maintainer: 15 minutes for one completion and 10
-   between stream chunks are very long. Recommend cutting both once (2) makes
-   the cost of a timeout visible.
+Fixed in two slices:
+1. `aa671ee` — the deadline is armed on the in-flight step and finalizes through
+   `toVerify`, so the run stops on time and still reports what it applied. That is
+   the promise the Settings control makes.
+2. `560d684` — a long wait a user can see is a wait; a long wait they cannot see is
+   a hang. After 240s of true silence the run says how long it has been waiting.
+3. Still open for the maintainer: 15 minutes for one completion and 10 between
+   stream chunks are very long. Worth cutting now that the wait is visible.
 
 ### R2 — an empty `b_roll` track the agent may never use, offered on every turn `[x]` `f51fe20`
 
@@ -371,11 +370,18 @@ its evidence justified.
   The payload field and the digest carry the parity; the description is prompt text
   the token goldens track, so it is a one-line follow-up for whoever regenerates
   them next.
-- **Provider retries are still silent** (cause 2 of R1). The cheap contained step is
-  passing `{ hooks: { onRetry } }` at `apps/desktop/electron/main.ts:2338` and
-  `:2383` — a log marker only. Making a retry a *user-visible event* is not cheap:
-  the provider is constructed before the run exists, so there is no event channel at
-  construction time. The run deadline bounds this from above either way.
+- **A retry is still not named.** `560d684` makes the silence visible, and the
+  counter deliberately keeps climbing across all three attempts, because that is the
+  silence the user actually experiences. But the beat cannot say *which* attempt it
+  is on. The obstacle is not `hooks.onRetry` — that exists and `retry.ts` already
+  calls it — it is scope: the provider is built once per config, outside any run, so
+  there is no emitter for it to write to. The contained fix is therefore not at the
+  `withResilience` call site but a per-run retry counter the heartbeat reads, turning
+  "no reply for 8 minutes" into "no reply for 8 minutes (2nd attempt)". One field,
+  one read, no new event — but it changes the wording contract `560d684` just set.
+- **The verify/repair pass has no heartbeat.** It sits outside the turn loop and
+  deliberately outside `runSignal` (that is `aa671ee`'s core invariant), and its
+  model calls can hang the same way.
 - **A hang inside `draftPlan` or the plan-approval gate still settles `failed`.**
   Neither sits in the turn loop and neither has a route that converts an abort into
   a report; both are bounded by `connectMs`.

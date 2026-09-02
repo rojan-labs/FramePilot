@@ -113,6 +113,17 @@ reconcileInheritedFailures`: a health check failing identically before and after
   still reports. `maxWallMsFor` is the one place `maxMinutes` meets its default. Found
   on the way (pre-existing): the P4.3 verify fix turn fired even after a budget stop.
   Real-run effect: **pending manual verification**.
+- `[x]` GOLDEN-D.6 — **a waiting run says it is waiting** (`560d684`). GOLDEN-D.5 bounded run
+  `369e8c82`'s 39 minutes of silence but did not explain them: with a 37-minute budget the
+  user still watches 37 minutes of nothing, and an unmoving spinner does not distinguish a
+  thinking model from a dead socket. `reliability/wait-heartbeat.ts` interleaves a `progress`
+  event after 240s of TRUE silence — a chunk resets it, so a steadily streaming call never
+  announces anything. The cadence is measured off that run: its nineteen healthy calls span
+  23–193s, so nothing it completed would have tripped this, and the hang would have spoken
+  35 minutes before the user quit. `progress` and not `notification` because its id is
+  key-derived and does not consume `seq`, so a beat cannot shift a downstream event id and
+  the frozen corpora are stable by construction. Only the agent turn's model call opts in.
+  Real-run effect: **pending manual verification**.
 - `[x]` GOLDEN-A.4 — **a policy refusal names its rule, so the guard stops reading the
   sentence** (`f51fe20`). Run `369e8c82` was refused ADR 0140's picture-over-picture rule
   four times in fifteen minutes: `deterministicFailureKey` keyed on the refusal text, which

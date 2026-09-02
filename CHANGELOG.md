@@ -21,6 +21,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **When the AI goes quiet, it tells you it is waiting.** A model that takes a long time
+  to answer used to look exactly like one that had died — an unmoving spinner, with no way
+  to tell the difference. After four minutes of silence you now get a quiet line saying how
+  long it has been waiting, updating as it goes and disappearing the moment the reply
+  arrives. It never appears while the AI is actually writing, however long that takes.
 - **A run that runs out of time now stops on time, and tells you what it applied.** The
   limit you set in Settings was only checked between the AI's steps, so a step that never
   came back could run past it indefinitely — one run sat silent for 39 minutes past its
