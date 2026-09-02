@@ -113,9 +113,25 @@ returns is never checked, so the wall-clock budget bounds the gaps between model
 calls and not the calls themselves. `runElapsedMs` is likewise only stamped on a
 finished turn (`orchestrator.ts:7483`).
 
-Fix: arm the deadline on the in-flight step, not between steps — abort at
-`runStart + maxWallMs` and finalize through `toVerify` so the run still reports
-what it applied. This is the promise the Settings control now makes.
+Cause 2, and probably the one the user actually sat through: the provider's
+reliability layer retries in complete silence. `DEFAULT_TIMEOUTS` is
+`{ connectMs: 900_000, idleMs: 600_000 }` and `DEFAULT_RETRY_POLICY.maxAttempts`
+is 3, and the desktop wraps every provider with `withResilience(provider)` — no
+`hooks.onRetry`. So a stalled call can burn **3 × 15 minutes with not one event
+emitted**; `onRetry` writes a log line and nothing reaches the transcript. 39
+minutes of silence ending in a force-quit is exactly that shape. (Hypothesis from
+the timings — the log has no retry marker to confirm it, because there is nothing
+to make one.)
+
+Fix, in one slice:
+1. Arm the deadline on the in-flight step, not between steps — abort at
+   `runStart + maxWallMs` and finalize through `toVerify` so the run still
+   reports what it applied. This is the promise the Settings control now makes.
+2. Wire `hooks.onRetry` so a retry is a visible event. A long wait a user can
+   see is a wait; a long wait they cannot see is a hang.
+3. Open question for the maintainer: 15 minutes for one completion and 10
+   between stream chunks are very long. Recommend cutting both once (2) makes
+   the cost of a timeout visible.
 
 ### R2 — an empty `b_roll` track the agent may never use, offered on every turn `[ ]`
 
