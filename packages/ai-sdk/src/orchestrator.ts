@@ -7066,7 +7066,9 @@ export class Orchestrator {
       try {
         operations.push(...this.operationsFor(call, ctx));
       } catch (error) {
-        callErrors.push((error as ToolInvocationError).message);
+        // The editor reads this (a warning, and the failure card when every call was
+        // rejected), so it gets the plain summary — the raw schema text is machine-speak.
+        callErrors.push((error as ToolInvocationError).editorSummary);
       }
     }
     for (const message of callErrors) yield emit.warning(message);

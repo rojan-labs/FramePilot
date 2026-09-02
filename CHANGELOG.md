@@ -21,7 +21,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the provider sent back, the failure card now says what happened and what to do next —
   check the API key in Settings, wait and retry a rate limit, check your connection —
   and tells you when nothing on your timeline was changed. The technical text is still
-  there, tucked behind "details", for when you want to report it.
+  there, tucked behind "details", for when you want to report it. A tool call the
+  assistant got wrong is explained the same way — "add_clip was called without the
+  required trackId and assetId" instead of a line of schema jargon.
 - **When the media engine is not running, the AI panel says so.** A tool that could not
   reach the engine used to fail with a cryptic `fetch failed`, and the assistant would
   retry the identical call. The card now reads "The media engine is not responding —
