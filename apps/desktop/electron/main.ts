@@ -2771,8 +2771,8 @@ function registerIpcHandlers(): void {
               // sentence "The proposed edit failed authoritative validation", which names
               // nothing to fix. That is the same defect shape #72 found in the turn-cap
               // branch: a reason exists at the point of refusal and is discarded one line
-              // later. Run `e8cb2636` lost 149 transcribed words to it with no way to tell
-              // why from the log.
+              // later. Run `e8cb2636` lost a whole turn to a refusal the log could not
+              // explain, and the cause was sitting in `committed.issues` unread.
               const problem = committed.issues
                 ?.filter((issue) => issue.severity === 'error')
                 .map((issue) => issue.message)

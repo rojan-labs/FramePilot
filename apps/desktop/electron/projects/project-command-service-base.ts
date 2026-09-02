@@ -329,13 +329,17 @@ export class ProjectCommandService {
         // was refused as `invalid_patch`: not once, but on every retry, because the id is
         // deterministic and the prose is never the same twice.
         //
-        // Run `e8cb2636` lost its entire first turn to it. `transcribe` produced 149 timed
-        // words for a re-imported recording, the patch carried the same `set_transcript`
-        // operations an earlier session had committed, and the commit came back "the
-        // proposed edit failed authoritative validation". The transcript never landed, and
-        // the caption pass that followed was built on the previous recording's transcript.
-        // As a project accumulates history, more and more ordinary edits become
-        // permanently un-repeatable this way.
+        // Run `e8cb2636` lost its entire first turn to it. `transcribe` re-derived the 149
+        // timed words the project already held from an earlier session, so the patch carried
+        // byte-identical `set_transcript` operations and therefore the identical id — the
+        // exact case this branch exists to answer with a silent replay. It came back "the
+        // proposed edit failed authoritative validation" instead, and the turn was spent.
+        //
+        // The replay is the whole point: identical operations have already happened, so
+        // doing nothing is right. Refusing them is a hard failure where a no-op was meant,
+        // and it is permanent — the id is derived from the operations, so no later run can
+        // get past it either. As a project accumulates history, more and more ordinary
+        // edits fall into it.
         if (JSON.stringify(priorPatch.operations) !== JSON.stringify(patch.operations)) {
           // A genuine id collision: same id, different edit. Vanishingly rare, and refusing
           // it is right — but the caller has to be able to SAY so, which is why the reason

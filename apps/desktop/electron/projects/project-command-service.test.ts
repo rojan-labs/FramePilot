@@ -232,12 +232,11 @@ describe('ProjectCommandService.commitPatch', () => {
   it('replays a repeat of the same operations even though the model reworded its reason', async () => {
     // The captured defect. `patchIdFor` hashes the OPERATIONS; `reason` is the model's
     // narration for the turn, which is different prose every time. Comparing the whole
-    // patch object therefore compared the prose, so a second run that legitimately produced
-    // the same edit — re-transcribing the same video — was refused as `invalid_patch`, and
-    // refused again on every retry, because the id is deterministic. Run `e8cb2636` lost
-    // its whole first turn to this: 149 transcribed words rejected with "the proposed edit
-    // failed authoritative validation", and the captions that followed were built on a
-    // stale transcript.
+    // patch object therefore compared the prose, so a repeat of an edit the project had
+    // already committed — re-transcribing the same video to the same words — was refused
+    // as `invalid_patch` rather than replayed, and refused again on every retry, because
+    // the id is deterministic. Run `e8cb2636` spent its whole first turn on it and got
+    // back "the proposed edit failed authoritative validation" for a no-op.
     const service = new ProjectCommandService(JSON.stringify);
     const initial = project([]);
     const revision = service.observe(initial).revision;

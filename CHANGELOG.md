@@ -40,13 +40,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 - **An edit you have made before is no longer refused forever.** Every edit a project
   had already committed became permanently un-repeatable: the check that recognises a
-  repeat compared the AI's written reason, which is different wording every time, so a
-  second run that legitimately produced the same edit was rejected with "the proposed
-  edit failed authoritative validation" and rejected again on every retry. One run lost
-  its whole first turn this way — 149 transcribed words for a re-imported recording
-  never landed, and the captions that followed were built on the previous recording's
-  transcript. When an edit genuinely cannot be committed, the message now says why
-  instead of naming nothing.
+  repeat compared the AI's written reason, which is different wording every time, so
+  repeating an edit that was already made was rejected with "the proposed edit failed
+  authoritative validation" instead of quietly doing nothing — and rejected again on
+  every retry. One run spent its whole first turn on it, re-transcribing a recording to
+  the words the project already had. When an edit genuinely cannot be committed, the
+  message now says why instead of naming nothing.
 - **Music is trimmed to the film it plays under.** Adding a downloaded track laid its
   whole length down whatever it was scoring, so a 94-second song under a 50-second talk
   produced a 94-second video with 44 seconds of black on the end. It now stops where the
