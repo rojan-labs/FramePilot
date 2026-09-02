@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -328,15 +329,15 @@ def _logs_for(argv: Sequence[str], *, black: str = "", silence: str = "") -> str
     return "max_volume: -6.0 dB"
 
 
-def _spec(**over: object) -> ExpectedRender:
-    base: dict[str, object] = {
+def _spec(**over: Any) -> ExpectedRender:
+    base: dict[str, Any] = {
         "duration_seconds": 10.0,
         "width": 1080,
         "height": 1920,
         "fps": 30.0,
     }
     base.update(over)
-    return ExpectedRender(**base)  # type: ignore[arg-type]
+    return ExpectedRender(**base)
 
 
 def _out(tmp_path: Path) -> Path:
