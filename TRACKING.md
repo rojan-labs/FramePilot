@@ -453,15 +453,18 @@ Your run's prompt-cache misses and its 218k output tokens both point at
 `openrouter/auto` routing per request. Pinning a model is the cheapest cost lever
 available and costs no code — but it is a claim, not a measurement, until this runs.
 
-- **`HostToolOutcome` has no refusal channel** — the highest-value open item.
-  `apps/desktop/electron/ai/stock-host.ts` refuses the ADR 0140 conflict BEFORE
-  spending the download and returns an ordinary host failure, and host failures are
-  deliberately never keyed. So on the desktop path — the one a real b-roll request
-  hits first — that refusal loop is free of charge but still **unbounded**. Fixing it
-  means an optional `refusalCause?: RefusalCause` on `HostToolOutcome`
-  (`tool-executor.ts`), set at `stock-host.ts`, mapped through the orchestrator's
-  host-outcome handling. Not built yet because a field with no consumer is worse than
-  the gap.
+- ~~`HostToolOutcome` has no refusal channel~~ — closed by `28a5322`. All four
+  routes of run `369e8c82`'s refusal loop are now bounded: two in-process
+  (`f51fe20`, `760bc57`) and the desktop pre-download one.
+- **A declared host refusal leaves no ledger trace** (`GOLDEN-A.7`). The in-process
+  refusal sets `rejectedOpCount: 1` so the remedy survives into the briefing; the
+  host one does not, so the model can still lose the remedy to context compaction
+  even though it can no longer repeat the call. Touches the empty-run notice,
+  `rejectionNotes` and `lostOpsPerCall` — its own slice.
+- **`describeEffectResult` drops `refusalCause` from the WAL audit record**
+  (`apps/desktop/electron/ai/effect-record.ts:163`). Harmless for behaviour, but it
+  is the one line that would let a run you did not watch show WHY a repeat was
+  refused — which is the whole premise of debugging from logs.
 - **`namesNextAction` has a self-naming loophole.** A sentence whose subject is the
   bare tool name ("search_stock needs something to search for") passes rule 2 by
   naming itself. Those two are substantively fine, so nothing shipped is wrong — but

@@ -151,6 +151,24 @@ reconcileInheritedFailures`: a health check failing identically before and after
   it cannot see (`orchestrator.ts`'s 36 note sites, the domain tools' 36 throw sites, the
   desktop host overrides). 13 dead ends fixed, 6 of them collapsed into 2 shared producers;
   1 exemption recorded with its reason.
+- `[x]` GOLDEN-A.6 — **a host can declare WHY it refused** (`28a5322`). The last unbounded
+  path from run `369e8c82`: `stock-host.ts` refuses the ADR 0140 conflict BEFORE the
+  download, which arrives as an ordinary host failure, and host failures are deliberately
+  never keyed — so on desktop the loop cost nothing per iteration and could repeat without
+  limit. `HostToolOutcome.refusalCause` is the channel neither side could add alone. The
+  flag goes with the cause because `deterministicFailureKey` reads it first (a cause alone
+  is inert) and because a host declaring a cause IS the branch saying the failure is not
+  transient. The invariant it narrows is pinned at both ends: an undeclared host failure
+  is still never keyed and still retryable — a timeout, a 5xx, a missing key and an
+  unresolvable id all look like `failed`, and blocking any of them would lose the tool for
+  the run over a fault it had no part in. Eight other host outcomes were considered and
+  rejected, each with its reason.
+- `[ ]` GOLDEN-A.7 — **a declared host refusal leaves no ledger trace.** The in-process
+  refusal sets `rejectedOpCount: 1` so the remedy reaches the durable ledger and the state
+  briefing (run `369e8c82`'s briefing never once carried the picture rule); the host one
+  does not. Left out of `28a5322` because it touches the empty-run notice, `rejectionNotes`
+  and the conductor's `lostOpsPerCall` — a second behaviour change with its own blast
+  radius — and the loop is bounded without it.
 - `[x]` GOLDEN-A.5 — **a refused stock placement can no longer repeat without limit**
   (`760bc57`). `add_stock`'s placement refusal set no `deterministicFailure` and put a
   refusal RECORD where `deterministicFailureKey` needs a string, so it had no key on two
