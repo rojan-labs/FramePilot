@@ -8,7 +8,9 @@ import {
   checkFirstTwoSwapped,
   checkContentPreserved,
   checkCutawayInWindow,
+  checkCutawayOnOccupiedTrack,
   checkDurationKept,
+  checkNoPictureStacking,
   checkFirstClipEndsAt,
   checkLastClipMovedFirst,
   checkMusicCovers,
@@ -351,5 +353,75 @@ describe('second phrasings of the core verbs', () => {
     expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase', position: 'top' }, [cue('k1')]), want).ok).toBe(false);
     expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase' }, []), want).ok).toBe(false);
     expect(checkCaptionStyleMatches(captions(undefined, [cue('k1')]), {}).ok).toBe(true);
+  });
+});
+
+/**
+ * Run `369e8c82`'s shape, and what a correct answer to it looks like. `mission-overlay` is
+ * the only fixture that has it: a gapless picture track plus an EMPTY second video track,
+ * where ADR 0140 refuses every placement on the empty one.
+ */
+describe('b-roll over an empty overlay track', () => {
+  /** Narration gapless on `video_1`, `b_roll` above it holding whatever is passed. */
+  const overlay = (main: Clip[], broll: Clip[] = []): Project => {
+    const base = makeProject();
+    return {
+      ...base,
+      assets: [...base.assets, { id: 'asset_broll', path: 'media/broll/b2.mov', kind: 'video', durationSeconds: 9 }],
+      timeline: {
+        ...base.timeline,
+        // `tracks[0]` is the visual front, so the overlay track comes first.
+        tracks: [
+          { id: 'b_roll', type: 'video', clips: broll },
+          { id: 'video_1', type: 'video', clips: main },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as Project;
+  };
+  const b = (id: string, start: number, end: number, trackId: string) =>
+    clip(id, start, end, { assetId: 'asset_broll', trackId, sourceStart: 0, sourceEnd: end - start });
+  const before = () => overlay([clip('talk', 0, 100)]);
+  /** The right answer: split the narration and drop the cutaway into the gap it opened. */
+  const cutIn = () =>
+    overlay([
+      clip('talk', 0, 5),
+      b('bro', 5, 12, 'video_1'),
+      clip('talk2', 12, 100, { sourceStart: 12, sourceEnd: 100 }),
+    ]);
+  /** The trap: the same b-roll dropped on the empty layer, on top of the narration. */
+  const stacked = () => overlay([clip('talk', 0, 100)], [b('bro', 5, 12, 'b_roll')]);
+
+  it('checkNoPictureStacking sees the overlap `checkNoOverlaps` cannot', () => {
+    expect(checkNoPictureStacking(cutIn()).ok).toBe(true);
+    const bad = checkNoPictureStacking(stacked());
+    expect(bad.ok).toBe(false);
+    expect(bad.detail).toContain('bro on b_roll');
+    // The per-track check is blind to it — which is exactly why the new one exists.
+    expect(checkNoOverlaps(stacked()).ok).toBe(true);
+  });
+
+  it('checkCutawayOnOccupiedTrack wants the b-roll cut into the programme', () => {
+    expect(checkCutawayOnOccupiedTrack({ before: before(), after: cutIn() }, ['asset_broll']).ok).toBe(true);
+    expect(checkCutawayOnOccupiedTrack({ before: before(), after: stacked() }, ['asset_broll']).ok).toBe(false);
+    // Refused everywhere and nothing placed is a miss too, and says so in its own words.
+    const none = checkCutawayOnOccupiedTrack({ before: before(), after: before() }, ['asset_broll']);
+    expect(none.ok).toBe(false);
+    expect(none.detail).toBe('no b-roll placed at all');
+  });
+
+  it('scores the cut-in 1 and every wrong answer below it', () => {
+    const ctx = (after: Project) => ({
+      before: before(),
+      after,
+      brollAssetIds: ['asset_broll'],
+      cutawayWindowSeconds: [0, 20] as const,
+    });
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(cutIn())).score).toBe(1);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stacked())).score).toBeLessThan(1);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(before())).score).toBeLessThan(1);
+    // A cutaway that lengthened the programme instead of covering part of it.
+    const appended = overlay([clip('talk', 0, 100), b('bro', 100, 107, 'video_1')]);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(appended)).score).toBeLessThan(1);
   });
 });

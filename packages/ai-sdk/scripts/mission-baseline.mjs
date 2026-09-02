@@ -190,6 +190,10 @@ function loadProject(id) {
  * Compose the case's project: the fixture, plus (for `brollFrom`) another fixture's b-roll
  * assets added to the bin. Done in memory so no fixture is written; asset paths are relative
  * to the sidecar's projects root, which both fixtures share.
+ *
+ * A fixture may instead ship its own un-placed video (`mission-overlay`, whose bin b-roll is
+ * part of the shape being measured). Then THAT is the b-roll the rubric scores, so it is
+ * resolved from the project rather than requiring a donor.
  */
 function composeProject(goldenCase) {
   const base = loadProject(goldenCase.project);
@@ -201,6 +205,9 @@ function composeProject(goldenCase) {
     const added = broll.map((a, i) => ({ ...a, id: `broll_${String(i + 1).padStart(2, '0')}` }));
     brollAssetIds = added.map((a) => a.id);
     assets = [...assets, ...added];
+  } else {
+    const placed = new Set(base.timeline.tracks.flatMap((t) => t.clips).map((c) => c.assetId));
+    brollAssetIds = assets.filter((a) => a.kind === 'video' && !placed.has(a.id)).map((a) => a.id);
   }
   const musicAssetId = goldenCase.musicAssetName ? assets.find((a) => basename(a.path) === goldenCase.musicAssetName)?.id : undefined;
   const project = parseProject({ ...base, assets });

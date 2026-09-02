@@ -10,7 +10,7 @@ recipe.
 
 | Piece | Where | What it does |
 | --- | --- | --- |
-| Golden set | `packages/ai-sdk/src/eval/golden-cases.ts` | 20 cases — one per request category plus a second phrasing of each core verb (trim, reorder, captions): trim, silence, reorder, captions, pacing, hook, b-roll, audio, compound, vague, impossible, guard (must confirm), clarify (must ask), plus the six mission scenarios. Each turn names its rubric and the intent the agent should form. |
+| Golden set | `packages/ai-sdk/src/eval/golden-cases.ts` | 21 cases — one per request category plus a second phrasing of each core verb (trim, reorder, captions): trim, silence, reorder, captions, pacing, hook, b-roll, audio, compound, vague, impossible, guard (must confirm), clarify (must ask), plus the six mission scenarios. Each turn names its rubric and the intent the agent should form. |
 | Rubric | `packages/ai-sdk/src/eval/mission-rubric.ts` | Checkable assertions on the resulting **edit state** — clip geometry, source ranges, captions, music, transcript words. Never a string match on prose. Checks are faceted `target` / `boundary` so the metrics can read them. |
 | Metrics | `packages/ai-sdk/src/eval/golden-metrics.ts` | Intent accuracy, target resolution, boundary precision, operation validity, first-pass acceptance, silent successes, turns and tool calls, tokens and USD **per accepted edit**, latency to first progress and to done (p50/p95), reversibility (undo restores the prior project), failure quality. Pure functions over the event stream + applied patches. |
 | Runner | `packages/ai-sdk/scripts/mission-baseline.mjs` | Real `Orchestrator.streamAgent`, real provider, real sidecar. One command per case. Per-case result files (resumable). Effect recordings for replay. Cost estimate before the run. |
@@ -24,12 +24,22 @@ Media is not committed. Build the fixture projects once:
 ./tests/fixtures/mission/fetch-fixtures.sh                      # copies media from MISSION_MEDIA_DIR, records checksums
 # in another terminal: the sidecar rooted at the fixtures
 FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects pnpm engine:serve   # (or however you start it on :8799)
-node packages/ai-sdk/scripts/mission-fixture-projects.mjs       # transcribes the two dialogue fixtures with local whisper
+node packages/ai-sdk/scripts/mission-fixture-projects.mjs       # transcribes the dialogue fixtures with local whisper (content-hash cached)
 pnpm --filter @framepilot/ai-sdk build                          # the runner imports dist/
 ```
 
 The runner reads `.env` for the provider (`FRAMEPILOT_AI_PROVIDER`, keys) and
 `FRAMEPILOT_PYTHON_API_URL` for the sidecar (default `http://127.0.0.1:8799`).
+
+### The fixture projects, and the shape each one is for
+
+| Project | Shape | Why it exists |
+| --- | --- | --- |
+| `mission-montage` | 5 raw clips end to end on `video_1`, two beat tracks in the bin, 9:16 | Open-ended selection over raw footage |
+| `mission-podcast` | one 9.6-minute dialogue clip + transcript | Transcript-grounded cuts, silence |
+| `mission-talk` | one 8.8-minute narration clip, music in the bin, transcript | Captions, music bed, the plain cutaway |
+| `mission-overlay` | the same narration gapless on `video_1`, an **empty** second video track `b_roll` above it, two b-roll clips in the bin, transcript | Run `369e8c82`'s shape: with picture covering the whole sequence, ADR 0140 refuses every placement on `b_roll`, so the empty track is a trap. Reuses `mission-talk`'s narration, so whisper hits its content-hash cache and the pair of b-roll cases differ in one variable only |
+| `mission-photos` | 60 stills + music | Stills pacing (no golden case yet) |
 
 ## Running
 
@@ -111,8 +121,15 @@ committed `reports/golden/baseline.json`; the nightly runs the six mission scena
 
 1. Add it to `GOLDEN_CASES` with a `why` (the failure it exists to catch) and a rubric id.
 2. If no rubric fits, add checks to `mission-rubric.ts` — faceted `target` or `boundary`
-   where they answer "right clip?" or "frame-exact?" — and a scenario branch.
-3. `pnpm --filter @framepilot/ai-sdk exec vitest run src/eval/` — the shape test asserts
+   where they answer "right clip?" or "frame-exact?" — and a scenario branch. Prefer a new
+   scenario id over more checks on an existing one: adding checks changes what the cases
+   already on that rubric measure, and their floor in `reports/golden/floor.json` was
+   written against the old set.
+3. If no fixture has the project *shape* the failure needs, add a `DEFS` entry to
+   `packages/ai-sdk/scripts/mission-fixture-projects.mjs` and reuse media the other
+   fixtures already pull, then regenerate on the maintainer's machine. A case whose
+   fixture is missing stops the run before it costs anything.
+4. `pnpm --filter @framepilot/ai-sdk exec vitest run src/eval/` — the shape test asserts
    every case is scorable and every required category is covered.
 
 ## What the fixture tests prove, and what only a real run proves

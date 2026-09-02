@@ -28,7 +28,7 @@ const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799
 const VIDEO_EXT = new Set(['.mp4', '.mov']);
 const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
-/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string }} Def */
+/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, overlayTrackId?: string }} Def */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -66,6 +66,31 @@ const DEFS = [
     transcribe: 'speech-9min-b.mp4',
   },
   {
+    // The shape that trapped run `369e8c82`: narration gapless across the WHOLE sequence
+    // on the occupied video track, and a second video track that is empty. Under ADR 0140
+    // every placement on the empty track overlaps picture and is refused, so the track is
+    // an invitation with no legal move behind it — the run took it four times over fifteen
+    // minutes. No other fixture can reproduce that: they all have exactly one video track.
+    //
+    // Same narration file as `mission-talk` on purpose. It makes the pair of b-roll cases
+    // differ in one variable only (the empty overlay track), and whisper hits its
+    // content-hash cache (`engine/python/.../audio/asr.py#transcribe`) instead of
+    // transcribing a second file, so the transcript costs nothing extra.
+    id: 'mission-overlay',
+    name: 'Mission overlay (gapless narration + an empty b-roll track)',
+    fps: 30,
+    resolution: { width: 1920, height: 1080 },
+    overlayTrackId: 'b_roll',
+    media: [
+      { file: 'speech-9min-b.mp4', onTimeline: true },
+      // In the bin, deliberately NOT on the timeline: the b-roll a request asks for has to
+      // be cut into the narration track, because `b_roll` has no free span to receive it.
+      { file: 'broll/b2-4k60-9s.mov' },
+      { file: 'broll/b3-1080p60-15s.mov' },
+    ],
+    transcribe: 'speech-9min-b.mp4',
+  },
+  {
     id: 'mission-photos',
     name: 'Mission photos (60 stills + music)',
     fps: 30,
@@ -95,6 +120,23 @@ function kindOf(file) {
   if (VIDEO_EXT.has(ext)) return 'video';
   if (AUDIO_EXT.has(ext)) return 'audio';
   return 'image';
+}
+
+/**
+ * The project's tracks, in composite order.
+ *
+ * `tracks[0]` is the visual FRONT (`activeEffectLayersAt` in `@framepilot/timeline-schema`
+ * composites bottom-up from the last track), so a def's `overlayTrackId` goes first — it is
+ * the layer a model reaches for when it wants to put something "over" the picture.
+ *
+ * @param {Def} def
+ * @param {unknown[]} clips - the clips laid on the occupied video track.
+ */
+function tracksOf(def, clips) {
+  const occupied = { id: 'video_1', type: 'video', clips };
+  const audio = { id: 'audio_1', type: 'audio', clips: [] };
+  if (!def.overlayTrackId) return [occupied, audio];
+  return [{ id: def.overlayTrackId, type: 'video', clips: [] }, occupied, audio];
 }
 
 async function buildProject(def) {
@@ -144,7 +186,7 @@ async function buildProject(def) {
   let transcript = [];
   if (def.transcribe) {
     const asset = assets.find((a) => a.path.endsWith(basename(def.transcribe)));
-    const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: [{ id: 'video_1', type: 'video', clips }, { id: 'audio_1', type: 'audio', clips: [] }] } };
+    const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: tracksOf(def, clips) } };
     process.stdout.write(`  transcribing ${asset.path} (local whisper)…`);
     const t0 = Date.now();
     const resp = await post('/transcribe', { project: draft, asset_id: asset.id, provider: 'whisper-cli', use_cache: true, project_id: def.id });
@@ -158,7 +200,7 @@ async function buildProject(def) {
     fps: def.fps,
     resolution: def.resolution,
     assets,
-    timeline: { tracks: [{ id: 'video_1', type: 'video', clips }, { id: 'audio_1', type: 'audio', clips: [] }] },
+    timeline: { tracks: tracksOf(def, clips) },
     transcript,
     aiMemory: {},
     history: [],

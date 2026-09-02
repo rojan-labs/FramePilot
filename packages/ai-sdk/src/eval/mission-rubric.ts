@@ -47,6 +47,9 @@ export type MissionScenarioId =
   | 'captions'
   | 'hook-first'
   | 'broll-cutaway'
+  // The same request over a project with an empty overlay track that has no free picture
+  // span — run `369e8c82`'s shape. See the case branch for what it adds to `broll-cutaway`.
+  | 'broll-cutaway-empty-overlay'
   | 'music-bed'
   | 'compound-silence-captions'
   | 'unchanged'
@@ -67,7 +70,11 @@ export interface RubricContext {
   readonly keepClipIds?: readonly string[];
   /** `trim-first-clip`: where the first picture clip must end, in timeline seconds. */
   readonly expectedFirstClipEndSeconds?: number;
-  /** `broll-cutaway`: the assets that count as b-roll, and the window the cutaway must land in. */
+  /**
+   * `broll-cutaway` / `broll-cutaway-empty-overlay`: the assets that count as b-roll, and
+   * the window the cutaway must land in. The runner resolves them from the case's
+   * `brollFrom` donor, or from the fixture's own un-placed video when it has none.
+   */
   readonly brollAssetIds?: readonly string[];
   readonly cutawayWindowSeconds?: readonly [number, number];
   /** `music-bed`: the asset the request named as the music. */
@@ -389,6 +396,74 @@ export function checkCutawayInWindow(
   };
 }
 
+/**
+ * No two picture clips overlap in time across DIFFERENT video tracks — ADR 0140's rule,
+ * asserted on the finished edit.
+ *
+ * WHY this is not {@link checkNoOverlaps}: that one walks each track on its own, so picture
+ * stacked on a second video track is invisible to it. Every fixture had a single video
+ * track, so the blind spot never showed. Run `369e8c82`'s project had two, and stacking
+ * there is the failure that makes the preview disagree with the export.
+ */
+export function checkNoPictureStacking(project: Project): RubricCheck {
+  const byTrack = pictureTracks(project).map((t) => ({ id: t.id, clips: t.clips }));
+  const stacked: string[] = [];
+  for (let i = 0; i < byTrack.length; i++) {
+    for (let j = i + 1; j < byTrack.length; j++) {
+      for (const a of byTrack[i]!.clips) {
+        for (const b of byTrack[j]!.clips) {
+          if (a.start < b.end - FRAME_EPSILON && b.start < a.end - FRAME_EPSILON) {
+            stacked.push(`${a.id} on ${byTrack[i]!.id} over ${b.id} on ${byTrack[j]!.id}`);
+          }
+        }
+      }
+    }
+  }
+  return {
+    id: 'no-picture-stacking',
+    ok: stacked.length === 0,
+    detail: stacked.length === 0 ? 'no picture over picture' : stacked.join('; '),
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/**
+ * The b-roll landed on a video track that ALREADY carried picture — cut into the programme,
+ * not dropped on the empty overlay layer.
+ *
+ * On a project whose picture track is gapless this is the whole test of "it split and cut
+ * in": the only non-overlapping home for a cutaway on an occupied track is a span the run
+ * opened itself with splits, so no separate "did it split" check is needed. A run that took
+ * the empty track instead fails here even when the placement itself was refused and nothing
+ * landed at all — `checkCutawayInWindow` reports that absence.
+ */
+export function checkCutawayOnOccupiedTrack(
+  ctx: RubricContext,
+  brollAssetIds: readonly string[],
+): RubricCheck {
+  const broll = new Set(brollAssetIds);
+  const occupied = new Set(
+    pictureTracks(ctx.before)
+      .filter((t) => t.clips.length > 0)
+      .map((t) => t.id),
+  );
+  const placed = pictureTracks(ctx.after)
+    .flatMap((t) => t.clips.map((c) => ({ clip: c, trackId: t.id })))
+    .filter(({ clip }) => broll.has(clip.assetId));
+  const strayed = placed.filter(({ trackId }) => !occupied.has(trackId));
+  return {
+    id: 'cutaway-on-occupied-track',
+    ok: placed.length > 0 && strayed.length === 0,
+    detail:
+      placed.length === 0
+        ? 'no b-roll placed at all'
+        : `${placed.length - strayed.length}/${placed.length} b-roll clip(s) on a track that already carried picture`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
 /** Duration is unchanged within half a second — a cutaway covers, it does not lengthen. */
 export function checkDurationKept(ctx: RubricContext, toleranceSeconds = 0.5): RubricCheck {
   const b = projectDuration(ctx.before);
@@ -620,6 +695,20 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
+        checkDurationKept(ctx),
+        ...COMMON(p),
+      ]);
+    // `broll-cutaway` plus the two assertions that fixture could not make, because
+    // `mission-talk` has no second video track: nothing may land on the empty overlay
+    // layer, and no picture may end up over picture. A NEW rubric rather than more checks
+    // on `broll-cutaway`, so the existing case keeps measuring what its recorded floor was
+    // written against (`reports/golden/floor.json`).
+    case 'broll-cutaway-empty-overlay':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
+        checkCutawayOnOccupiedTrack(ctx, ctx.brollAssetIds ?? []),
+        checkNoPictureStacking(p),
         checkDurationKept(ctx),
         ...COMMON(p),
       ]);

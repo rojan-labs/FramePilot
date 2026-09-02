@@ -20,6 +20,10 @@
  *   - `mission-podcast`  — one 9.6-minute 360p dialogue clip, transcript (2,431 words).
  *   - `mission-talk`     — one 8.8-minute narration clip, `beat-100bpm.wav` in the bin,
  *                          transcript (1,465 words).
+ *   - `mission-overlay`  — the same narration, gapless on `video_1`, plus an EMPTY second
+ *                          video track `b_roll` and two b-roll clips in the bin. Run
+ *                          `369e8c82`'s shape: because the picture track is gapless, every
+ *                          placement on `b_roll` overlaps picture and is refused (ADR 0140).
  */
 import type { MissionScenarioId } from './mission-rubric.js';
 
@@ -302,6 +306,24 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
         prompt:
           'Add b-roll from the clips in the bin over the first 20 seconds of the narration.',
         rubric: 'broll-cutaway',
+        intent: 'edit',
+        cutawayWindowSeconds: [0, 20],
+      },
+    ],
+  },
+  {
+    id: 'broll-empty-overlay-track',
+    category: 'broll',
+    project: 'mission-overlay',
+    why:
+      'Not a second sample of the cutaway — the trap around it. Run `369e8c82` met an empty ' +
+      'video track above a gapless picture track, where ADR 0140 refuses every placement, and ' +
+      'took it four times in fifteen minutes. `broll-first-20s` cannot see that: `mission-talk` ' +
+      'has no second video track, so the wrong move is not even expressible there.',
+    turns: [
+      {
+        prompt: 'Add b-roll from the bin over the first 20 seconds of the narration.',
+        rubric: 'broll-cutaway-empty-overlay',
         intent: 'edit',
         cutawayWindowSeconds: [0, 20],
       },
