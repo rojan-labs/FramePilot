@@ -59,7 +59,8 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 | `[x]` | Bound every run by cost and time | `6244119` |
 | `[x]` | The progress guards, audited together (a 40-step productive run survives all five) | `b88b911` |
 | `[x]` | The reducer's decisions reach the log, not just its effects | `9efafb8` |
-| `[~]` | The run budget is a **setting**, not a per-run announcement | maintainer request, 2026-09-02 |
+| `[x]` | The run budget is a **setting**, not a per-run announcement — Settings → AI → Run budget; `budgetNotice` deleted | `2eeb92e` |
+| `[ ]` | **R1** — the wall-clock budget cannot fire during a step (see below) | `GOLDEN-D.5` |
 
 ## Workstream E — token and cost efficiency
 
