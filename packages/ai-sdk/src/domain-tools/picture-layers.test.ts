@@ -26,6 +26,9 @@ import { ToolInvocationError, operationsForCall } from '../tool-dispatch.js';
 import { assembleEdit } from '../assemble.js';
 import { pictureOverlapAcross, tracksCoveredByPictureInFront } from './picture-layers.js';
 
+/** The project frame, and every picture asset's measured shape. */
+const FRAME = { width: 1920, height: 1080 };
+
 const TEXT_ASSET = '__text__';
 const CAPTION_ASSET = '__caption__';
 
@@ -68,9 +71,21 @@ function projectWith(tracks: readonly { id: string; type?: string; clips: ClipSp
     fps: 30,
     resolution: { width: 1920, height: 1080 },
     assets: [
-      { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60 },
-      { id: 'asset_v2', path: 'media/b-roll.mp4', kind: 'video', durationSeconds: 60 },
-      { id: 'asset_img', path: 'media/photo.jpg', kind: 'image' },
+      // MEASURED, and measured to the project frame. Coverage is a relation (ADR 0170):
+      // two DIFFERENT assets nobody probed are refused because nothing can say whether
+      // their bars line up, so an unmeasured fixture would exercise the unmeasured arm
+      // rather than the placement rules this file is about. The desktop path measures
+      // footage when the engine derives proxies and stock on download, so measured is
+      // what production looks like.
+      { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60, media: FRAME },
+      {
+        id: 'asset_v2',
+        path: 'media/b-roll.mp4',
+        kind: 'video',
+        durationSeconds: 60,
+        media: FRAME,
+      },
+      { id: 'asset_img', path: 'media/photo.jpg', kind: 'image', media: FRAME },
       { id: 'asset_aud', path: 'media/bed.mp3', kind: 'audio', durationSeconds: 60 },
     ],
     timeline: {
@@ -105,7 +120,11 @@ describe('pictureOverlapAcross', () => {
       start: 2,
       end: 6,
     });
-    expect(hits).toEqual([{ clipId: 'clip_a', trackId: 'video_1', start: 0, end: 10, depth: 0 }]);
+    expect(hits).toMatchObject([
+      { clipId: 'clip_a', trackId: 'video_1', start: 0, end: 10, depth: 0 },
+    ]);
+    // The covered clip's shape rides along, because deciding coverage needs it (ADR 0170).
+    expect(hits[0]?.shaped.source).toEqual(FRAME);
   });
 
   it('reports an image over video — kind comes from the asset, not the layer', () => {
@@ -475,10 +494,130 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
   const move = (project: Project): AnyOperation[] =>
     buildOps('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 4 }, project);
 
-  it('names the crop as the reason', () => {
+  it('a CROP is no longer a reason on its own — it is geometry, and this one covers', () => {
+    // 0.8 of a 16:9 source in a 16:9 frame is still fitted to full height and 86% of the
+    // width... which does NOT contain the base, so it leaks. What changed is the reason
+    // given and the way out offered.
     expect(() => move(withCompositing({ crop: { x: 0.1, y: 0, width: 0.8, height: 1 } }))).toThrow(
-      /would sit on top of clip_a on video_1, and it is cropped/,
+      /is 1920x1080 and the 1920x1080 frame fits it with \d+px bars/,
     );
+  });
+
+  it('names what leaks, by how much, and the exact crop that would close it', () => {
+    let message = '';
+    try {
+      move(withCompositing({ crop: { x: 0.1, y: 0, width: 0.8, height: 1 } }));
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('clip_a shows through them at export');
+    // The source is already the frame's shape, so the leak IS the crop: the move is to put
+    // the whole frame back, not to cut more away.
+    expect(message).toContain('set_clip_crop on clip_b with crop null');
+    expect(message).toContain('cut a hole for it: split at 4s and 10s');
+  });
+
+  it('a cover-cropped front is ALLOWED over picture — the placement 0170 exists for', () => {
+    // A 16:9 source in a 9:16 project, cropped to the frame's aspect: the fit becomes a
+    // cover, nothing shows through, and it lands on its own front layer.
+    const portrait = parseProject({
+      ...projectWith([
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+        },
+        {
+          id: 'video_2',
+          type: 'video',
+          clips: [
+            {
+              id: 'clip_b',
+              assetId: 'asset_v2',
+              start: 20,
+              end: 26,
+              crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+            },
+          ],
+        },
+      ]),
+      resolution: { width: 1080, height: 1920 },
+    });
+    expect(move(portrait)).toEqual([
+      { type: 'add_layer', layerId: 'video_cutaway_1', layerType: 'video', atIndex: 0 },
+      { type: 'move_clip', clipId: 'clip_b', toTrackId: 'video_cutaway_1', toStart: 4 },
+    ]);
+  });
+
+  it('a measured 1:1 front over 16:9 picture leaks, and the refusal carries the JSON crop', () => {
+    const square = parseProject({
+      ...withCompositing({}),
+      assets: [
+        { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60, media: FRAME },
+        {
+          id: 'asset_v2',
+          path: 'media/b-roll.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: { width: 1000, height: 1000 },
+        },
+      ],
+    });
+    let message = '';
+    try {
+      move(square);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    // 1000x1000 fits to 1080x1080 in a 1920x1080 frame: (1920 - 1080) / 2 = 420.
+    expect(message).toContain(
+      '"b-roll.mp4" is 1000x1000 and the 1920x1080 frame fits it with 420px bars left and ' +
+        'right, and clip_a shows through them at export',
+    );
+    expect(message).toContain(
+      'set_clip_crop on clip_b with crop {"x":0,"y":0.21875,"width":1,"height":0.5625}',
+    );
+  });
+
+  it('an unmeasured stack of DIFFERENT assets is refused, and no crop is suggested', () => {
+    const unmeasured = parseProject({
+      ...withCompositing({}),
+      assets: [
+        { id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_v2', path: 'media/b-roll.mp4', kind: 'video', durationSeconds: 60 },
+      ],
+    });
+    let message = '';
+    try {
+      move(unmeasured);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('has not been measured, so nothing can tell whether its bars');
+    expect(message).not.toContain('set_clip_crop');
+    expect(message).toContain('shows an asset\'s orientation and aspect');
+  });
+
+  it('the SAME unmeasured asset stacked on itself is allowed — identical by construction', () => {
+    const montage = parseProject({
+      ...projectWith([
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+        },
+        {
+          id: 'video_2',
+          type: 'video',
+          clips: [{ id: 'clip_b', assetId: 'asset_v', start: 20, end: 26 }],
+        },
+      ]),
+      assets: [{ id: 'asset_v', path: 'media/a-roll.mp4', kind: 'video', durationSeconds: 60 }],
+    });
+    expect(move(montage)).toEqual([
+      { type: 'add_layer', layerId: 'video_cutaway_1', layerType: 'video', atIndex: 0 },
+      { type: 'move_clip', clipId: 'clip_b', toTrackId: 'video_cutaway_1', toStart: 4 },
+    ]);
   });
 
   it('names the blend mode as the reason', () => {

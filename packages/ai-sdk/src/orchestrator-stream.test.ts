@@ -5358,6 +5358,11 @@ describe('picture over picture is refused once, not once per placement (run 369e
     path,
     kind: 'video' as const,
     durationSeconds: 30,
+    // Measured, to the fixture's own 1920x1080 frame. Coverage is a relation (ADR 0170):
+    // a stack of two different assets nobody probed is refused for want of a shape, which
+    // is a different refusal from the one this block is about. The captured run's media was
+    // real footage and downloaded stock, both of which the desktop path measures.
+    media: { width: 1920, height: 1080 },
   });
   const mainClip = (id: string, start: number, end: number) => ({
     id,

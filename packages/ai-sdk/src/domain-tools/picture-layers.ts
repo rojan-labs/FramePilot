@@ -28,10 +28,15 @@
  * - anything else — scaled, positioned, cropped, masked, faded, blended — is
  *   still refused, with the reason and the two legal moves.
  *
- * {@link isFullFrameOpaque} is the predicate, and it lives in `editor-core`
+ * {@link coverageVerdict} is the predicate, and it lives in `editor-core`
  * because the canvas preview's eligibility test asks the identical question.
  * Two copies would drift, and the way they would drift is that this one starts
  * allowing an overlay the preview cannot show.
+ *
+ * ADR 0170 made it a RELATION rather than a property of the front clip: the
+ * renderer fits rather than covers, so whether a letterboxed layer diverges
+ * depends on the shape of what is UNDERNEATH it. A crop is part of that
+ * geometry, which is why a cover-cropped placement is now legal.
  *
  * Manual UI editing is deliberately out of scope: a person dragging a clip onto
  * a second layer can see both, chose it, and owns the result.
@@ -47,9 +52,12 @@
 import type { Asset, Clip, Project, Track } from '@framepilot/timeline-schema';
 import type { Operation } from '@framepilot/editor-core';
 import {
-  isFullFrameOpaque,
+  coverageVerdict,
   trackHasRoomFor,
+  type CoverageVerdict,
   type FullFrameOpaqueFields,
+  type ShapedClip,
+  type SourceShape,
 } from '@framepilot/editor-core';
 import { clipKindOf } from '../project-index.js';
 import { ToolRefusalError } from '../tool-refusal.js';
@@ -71,11 +79,12 @@ export interface PictureCandidate {
   /**
    * The compositing the placed clip will carry, when it is not a plain placement.
    *
-   * `add_clip`/`add_clips` write a bare clip — no keyframes, no crop, no blend —
-   * so they omit this and the placement is full-frame by construction. (Their
-   * auto-reframe crop is applied AFTERWARDS and is a *cover* crop: it can only
-   * increase coverage, never reduce it.) `move_clip` moves a clip that already
-   * exists and may carry any of them, so it passes the real one.
+   * `add_clip`/`add_clips` write a bare clip, but they compute their auto-reframe
+   * crop BEFORE asking, and pass it: under ADR 0170 a crop is geometry, and the
+   * cover crop is precisely what makes a landscape source legal over picture in a
+   * portrait project. Asking first and cropping afterwards refused the placement
+   * the reframe exists to make work. `move_clip` moves a clip that already exists
+   * and may carry any compositing, so it passes the real one.
    */
   readonly compositing?: FullFrameOpaqueFields;
 }
@@ -88,6 +97,29 @@ export interface PictureConflict {
   readonly end: number;
   /** The conflicting track's z-order slot — 0 is the visual front. */
   readonly depth: number;
+  /**
+   * The covered clip and its measured source shape, ready for
+   * {@link coverageVerdict}. Coverage is a relation (ADR 0170): deciding it needs
+   * the shape of what is under the candidate, not only the candidate's own
+   * compositing, so the conflict list carries it rather than making the caller
+   * re-derive it from the project.
+   */
+  readonly shaped: ShapedClip;
+}
+
+/**
+ * An asset's measured source shape, or `undefined` when nothing probed it.
+ *
+ * Both dimensions or neither: half a shape is not a shape, and `Asset.media.width/height`
+ * are "honestly absent rather than guessed at" since schema v21.
+ */
+export function sourceShapeOf(project: Project, assetId: string): SourceShape | undefined {
+  const media = (project.assets ?? []).find((asset) => asset.id === assetId)?.media;
+  const width = media?.width;
+  const height = media?.height;
+  if (typeof width !== 'number' || typeof height !== 'number') return undefined;
+  if (width <= 0 || height <= 0) return undefined;
+  return { width, height };
 }
 
 /** Only `video` layers carry the picture chain; overlay/caption/audio composite separately. */
@@ -138,6 +170,7 @@ export function pictureOverlapAcross(
         start: clip.start,
         end: clip.end,
         depth,
+        shaped: { clip, source: sourceShapeOf(project, clip.assetId) },
       });
     }
   });
@@ -157,58 +190,97 @@ function assetLabel(project: Project, assetId: string): string {
 }
 
 /**
- * Which field made the placement something other than a full-frame layer.
- *
- * Named, not merely reported, because "it is not full-frame" is a verdict the
- * model cannot act on: the fix for a crop (drop it) is not the fix for a blend
- * mode (set it to normal). Same order as {@link isFullFrameOpaque} tests them.
- */
-function nonOpaqueReason(compositing: FullFrameOpaqueFields): string {
-  if (compositing.crop !== undefined) return 'it is cropped';
-  if (compositing.blendMode !== undefined && compositing.blendMode !== 'normal') {
-    return `it blends with what is under it (blendMode "${compositing.blendMode}")`;
-  }
-  if ((compositing.keyframes ?? []).length > 0) {
-    return 'it carries transform keyframes (a scaled, moved or faded layer)';
-  }
-  /* v8 ignore next -- reached only for a masked/transitioning clip; kept total on purpose */
-  return 'it carries a mask or a transition, so part of the frame shows through it';
-}
-
-/**
  * The refusal, worded once.
  *
- * It names the offending clip and track, says which property of the placement
- * makes it un-showable, and gives the two legal moves: make it full-frame (and
- * the placement lands on its own front layer, no further work), or cut a hole
- * and place it as a cutaway. Deliberately NOT "try a different track" — every
- * track has the same answer, and a run told otherwise walks the placement across
- * layers one at a time.
+ * It names the offending clip and track, says which property of the placement makes it
+ * un-showable, and gives the ways out. Deliberately NOT "try a different track" — every
+ * track has the same answer, and a run told otherwise walks the placement across layers one
+ * at a time.
  *
- * @param project - The project, for the asset's name.
+ * The reason comes from {@link CoverageVerdict} rather than being re-derived here. A second
+ * copy of "which test failed first" would drift from the one that actually decides, and the
+ * way it would drift is that the refusal starts naming a property the placement does not
+ * have.
+ *
+ * @param project - The project, for the asset's name and measured shape.
  * @param candidate - The refused placement.
  * @param conflicts - What it would have covered, from {@link pictureOverlapAcross}.
- * @param compositing - The compositing that disqualified it.
+ * @param verdict - Why the monitor and the export would disagree.
  */
 export function pictureOverlapRefusal(
   project: Project,
   candidate: PictureCandidate,
   conflicts: readonly PictureConflict[],
-  compositing: FullFrameOpaqueFields,
+  verdict: CoverageVerdict,
 ): string {
   const first = conflicts[0];
-  /* v8 ignore next -- callers only build a refusal from a non-empty conflict list */
-  if (!first) return '';
+  /* v8 ignore next 2 -- callers only build a refusal from a non-empty conflict list and a
+     failed verdict */
+  if (!first || verdict.hides) return '';
   const others = conflicts.length > 1 ? ` (and ${String(conflicts.length - 1)} more)` : '';
-  return (
-    `Refused: "${assetLabel(project, candidate.assetId)}" at ` +
-    `${timeText(candidate.start)}–${timeText(candidate.end)}s would sit on top of ` +
-    `${first.clipId} on ${first.trackId}${others}, and ${nonOpaqueReason(compositing)}. ` +
+  const file = assetLabel(project, candidate.assetId);
+  const head =
+    `Refused: "${file}" at ${timeText(candidate.start)}–${timeText(candidate.end)}s ` +
+    `would sit on top of ${first.clipId} on ${first.trackId}${others}, and `;
+  const divergence =
     'The preview shows one picture layer at a time, so only a layer that covers the whole ' +
-    'frame opaquely previews the way it exports (ADR 0169 / SUC-P1). Either place it ' +
-    'full-frame — a plain placement with no crop, transform or blend mode is put on its own ' +
-    `front layer for you — or cut a hole for it: split at ${timeText(candidate.start)}s and ` +
-    `${timeText(candidate.end)}s and add it on the same track as a cutaway.`
+    'frame opaquely previews the way it exports (ADR 0169 / SUC-P1). ';
+  // The alternative that is legal WHATEVER the shapes are: a cutaway on the same track is
+  // one picture layer, so there is nothing for the export to fold in.
+  const hole =
+    `cut a hole for it: split at ${timeText(candidate.start)}s and ` +
+    `${timeText(candidate.end)}s and add it on the same track as a cutaway.`;
+
+  if (verdict.reason === 'leaks') {
+    const shape = sourceShapeOf(project, candidate.assetId);
+    const size = shape ? `${String(shape.width)}x${String(shape.height)}` : 'letterboxed';
+    // The crop first, because it is the move that keeps the layered edit the run asked for;
+    // the hole is the fallback that changes the edit.
+    // `null` rather than a rect when the SOURCE already matches the frame: the leak is then
+    // the crop the clip is carrying, and the move is to put the whole frame back.
+    const rect =
+      verdict.coverCrop ?? (candidate.compositing?.crop !== undefined ? null : undefined);
+    const cropWay =
+      rect !== undefined
+        ? (candidate.ignoreClipId !== undefined
+            ? `set_clip_crop on ${candidate.ignoreClipId} with crop `
+            : 'add it, then set_clip_crop with crop ') +
+          `${JSON.stringify(rect)} so it fills the frame; then it goes on its own front ` +
+          'layer. Or '
+        : '';
+    return (
+      `${head}"${file}" is ${size} and ${verdict.detail ?? 'it does not cover them'}. ` +
+      `${divergence}${cropWay}${cropWay === '' ? 'Either ' : ''}${hole}`
+    );
+  }
+
+  if (verdict.reason === 'unmeasured') {
+    const covered = verdict.detail ?? first.clipId;
+    // Never a crop: cropping to a shape nobody measured is a guess, and a wrong guess here
+    // throws away picture in the wrong axis.
+    const unknown =
+      sourceShapeOf(project, candidate.assetId) === undefined
+        ? `"${file}" has not been measured, so nothing can tell whether its bars line up ` +
+          `with ${covered}'s`
+        : `${covered} has not been measured, so nothing can tell whether its bars line up ` +
+          `with "${file}"'s`;
+    return (
+      `${head}${unknown}. ${divergence}Either ${hole} It previews and exports identically ` +
+      'whatever its shape. Or place it again once the engine has measured it — `list_assets` ' +
+      'shows an asset\'s orientation and aspect instead of `shape: "unmeasured"` once it has.'
+    );
+  }
+
+  const opacity =
+    verdict.reason === 'blend'
+      ? `it blends with what is under it (blendMode "${verdict.detail ?? ''}")`
+      : verdict.reason === 'keyframes'
+        ? 'it carries transform keyframes (a scaled, moved or faded layer)'
+        : 'it carries a mask or a transition, so part of the frame shows through it';
+  return (
+    `${head}${opacity}. ${divergence}Either place it full-frame — a plain placement with no ` +
+    'transform, blend mode or mask is put on its own front layer for you — or ' +
+    `${hole}`
   );
 }
 
@@ -293,12 +365,22 @@ export function createPicturePlacer(project: Project): {
         book(candidate.trackId, candidate.start, candidate.end);
         return { trackId: candidate.trackId, setupOps: [] };
       }
+      // Coverage is a relation (ADR 0170): the front clip's compositing AND its fitted
+      // rect against every rect it covers, in this project's frame.
       const compositing = candidate.compositing ?? {};
-      if (!isFullFrameOpaque(compositing)) {
-        throw new ToolRefusalError(
-          pictureOverlapRefusal(project, candidate, conflicts, compositing),
-          { refusalCause: 'picture_over_picture' },
-        );
+      const front: ShapedClip = {
+        clip: { ...compositing, assetId: candidate.assetId },
+        source: sourceShapeOf(project, candidate.assetId),
+      };
+      const verdict = coverageVerdict(
+        front,
+        conflicts.map((conflict) => conflict.shaped),
+        project.resolution,
+      );
+      if (!verdict.hides) {
+        throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts, verdict), {
+          refusalCause: 'picture_over_picture',
+        });
       }
       // Everything it covers must end up BEHIND it, so the lane has to sit in
       // front of the front-most thing it covers.

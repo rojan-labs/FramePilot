@@ -239,6 +239,94 @@ describe('add_clip — the gates that keep the crop off a guess', () => {
   });
 });
 
+/**
+ * ADR 0170 — the placement guard now sees the crop, because the crop is what makes the
+ * placement legal.
+ *
+ * Before this the order was backwards: `picture.place()` was asked about a BARE clip and
+ * the reframe crop was applied afterwards, so a landscape source over occupied picture in a
+ * portrait project was refused for leaking bars it was never going to have.
+ */
+describe('add_clip — a reframed landscape source is legal OVER picture', () => {
+  /** The portrait project, with the whole first ten seconds already occupied by picture. */
+  const occupied = (): Project => {
+    const project = portraitProject(LANDSCAPE_1080P);
+    return {
+      ...project,
+      assets: [
+        ...project.assets,
+        {
+          id: 'base',
+          path: 'media/base.mp4',
+          kind: 'video',
+          durationSeconds: 60,
+          media: { width: 1080, height: 1920 },
+        },
+      ] as Project['assets'],
+      timeline: {
+        ...project.timeline,
+        // `v_main` is index 0 — the visual FRONT — and holds the A-roll. `v_back` is the
+        // lane the model names, and it sits behind, so the placer has to open one in front.
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_base',
+                assetId: 'base',
+                trackId: 'v_main',
+                start: 0,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 10,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          { id: 'v_back', type: 'video', clips: [] },
+          ...project.timeline.tracks.slice(1),
+        ],
+      } as Project['timeline'],
+    };
+  };
+
+  it('lands on a front layer WITH the cover crop, in one patch, not refused', () => {
+    const ops = place(occupied(), { trackId: 'v_back', assetId: 'src', start: 2, end: 6 });
+    expect(ops).toHaveLength(3);
+    expect(ops[0]).toEqual({
+      type: 'add_layer',
+      layerId: 'video_cutaway_1',
+      layerType: 'video',
+      atIndex: 0,
+    });
+    expect(ops[1]).toMatchObject({ type: 'add_clip', trackId: 'video_cutaway_1', assetId: 'src' });
+    expect(ops[2]).toMatchObject({
+      type: 'set_clip_crop',
+      crop: { x: 0.341797, y: 0, width: 0.316406, height: 1 },
+    });
+  });
+
+  it('the whole compound validates and applies', () => {
+    const project = occupied();
+    const patch: Patch = {
+      patchId: 'p1',
+      createdBy: 'agent',
+      reason: 'b-roll',
+      operations: place(project, { trackId: 'v_back', assetId: 'src', start: 2, end: 6 }),
+    };
+    expect(validatePatch(project.timeline, patch).valid).toBe(true);
+    const after = applyPatch(project.timeline, patch);
+    expect(after.tracks[0]?.clips[0]?.crop).toEqual({
+      x: 0.341797,
+      y: 0,
+      width: 0.316406,
+      height: 1,
+    });
+  });
+});
+
 describe('add_clips — the batch follows exactly the same rule', () => {
   it('crops every measured landscape entry and names each clip distinctly', () => {
     const project = portraitProject(LANDSCAPE_1080P);

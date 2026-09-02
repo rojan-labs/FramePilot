@@ -366,7 +366,29 @@ describe('b-roll over an empty overlay track', () => {
     const base = makeProject();
     return {
       ...base,
-      assets: [...base.assets, { id: 'asset_broll', path: 'media/broll/b2.mov', kind: 'video', durationSeconds: 9 }],
+      // Both picture assets MEASURED, to the fixture's 1920x1080 frame. Coverage is a
+      // relation (ADR 0170): two different assets nobody probed are refused for want of a
+      // shape, which would make every row here grade the unmeasured arm instead of the
+      // stack. The desktop path measures footage on derive and stock on download.
+      assets: [
+        ...base.assets.map((asset) =>
+          asset.id === 'asset_1' ? { ...asset, media: { width: 1920, height: 1080 } } : asset,
+        ),
+        {
+          id: 'asset_broll',
+          path: 'media/broll/b2.mov',
+          kind: 'video',
+          durationSeconds: 9,
+          media: { width: 1920, height: 1080 },
+        },
+        {
+          id: 'asset_broll_portrait',
+          path: 'media/broll/vertical.mov',
+          kind: 'video',
+          durationSeconds: 9,
+          media: { width: 1080, height: 1920 },
+        },
+      ],
       timeline: {
         ...base.timeline,
         // `tracks[0]` is the visual front, so the overlay track comes first.
@@ -393,8 +415,9 @@ describe('b-roll over an empty overlay track', () => {
 
   /** The other right answer since ADR 0169: a full-frame cutaway taking the front layer. */
   const stackedOpaque = () => stacked();
-  /** The same stack, but cropped — the export blends the narration through it and the
-      monitor cannot show that, which is the case 0169 still refuses. */
+  /** The same stack, but cropped to half the source width — a 16:9 source cut to 8:9 is
+      fitted to 960x1080 in the 1920x1080 frame, so the narration's left and right edges
+      leak past it at export while the monitor shows only the cutaway. */
   const stackedCropped = () =>
     overlay(
       [clip('talk', 0, 100)],
@@ -409,10 +432,23 @@ describe('b-roll over an empty overlay track', () => {
     expect(layered.detail).toContain('full-frame');
   });
 
+  it('passes a LETTERBOXED stack whose bars coincide — both clips are the same shape', () => {
+    // Two portrait sources in a landscape frame: both are fitted to 607.5x1080 and pillar-
+    // boxed identically, so the export blends transparent over transparent and paints black
+    // exactly where the monitor does. Refusing this buys nothing, and "does the front clip
+    // fill the frame?" refused it.
+    const portrait = overlay(
+      [{ ...clip('talk', 0, 100), assetId: 'asset_broll_portrait' } as Clip],
+      [{ ...b('bro', 5, 12, 'b_roll'), assetId: 'asset_broll_portrait' } as Clip],
+    );
+    expect(checkStackedPictureIsPreviewable(portrait).ok).toBe(true);
+  });
+
   it('checkStackedPictureIsPreviewable fails the stack that previews differently', () => {
     const bad = checkStackedPictureIsPreviewable(stackedCropped());
     expect(bad.ok).toBe(false);
     expect(bad.detail).toContain('bro on b_roll');
+    expect(bad.detail).toContain('leaks');
     // The per-track check is blind to it — which is exactly why this one exists.
     expect(checkNoOverlaps(stackedCropped()).ok).toBe(true);
   });

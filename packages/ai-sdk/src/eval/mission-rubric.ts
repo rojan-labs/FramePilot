@@ -10,7 +10,7 @@
  * Critic's advisory judgment covers that and never gates.
  */
 import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
-import { isFullFrameOpaque } from '@framepilot/editor-core';
+import { coverageVerdict, type ShapedClip, type SourceShape } from '@framepilot/editor-core';
 import { timelineDuration } from '../critic.js';
 
 export interface RubricCheck {
@@ -413,24 +413,39 @@ export function checkCutawayInWindow(
  * stronger check than the one it replaces: a run may stack picture, and every stack it
  * makes must be one the editor will actually see before they approve it.
  *
- * `isFullFrameOpaque` is imported from `editor-core` — the same predicate the placement
- * guard and the preview read. A second definition here is how a rubric starts grading a
- * rule the product no longer has.
+ * `coverageVerdict` is imported from `editor-core` — the same predicate the placement guard
+ * and the preview read. A second definition here is how a rubric starts grading a rule the
+ * product no longer has. ADR 0170 made it a RELATION: the renderer fits rather than covers,
+ * so whether a letterboxed layer diverges depends on the shape of what is under it, and
+ * grading the front clip alone both passed leaks and failed honest stacks.
  */
 export function checkStackedPictureIsPreviewable(project: Project): RubricCheck {
   const byTrack = pictureTracks(project).map((t) => ({ id: t.id, clips: t.clips }));
+  const shapeById = new Map<string, SourceShape | undefined>(
+    project.assets.map((asset) => {
+      const { width, height } = asset.media ?? {};
+      const measured =
+        typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0;
+      return [asset.id, measured ? { width, height } : undefined];
+    }),
+  );
+  const shaped = (clip: Clip): ShapedClip => ({ clip, source: shapeById.get(clip.assetId) });
   const divergent: string[] = [];
   let stacks = 0;
-  // Tracks are front-to-back, so the LOWER index is the clip the viewer sees. Only that
-  // one has to cover the frame; what is behind it may be anything.
+  // Tracks are front-to-back, so the LOWER index is the clip the viewer sees. Whether it
+  // hides the one behind is a question about BOTH shapes and the project frame.
   for (let front = 0; front < byTrack.length; front++) {
     for (let back = front + 1; back < byTrack.length; back++) {
       for (const a of byTrack[front]!.clips) {
         for (const b of byTrack[back]!.clips) {
           if (a.start < b.end - FRAME_EPSILON && b.start < a.end - FRAME_EPSILON) {
             stacks += 1;
-            if (!isFullFrameOpaque(a)) {
-              divergent.push(`${a.id} on ${byTrack[front]!.id} over ${b.id} on ${byTrack[back]!.id}`);
+            const verdict = coverageVerdict(shaped(a), [shaped(b)], project.resolution);
+            if (!verdict.hides) {
+              divergent.push(
+                `${a.id} on ${byTrack[front]!.id} over ${b.id} on ${byTrack[back]!.id} ` +
+                  `(${verdict.reason})`,
+              );
             }
           }
         }

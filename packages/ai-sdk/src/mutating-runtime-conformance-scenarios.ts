@@ -19,10 +19,27 @@ import type { ToolCall } from './providers/types.js';
 /** A three-track fixture with music and B-roll, so montage rows have something to cut with. */
 function conformanceProject(): ReturnType<typeof makeProject> {
   return makeProject({
+    // Both picture assets MEASURED, and measured to the 1920x1080 frame. Coverage is a
+    // relation (ADR 0170): a stack of two different assets nobody probed is refused because
+    // nothing can say whether their letterbox bars line up, so leaving them unmeasured here
+    // would make the montage row grade the unmeasured arm rather than the montage. The
+    // desktop path measures footage when the engine derives proxies and stock on download.
     assets: [
-      { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+      {
+        id: 'asset_1',
+        path: 'media/a.mp4',
+        kind: 'video',
+        durationSeconds: 30,
+        media: { width: 1920, height: 1080 },
+      },
       { id: 'music', path: 'media/music.mp3', kind: 'audio', durationSeconds: 10 },
-      { id: 'broll', path: 'media/broll.mp4', kind: 'video', durationSeconds: 8 },
+      {
+        id: 'broll',
+        path: 'media/broll.mp4',
+        kind: 'video',
+        durationSeconds: 8,
+        media: { width: 1920, height: 1080 },
+      },
     ],
     timeline: {
       tracks: [

@@ -42,6 +42,18 @@ export const StockAssetPayloadSchema = z.object({
     durationSeconds: z.number().positive().optional(),
     media: z
       .object({
+        /**
+         * Source pixel dimensions (schema v21). Both or neither — half a shape is not a
+         * shape. Declared here because omitting them is what discarded them: this schema
+         * REBUILDS the media object field by field, so a field it does not name cannot
+         * survive the process boundary however carefully the host sent it
+         * (`shared-types/ipc.ts#StockDownloadedAssetWire` does send them, and the Stock
+         * panel keeps them). An agent-downloaded stock clip arriving unmeasured is a clip
+         * the placement guard must refuse for want of a shape (ADR 0170) and the
+         * auto-reframe cannot reframe — on the media a b-roll request reaches for most.
+         */
+        width: z.number().nullish(),
+        height: z.number().nullish(),
         proxyPath: z.string().nullish(),
         peaks: z.array(z.number()).nullish(),
         peaksPerSecond: z.number().positive().nullish(),

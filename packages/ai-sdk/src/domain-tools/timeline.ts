@@ -18,6 +18,7 @@ import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
 import type { CropRect, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
+  coverCropFor,
   listEditBoundaries,
   mapSequenceTime,
   mapSourceTime,
@@ -230,18 +231,6 @@ const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }
 export const MAX_CLIPS_PER_BATCH = 50;
 
 /**
- * Fractional places kept on an auto-derived crop rect.
- *
- * The rect is a ratio of ratios, so it is an endless binary fraction more often than not
- * (16:9 into 9:16 is 0.31640625). Six places is well under a source pixel on any frame
- * FFmpeg will decode, and it keeps the number short in the patch, the diff, and the
- * project file — where a human reads it.
- */
-const CROP_PRECISION = 1e6;
-
-const roundCrop = (value: number): number => Math.round(value * CROP_PRECISION) / CROP_PRECISION;
-
-/**
  * The centred crop that makes a source FILL a frame of a different aspect, or `undefined`
  * when the source is not wider than the frame and so needs no horizontal crop.
  *
@@ -265,11 +254,13 @@ export function coverCropForFrame(
   if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) {
     return undefined;
   }
-  const sourceAspect = source.width / source.height;
-  const targetAspect = target.width / target.height;
-  if (sourceAspect <= targetAspect) return undefined;
-  const width = roundCrop(targetAspect / sourceAspect);
-  return { x: roundCrop((1 - width) / 2), y: 0, width, height: 1 };
+  // The horizontal-only gate is this function's POLICY, not the maths (ADR 0170 moved the
+  // maths to `editor-core#coverCropFor`, which crops either axis because the placement
+  // refusal has to be able to suggest a rect for a taller source too). Padding a 4:5 still
+  // in a 9:16 sequence is a real editorial choice; cropping its height silently is not one
+  // `add_clip` should make on the run's behalf. See {@link autoReframeCrop}.
+  if (source.width / source.height <= target.width / target.height) return undefined;
+  return coverCropFor(source, target);
 }
 
 /**
@@ -312,6 +303,11 @@ function autoReframeCrop(
 ): CropRect | undefined {
   const { resolution } = ctx.project;
   if (resolution.height <= resolution.width) return undefined;
+  // The lane the CALLER NAMED, which is the lane the policy is about. Reading the RESOLVED
+  // lane instead was a latent bug: a lane the picture placer had just opened
+  // (`video_cutaway_N`) is not in the pre-turn timeline, so the lookup found nothing,
+  // `track?.type !== 'video'` was true, and a lifted placement never reframed — the one
+  // case where the source is most likely to be the wrong shape for the frame.
   const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === placement.trackId);
   if (track?.type !== 'video') return undefined;
   const asset = ctx.project.assets.find((candidate) => candidate.id === placement.assetId);
@@ -389,21 +385,24 @@ function addClipOperation(
   // against the same pre-call timeline: without booking each span as it is handed
   // out, two overlapping entries in one batch would both be told the lane was
   // free, and two entries needing a front layer would each open one with the same id.
+  //
+  // The auto-reframe crop is computed FIRST and handed to the placer. Under ADR 0170 a crop
+  // is geometry, so the cover crop is exactly what lets a landscape source sit over picture
+  // in a portrait project; deciding the placement against the bare clip and cropping
+  // afterwards refused the very placement the reframe exists to make legal.
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
+  const crop = autoReframeCrop(ctx, clip);
   const placed = isPicture
-    ? // No `compositing`: `add_clip` writes a bare clip, and the auto-reframe crop
-      // below is a COVER crop applied afterwards, which can only increase coverage.
-      picture.place({
+    ? picture.place({
         trackId: clip.trackId,
         assetId: clip.assetId,
         start: clip.start,
         end: clip.end,
+        compositing: crop ? { crop } : {},
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
-  const cropClip = { ...clip, trackId: placed.trackId };
-  const crop = autoReframeCrop(ctx, cropClip);
-  const clipId = crop ? placementClipId(cropClip) : undefined;
+  const clipId = crop ? placementClipId({ ...clip, trackId: placed.trackId }) : undefined;
   const add: Operation = {
     type: 'add_clip',
     trackId: placed.trackId,
