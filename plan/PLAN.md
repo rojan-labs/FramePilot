@@ -13,6 +13,21 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
+harness on `feat/golden-eval-harness`.** `goal.md` requires a measured baseline before any
+prompt, tool or model change. The mission runner (`mission-baseline.mjs`) becomes the golden
+harness: a golden set covering every request category (`eval/golden-cases.ts`), checkable
+outcome assertions per case (`eval/mission-rubric.ts`), the ten tracked metrics computed from
+events + patches (`eval/golden-metrics.ts` — intent, target, boundary, validity, first-pass,
+turns/tools, tokens+USD per accepted edit, latency p50/p95, reversibility, failure quality),
+one command per case, per-case result files (resumable), effect recordings for replay, a
+cost/duration estimate before the run, and `golden-gate.mjs` as the regression gate.
+Real-media runs are the maintainer's; the baseline for the new cases is **pending manual
+verification** (run recipe in `docs/guides/golden-eval.md`).
+
+- `[~]` GOLDEN-0.1 — golden set + rubric + metrics + runner + gate + operator guide.
+- `[ ]` GOLDEN-0.2 — maintainer runs `pnpm eval:golden --yes`; floor written with `--write`.
+
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
 `35746d4c` (`run.md`), which spent 11 model calls, 230,473 tokens and $1.20 on a caption

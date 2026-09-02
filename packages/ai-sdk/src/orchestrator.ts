@@ -1536,6 +1536,14 @@ export interface OrchestratorOptions {
   readonly recordEffects?: boolean;
   /** Receives the just-completed run's {@link RunRecording} when `recordEffects` is on. */
   readonly onRecording?: (recording: RunRecording) => void;
+  /**
+   * Eval affordance (goal.md Phase 0, `scripts/mission-baseline.mjs --replay`): build each
+   * run's {@link EffectRuntime} from a recording instead of the live provider/executor —
+   * `createReplayEffectRuntime(recording)` — so a golden case can be re-scored with zero
+   * model or host calls. A factory, because a replay runtime holds a cursor and each run
+   * needs a fresh one. Composes with `recordEffects`. Never set by a product host.
+   */
+  readonly replayRuntime?: () => EffectRuntime;
   /** Awaited durable audit observer for every fine-grained runtime effect. */
   readonly effectObserver?: EffectRuntimeObserver;
 }
@@ -3040,6 +3048,7 @@ export class Orchestrator {
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
+  private readonly replayRuntime: (() => EffectRuntime) | undefined;
   private readonly effectObserver: EffectRuntimeObserver | undefined;
 
   public constructor(
@@ -3049,6 +3058,7 @@ export class Orchestrator {
     this.executor = options.executor;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
+    this.replayRuntime = options.replayRuntime;
     this.effectObserver = options.effectObserver;
   }
 
@@ -3062,12 +3072,14 @@ export class Orchestrator {
     runtime: EffectRuntime;
     finish: () => void;
   } {
-    const base = createEffectRuntime({
-      provider: this.provider,
-      ...(this.effectObserver === undefined ? {} : { observer: this.effectObserver }),
-      ...(this.executor ? { executor: this.executor } : {}),
-      ...(structuredExecutor ? { structuredExecutor } : {}),
-    });
+    const base = this.replayRuntime
+      ? this.replayRuntime()
+      : createEffectRuntime({
+          provider: this.provider,
+          ...(this.effectObserver === undefined ? {} : { observer: this.effectObserver }),
+          ...(this.executor ? { executor: this.executor } : {}),
+          ...(structuredExecutor ? { structuredExecutor } : {}),
+        });
     if (!this.recordEffects) return { runtime: base, finish: () => {} };
     const recorder = createRecordingEffectRuntime(base);
     let finished = false;

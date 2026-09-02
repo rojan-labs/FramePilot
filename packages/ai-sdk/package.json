@@ -26,6 +26,8 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsc -b",
+    "eval:golden": "node scripts/mission-baseline.mjs",
+    "eval:golden:gate": "node scripts/golden-gate.mjs",
     "eval:mission": "node scripts/mission-score.mjs reports/system-mission/after-orchestration-merged.json",
     "eval:mission:real": "node scripts/mission-baseline.mjs --runs 3 --label after --dump-events reports/system-mission/runs --out reports/system-mission/after-orchestration.json"
   },

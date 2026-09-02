@@ -85,6 +85,8 @@ export * from './run-controls.js';
 export * from './orchestrator.js';
 export * from './kernel/index.js';
 export * from './eval/mission-rubric.js';
+export * from './eval/golden-cases.js';
+export * from './eval/golden-metrics.js';
 // The typed specialist boundary (P5.1). Exported because the desktop host's tracking
 // executor is a production caller and must go through the contract like everything else.
 export * from './specialists/index.js';

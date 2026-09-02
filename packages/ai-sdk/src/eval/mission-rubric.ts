@@ -19,6 +19,12 @@ export interface RubricCheck {
   readonly detail: string;
   /** Weight in the scenario score; defaults to 1. */
   readonly weight?: number;
+  /**
+   * Which goal.md metric this check feeds besides the rubric score: `target` = "did it act
+   * on the right clips / the right range", `boundary` = "are the cut points frame-exact
+   * against expectation". Unfaceted checks count only toward the score.
+   */
+  readonly facet?: 'target' | 'boundary';
 }
 
 export interface RubricScore {
@@ -34,7 +40,17 @@ export type MissionScenarioId =
   | 'remove-dead-air'
   | 'beat-sync'
   | 'refine-tighten'
-  | 'memory-captions';
+  | 'memory-captions'
+  // goal.md Phase 0 golden set — one rubric per request category the set must cover.
+  | 'trim-first-clip'
+  | 'reorder-last-first'
+  | 'captions'
+  | 'hook-first'
+  | 'broll-cutaway'
+  | 'music-bed'
+  | 'compound-silence-captions'
+  | 'unchanged'
+  | 'vague-not-destructive';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -45,6 +61,13 @@ export interface RubricContext {
   readonly beatPeriodSeconds?: number;
   /** Clip ids the refinement request named as "keep"; must survive unchanged. */
   readonly keepClipIds?: readonly string[];
+  /** `trim-first-clip`: where the first picture clip must end, in timeline seconds. */
+  readonly expectedFirstClipEndSeconds?: number;
+  /** `broll-cutaway`: the assets that count as b-roll, and the window the cutaway must land in. */
+  readonly brollAssetIds?: readonly string[];
+  readonly cutawayWindowSeconds?: readonly [number, number];
+  /** `music-bed`: the asset the request named as the music. */
+  readonly musicAssetId?: string;
 }
 
 const FRAME_EPSILON = 1e-6;
@@ -80,6 +103,7 @@ export function checkCutsOnFrameGrid(project: Project): RubricCheck {
     id: 'cuts-on-frame-grid',
     ok: offGrid.length === 0,
     detail: `${offGrid.length} clip edge(s) off the ${project.fps} fps grid`,
+    facet: 'boundary',
   };
 }
 
@@ -138,7 +162,12 @@ export function checkNoMidWordCuts(project: Project): RubricCheck {
       if (words.some((w) => w.start + 0.02 < edge && edge < w.end - 0.02)) midWord++;
     }
   }
-  return { id: 'no-mid-word-cuts', ok: midWord === 0, detail: `${midWord} edge(s) inside a word` };
+  return {
+    id: 'no-mid-word-cuts',
+    ok: midWord === 0,
+    detail: `${midWord} edge(s) inside a word`,
+    facet: 'boundary',
+  };
 }
 
 export function checkChanged(ctx: RubricContext): RubricCheck {
@@ -203,6 +232,7 @@ export function checkKeptClipsUntouched(ctx: RubricContext): RubricCheck {
     ok: broken.length === 0,
     detail: `${broken.length}/${ids.length} named clip(s) altered`,
     weight: 2,
+    facet: 'target',
   };
 }
 
@@ -211,6 +241,224 @@ export function checkHasCaptions(project: Project): RubricCheck {
     .filter((t) => t.type === 'caption' || t.type === 'overlay')
     .flatMap((t) => t.clips);
   return { id: 'has-captions', ok: captionClips.length > 0, detail: `${captionClips.length} caption clip(s)`, weight: 2 };
+}
+
+
+/** Identity of a clip's content, independent of where it sits on the timeline. */
+function contentKey(c: Clip): string {
+  return `${c.assetId}|${c.sourceStart.toFixed(4)}|${c.sourceEnd.toFixed(4)}`;
+}
+
+/** The timeline did not change — the right answer to a request that must be declined or asked about. */
+export function checkUnchanged(ctx: RubricContext): RubricCheck {
+  const changed = JSON.stringify(ctx.before.timeline) !== JSON.stringify(ctx.after.timeline);
+  return {
+    id: 'timeline-unchanged',
+    ok: !changed,
+    detail: changed ? 'timeline was modified' : 'unchanged',
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/**
+ * Only the named picture clips may have changed content; every other clip keeps its
+ * asset and source range (a ripple may move it, which is not a change of target).
+ */
+export function checkOnlyClipsTouched(ctx: RubricContext, allowedIds: readonly string[]): RubricCheck {
+  const allowed = new Set(allowedIds);
+  const before = new Map(pictureClips(ctx.before).map((c) => [c.id, c]));
+  const after = new Map(pictureClips(ctx.after).map((c) => [c.id, c]));
+  const strayed: string[] = [];
+  for (const [id, b] of before) {
+    if (allowed.has(id)) continue;
+    const a = after.get(id);
+    if (!a || contentKey(a) !== contentKey(b)) strayed.push(id);
+  }
+  for (const id of after.keys()) if (!before.has(id) && !allowed.has(id)) strayed.push(id);
+  return {
+    id: 'only-target-touched',
+    ok: strayed.length === 0,
+    detail: strayed.length === 0 ? 'no other clip changed' : `also changed: ${strayed.join(', ')}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** The first picture clip ends exactly where asked — frame-exact, not "close". */
+export function checkFirstClipEndsAt(project: Project, seconds: number): RubricCheck {
+  const first = pictureClips(project)[0];
+  if (!first) return { id: 'first-clip-ends-at', ok: false, detail: 'no picture clip', weight: 2, facet: 'boundary' };
+  const frames = Math.abs(first.end - seconds) * project.fps;
+  return {
+    id: 'first-clip-ends-at',
+    ok: frames < 0.5,
+    detail: `ends at ${first.end.toFixed(4)}s, asked ${seconds}s (${frames.toFixed(2)} frame(s) off)`,
+    weight: 2,
+    facet: 'boundary',
+  };
+}
+
+/** Picture clips butt against each other: no gaps. */
+export function checkNoGaps(project: Project): RubricCheck {
+  const clips = pictureClips(project);
+  let gaps = 0;
+  for (let i = 1; i < clips.length; i++) {
+    if (clips[i]!.start > clips[i - 1]!.end + FRAME_EPSILON) gaps++;
+  }
+  return { id: 'no-gaps', ok: gaps === 0, detail: `${gaps} gap(s)` };
+}
+
+/** Every clip's content survived (same assets, same source ranges) — a reorder moves, it does not cut. */
+export function checkContentPreserved(ctx: RubricContext): RubricCheck {
+  const b = pictureClips(ctx.before).map(contentKey).sort();
+  const a = pictureClips(ctx.after).map(contentKey).sort();
+  const ok = JSON.stringify(a) === JSON.stringify(b);
+  return {
+    id: 'content-preserved',
+    ok,
+    detail: ok ? 'same clips, same source ranges' : `${b.length} clip(s) before, ${a.length} after, content differs`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** The last picture clip (by content) is now first, and the rest keep their order. */
+export function checkLastClipMovedFirst(ctx: RubricContext): RubricCheck {
+  const before = pictureClips(ctx.before).map(contentKey);
+  const after = pictureClips(ctx.after).map(contentKey);
+  if (before.length < 2) return { id: 'last-moved-first', ok: false, detail: 'fewer than two clips', weight: 2, facet: 'target' };
+  const expected = [before[before.length - 1]!, ...before.slice(0, -1)];
+  const ok = JSON.stringify(after) === JSON.stringify(expected);
+  return {
+    id: 'last-moved-first',
+    ok,
+    detail: ok ? 'order rotated as asked' : `order is [${after.map((k) => k.split('|')[0]).join(', ')}]`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** The edit opens somewhere other than where the source starts — a hook was pulled forward. */
+export function checkOpensLaterInSource(ctx: RubricContext): RubricCheck {
+  const b = pictureClips(ctx.before)[0];
+  const a = pictureClips(ctx.after)[0];
+  if (!b || !a) return { id: 'opens-later-in-source', ok: false, detail: 'no picture clip', weight: 2, facet: 'target' };
+  const ok = a.sourceStart > b.sourceStart + 1;
+  return {
+    id: 'opens-later-in-source',
+    ok,
+    detail: `opens at source ${a.sourceStart.toFixed(2)}s (was ${b.sourceStart.toFixed(2)}s)`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Not longer than before — a hook restructures, it does not pad. */
+export function checkNotLonger(ctx: RubricContext): RubricCheck {
+  const b = projectDuration(ctx.before);
+  const a = projectDuration(ctx.after);
+  return { id: 'not-longer', ok: a <= b + FRAME_EPSILON, detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s` };
+}
+
+/** A b-roll clip sits inside the requested window (ADR 0140: a non-overlapping cutaway). */
+export function checkCutawayInWindow(
+  project: Project,
+  brollAssetIds: readonly string[],
+  window: readonly [number, number],
+): RubricCheck {
+  const broll = new Set(brollAssetIds);
+  const [from, to] = window;
+  const placed = pictureClips(project).filter(
+    (c) => broll.has(c.assetId) && c.start >= from - FRAME_EPSILON && c.end <= to + 0.5,
+  );
+  return {
+    id: 'cutaway-in-window',
+    ok: placed.length > 0,
+    detail: `${placed.length} b-roll clip(s) inside ${from}–${to}s`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Duration is unchanged within half a second — a cutaway covers, it does not lengthen. */
+export function checkDurationKept(ctx: RubricContext, toleranceSeconds = 0.5): RubricCheck {
+  const b = projectDuration(ctx.before);
+  const a = projectDuration(ctx.after);
+  return {
+    id: 'duration-kept',
+    ok: Math.abs(a - b) <= toleranceSeconds,
+    detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s`,
+    facet: 'boundary',
+  };
+}
+
+function musicClips(project: Project, assetId: string | undefined): readonly Clip[] {
+  const audioKinds = new Set(project.assets.filter((a) => a.kind === 'audio').map((a) => a.id));
+  return project.timeline.tracks
+    .filter((t) => t.type === 'audio')
+    .flatMap((t) => t.clips)
+    .filter((c) => (assetId ? c.assetId === assetId : audioKinds.has(c.assetId)));
+}
+
+/** The named music runs under (nearly) the whole programme. */
+export function checkMusicCovers(project: Project, assetId: string | undefined, share = 0.9): RubricCheck {
+  const clips = musicClips(project, assetId);
+  const total = projectDuration(project);
+  const covered = clips.reduce((s, c) => s + (c.end - c.start), 0);
+  const ok = total > 0 && covered / total >= share;
+  return {
+    id: 'music-covers',
+    ok,
+    detail: `${clips.length} music clip(s) cover ${((total ? covered / total : 0) * 100).toFixed(0)}% of ${total.toFixed(1)}s`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** The music is turned down (negative gain) so the voice stays on top. */
+export function checkMusicQuieter(project: Project, assetId: string | undefined): RubricCheck {
+  const clips = musicClips(project, assetId);
+  const quiet = clips.filter((c) => {
+    const gain = c.effects.find((e) => e.type === 'audio_gain');
+    const db = gain && typeof gain.params === 'object' && gain.params ? (gain.params as { gainDb?: unknown }).gainDb : undefined;
+    return typeof db === 'number' && db < 0;
+  });
+  return {
+    id: 'music-quieter',
+    ok: clips.length > 0 && quiet.length === clips.length,
+    detail: `${quiet.length}/${clips.length} music clip(s) below 0 dB`,
+  };
+}
+
+/** Caption cues sit inside the programme (the picture's extent) and carry text. */
+export function checkCaptionsWellFormed(project: Project): RubricCheck {
+  const total = pictureClips(project).reduce((m, c) => Math.max(m, c.end), 0);
+  const cues = project.timeline.tracks
+    .filter((t) => t.type === 'caption')
+    .flatMap((t) => t.clips);
+  const bad = cues.filter(
+    (c) => c.start < -FRAME_EPSILON || c.end > total + 0.5 || !(c.captionCue?.text ?? '').trim(),
+  );
+  return {
+    id: 'captions-well-formed',
+    ok: cues.length > 0 && bad.length === 0,
+    detail: `${cues.length} cue(s), ${bad.length} outside the programme or empty`,
+    facet: 'boundary',
+  };
+}
+
+/** A vague request must not become a sweeping one: at least half the programme survives. */
+export function checkNotDestructive(ctx: RubricContext): RubricCheck {
+  const b = projectDuration(ctx.before);
+  const a = projectDuration(ctx.after);
+  return {
+    id: 'not-destructive',
+    ok: b === 0 || a >= b * 0.5,
+    detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s`,
+    weight: 2,
+    facet: 'target',
+  };
 }
 
 const COMMON = (p: Project): RubricCheck[] => [
@@ -268,5 +516,66 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       ]);
     case 'memory-captions':
       return scored(scenario, [checkChanged(ctx), checkHasCaptions(p), ...COMMON(p)]);
+    case 'trim-first-clip': {
+      const first = pictureClips(ctx.before)[0];
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkFirstClipEndsAt(p, ctx.expectedFirstClipEndSeconds ?? 10),
+        checkOnlyClipsTouched(ctx, first ? [first.id] : []),
+        ...COMMON(p),
+      ]);
+    }
+    case 'reorder-last-first':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkLastClipMovedFirst(ctx),
+        checkContentPreserved(ctx),
+        checkNoGaps(p),
+        ...COMMON(p),
+      ]);
+    case 'captions':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkHasCaptions(p),
+        checkCaptionsWellFormed(p),
+        checkContentPreserved(ctx),
+        ...COMMON(p),
+      ]);
+    case 'hook-first':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkOpensLaterInSource(ctx),
+        checkNoMidWordCuts(p),
+        checkNotLonger(ctx),
+        ...COMMON(p),
+      ]);
+    case 'broll-cutaway':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
+        checkDurationKept(ctx),
+        ...COMMON(p),
+      ]);
+    case 'music-bed':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkMusicCovers(p, ctx.musicAssetId),
+        checkMusicQuieter(p, ctx.musicAssetId),
+        checkContentPreserved(ctx),
+        ...COMMON(p),
+      ]);
+    case 'compound-silence-captions':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkShorterThanBefore(ctx),
+        checkNoMidWordCuts(p),
+        checkHasCaptions(p),
+        checkCaptionsWellFormed(p),
+        ...COMMON(p),
+      ]);
+    case 'unchanged':
+      return scored(scenario, [checkUnchanged(ctx), ...COMMON(p)]);
+    case 'vague-not-destructive':
+      return scored(scenario, [checkNotDestructive(ctx), ...COMMON(p)]);
   }
 }

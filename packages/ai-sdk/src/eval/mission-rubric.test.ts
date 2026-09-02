@@ -2,6 +2,19 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, Project } from '@framepilot/timeline-schema';
 import { makeProject } from '../__fixtures__/project.js';
 import {
+  checkCaptionsWellFormed,
+  checkContentPreserved,
+  checkCutawayInWindow,
+  checkDurationKept,
+  checkFirstClipEndsAt,
+  checkLastClipMovedFirst,
+  checkMusicCovers,
+  checkMusicQuieter,
+  checkNoGaps,
+  checkNotDestructive,
+  checkOnlyClipsTouched,
+  checkOpensLaterInSource,
+  checkUnchanged,
   checkCutsOnBeats,
   checkCutsOnFrameGrid,
   checkKeptClipsUntouched,
@@ -126,5 +139,159 @@ describe('mission rubric — scenarios', () => {
     } as Project;
     expect(scoreMissionScenario('memory-captions', { before, after }).checks.find((c) => c.id === 'has-captions')?.ok).toBe(true);
     expect(scoreMissionScenario('memory-captions', { before, after: before }).checks.find((c) => c.id === 'has-captions')?.ok).toBe(false);
+  });
+});
+
+// ── goal.md Phase 0 golden-set checks ────────────────────────────────────────────────
+
+describe('golden-set checks', () => {
+  const five = () =>
+    withClips([clip('c1', 0, 40), clip('c2', 40, 62), clip('c3', 62, 71), clip('c4', 71, 86), clip('c5', 86, 136)]);
+
+  it('checkFirstClipEndsAt is frame-exact', () => {
+    expect(checkFirstClipEndsAt(withClips([clip('c1', 0, 10)]), 10).ok).toBe(true);
+    // One frame off at 30 fps is a miss, not "close enough".
+    const off = checkFirstClipEndsAt(withClips([clip('c1', 0, 10 + 1 / 30)]), 10);
+    expect(off.ok).toBe(false);
+    expect(off.detail).toMatch(/1\.00 frame/);
+    expect(off.facet).toBe('boundary');
+    expect(checkFirstClipEndsAt(withClips([]), 10).ok).toBe(false);
+  });
+
+  it('checkOnlyClipsTouched allows the target and a ripple, not a stray edit', () => {
+    const before = five();
+    // Trim c1 to 10 s with ripple: everyone else moves but keeps content.
+    const rippled = withClips([
+      clip('c1', 0, 10, { sourceStart: 0, sourceEnd: 10 }),
+      clip('c2', 10, 32, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c3', 32, 41, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 41, 56, { sourceStart: 71, sourceEnd: 86 }),
+      clip('c5', 56, 106, { sourceStart: 86, sourceEnd: 136 }),
+    ]);
+    expect(checkOnlyClipsTouched({ before, after: rippled }, ['c1']).ok).toBe(true);
+    const stray = withClips([clip('c1', 0, 10, { sourceEnd: 10 }), clip('c2', 10, 20, { sourceStart: 40, sourceEnd: 50 })]);
+    const r = checkOnlyClipsTouched({ before, after: stray }, ['c1']);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain('c2');
+    expect(r.detail).toContain('c3');
+  });
+
+  it('checkLastClipMovedFirst + checkContentPreserved + checkNoGaps describe a reorder', () => {
+    const before = five();
+    const rotated = withClips([
+      clip('c5', 0, 50, { sourceStart: 86, sourceEnd: 136 }),
+      clip('c1', 50, 90, { sourceStart: 0, sourceEnd: 40 }),
+      clip('c2', 90, 112, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c3', 112, 121, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 121, 136, { sourceStart: 71, sourceEnd: 86 }),
+    ]);
+    expect(checkLastClipMovedFirst({ before, after: rotated }).ok).toBe(true);
+    expect(checkContentPreserved({ before, after: rotated }).ok).toBe(true);
+    expect(checkNoGaps(rotated).ok).toBe(true);
+    expect(checkLastClipMovedFirst({ before, after: before }).ok).toBe(false);
+    expect(checkLastClipMovedFirst({ before: withClips([clip('c1', 0, 1)]), after: before }).ok).toBe(false);
+    const cut = withClips([clip('c5', 0, 40, { sourceStart: 86, sourceEnd: 126 }), clip('c1', 45, 85)]);
+    expect(checkContentPreserved({ before, after: cut }).ok).toBe(false);
+    expect(checkNoGaps(cut).detail).toBe('1 gap(s)');
+  });
+
+  it('checkOpensLaterInSource sees a hook pulled forward', () => {
+    const before = withClips([clip('c1', 0, 100)]);
+    const hooked = withClips([clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }), clip('c1', 5, 105)]);
+    expect(checkOpensLaterInSource({ before, after: hooked }).ok).toBe(true);
+    expect(checkOpensLaterInSource({ before, after: before }).ok).toBe(false);
+    expect(checkOpensLaterInSource({ before: withClips([]), after: before }).ok).toBe(false);
+  });
+
+  it('checkCutawayInWindow + checkDurationKept describe a b-roll cutaway', () => {
+    const before = withClips([clip('talk', 0, 100)]);
+    const cutaway = withClips([
+      clip('talk', 0, 5),
+      clip('b', 5, 12, { assetId: 'asset_broll', sourceStart: 0, sourceEnd: 7 }),
+      clip('talk2', 12, 100, { sourceStart: 12, sourceEnd: 100 }),
+    ]);
+    expect(checkCutawayInWindow(cutaway, ['asset_broll'], [0, 20]).ok).toBe(true);
+    expect(checkCutawayInWindow(cutaway, ['asset_broll'], [30, 50]).ok).toBe(false);
+    expect(checkCutawayInWindow(cutaway, ['other'], [0, 20]).ok).toBe(false);
+    expect(checkDurationKept({ before, after: cutaway }).ok).toBe(true);
+    expect(checkDurationKept({ before, after: withClips([clip('talk', 0, 90)]) }).ok).toBe(false);
+  });
+
+  it('checkMusicCovers + checkMusicQuieter describe a music bed', () => {
+    const base = makeProject();
+    const withMusicAsset: Project = {
+      ...base,
+      assets: [...base.assets, { id: 'asset_music', path: 'media/beat.wav', kind: 'audio', durationSeconds: 120 }],
+    };
+    const music = (gainDb: number | undefined, end = 100) =>
+      ({
+        ...withMusicAsset,
+        timeline: {
+          ...withMusicAsset.timeline,
+          tracks: [
+            { id: 'video_1', type: 'video', clips: [clip('talk', 0, 100)] },
+            {
+              id: 'audio_1',
+              type: 'audio',
+              clips: [
+                clip('m', 0, end, {
+                  assetId: 'asset_music',
+                  effects: gainDb === undefined ? [] : [{ id: 'g', type: 'audio_gain', params: { gainDb }, keyframes: [] }],
+                }),
+              ],
+            },
+          ],
+        },
+      }) as Project;
+    expect(checkMusicCovers(music(-12), 'asset_music').ok).toBe(true);
+    expect(checkMusicCovers(music(-12, 30), 'asset_music').ok).toBe(false);
+    expect(checkMusicCovers(music(-12), undefined).ok).toBe(true);
+    expect(checkMusicQuieter(music(-12), 'asset_music').ok).toBe(true);
+    expect(checkMusicQuieter(music(0), 'asset_music').ok).toBe(false);
+    expect(checkMusicQuieter(music(undefined), 'asset_music').ok).toBe(false);
+    expect(checkMusicQuieter(withMusicAsset, 'asset_music').ok).toBe(false);
+  });
+
+  it('checkCaptionsWellFormed wants text inside the programme', () => {
+    const base = withClips([clip('talk', 0, 30)]);
+    const captions = (cues: Clip[]) =>
+      ({
+        ...base,
+        timeline: { ...base.timeline, tracks: [...base.timeline.tracks, { id: 'caption_1', type: 'caption', clips: cues }] },
+      }) as Project;
+    const cue = (id: string, start: number, end: number, text: string) =>
+      clip(id, start, end, { assetId: '__caption__', captionCue: { text, words: [] } } as Partial<Clip>);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 0, 2, 'hello'), cue('k2', 2, 4, 'world')])).ok).toBe(true);
+    expect(checkCaptionsWellFormed(captions([])).ok).toBe(false);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 0, 2, '  ')])).ok).toBe(false);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 40, 42, 'late')])).ok).toBe(false);
+  });
+
+  it('checkUnchanged and checkNotDestructive guard the ask/decline/vague cases', () => {
+    const before = five();
+    expect(checkUnchanged({ before, after: before }).ok).toBe(true);
+    expect(checkUnchanged({ before, after: withClips([]) }).ok).toBe(false);
+    expect(checkNotDestructive({ before, after: withClips([clip('c1', 0, 70)]) }).ok).toBe(true);
+    expect(checkNotDestructive({ before, after: withClips([clip('c1', 0, 30)]) }).ok).toBe(false);
+    expect(checkNotDestructive({ before: withClips([]), after: withClips([]) }).ok).toBe(true);
+  });
+
+  it('every golden rubric scores and the intent-only rubrics are 1 on an untouched timeline', () => {
+    const before = five();
+    expect(scoreMissionScenario('unchanged', { before, after: before }).score).toBe(1);
+    expect(scoreMissionScenario('vague-not-destructive', { before, after: before }).score).toBe(1);
+    for (const id of [
+      'trim-first-clip',
+      'reorder-last-first',
+      'captions',
+      'hook-first',
+      'broll-cutaway',
+      'music-bed',
+      'compound-silence-captions',
+    ] as const) {
+      const s = scoreMissionScenario(id, { before, after: before, expectedFirstClipEndSeconds: 10 });
+      expect(s.score, id).toBeLessThan(1);
+      expect(s.checks.some((c) => c.facet === 'target' || c.facet === 'boundary'), `${id} has a faceted check`).toBe(true);
+    }
   });
 });

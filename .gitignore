@@ -146,3 +146,8 @@ tests/fixtures/mission/projects/media/
 tests/fixtures/mission/projects/.framepilot-derived/
 tests/fixtures/mission/projects/**/brain.sqlite
 tests/fixtures/mission/projects/**/sidecars/
+
+# Golden-eval effect recordings and event dumps (`mission-baseline.mjs`): megabytes per
+# turn, replayable locally; the per-case results and summaries beside them are committed.
+reports/golden/*/recordings/
+reports/golden/*/events/
