@@ -398,7 +398,12 @@ describe('unwrapSearch', () => {
     expect(unavailable.summary).toContain('no sandbox root');
     const malformed = unwrapSearch('search_media', project, 'not an object');
     expect(malformed.status).toBe('failed');
-    expect(malformed.summary).toContain('malformed');
+    // An unreadable answer says WHAT broke and what to do with the rest of the run — the
+    // model cannot tell a broken engine from a bad argument otherwise, and its only move is
+    // to send the identical call again (goal.md Workstream C).
+    expect(malformed.summary).toContain('no result list');
+    expect(malformed.summary).toContain('not about your arguments');
+    expect(malformed.summary).toContain('tell the editor');
     // `data` itself absent (null/undefined), not just a non-object value.
     expect(unwrapSearch('search_media', project, null).status).toBe('failed');
   });
@@ -647,10 +652,12 @@ describe('visual grounding (MI6.1)', () => {
       expect(outcome.summary).toContain('projects_root is not set');
     });
 
-    it('fails on a malformed payload with a generic reason', () => {
+    it('fails on a malformed payload with a reason the model can act on', () => {
       const outcome = unwrapFootageMap(null);
       expect(outcome.status).toBe('failed');
-      expect(outcome.summary).toContain('footage-map response was malformed');
+      expect(outcome.summary).toContain('no chapters and no reason');
+      expect(outcome.summary).toContain('not about your arguments');
+      expect(outcome.summary).toContain('tell the editor');
     });
   });
 
@@ -917,7 +924,8 @@ describe('visual grounding (MI6.1)', () => {
         executor.run(call('measure_color', { clipId: 'missing' }), ctx),
       ).resolves.toMatchObject({
         status: 'failed',
-        summary: expect.stringContaining('missing or is not visual'),
+        // The wrong-id answer names the tool that lists the right ids (commit 629b822).
+        summary: expect.stringContaining('Call get_clips'),
       });
       expect(called).toBe(false);
     });
@@ -1648,7 +1656,10 @@ describe('createSidecarExecutor', () => {
     });
     const outcome = await executor.run(call('render_preview'), ctx);
     expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toMatch(/not runnable from the AI panel yet/);
+    expect(outcome.summary).toContain('Export dialog');
+    // "use the Export dialog" alone is an instruction for someone with a mouse — the same
+    // dead end run `369e8c82` hit with "Place it from the bin". Retrying must be closed off.
+    expect(outcome.summary).toContain('Do not call it again');
   });
 
   it('returns cancelled when the run signal aborts mid-request', async () => {
