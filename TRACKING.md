@@ -298,24 +298,68 @@ Not a real-media run — this is how a pasted `run.md` becomes numbers. The scor
 dump's compact `diff` events and reports undo as **unknown**, never as a pass. Useful
 when you want the ten metrics off a run that was not launched by the harness.
 
-*(Recipes for the run deadline and the repeated-refusal guard land with those slices.)*
+### 5. The overlay-trap golden case `280a5a1` — fixture generation required first
+
+**Do**, once, on your machine:
+
+```bash
+# terminal 1
+FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects pnpm engine:serve
+# terminal 2
+node packages/ai-sdk/scripts/mission-fixture-projects.mjs
+pnpm --filter @framepilot/ai-sdk build      # the runner imports dist/
+```
+
+**Expect** the `mission-overlay` line to read roughly `3 assets, 1 clips (528.4s),
+1465 words` — the word count should match `mission-talk`'s exactly, because it is
+the same file and the ASR cache is keyed on content. If it re-transcribes for
+minutes, the cache missed and something changed.
+
+**Check before trusting it** — `tests/fixtures/mission/projects/mission-overlay.fp.json`
+must have tracks `[('b_roll','video',0), ('video_1','video',1), ('audio_1','audio',0)]`.
+`b_roll` **first** and **empty** is the whole point: index 0 is the visual front, so
+if it is not first it sits below the picture and the trap is not reproduced. The
+picture clip must run `0 → ~528.4` with no gap, and two b-roll paths must be in the
+bin unplaced.
+
+**Then run the one case:**
+
+```bash
+pnpm eval:golden -- --case broll-empty-overlay-track --label overlay-trap
+```
+
+**Correct result:** `score=1.00`, `intent=edit`, and `b_roll` still `clips: 0` in
+the recorded `timelineAfter` while `video_1` has gained clips.
+**A failure looks like:** `✗ no-picture-stacking` (b-roll landed on `b_roll` — the
+preview would disagree with the export), or `✗ cutaway-on-occupied-track: no b-roll
+placed at all` with a high `toolCalls` count, which is the refusal loop itself.
+
+Run `pnpm eval:golden -- --case broll-first-20s` alongside it: same request, same
+footage, no overlay track. That separates "the cutaway verb is broken" from "the
+empty track is a trap".
+
+*(The run deadline is checked by §1: set a 2-minute budget and let a run exceed it — expect one
+notification naming the limit, a `completed` status, and the edits listed. Not `cancelled`; that
+is reserved for Stop.)*
+
 
 ---
 
-# Follow-ups these two slices surfaced
+# Follow-ups these slices surfaced
 
 Small, real, and deliberately not done — each would have widened a slice past what
 its evidence justified.
 
-- **The golden set still cannot reproduce R2.** `mission-fixture-projects.mjs`
-  builds every mission project with exactly two tracks: `video_1` gapless across
-  the sequence and an empty `audio_1`. There is no second video track anywhere, so
-  no agent placement can cross picture over picture. The fixture that would
-  reproduce it needs a `mission-overlay` DEFS entry: the narration on a gapless
-  `v_main`, an **empty second video track** `b_roll`, b-roll in the bin but not on
-  the timeline. A `broll` case on it should then assert at most one
-  picture-over-picture refusal per run, and that the cutaway lands on `v_main` via
-  splits. Fixture generation is a maintainer job (live sidecar, media not committed).
+- ~~**The golden set still cannot reproduce R2.**~~ Closed by `280a5a1`:
+  `mission-overlay` + the `broll-empty-overlay-track` case + a
+  `broll-cutaway-empty-overlay` rubric whose two new checks assert ADR 0140 on the
+  finished edit and that the cutaway landed on the occupied track. **The fixture
+  itself is ungenerated** — that needs a live sidecar and uncommitted media, so it
+  is a maintainer step; the recipe is below. "At most one refusal of the same rule"
+  turned out not to be measurable: `RefusalCause` stops at the error boundary and
+  never reaches an `AiEvent`, so the only discriminator in recorded evidence is the
+  refusal's prose — the very thing `f51fe20` stopped keying on. Carrying the cause
+  onto the tool-result event is the enabling change if that metric is wanted.
 - **`add_stock`'s placement refusal gets no failure key at all** — it never sets
   `deterministicFailure`, so the cause-keying in `f51fe20` does not reach it. A
   plausible second instance of the same loop; the captured run used
