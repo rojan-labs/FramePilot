@@ -16,7 +16,9 @@
  *   - tokens & USD           — per accepted edit, aggregated in {@link summarizeGoldenRun}.
  *   - latency                — first visible progress and done, p50/p95 in the summary.
  *   - reversibility          — every applied patch inverted in reverse order restores the
- *                              prior project, compared as canonical JSON.
+ *                              prior project, compared as canonical JSON. `null` (unknown)
+ *                              when the evidence carries no patches — an imported event
+ *                              dump records what the run said, not what it applied.
  *   - failure quality        — when it did not complete: was there an error card, and does
  *                              it explain rather than leak an internal?
  *
@@ -54,9 +56,22 @@ export interface GoldenTurnEvidence {
   /** Epoch ms when `streamAgent` was called — the latency origin. */
   readonly startedAt: number;
   readonly wallMs: number;
-  readonly before: Project;
-  /** Every valid patch the run applied, in order. */
-  readonly appliedPatches: readonly Patch[];
+  /**
+   * The project the turn started from. Absent when the evidence was imported from an
+   * event dump rather than produced by a live run — reversibility is then unknown.
+   */
+  readonly before?: Project;
+  /**
+   * Every valid patch the run applied, in order. Absent (NOT empty) when the evidence
+   * does not record patches: an empty array means "applied nothing", `undefined` means
+   * "we do not know", and the two must never collapse into the same number.
+   */
+  readonly appliedPatches?: readonly Patch[];
+  /**
+   * Operation count when the patches are not recorded. Defaults to the operations named
+   * by the run's valid `diff` events; an explicit value overrides that.
+   */
+  readonly operations?: number;
   readonly rubric: RubricScore;
   readonly expectedIntent: ExpectedIntent;
   readonly modelCalls: number;
@@ -92,7 +107,8 @@ export interface GoldenTurnMetrics {
   readonly tokens: { readonly prompt: number; readonly output: number; readonly total: number };
   readonly usd: number | null;
   readonly latency: { readonly firstProgressMs: number | null; readonly doneMs: number };
-  readonly reversibility: { readonly ok: boolean; readonly detail: string };
+  /** `ok: null` = not checkable from this evidence (no patches recorded), never a pass. */
+  readonly reversibility: { readonly ok: boolean | null; readonly detail: string };
   readonly failureQuality: FailureQuality | null;
   readonly score: number;
   readonly finalStatus: string | null;
@@ -210,6 +226,35 @@ function withoutRevision(project: Project): Omit<Project, 'timeline'> & { timeli
   return { ...project, timeline };
 }
 
+/**
+ * A `diff` event as it survives in a compact event dump: `edit.validation.valid` is
+ * flattened to `edit.valid` and the patch is replaced by the operation kinds it carried.
+ * Both shapes are read the same way so an imported run scores like a live one.
+ */
+interface CompactEdit {
+  readonly validation?: { readonly valid?: boolean };
+  readonly valid?: boolean;
+  readonly ops?: readonly unknown[];
+}
+
+function editOf(event: AiEvent & { type: 'diff' }): CompactEdit {
+  // The cast through `unknown` is the admission that an imported dump is not typed data:
+  // a truncated one can carry a `diff` with no `edit` at all. Scoring it as an empty edit
+  // (unvalidated, zero operations) is the honest reading; throwing loses the whole run.
+  return (event.edit ?? {}) as unknown as CompactEdit;
+}
+
+/** Did this proposal pass validation? Live shape first, compact shape second. */
+function diffIsValid(event: AiEvent & { type: 'diff' }): boolean {
+  const edit = editOf(event);
+  return edit.validation?.valid ?? edit.valid ?? false;
+}
+
+/** Operations named by a compact diff, when the applied patches were not recorded. */
+function diffOperationCount(event: AiEvent & { type: 'diff' }): number {
+  return editOf(event).ops?.length ?? 0;
+}
+
 function failureQuality(events: readonly AiEvent[], observed: ObservedIntent): FailureQuality | null {
   if (observed !== 'failed' && observed !== 'cancelled' && observed !== 'silent') return null;
   const error = events.filter((e) => e.type === 'error').at(-1);
@@ -223,11 +268,17 @@ function failureQuality(events: readonly AiEvent[], observed: ObservedIntent): F
 /** Score one turn against everything goal.md asks for. */
 export function measureGoldenTurn(evidence: GoldenTurnEvidence): GoldenTurnMetrics {
   const { events, rubric } = evidence;
-  const operations = evidence.appliedPatches.reduce((s, p) => s + p.operations.length, 0);
+  const diffs = events.filter((e) => e.type === 'diff');
+  const valid = diffs.filter(diffIsValid).length;
+  // Patches recorded ⇒ count what was applied. Not recorded ⇒ count what the run's valid
+  // proposals said they changed, which is the only honest reading of a dump.
+  const operations =
+    evidence.operations ??
+    (evidence.appliedPatches
+      ? evidence.appliedPatches.reduce((s, p) => s + p.operations.length, 0)
+      : diffs.filter(diffIsValid).reduce((s, e) => s + diffOperationCount(e), 0));
   const observed = observeIntent(events, operations);
   const intentOk = intentMatches(evidence.expectedIntent, observed);
-  const diffs = events.filter((e) => e.type === 'diff');
-  const valid = diffs.filter((e) => e.edit.validation.valid).length;
   const status = lastStatus(events);
   const firstProgress = events.find((e) => PROGRESS_EVENT_TYPES.has(e.type));
   const asked = observed === 'ask';
@@ -259,7 +310,10 @@ export function measureGoldenTurn(evidence: GoldenTurnEvidence): GoldenTurnMetri
       firstProgressMs: firstProgress ? Math.max(0, firstProgress.ts - evidence.startedAt) : null,
       doneMs: evidence.wallMs,
     },
-    reversibility: checkReversibility(evidence.before, evidence.appliedPatches),
+    reversibility:
+      evidence.appliedPatches && evidence.before
+        ? checkReversibility(evidence.before, evidence.appliedPatches)
+        : { ok: null, detail: 'patches not recorded' },
     failureQuality: failureQuality(events, observed),
     score: rubric.score,
     finalStatus: status,
@@ -289,7 +343,8 @@ export interface GoldenCaseSummary {
   readonly score: number | null;
   readonly intentAccuracy: number;
   readonly firstPass: number;
-  readonly reversible: number;
+  /** `null` when no turn of the case recorded patches to check. */
+  readonly reversible: number | null;
   readonly modelCalls: number | null;
   readonly tokens: number | null;
   /** Summed over the case's turns, p50 across runs. */
@@ -366,7 +421,7 @@ export function summarizeGoldenRun(rows: readonly GoldenRow[]): GoldenSummary {
       score: percentile(list.map((r) => r.metrics.score), 0.5),
       intentAccuracy: list.filter((r) => r.metrics.intent.ok).length / list.length,
       firstPass: list.filter((r) => r.metrics.firstPass).length / list.length,
-      reversible: list.filter((r) => r.metrics.reversibility.ok).length / list.length,
+      reversible: share(list, (m) => m.reversibility.ok),
       modelCalls: percentile(list.map((r) => r.metrics.modelCalls), 0.5),
       tokens: percentile(list.map((r) => r.metrics.tokens.total), 0.5),
       usdPerRun: percentile(
@@ -392,6 +447,8 @@ export function summarizeGoldenRun(rows: readonly GoldenRow[]): GoldenSummary {
     validityRate: diffs === 0 ? null : valid / diffs,
     firstPassAcceptance: share(rows, (m) => m.firstPass),
     silentSuccesses: rows.filter((r) => r.metrics.silentSuccess).length,
+    // A turn whose patches were not recorded is not counted either way: an unknown must
+    // never be folded in as a pass or a failure.
     reversibility: share(rows, (m) => m.reversibility.ok),
     acceptedEdits: accepted.length,
     // Tokens and dollars per ACCEPTED edit — the whole run's spend over the edits that

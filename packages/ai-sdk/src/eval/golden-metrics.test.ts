@@ -53,6 +53,17 @@ function evidence(overrides: Partial<GoldenTurnEvidence> = {}): GoldenTurnEviden
   };
 }
 
+/**
+ * Evidence as an IMPORTED event dump carries it: the run's events and numbers, but no
+ * project state — `before` and `appliedPatches` are absent, not empty.
+ */
+function importedEvidence(overrides: Partial<GoldenTurnEvidence> = {}): GoldenTurnEvidence {
+  const { before: _before, appliedPatches: _appliedPatches, ...dump } = evidence(overrides);
+  return dump;
+}
+
+const completed = ev('status', { status: 'completed' }, T0 + 5000);
+
 describe('observeIntent', () => {
   it('a failed status is a failure whatever else happened', () => {
     expect(observeIntent([ev('ask', { question: 'which?' }), ev('status', { status: 'failed' })], 3)).toBe('failed');
@@ -194,6 +205,106 @@ describe('measureGoldenTurn', () => {
     expect(m.target).toBeNull();
     expect(m.boundary).toBeNull();
   });
+
+  it('a dump that records no patches leaves undo unknown — neither a pass nor a failure', () => {
+    const m = measureGoldenTurn(
+      importedEvidence({
+        events: [ev('diff', { edit: { valid: true, ops: ['trim_clip'] } }, T0 + 900), completed],
+      }),
+    );
+    expect(m.reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
+    // And it is counted in neither direction: the one row leaves the rate with no sample.
+    const summary = summarizeGoldenRun([{ caseId: 'imported', category: 'trim', turnIndex: 0, run: 1, metrics: m }]);
+    expect(summary.reversibility).toBeNull();
+    expect(summary.perCase.imported?.reversible).toBeNull();
+  });
+
+  it('an empty patch list is "applied nothing" and really checked, unlike an absent one', () => {
+    const appliedNothing = measureGoldenTurn(evidence({ events: [completed], appliedPatches: [] }));
+    const notRecorded = measureGoldenTurn(importedEvidence({ events: [completed] }));
+    expect(appliedNothing.operations).toBe(0);
+    expect(appliedNothing.reversibility.ok).toBe(true);
+    expect(appliedNothing.reversibility.detail).toContain('nothing applied');
+    expect(notRecorded.operations).toBe(0);
+    expect(notRecorded.reversibility.ok).toBeNull();
+    expect(notRecorded.reversibility.detail).toBe('patches not recorded');
+    // Same operation count, deliberately different verdicts — the two must never collapse.
+    expect(notRecorded.operations).toBe(appliedNothing.operations);
+    expect(notRecorded.reversibility.ok).not.toBe(appliedNothing.reversibility.ok);
+  });
+
+  it('half the evidence is no evidence: a `before` with no patches, and the mirror of it', () => {
+    const { appliedPatches: _appliedPatches, ...beforeOnly } = evidence({ events: [completed] });
+    const { before: _before, ...patchesOnly } = evidence({ events: [completed], appliedPatches: [trimA] });
+    expect(measureGoldenTurn(beforeOnly).reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
+    const mirrored = measureGoldenTurn(patchesOnly);
+    expect(mirrored.reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
+    // The patches still count as operations — it is only the undo check that is unknown.
+    expect(mirrored.operations).toBe(1);
+  });
+
+  it('a compact dump scores the validity and operations of the live run it came from', () => {
+    const live = measureGoldenTurn(
+      evidence({
+        events: [ev('diff', { edit: { validation: { valid: true }, patch: trimA, text: '' } }, T0 + 900), completed],
+        appliedPatches: [trimA],
+      }),
+    );
+    const compact = measureGoldenTurn(
+      importedEvidence({ events: [ev('diff', { edit: { valid: true, ops: ['trim_clip'] } }, T0 + 900), completed] }),
+    );
+    expect(compact.validity).toEqual(live.validity);
+    expect(compact.validity.rate).toBe(1);
+    expect(compact.operations).toBe(live.operations);
+    expect(compact.intent.observed).toBe('edit');
+    expect(compact.silentSuccess).toBe(false);
+  });
+
+  it('an invalid compact proposal counts against validity and contributes no operations', () => {
+    const m = measureGoldenTurn(
+      importedEvidence({
+        events: [
+          ev('diff', { edit: { valid: false, ops: ['trim_clip', 'delete_range'] } }, T0 + 100),
+          ev('diff', { edit: { valid: true, ops: ['trim_clip'] } }, T0 + 200),
+          ev('status', { status: 'completed' }, T0 + 300),
+        ],
+      }),
+    );
+    expect(m.validity).toEqual({ diffs: 2, valid: 1, invalid: 1, rate: 0.5 });
+    // The two operations of the rejected proposal were never applied, so they never count.
+    expect(m.operations).toBe(1);
+  });
+
+  it('a malformed dump scores zero operations rather than throwing', () => {
+    const measure = (): GoldenTurnMetrics =>
+      measureGoldenTurn(
+        importedEvidence({
+          events: [
+            ev('diff', { edit: { valid: true } }, T0 + 100), // passed validation, names no operations
+            ev('diff', {}, T0 + 150), // truncated: no `edit` at all
+            ev('status', { status: 'completed' }, T0 + 300),
+          ],
+        }),
+      );
+    expect(measure).not.toThrow();
+    const m = measure();
+    expect(m.operations).toBe(0);
+    // An edit with no recorded validation cannot be read as valid.
+    expect(m.validity).toEqual({ diffs: 2, valid: 1, invalid: 1, rate: 0.5 });
+    expect(m.intent.observed).toBe('silent');
+    expect(m.silentSuccess).toBe(true);
+  });
+
+  it('an explicit operation count overrides both the patches and the diffs', () => {
+    const events = [ev('diff', { edit: { valid: true, ops: ['a', 'b', 'c'] } }, T0 + 100), ev('status', { status: 'completed' }, T0 + 300)];
+    const overridden = measureGoldenTurn(evidence({ events, appliedPatches: [trimA, deleteTail], operations: 7 }));
+    expect(overridden.operations).toBe(7); // not the 2 patch operations, not the 3 diff operations
+    // Zero is a count, not a missing value: it must not fall back to the recorded patches.
+    const none = measureGoldenTurn(evidence({ events, appliedPatches: [trimA, deleteTail], operations: 0 }));
+    expect(none.operations).toBe(0);
+    expect(none.intent.observed).toBe('silent');
+    expect(none.silentSuccess).toBe(true);
+  });
 });
 
 describe('percentile', () => {
@@ -272,6 +383,38 @@ describe('summarizeGoldenRun', () => {
   it('prices the accepted edit when every row is priced', () => {
     const s = summarizeGoldenRun(rows.slice(0, 2));
     expect(s.usdPerAcceptedEdit).toBeCloseTo(0.12);
+  });
+
+  it('reversibility is the share over the rows that recorded patches, not over every row', () => {
+    const mixed: GoldenRow[] = [
+      { caseId: 'live', category: 'trim', turnIndex: 0, run: 1, metrics: metrics() },
+      {
+        caseId: 'live',
+        category: 'trim',
+        turnIndex: 1,
+        run: 1,
+        metrics: metrics({ reversibility: { ok: false, detail: 'differs after undo at $.timeline.tracks[0]' } }),
+      },
+      {
+        caseId: 'dump',
+        category: 'import',
+        turnIndex: 0,
+        run: 1,
+        metrics: metrics({ reversibility: { ok: null, detail: 'patches not recorded' } }),
+      },
+    ];
+    const s = summarizeGoldenRun(mixed);
+    expect(s.turns).toBe(3);
+    // One pass over TWO checkable rows. The unrecorded third row is not in the denominator:
+    // over all three it would read 33%, which would be a fabricated undo failure.
+    expect(s.reversibility).toBe(0.5);
+    expect(s.perCase.live?.reversible).toBe(0.5);
+    // A case whose every turn recorded nothing has no rate at all, rather than a 0 that
+    // reads as broken undo.
+    expect(s.perCase.dump?.reversible).toBeNull();
+    const md = renderGoldenSummary(s, { label: 'mixed', provider: 'mock', model: 'm', generatedAt: '2026-09-02' });
+    expect(md).toContain('| reversibility | 50% |');
+    expect(md).toContain('| dump | import | 1 |');
   });
 
   it('renders a human summary with the metric table and one row per case', () => {

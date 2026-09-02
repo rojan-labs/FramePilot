@@ -516,10 +516,12 @@ async function runCase(goldenCase, run) {
     });
     const m = outcome.metrics;
     process.stdout.write(
-      `   turn ${turnIndex + 1}: intent=${golden.intent.observed}${golden.intent.ok ? '' : ' (expected ' + turn.intent + ')'} calls=${m.modelCalls} prompt=${m.tokens.prompt} out=${m.tokens.output} tools=${m.toolCalls} ops=${m.operations} wall=${(m.wallMs / 1000).toFixed(0)}s usd=${m.usd ?? '?'} score=${score.score.toFixed(2)} first-pass=${golden.firstPass ? 'yes' : 'no'} undo=${golden.reversibility.ok ? 'ok' : 'FAIL'}${golden.silentSuccess ? ' SILENT-SUCCESS' : ''}\n`,
+      `   turn ${turnIndex + 1}: intent=${golden.intent.observed}${golden.intent.ok ? '' : ' (expected ' + turn.intent + ')'} calls=${m.modelCalls} prompt=${m.tokens.prompt} out=${m.tokens.output} tools=${m.toolCalls} ops=${m.operations} wall=${(m.wallMs / 1000).toFixed(0)}s usd=${m.usd ?? '?'} score=${score.score.toFixed(2)} first-pass=${golden.firstPass ? 'yes' : 'no'} undo=${golden.reversibility.ok === null ? 'n/a' : golden.reversibility.ok ? 'ok' : 'FAIL'}${golden.silentSuccess ? ' SILENT-SUCCESS' : ''}\n`,
     );
     for (const c of score.checks.filter((x) => !x.ok)) process.stdout.write(`      ✗ ${c.id}: ${c.detail}\n`);
-    if (!golden.reversibility.ok) process.stdout.write(`      ✗ undo: ${golden.reversibility.detail}\n`);
+    // `ok: null` is "not checkable from this evidence" — printing it as ✗ would be the very
+    // collapse of unknown into failure the metric exists to prevent.
+    if (golden.reversibility.ok === false) process.stdout.write(`      ✗ undo: ${golden.reversibility.detail}\n`);
     history = [...history, { role: 'user', content: turn.prompt }, { role: 'assistant', content: outcome.assistantText || '(edit applied)' }];
     project = outcome.working;
     carriedForward = outcome.lastWorking;
