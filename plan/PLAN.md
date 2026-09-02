@@ -137,6 +137,13 @@ reconcileInheritedFailures`: a health check failing identically before and after
   span, so the state stops advertising a layer nothing may go on. Not reproducible on the
   golden set — every mission fixture has one video track; see TRACKING.md for the shape.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
+  **Narrowed twice since, and the narrowing is the shipped rule.** ADR 0169: a full-frame
+  opaque placement over picture is legal and goes on a layer in front. ADR 0170: "full-frame"
+  was the wrong test — the renderer fits rather than covers, so coverage is a relation
+  between the front clip, everything it covers and the project frame
+  (`editor-core#coverageVerdict`), asked identically by the placement guard, the canvas
+  preview and the eval rubric. A cover-cropped source is legal; a mixed-shape stack of
+  different UNMEASURED assets is the only shape refusal left, and it names a cutaway hole.
 - `[x]` GOLDEN-C.6 — **failure quality is a gate, not a habit** (`6e39e64`). `92a0387` fixed
   two dead-end failures found by reading run `369e8c82` by hand; this makes the property
   testable. `reliability/next-action.ts#namesNextAction` requires a failure to say what

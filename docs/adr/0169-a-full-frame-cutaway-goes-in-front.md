@@ -173,13 +173,13 @@ reason it refuses a hidden or locked one.
   full-frame clips and then adds a transition or a punch-in to the one in front: nothing
   re-tests the predicate after placement, and `canvasPreviewEligible` will drop such a
   project back to the DOM preview rather than paint it wrongly.
-- **Letterboxing is the other known gap.** A source whose aspect does not match the
-  project frame is fitted, not filled, so the bars are transparent at export and the layer
-  underneath shows through them, while the preview paints black. `isFullFrameOpaque` does
-  not read source dimensions and so cannot see this. `add_clip`'s auto-reframe covers the
-  common case (a landscape source in a portrait project, when the engine has measured it);
-  an unmeasured source, or a portrait source in a landscape project, is not covered.
-  Closing it means giving the predicate the measured shape, and belongs with `SUC-P1`.
+- ~~**Letterboxing is the other known gap.**~~ **Superseded by ADR 0170** (2026-09-03). The
+  gap was real and the diagnosis here was incomplete: giving the predicate the measured
+  shape is not enough, because whether a letterboxed layer diverges depends on the shape of
+  what is UNDERNEATH it. Coverage is a relation between the front clip, everything it covers
+  and the frame — `coverageVerdict` — and `isFullFrameOpaque` is now only its opacity half.
+  The `crop` disqualifier described in Decision 1 above went with it: a crop is geometry, and
+  refusing every cropped front clip refused the cover crop `add_clip` itself writes.
 - One defect this exposed and fixed on the way: the beat grid resolved an operation's
   track type against the pre-turn timeline only, so cuts laid on a layer the same patch
   opened were classified as "not a picture track" and exempted from the grid entirely.

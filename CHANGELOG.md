@@ -17,6 +17,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   a see-through or blended layer — are still refused, and now say which of those it was:
   the preview can only show one picture layer at a time, so those really would export
   differently from what you approved.
+- **Vertical shorts can take b-roll over the footage again, and it fills the frame.** A
+  wide clip dropped into a vertical project is cropped to fit automatically — but if the
+  moment was already occupied, that placement was refused for the very black bars the crop
+  was about to remove. It now lands on its own layer with the crop applied, in one step and
+  one undo. The reverse case is fixed too: two clips of different shapes that letterbox the
+  same way are no longer refused, because they look identical on the monitor and in the
+  export. What is still refused is a shot that genuinely leaves your footage showing at the
+  edges — and the refusal now tells you the exact crop that would close the gap. Stock
+  clips the AI downloads also arrive with their dimensions again, which is what lets all of
+  this work on b-roll.
 
 ### Added
 

@@ -76,7 +76,7 @@ the maintainer reports back — see `reports/golden/BASELINE.md` for the recipes
 | `[x]` | Validate every export against the intended spec (resolution, fps, black/silent tails, audio) | `9585e17` |
 | `[x]` | Software-encode determinism pinned (VideoToolbox is not bit-reproducible — documented) | `07e4653` |
 | `[x]` | A failed master-audio pass leaves no half-written temp file | `de5cdc9` |
-| `[x]` | The preview cannot show a second picture layer, so the agent stops making one | `61ac69f` |
+| `[x]` | ~~The preview cannot show a second picture layer, so the agent stops making one~~ — **superseded**: it can, and the agent makes them again (ADR 0169/0170). Kept for the history: `61ac69f` was the refusal, and the refusal was too wide. | `61ac69f` → `bf16f10`, `3f939da`, `a203dd3` |
 
 ---
 
@@ -506,8 +506,11 @@ tool definitions. ADR 0169 records it.
 2. Compositing added **after** placement — a run that places two full-frame clips and
    then adds a transition or a punch-in on the front one recreates case 1, with no
    refusal anywhere, because nothing re-tests the predicate.
-3. **Letterboxing.** Attempted, reverted, and the attempt found the real answer — see
-   "The letterboxing predicate is a relation, not a property" below. Still open.
+3. ~~**Letterboxing.**~~ **Closed** by `a203dd3` + `30cc434` + `aed7d94` (ADR 0170). The
+   attempt found the real answer and the answer shipped: coverage is a relation, decided by
+   exact containment of the centred contain-fits with one output pixel of slack. The only
+   stack still refused for shape is a mixed one of DIFFERENT assets nobody has measured, and
+   its refusal names a cutaway hole, which is legal whatever the shapes are.
 4. Same-lane overlap (a state the validator refuses) has no defined order.
 5. Colour grade remains a canvas approximation (pre-existing).
 6. New exposure rather than divergence: the WebCodecs compositor now serves stacked
@@ -570,9 +573,29 @@ The relation version additionally keeps same-aspect stacks legal whether or not 
 measured them when both clips share an asset (identical fit by construction) — which is
 exactly the beat-grid montage fixture, and why it would stay green.
 
-**What a next session should do:** take the relation to `picturePlacementConflict`'s
-conflict list, which already knows every clip the candidate covers and their depths, and
-decide coverage there rather than in a per-clip predicate. `isFullFrameOpaque`'s other four
-arms (blend mode, keyframes, mask, transition) are correct and should stay exactly as they
-are — only the crop/geometry arm is wrong.
+**What was done** (`a203dd3`, `30cc434`, `aed7d94`; ADR 0170):
+
+- The relation went to the conflict list. `PictureConflict` carries each covered clip and its
+  measured shape, and `createPicturePlacer.place()` asks `coverageVerdict(front, behind,
+  project.resolution)` instead of a per-clip predicate.
+- **"Shares an aspect" was still too strict.** In a 16:9 frame a 4:3 front over a 1:1 base is
+  fitted wider and exactly as tall, so it hides the base — and the aspect test refused it.
+  Replaced with exact containment of the centred contain-fits, `front.w >= covered.w - 1 &&
+  front.h >= covered.h - 1`. The one pixel is the export's own quantisation, which is also
+  what lets a rounded cover crop pass.
+- **The crop arm was in the wrong function, and it was load-bearing.** `isFullFrameOpaque`
+  still refused any crop and `hidesWhatIsBehind` asked it first, so a cover-cropped front —
+  the exact placement the relation exists to allow — was refused before geometry was
+  consulted. The other four arms stayed exactly as they were, as predicted.
+- `add_clip` computes its auto-reframe crop BEFORE asking the placer, and `autoReframeCrop`
+  reads the NAMED lane rather than the resolved one (a lane the placer had just opened is
+  not in the pre-turn timeline, so a lifted placement never reframed).
+- `stock-placement.ts` now passes `media.width`/`height` across the process boundary; it
+  rebuilt the asset field by field and silently dropped them, so agent-downloaded stock was
+  born unmeasured while the panel's identical download was not.
+- The canvas preview and the eval rubric ask the same relation, with the project frame.
+
+Four fixtures gained measured dimensions matching their own frame, because they stacked two
+different unmeasured assets — the one case the relation refuses — and would otherwise have
+graded the unmeasured arm instead of the rule under test.
 
