@@ -195,3 +195,39 @@ goal.md E: read real limits from the provider and fail loudly if unknown.
 ~90 s per step, ~40k context by step 20, and the objective was still
 `stage: apply` with 1 remaining objective. Worth re-measuring once R1–R3 land,
 since R2 alone burned four of those steps.
+
+### R7 — `openrouter/auto` throws the prompt cache away every few turns `[ ]`
+
+Per-call cache reads across the run's 20 model calls, from the manifests:
+
+```
+seg-1   in=13,175  cached=0        seg-11  in=15,525  cached=26,624
+seg-2   in=29,023  cached=256      seg-12  in=17,725  cached=24,576
+seg-3   in=23,393  cached=6,144    seg-13  in=401     cached=41,984
+seg-4   in=28,707  cached=0        seg-14  in=16,717  cached=26,624
+seg-5   in=32,295  cached=0        seg-15  in=44,466  cached=0
+seg-6   in=14,196  cached=24,576   seg-16  in=44,499  cached=0
+seg-7   in=12,595  cached=26,624   seg-17  in=20,324  cached=24,576
+seg-8   in=39,854  cached=0        seg-18  in=21,555  cached=27,648
+seg-9   in=14,067  cached=26,624   seg-19  in=23,580  cached=25,600
+seg-10  in=40,476  cached=0
+```
+
+It is not a degraded hit rate — it is **binary**. A call either reads ~25k from
+cache and sends ~15k fresh, or reads nothing and sends 29k–44k. Six of twenty
+missed completely, re-sending roughly 219,000 tokens that a warm prefix would
+have served. Totals for the run: 784,199 input (307,456 of it cache reads,
+39%) and **218,036 output**.
+
+The prefix is not the suspect. `openrouter/auto` picks a different underlying
+model per request, and a different model is a different cache namespace — which
+is exactly the alternating shape above. PLAN.md's GOLDEN-C.3 audit found 95–100%
+hits and is not wrong; it measured Anthropic-direct runs.
+
+Two things follow. The cheap one: the editor should say that auto-routing costs
+roughly three times as much as pinning a model, at the point where the model is
+chosen — this is a cost-honesty surface, not a prompt change. The other, for the
+maintainer: 218k output tokens over 20 calls (~10.4k per call, one call at
+16,345) is the half of the bill no cache touches, and it is worth knowing how
+much of it is tool arguments versus the multi-sentence `reason` prose each
+proposal carries.
