@@ -2,6 +2,8 @@ import { describe, expect, it } from 'vitest';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {
   firstFreePictureStart,
+  coverCropFor,
+  coverageVerdict,
   hidesWhatIsBehind,
   isFullFrameOpaque,
   picturePlacementConflict,
@@ -185,10 +187,12 @@ describe('isFullFrameOpaque', () => {
     expect(isFullFrameOpaque({ blendMode: 'normal' })).toBe(true);
   });
 
-  it('is false for any crop — a cover crop is indistinguishable from a letterboxing one', () => {
-    // Telling them apart needs the source's measured pixel dimensions, which this is not
-    // given. Callers that generate a cover crop themselves test the placement first.
-    expect(isFullFrameOpaque({ crop: { x: 0, y: 0, width: 0.5, height: 1 } })).toBe(false);
+  it('is TRUE for a crop — a crop is geometry, not an opacity question', () => {
+    // A crop changes how much of the frame the layer paints; it never makes the paint
+    // translucent. Asking it here refused the cover crop `add_clip`'s auto-reframe writes,
+    // which is the exact placement `coverageVerdict` exists to allow. The crop is folded
+    // into the fitted rect there instead.
+    expect(isFullFrameOpaque({ crop: { x: 0, y: 0, width: 0.5, height: 1 } })).toBe(true);
   });
 
   it('is false for a blend mode that folds in what is underneath', () => {
@@ -232,8 +236,11 @@ describe('isFullFrameOpaque', () => {
 
 describe('hidesWhatIsBehind', () => {
   const frame = { width: 1080, height: 1920 };
+  const WIDE = { width: 1920, height: 1080 };
   const landscape = { width: 1920, height: 1080 };
   const square = { width: 1000, height: 1000 };
+  const fourThree = { width: 1600, height: 1200 };
+  const portrait = { width: 1080, height: 1920 };
   const shaped = (source: { width: number; height: number } | undefined, clip = {}) => ({
     clip,
     source,
@@ -249,9 +256,39 @@ describe('hidesWhatIsBehind', () => {
   });
 
   it('refuses an overlay whose bars leak the base through them', () => {
-    // A square overlay over a 16:9 base: the base is wider, so its edges reach past the
-    // overlay and the export shows them where the monitor shows only the overlay.
-    expect(hidesWhatIsBehind(shaped(square), [shaped(landscape)], frame)).toBe(false);
+    // A square overlay over a 16:9 base IN A 16:9 FRAME: the base fills the width, the
+    // overlay is fitted to a 1080x1080 pillar, and the export shows the base's left and
+    // right edges where the monitor shows only the overlay.
+    //
+    // The frame matters, which is the whole point of the relation. In the PORTRAIT frame
+    // used by the rest of this block the same pair is legal: a 1080x1080 square contains a
+    // 1080x607.5 landscape, so nothing leaks — see the test below.
+    expect(hidesWhatIsBehind(shaped(square), [shaped(landscape)], WIDE)).toBe(false);
+    expect(hidesWhatIsBehind(shaped(square), [shaped(landscape)], frame)).toBe(true);
+  });
+
+  it('lets a WIDER front cover a narrower base it does not share an aspect with', () => {
+    // 4:3 over 1:1 in a 16:9 frame. Both are fitted to full height and the 4:3 is fitted
+    // WIDER, so it hides the square completely — and the same-aspect reduction this
+    // replaced refused it. Containment is the real test.
+    expect(hidesWhatIsBehind(shaped(fourThree), [shaped(square)], WIDE)).toBe(true);
+  });
+
+  it('refuses the same pair the other way round', () => {
+    expect(hidesWhatIsBehind(shaped(square), [shaped(fourThree)], WIDE)).toBe(false);
+  });
+
+  it('lets a cover-cropped landscape front hide a portrait base', () => {
+    // The crop `add_clip`'s auto-reframe writes, on the placement it is written for. The
+    // cropped region is exactly the frame's aspect, so the fit becomes a cover and there is
+    // no bar left for the base to show through. `isFullFrameOpaque` used to refuse this
+    // outright, which is the defect that motivated moving the crop arm out of it.
+    const cropped = shaped(landscape, { crop: coverCropFor(landscape, frame) });
+    expect(hidesWhatIsBehind(cropped, [shaped(portrait)], frame)).toBe(true);
+  });
+
+  it('refuses the same front WITHOUT the crop', () => {
+    expect(hidesWhatIsBehind(shaped(landscape), [shaped(portrait)], frame)).toBe(false);
   });
 
   it('lets anything through when the overlay fills the frame', () => {
@@ -290,5 +327,92 @@ describe('hidesWhatIsBehind', () => {
 
   it('covers nothing ⇒ trivially true', () => {
     expect(hidesWhatIsBehind(shaped(undefined), [], frame)).toBe(true);
+  });
+});
+
+describe('coverCropFor — the crop that turns "contain" into "cover", in either direction', () => {
+  it('cuts a wider source horizontally, full height, centred', () => {
+    // 0.5625 / 1.7778 = 0.31640625 of the source width; the rest is what the bars were.
+    expect(coverCropFor({ width: 1920, height: 1080 }, { width: 1080, height: 1920 })).toEqual({
+      x: 0.341797,
+      y: 0,
+      width: 0.316406,
+      height: 1,
+    });
+  });
+
+  it('cuts a TALLER source vertically, full width, centred', () => {
+    // The direction `ai-sdk`'s portrait-only `coverCropForFrame` deliberately declines to
+    // take on its own; the refusal that suggests a crop still needs the rect.
+    expect(coverCropFor({ width: 1080, height: 1920 }, { width: 1920, height: 1080 })).toEqual({
+      x: 0,
+      y: 0.341797,
+      width: 1,
+      height: 0.316406,
+    });
+  });
+
+  it('returns nothing when the source already fills the frame', () => {
+    expect(coverCropFor({ width: 1920, height: 1080 }, { width: 1920, height: 1080 })).toBeUndefined();
+    expect(coverCropFor({ width: 3840, height: 2160 }, { width: 1920, height: 1080 })).toBeUndefined();
+  });
+
+  it('refuses a degenerate size rather than dividing by zero', () => {
+    expect(coverCropFor({ width: 0, height: 1080 }, { width: 1080, height: 1920 })).toBeUndefined();
+    expect(coverCropFor({ width: 1920, height: 1080 }, { width: 1080, height: 0 })).toBeUndefined();
+  });
+});
+
+describe('coverageVerdict — the reason, so a refusal need not re-derive it', () => {
+  const frame = { width: 1920, height: 1080 };
+  const square = { width: 1000, height: 1000 };
+
+  it('names the blend mode', () => {
+    expect(
+      coverageVerdict({ clip: { blendMode: 'multiply' }, source: frame }, [{ clip: {}, source: frame }], frame),
+    ).toEqual({ hides: false, reason: 'blend', detail: 'multiply' });
+  });
+
+  it('names keyframes and the coverage-breaking effect', () => {
+    expect(
+      coverageVerdict(
+        { clip: { keyframes: [{ id: 'k', time: 0, property: 'scale', value: 1, easing: 'linear' }] }, source: frame },
+        [{ clip: {}, source: frame }],
+        frame,
+      ).hides,
+    ).toBe(false);
+    expect(
+      coverageVerdict(
+        { clip: { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] }, source: frame },
+        [{ clip: {}, source: frame }],
+        frame,
+      ),
+    ).toEqual({ hides: false, reason: 'effect', detail: 'mask' });
+  });
+
+  it('names what leaks, by how much, and the crop that would fix it', () => {
+    const verdict = coverageVerdict(
+      { clip: { id: 'front_1', assetId: 'a' }, source: square },
+      [{ clip: { id: 'base_1', assetId: 'b' }, source: frame }],
+      frame,
+    );
+    expect(verdict.hides).toBe(false);
+    if (verdict.hides) throw new Error('unreachable');
+    expect(verdict.reason).toBe('leaks');
+    // 1000x1000 fits to 1080x1080 in a 1920x1080 frame: (1920 - 1080) / 2 = 420.
+    expect(verdict.detail).toBe(
+      'the 1920x1080 frame fits it with 420px bars left and right, and base_1 shows through them at export',
+    );
+    expect(verdict.coverCrop).toEqual({ x: 0, y: 0.21875, width: 1, height: 0.5625 });
+  });
+
+  it('names the covered clip when a shape is unknown, and suggests no crop', () => {
+    expect(
+      coverageVerdict(
+        { clip: { assetId: 'a' }, source: undefined },
+        [{ clip: { id: 'base_1', assetId: 'b' }, source: undefined }],
+        frame,
+      ),
+    ).toEqual({ hides: false, reason: 'unmeasured', detail: 'base_1' });
   });
 });

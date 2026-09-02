@@ -34,10 +34,18 @@
  * names its own track and can be given a new one. A layer that covers the frame
  * opaquely previews exactly as it exports — the preview shows the front-most
  * clip and so does the composite — so that case is a legal placement rather than
- * a divergence. {@link isFullFrameOpaque} is the predicate that separates the
- * two, and it lives here so the guard and the preview cannot drift apart.
+ * a divergence.
+ *
+ * ## What ADR 0170 changed
+ *
+ * "Covers the frame" turned out to be the wrong question, because the renderer FITS: a
+ * source whose aspect does not match the frame is letterboxed and its bars are transparent
+ * at export. Whether that matters depends on what is UNDERNEATH. {@link coverageVerdict}
+ * is therefore a relation between the front clip, everything it covers and the frame, and
+ * it is what the guard, the canvas preview and the eval rubric all ask.
+ * {@link isFullFrameOpaque} survives as its opacity half.
  */
-import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
+import type { Asset, Clip, CropRect, Timeline } from '@framepilot/timeline-schema';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 
 // ---------------------------------------------------------------------------
@@ -99,15 +107,16 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
  *   presence of ANY keyframe disqualifies rather than the evaluated value:
  *   coverage would then be a function of time, and a clip that covers for two
  *   seconds and uncovers for one is not a full-frame layer.
- * - `crop` — a crop rect changes which part of the SOURCE is used. A cover crop
- *   fills the frame and a narrower one letterboxes, and the two are not
- *   distinguishable without the source's measured pixel dimensions, which this
- *   is not given. Callers that generate a cover crop themselves (`add_clip`'s
- *   auto-reframe) test the placement BEFORE that crop, because a cover crop can
- *   only increase coverage.
  * - `blendMode` — anything but `normal` is by definition a function of the
  *   layer beneath (`render/compiler.py#_blend_layer_over`).
  * - `effects` — see {@link COVERAGE_BREAKING_EFFECTS}.
+ *
+ * `crop` is deliberately ABSENT from that list, and used not to be. A crop is geometry: it
+ * changes which part of the source is used and therefore how much of the frame the layer
+ * ends up painting, but it never makes the paint translucent. Asking it here refused the
+ * one placement the relation exists to allow — the *cover* crop `add_clip`'s auto-reframe
+ * writes, which makes a letterboxed source fill the frame. {@link coverageVerdict} folds
+ * the crop into the fitted rect, where it belongs.
  *
  * NECESSARY, NOT SUFFICIENT. This answers only "is the layer itself opaque everywhere it
  * paints?" — whether it paints over the whole frame is geometry, and geometry is a relation
@@ -118,7 +127,6 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
  * @returns TRUE when nothing in the layer's own compositing lets the frame beneath through.
  */
 export function isFullFrameOpaque(clip: FullFrameOpaqueFields): boolean {
-  if (clip.crop !== undefined) return false;
   if (clip.blendMode !== undefined && clip.blendMode !== 'normal') return false;
   if ((clip.keyframes ?? []).length > 0) return false;
   return !(clip.effects ?? []).some((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
@@ -136,30 +144,155 @@ export interface SourceShape {
 
 /** A clip together with the shape of the media under it. */
 export interface ShapedClip {
-  readonly clip: FullFrameOpaqueFields & { readonly assetId?: string };
+  readonly clip: FullFrameOpaqueFields & {
+    readonly assetId?: string;
+    /** The clip's own id, so a refusal can name what leaks. A whole {@link Clip} satisfies it. */
+    readonly id?: string;
+  };
   readonly source: SourceShape | undefined;
 }
 
-/** Relative aspect tolerance. `coverCropForFrame` rounds its rect to four places, so an
-    exact test would reject the very crop written to make a clip cover. A per-mille
-    difference is far under one pixel row at any resolution this product renders. */
-const ASPECT_TOLERANCE = 0.001;
+/**
+ * One output pixel of slack on every containment comparison.
+ *
+ * This is not a tolerance picked for comfort, it is the export's own arithmetic. A cover
+ * crop is a rounded fraction (`coverCropFor` keeps six places), so the rect it cuts is a
+ * hair off the exact target aspect and the fit that follows leaves a sub-pixel sliver. The
+ * renderer quantises to whole pixels, so a sliver under one pixel is a bar that does not
+ * exist in the file. Requiring exact equality would refuse the very crop written to make a
+ * clip cover.
+ */
+const PIXEL_SLACK = 1;
 
-const sameAspect = (a: number, b: number): boolean => Math.abs(a - b) <= b * ASPECT_TOLERANCE;
+/** Fractional places kept on a derived crop rect — see `ai-sdk/domain-tools/timeline.ts`,
+    whose `coverCropForFrame` delegates here and whose tests pin these digits. */
+const CROP_PRECISION = 1e6;
 
-/** The aspect of the source rect this clip actually shows — the crop is a fraction OF THE
-    SOURCE, so the visible shape is the source scaled by it. `undefined` when unmeasured. */
-function visibleAspect(entry: ShapedClip): number | undefined {
+const roundCrop = (value: number): number => Math.round(value * CROP_PRECISION) / CROP_PRECISION;
+
+/** The visible source rect in SOURCE pixels — the crop is a fraction OF THE SOURCE, so the
+    visible shape is the source scaled by it. `undefined` when unmeasured or degenerate. */
+function visibleRect(entry: ShapedClip): SourceShape | undefined {
   const { source, clip } = entry;
   if (!source || source.width <= 0 || source.height <= 0) return undefined;
   const width = source.width * (clip.crop?.width ?? 1);
   const height = source.height * (clip.crop?.height ?? 1);
   if (width <= 0 || height <= 0) return undefined;
-  return width / height;
+  return { width, height };
 }
 
 /**
- * Does the clip in front hide everything behind it, so the monitor and the export agree?
+ * The size, in OUTPUT pixels, that the renderer actually paints for this clip.
+ *
+ * `render/compiler.py#_place_video_clip` cuts the crop out of the source first and then
+ * scales what is left by `min(target_w / w, target_h / h)` — *contain*, not cover — and
+ * centres it. So this is the export's own formula, restated once.
+ */
+function fittedSize(
+  entry: ShapedClip,
+  frame: { readonly width: number; readonly height: number },
+): SourceShape | undefined {
+  const rect = visibleRect(entry);
+  if (!rect) return undefined;
+  const scale = Math.min(frame.width / rect.width, frame.height / rect.height);
+  return { width: rect.width * scale, height: rect.height * scale };
+}
+
+/**
+ * The centred crop that makes a source FILL a frame of a different aspect, in EITHER
+ * direction, or `undefined` when it already fills it (within {@link PIXEL_SLACK}) or a
+ * size is degenerate.
+ *
+ * Dictated by the renderer, which fits rather than covers: cut the source down to exactly
+ * the target aspect and *contain* becomes *cover*. A source wider than the frame is cut
+ * horizontally at full height; a taller one is cut vertically at full width. Keeping the
+ * whole other extent throws away the least picture, and the middle is the only defensible
+ * guess without subject evidence.
+ *
+ * It lives here rather than in the agent's tool layer because the refusal that SUGGESTS a
+ * crop and the placement that WRITES one have to name the same rect; two copies would
+ * drift, and the way they would drift is that the suggestion stops covering.
+ *
+ * @param source - Measured source pixel dimensions. Never guessed by the caller.
+ * @param frame - The project's output pixel dimensions.
+ */
+export function coverCropFor(
+  source: { readonly width: number; readonly height: number },
+  frame: { readonly width: number; readonly height: number },
+): CropRect | undefined {
+  if (source.width <= 0 || source.height <= 0 || frame.width <= 0 || frame.height <= 0) {
+    return undefined;
+  }
+  const fitted = fittedSize({ clip: {}, source }, frame);
+  /* v8 ignore next -- `fittedSize` is total for the sizes just validated above */
+  if (!fitted) return undefined;
+  // Already covers: there is no bar to cut away, so there is no crop to suggest.
+  if (
+    fitted.width >= frame.width - PIXEL_SLACK &&
+    fitted.height >= frame.height - PIXEL_SLACK
+  ) {
+    return undefined;
+  }
+  const sourceAspect = source.width / source.height;
+  const frameAspect = frame.width / frame.height;
+  if (sourceAspect > frameAspect) {
+    const width = roundCrop(frameAspect / sourceAspect);
+    return { x: roundCrop((1 - width) / 2), y: 0, width, height: 1 };
+  }
+  const height = roundCrop(sourceAspect / frameAspect);
+  return { x: 0, y: roundCrop((1 - height) / 2), width: 1, height };
+}
+
+/** Why the monitor and the export would disagree about a stack, in terms a refusal can use
+    without re-deriving the order the tests run in. */
+export type CoverageVerdict =
+  | { readonly hides: true }
+  | {
+      readonly hides: false;
+      readonly reason: 'blend' | 'keyframes' | 'effect' | 'unmeasured' | 'leaks';
+      /**
+       * For `blend` the mode, for `effect` the effect type, for `unmeasured` the covered
+       * clip whose shape is unknown, and for `leaks` the clause naming the covered clip
+       * that shows through and the bar size in output pixels.
+       */
+      readonly detail?: string;
+      /** For `leaks` with a measured front: the centred crop that would make it fill the frame. */
+      readonly coverCrop?: CropRect;
+    };
+
+/** Two clips of the SAME asset with the same crop are identical by construction, so they fit
+    identically whether or not anyone measured the asset. */
+function identicalByConstruction(front: ShapedClip, covered: ShapedClip): boolean {
+  return (
+    front.clip.assetId !== undefined &&
+    front.clip.assetId === covered.clip.assetId &&
+    front.clip.crop?.width === covered.clip.crop?.width &&
+    front.clip.crop?.height === covered.clip.crop?.height
+  );
+}
+
+/** How the frame letterboxes a fitted rect, as the middle of the refusal sentence. */
+function barsClause(
+  fitted: SourceShape,
+  frame: { readonly width: number; readonly height: number },
+  coveredId: string,
+): string {
+  const horizontal = frame.width - fitted.width >= frame.height - fitted.height;
+  const bar = Math.round((horizontal ? frame.width - fitted.width : frame.height - fitted.height) / 2);
+  const axis = horizontal ? 'left and right' : 'top and bottom';
+  return (
+    `the ${String(frame.width)}x${String(frame.height)} frame fits it with ${String(bar)}px ` +
+    `bars ${axis}, and ${coveredId} shows through them at export`
+  );
+}
+
+/** The label a refusal uses for a clip that has no id of its own. */
+const coveredLabel = (covered: ShapedClip): string =>
+  covered.clip.id ?? covered.clip.assetId ?? 'the clip beneath';
+
+/**
+ * Does the clip in front hide everything behind it, so the monitor and the export agree —
+ * and when it does not, why?
  *
  * ## Why this is a RELATION and not a property of the front clip
  *
@@ -172,13 +305,80 @@ function visibleAspect(entry: ShapedClip): number | undefined {
  * so does the monitor. **They agree, and refusing that placement buys nothing.**
  *
  * They disagree only when the front clip's fitted rect fails to CONTAIN the one behind it —
- * a 1:1 overlay over a 16:9 base leaks the base's left and right edges into the export
- * while the monitor shows only the overlay. For centred fits that reduces to: the front
- * clip fills the frame, or it shares an aspect with everything it covers.
+ * a 1:1 overlay over a 16:9 base in a 16:9 frame leaks the base's left and right edges into
+ * the export while the monitor shows only the overlay.
  *
- * Two clips of the SAME asset with the same crop are identical by construction, so they
- * qualify without either being measured — which is what keeps a montage of one source
- * legal on a project nobody has probed.
+ * ## Why containment, and not "same aspect"
+ *
+ * "Fills the frame, or shares an aspect with everything it covers" was the first reduction,
+ * and it is stricter than the geometry. In a 16:9 frame a 4:3 front over a 1:1 base is
+ * fitted WIDER and exactly as tall, so it hides the base completely — and the aspect test
+ * refused it. Both fits are centred, so containment is just the two fitted sizes compared,
+ * with {@link PIXEL_SLACK} of give.
+ *
+ * ## The unmeasured policy
+ *
+ * Nothing can be said about the fit of a source nobody probed, so a mixed-shape stack of
+ * DIFFERENT unmeasured assets is refused. Two clips of the same asset are identical by
+ * construction and qualify unmeasured — which is what keeps a montage cut from one source
+ * legal on a project nobody has probed. A measured clip stacked with an unmeasured one is
+ * refused for the same reason as two unmeasured ones: half a comparison is not one.
+ *
+ * @param front - The clip nearest the viewer, and its source shape.
+ * @param behind - Everything it covers, front-to-back.
+ * @param frame - The project's own resolution.
+ * @returns `{ hides: true }` when the export can produce nothing the monitor does not
+ *   already show, otherwise the reason it can.
+ */
+export function coverageVerdict(
+  front: ShapedClip,
+  behind: readonly ShapedClip[],
+  frame: { readonly width: number; readonly height: number },
+): CoverageVerdict {
+  // The clip's own compositing has to be opaque before its geometry matters at all: a mask
+  // or a dissolve lets the frame beneath through whatever shape either of them is. Tested
+  // in this order so the reason a caller reports is the most specific one available.
+  const { blendMode, keyframes, effects } = front.clip;
+  if (blendMode !== undefined && blendMode !== 'normal') {
+    return { hides: false, reason: 'blend', detail: blendMode };
+  }
+  if ((keyframes ?? []).length > 0) return { hides: false, reason: 'keyframes' };
+  const breaking = (effects ?? []).find((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
+  if (breaking) return { hides: false, reason: 'effect', detail: breaking.type };
+
+  if (behind.length === 0) return { hides: true };
+  if (frame.width <= 0 || frame.height <= 0) {
+    return { hides: false, reason: 'unmeasured', detail: coveredLabel(behind[0] as ShapedClip) };
+  }
+
+  const frontFit = fittedSize(front, frame);
+  for (const covered of behind) {
+    if (identicalByConstruction(front, covered)) continue;
+    const coveredFit = fittedSize(covered, frame);
+    if (!frontFit || !coveredFit) {
+      return { hides: false, reason: 'unmeasured', detail: coveredLabel(covered) };
+    }
+    if (
+      frontFit.width >= coveredFit.width - PIXEL_SLACK &&
+      frontFit.height >= coveredFit.height - PIXEL_SLACK
+    ) {
+      continue;
+    }
+    // Suggested from the SOURCE, not the visible rect: `set_clip_crop` REPLACES the crop,
+    // so a rect derived from an already-cropped region would compose two crops.
+    const suggested = front.source ? coverCropFor(front.source, frame) : undefined;
+    return {
+      hides: false,
+      reason: 'leaks',
+      detail: barsClause(frontFit, frame, coveredLabel(covered)),
+      ...(suggested ? { coverCrop: suggested } : {}),
+    };
+  }
+  return { hides: true };
+}
+
+/**
+ * {@link coverageVerdict} as a yes/no, for callers that only gate on it.
  *
  * @param front - The clip nearest the viewer, and its source shape.
  * @param behind - Everything it covers, front-to-back.
@@ -190,30 +390,7 @@ export function hidesWhatIsBehind(
   behind: readonly ShapedClip[],
   frame: { readonly width: number; readonly height: number },
 ): boolean {
-  // The clip's own compositing has to be opaque before its geometry matters at all: a mask
-  // or a dissolve lets the frame beneath through whatever shape either of them is.
-  if (!isFullFrameOpaque(front.clip)) return false;
-  if (behind.length === 0) return true;
-  if (frame.width <= 0 || frame.height <= 0) return false;
-
-  const frontAspect = visibleAspect(front);
-  // Fills the frame ⇒ there is no bar for anything to show through.
-  if (frontAspect !== undefined && sameAspect(frontAspect, frame.width / frame.height)) {
-    return true;
-  }
-  return behind.every((covered) => {
-    if (
-      front.clip.assetId !== undefined &&
-      front.clip.assetId === covered.clip.assetId &&
-      front.clip.crop?.width === covered.clip.crop?.width &&
-      front.clip.crop?.height === covered.clip.crop?.height
-    ) {
-      return true;
-    }
-    const coveredAspect = visibleAspect(covered);
-    if (frontAspect === undefined || coveredAspect === undefined) return false;
-    return sameAspect(frontAspect, coveredAspect);
-  });
+  return coverageVerdict(front, behind, frame).hides;
 }
 
 /** Asset kinds that flow through the preview's single picture chain. */
