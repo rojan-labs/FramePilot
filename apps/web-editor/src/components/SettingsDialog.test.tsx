@@ -11,7 +11,7 @@ import { applyBrowserUpdate, loadBrowserAiConfig } from '../editor/aiConfigStora
 import { loadUserMemory } from '../editor/userMemoryStorage.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import type { FramePilotBridge } from '@framepilot/shared-types';
-import { DEFAULT_MAX_RUN_MINUTES, DEFAULT_MAX_RUN_USD } from '@framepilot/ai-sdk';
+import { capabilitiesFor, DEFAULT_MAX_RUN_MINUTES, DEFAULT_MAX_RUN_USD } from '@framepilot/ai-sdk';
 
 afterEach(() => {
   localStorage.clear();
@@ -176,6 +176,47 @@ describe('SettingsDialog', () => {
     fireEvent.change(keyField, { target: { value: 'sk-or-1' } });
     fireEvent.keyDown(keyField, { key: 'Enter' });
     expect(loadBrowserAiConfig().keys.openrouter).toBe('sk-or-1');
+  });
+
+  it('warns that an unknown model id makes the context capacity a guess', () => {
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    const modelField = document.getElementById('ai-model-openrouter') as HTMLInputElement;
+    fireEvent.change(modelField, { target: { value: 'openrouter/auto' } });
+
+    // A hint, not a validation error: the value still saves exactly as typed, because a
+    // model newer than the bundled catalog must stay usable.
+    expect(loadBrowserAiConfig().models.openrouter).toBe('openrouter/auto');
+    expect(screen.getByText(/context capacity will be assumed at 128K tokens/)).toBeTruthy();
+    expect(screen.getByRole('note')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toMatch(/each model keeps its own prompt cache/);
+  });
+
+  it('says nothing about capacity or caching for a model the catalog knows', () => {
+    // Guard the premise: if this id ever leaves the catalog the test must fail loudly
+    // rather than pass because both hints are absent for the wrong reason.
+    expect(capabilitiesFor('openrouter', 'anthropic/claude-sonnet-4-5').source).toBe('known_model');
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    fireEvent.change(document.getElementById('ai-model-openrouter') as HTMLInputElement, {
+      target: { value: 'anthropic/claude-sonnet-4-5' },
+    });
+    expect(screen.queryByText(/context capacity will be assumed/)).toBeNull();
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('warns about capacity but not caching for an unknown id that is not auto-routed', () => {
+    expect(capabilitiesFor('openrouter', 'some-unreleased-model').source).toBe('provider_default');
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    fireEvent.change(document.getElementById('ai-model-openrouter') as HTMLInputElement, {
+      target: { value: 'some-unreleased-model' },
+    });
+    expect(screen.getByText(/context capacity will be assumed at 128K tokens/)).toBeTruthy();
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
   it('expands the collapsed DeepSeek row to reveal its fields (accordion)', () => {

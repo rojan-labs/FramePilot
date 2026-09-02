@@ -24,6 +24,7 @@ import type {
   CapabilityPackProgressWire,
 } from '@framepilot/shared-types';
 import {
+  capabilitiesFor,
   LocalWhisperCliClient,
   type LocalAsrSetupProgress,
   type LocalAsrStatus,
@@ -248,6 +249,27 @@ function providerStatus(
   return { text: ready ? (keyOptional ? 'Ready' : 'Key saved') : 'No key', ready };
 }
 
+/** `128000` → `128K`, matching the context meter's own compaction of the same figure. */
+function compactTokens(value: number): string {
+  if (value < 1_000) return String(Math.round(value));
+  const scaled = value / 1_000;
+  if (scaled >= 1_000) return `${Math.round(scaled / 100) / 10}M`;
+  return `${scaled >= 100 ? Math.round(scaled) : Math.round(scaled * 10) / 10}K`;
+}
+
+/**
+ * Mirrors `normalizeModelId` in `@framepilot/ai-sdk`'s `model-capabilities.ts` (not
+ * exported): lower-case, drop a `:tag` suffix, drop the `vendor/` prefix. Kept in step
+ * with that helper so `openrouter/auto`, `auto` and `auto:free` are one id here too.
+ */
+function normalizedModelId(model: string): string {
+  const withoutTag = model.trim().toLowerCase().split(':')[0] ?? '';
+  return (withoutTag.split('/').at(-1) ?? '').trim();
+}
+
+/** Providers that will pick the underlying model for you, and so lose the prompt cache. */
+const AUTO_ROUTING_PROVIDERS: readonly AiProviderName[] = ['openrouter', 'vercel-gateway'];
+
 function ProviderKeyField({
   name,
 }: {
@@ -265,6 +287,22 @@ function ProviderKeyField({
     setKey(name, value);
     setKeyDraft('');
   };
+
+  // An unknown id is not a validation error — it still saves as typed, because the
+  // capability table is a cache and a genuinely new model must remain usable. It is a
+  // cost the user should meet here rather than discover mid-run in the context meter.
+  const modelDraft = info?.model ?? '';
+  const capabilities = capabilitiesFor(name, modelDraft);
+  const unknownModelHint =
+    modelDraft.trim() && capabilities.source === 'provider_default'
+      ? `Not a model this app knows — context capacity will be assumed at ${compactTokens(
+          capabilities.contextWindow,
+        )} tokens and the run budget cannot be sized to it. Pick an id from the provider's model list to fix that.`
+      : undefined;
+  const autoRoutingHint =
+    normalizedModelId(modelDraft) === 'auto' && AUTO_ROUTING_PROVIDERS.includes(name)
+      ? 'Auto-routing picks a different model for every request, and each model keeps its own prompt cache, so most of the prompt is re-sent and re-billed on every switch. Pin one model to keep the cache.'
+      : undefined;
 
   return (
     <>
@@ -324,6 +362,12 @@ function ProviderKeyField({
           value={info?.model ?? ''}
           onChange={(event) => setModel(name, event.target.value)}
         />
+        {unknownModelHint ? <span className="setting-hint">{unknownModelHint}</span> : null}
+        {autoRoutingHint ? (
+          <span className="setting-hint" role="note">
+            {autoRoutingHint}
+          </span>
+        ) : null}
       </div>
     </>
   );

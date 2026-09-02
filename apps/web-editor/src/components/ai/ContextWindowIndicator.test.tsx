@@ -203,9 +203,7 @@ describe('ContextWindowIndicator', () => {
     expect(screen.getByText(/40K of 128K tokens \(assumed\), estimated/)).toBeTruthy();
     expect(screen.getByRole('button').getAttribute('data-limit-assumed')).toBe('true');
     expect(screen.getByRole('button').getAttribute('aria-label')).toContain('capacity assumed');
-    expect(
-      screen.getByText(/"openrouter\/auto" is not a model this app knows/),
-    ).toBeTruthy();
+    expect(screen.getByText(/"openrouter\/auto" is not a model this app knows/)).toBeTruthy();
     expect(screen.getByText(/Pin a specific model in Settings → AI/)).toBeTruthy();
   });
 
@@ -214,9 +212,7 @@ describe('ContextWindowIndicator', () => {
     expect(screen.queryByText(/\(assumed\)/)).toBeNull();
     expect(screen.queryByText(/is not a model this app knows/)).toBeNull();
     expect(screen.getByRole('button').getAttribute('data-limit-assumed')).toBe('false');
-    expect(screen.getByRole('button').getAttribute('aria-label')).not.toContain(
-      'capacity assumed',
-    );
+    expect(screen.getByRole('button').getAttribute('aria-label')).not.toContain('capacity assumed');
   });
 
   it('does not claim an assumption before any request has been accounted for', () => {
