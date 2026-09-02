@@ -109,14 +109,111 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
  *   layer beneath (`render/compiler.py#_blend_layer_over`).
  * - `effects` — see {@link COVERAGE_BREAKING_EFFECTS}.
  *
+ * NECESSARY, NOT SUFFICIENT. This answers only "is the layer itself opaque everywhere it
+ * paints?" — whether it paints over the whole frame is geometry, and geometry is a relation
+ * between this clip, the ones it covers and the frame. See {@link hidesWhatIsBehind}, which
+ * is what a caller deciding a placement should ask.
+ *
  * @param clip - The clip, or the compositing fields a placement would write.
- * @returns TRUE when the layer covers the whole frame with no alpha of its own.
+ * @returns TRUE when nothing in the layer's own compositing lets the frame beneath through.
  */
 export function isFullFrameOpaque(clip: FullFrameOpaqueFields): boolean {
   if (clip.crop !== undefined) return false;
   if (clip.blendMode !== undefined && clip.blendMode !== 'normal') return false;
   if ((clip.keyframes ?? []).length > 0) return false;
   return !(clip.effects ?? []).some((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
+}
+
+/**
+ * The measured pixel shape of a clip's source, or `undefined` when nothing probed it
+ * (`Asset.media.width`/`height` are optional since schema v21 and are "honestly absent
+ * rather than guessed at").
+ */
+export interface SourceShape {
+  readonly width: number;
+  readonly height: number;
+}
+
+/** A clip together with the shape of the media under it. */
+export interface ShapedClip {
+  readonly clip: FullFrameOpaqueFields & { readonly assetId?: string };
+  readonly source: SourceShape | undefined;
+}
+
+/** Relative aspect tolerance. `coverCropForFrame` rounds its rect to four places, so an
+    exact test would reject the very crop written to make a clip cover. A per-mille
+    difference is far under one pixel row at any resolution this product renders. */
+const ASPECT_TOLERANCE = 0.001;
+
+const sameAspect = (a: number, b: number): boolean => Math.abs(a - b) <= b * ASPECT_TOLERANCE;
+
+/** The aspect of the source rect this clip actually shows — the crop is a fraction OF THE
+    SOURCE, so the visible shape is the source scaled by it. `undefined` when unmeasured. */
+function visibleAspect(entry: ShapedClip): number | undefined {
+  const { source, clip } = entry;
+  if (!source || source.width <= 0 || source.height <= 0) return undefined;
+  const width = source.width * (clip.crop?.width ?? 1);
+  const height = source.height * (clip.crop?.height ?? 1);
+  if (width <= 0 || height <= 0) return undefined;
+  return width / height;
+}
+
+/**
+ * Does the clip in front hide everything behind it, so the monitor and the export agree?
+ *
+ * ## Why this is a RELATION and not a property of the front clip
+ *
+ * The first version of this asked "does the front clip fill the frame?", and that is the
+ * wrong question. The renderer FITS rather than covers (schema v21's note on
+ * `media.width`), so a source whose aspect does not match the frame is letterboxed and its
+ * bars are TRANSPARENT at export. But the clip BEHIND is fitted by the same renderer. When
+ * the two share an aspect — the same camera, which is the ordinary case — their bars
+ * coincide exactly: the export blends transparent over transparent and paints black, and
+ * so does the monitor. **They agree, and refusing that placement buys nothing.**
+ *
+ * They disagree only when the front clip's fitted rect fails to CONTAIN the one behind it —
+ * a 1:1 overlay over a 16:9 base leaks the base's left and right edges into the export
+ * while the monitor shows only the overlay. For centred fits that reduces to: the front
+ * clip fills the frame, or it shares an aspect with everything it covers.
+ *
+ * Two clips of the SAME asset with the same crop are identical by construction, so they
+ * qualify without either being measured — which is what keeps a montage of one source
+ * legal on a project nobody has probed.
+ *
+ * @param front - The clip nearest the viewer, and its source shape.
+ * @param behind - Everything it covers, front-to-back.
+ * @param frame - The project's own resolution.
+ * @returns TRUE when the export can produce nothing the monitor does not already show.
+ */
+export function hidesWhatIsBehind(
+  front: ShapedClip,
+  behind: readonly ShapedClip[],
+  frame: { readonly width: number; readonly height: number },
+): boolean {
+  // The clip's own compositing has to be opaque before its geometry matters at all: a mask
+  // or a dissolve lets the frame beneath through whatever shape either of them is.
+  if (!isFullFrameOpaque(front.clip)) return false;
+  if (behind.length === 0) return true;
+  if (frame.width <= 0 || frame.height <= 0) return false;
+
+  const frontAspect = visibleAspect(front);
+  // Fills the frame ⇒ there is no bar for anything to show through.
+  if (frontAspect !== undefined && sameAspect(frontAspect, frame.width / frame.height)) {
+    return true;
+  }
+  return behind.every((covered) => {
+    if (
+      front.clip.assetId !== undefined &&
+      front.clip.assetId === covered.clip.assetId &&
+      front.clip.crop?.width === covered.clip.crop?.width &&
+      front.clip.crop?.height === covered.clip.crop?.height
+    ) {
+      return true;
+    }
+    const coveredAspect = visibleAspect(covered);
+    if (frontAspect === undefined || coveredAspect === undefined) return false;
+    return sameAspect(frontAspect, coveredAspect);
+  });
 }
 
 /** Asset kinds that flow through the preview's single picture chain. */

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
 import {
   firstFreePictureStart,
+  hidesWhatIsBehind,
   isFullFrameOpaque,
   picturePlacementConflict,
 } from './picture-occupancy.js';
@@ -226,5 +227,68 @@ describe('isFullFrameOpaque', () => {
         ],
       }),
     ).toBe(true);
+  });
+});
+
+describe('hidesWhatIsBehind', () => {
+  const frame = { width: 1080, height: 1920 };
+  const landscape = { width: 1920, height: 1080 };
+  const square = { width: 1000, height: 1000 };
+  const shaped = (source: { width: number; height: number } | undefined, clip = {}) => ({
+    clip,
+    source,
+  });
+
+  it('lets a letterboxed overlay hide a base of the SAME shape', () => {
+    // Both are fitted identically, so their transparent bars coincide: the export blends
+    // transparent over transparent and paints black, and so does the monitor. Refusing this
+    // buys nothing, and the property version refused it.
+    expect(
+      hidesWhatIsBehind(shaped(landscape), [shaped(landscape)], frame),
+    ).toBe(true);
+  });
+
+  it('refuses an overlay whose bars leak the base through them', () => {
+    // A square overlay over a 16:9 base: the base is wider, so its edges reach past the
+    // overlay and the export shows them where the monitor shows only the overlay.
+    expect(hidesWhatIsBehind(shaped(square), [shaped(landscape)], frame)).toBe(false);
+  });
+
+  it('lets anything through when the overlay fills the frame', () => {
+    expect(hidesWhatIsBehind(shaped(frame), [shaped(square), shaped(landscape)], frame)).toBe(true);
+  });
+
+  it('trusts two clips of the SAME asset even when nothing measured them', () => {
+    // Identical fit by construction — which is what keeps a montage cut from one source
+    // legal on a project nobody has probed.
+    const a = { clip: { assetId: 'asset_1' }, source: undefined };
+    expect(hidesWhatIsBehind(a, [a], frame)).toBe(true);
+  });
+
+  it('refuses two DIFFERENT unmeasured assets — their shapes are unknown, not equal', () => {
+    expect(
+      hidesWhatIsBehind(
+        { clip: { assetId: 'a' }, source: undefined },
+        [{ clip: { assetId: 'b' }, source: undefined }],
+        frame,
+      ),
+    ).toBe(false);
+  });
+
+  it('still refuses a masked or blended overlay, whatever its shape', () => {
+    expect(
+      hidesWhatIsBehind(shaped(frame, { blendMode: 'multiply' }), [shaped(frame)], frame),
+    ).toBe(false);
+    expect(
+      hidesWhatIsBehind(
+        shaped(frame, { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] }),
+        [shaped(frame)],
+        frame,
+      ),
+    ).toBe(false);
+  });
+
+  it('covers nothing ⇒ trivially true', () => {
+    expect(hidesWhatIsBehind(shaped(undefined), [], frame)).toBe(true);
   });
 });
