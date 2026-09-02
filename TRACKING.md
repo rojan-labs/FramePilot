@@ -470,3 +470,46 @@ available and costs no code — but it is a claim, not a measurement, until this
   naming itself. Those two are substantively fine, so nothing shipped is wrong — but
   the predicate should not count a self-reference as an instruction.
 
+---
+
+# A regression already on this branch, found by attribution
+
+**`beat-grid-wiring.test.ts` is 2 passed / 8 failed, and `61ac69f` is the cause** —
+a commit that was on `feat/golden-eval-harness` before this session started, not one
+of mine. I found it because a slice reported it as "pre-existing at HEAD"; HEAD
+already contained it, so that check could not have distinguished the two. Isolated by
+reverting single files against `main`:
+
+| tree | result |
+|---|---|
+| branch as committed | 2 pass / 8 fail |
+| `orchestrator.ts` + `sidecar-executor.ts` + `domain-tools/timeline.ts` from `main` | **10 pass / 0 fail** |
+| `sidecar-executor.ts` alone from `main` | 2 pass / 8 fail |
+| **`domain-tools/timeline.ts` alone from `main`** | **10 pass / 0 fail** |
+
+`61ac69f` (GOLDEN-A.3) extended ADR 0140's picture-over-picture refusal from stock to
+**every agent picture placement**, adding `assertNoPictureStacking` to
+`addClipOperation`. The beat-grid fixture's `video_1` carries picture continuously
+0–10s, and the test builds a montage on `video_2` at 0–3s. Every one of those
+`add_clip` calls is now refused, the run applies nothing, and beat-grid enforcement
+never gets to run — which is why the failures read `expected 0 to be greater than 0`
+and `No edits were applied — 2 proposed changes…`.
+
+**This is ADR 0166's failure mode in the wild: a guard refusing a legitimate edit.**
+Cutting a montage onto a second video track over an existing programme is ordinary
+editing, and the agent can no longer do it at all while the main track is occupied —
+which, on a talking-head project, is always. It is the same trap as run `369e8c82`'s
+`b_roll`, seen from the other side: there the refusal was right and the state was
+lying about it; here the refusal itself is the thing in question.
+
+**This needs a decision, and it is genuinely ambiguous — see the question in the
+session.** The three readings are: keep the guard and accept that agent montage on a
+second video track is impossible until SUC-P1 lands (then the tests encode a workflow
+we have withdrawn and must be rewritten); narrow the guard so it refuses only what
+ADR 0140 actually decided, which was STOCK placement; or make the preview honest
+about layered picture, which is SUC-P1 itself and a much larger piece of work.
+
+Note what it is not: it is not caught by any gate, and it shipped with eight red
+tests that nothing surfaced, because CI runs the suite and this branch's checks were
+never read against the exact head SHA.
+
