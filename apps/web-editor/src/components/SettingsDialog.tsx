@@ -252,6 +252,22 @@ const BASE_URL_PLACEHOLDER: Partial<Record<AiProviderName, string>> = {
  */
 const LOGIN_PROVIDERS: readonly AiProviderName[] = ['claude-agent-sdk'];
 
+/**
+ * Model ids a Claude Code login can serve, offered as suggestions on that provider's
+ * model field.
+ *
+ * Full ids only — the SDK also accepts short aliases (`opus`, `sonnet`), but those match
+ * nothing in the capability catalogue, which leaves the context meter reading "assumed"
+ * on every turn and stops the run budget being sized. Suggesting them would be suggesting
+ * the broken option.
+ */
+const CLAUDE_LOGIN_MODELS: readonly string[] = [
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-opus-4-8',
+  'claude-haiku-4-5',
+];
+
 function providerStatus(
   info: AiProviderInfo | undefined,
   keyOptional: boolean,
@@ -348,12 +364,30 @@ function ProviderKeyField({
         </div>
       ) : null}
       {signsInSeparately ? (
+        // Where the API-key field would be. A key box here would invite a hunt for a
+        // credential that does not exist for this provider, and anything typed into it
+        // would be stored and never sent. What replaces it has to do the field's job:
+        // tell someone how this provider gets authorised and what to do when it is not.
         <div className="setting-row setting-row--stack">
+          <span className="setting-field-label">How this signs in</span>
+          <ol className="setting-steps">
+            <li>
+              Sign in once with <code>claude login</code> in a terminal. FramePilot reads the same
+              login the Claude CLI stores — there is no key to copy here.
+            </li>
+            <li>
+              Runs are billed to your Claude plan, not per request. Settings &rarr; Usage &amp;
+              Spend shows this as covered by your plan rather than as money spent.
+            </li>
+            <li>
+              If a run stops saying it is not signed in, your login has expired — run{' '}
+              <code>claude login</code> again.
+            </li>
+          </ol>
           <span className="setting-hint" role="note">
-            No API key needed. This provider spends your Claude subscription through the login the
-            Claude CLI already stored. If a run stops and says it is not signed in, run{' '}
-            <code>claude login</code> in a terminal and start it again. Desktop only — it starts the{' '}
-            <code>claude</code> program, which a browser tab cannot do.
+            Desktop only: it starts the <code>claude</code> program, which a browser tab cannot do.
+            It also cannot look at frames of your footage — for edits that depend on seeing a shot,
+            use Claude (Anthropic) with an API key.
           </span>
         </div>
       ) : (
@@ -395,9 +429,30 @@ function ProviderKeyField({
           type="text"
           className="setting-text-input"
           spellCheck={false}
+          {...(signsInSeparately
+            ? { list: `ai-model-options-${name}`, placeholder: 'claude-opus-5' }
+            : {})}
           value={info?.model ?? ''}
           onChange={(event) => setModel(name, event.target.value)}
         />
+        {/* Suggestions, not a fixed dropdown: the field must stay free text so a model
+            released after this build is still usable, but nobody should have to guess an
+            id from memory. A `datalist` gives both. Only offered for the login provider,
+            whose accepted ids are a short known set — every other provider serves an
+            open-ended catalogue where a five-item list would be misleading. */}
+        {signsInSeparately ? (
+          <datalist id={`ai-model-options-${name}`}>
+            {CLAUDE_LOGIN_MODELS.map((id) => (
+              <option key={id} value={id} />
+            ))}
+          </datalist>
+        ) : null}
+        {signsInSeparately ? (
+          <span className="setting-hint">
+            Use a full model id, not a short alias like <code>opus</code>: the context meter sizes
+            the window by matching the id, and an alias matches nothing.
+          </span>
+        ) : null}
         {unknownModelHint ? <span className="setting-hint">{unknownModelHint}</span> : null}
         {autoRoutingHint ? (
           <span className="setting-hint" role="note">
@@ -1456,8 +1511,28 @@ function RunBudgetSettings(): JSX.Element {
 function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element {
   const { config, setActiveProvider } = useAiConfig();
   const { settings, update } = useSettings();
-  const defaultOpen = isRealProvider(config.activeProvider) ? config.activeProvider : 'anthropic';
+  // Which row opens first must be judged against the HOST's roster, not the browser
+  // constant. Judged against the constant, selecting `claude-agent-sdk` on desktop fell
+  // through to 'anthropic' — so the screen showed "Claude (Anthropic)" with an API-key
+  // field expanded while the active provider was the login one, which reads as the
+  // active provider asking for a key it does not use.
+  const offeredHere = useMemo(
+    () => new Set(config.providers.map((provider) => provider.name)),
+    [config.providers],
+  );
+  const defaultOpen: AiProviderName =
+    config.activeProvider !== 'mock' && offeredHere.has(config.activeProvider)
+      ? config.activeProvider
+      : isRealProvider(config.activeProvider)
+        ? config.activeProvider
+        : 'anthropic';
   const [openProvider, setOpenProvider] = useState<AiProviderName | null>(defaultOpen);
+  // The desktop roster arrives asynchronously over IPC, after this state has already
+  // initialised from the pre-hydration config. Without this the correct row is computed
+  // and then never applied.
+  useEffect(() => {
+    setOpenProvider(defaultOpen);
+  }, [defaultOpen]);
 
   return (
     <>
@@ -1480,12 +1555,22 @@ function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element
             onChange={setActiveProvider}
           />
         </div>
-        {[...REAL_PROVIDERS]
-          .sort((a, b) => (a === config.activeProvider ? -1 : b === config.activeProvider ? 1 : 0))
-          .map((name) => (
+        {/* Driven by the host's roster — the SAME list the picker above uses — not by the
+            hardcoded browser constant. They diverged once: the desktop app offers
+            `claude-agent-sdk` (it can spawn a subprocess) while the browser roster
+            deliberately omits it, so selecting it on desktop left the user with a picker
+            entry whose settings panel did not exist and another provider's key field open
+            underneath it. One source of truth is what keeps the two halves of this screen
+            describing the same set of providers on both platforms. */}
+        {[...config.providers]
+          .filter((provider) => provider.name !== 'mock')
+          .sort((a, b) =>
+            a.name === config.activeProvider ? -1 : b.name === config.activeProvider ? 1 : 0,
+          )
+          .map(({ name }) => (
             <ProviderAccordion
               key={name}
-              name={name}
+              name={name as Exclude<AiProviderName, 'mock'>}
               expanded={openProvider === name}
               onToggle={() => setOpenProvider((current) => (current === name ? null : name))}
             />

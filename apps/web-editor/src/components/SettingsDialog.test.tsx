@@ -165,6 +165,68 @@ describe('SettingsDialog', () => {
     expect(loadBrowserAiConfig().activeProvider).toBe('deepseek');
   });
 
+  it('gives every provider the picker offers a settings row of its own', () => {
+    // The regression this guards: the picker was built from the HOST's provider list
+    // while the accordions below were built from a hardcoded browser roster. On desktop
+    // those diverged — `claude-agent-sdk` was selectable but had no panel, so choosing it
+    // left another provider's API-key field open underneath as if it were the one being
+    // configured. One source of truth, asserted rather than assumed.
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Active provider' }));
+    const offered = screen
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '')
+      .filter((label) => label !== 'Offline mock');
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Active provider' }), {
+      key: 'Escape',
+    });
+
+    for (const label of offered) {
+      expect(screen.getByRole('button', { name: `${label} settings` })).toBeTruthy();
+    }
+  });
+
+  it('gives the Claude-login provider a panel with directions and a model field, and no key box', async () => {
+    // The desktop case the browser roster cannot reach: `claude-agent-sdk` is offered by
+    // the host, so it must get a real settings row. A key field here would be a dead end —
+    // the credential is an OS-keychain login — so the row has to explain how signing in
+    // works instead, while still letting the model be set.
+    window.framepilot = {
+      aiConfigGet: vi.fn(async () => ({
+        activeProvider: 'claude-agent-sdk' as const,
+        providers: [
+          {
+            name: 'claude-agent-sdk' as const,
+            label: 'Claude (your Claude Code login)',
+            model: 'claude-opus-5',
+            ready: true,
+          },
+        ],
+      })),
+    } as unknown as FramePilotBridge;
+
+    // The shared `open()` helper renders without AiConfigProvider, so it never reads the
+    // bridge — this case needs the desktop provider tree.
+    render(
+      <SettingsProvider>
+        <AiConfigProvider>
+          <SettingsDialog open onClose={() => {}} />
+        </AiConfigProvider>
+      </SettingsProvider>,
+    );
+    fireEvent.click(screen.getByText('AI'));
+    await screen.findByRole('button', { name: 'Claude (your Claude Code login) settings' });
+
+    // The ACTIVE provider's row is the one that opens, so its fields are the visible ones.
+    await waitFor(() => expect(document.getElementById('ai-model-claude-agent-sdk')).toBeTruthy());
+    expect(document.getElementById('ai-key-claude-agent-sdk')).toBeNull();
+    expect(screen.getByText('How this signs in')).toBeTruthy();
+    expect(screen.getAllByText('claude login').length).toBeGreaterThan(0);
+    // Suggestions exist, but the field stays free text so a newer model is still usable.
+    expect(document.getElementById('ai-model-options-claude-agent-sdk')).toBeTruthy();
+  });
+
   it('expands a collapsed provider row to reveal its fields (accordion)', () => {
     open();
     fireEvent.click(screen.getByText('AI'));

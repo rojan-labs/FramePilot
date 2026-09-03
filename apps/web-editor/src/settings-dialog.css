@@ -1257,3 +1257,31 @@
     width: 100%;
   }
 }
+
+/* Directions for a provider that authorises somewhere else. Numbered because the
+   steps happen in order and outside the app — a paragraph would hide that. */
+.settings-dialog .setting-steps {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  margin: 2px 0 0;
+  padding-left: 16px;
+  color: var(--text-secondary);
+  font-size: 10.5px;
+  line-height: 1.45;
+}
+
+.settings-dialog .setting-steps li {
+  padding-left: 2px;
+}
+
+.settings-dialog .setting-steps code,
+.settings-dialog .setting-hint code {
+  padding: 1px 4px;
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}
