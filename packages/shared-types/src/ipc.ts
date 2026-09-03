@@ -434,6 +434,7 @@ export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent';
 export type AiProviderName =
   | 'mock'
   | 'anthropic'
+  | 'claude-agent-sdk'
   | 'nvidia'
   | 'openrouter'
   | 'vercel-gateway'

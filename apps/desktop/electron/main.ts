@@ -1812,6 +1812,12 @@ function registerIpcHandlers(): void {
       deepseek: 'https://api.deepseek.com/v1',
     };
     const baseUrl = provider.baseUrl ?? defaults[providerName];
+    // `claude-agent-sdk` lands in the no-key branch, and that is correct rather than a
+    // gap: scene captioning runs in the Python sidecar, which authenticates with a key it
+    // is handed. That provider has no key to hand over — its credential is an OS-keychain
+    // login usable only by the `claude` binary in this process — so there is nothing to
+    // forward and captioning stays off. Do NOT "fix" this by adding it to the `ollama`
+    // exemption: that would send `apiKey: ''` and the sidecar would fail per media file.
     const captionProvider =
       providerName === 'mock' || (providerName !== 'ollama' && !provider.apiKey)
         ? undefined

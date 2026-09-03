@@ -85,6 +85,7 @@ class AIProvider(StrEnum):
     """
 
     ANTHROPIC = "anthropic"
+    CLAUDE_AGENT_SDK = "claude-agent-sdk"
     NVIDIA = "nvidia"
     OPENROUTER = "openrouter"
     VERCEL_GATEWAY = "vercel-gateway"

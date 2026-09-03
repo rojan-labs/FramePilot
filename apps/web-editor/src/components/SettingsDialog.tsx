@@ -233,15 +233,29 @@ const BASE_URL_PLACEHOLDER: Partial<Record<AiProviderName, string>> = {
   'openai-compatible': 'http://127.0.0.1:8000/v1',
 };
 
+/**
+ * Providers whose credential is a login the user already has, not a key they paste.
+ *
+ * These need no API-key field at all, and showing one is worse than showing nothing: it
+ * invites the user to hunt for a credential that does not exist for this provider, and a
+ * key typed into it would be stored and never sent anywhere.
+ */
+const LOGIN_PROVIDERS: readonly AiProviderName[] = ['claude-agent-sdk'];
+
 function providerStatus(
   info: AiProviderInfo | undefined,
   keyOptional: boolean,
   urlRequired: boolean,
+  signsInSeparately = false,
 ): {
   readonly text: string;
   readonly ready: boolean;
 } {
   const ready = info?.ready === true;
+  // Neither "Key saved" nor "No key" is true of a provider that signs in elsewhere.
+  // Whether the login is actually valid is not knowable from here without reading the OS
+  // keychain, so this states the arrangement rather than claiming a verdict.
+  if (signsInSeparately) return { text: 'Uses your Claude Code login', ready };
   // What is missing differs by provider, and "No key" would be actively misleading on
   // one that needs no key — it would send the user looking for a credential when the
   // server URL is the empty field.
@@ -280,6 +294,7 @@ function ProviderKeyField({
   const [keyDraft, setKeyDraft] = useState('');
   const showBaseUrl = BASE_URL_PROVIDERS.includes(name);
   const keyOptional = KEYLESS_PROVIDERS.includes(name);
+  const signsInSeparately = LOGIN_PROVIDERS.includes(name);
 
   const saveKey = (): void => {
     const value = keyDraft.trim();
@@ -322,6 +337,16 @@ function ProviderKeyField({
           />
         </div>
       ) : null}
+      {signsInSeparately ? (
+        <div className="setting-row setting-row--stack">
+          <span className="setting-hint" role="note">
+            No API key needed. This provider spends your Claude subscription through the
+            login the Claude CLI already stored. If a run stops and says it is not signed
+            in, run <code>claude login</code> in a terminal and start it again. Desktop
+            only — it starts the <code>claude</code> program, which a browser tab cannot do.
+          </span>
+        </div>
+      ) : (
       <div className="setting-row setting-row--stack">
         <label className="setting-field-label" htmlFor={`ai-key-${name}`}>
           {keyOptional ? 'API key (optional)' : 'API key'}
@@ -350,6 +375,7 @@ function ProviderKeyField({
           ) : null}
         </div>
       </div>
+      )}
       <div className="setting-row setting-row--stack">
         <label className="setting-field-label" htmlFor={`ai-model-${name}`}>
           Model
@@ -389,6 +415,7 @@ function ProviderAccordion({
     info,
     KEYLESS_PROVIDERS.includes(name),
     URL_REQUIRED_PROVIDERS.includes(name),
+    LOGIN_PROVIDERS.includes(name),
   );
   const [everExpanded, setEverExpanded] = useState(expanded);
   useEffect(() => {

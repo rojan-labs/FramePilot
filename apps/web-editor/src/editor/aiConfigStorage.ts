@@ -14,7 +14,17 @@ import type {
 } from '@framepilot/shared-types';
 import { migrateAsrProviderName, type UserAsrProviderName } from '@framepilot/ai-sdk';
 
-/** The real chat/reasoning providers. This roster is unrelated to STT choices. */
+/**
+ * The real chat/reasoning providers. This roster is unrelated to STT choices.
+ *
+ * `claude-agent-sdk` is deliberately ABSENT and must stay absent. It reaches Claude by
+ * spawning the `claude` binary, which a browser tab cannot do. Listing it here would make
+ * it selectable, and because it needs no API key it would then report `ready: true` while
+ * `buildBrowserProvider` quietly fell back to the offline mock — a provider that looks
+ * configured and answers with fixture text is a worse bug than one that is simply not
+ * offered. It stays in PROVIDER_META and `isProvider` below so a config written by the
+ * desktop app round-trips through this parser instead of being silently discarded.
+ */
 export const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
   'anthropic',
   'nvidia',
@@ -50,6 +60,7 @@ export const URL_REQUIRED_PROVIDERS: readonly AiProviderName[] = ['openai-compat
 /** Display label + default model per chat/reasoning provider. */
 export const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel: string }> = {
   anthropic: { label: 'Claude (Anthropic)', defaultModel: 'claude-opus-4-8' },
+  'claude-agent-sdk': { label: 'Claude (your Claude Code login)', defaultModel: 'claude-opus-5' },
   nvidia: { label: 'NVIDIA NIM', defaultModel: 'meta/llama-3.1-70b-instruct' },
   openrouter: { label: 'OpenRouter', defaultModel: 'openai/gpt-4o-mini' },
   'vercel-gateway': { label: 'Vercel AI Gateway', defaultModel: 'anthropic/claude-sonnet-4.6' },
@@ -93,6 +104,7 @@ const empty = (): BrowserAiConfig => ({
 const isProvider = (value: unknown): value is AiProviderName =>
   value === 'mock' ||
   value === 'anthropic' ||
+  value === 'claude-agent-sdk' ||
   value === 'nvidia' ||
   value === 'openrouter' ||
   value === 'vercel-gateway' ||

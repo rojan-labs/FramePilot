@@ -45,6 +45,7 @@ interface ProviderEntry {
 interface StoredConfig {
   activeProvider: AiProviderName;
   anthropic: ProviderEntry;
+  'claude-agent-sdk': ProviderEntry;
   nvidia: ProviderEntry;
   openrouter: ProviderEntry;
   'vercel-gateway': ProviderEntry;
@@ -70,6 +71,7 @@ interface StoredConfig {
 
 const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
   'anthropic',
+  'claude-agent-sdk',
   'nvidia',
   'openrouter',
   'vercel-gateway',
@@ -83,6 +85,14 @@ const REAL_PROVIDERS: readonly Exclude<AiProviderName, 'mock'>[] = [
 const KEYLESS_PROVIDERS: ReadonlySet<AiProviderName> = new Set<AiProviderName>([
   'ollama',
   'openai-compatible',
+  // Its credential is the user's Claude Code login, held in the OS keychain — there is no
+  // key to save and no field to fill. Readiness is therefore optimistic, exactly as it is
+  // for `ollama`: we report ready and let the first call say what is actually wrong. That
+  // is why the provider's auth error names `claude login` instead of pointing at a
+  // Settings field that does not exist for it. A real login probe is deliberately not
+  // done here — reading the keychain to answer a settings dialog would trigger an OS
+  // permission prompt on a screen the user only opened to look around.
+  'claude-agent-sdk',
 ]);
 
 const URL_REQUIRED_PROVIDERS: ReadonlySet<AiProviderName> = new Set<AiProviderName>([
@@ -93,6 +103,7 @@ const PROVIDER_NAMES: ReadonlySet<string> = new Set<AiProviderName>([...REAL_PRO
 
 const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel: string }> = {
   anthropic: { label: 'Claude (Anthropic)', defaultModel: 'claude-opus-4-8' },
+  'claude-agent-sdk': { label: 'Claude (your Claude Code login)', defaultModel: 'claude-opus-5' },
   nvidia: { label: 'NVIDIA NIM', defaultModel: 'meta/llama-3.1-70b-instruct' },
   openrouter: { label: 'OpenRouter', defaultModel: 'openai/gpt-4o-mini' },
   'vercel-gateway': { label: 'Vercel AI Gateway', defaultModel: 'anthropic/claude-sonnet-4.6' },
@@ -107,6 +118,7 @@ const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel: strin
 const emptyStored = (): StoredConfig => ({
   activeProvider: 'nvidia',
   anthropic: {},
+  'claude-agent-sdk': {},
   nvidia: {},
   openrouter: {},
   'vercel-gateway': {},
@@ -139,6 +151,7 @@ function parseStored(raw: string): StoredConfig {
         ? (active as AiProviderName)
         : 'nvidia',
     anthropic: readEntry(parsed['anthropic']),
+    'claude-agent-sdk': readEntry(parsed['claude-agent-sdk']),
     nvidia: readEntry(parsed['nvidia']),
     openrouter: readEntry(parsed['openrouter']),
     'vercel-gateway': readEntry(parsed['vercel-gateway']),
@@ -186,6 +199,7 @@ function cloneStored(config: StoredConfig): StoredConfig {
   return {
     activeProvider: config.activeProvider,
     anthropic: cloneEntry(config.anthropic),
+    'claude-agent-sdk': cloneEntry(config['claude-agent-sdk']),
     nvidia: cloneEntry(config.nvidia),
     openrouter: cloneEntry(config.openrouter),
     'vercel-gateway': cloneEntry(config['vercel-gateway']),
