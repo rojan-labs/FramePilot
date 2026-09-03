@@ -263,9 +263,20 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
     return /^m(?:in(?:ute)?s?)?$/.test(unit) ? amount * 60 : amount;
   };
   const units = '(s|sec|secs|second|seconds|m|min|mins|minute|minutes)';
+  // `highlight`, `supercut`, `teaser` and `trailer` are deliverable nouns exactly as
+  // `montage` and `reel` are — a request naming one has named the thing being made.
+  // `best` carries the commonest idiom of all ("the best 60 seconds of this"), where the
+  // deliverable is named by the length itself and no other anchor appears anywhere.
+  const deliverables = 'video|montage|reel|short|timeline|highlight|supercut|teaser|trailer';
   const anchors =
-    'full|complete|entire|video|montage|reel|short|timeline|duration|length|runtime|run time|' +
-    'make it|create|build|produce|export';
+    `full|complete|entire|${deliverables}|duration|length|runtime|run time|` +
+    'make it|create|build|produce|export|best|' +
+    // "Cut this down to 45 seconds" states a target as plainly as any phrasing here, and
+    // was read as nothing. The OBJECT is what makes it safe to read: `this`, `it` or the
+    // sequence itself is the whole deliverable, whereas "trim the first clip down to 5s"
+    // is about one clip and must stay unread — which is why the bare preposition is not an
+    // anchor on its own.
+    `(?:cut|trim|shorten|tighten|bring|get)\\s+(?:this|it|the (?:${deliverables}))\\s+down to`;
   // A candidate survives only if it is neither the far end of a range nor qualified
   // per-clip. Scanning rather than taking the first hit: the brief that broke this had a
   // dozen pacing figures before any real length, and stopping at the first match would
@@ -312,7 +323,7 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
   const trailingRange = firstDeliverableLength(
     new RegExp(
       `\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b` +
-        `.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+        `.{0,28}?\\b(?:${deliverables}|long)\\b`,
       'gd',
     ),
     2,
@@ -320,7 +331,7 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
   if (trailingRange !== undefined) return trailingRange;
   return firstDeliverableLength(
     new RegExp(
-      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:${deliverables}|long)\\b`,
       'gd',
     ),
   );

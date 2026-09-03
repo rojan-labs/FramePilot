@@ -62,6 +62,32 @@ describe('explicitDurationTargetSeconds', () => {
     expect(explicitDurationTargetSeconds('Move this clip to 12s')).toBeUndefined();
   });
 
+  it('reads the deliverable nouns people actually use, and the bare "best N" idiom', () => {
+    // The golden set's own podcast case stated its length as plainly as a request can and
+    // yielded nothing, so `duration_target` reported "skipped — no duration target was set"
+    // and a run that answered a 60-second brief with 36 seconds completed as a success.
+    expect(
+      explicitDurationTargetSeconds(
+        'Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.',
+      ),
+    ).toBe(60);
+    // No anchor anywhere: the length itself names the deliverable.
+    expect(explicitDurationTargetSeconds('Give me the best 60 seconds.')).toBe(60);
+    expect(explicitDurationTargetSeconds('Build a 20-35 second teaser')).toBe(27.5);
+    expect(explicitDurationTargetSeconds('Make a 30 second supercut')).toBe(30);
+  });
+
+  it('reads "cut this down to N" only when the object is the whole deliverable', () => {
+    expect(explicitDurationTargetSeconds('Cut this down to 45 seconds.')).toBe(45);
+    expect(explicitDurationTargetSeconds('Shorten it down to 2 minutes.')).toBe(120);
+    expect(explicitDurationTargetSeconds('Bring the video down to 90s')).toBe(90);
+    // …and never when it is one clip. This is why the bare preposition is not an anchor.
+    expect(explicitDurationTargetSeconds('Trim the first clip down to 5 seconds.')).toBeUndefined();
+    expect(
+      explicitDurationTargetSeconds('Trim the first clip so it ends at exactly 10 seconds.'),
+    ).toBeUndefined();
+  });
+
   it('regression: a montage brief\u2019s pacing spec is not the deliverable length', () => {
     // Run `f014f3ac`. `build` is in the anchor list because people say "build me a
     // 30-second reel" — but it is also a PACING PHASE heading, and the lazy gap then
