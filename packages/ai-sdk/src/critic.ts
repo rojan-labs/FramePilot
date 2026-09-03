@@ -1040,8 +1040,7 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
   const shortfalls: string[] = [];
   for (const treatment of wanted) {
     const carried = picture.filter(
-      (clip) =>
-        clipCarries(clip, treatment) || (treatment === 'crop' && alreadyFills.has(clip.id)),
+      (clip) => clipCarries(clip, treatment) || (treatment === 'crop' && alreadyFills.has(clip.id)),
     ).length;
     if (carried < picture.length) {
       shortfalls.push(
@@ -2110,9 +2109,7 @@ const LOOP_MIN_SHARE = 0.5;
  * @param words - The transcript, in time order.
  * @returns The loop, or `undefined` when the transcript does not look fabricated.
  */
-export function detectTranscriptLoop(
-  words: readonly TranscriptWord[],
-): TranscriptLoop | undefined {
+export function detectTranscriptLoop(words: readonly TranscriptWord[]): TranscriptLoop | undefined {
   if (words.length < LOOP_MIN_REPEATS * 2) return undefined;
   const span = words[words.length - 1]!.end - words[0]!.start;
   if (!(span > 0)) return undefined;
@@ -2121,13 +2118,19 @@ export function detectTranscriptLoop(
   // longer window would also match a multiple of the true one.
   for (let size = 1; size <= 12; size++) {
     for (let start = 0; start + size * LOOP_MIN_REPEATS <= words.length; start++) {
-      const phrase = words.slice(start, start + size).map(norm).join(' ');
+      const phrase = words
+        .slice(start, start + size)
+        .map(norm)
+        .join(' ');
       if (!phrase) continue;
       let repeats = 1;
       let index = start + size;
       while (
         index + size <= words.length &&
-        words.slice(index, index + size).map(norm).join(' ') === phrase
+        words
+          .slice(index, index + size)
+          .map(norm)
+          .join(' ') === phrase
       ) {
         repeats++;
         index += size;
@@ -2137,7 +2140,10 @@ export function detectTranscriptLoop(
       const share = seconds / span;
       if (share < LOOP_MIN_SHARE) continue;
       return {
-        phrase: words.slice(start, start + size).map((w) => w.word.trim()).join(' '),
+        phrase: words
+          .slice(start, start + size)
+          .map((w) => w.word.trim())
+          .join(' '),
         repeats,
         seconds,
         share,

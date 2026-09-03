@@ -320,8 +320,20 @@ describe('treatment coverage', () => {
     makeProject({
       resolution: { width: 1080, height: 1920 },
       assets: [
-        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
-        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
       ],
       timeline: {
         tracks: [
@@ -329,8 +341,29 @@ describe('treatment coverage', () => {
             id: 'v',
             type: 'video',
             clips: [
-              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], ...(cropLandscape ? { crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } } : {}) },
-              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                ...(cropLandscape ? { crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } } : {}),
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
             ],
           },
         ],
@@ -410,8 +443,20 @@ describe('reframe coverage', () => {
     const project = makeProject({
       resolution: { width: 1080, height: 1920 },
       assets: [
-        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
-        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
       ],
       timeline: {
         tracks: [
@@ -419,8 +464,29 @@ describe('reframe coverage', () => {
             id: 'v',
             type: 'video',
             clips: [
-              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } },
-              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 },
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
             ],
           },
         ],
@@ -438,8 +504,20 @@ describe('reframe coverage', () => {
     const project = makeProject({
       resolution: { width: 1080, height: 1920 },
       assets: [
-        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
-        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
       ],
       timeline: {
         tracks: [
@@ -447,8 +525,29 @@ describe('reframe coverage', () => {
             id: 'v',
             type: 'video',
             clips: [
-              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
-              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], crop: { x: 0, y: 0.2, width: 1, height: 0.6 } },
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                crop: { x: 0, y: 0.2, width: 1, height: 0.6 },
+              },
             ],
           },
         ],
@@ -1635,7 +1734,6 @@ describe('reconcileInheritedFailures', () => {
     expect(out.summary).toBe('1 check(s) failed, 1 warning(s) (1 inherited from the footage).');
   });
 });
-
 
 describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
   /** `n` repeats of `phrase`, one word per `step` seconds, starting at `from`. */

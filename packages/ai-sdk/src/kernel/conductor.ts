@@ -2613,7 +2613,8 @@ export function failedAfterApplyMessage(
     // first thing that is wrong, and a run that fails six checks would otherwise bury it.
     const shown = why.slice(0, MAX_CARD_REASONS).map((r) => (r.endsWith('.') ? r : `${r}.`));
     const rest = why.length - shown.length;
-    const more = rest > 0 ? ` (${String(rest)} more check${rest === 1 ? '' : 's'} also failed.)` : '';
+    const more =
+      rest > 0 ? ` (${String(rest)} more check${rest === 1 ? '' : 's'} also failed.)` : '';
     reason = `: the self-check still fails — ${shown.join(' ')}${more}`;
   }
   return `${applied}${reason} The changes are on your timeline; undo reverts them, or ask for the specific fix.`;
