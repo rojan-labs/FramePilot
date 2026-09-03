@@ -320,12 +320,75 @@ describe('reframe coverage', () => {
     // Two captured runs failed exactly this way: the editor asked for a full-bleed vertical
     // cut, the agent reframed the opening shots, stopped, and the run reported "All checks
     // passed" over 9 reframed and 38 letterboxed shots.
+    // Every clip here comes off ONE unmeasured asset, so nobody can measure the shape —
+    // but the run itself cropped three of them, which is its own evidence that the source
+    // does not fill the frame, and the seven it skipped will letterbox beside them.
     const report = critique(verticalCut(10, 3), {});
     const found = report.checks.find((c) => c.id === 'reframe_coverage');
     expect(found).toMatchObject({ status: 'fail' });
-    expect(found?.detail).toContain('3 of 10');
+    // The count names the clips that are WRONG (7), not the ones already right (3): it is
+    // the number an editor has to act on.
+    expect(found?.detail).toContain('7 of 10');
     expect(found?.detail).toContain('c3');
     expect(report.ok).toBe(false);
+  });
+
+  it('passes a mixed-source cut where the uncropped clips already fill the frame', () => {
+    // The montage failure this check caused: a 9:16 montage pulling from a 4K landscape
+    // camera and one phone clip shot vertically. `add_clip` crops the landscape sources and
+    // deliberately leaves the vertical one bare — `coverCropForFrame` returns undefined for
+    // a source no wider than the frame — and the run was failed for that single correct
+    // clip, after thirty edits the rubric scored perfect.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
+        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } },
+              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
+            ],
+          },
+        ],
+      },
+    } as never);
+    const report = critique(project, {});
+    expect(report.checks.find((c) => c.id === 'reframe_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('still fails when a measured landscape clip is left uncropped beside a fitting one', () => {
+    // The same shape, except the landscape clip was never cropped: that one really does
+    // render with bars, and measurement — not the presence of a crop elsewhere — says so.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
+        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
+              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], crop: { x: 0, y: 0.2, width: 1, height: 0.6 } },
+            ],
+          },
+        ],
+      },
+    } as never);
+    const found = critique(project, {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('c0');
   });
 
   it('passes when every picture clip is reframed', () => {

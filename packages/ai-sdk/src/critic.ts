@@ -559,6 +559,38 @@ function aspectMismatchClipIds(project: Project, picture: readonly Clip[]): read
     .map((clip) => clip.id);
 }
 
+/**
+ * The picture clips that genuinely NEED a cover crop to fill the frame.
+ *
+ * The criterion is "fills the frame", not "carries a crop", and the two are not the same
+ * clip set. `add_clip`'s placer crops only a source WIDER than the frame
+ * (`coverCropForFrame` returns undefined for anything as narrow or narrower — padding a 4:5
+ * still into 9:16 is an editorial choice it will not make silently), so a source shot at
+ * the sequence's own shape is correctly left bare. Asking instead whether every clip has a
+ * crop failed a run for the one clip that needed none.
+ *
+ * Unmeasured sources are excluded here and handled by the `warn` branch above: absent
+ * dimensions mean unknown, never "fine".
+ */
+function needsCoverCropClipIds(project: Project, picture: readonly Clip[]): readonly string[] {
+  const target = project.resolution.width / project.resolution.height;
+  const aspects = new Map<string, number>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+      aspects.set(asset.id, width / height);
+    }
+  }
+  return picture
+    .filter((clip) => {
+      const aspect = aspects.get(clip.assetId);
+      // Same comparison as `coverCropForFrame`, tolerance included, so the check and the
+      // placer cannot disagree about which clips are supposed to end up cropped.
+      return aspect !== undefined && aspect - target > 1e-3;
+    })
+    .map((clip) => clip.id);
+}
+
 /** Up to three ids and then a count, the phrasing every naming detail here uses. */
 function namedIds(ids: readonly string[]): string {
   const named = ids.slice(0, 3);
@@ -1092,16 +1124,44 @@ function checkReframeCoverage(project: Project): CriticCheck {
       `All ${String(picture.length)} picture clips are reframed.`,
     );
   }
-  const missing = picture.filter((clip) => clip.crop === undefined);
-  const named = missing.slice(0, 3).map((clip) => clip.id);
-  const rest = missing.length - named.length;
+  // A clip with no crop is only MISSING one for one of two reasons, and "some clips carry a
+  // crop and others do not" is neither of them. A partially reframed timeline is the normal
+  // result of mixing sources: a montage pulling from a 4K landscape camera and a phone shot
+  // vertically ends with the landscape clips cropped and the vertical one bare, and that is
+  // correct. Reading "reframed" as "has a crop" failed exactly that montage over the one
+  // clip that already filled the frame — thirty correct edits reported to the editor as a
+  // run that could not finish.
+  const uncropped = picture.filter((clip) => clip.crop === undefined);
+  // 1. Measured wider than the frame: it will letterbox, whatever else is on the timeline.
+  const needsCrop = new Set(needsCoverCropClipIds(project, picture));
+  // 2. Unmeasured, but a SIBLING clip off the same asset is cropped. Nobody can measure the
+  //    source, yet the run itself decided that source needs a crop to fill the frame, so the
+  //    clips it skipped will letterbox next to the ones it fixed. This is the captured
+  //    failure the check was written for: an agent reframed the opening shots and stopped.
+  const croppedAssets = new Set(
+    picture.filter((clip) => clip.crop !== undefined).map((clip) => clip.assetId),
+  );
+  const missing = uncropped
+    .filter((clip) => needsCrop.has(clip.id) || croppedAssets.has(clip.assetId))
+    .map((clip) => clip.id);
+  if (missing.length === 0) {
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'pass',
+      `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed; ` +
+        `the rest already fill the ${String(width)}x${String(height)} frame.`,
+    );
+  }
+  // The count named is the number of clips that are WRONG, not the number already right:
+  // it is the one an editor has to act on.
   return check(
     'reframe_coverage',
     'Reframing is consistent',
     'fail',
-    `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed, so ` +
-      `${String(missing.length)} will not match: ${named.join(', ')}` +
-      `${rest > 0 ? `, plus ${String(rest)} more` : ''}.`,
+    `${String(missing.length)} of ${String(picture.length)} picture clips need a crop to fill ` +
+      `the ${String(width)}x${String(height)} frame and have none, so they render with bars: ` +
+      `${namedIds(missing)}. Crop each to fill the frame.`,
   );
 }
 
