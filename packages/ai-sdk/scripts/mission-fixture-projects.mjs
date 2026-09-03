@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 
 import { parseProject, SCHEMA_VERSION } from '@framepilot/timeline-schema';
 import { normalizeOperationTime } from '@framepilot/editor-core';
+import { detectTranscriptLoop } from '../dist/critic.js';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
@@ -215,6 +216,20 @@ async function buildProject(def) {
     const resp = await post('/transcribe', { project: draft, asset_id: asset.id, provider: 'whisper-cli', use_cache: true, project_id: def.id });
     transcript = resp.words.map((w) => ({ word: String(w.word ?? w.text ?? ''), start: Number(w.start), end: Number(w.end) })).filter((w) => w.word.length > 0 && w.end >= w.start);
     process.stdout.write(` ${transcript.length} words in ${((Date.now() - t0) / 1000).toFixed(0)}s\n`);
+    // Say so at BUILD time when the transcript is mostly one phrase repeated. Whisper loops
+    // over quiet audio and the result is indistinguishable from speech downstream, so a
+    // fabricated transcript otherwise becomes the silent ground truth for every
+    // transcript-grounded case measured against this fixture. `mission-podcast` is 92% one
+    // sentence, and nothing said so until a run refused the case and was scored as failing.
+    const loop = detectTranscriptLoop(transcript);
+    if (loop) {
+      process.stdout.write(
+        `  WARNING: this transcript repeats "${loop.phrase}" ${loop.repeats} times back to back, ` +
+          `covering ${loop.seconds.toFixed(0)}s (${Math.round(loop.share * 100)}% of it).\n` +
+          `  That is speech recognition looping over quiet audio, not speech. Any case that ` +
+          `selects or cuts on words in this fixture is measuring a fabrication.\n`,
+      );
+    }
   }
   const project = parseProject({
     id: def.id,

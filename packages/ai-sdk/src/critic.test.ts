@@ -13,6 +13,7 @@ import {
   INHERITED_PREFIX,
   critique,
   explicitDurationTarget,
+  detectTranscriptLoop,
   reconcileInheritedFailures,
   explicitDurationTargetSeconds,
   repairTrailingSoundOverrun,
@@ -576,6 +577,8 @@ describe('critique — shape', () => {
       'black_frames',
       'missing_assets',
       'export_settings',
+      // Whether the words the transcript-reading checks below are about were ever spoken.
+      'transcript_reliable',
       // Editorial checks (context-management Phase 4). The battery above answers "is the
       // deliverable well-formed?" and not one of it answers "is this a good cut?"; these
       // six do, and they run on every review rather than behind a flag.
@@ -1630,5 +1633,71 @@ describe('reconcileInheritedFailures', () => {
     const out = reconcileInheritedFailures(before, after);
     expect(out.ok).toBe(false);
     expect(out.summary).toBe('1 check(s) failed, 1 warning(s) (1 inherited from the footage).');
+  });
+});
+
+
+describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
+  /** `n` repeats of `phrase`, one word per `step` seconds, starting at `from`. */
+  const repeated = (phrase: string, n: number, from = 0, step = 0.3) => {
+    const parts = phrase.split(' ');
+    const out: { word: string; start: number; end: number }[] = [];
+    let t = from;
+    for (let i = 0; i < n; i++) {
+      for (const word of parts) {
+        out.push({ word, start: t, end: t + step });
+        t += step;
+      }
+    }
+    return out;
+  };
+
+  it('flags a phrase looping over most of the recording', () => {
+    // `mission-podcast`: real speech stops around 30s and whisper then emits one sentence
+    // 397 times to 575s, with plausible timings, over quiet audio.
+    const words = [
+      ...repeated('meeting at the bottom of this cliff', 3),
+      ...repeated("i'll try to follow you later", 200, 60),
+    ];
+    const loop = detectTranscriptLoop(words);
+    expect(loop).toBeDefined();
+    expect(loop?.repeats).toBe(200);
+    expect(loop?.share).toBeGreaterThan(0.5);
+  });
+
+  it('leaves a real transcript alone', () => {
+    expect(
+      detectTranscriptLoop([
+        ...repeated('the first thing to understand here', 1),
+        ...repeated('and that changes how we think about it', 1, 10),
+        ...repeated('so the answer is usually no', 1, 20),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('does not flag a chorus, which repeats without taking over', () => {
+    // A refrain repeats often and still leaves most of the song to the verses. Both
+    // conditions have to hold, which is what keeps a song, a chant or a drill out of this.
+    const words = [
+      ...repeated('some verse words that carry the song along here', 12),
+      ...repeated('we will never stop', 9, 200),
+      ...repeated('more verse words that carry the song along again', 12, 260),
+    ];
+    expect(detectTranscriptLoop(words)).toBeUndefined();
+  });
+
+  it('does not flag a phrase repeated only a few times', () => {
+    expect(detectTranscriptLoop(repeated('say it again', 4))).toBeUndefined();
+  });
+
+  it('warns without failing the run — the edit may still be the best available', () => {
+    const project = makeProject({
+      transcript: repeated("i'll try to follow you later", 120),
+    } as never);
+    const report = critique(project, {});
+    const found = report.checks.find((c) => c.id === 'transcript_reliable');
+    expect(found).toMatchObject({ status: 'warn' });
+    expect(found?.detail).toContain('do not select or cut on them');
+    expect(report.ok).toBe(true);
   });
 });

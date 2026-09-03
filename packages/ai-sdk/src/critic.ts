@@ -24,7 +24,7 @@ import {
   listEditBoundaries,
   mapTranscript,
 } from '@framepilot/editor-core';
-import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
 import {
   COVERAGE_LABEL,
@@ -57,6 +57,7 @@ export type CheckId =
   | 'vision_review'
   | 'missing_assets'
   | 'export_settings'
+  | 'transcript_reliable'
   // Editorial checks (context-management Phase 4). Everything above answers "is the
   // deliverable well-formed?"; these answer "is this a good cut?".
   | 'jump_cut'
@@ -2071,6 +2072,115 @@ export function reconcileInheritedFailures(
   return { checks, ok, summary };
 }
 
+/** A stretch of transcript that is one phrase repeated — the ASR hallucination signature. */
+export interface TranscriptLoop {
+  /** The repeated phrase, as transcribed. */
+  readonly phrase: string;
+  /** How many times it repeats back to back. */
+  readonly repeats: number;
+  /** Seconds of the recording the repetition covers. */
+  readonly seconds: number;
+  /** That span as a share of the transcript's own span, 0..1. */
+  readonly share: number;
+}
+
+/** Repeats before a phrase is a hallucination rather than a chorus. */
+const LOOP_MIN_REPEATS = 8;
+/** …and the share of the transcript it must cover, so a real refrain is not flagged. */
+const LOOP_MIN_SHARE = 0.5;
+
+/**
+ * Is this transcript mostly one phrase repeated — i.e. did ASR hallucinate?
+ *
+ * Whisper's best-known failure mode is a loop: over quiet or music-only audio it emits one
+ * sentence again and again, with plausible timings, and nothing downstream can tell those
+ * words from spoken ones. `mission-podcast` is 2431 words of which 2384 — 92%, from 21.7s
+ * to 575.5s — are "I'll try to follow you later." repeated 397 times over a clip whose real
+ * speech stops around 30s.
+ *
+ * That matters well beyond one fixture. The transcript is what grounds a highlight
+ * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts
+ * confidently on words nobody said, and every check that reads the transcript — `dead_air`,
+ * `word_severed` — agrees with it. Detecting the loop is what lets the run say so instead.
+ *
+ * Deliberately conservative, because a chorus, a chant and a drill are all legitimately
+ * repetitive: the phrase must repeat back to back at least {@link LOOP_MIN_REPEATS} times AND
+ * cover at least half the transcript's span. Real speech does not do both.
+ *
+ * @param words - The transcript, in time order.
+ * @returns The loop, or `undefined` when the transcript does not look fabricated.
+ */
+export function detectTranscriptLoop(
+  words: readonly TranscriptWord[],
+): TranscriptLoop | undefined {
+  if (words.length < LOOP_MIN_REPEATS * 2) return undefined;
+  const span = words[words.length - 1]!.end - words[0]!.start;
+  if (!(span > 0)) return undefined;
+  const norm = (w: TranscriptWord): string => w.word.trim().toLowerCase();
+  // Try each plausible phrase length, shortest first: the loop's period is unknown, and a
+  // longer window would also match a multiple of the true one.
+  for (let size = 1; size <= 12; size++) {
+    for (let start = 0; start + size * LOOP_MIN_REPEATS <= words.length; start++) {
+      const phrase = words.slice(start, start + size).map(norm).join(' ');
+      if (!phrase) continue;
+      let repeats = 1;
+      let index = start + size;
+      while (
+        index + size <= words.length &&
+        words.slice(index, index + size).map(norm).join(' ') === phrase
+      ) {
+        repeats++;
+        index += size;
+      }
+      if (repeats < LOOP_MIN_REPEATS) continue;
+      const seconds = words[index - 1]!.end - words[start]!.start;
+      const share = seconds / span;
+      if (share < LOOP_MIN_SHARE) continue;
+      return {
+        phrase: words.slice(start, start + size).map((w) => w.word.trim()).join(' '),
+        repeats,
+        seconds,
+        share,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** The transcript grounding every word-level edit is not obviously fabricated. */
+function checkTranscriptReliable(project: Project): CriticCheck {
+  const words = project.transcript;
+  if (words.length === 0) {
+    return check(
+      'transcript_reliable',
+      'Transcript looks real',
+      'skipped',
+      'No transcript to check.',
+    );
+  }
+  const loop = detectTranscriptLoop(words);
+  if (loop === undefined) {
+    return check(
+      'transcript_reliable',
+      'Transcript looks real',
+      'pass',
+      `${String(words.length)} transcribed word(s), no repetition loop.`,
+    );
+  }
+  // A WARNING, never a failure. The transcript may be wrong but the edit built on it can
+  // still be the best available, and failing the run would leave it with nothing to do —
+  // whereas saying so lets it stop grounding cuts on words nobody said.
+  return check(
+    'transcript_reliable',
+    'Transcript looks real',
+    'warn',
+    `The transcript repeats "${loop.phrase}" ${String(loop.repeats)} times back to back, ` +
+      `covering ${round(loop.seconds)}s — ${String(Math.round(loop.share * 100))}% of it. That is ` +
+      'the signature of speech recognition looping over quiet audio, not of speech. Treat ' +
+      'word timings in that stretch as unreliable, and do not select or cut on them.',
+  );
+}
+
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
   // Every editorial threshold is stated in frames, so every editorial check needs the
@@ -2089,6 +2199,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     ...(options.vision === undefined ? [] : [checkVisionReview(options)]),
     checkMissingAssets(project),
     checkExportSettings(project, options),
+    checkTranscriptReliable(project),
     // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
     checkJumpCut(project, fps),
     checkWordSevered(project, fps),
