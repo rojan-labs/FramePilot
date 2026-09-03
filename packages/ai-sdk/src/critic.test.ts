@@ -287,6 +287,47 @@ describe('treatment coverage', () => {
       critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage'),
     ).toMatchObject({ status: 'skipped' });
   });
+
+  /** A 9:16 project holding one landscape clip and one already-vertical clip. */
+  const mixedSourceCut = (cropLandscape: boolean): Project =>
+    makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'land', path: 'media/a.mov', kind: 'video', durationSeconds: 40, media: { width: 3840, height: 2160 } },
+        { id: 'port', path: 'media/b.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 1920 } },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              { id: 'c0', assetId: 'land', trackId: 'v', start: 0, end: 5, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [], ...(cropLandscape ? { crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } } : {}) },
+              { id: 'c1', assetId: 'port', trackId: 'v', start: 5, end: 10, sourceStart: 0, sourceEnd: 5, effects: [], keyframes: [] },
+            ],
+          },
+        ],
+      },
+    } as never);
+
+  it('counts a clip that already fills the frame as satisfying a "no black bars" demand', () => {
+    // `crop` coverage is parsed from "reframe / fill the frame / no black bars", so it is
+    // the framing requirement — and a source already no wider than the frame meets it while
+    // carrying no crop, which is exactly what `add_clip`'s placer leaves behind.
+    expect(
+      critique(mixedSourceCut(true), { coverage: ['crop'] }).checks.find(
+        (c) => c.id === 'treatment_coverage',
+      ),
+    ).toMatchObject({ status: 'pass' });
+  });
+
+  it('still fails the demand when the landscape clip is the one left uncropped', () => {
+    const found = critique(mixedSourceCut(false), { coverage: ['crop'] }).checks.find(
+      (c) => c.id === 'treatment_coverage',
+    );
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('1 of 2');
+  });
 });
 
 describe('reframe coverage', () => {

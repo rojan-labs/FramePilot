@@ -560,6 +560,31 @@ function aspectMismatchClipIds(project: Project, picture: readonly Clip[]): read
 }
 
 /**
+ * Picture clips whose MEASURED source is already no wider than the frame, so they fill it
+ * with no crop at all. Unmeasured sources are deliberately absent: "we cannot see the
+ * shape" is not "the shape is fine".
+ */
+function fillsFrameUncroppedClipIds(
+  project: Project,
+  picture: readonly Clip[],
+): ReadonlySet<string> {
+  const target = project.resolution.width / project.resolution.height;
+  const aspects = new Map<string, number>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+      aspects.set(asset.id, width / height);
+    }
+  }
+  const ids = new Set<string>();
+  for (const clip of picture) {
+    const aspect = aspects.get(clip.assetId);
+    if (aspect !== undefined && aspect - target <= 1e-3) ids.add(clip.id);
+  }
+  return ids;
+}
+
+/**
  * The picture clips that genuinely NEED a cover crop to fill the frame.
  *
  * The criterion is "fills the frame", not "carries a crop", and the two are not the same
@@ -993,9 +1018,19 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
   if (picture.length === 0) {
     return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
   }
+  // A `crop` demand is the "fill the frame / no black bars" requirement (see the treatment
+  // readers in `acceptance.ts`), not a creative punch-in — so a clip whose source is already
+  // no wider than the frame SATISFIES it while carrying no crop, exactly as `add_clip`'s
+  // placer intends. Counting the crop rather than the framing failed mixed-source cuts for
+  // the one clip that needed nothing done to it. Unmeasured sources still need a crop: the
+  // request was explicit, and an unverifiable shape is not a satisfied one.
+  const alreadyFills = fillsFrameUncroppedClipIds(project, picture);
   const shortfalls: string[] = [];
   for (const treatment of wanted) {
-    const carried = picture.filter((clip) => clipCarries(clip, treatment)).length;
+    const carried = picture.filter(
+      (clip) =>
+        clipCarries(clip, treatment) || (treatment === 'crop' && alreadyFills.has(clip.id)),
+    ).length;
     if (carried < picture.length) {
       shortfalls.push(
         `${COVERAGE_LABEL[treatment]}: ${String(carried)} of ${String(picture.length)} clips`,
