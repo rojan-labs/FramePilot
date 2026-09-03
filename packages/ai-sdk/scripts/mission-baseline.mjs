@@ -30,7 +30,7 @@
  *   node scripts/mission-baseline.mjs --replay --label baseline  # re-score from recordings
  *   node scripts/mission-baseline.mjs --list
  */
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -487,7 +487,40 @@ async function detectedBeatTimes(project, assetId) {
   }
 }
 
+
+/**
+ * Forget what earlier RUNS of this case decided, so three runs are three samples.
+ *
+ * The agent's Memory Store lives beside the project — `.framepilot-derived/<id>/memory/` —
+ * and the runner records every answered question into it as a standing decision. The
+ * fixture project ids are fixed, so run 1's decisions were still there for run 2, and run
+ * 1's and 2's for run 3.
+ *
+ * That is not a subtle contamination. On `refine-tighten` the scripted operator's default
+ * ("No answer — stop here and make no change") was written as "Follow this on later turns
+ * unless they change it", and run 3 opened by refusing to edit at all: "the editor has now
+ * been asked three separate times … and each time chose not to answer". The agent was
+ * reading its notes correctly. `podcast-highlight-60s` failed the same way — two of three
+ * runs declined, citing a decision the editor had never made in that run.
+ *
+ * Memory WITHIN a run is left alone: `memory-captions` exists to measure exactly that, and
+ * every turn of a case shares one project directory by design. Only the boundary between
+ * runs is cleared, which is the boundary that is supposed to be a fresh start.
+ *
+ * @param {string} projectId - The fixture project the case runs against.
+ */
+function forgetPriorRunMemory(projectId) {
+  if (REPLAY) return;
+  const dir = join(FIXTURES, '.framepilot-derived', projectId, 'memory');
+  // The whole tier directory: `decisions.md` is what carried across, but a session note or
+  // any tier added later would carry the same way, and an allowlist would silently miss it.
+  // Everything here is derived and rebuilt on demand; the analysis caches live elsewhere
+  // (`sidecars/`, `brain.sqlite`) and are deliberately untouched, so this costs no re-billing.
+  rmSync(dir, { recursive: true, force: true });
+}
+
 async function runCase(goldenCase, run) {
+  forgetPriorRunMemory(goldenCase.project);
   const { project: base, brollAssetIds, musicAssetId } = REPLAY ? composeProjectForReplay(goldenCase) : composeProject(goldenCase);
   // Only the beat scenarios need it, and only they pay for the analysis.
   const beatTimes = goldenCase.turns.some((t) => t.beatPeriodSeconds !== undefined)
