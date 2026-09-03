@@ -48,6 +48,15 @@ export interface EditorSettings {
   readonly transcribeOnImport: boolean;
   readonly showAiUsageDetails: boolean;
   /**
+   * Keep a local record of what each run used, for Settings → Usage & Spend.
+   *
+   * On by default: the history never leaves this machine, and a spend screen that only
+   * starts counting once someone finds the switch is useless on the day they need it —
+   * the question "where did my money go last month?" cannot be answered retroactively.
+   * Turning it off stops new records; the panel's Clear history removes what exists.
+   */
+  readonly trackUsageHistory: boolean;
+  /**
    * The run budget (goal.md Workstream D): every agent run stops once it has spent
    * this much money or this much wall clock.
    *
@@ -97,6 +106,7 @@ export const DEFAULT_SETTINGS: EditorSettings = {
   asrProvider: DEFAULT_ASR_PROVIDER,
   transcribeOnImport: false,
   showAiUsageDetails: false,
+  trackUsageHistory: true,
   // The SDK owns what "unbudgeted" means; the editor only ever overrides it.
   maxRunUsd: DEFAULT_MAX_RUN_USD,
   maxRunMinutes: DEFAULT_MAX_RUN_MINUTES,
@@ -164,6 +174,8 @@ export function mergeSettings(partial: unknown): EditorSettings {
     asrProvider: migrateAsrProviderName(p.asrProvider),
     transcribeOnImport: p.transcribeOnImport === true,
     showAiUsageDetails: p.showAiUsageDetails === true,
+    // Defaults ON, so an absent stored value must not read as false.
+    trackUsageHistory: p.trackUsageHistory !== false,
     maxRunUsd: coerceRunBudget(
       p.maxRunUsd,
       DEFAULT_SETTINGS.maxRunUsd,

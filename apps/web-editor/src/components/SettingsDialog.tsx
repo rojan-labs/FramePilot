@@ -69,6 +69,7 @@ import {
   ICON_SIZE,
   Keyboard,
   HardDrive,
+  Receipt,
   Monitor,
   Play,
   RotateCcw,
@@ -79,6 +80,7 @@ import {
 } from './icons.js';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { CapabilityPackStorageSettings } from './CapabilityPackStorageSettings.js';
+import { UsageAndSpend } from './UsageAndSpend.js';
 import { getBridge } from '../editor/bridge.js';
 
 export type SettingsSection =
@@ -86,6 +88,7 @@ export type SettingsSection =
   | 'editing'
   | 'playback'
   | 'ai'
+  | 'usage'
   | 'storage'
   | 'memory'
   | 'shortcuts';
@@ -135,6 +138,13 @@ const SECTIONS: readonly SectionMeta[] = [
     group: 'Intelligence',
     icon: Sparkles,
     description: 'Providers and media intelligence',
+  },
+  {
+    id: 'usage',
+    label: 'Usage & Spend',
+    group: 'Intelligence',
+    icon: Receipt,
+    description: 'What your AI edits cost, and where it went',
   },
   {
     id: 'memory',
@@ -1883,6 +1893,14 @@ function SettingsDialogContent({
               ) : null}
 
               {section === 'ai' ? <AiSettings {...(projectId ? { projectId } : {})} /> : null}
+              {section === 'usage' ? (
+                <UsageAndSpend
+                  trackHistory={settings.trackUsageHistory}
+                  onTrackHistoryChange={(trackUsageHistory) => update({ trackUsageHistory })}
+                  maxRunUsd={settings.maxRunUsd}
+                  onOpenAiSettings={() => setSection('ai')}
+                />
+              ) : null}
               {section === 'storage' ? <CapabilityPackStorageSettings /> : null}
               {section === 'memory' ? <MemorySettings /> : null}
               {section === 'shortcuts' ? <ShortcutList /> : null}

@@ -91,8 +91,10 @@
   width: 17px;
   height: 17px;
   background: currentColor;
-  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
-  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E")
+    center / contain no-repeat;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.09a2 2 0 0 1 1 1.74v.5a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.38a2 2 0 0 0-.73-2.73l-.15-.09a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z'/%3E%3Ccircle cx='12' cy='12' r='3'/%3E%3C/svg%3E")
+    center / contain no-repeat;
 }
 
 .settings-dialog .settings-head .icon-btn {
@@ -1000,5 +1002,258 @@
 
   .settings-dialog .settings-foot {
     justify-content: flex-end;
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Usage & Spend
+   ---------------------------------------------------------------------------
+   Extends the settings design system rather than introducing a parallel one:
+   surfaces separate by a 1px border plus a small background step (never a
+   shadow), the accent appears only on the bars where it carries meaning, and
+   every figure is tabular so columns of numbers line up as the range changes.
+   --------------------------------------------------------------------------- */
+
+.settings-dialog .usage-panel {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-dialog .usage-head {
+  display: flex;
+  justify-content: flex-end;
+}
+
+.settings-dialog .usage-card {
+  padding: 12px 14px;
+  background: var(--bg-panel);
+  border: 1px solid var(--border-subtle);
+  border-radius: 9px;
+}
+
+.settings-dialog .usage-card--empty {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+}
+
+.settings-dialog .usage-card-title {
+  margin: 0 0 8px;
+  color: var(--text-primary);
+  font-size: 12px;
+  font-weight: 620;
+  letter-spacing: -0.004em;
+}
+
+/* The headline is a sentence, so it gets reading-text treatment, not stat-block
+   treatment — only the numbers inside it step up in size and weight. */
+.settings-dialog .usage-sentence {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.settings-dialog .usage-sentence strong {
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+}
+
+.settings-dialog .usage-sentence .usage-figure {
+  font-size: 20px;
+  letter-spacing: -0.02em;
+}
+
+.settings-dialog .usage-note {
+  margin: 8px 0 0;
+  color: var(--text-secondary);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.settings-dialog .usage-note--good {
+  color: var(--success, #4ade80);
+}
+
+.settings-dialog .usage-note--warn {
+  color: var(--warning, #fbbf24);
+}
+
+.settings-dialog .usage-meta,
+.settings-dialog .usage-empty-note {
+  margin: 8px 0 0;
+  color: var(--text-tertiary);
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  line-height: 1.45;
+}
+
+.settings-dialog .usage-empty-note {
+  max-width: 58ch;
+  font-variant-numeric: normal;
+}
+
+/* An inline affordance inside prose: underlined so it is not colour-only, which
+   would fail for anyone who cannot separate the accent from the body text. */
+.settings-dialog .usage-link {
+  padding: 0;
+  color: var(--accent);
+  background: none;
+  border: 0;
+  font: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+
+.settings-dialog .usage-link:hover {
+  color: var(--accent-hover);
+}
+
+.settings-dialog .usage-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.settings-dialog .usage-row-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 10px;
+}
+
+.settings-dialog .usage-row-label {
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-weight: 535;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-dialog .usage-row-figure {
+  flex-shrink: 0;
+  color: var(--text-primary);
+  font-size: 11.5px;
+  font-variant-numeric: tabular-nums;
+  font-weight: 560;
+}
+
+/* Plan-covered usage is real work but not money out, so it is stated in the
+   muted neutral rather than the primary text colour the billed figures use. */
+.settings-dialog .usage-row-covered {
+  color: var(--text-tertiary);
+  font-weight: 500;
+}
+
+.settings-dialog .usage-row-sub,
+.settings-dialog .usage-row-sublabel {
+  color: var(--text-tertiary);
+  font-size: 10px;
+  font-weight: 400;
+}
+
+.settings-dialog .usage-row-sublabel {
+  display: block;
+  margin-top: 3px;
+}
+
+.settings-dialog .usage-bar {
+  height: 4px;
+  margin-top: 5px;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-radius: var(--radius-pill);
+}
+
+.settings-dialog .usage-bar-fill {
+  height: 100%;
+  background: var(--accent);
+  border-radius: inherit;
+  transition: width var(--dur) var(--ease);
+}
+
+/* Spend covered by a subscription is drawn in the muted neutral, not the accent:
+   it is real usage but it is not money out, and giving it the same weight as
+   metered spend would read as a bill the user never received. */
+.settings-dialog .usage-bar-fill[data-covered='true'],
+.settings-dialog .usage-chart-bar[data-covered='true'] {
+  background: var(--text-disabled);
+}
+
+.settings-dialog .usage-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 2px;
+  height: 84px;
+  padding-top: 4px;
+}
+
+.settings-dialog .usage-chart-col {
+  display: flex;
+  flex: 1 1 0;
+  align-items: flex-end;
+  min-width: 2px;
+  height: 100%;
+}
+
+.settings-dialog .usage-chart-bar {
+  width: 100%;
+  min-height: 0;
+  background: var(--accent);
+  border-radius: 1.5px;
+  transition: height var(--dur) var(--ease);
+}
+
+.settings-dialog .usage-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 6px;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  font-variant-numeric: tabular-nums;
+}
+
+.settings-dialog .usage-chart-peak {
+  color: var(--text-secondary);
+}
+
+.settings-dialog .usage-confirm {
+  display: flex;
+  flex-shrink: 0;
+  gap: 6px;
+}
+
+.settings-dialog .usage-disclaimer {
+  margin: 0;
+  color: var(--text-tertiary);
+  font-size: 9.5px;
+  line-height: 1.45;
+}
+
+/* Bars carry meaning through length, which is still readable when the motion is
+   gone — so reduced motion drops the transition rather than the animation's
+   endpoint. */
+@media (prefers-reduced-motion: reduce) {
+  .settings-dialog .usage-bar-fill,
+  .settings-dialog .usage-chart-bar {
+    transition: none;
+  }
+}
+
+@media (max-width: 640px) {
+  .settings-dialog .usage-head {
+    justify-content: stretch;
+  }
+
+  .settings-dialog .usage-head > .segmented {
+    width: 100%;
   }
 }

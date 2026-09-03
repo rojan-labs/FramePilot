@@ -56,6 +56,7 @@ export {
   Redo2,
   Download,
   HardDrive,
+  Receipt,
   X,
   Search,
   Volume2,
