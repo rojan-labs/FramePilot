@@ -549,7 +549,14 @@ export function renderGoldenSummary(
   lines.push(`| reversibility | ${pct(summary.reversibility)} |`);
   lines.push(`| accepted edits | ${String(summary.acceptedEdits)} |`);
   lines.push(`| tokens / accepted edit | ${num(summary.tokensPerAcceptedEdit)} |`);
-  lines.push(`| USD / accepted edit | ${summary.usdPerAcceptedEdit === null ? '—' : `$${summary.usdPerAcceptedEdit.toFixed(3)}`} |`);
+  // Named for what it is. `cost-meter.ts` prices every call from a per-TIER table, not from
+  // what the provider billed, and the vendored model catalogue carries no prices at all
+  // (`cost: null` for all 279 entries). A dollar sign on its own reads as an invoice; this
+  // number is a unit that is comparable BETWEEN runs and wrong in absolute terms — for a
+  // free or uncatalogued model, wrong by orders of magnitude.
+  lines.push(
+    `| tier-priced cost / accepted edit (not billed) | ${summary.usdPerAcceptedEdit === null ? '—' : `$${summary.usdPerAcceptedEdit.toFixed(3)}`} |`,
+  );
   lines.push(`| model calls / turn p50 · p95 | ${num(summary.modelCallsPerTurn.p50)} · ${num(summary.modelCallsPerTurn.p95)} |`);
   lines.push(`| tool calls / turn p50 · p95 | ${num(summary.toolCallsPerTurn.p50)} · ${num(summary.toolCallsPerTurn.p95)} |`);
   lines.push(`| first progress p50 · p95 | ${secs(summary.latency.firstProgressMs.p50)} · ${secs(summary.latency.firstProgressMs.p95)} |`);
