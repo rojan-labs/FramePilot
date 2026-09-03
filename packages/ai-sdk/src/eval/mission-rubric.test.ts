@@ -58,6 +58,70 @@ function withClips(clips: Clip[], audio: Clip[] = []): Project {
   } as Project;
 }
 
+describe('cuts-on-beats — measured onsets, not a nominal grid', () => {
+  // The first fourteen onsets `detect_beats` actually returns for the fixture's
+  // `beat-100bpm.wav`. It reads the file as 99.4 BPM, and only 30 of its 50 onsets fall
+  // within the check's tolerance of an ideal 0.6s grid.
+  const detected = [
+    0.581, 0.975, 1.184, 1.788, 1.974, 2.972, 3.971, 4.18, 4.992, 5.991, 6.595, 6.989, 7.779,
+    7.988,
+  ];
+
+  /** A montage whose cuts land exactly on `at`, under a music bed starting at 0. */
+  const cutOn = (at: readonly number[]): Project => {
+    const clips = at.map((start, i) => clip(`c${String(i)}`, start, at[i + 1] ?? start + 0.5));
+    const p = withClips(clips) as Project;
+    return {
+      ...p,
+      assets: [
+        ...p.assets,
+        { id: 'music', path: 'media/beat.wav', kind: 'audio', durationSeconds: 30 },
+      ],
+      timeline: {
+        tracks: [
+          ...p.timeline.tracks,
+          {
+            id: 'audio_1',
+            type: 'audio',
+            clips: [
+              {
+                id: 'bed',
+                assetId: 'music',
+                trackId: 'audio_1',
+                start: 0,
+                end: 30,
+                sourceStart: 0,
+                sourceEnd: 30,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as Project;
+  };
+
+  it('passes a cut placed on every detected onset', () => {
+    // Which is exactly what the runtime's own beat snapping produces.
+    const check = checkCutsOnBeats(cutOn(detected), 0.6, detected);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('measured onset');
+  });
+
+  it('fails that same cut when scored against the nominal grid', () => {
+    // The bug: three baseline runs snapped correctly and scored 45-54%.
+    const check = checkCutsOnBeats(cutOn(detected), 0.6);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('nominal beat');
+  });
+
+  it('still fails cuts that land on neither', () => {
+    const off = detected.map((t) => t + 0.25);
+    expect(checkCutsOnBeats(cutOn(off), 0.6, detected).ok).toBe(false);
+  });
+});
+
 describe('mission rubric — primitive checks', () => {
   it('measures timeline duration as the furthest clip end on any track', () => {
     expect(projectDuration(withClips([clip('a', 0, 4), clip('b', 4, 9.5)]))).toBe(9.5);

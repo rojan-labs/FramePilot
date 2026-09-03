@@ -453,8 +453,46 @@ function caseResultPath(scenarioId, run) {
   return join(CASES_DIR, `${scenarioId}-r${run}.json`);
 }
 
+
+/**
+ * The onsets the engine detects in a fixture's music, in source seconds — the grid the
+ * runtime itself snaps cuts to (`kernel/beat-grid/beat-alignment.ts`).
+ *
+ * Scoring beat cases against the case's NOMINAL period instead was worth 45 points: the
+ * detector reads `beat-100bpm.wav` as 99.4 BPM and returns onsets that mostly do not sit on
+ * an ideal 0.6s grid, so a run that snapped every cut correctly scored 45-54%. Fetched once
+ * per case and cached by the sidecar; a failure returns undefined and the check falls back
+ * to the nominal grid rather than the run failing over an analysis it only needed to score.
+ *
+ * @param {object} project - The composed fixture project.
+ * @param {string|undefined} assetId - The music asset the case named.
+ * @returns {Promise<number[]|undefined>} Detected onset times, or undefined.
+ */
+async function detectedBeatTimes(project, assetId) {
+  if (!assetId) return undefined;
+  try {
+    const res = await fetch(`${BASE_URL}/detect-beats`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ project, asset_id: assetId }),
+    });
+    if (!res.ok) return undefined;
+    const body = await res.json();
+    const times = (body.beats ?? [])
+      .map((b) => (typeof b === 'number' ? b : b?.time))
+      .filter((t) => typeof t === 'number' && Number.isFinite(t));
+    return times.length > 0 ? times : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
 async function runCase(goldenCase, run) {
   const { project: base, brollAssetIds, musicAssetId } = REPLAY ? composeProjectForReplay(goldenCase) : composeProject(goldenCase);
+  // Only the beat scenarios need it, and only they pay for the analysis.
+  const beatTimes = goldenCase.turns.some((t) => t.beatPeriodSeconds !== undefined)
+    ? await detectedBeatTimes(base, musicAssetId)
+    : undefined;
   let project = base;
   let history = [];
   let carriedForward;
@@ -482,6 +520,7 @@ async function runCase(goldenCase, run) {
       before: project,
       after: outcome.working,
       beatPeriodSeconds: turn.beatPeriodSeconds,
+      beatTimes,
       keepClipIds,
       expectedFirstClipEndSeconds: turn.expectedFirstClipEndSeconds,
       brollAssetIds,

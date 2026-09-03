@@ -67,6 +67,12 @@ export interface RubricContext {
   readonly after: Project;
   /** Beat period in seconds for the fixture music, when the scenario needs a grid. */
   readonly beatPeriodSeconds?: number;
+  /**
+   * The onsets the engine DETECTED in the placed music, in source seconds. Preferred over
+   * `beatPeriodSeconds` when present — see {@link checkCutsOnBeats} for why the nominal
+   * grid and the detected one are 45 points apart.
+   */
+  readonly beatTimes?: readonly number[];
   /** Clip ids the refinement request named as "keep"; must survive unchanged. */
   readonly keepClipIds?: readonly string[];
   /** `trim-first-clip`: where the first picture clip must end, in timeline seconds. */
@@ -265,8 +271,27 @@ export function checkHasMusic(project: Project): RubricCheck {
   return { id: 'has-music', ok: placed.length > 0, detail: `${placed.length} music clip(s)` };
 }
 
-/** Share of picture cuts that land on the fixture's beat grid, anchored at the placed music. */
-export function checkCutsOnBeats(project: Project, beatPeriodSeconds: number): RubricCheck {
+/**
+ * Share of picture cuts that land on the beat, anchored at the placed music.
+ *
+ * Scored against the onsets the engine actually DETECTED when `beatTimes` is supplied, and
+ * only against the nominal `beatPeriodSeconds` grid when it is not.
+ *
+ * The two are not the same grid, and the difference was worth 45 points. `detect_beats`
+ * reads `beat-100bpm.wav` as 99.4 BPM and returns onsets at 0.581, 0.975, 1.184, 1.788,
+ * 1.974 … — only 30 of its 50 onsets sit within this check's tolerance of an ideal 0.6s
+ * grid. The runtime then snaps cuts to those onsets (`kernel/beat-grid/beat-alignment.ts`),
+ * which is the correct thing for it to do, and scoring the result against the ideal grid
+ * failed all three baseline runs at 45–54% for hitting exactly what they were aimed at.
+ *
+ * The case this serves says so itself: "Cuts must land on a measured beat grid, not an
+ * estimated one." The nominal period was the estimated one.
+ */
+export function checkCutsOnBeats(
+  project: Project,
+  beatPeriodSeconds: number,
+  beatTimes?: readonly number[],
+): RubricCheck {
   const audioKinds = new Set(project.assets.filter((a) => a.kind === 'audio').map((a) => a.id));
   const music = project.timeline.tracks
     .filter((t) => t.type === 'audio')
@@ -279,16 +304,25 @@ export function checkCutsOnBeats(project: Project, beatPeriodSeconds: number): R
     .map((c) => c.start)
     .filter((s) => s > FRAME_EPSILON);
   if (cuts.length === 0) return { id: 'cuts-on-beats', ok: false, detail: 'no cuts', weight: 2 };
-  const onBeat = cuts.filter((t) => {
+  const measured = beatTimes !== undefined && beatTimes.length > 0;
+  const distanceToBeat = (t: number): number => {
     const rel = t - offset;
+    if (measured) {
+      // Source-time onsets, so they are compared in the same domain the offset maps into.
+      return Math.min(...beatTimes.map((b) => Math.abs(rel - b)));
+    }
     const nearest = Math.round(rel / beatPeriodSeconds) * beatPeriodSeconds;
-    return Math.abs(rel - nearest) <= BEAT_TOLERANCE_SECONDS;
-  }).length;
+    return Math.abs(rel - nearest);
+  };
+  const onBeat = cuts.filter((t) => distanceToBeat(t) <= BEAT_TOLERANCE_SECONDS).length;
   const share = onBeat / cuts.length;
   return {
     id: 'cuts-on-beats',
     ok: share >= 0.8,
-    detail: `${onBeat}/${cuts.length} cuts within ${BEAT_TOLERANCE_SECONDS}s of a beat (${(share * 100).toFixed(0)}%)`,
+    detail:
+      `${onBeat}/${cuts.length} cuts within ${BEAT_TOLERANCE_SECONDS}s of a ` +
+      `${measured ? `measured onset (${String(beatTimes.length)} detected)` : `${beatPeriodSeconds}s nominal beat`} ` +
+      `(${(share * 100).toFixed(0)}%)`,
     weight: 2,
   };
 }
@@ -707,7 +741,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkHasMusic(p),
-        checkCutsOnBeats(p, ctx.beatPeriodSeconds ?? 0.6),
+        checkCutsOnBeats(p, ctx.beatPeriodSeconds ?? 0.6, ctx.beatTimes),
         checkMinClips(p, 6),
         ...COMMON(ctx),
       ]);
