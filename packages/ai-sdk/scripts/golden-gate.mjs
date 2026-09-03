@@ -60,6 +60,50 @@ if (!current.scenarios && !current.summary) {
   process.exit(1);
 }
 
+
+/**
+ * Say out loud which goal.md metrics the floor just written GATES NOTHING on.
+ *
+ * `rate()` below fails only on a drop, so a floor of 0 can never regress: the metric
+ * prints "held" on every future run while checking nothing, and a null one prints "n/a"
+ * for the same reason. That is the correct comparison rule — no data is not a regression —
+ * but accepting such a floor silently is how a broken measurement becomes permanent. It
+ * happened: a fixture laid off-grid made `cuts-on-frame-grid` fail on every case, which
+ * held `boundaryPrecision` and `firstPassAcceptance` at 0 and left `tokensPerAcceptedEdit`
+ * null for want of a single accepted edit — four of the ten metrics, all looking calm.
+ *
+ * A zero baseline can be legitimate, so this warns rather than refusing; it just never
+ * lets the maintainer accept one without being told.
+ *
+ * @param {Record<string, unknown> | null | undefined} summary - The golden block written.
+ */
+function reportDegenerateFloor(summary) {
+  if (!summary) return;
+  const RATES = [
+    ['intent accuracy', 'intentAccuracy'],
+    ['target resolution', 'targetAccuracy'],
+    ['boundary precision', 'boundaryPrecision'],
+    ['operation validity', 'validityRate'],
+    ['first-pass acceptance', 'firstPassAcceptance'],
+    ['reversibility', 'reversibility'],
+  ];
+  const dead = [];
+  for (const [name, key] of RATES) {
+    const v = summary[key];
+    if (v == null) dead.push(`${name} (no data — always n/a)`);
+    else if (v === 0) dead.push(`${name} (0% — nothing can drop below it)`);
+  }
+  if (summary.tokensPerAcceptedEdit == null) {
+    dead.push('tokens / accepted edit (no accepted edit in the run — always n/a)');
+  }
+  if (dead.length === 0) return;
+  console.error(
+    `\nWARNING: this floor gates nothing on ${dead.length} of the goal.md metrics:\n  - ${dead.join(
+      '\n  - ',
+    )}\nA future regression in these will read as "held". Fix the measurement before trusting the gate.`,
+  );
+}
+
 if (write) {
   writeFileSync(
     FLOOR,
@@ -80,6 +124,7 @@ if (write) {
     )}\n`,
   );
   console.log(`wrote ${FLOOR.slice(REPO.length + 1)}`);
+  reportDegenerateFloor(current.summary);
   process.exit(0);
 }
 if (!existsSync(FLOOR)) {

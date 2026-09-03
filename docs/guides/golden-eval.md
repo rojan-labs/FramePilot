@@ -113,7 +113,13 @@ One gate, one floor (`reports/golden/floor.json`), three families of numbers:
   failure-explained share are reported, never gated.
 
 The input is either a run JSON (`reports/golden/<label>.json`) or a `summary.json`; a
-family the input cannot supply is reported as n/a, never failed. CI runs the gate on the
+family the input cannot supply is reported as n/a, never failed.
+
+`--write` warns when the floor it just recorded **gates nothing** on a metric. A rate only
+fails on a drop, so a floor of 0% can never regress, and a null one is always n/a — both
+print reassuringly ("held", "n/a") while checking nothing. That is how a broken measurement
+becomes permanent, so read the warning before trusting the gate: a zero is occasionally
+honest, but far more often it means the harness, not the agent, is what scored zero. CI runs the gate on the
 committed `reports/golden/baseline.json`; the nightly runs the six mission scenarios
 (`pnpm --filter @framepilot/ai-sdk eval:mission:real`) and gates the fresh run.
 
