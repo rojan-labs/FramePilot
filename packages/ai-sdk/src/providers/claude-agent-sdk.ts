@@ -248,7 +248,9 @@ export function classifyAgentSdkError(error: unknown): ProviderError {
         'provider again in Settings → AI.',
     });
   }
-  if (/not logged in|please run .*login|no active session|unauthor|invalid api key/i.test(message)) {
+  if (
+    /not logged in|please run .*login|no active session|unauthor|invalid api key/i.test(message)
+  ) {
     return new ProviderError(`Claude Agent SDK is not authenticated: ${message}`, 'auth', {
       editorMessage:
         'FramePilot is not signed in to Claude. Run `claude login` in a terminal, then ' +
@@ -343,10 +345,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     return this.config.model ?? CLAUDE_AGENT_SDK_DEFAULT_MODEL;
   }
 
-  public async complete(
-    request: AiCompletionRequest,
-    signal?: AbortSignal,
-  ): Promise<AiResponse> {
+  public async complete(request: AiCompletionRequest, signal?: AbortSignal): Promise<AiResponse> {
     const text: string[] = [];
     const reasoning: string[] = [];
     const toolCalls: ToolCall[] = [];
@@ -372,10 +371,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     return response;
   }
 
-  public stream(
-    request: AiCompletionRequest,
-    signal?: AbortSignal,
-  ): AsyncIterable<ProviderChunk> {
+  public stream(request: AiCompletionRequest, signal?: AbortSignal): AsyncIterable<ProviderChunk> {
     return this.run(request, signal);
   }
 
@@ -525,7 +521,9 @@ interface AgentSdkMessage {
   type: string;
   subtype?: string;
   event?: { delta?: { type?: string; text?: string; thinking?: string } };
-  message: { content: { type: string; id: string; name: string; input: Record<string, unknown> }[] };
+  message: {
+    content: { type: string; id: string; name: string; input: Record<string, unknown> }[];
+  };
   errors?: string[];
   stop_reason?: string | null;
   terminal_reason?: string;

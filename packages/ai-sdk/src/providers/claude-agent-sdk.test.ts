@@ -244,9 +244,9 @@ describe('buildToolServer', () => {
   it('throws loudly if the SDK ever executes a tool, because deferral should prevent it', async () => {
     const { module, handlers } = fakeMcp();
     await buildToolServer(descriptors, async () => Promise.resolve(module));
-    expect(() =>
-      handlers.get('call')?.({ params: { name: 'trim_clip' } } as never),
-    ).toThrow(/PreToolUse deferral/);
+    expect(() => handlers.get('call')?.({ params: { name: 'trim_clip' } } as never)).toThrow(
+      /PreToolUse deferral/,
+    );
   });
 });
 

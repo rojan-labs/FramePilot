@@ -340,41 +340,41 @@ function ProviderKeyField({
       {signsInSeparately ? (
         <div className="setting-row setting-row--stack">
           <span className="setting-hint" role="note">
-            No API key needed. This provider spends your Claude subscription through the
-            login the Claude CLI already stored. If a run stops and says it is not signed
-            in, run <code>claude login</code> in a terminal and start it again. Desktop
-            only — it starts the <code>claude</code> program, which a browser tab cannot do.
+            No API key needed. This provider spends your Claude subscription through the login the
+            Claude CLI already stored. If a run stops and says it is not signed in, run{' '}
+            <code>claude login</code> in a terminal and start it again. Desktop only — it starts the{' '}
+            <code>claude</code> program, which a browser tab cannot do.
           </span>
         </div>
       ) : (
-      <div className="setting-row setting-row--stack">
-        <label className="setting-field-label" htmlFor={`ai-key-${name}`}>
-          {keyOptional ? 'API key (optional)' : 'API key'}
-        </label>
-        <div className="setting-key-row">
-          <input
-            id={`ai-key-${name}`}
-            type="password"
-            className="setting-text-input"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={info?.ready && !keyOptional ? 'Saved, type to replace' : 'Paste API key'}
-            value={keyDraft}
-            onChange={(event) => setKeyDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') saveKey();
-            }}
-          />
-          <Button variant="secondary" type="button" disabled={!keyDraft.trim()} onClick={saveKey}>
-            Save
-          </Button>
-          {info?.ready && !keyOptional ? (
-            <Button variant="ghost" type="button" onClick={() => setKey(name, null)}>
-              Clear
+        <div className="setting-row setting-row--stack">
+          <label className="setting-field-label" htmlFor={`ai-key-${name}`}>
+            {keyOptional ? 'API key (optional)' : 'API key'}
+          </label>
+          <div className="setting-key-row">
+            <input
+              id={`ai-key-${name}`}
+              type="password"
+              className="setting-text-input"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={info?.ready && !keyOptional ? 'Saved, type to replace' : 'Paste API key'}
+              value={keyDraft}
+              onChange={(event) => setKeyDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') saveKey();
+              }}
+            />
+            <Button variant="secondary" type="button" disabled={!keyDraft.trim()} onClick={saveKey}>
+              Save
             </Button>
-          ) : null}
+            {info?.ready && !keyOptional ? (
+              <Button variant="ghost" type="button" onClick={() => setKey(name, null)}>
+                Clear
+              </Button>
+            ) : null}
+          </div>
         </div>
-      </div>
       )}
       <div className="setting-row setting-row--stack">
         <label className="setting-field-label" htmlFor={`ai-model-${name}`}>
