@@ -2569,7 +2569,15 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
       em.error(
         failedAfterApplyMessage(
           appliedCount,
-          r.ok ? (failureReason(false) ?? r.summary) : r.failedChecks.map((c) => c.label),
+          r.ok
+            ? (failureReason(false) ?? r.summary)
+            : // The LABEL alone is a positive assertion of the property being checked, so
+              // a card built from labels reads inside out: a montage that placed thirteen
+              // landscape shots in a portrait frame was told "the self-check still fails —
+              // Reframing is consistent." The detail is the part that says what is wrong
+              // and what to do about it, and every other surface already pairs the two
+              // (`${check.label}: ${check.detail}` in the warning events above).
+              r.failedChecks.map((c) => (c.detail.trim() ? `${c.label}: ${c.detail}` : c.label)),
         ),
         { retryable: false },
       ),
@@ -2587,14 +2595,27 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   );
 }
 
+/** How many failing checks the failure card spells out before summarising the rest. */
+const MAX_CARD_REASONS = 2;
+
 /** The failure card for a run that applied edits and then could not settle as complete. */
 export function failedAfterApplyMessage(
   appliedCount: number,
   why: string | readonly string[],
 ): string {
   const applied = `Applied ${String(appliedCount)} change${appliedCount === 1 ? '' : 's'}, but the run could not finish`;
-  const reason =
-    typeof why === 'string' ? `: ${why}` : `: the self-check still fails — ${why.join(', ')}.`;
+  let reason: string;
+  if (typeof why === 'string') {
+    reason = `: ${why}`;
+  } else {
+    // Each entry is a full sentence now, so they are joined as prose rather than as a
+    // comma list, and the card shows at most MAX_REASONS of them: an editor acts on the
+    // first thing that is wrong, and a run that fails six checks would otherwise bury it.
+    const shown = why.slice(0, MAX_CARD_REASONS).map((r) => (r.endsWith('.') ? r : `${r}.`));
+    const rest = why.length - shown.length;
+    const more = rest > 0 ? ` (${String(rest)} more check${rest === 1 ? '' : 's'} also failed.)` : '';
+    reason = `: the self-check still fails — ${shown.join(' ')}${more}`;
+  }
   return `${applied}${reason} The changes are on your timeline; undo reverts them, or ask for the specific fix.`;
 }
 

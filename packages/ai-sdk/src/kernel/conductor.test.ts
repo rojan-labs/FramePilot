@@ -33,6 +33,7 @@ import {
   onCommand,
   onEffectResult,
   MAX_VERIFY_FIX_TURNS,
+  failedAfterApplyMessage,
 } from './conductor.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 
@@ -2408,5 +2409,51 @@ describe('working state', () => {
       turn({ applied: true, appliedOps: ops(1), turnOpCount: 1 }),
     );
     expect(step.state.working.facts.map((f) => f.id)).toEqual(['fact_1']);
+  });
+});
+
+
+describe('failedAfterApplyMessage — the card an editor actually reads', () => {
+  const detail = (label: string, text: string) => `${label}: ${text}`;
+
+  it('says what is wrong, not the name of the property that was checked', () => {
+    // The label alone is a positive assertion, so a card built from labels reads inside
+    // out. A real montage run was told "the self-check still fails — Reframing is
+    // consistent." and given nothing to act on.
+    const message = failedAfterApplyMessage(30, [
+      detail(
+        'Reframing is consistent',
+        '13 of 13 picture clips use a landscape source in a 1080x1920 portrait frame with no crop, so they render with black bars. Crop each to fill the frame.',
+      ),
+    ]);
+    expect(message).toContain('Applied 30 changes, but the run could not finish');
+    expect(message).toContain('render with black bars');
+    expect(message).toContain('Crop each to fill the frame.');
+    expect(message).toContain('The changes are on your timeline; undo reverts them');
+  });
+
+  it('spells out the first two failures and counts the rest', () => {
+    const message = failedAfterApplyMessage(4, [
+      detail('A', 'first thing is wrong.'),
+      detail('B', 'second thing is wrong.'),
+      detail('C', 'third thing is wrong.'),
+      detail('D', 'fourth thing is wrong.'),
+    ]);
+    expect(message).toContain('first thing is wrong.');
+    expect(message).toContain('second thing is wrong.');
+    expect(message).not.toContain('third thing is wrong.');
+    expect(message).toContain('(2 more checks also failed.)');
+  });
+
+  it('punctuates a reason that does not end in a full stop, and singularises the rest', () => {
+    const message = failedAfterApplyMessage(2, ['A: no full stop', 'B: nor here', 'C: third']);
+    expect(message).toContain('A: no full stop. B: nor here.');
+    expect(message).toContain('(1 more check also failed.)');
+  });
+
+  it('passes a single prose reason through unchanged', () => {
+    expect(failedAfterApplyMessage(1, 'the run ran out of budget')).toContain(
+      'Applied 1 change, but the run could not finish: the run ran out of budget',
+    );
   });
 });

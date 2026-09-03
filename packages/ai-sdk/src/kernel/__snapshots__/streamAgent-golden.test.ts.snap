@@ -2128,7 +2128,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:29",
-      "message": "Applied 2 changes, but the run could not finish: the self-check still fails — Picture covers the programme, Duration on target. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "message": "Applied 2 changes, but the run could not finish: the self-check still fails — Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen. Duration on target: Timeline is 10s but the target is 1s (off by 9s). The changes are on your timeline; undo reverts them, or ask for the specific fix.",
       "retryable": false,
       "ts": 1000,
       "turnId": "turn_1",
