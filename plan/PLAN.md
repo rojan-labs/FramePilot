@@ -7707,6 +7707,21 @@ finalized with "No changes were made" — 0 ops applied.
   lint clean; `dist` rebuilt (desktop consumes built dist). ADR 0057 amended; CHANGELOG
   "Fixed". No schema change, no new dependency. **Last updated:** 2026-07-15
 
+## Discovered (2026-09-03) — Orchestration: no silent successes — `[~]` IN PROGRESS
+
+> **Sub-plan: [`plan/ORCHESTRATION-SILENT-SUCCESS.md`](./ORCHESTRATION-SILENT-SUCCESS.md)**
+> — captured run `9835620c` (one-shot 23-ask brief, 9:36 single-take GoPro source) applied
+> five of twenty-three asks, left 14.833s of a 59.833s programme with no picture under it,
+> narrated four source moments that are not in the timeline, and reported `completed`. The
+> run's own state shows the mechanical cause: the brief was never decomposed — one
+> `objective` whose description is a truncation of the request, verified against a
+> `criterion` that is the same truncated text, `passed: true`. Nothing could notice that ten
+> tools in successfully-pinned domains were never called. FramePilot detected most of the
+> defects while the run was alive and appended every one of them as prose to a success
+> message; the sub-plan converts detections into gates (SS-0…SS-9) and adds no new
+> subsystem. Gated on SS-0, a failing golden case that reproduces the run.
+> **Last updated:** 2026-09-03
+
 ## Discovered (2026-07-15) — Agent Orchestration Hardening — `[x]` COMPLETE (2026-07-15)
 
 > **Sub-plan: [`plan/AGENT-ORCHESTRATION-HARDENING.md`](./AGENT-ORCHESTRATION-HARDENING.md)**
