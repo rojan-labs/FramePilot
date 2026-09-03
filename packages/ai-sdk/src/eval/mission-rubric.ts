@@ -111,14 +111,41 @@ function onFrameGrid(seconds: number, fps: number): boolean {
   return Math.abs(frames - Math.round(frames)) < FRAME_EPSILON * fps + 1e-4;
 }
 
-export function checkCutsOnFrameGrid(project: Project): RubricCheck {
-  const offGrid = pictureClips(project).filter(
-    (c) => !onFrameGrid(c.start, project.fps) || !onFrameGrid(c.end, project.fps),
-  );
+/**
+ * Every cut the run AUTHORED lands on the project's frame grid.
+ *
+ * Judges the delta, not the state (the same rule the failure cards follow): an edge is the
+ * agent's only if it created the clip or moved that edge. An edge that was already off-grid
+ * before the turn and did not move is INHERITED — the project came that way — and charging
+ * it to the run made this check a property of the fixture rather than of the edit. It is
+ * reported as an advisory in `detail` instead, so a project that arrives off-grid is still
+ * visible without silently sinking `boundary` precision on every case that touches it.
+ *
+ * `before` is optional so a caller holding only an end state can still ask the plain
+ * question "is this timeline on the grid?" — with no prior, every edge is the run's.
+ */
+export function checkCutsOnFrameGrid(project: Project, before?: Project): RubricCheck {
+  const prior = new Map((before ? pictureClips(before) : []).map((c) => [c.id, c]));
+  const authored = (c: Clip, edge: 'start' | 'end'): boolean => {
+    const b = prior.get(c.id);
+    // A clip the turn created, or an edge it moved. `Math.abs` rather than `!==` so a
+    // value that round-tripped through JSON at the same frame is not called a move.
+    return b === undefined || Math.abs(b[edge] - c[edge]) > FRAME_EPSILON;
+  };
+  let offGrid = 0;
+  let inherited = 0;
+  for (const c of pictureClips(project)) {
+    for (const edge of ['start', 'end'] as const) {
+      if (onFrameGrid(c[edge], project.fps)) continue;
+      if (authored(c, edge)) offGrid++;
+      else inherited++;
+    }
+  }
+  const advisory = inherited === 0 ? '' : ` (${inherited} inherited off-grid edge(s) not charged)`;
   return {
     id: 'cuts-on-frame-grid',
-    ok: offGrid.length === 0,
-    detail: `${offGrid.length} clip edge(s) off the ${project.fps} fps grid`,
+    ok: offGrid === 0,
+    detail: `${offGrid} clip edge(s) off the ${project.fps} fps grid${advisory}`,
     facet: 'boundary',
   };
 }
@@ -606,10 +633,10 @@ export function checkCaptionStyleMatches(
   };
 }
 
-const COMMON = (p: Project): RubricCheck[] => [
-  checkValidRefs(p),
-  checkNoOverlaps(p),
-  checkCutsOnFrameGrid(p),
+const COMMON = (ctx: RubricContext): RubricCheck[] => [
+  checkValidRefs(ctx.after),
+  checkNoOverlaps(ctx.after),
+  checkCutsOnFrameGrid(ctx.after, ctx.before),
 ];
 
 function scored(scenario: MissionScenarioId, checks: readonly RubricCheck[]): RubricScore {
@@ -627,14 +654,14 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkChanged(ctx),
         checkDurationWithin(p, 30, 3),
         checkMinClips(p, 6),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'podcast-highlight-60s':
       return scored(scenario, [
         checkChanged(ctx),
         checkDurationWithin(p, 60, 10),
         checkNoMidWordCuts(p),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'remove-dead-air':
       return scored(scenario, [
@@ -642,7 +669,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkShorterThanBefore(ctx),
         checkNoMidWordCuts(p),
         checkMinClips(p, 2),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'beat-sync':
       return scored(scenario, [
@@ -650,24 +677,24 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkHasMusic(p),
         checkCutsOnBeats(p, ctx.beatPeriodSeconds ?? 0.6),
         checkMinClips(p, 6),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'refine-tighten':
       return scored(scenario, [
         checkChanged(ctx),
         checkShorterThanBefore(ctx),
         checkKeptClipsUntouched(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'memory-captions':
-      return scored(scenario, [checkChanged(ctx), checkHasCaptions(p), ...COMMON(p)]);
+      return scored(scenario, [checkChanged(ctx), checkHasCaptions(p), ...COMMON(ctx)]);
     case 'trim-first-clip': {
       const first = pictureClips(ctx.before)[0];
       return scored(scenario, [
         checkChanged(ctx),
         checkFirstClipEndsAt(p, ctx.expectedFirstClipEndSeconds ?? 10),
         checkOnlyClipsTouched(ctx, first ? [first.id] : []),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     }
     case 'reorder-last-first':
@@ -676,7 +703,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkLastClipMovedFirst(ctx),
         checkContentPreserved(ctx),
         checkNoGaps(p),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'captions':
       return scored(scenario, [
@@ -684,7 +711,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkHasCaptions(p),
         checkCaptionsWellFormed(p),
         checkContentPreserved(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'hook-first':
       return scored(scenario, [
@@ -692,14 +719,14 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkOpensLaterInSource(ctx),
         checkNoMidWordCuts(p),
         checkNotLonger(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'broll-cutaway':
       return scored(scenario, [
         checkChanged(ctx),
         checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
         checkDurationKept(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     // `broll-cutaway` plus the assertion that fixture cannot make, because `mission-talk`
     // has no second video track: whatever the run stacks, the editor must be able to SEE it
@@ -715,7 +742,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkCutawayInWindow(p, ctx.brollAssetIds ?? [], ctx.cutawayWindowSeconds ?? [0, 20]),
         checkStackedPictureIsPreviewable(p),
         checkDurationKept(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'music-bed':
       return scored(scenario, [
@@ -723,7 +750,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkMusicCovers(p, ctx.musicAssetId),
         checkMusicQuieter(p, ctx.musicAssetId),
         checkContentPreserved(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'compound-silence-captions':
       return scored(scenario, [
@@ -732,19 +759,19 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkNoMidWordCuts(p),
         checkHasCaptions(p),
         checkCaptionsWellFormed(p),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'unchanged':
-      return scored(scenario, [checkUnchanged(ctx), ...COMMON(p)]);
+      return scored(scenario, [checkUnchanged(ctx), ...COMMON(ctx)]);
     case 'vague-not-destructive':
-      return scored(scenario, [checkNotDestructive(ctx), ...COMMON(p)]);
+      return scored(scenario, [checkNotDestructive(ctx), ...COMMON(ctx)]);
     case 'trim-first-clip-head': {
       const first = pictureClips(ctx.before)[0];
       return scored(scenario, [
         checkChanged(ctx),
         checkFirstClipHeadTrimmed(ctx, ctx.expectedHeadTrimSeconds ?? 10),
         checkOnlyClipsTouched(ctx, first ? [first.id] : []),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     }
     case 'reorder-swap-first-two':
@@ -753,7 +780,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkFirstTwoSwapped(ctx),
         checkContentPreserved(ctx),
         checkNoGaps(p),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
     case 'captions-styled':
       return scored(scenario, [
@@ -762,7 +789,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkCaptionsWellFormed(p),
         checkCaptionStyleMatches(p, ctx.captionStyle ?? {}),
         checkContentPreserved(ctx),
-        ...COMMON(p),
+        ...COMMON(ctx),
       ]);
   }
 }

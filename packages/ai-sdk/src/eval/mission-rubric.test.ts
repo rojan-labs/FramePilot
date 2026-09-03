@@ -70,6 +70,32 @@ describe('mission rubric — primitive checks', () => {
     expect(off.detail).toContain('1 clip edge');
   });
 
+  it('does not charge the run for an off-grid edge the project already had', () => {
+    // The project arrives off-grid and the turn leaves that clip alone. Charging it made
+    // this check a property of the fixture rather than of the edit.
+    const before = withClips([clip('a', 0, 1.01)]);
+    const after = withClips([clip('a', 0, 1.01), clip('b', 2, 3)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('1 inherited off-grid edge(s) not charged');
+  });
+
+  it('charges an off-grid edge on a clip the run created', () => {
+    const before = withClips([clip('a', 0, 1)]);
+    const after = withClips([clip('a', 0, 1), clip('b', 1, 2.01)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('1 clip edge');
+  });
+
+  it('charges an inherited clip once the run moves its edge off the grid', () => {
+    const before = withClips([clip('a', 0, 1)]);
+    const after = withClips([clip('a', 0, 1.01)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('1 clip edge');
+  });
+
   it('flags overlapping clips on one track', () => {
     expect(checkNoOverlaps(withClips([clip('a', 0, 5), clip('b', 4, 9)])).ok).toBe(false);
     expect(checkNoOverlaps(withClips([clip('a', 0, 5), clip('b', 5, 9)])).ok).toBe(true);

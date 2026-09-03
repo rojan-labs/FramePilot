@@ -16,6 +16,7 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseProject, SCHEMA_VERSION } from '@framepilot/timeline-schema';
+import { normalizeOperationTime } from '@framepilot/editor-core';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
@@ -169,18 +170,40 @@ async function buildProject(def) {
       },
     });
     if (m.onTimeline && kind === 'video' && durationSeconds) {
+      // Lay the clip through the SAME boundary a real placement crosses. A person dropping
+      // this asset on the timeline builds an `add_clip` operation, and `commitProjectPatch`
+      // runs `quantizePatch` over it (ADR 0146 / GAP-005) — so their clip lands on the
+      // project's frame grid with its source range rescaled around `sourceStart`. Laying
+      // raw media durations here instead produced a project the product cannot produce:
+      // every fixture started off-grid, and `cuts-on-frame-grid` then failed on every case
+      // no matter what the agent did, charging an inherited defect to the agent and pinning
+      // goal.md's boundary-precision metric to the fixture rather than the run.
+      const snapped = normalizeOperationTime(
+        {
+          type: 'add_clip',
+          trackId: 'video_1',
+          assetId: id,
+          start: cursor,
+          end: cursor + durationSeconds,
+          sourceStart: 0,
+          sourceEnd: durationSeconds,
+        },
+        def.fps,
+      );
       clips.push({
         id: `clip_${String(clips.length + 1).padStart(3, '0')}`,
         assetId: id,
         trackId: 'video_1',
-        start: cursor,
-        end: cursor + durationSeconds,
-        sourceStart: 0,
-        sourceEnd: durationSeconds,
+        start: snapped.start,
+        end: snapped.end,
+        sourceStart: snapped.sourceStart,
+        sourceEnd: snapped.sourceEnd,
         effects: [],
         keyframes: [],
       });
-      cursor += durationSeconds;
+      // Advance by the SNAPPED end, so the next clip's start is on-grid too — the same way
+      // an append-at-end placement reads the committed timeline, not the raw asset duration.
+      cursor = snapped.end;
     }
   }
   let transcript = [];
