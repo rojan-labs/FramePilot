@@ -364,6 +364,13 @@ export interface GoldenSummary {
   readonly silentSuccesses: number;
   readonly reversibility: number | null;
   readonly acceptedEdits: number;
+  /**
+   * Turns the provider never answered (see {@link isVoidTurn}). Excluded from every rate
+   * above, because a transport failure is not a decision the agent made. A non-zero value
+   * here means the run is that much smaller than it looks — read the rates as being over
+   * `turns` minus this.
+   */
+  readonly voidTurns: number;
   readonly tokensPerAcceptedEdit: number | null;
   readonly usdPerAcceptedEdit: number | null;
   readonly modelCallsPerTurn: GoldenPercentiles;
@@ -389,6 +396,25 @@ export function percentiles(xs: readonly (number | null | undefined)[]): GoldenP
   return { p50: percentile(xs, 0.5), p95: percentile(xs, 0.95), n: numbers(xs).length };
 }
 
+/**
+ * Did the provider never answer this turn at all?
+ *
+ * Zero PROMPT tokens is the tell, and it is unambiguous: every real turn — an edit, a
+ * refusal, a clarifying question — sends the system contract and the project context before
+ * the model says anything, so a turn that billed no input never reached a model. What
+ * remains is a transport failure: an unreachable provider, a dead proxy, an exhausted quota.
+ *
+ * It has to be separated from behaviour because it LOOKS like the worst possible behaviour.
+ * In the 2026-09-03 baseline the run exhausted its provider quota after six cases and the
+ * remaining fifteen each recorded "couldn't reach claude-agent-sdk" — scored as an agent
+ * that declined to edit, at intent 0% and first-pass 0%. Folded in, the run reported 14%
+ * intent accuracy and 7% first-pass acceptance for an agent that had, on every case it was
+ * actually asked, either edited correctly or explained itself.
+ */
+export function isVoidTurn(m: GoldenTurnMetrics): boolean {
+  return m.tokens.prompt === 0 && m.finalStatus === 'failed' && m.operations === 0;
+}
+
 function share(rows: readonly GoldenRow[], pick: (m: GoldenTurnMetrics) => boolean | null): number | null {
   const applicable = rows.map((r) => pick(r.metrics)).filter((v): v is boolean => v !== null);
   if (applicable.length === 0) return null;
@@ -396,7 +422,12 @@ function share(rows: readonly GoldenRow[], pick: (m: GoldenTurnMetrics) => boole
 }
 
 /** Fold every turn of a run into the numbers the gate compares. */
-export function summarizeGoldenRun(rows: readonly GoldenRow[]): GoldenSummary {
+export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary {
+  // A turn the provider never answered is not evidence about the agent, so it is counted
+  // and reported (`voidTurns`) rather than scored. Every rate below is over what actually
+  // ran; a run that is mostly void says so in one number instead of looking like collapse.
+  const voidTurns = allRows.filter((r) => isVoidTurn(r.metrics)).length;
+  const rows = allRows.filter((r) => !isVoidTurn(r.metrics));
   const accepted = rows.filter((r) => r.metrics.firstPass && r.metrics.operations > 0);
   const totalTokens = rows.reduce((s, r) => s + r.metrics.tokens.total, 0);
   const pricedRows = rows.filter((r) => r.metrics.usd !== null);
@@ -451,6 +482,7 @@ export function summarizeGoldenRun(rows: readonly GoldenRow[]): GoldenSummary {
     // never be folded in as a pass or a failure.
     reversibility: share(rows, (m) => m.reversibility.ok),
     acceptedEdits: accepted.length,
+    voidTurns,
     // Tokens and dollars per ACCEPTED edit — the whole run's spend over the edits that
     // needed no follow-up, so a cheap call that forces a retry is charged, not hidden.
     tokensPerAcceptedEdit: accepted.length === 0 ? null : totalTokens / accepted.length,
@@ -548,6 +580,13 @@ export function renderGoldenSummary(
   lines.push(`| silent successes | ${String(summary.silentSuccesses)} |`);
   lines.push(`| reversibility | ${pct(summary.reversibility)} |`);
   lines.push(`| accepted edits | ${String(summary.acceptedEdits)} |`);
+  // Printed only when it happened, and printed loudly: a run with void turns is smaller
+  // than its case table suggests, and every rate above is over what actually ran.
+  if (summary.voidTurns > 0) {
+    lines.push(
+      `| **turns the provider never answered** | **${String(summary.voidTurns)} — excluded from every rate above; re-run them** |`,
+    );
+  }
   lines.push(`| tokens / accepted edit | ${num(summary.tokensPerAcceptedEdit)} |`);
   // Named for what it is. `cost-meter.ts` prices every call from a per-TIER table, not from
   // what the provider billed, and the vendored model catalogue carries no prices at all

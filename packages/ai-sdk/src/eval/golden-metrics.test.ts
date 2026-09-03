@@ -12,6 +12,7 @@ import {
   percentile,
   renderGoldenSummary,
   summarizeGoldenRun,
+  isVoidTurn,
   type GoldenRow,
   type GoldenSummary,
   type GoldenTurnEvidence,
@@ -360,6 +361,50 @@ describe('summarizeGoldenRun', () => {
       }),
     },
   ];
+
+  it('excludes a turn the provider never answered, and says how many', () => {
+    // The 2026-09-03 baseline exhausted its provider quota after six cases; the remaining
+    // fifteen recorded "couldn't reach claude-agent-sdk" and were scored as an agent that
+    // declined to edit. Folded in, a run that had edited correctly or explained itself on
+    // every case it was actually asked reported 14% intent accuracy and 7% first-pass.
+    const dead = metrics({
+      tokens: { prompt: 0, output: 0, total: 0 },
+      finalStatus: 'failed',
+      operations: 0,
+      intent: { expected: 'edit', observed: 'failed', ok: false },
+      firstPass: false,
+      validity: { diffs: 0, valid: 0, invalid: 0, rate: null },
+      target: null,
+      usd: null,
+    });
+    expect(isVoidTurn(dead)).toBe(true);
+    const s = summarizeGoldenRun([
+      ...rows,
+      { caseId: 'trim', category: 'trim', turnIndex: 0, run: 3, metrics: dead },
+      { caseId: 'reorder', category: 'reorder', turnIndex: 0, run: 1, metrics: dead },
+    ]);
+    expect(s.voidTurns).toBe(2);
+    // Every rate is unchanged: the void turns are not evidence either way.
+    expect(s.turns).toBe(3);
+    expect(s.intentAccuracy).toBeCloseTo(2 / 3);
+    expect(s.firstPassAcceptance).toBeCloseTo(1 / 3);
+  });
+
+  it('does not mistake a real refusal for an unanswered turn', () => {
+    // A decline still sends the contract and the project, so it bills input tokens. Only a
+    // turn that reached no model at all bills none.
+    expect(
+      isVoidTurn(
+        metrics({
+          tokens: { prompt: 33544, output: 120, total: 33664 },
+          finalStatus: 'failed',
+          operations: 0,
+        }),
+      ),
+    ).toBe(false);
+    // …and a successful edit is never void, whatever else is true of it.
+    expect(isVoidTurn(metrics())).toBe(false);
+  });
 
   it('folds turns into the goal.md numbers', () => {
     const s = summarizeGoldenRun(rows);

@@ -555,6 +555,11 @@ for (const goldenCase of selected) {
     }
     process.stdout.write(`▶ ${goldenCase.id} run ${run}/${RUNS}${REPLAY ? ' (replay)' : ''}\n`);
     const result = await runCase(goldenCase, run);
+    // Stamp WHO produced this case. Results are resumable across invocations, so a summary
+    // rebuilt later must report the provider that answered these turns rather than whatever
+    // is configured now — a rebuild with no env set was labelling a Sonnet run `mock`.
+    result.provider = providerName;
+    result.model = modelName;
     results.push(result);
     writeFileSync(file, JSON.stringify(result, null, 2));
     writeOutputs();
@@ -568,7 +573,17 @@ function writeOutputs() {
   const rows = results.flatMap((r) => r.turns.filter((t) => t.golden).map((t) => ({ caseId: r.scenario, category: r.category, turnIndex: t.turnIndex, run: r.run, metrics: t.golden })));
   const summary = summarizeGoldenRun(rows);
   const crashed = results.flatMap((r) => r.turns.filter((t) => t.crashed).map((t) => `${r.scenario} r${r.run} t${t.turnIndex + 1}: ${t.crashed.slice(0, 200)}`));
-  const meta = { label: LABEL, generatedAt, provider: providerName, model: modelName, runsPerScenario: RUNS, replayed: REPLAY };
+  // Read the provider off the RESULTS, not off this process: cached cases may have been
+  // produced by another invocation, and a header naming the wrong model is worse than none.
+  // A run assembled from more than one is named as the mixture it is — which is also how a
+  // half-re-run baseline stops passing itself off as coherent.
+  const stamps = [...new Set(results.map((r) => `${r.provider ?? '?'} / ${r.model ?? '?'}`))].sort();
+  const unstamped = results.some((r) => r.provider === undefined);
+  const [provider, model] =
+    stamps.length === 1 && !unstamped
+      ? [results[0].provider, results[0].model]
+      : [`mixed (${stamps.join('; ')})`, 'see provider'];
+  const meta = { label: LABEL, generatedAt, provider, model, runsPerScenario: RUNS, replayed: REPLAY };
   mkdirSync(dirname(OUT), { recursive: true });
   writeFileSync(OUT, JSON.stringify({ ...meta, results, golden: summary }, null, 2));
   writeFileSync(join(RUN_DIR, 'summary.json'), JSON.stringify({ ...meta, cases: selected.map((c) => c.id), crashed, summary }, null, 2));
