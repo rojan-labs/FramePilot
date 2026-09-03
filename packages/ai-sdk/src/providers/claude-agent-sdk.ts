@@ -65,7 +65,7 @@
  *   be silently dropped. {@link supportsVision} must therefore report `false` for this
  *   provider rather than inferring `true` from the `claude-*` model id.
  *
- * @see docs/adr/0170-claude-agent-sdk-provider.md
+ * @see docs/adr/0171-the-login-you-already-have.md
  */
 import { createLogger } from '@framepilot/shared-types';
 import { ProviderError } from '../reliability/types.js';

@@ -400,13 +400,16 @@ describe('cancellation', () => {
     const controller = new AbortController();
     const module = {
       query() {
-        return (async function* () {
-          controller.abort();
-          await Promise.resolve();
-          throw Object.assign(new Error('aborted'), { name: 'AbortError' });
-          // eslint-disable-next-line no-unreachable
-          yield undefined as never;
-        })();
+        // Not a generator: it aborts and throws without ever yielding, which is what a
+        // real cancel mid-flight looks like to the consumer.
+        return {
+          [Symbol.asyncIterator]: () => ({
+            next: () => {
+              controller.abort();
+              return Promise.reject(Object.assign(new Error('aborted'), { name: 'AbortError' }));
+            },
+          }),
+        };
       },
     } as unknown as AgentSdkModule;
     const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>

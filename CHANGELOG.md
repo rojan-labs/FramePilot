@@ -30,6 +30,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **If you already pay for Claude, you can now use it in FramePilot without an API key.**
+  Settings → AI has a new provider, **Claude (your Claude Code login)**. It signs in with
+  the login the Claude CLI already stored on your machine, so there is no key to find and
+  nothing to paste — pick it and start editing. If a run stops and says you are not signed
+  in, run `claude login` in a terminal and start it again. Desktop only, and captions from
+  scene descriptions stay off while it is selected. Two things to know: it can't look at
+  frames of your footage the way the API-key Claude provider can, so edits that depend on
+  seeing a shot are better on that one; and because your subscription is billed by
+  Anthropic, not per request, the cost figures for these runs are shown in tokens rather
+  than dollars.
+
 - **You can set what a single AI run may spend and how long it may take.** Settings → AI
   now carries a run budget — `Stop a run after $__ / __ min`. Set it once and it applies to
   every AI run from then on. Runs no longer open by reciting it; when one reaches either

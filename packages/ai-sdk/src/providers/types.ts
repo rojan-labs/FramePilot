@@ -28,7 +28,7 @@ export const PROVIDER_NAMES = [
   // NOT `anthropic` with a different credential: it speaks to a spawned `claude` process
   // instead of HTTPS, so it is Node-only, desktop-only, and carries its own error
   // taxonomy and readiness question ("are you signed in?" rather than "is a key saved?").
-  // See `claude-agent-sdk.ts` and ADR 0170.
+  // See `claude-agent-sdk.ts` and ADR 0171.
   'claude-agent-sdk',
   'nvidia',
   'openrouter',

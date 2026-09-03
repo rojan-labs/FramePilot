@@ -3854,6 +3854,25 @@ workspace typecheck/lint clean, dist rebuilt.
         `anthropic/claude-sonnet-4.6`) over the same OpenAI-compatible adapter as OpenRouter —
         one key fronting 100+ upstream models, registered in `PROVIDER_NAMES`, the engine
         roster, both config stores, and Settings → AI (2026-08-19).
+  - [x] Added **Claude via the user's existing Claude Code login** (`claude-agent-sdk`, no
+        API key, default `claude-opus-5`) over `@anthropic-ai/claude-agent-sdk`, replacing
+        the `trial/auth2api` OAuth proxy for subscribers. ADR 0171 (2026-09-03).
+        Verified end to end against a real login: two parallel tool calls returned with
+        correct args and neither executed. The package is an agent runtime, so it runs in a
+        frozen non-agentic sandbox (`tools: []`, `settingSources: []`, custom system prompt,
+        `maxTurns: 1`) asserted as a security contract; tools are published as an in-process
+        MCP server from raw JSON Schema and handed back via a `PreToolUse` `defer` hook, so
+        invariant 5 holds. Desktop-only (spawns a subprocess) and deliberately unlisted in
+        the browser roster. Known gaps, all documented in the ADR: no `temperature`,
+        `maxTokens`, `cacheBoundary` or image support; cost reported in tokens, not dollars.
+  - [ ] **Ship `claude-agent-sdk` in the packaged desktop app.** Works in dev; the signed
+        build does not yet. The SDK ships a per-platform `claude` binary that cannot be
+        spawned from inside `app.asar`, so it needs `extraResources` + a `signIgnore` entry
+        + staged signing (the treatment `scripts/sign-engine.mjs` gives the Python engine).
+        Separately, the macOS Keychain token is bound to Claude Code's own code signature —
+        a differently-signed app may be prompted or denied, which has to be tested against a
+        real notarized build rather than asserted. Until this lands the provider is
+        dev/self-build only.
 - [x] Tool Registry — AI may ONLY edit via registered, schema-validated tools (PRD §8.3)
   ```
   — `tool-registry.ts` + Python `ai_tools/registry.py`+`handlers.py`+`dispatch.py`
