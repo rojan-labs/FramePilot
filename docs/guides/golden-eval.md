@@ -22,14 +22,45 @@ Media is not committed. Build the fixture projects once:
 
 ```bash
 ./tests/fixtures/mission/fetch-fixtures.sh                      # copies media from MISSION_MEDIA_DIR, records checksums
-# in another terminal: the sidecar rooted at the fixtures
-FRAMEPILOT_PROJECTS_ROOT=tests/fixtures/mission/projects pnpm engine:serve   # (or however you start it on :8799)
-node packages/ai-sdk/scripts/mission-fixture-projects.mjs       # transcribes the dialogue fixtures with local whisper (content-hash cached)
-pnpm --filter @framepilot/ai-sdk build                          # the runner imports dist/
+
+# in another terminal: the sidecar, rooted at the fixtures, on :8799.
+# There is no `pnpm engine:serve`; the entry point is the engine's own CLI.
+cd engine/python && FRAMEPILOT_PROJECTS_ROOT=/abs/path/to/tests/fixtures/mission/projects \
+  uv run framepilot serve --host 127.0.0.1 --port 8799
+# the root must be ABSOLUTE: the CLI resolves it against its own cwd, not the repo.
+curl -s http://127.0.0.1:8799/health                            # {"status":"ok",…} before continuing
+
+pnpm --filter @framepilot/ai-sdk build                          # the runner imports dist/ — build BEFORE the next line
+cd packages/ai-sdk && FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 \
+  node scripts/mission-fixture-projects.mjs                     # transcribes the dialogue fixtures with local whisper (content-hash cached)
 ```
 
 The runner reads `.env` for the provider (`FRAMEPILOT_AI_PROVIDER`, keys) and
-`FRAMEPILOT_PYTHON_API_URL` for the sidecar (default `http://127.0.0.1:8799`).
+`FRAMEPILOT_PYTHON_API_URL` for the sidecar (default `http://127.0.0.1:8799`). Values already
+exported in the shell WIN over `.env` — the runner only fills in what is undefined — so pass
+the provider on the command line rather than editing `.env`, and check what is exported before
+blaming the file. A stray `FRAMEPILOT_AI_PROVIDER=mock` in the environment silently produces a
+complete, plausible, meaningless run.
+
+On a Claude subscription the provider needs no API key at all (ADR 0171):
+
+```bash
+FRAMEPILOT_AI_PROVIDER=claude-agent-sdk \
+FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL=claude-sonnet-5 \
+FRAMEPILOT_PYTHON_API_URL=http://127.0.0.1:8799 \
+  node packages/ai-sdk/scripts/mission-baseline.mjs --runs 3 --label baseline --yes
+```
+
+**Run it on an otherwise idle machine, and detach it** (`nohup … &`). A full baseline holds
+200k-token prompts in memory for hours; a concurrent `vitest run` over the whole package was
+enough to get the runner killed twice — silently, with no stack trace, no exit line, and the
+last case simply never finishing. Per-case results are already on disk, so re-invoking the
+same command resumes; the cost of the crash is the case in flight, not the run.
+
+Note that the `usd` column is priced from `cost-meter.ts`'s per-tier table, not from what the
+provider actually billed. It is a comparable unit across runs, not an invoice — and for a
+model outside the catalogue, or one that is free, it is not even the right order of
+magnitude.
 
 ### The fixture projects, and the shape each one is for
 
