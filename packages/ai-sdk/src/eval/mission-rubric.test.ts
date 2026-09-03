@@ -112,6 +112,11 @@ describe('mission rubric — primitive checks', () => {
     // makeProject transcript: hello 0–0.5, world 0.5–1 → edge at 0.75 is inside "world"
     expect(checkNoMidWordCuts(p).ok).toBe(false);
     expect(checkNoMidWordCuts(withClips([clip('a', 0, 0.5)])).ok).toBe(true);
+    // An edge the project arrived with is not the run's. `mission-podcast` has exactly one:
+    // whisper ends the last word past the media, so the clip's natural end sits inside it.
+    const inherited = checkNoMidWordCuts(p, p);
+    expect(inherited.ok).toBe(true);
+    expect(inherited.detail).toContain('inherited edge(s) not charged');
   });
 
   it('scores cuts against a beat grid anchored on the placed music', () => {

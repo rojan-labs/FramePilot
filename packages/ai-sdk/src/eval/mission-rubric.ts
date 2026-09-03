@@ -196,19 +196,36 @@ export function checkMinClips(project: Project, min: number): RubricCheck {
 }
 
 /** A cut inside a spoken word (source domain) — the thing that makes a highlight sound chopped. */
-export function checkNoMidWordCuts(project: Project): RubricCheck {
+/**
+ * No cut the run MADE lands inside a spoken word.
+ *
+ * Judges the delta, for the same reason {@link checkCutsOnFrameGrid} does. `mission-podcast`
+ * arrives with one: whisper ends the final word at 576.000s while the media is 575.855s
+ * long, so the clip's natural end — an edge nobody chose — sits inside it. Charging that to
+ * the run failed the `boundary` facet on every podcast case no matter where the agent cut.
+ */
+export function checkNoMidWordCuts(project: Project, before?: Project): RubricCheck {
   const words: readonly TranscriptWord[] = project.transcript;
   if (words.length === 0) return { id: 'no-mid-word-cuts', ok: true, detail: 'no transcript' };
+  const prior = new Map((before ? pictureClips(before) : []).map((c) => [c.id, c]));
+  const insideWord = (edge: number): boolean =>
+    words.some((w) => w.start + 0.02 < edge && edge < w.end - 0.02);
   let midWord = 0;
+  let inherited = 0;
   for (const clip of pictureClips(project)) {
-    for (const edge of [clip.sourceStart, clip.sourceEnd]) {
-      if (words.some((w) => w.start + 0.02 < edge && edge < w.end - 0.02)) midWord++;
+    const b = prior.get(clip.id);
+    for (const edge of ['sourceStart', 'sourceEnd'] as const) {
+      if (!insideWord(clip[edge])) continue;
+      // The run's own only if it created the clip or moved that source edge.
+      if (b === undefined || Math.abs(b[edge] - clip[edge]) > FRAME_EPSILON) midWord++;
+      else inherited++;
     }
   }
+  const advisory = inherited === 0 ? '' : ` (${inherited} inherited edge(s) not charged)`;
   return {
     id: 'no-mid-word-cuts',
     ok: midWord === 0,
-    detail: `${midWord} edge(s) inside a word`,
+    detail: `${midWord} edge(s) inside a word${advisory}`,
     facet: 'boundary',
   };
 }
@@ -660,14 +677,14 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkDurationWithin(p, 60, 10),
-        checkNoMidWordCuts(p),
+        checkNoMidWordCuts(p, ctx.before),
         ...COMMON(ctx),
       ]);
     case 'remove-dead-air':
       return scored(scenario, [
         checkChanged(ctx),
         checkShorterThanBefore(ctx),
-        checkNoMidWordCuts(p),
+        checkNoMidWordCuts(p, ctx.before),
         checkMinClips(p, 2),
         ...COMMON(ctx),
       ]);
@@ -717,7 +734,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkOpensLaterInSource(ctx),
-        checkNoMidWordCuts(p),
+        checkNoMidWordCuts(p, ctx.before),
         checkNotLonger(ctx),
         ...COMMON(ctx),
       ]);
@@ -756,7 +773,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       return scored(scenario, [
         checkChanged(ctx),
         checkShorterThanBefore(ctx),
-        checkNoMidWordCuts(p),
+        checkNoMidWordCuts(p, ctx.before),
         checkHasCaptions(p),
         checkCaptionsWellFormed(p),
         ...COMMON(ctx),
