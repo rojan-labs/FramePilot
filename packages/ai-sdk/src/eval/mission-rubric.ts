@@ -11,7 +11,7 @@
  */
 import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
 import { coverageVerdict, type ShapedClip, type SourceShape } from '@framepilot/editor-core';
-import { timelineDuration } from '../critic.js';
+import { detectTranscriptLoop, timelineDuration } from '../critic.js';
 
 export interface RubricCheck {
   readonly id: string;
@@ -207,6 +207,21 @@ export function checkMinClips(project: Project, min: number): RubricCheck {
 export function checkNoMidWordCuts(project: Project, before?: Project): RubricCheck {
   const words: readonly TranscriptWord[] = project.transcript;
   if (words.length === 0) return { id: 'no-mid-word-cuts', ok: true, detail: 'no transcript' };
+  // A hallucinated transcript has no word boundaries to respect. `mission-podcast`'s is 92%
+  // one sentence whisper looped over quiet audio, so "this cut lands inside a word" is a
+  // statement about a fabrication — and `remove-dead-air`, which never reads the transcript
+  // to decide where to cut, was being failed by it. Unmeasurable, so it is not scored.
+  const loop = detectTranscriptLoop(words);
+  if (loop !== undefined) {
+    return {
+      id: 'no-mid-word-cuts',
+      ok: true,
+      detail:
+        `not measurable: the transcript repeats "${loop.phrase}" ${String(loop.repeats)} times ` +
+        `over ${String(Math.round(loop.share * 100))}% of its span (ASR loop, not speech)`,
+      facet: 'boundary',
+    };
+  }
   const prior = new Map((before ? pictureClips(before) : []).map((c) => [c.id, c]));
   const insideWord = (edge: number): boolean =>
     words.some((w) => w.start + 0.02 < edge && edge < w.end - 0.02);

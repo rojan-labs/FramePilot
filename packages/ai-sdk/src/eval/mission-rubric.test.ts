@@ -119,6 +119,23 @@ describe('mission rubric — primitive checks', () => {
     expect(inherited.detail).toContain('inherited edge(s) not charged');
   });
 
+  it('does not score cuts against a transcript ASR fabricated', () => {
+    // `mission-podcast`'s transcript is 92% one looped sentence, so "this cut lands inside a
+    // word" is a claim about words nobody said — and `remove-dead-air`, which decides where
+    // to cut from silence and never reads the transcript, was failed by it.
+    const looped = Array.from({ length: 200 }, (_, i) =>
+      "i'll try to follow you later".split(' ').map((word, k) => ({
+        word,
+        start: i * 1.8 + k * 0.3,
+        end: i * 1.8 + k * 0.3 + 0.3,
+      })),
+    ).flat();
+    const p = { ...withClips([clip('a', 0, 5, { sourceStart: 0.4, sourceEnd: 5 })]), transcript: looped } as Project;
+    const check = checkNoMidWordCuts(p);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('not measurable');
+  });
+
   it('scores cuts against a beat grid anchored on the placed music', () => {
     const music = clip('m', 1, 25, { assetId: 'music', trackId: 'audio_1', sourceStart: 0, sourceEnd: 24 });
     const base = withClips([clip('a', 0, 1.6), clip('b', 1.6, 2.2), clip('c', 2.2, 2.8)], [music]);
