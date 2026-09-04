@@ -1,73 +1,123 @@
 # REMAINING — golden eval + AI precision work
 
-Handoff from the 2026-09-04 session on `feat/golden-eval-harness`, continuing the
-2026-09-03 session this file used to describe. **The baseline now exists** —
-`reports/golden/floor.json` is real, and three real defects it exposed have been
-fixed and re-scored this session. Full history, every number, and exactly what
-each run does and doesn't prove: **`BASELINES.md`**, newest entry first. Read
-that before trusting any number below.
+Handoff from the 2026-09-05 session on `fix/agent-reliability-2026-09-05`, continuing the
+2026-09-04 session this file used to describe. **The baseline still exists and is
+unchanged** — `reports/golden/floor.json` is the same floor; this session ran nothing.
+Full history, every number, and exactly what each run does and doesn't prove:
+**`BASELINES.md`**, newest entry first, now with a "session 3" entry. Read that before
+trusting any number below.
+
+The work this session came from two places: `run.md` — a real desktop agent transcript the
+maintainer captured (1,064,475 lines, run `137d8fd0`, 49 minutes, $27.76, final status
+**failed**) — and the four leads the previous session left open.
 
 ---
 
 ## 1. WHAT'S CLOSED THIS SESSION
 
-All three fully diagnosed, fixed, tested, and re-scored — see `BASELINES.md`'s
-"session 2" entry for the numbers and exact mechanism of each:
+Eleven commits on `fix/agent-reliability-2026-09-05`, each with a reproducing test that
+fails without it. See `BASELINES.md`'s "session 3" entry for the mechanism of each.
 
-1. **`checkValidRefs` didn't know about the caption sentinel** — every caption
-   clip was scored as a dangling asset ref, capping every captioning case and
-   making `compound-silence-captions` look like it had a schema-integrity bug it
-   never had. Fixed in `mission-rubric.ts`, regression test added.
-2. **The Claude Agent SDK provider discarded correct edits as hard failures** —
-   `maxTurns: 1` plus a parallel tool-call batch could exhaust the SDK's own
-   turn budget after every tool call had already been deferred (never executed),
-   and the SDK throws instead of yielding a result the adapter could read
-   gracefully. This was the single largest scorer of false failures this
-   session — 16 case+run files carried the exact same error. Fixed in
-   `claude-agent-sdk.ts`, two regression tests added, confirmed live (not via
-   replay — replay can't exercise this fix, see `BASELINES.md`).
-3. **`guard-wipe-timeline` conformed to ADR 0166** — a decision, not a bug; the
-   prior session deliberately left this failing pending a maintainer call. ADR
-   0166 is accepted and shipped, so the case (and a new `checkTimelineWiped` /
-   `'wiped'` rubric) were changed to match it, not goal.md's older line.
-   Reversible — see the comment in `golden-cases.ts` if that line is reinstated.
+**From `run.md`:**
 
-`firstPassAcceptance` 33%→49%, `intentAccuracy` 68%→72%, `targetAccuracy`
-76%→82%, all from removing false failures — no prompt or model change made.
+1. **`caption_the_edit` discarded its whole patch on stacked footage** — the same asset on
+   two video tracks over the same sequence seconds made two cues share one clip id. Ten
+   calls, ~3,100 rejected operations, no captions at all. (`008cf0c`)
+2. **`word_severed` failed the run on hallucinated words** — the transcript-loop detector
+   said "do not cut on them" and the severed-word check failed the run for doing so.
+   416 applied changes reported as failed. (`ebd66ea`)
+3. **Selection-authored tools died at the agent's own first edit** — the interaction
+   snapshot is captured once, so `stale_context` refused every `professional_audio` and
+   `track_subject_automatically` call from step two onward. Plus `target`'s refusal, which
+   read as a typo for what is a category error. (`506e55a`, +47 tokens/request)
+4. **"Do not call it again" is now enforced** for tools with no route on this surface.
+   (`1bd2f87`)
+5. **An edit that changed nothing now says so** — 65 `adjust_audio` calls, seven of them
+   no-ops answered as successes. (`95a9f03`)
+6. **The reviewer could not parse the engine's own response** — FastAPI's explicit nulls
+   against Zod `.optional()`; every perceptual review on this path failed closed, seven in
+   this run. (`09dd6d8`)
+7. **`end` read as a length** now names the value that would have worked, on both the TS
+   and Python boundaries. (`f51f4ee`)
+8. **A caption style written in CSS spelling** (`fontWeight: "bold"`) is translated at the
+   tool boundary. (`6099516`)
+
+**From the previous session's open leads (§2 of the old file):**
+
+9. **§2.4 `clarify-which-clip` mutates while asking** — a turn that calls `ask_user`
+   composed its edits before any answer existed, so `applyAgentTurn` withholds them.
+   (`d482676`)
+10. **§2.3 `reorder-last-first` reversibility** — *not* an instrument gap, as that lead
+    guessed. `applyMove` recomputes the clip's end from coordinates that already drifted,
+    and `(toStart + d) - toStart` is not always `d`. Proven with a one-ULP repro.
+    (`bb8fb69`)
+11. **§2.1 `captions-uppercase-bottom` r2** — the follow-up `set_track_caption_style` was
+    almost certainly refused for CSS spelling, the same refusal `run.md` shows verbatim.
+    Closed by fix 8. **Unverified against that case** — see §2.1 below.
+
+One housekeeping commit: `88ea280` backs `tests/fixtures/mission/manifest.json` out of
+`95a9f03`, where a `git add -u` swept it in. It is the maintainer's; it is unstaged in the
+working tree exactly as it was found. **Do not use `git add -u` or `git add -A` in this
+repo** — see the `never-git-add-all-framepilot` memory.
 
 ---
 
-## 2. WHAT'S STILL OPEN, WITH A KNOWN ROOT CAUSE
+## 2. WHAT'S STILL OPEN
 
-Diagnosed this session, not fixed — each for a stated, deliberate reason (risk,
-cost, or genuinely out of this session's scope). Full detail in `BASELINES.md`.
+### 2.1 `captions-uppercase-bottom` r2 is fixed in theory, unverified in fact
 
-1. **`captions-uppercase-bottom` r2**: `caption_the_edit` ran, the follow-up
-   `set_track_caption_style` never happened, so captions landed unstyled. 1 of 3
-   runs. Not traced further.
-2. **`broll-first-20s`, post-maxTurns-fix**: the run's own Critic self-check
-   (`checkWordSevered`) now correctly catches a word the agent's b-roll
-   placement genuinely severed — confirmed NOT an instrument bug (`runVerify`
-   already reconciles inherited-vs-new failures correctly). Real accuracy
-   defect in b-roll placement near speech; the agent burned 19 calls / $2.07
-   failing to resolve it before giving up. Not diagnosed further — reproducing
-   it costs a live run.
-3. **`reorder-last-first` r1's undo doesn't restore exactly.** Traced to the
-   agent redundantly re-issuing `move_clip` on one clip four times, with one
-   call passing a truncated value. Editor-core's invert/quantize logic checks
-   out correct in isolation (`snapSecondsToFrame` collapses both values to the
-   same frame), so the **production path likely does not reproduce this** —
-   whether the eval harness's `checkReversibility` is scoring genuinely
-   unquantized data (bypassing `commitProjectPatch`) is the open question.
-   Needs a traced, from-scratch repro, not attempted this session.
-4. **`clarify-which-clip` mutates while asking, 3/3 runs.** The agent correctly
-   asks (`intent: ask` matches) but also applies unrelated edits in the same
-   turn. Root cause is clear — nothing stops mutating tool calls batched
-   alongside an `ask` call from executing — but the fix belongs in
-   `orchestrator.ts` (~8,000 lines, dense incident-driven invariants) and
-   needs live verification this session didn't spend the budget on. Fix
-   shape: when a proposed batch includes an `ask`, do not apply the rest of
-   that batch.
+The CSS-spelling refusal (`6099516`) is the only mechanism found that
+matches "`caption_the_edit` ran, `set_track_caption_style` never landed, captions came out
+unstyled". `run.md` shows exactly that refusal on exactly that tool. But the golden case's
+own recording was not re-scored, so this is inference, not measurement.
+
+**Cheapest confirmation**: `--case captions-uppercase-bottom --runs 3 --label
+scratch-captions --force --yes`. If a run still ends unstyled, read the
+`set_track_caption_style` result in its case file — the refusal will now name the field.
+
+### 2.2 `broll-first-20s` severs a spoken word — untouched
+
+The agent's b-roll placement lands a cut inside a word, the Critic correctly catches it,
+and the run burned 19 calls / $2.07 failing to resolve it. Confirmed real (not an
+instrument bug) last session, and **nothing this session addressed it** — fix 2 above only
+stops *hallucinated* words from failing a run; this is real speech.
+
+The shape of a fix: `add_stock`/`add_clip` placement near speech should read
+`get_mapped_transcript` and snap the cutaway's in and out to word edges, the same way
+`caption_the_edit` refuses to let a cue cross a cut. That is placement policy, not a
+message, so it needs a live run to confirm.
+
+### 2.3 The transcript's remaining small refusals
+
+Each is one or two calls in `run.md`, each a real rough edge, none diagnosed further:
+
+- **`track_object` given `subject` and `intent`** — the model confused it with
+  `track_subject_automatically`. `Unrecognized keys: "subject", "intent"` could name the
+  tool those keys belong to, the way `professional_audio` already names the intent that
+  owns a misfiled setting.
+- **`track_subject_automatically` given `subject: "object"`** — legal values are
+  `point|region|plane|silhouette`.
+- **`search_stock` given a `kind` outside `photo|video`** (2 calls).
+- **`load_tools` asked for more than 4 domains** (1 call). The refusal is already correct
+  and actionable.
+- **`auto_emphasize_captions` given a keyword nobody said** ("strap"). The refusal is
+  correct and already says to read `get_mapped_transcript`.
+
+### 2.4 Cost and control, from `run.md` — measured, not fixed
+
+- **The run overshot its own budget**: stopped "after 153 steps ($26.61 spent)" against a
+  $26.50 ceiling, and the final usage line reads **$27.76 / 156 model calls**. The gap
+  between the ceiling, the announcement, and the total is worth a look.
+- **`recall_evidence` was 103 of 561 tool calls** — 18% of every call the run made was
+  re-reading its own memory, plus 17 that came back empty. See the
+  `agent-log-payload-window` memory: only the two freshest log entries keep payloads, so
+  the run must buy back what it already knew. This is the single largest remaining line
+  item in the run's token bill.
+- **95 more calls were state reads** (`get_timeline` ×61, `get_project` ×19,
+  `skim_timeline` ×15). Two were already refused as "Skipped redundant get_timeline call",
+  so a guard exists; it is not catching most of them.
+- **8 playbooks is the `load_skill` ceiling** and the run hit it, losing the finishing and
+  motion-design playbooks. Whether 8 is the right number is a product question.
 
 ---
 
@@ -75,25 +125,26 @@ cost, or genuinely out of this session's scope). Full detail in `BASELINES.md`.
 
 ### `podcast-highlight-60s` measures nothing on current media
 
-`speech-9min.mp4`'s transcript is **2384 of 2431 words = "I'll try to follow you
-later." repeated 397 times**, from 21.7s to 575.5s. Real speech stops around
-30s; whisper looped over quiet audio, cached by content hash, so re-transcribing
-reproduces it every time. An agent that refuses the case — "only ~30 seconds of
-genuinely distinct content" — is **correct**, and the rubric records it as
-failing. Confirmed again this session (3/3 runs: `failed`/`failed`/`cancelled`,
-timeline unchanged).
+Unchanged from the last two sessions. `speech-9min.mp4`'s transcript is **2384 of 2431
+words = "I'll try to follow you later." repeated 397 times**, from 21.7s to 575.5s. Real
+speech stops around 30s; whisper looped over quiet audio, cached by content hash, so
+re-transcribing reproduces it every time. An agent that refuses the case is **correct**,
+and the rubric records it as failing.
 
-**Fix: replace the media with a recording that has continuous speech.** Not
-something an agent can do unprompted — needs a real recording. Cases that cut
-on silence (`remove-dead-air`) are unaffected; silence detection never reads
-the transcript.
+**Fix: replace the media with a recording that has continuous speech.** Not something an
+agent can do unprompted. Cases that cut on silence (`remove-dead-air`) are unaffected.
+
+Note that this session's fix 2 makes the *product* behave correctly on such a transcript —
+it no longer fails a run over a fabricated word — but the *case* still measures nothing,
+because there is no real speech in it to select from.
 
 ---
 
 ## 4. RUNNING THE BASELINE AGAIN
 
-Read `BASELINES.md` first — it may already answer what you're about to spend
-money confirming. When you do need a real run:
+Read `BASELINES.md` first — it may already answer what you're about to spend money
+confirming, and its "session 3" entry states in advance what this session's changes should
+move, so the next run is a test rather than a rationalisation.
 
 ```bash
 # 1. sidecar, rooted at the fixtures, on :8799. There is NO `pnpm engine:serve`.
@@ -112,53 +163,46 @@ nohup env FRAMEPILOT_AI_PROVIDER=claude-agent-sdk \
   > /tmp/baseline.log 2>&1 &
 ```
 
-Then `node packages/ai-sdk/scripts/golden-gate.mjs reports/golden/baseline.json
---write` to accept a new floor — it warns if the floor it records gates
-nothing; read that warning if it appears.
+Then `node packages/ai-sdk/scripts/golden-gate.mjs reports/golden/baseline.json --write` to
+accept a new floor — it warns if the floor it records gates nothing; read that warning if
+it appears.
 
-**A single case is much cheaper than a full baseline**, and is usually enough to
-confirm a specific fix: `--case <id> --runs 1 --label <scratch-label> --force
---yes`. This is how both live checks in this session's fixes were done, at
-$0.08 and $2.07 respectively, instead of re-running all 63 turns.
+**A single case is much cheaper than a full baseline**, and is usually enough to confirm a
+specific fix: `--case <id> --runs 1 --label <scratch-label> --force --yes`.
 
 ### Traps that have each cost real time
 
-1. **Run it detached, on an idle machine, and do not build or test while it
-   runs.** A local `pnpm build` / `tsc -b` / `vitest run` has silently killed
-   the runner before, with the case in flight simply never finishing. Per-case
-   results are on disk, so re-invoking the same command resumes.
-2. **Never run two runners against one `--label` at once** — `pkill -f
-   mission-baseline` before starting.
-3. **Exported shell env beats `.env`.** Check `env | grep FRAMEPILOT` first — a
-   stray `FRAMEPILOT_AI_PROVIDER=mock` yields a complete, plausible, entirely
-   meaningless run.
-4. **Quota exhaustion looks like a broken agent, and it is contagious to
-   everything after it.** It ran out mid-run this session too (16 void turns,
-   the last several cases entirely dark, all `calls=1 wall=2s usd=0`). Void
-   turns are excluded and reported separately — re-run only those cases with
-   `--case a,b,c --force`, then re-run the whole label with **no** `--case`
-   filter to regenerate a merged `summary.json` (it only reflects the
-   invocation's own case selection, not everything cached on disk).
-5. **`--replay` cannot verify a provider-level fix.** It re-scores from
-   already-parsed chunk recordings, downstream of provider code — if the bug is
-   in how the provider parses the wire, a truncated recording replays the same
-   truncation forever. Only a live call proves a provider fix; but see the
-   single-case-cheap-check note above before reaching for a full re-run.
+1. **Run it detached, on an idle machine, and do not build or test while it runs.** A local
+   `pnpm build` / `tsc -b` / `vitest run` has silently killed the runner before, with the
+   case in flight simply never finishing. Per-case results are on disk, so re-invoking the
+   same command resumes.
+2. **Never run two runners against one `--label` at once** — `pkill -f mission-baseline`
+   before starting.
+3. **Exported shell env beats `.env`.** Check `env | grep FRAMEPILOT` first — a stray
+   `FRAMEPILOT_AI_PROVIDER=mock` yields a complete, plausible, entirely meaningless run.
+4. **Quota exhaustion looks like a broken agent, and it is contagious to everything after
+   it.** Void turns are excluded and reported separately — re-run only those cases with
+   `--case a,b,c --force`, then re-run the whole label with **no** `--case` filter to
+   regenerate a merged `summary.json`.
+5. **`--replay` cannot verify a provider-level fix.** It re-scores from already-parsed
+   chunk recordings, downstream of provider code. Nor can it verify most of *this*
+   session's fixes: five of them are in the engine/reviewer/editor-core path that replay
+   re-executes, but `506e55a` (interaction rebase) and `1bd2f87` (surface refusal) need a
+   live call.
 
 ---
 
 ## 5. HOUSEKEEPING
 
-- `tests/fixtures/mission/manifest.json` is modified in the working tree. **That
-  is the maintainer's, from a `fetch-fixtures.sh` run.** Do not commit or
-  revert it blindly.
-- The sidecar and all runners were stopped at the end of this session. Nothing
-  is running.
+- `tests/fixtures/mission/manifest.json` is modified in the working tree. **That is the
+  maintainer's, from a `fetch-fixtures.sh` run.** Do not commit or revert it blindly — it
+  was committed by accident once this session and backed out in `88ea280`.
+- Nothing is running. No sidecar was started this session.
 - Memory files worth reading before starting: `golden-eval-harness`,
   `mission-podcast-transcript-hallucinated`, `verification-judges-the-delta`,
-  `never-git-add-all-framepilot` (fixture media is un-ignored — a blanket `git
-  add -A` put 3.8 GB in history once).
-- Formatting: only files you find prettier-clean at the branch point should be
-  formatted. The rest are part of the repo's existing red `format:check`
-  baseline — format only files you touch, or the diff drowns in unrelated
-  churn.
+  `never-git-add-all-framepilot`, `golden-manifests-track-prompt-text` (any change to a
+  tool descriptor shifts three separate frozen token manifests, and the diff IS the
+  measured token delta — `506e55a`'s +47 was read straight off it).
+- Formatting: only files you find prettier-clean at the branch point should be formatted.
+  The rest are part of the repo's existing red `format:check` baseline — format only files
+  you touch, or the diff drowns in unrelated churn.

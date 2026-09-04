@@ -46,6 +46,156 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## session 3 — 2026-09-05 — **no run; nine defects closed from one desktop transcript**
+
+**This entry records no measurement.** No baseline was run: credits were explicitly to be
+conserved, and none of the nine fixes below needed a live run to find — every one came
+from reading a single agent transcript the maintainer captured (`run.md`, 1,064,475 lines,
+conversation `33f7e787`, run `137d8fd0`) or from a defect the `baseline` label had already
+recorded. Where a claim needed proving, it was proved locally against real engine output
+or a reproducing unit test, and each is named below.
+
+The `baseline` label's numbers are therefore **unchanged and still the current floor**.
+Nothing here has been scored. The next real run is the first thing that can say whether
+these moved anything.
+
+| | |
+| --- | --- |
+| commit range | `008cf0c..6099516` on `fix/agent-reliability-2026-09-05` |
+| provider / model of the transcript read | OpenRouter `inclusionai/ling-3.0-flash-fin:free`, agent mode, desktop |
+| the transcript | 5,257 events · 561 tool calls · 156 model calls · 5,538,888 tokens · $27.76 · 49 minutes · final status **failed** |
+| new tests | 33 across `editor-core`, `ai-sdk` and the Python contract mirror |
+| suites | ai-sdk 4,525 · editor-core 1,034 · engine 2,825 — all green |
+
+### What the transcript cost, and where it went
+
+One run. 416 changes applied, **3,129 proposed changes rejected**, stopped by its $26.50
+budget ceiling after 153 steps, and reported to the editor as failed. The rejections were
+not spread across the run — they concentrate in a handful of repeating causes, and every
+one of those is now closed:
+
+| cause | calls it cost | fixed in |
+| --- | --- | --- |
+| `caption_the_edit` rejected on a duplicate caption clip id | 10 calls, ~3,100 rejected ops, every caption in the run | `008cf0c` |
+| `professional_audio` refused: `target` given a track id, then `stale_context` | 10 calls | `506e55a` |
+| `word_severed` failed the whole run on hallucinated words | the run's terminal error | `ebd66ea` |
+| `adjust_audio` re-setting a value it already held | 7 of 65 calls | `95a9f03` |
+| `render_preview` / `export_video` called after "do not call it again" | 4 calls | `1bd2f87` |
+| every perceptual review died on a contract mismatch | 7 reviews, silently | `09dd6d8` |
+| `add_clip` sent `end` as a duration | 3 calls | `f51f4ee` |
+| `set_track_caption_style` sent CSS spelling | 1 call, and the run's whole caption design | `6099516` |
+
+### The nine, and what proves each
+
+1. **Stacked footage discarded the whole caption patch** (`008cf0c`). The timeline carried
+   `raw_skating.mp4` on two video tracks over the same sequence seconds — `v_main` showing
+   source 18–21s at sequence 0–3s, a b-roll track showing source 0–3s at the same 0–3s.
+   Caption runs are per-clip, so both produced a cue starting on frame 2, both derived the
+   id `caption_captions_70`, and `add_caption_layer` rejected the duplicate. A caption
+   patch is all-or-nothing, so one collision discarded every cue — which is why the run
+   retried nine more times with no argument that could have helped. `deriveCaptionCues`
+   now returns a non-overlapping cue timeline. **Proved**: the reproducing test fails
+   without the fix with the production error text, verbatim.
+
+2. **`word_severed` failed a run on words nobody said** (`ebd66ea`). The transcript is 397
+   back-to-back repeats of "I'll try to follow you later."; `transcript_reliable` warned
+   "do not select or cut on them" and `word_severed`, in the same report, failed the run
+   for cuts inside "follow" and "God." — two of those words. 416 applied changes reported
+   as failed over a word that does not exist. Both checks now read one loop verdict.
+
+3. **Selection-authored tools died at the agent's own first edit** (`506e55a`). The
+   interaction snapshot is captured once at turn start, so from step two onward every
+   `professional_audio` and `track_subject_automatically` call answered `stale_context:
+   … targets …@56, but the project is …@100`. Over 153 steps the timeline reached revision
+   127. The snapshot is now re-stamped when the selection provably still means the same
+   thing, and refused when it does not. The same commit rewrites `target`'s refusal, which
+   was reported as a typo (`expected "this"`) for what is a category error — the run sent
+   `"music_1"`, `"music_bed"`, `"layer_audio_5"` and gave up after ten tries. **Measured
+   cost of the longer descriptor: +47 tokens/request** (toolSchemaTokensRebilled
+   13,311 → 13,358).
+
+4. **"Do not call it again" was not enforced** (`1bd2f87`). `render_preview` and
+   `export_video` have no route on this surface and say so; host failures are deliberately
+   never remembered, so the refusal cost nothing per attempt. The executor now declares
+   `surface_unavailable` through the channel `stock-host.ts` already uses.
+
+5. **An edit that changed nothing said nothing** (`95a9f03`). 65 `adjust_audio` calls,
+   seven re-setting one clip to the −18 dB it already had, each answered "Adjusted audio
+   WIZARDS_DRIVE.mp3". The note now says the project already said exactly this. The
+   operations are still applied deliberately — withholding them would make a turn's op
+   count depend on what the timeline happened to already say, which two existing incident
+   regressions pin against.
+
+6. **The reviewer could not parse the engine's own response** (`09dd6d8`). FastAPI
+   serialises every unset optional as an explicit `null`; Zod's `.optional()` refuses one;
+   a batch is an array of a `.strict()` union, so one null rejected all of it. Every run
+   on this path reported "applied and validated, but not perceptually checked" — seven
+   reviews in this one. **Proved**: a batch dumped straight out of
+   `framepilot_engine.validation.temporal_evidence` and fed to the TS schema returned
+   eight issues, every one a null. That batch is now a committed fixture, and the client's
+   error names the offending paths instead of saying only that something did not match.
+
+7. **`end` read as a length** (`f51f4ee`). `add_clip` got `start: 44, end: 6`, then
+   `44/14.233`, then `60/15`, and read back a restatement of the rule each time. The
+   refusal now names the value that would have worked. Mirrored in the Python contract
+   overrides.
+
+8. **`move_clip` was not exactly reversible** (`bb8fb69`) — closes the `reorder-last-first`
+   lead this file opened as "plausible instrument gap, not confirmed". It is not an
+   instrument gap. `applyMove` recomputes the clip's end as `toStart + (end - start)`, and
+   `(toStart + d) - toStart` is not always `d`: a clip 8.033333333333333s long moved to 48s
+   and home again comes back 8.033333333333331s long. The picture never changes — both
+   quantize to the same frame, which is why every round-trip test on round numbers passed —
+   but undo is a promise about the file. The run moved one clip four times.
+
+9. **A caption style written in CSS was refused** (`6099516`) — closes the
+   `captions-uppercase-bottom` r2 lead. `fontWeight: "bold"` and a bare colour for
+   `background` are refused by a schema that is right to hold 100–900 and an object; the
+   two spellings are now translated at the tool boundary, where no migration is involved.
+   `fontWeight: "chunky"` and `1400` are still refused.
+
+Also closed, from the `baseline` label rather than the transcript: **`clarify-which-clip`
+mutates while asking, 3/3** (`d482676`). Every operation in a turn comes from one model
+response, so a turn that calls `ask_user` composed its edits before any answer existed.
+`applyAgentTurn` withholds them and tells the model to make them again in light of the
+answer. This is the fix shape REMAINING.md §2.4 named.
+
+### What a future run should show, and what would falsify it
+
+Stated in advance so the next baseline is a test and not a rationalisation:
+
+- **`firstPassAcceptance` and `intentAccuracy` up on the caption cases.** `captions-*` and
+  `compound-silence-captions` could not have produced styled captions on a stacked
+  timeline before; if they still do not, fix 1 or 9 is incomplete.
+- **`operationValidity` up wherever `add_clip`, `professional_audio` or
+  `set_track_caption_style` appear.** These were argument-shape refusals, so a run that
+  still spends calls on them means the sentences are not being read.
+- **`reversibility` at 100% on `reorder-last-first`.** This one is deterministic — a
+  failure here means the fix is wrong, not that the model varied.
+- **Perceptual review actually running.** Any run reporting "not perceptually checked" for
+  a contract reason now names the field; if that line reappears, read the field.
+- **Cost per accepted edit down.** ~3,100 rejected operations and roughly a quarter of a
+  $27 run went into loops that can no longer happen. This is the softest of the five
+  predictions — the transcript's model (a free OpenRouter model) is not the baseline's
+  `claude-sonnet-5`, and a stronger model may never have hit some of these.
+
+### Not evidence of
+
+- **Any movement in the ten metrics.** Nothing was scored. Every number in this entry is
+  either from the transcript the maintainer supplied or from a local unit test.
+- **That the transcript's model is representative.** `inclusionai/ling-3.0-flash-fin:free`
+  makes argument-shape mistakes a stronger model may not. That does not make the defects
+  it found less real — a duplicate clip id, an unparseable review response, and a
+  non-reversible move are the product's, not the model's — but it does mean the *rates*
+  in the table above should not be read as rates for the baseline provider.
+- **That `broll-first-20s` is fixed.** It is not addressed here. The b-roll placement that
+  severs a spoken word is a real accuracy defect and still open (REMAINING.md §2.2).
+- **That `podcast-highlight-60s` measures anything.** Unchanged: the media still needs
+  replacing (REMAINING.md §3).
+
+---
+
+
 ## `baseline` — 2026-09-04 (session 2) — **three real defects closed, floor re-cut**
 
 Same label, re-scored and re-accepted after three code fixes this session — not a fresh
