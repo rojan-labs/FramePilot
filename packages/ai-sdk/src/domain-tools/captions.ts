@@ -32,6 +32,61 @@ import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js'
 import { mutateTool, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
+/**
+ * CSS font-weight keywords, in the numeric vocabulary the schema and the font files use.
+ *
+ * The persisted schema takes 100–900 because a weight is a real font file, not a word;
+ * that stays. But the model writes CSS, and CSS spells these as names. Run `137d8fd0`
+ * sent `fontWeight: "bold"` and `background: "rgba(0,0,0,0.6)"` in one
+ * `set_track_caption_style` call and was refused for both — after which the captions it
+ * had just written kept the plain default look for the rest of the run. The golden case
+ * `captions-uppercase-bottom` loses a run to the same shape.
+ *
+ * Translating at the tool boundary is the right place for it: the timeline file keeps one
+ * spelling per value, and no migration is involved.
+ */
+const CSS_FONT_WEIGHTS: Readonly<Record<string, number>> = {
+  thin: 100,
+  hairline: 100,
+  extralight: 200,
+  ultralight: 200,
+  light: 300,
+  normal: 400,
+  regular: 400,
+  book: 400,
+  medium: 500,
+  semibold: 600,
+  demibold: 600,
+  bold: 700,
+  extrabold: 800,
+  ultrabold: 800,
+  black: 900,
+  heavy: 900,
+};
+
+/**
+ * Normalise a model-authored caption style into the persisted vocabulary.
+ *
+ * Only two rewrites, both of them a spelling difference rather than a change of meaning:
+ * a CSS font-weight keyword becomes its number, and a bare colour where a background chip
+ * belongs becomes `{ color }` — which is what a caller writing `background: "black"`
+ * means, and the only thing it could mean. Anything else is passed through untouched and
+ * refused by the schema exactly as before, because anything else is a real mistake.
+ */
+function normalizeAuthoredCaptionStyle(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const style = { ...(value as Record<string, unknown>) };
+  const weight = style.fontWeight;
+  if (typeof weight === 'string') {
+    const named = CSS_FONT_WEIGHTS[weight.trim().toLowerCase()];
+    if (named !== undefined) style.fontWeight = named;
+    else if (/^[1-9]00$/.test(weight.trim())) style.fontWeight = Number(weight.trim());
+  }
+  if (typeof style.background === 'string' && style.background.trim() !== '') {
+    style.background = { color: style.background.trim() };
+  }
+  return style;
+}
 
 /**
  * The caption tracks this project actually has, appended to a track-not-found message.
@@ -530,7 +585,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'first; unbundled fonts and unknown templates are rejected.',
       capabilities: ['edit', 'captions'],
     },
-    z.object({ trackId: z.string(), captionStyle: CaptionStyleSchema.nullable() }).strict(),
+    z
+      .object({
+        trackId: z.string(),
+        captionStyle: z.preprocess(normalizeAuthoredCaptionStyle, CaptionStyleSchema).nullable(),
+      })
+      .strict(),
     (a) => {
       assertKnownCaptionStyle(a.captionStyle);
       return [
