@@ -185,12 +185,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2277,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 155,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -314,12 +321,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2277,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 155,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -729,12 +743,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2423,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 301,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -860,12 +881,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2423,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 301,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
