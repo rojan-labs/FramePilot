@@ -1286,3 +1286,76 @@ describe('a tool this surface cannot run is refused on the second call', () => {
     expect(seenByModel).toContain('finish the edit, then tell the editor it is ready to export');
   });
 });
+
+// ---------------------------------------------------------------------------
+// An edit that changed nothing — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * `adjust_audio` setting a clip to the gain it already has applies cleanly and answers
+ * "Adjusted audio …". Run `137d8fd0` made 65 of those calls, seven of them re-setting one
+ * clip to −18 dB, because nothing in the answer distinguished the fader moving from the
+ * fader already being there.
+ *
+ * The operations are still applied — a re-derivation that comes out identical is the tool
+ * doing its job — but the sentence the model reads now says the project already said
+ * exactly this, and where to check before trying again.
+ */
+const setGain = (id: string, gainDb: number): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb } }],
+});
+
+describe('a tool call that moved nothing says so', () => {
+  /** `clip_a` is already at −18 dB, so setting it to −18 dB is the run's no-op. */
+  const alreadyQuiet: ContextInput = {
+    project: makeProject({
+      timeline: {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_a',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 6,
+                effects: [
+                  {
+                    id: 'clip_a__gain',
+                    type: 'audio_gain',
+                    params: { gainDb: -18 },
+                    keyframes: [],
+                  },
+                ],
+                keyframes: [],
+              },
+            ],
+          },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<ContextInput['project']>),
+    userPrompt: 'bring the wind down',
+  };
+
+  it('says the fader did not move, and says it only when it did not', async () => {
+    const provider = new RecordingProvider([setGain('g1', -18), setGain('g2', -12), done]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(alreadyQuiet, baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    // Setting −18 dB on a clip already at −18 dB.
+    expect(results[0]?.summary).toContain('nothing moved');
+    expect(results[0]?.summary).toContain('get_timeline');
+    // −12 dB is a real move, and must not be labelled as one that was not.
+    expect(results[1]?.summary).not.toContain('nothing moved');
+    expect(modelFacingText(provider)).toContain('the project already said exactly this');
+  });
+});

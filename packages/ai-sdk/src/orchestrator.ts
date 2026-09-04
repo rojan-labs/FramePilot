@@ -21,6 +21,7 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  projectChanged,
 } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -1703,6 +1704,14 @@ interface AgentCallOutcome {
    * about this failure is remembered for the rest of the run.
    */
   deterministicFailure?: boolean;
+  /**
+   * The call landed nothing because the timeline **already said what it asked for** —
+   * distinct from landing nothing because something went wrong. See the no-change branch
+   * in `runAgentCall`, and {@link applyAgentTurn}'s use of it: a turn that is satisfied
+   * did not fail, and filing it as failed is the lie that had run `35746d4c` told twenty-
+   * four times that its captions had failed while they sat on the timeline.
+   */
+  satisfied?: boolean;
   /**
    * Which RULE refused this call, when a policy refusal named one
    * (`tool-refusal.ts#RefusalCause`). `deterministicFailureKey` keys run memory on this
@@ -4935,11 +4944,28 @@ export class Orchestrator {
       // is idempotent, so re-normalizing at turn end is a no-op.
       const normalized = [...probe.patch.operations];
       const applied = applyProjectPatch(ctx.project, probe.patch);
+      // A VALID EDIT THAT CHANGED NOTHING STILL HAS TO SAY SO.
+      //
+      // Writing the value a field already holds applies cleanly and reports success, and
+      // nothing in the answer distinguishes that from work. Run `137d8fd0` made 65
+      // `adjust_audio` calls, seven of them setting one clip to the −18 dB it was already
+      // at, each answered "Adjusted audio WIZARDS_DRIVE.mp3" — so it set it again.
+      //
+      // The operations are NOT dropped. A re-derivation that comes out identical is still
+      // the tool doing its job (`caption_the_edit` re-deriving cues off an unchanged
+      // timeline is the standing case), and withholding it would make the turn's op count
+      // depend on what the timeline happened to already say. Only the sentence changes,
+      // which is the part the model reads.
+      const changed = projectChanged(ctx.project, applied);
       const note =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
-          : '');
+          : '') +
+        (changed
+          ? ''
+          : ' — nothing moved: the project already said exactly this. Read the current ' +
+            'value with get_timeline or get_clips before setting it again.');
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -5164,8 +5190,14 @@ export class Orchestrator {
     let names = projectNames(args.working);
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
+    let satisfied = false;
     for (const call of calls) {
-      const { ops, note, project } = await this.runAgentCall(call, ctx, names, {
+      const {
+        ops,
+        note,
+        project,
+        satisfied: callSatisfied,
+      } = await this.runAgentCall(call, ctx, names, {
         ...(args.signal ? { signal: args.signal } : {}),
         effectRuntime: args.effectRuntime,
         loadedSkills: args.loadedSkills,
@@ -5176,6 +5208,7 @@ export class Orchestrator {
       });
       turnOps.push(...ops);
       notes.push(note);
+      if (callSatisfied === true) satisfied = true;
       if (project) {
         ctx = { ...ctx, project };
         names = projectNames(project);
@@ -5226,6 +5259,7 @@ export class Orchestrator {
       turnOps,
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
+      ...(satisfied ? { satisfied: true } : {}),
       ...(args.beatEvidence ? { beatEvidence: args.beatEvidence } : {}),
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
@@ -5364,6 +5398,7 @@ export class Orchestrator {
       let names = projectNames(working);
       const turnOps: AnyOperation[] = [];
       const notes: string[] = [];
+      let turnSatisfied = false;
       const callFacts: TurnCallFact[] = [];
       const turnFrames: AiImage[] = [];
       /** Ops a tool derived from the project — excluded from the bound (see below). */
@@ -5377,6 +5412,7 @@ export class Orchestrator {
           fromCache,
           images,
           derivedOpCount: callDerivedOps,
+          satisfied: callSatisfied,
         } = await this.runAgentCall(call, ctx, names, {
           effectRuntime,
           evidence,
@@ -5387,6 +5423,7 @@ export class Orchestrator {
         });
         turnOps.push(...ops);
         notes.push(note);
+        if (callSatisfied === true) turnSatisfied = true;
         if (callDerivedOps) derivedOpCount += callDerivedOps;
         if (images) turnFrames.push(...images);
         // Parity with the streaming loop's `executeToolCalls` (K1.2): both control paths
@@ -5425,6 +5462,7 @@ export class Orchestrator {
         turnOps,
         working,
         appliedPatchIds,
+        ...(turnSatisfied ? { satisfied: true } : {}),
         beatEvidence,
       });
       steps.push(step.record);
@@ -5562,6 +5600,11 @@ export class Orchestrator {
      * on this exact wiring point).
      */
     beatEvidence?: BeatEvidence;
+    /**
+     * Some call in this turn reported the timeline already matched it. Only consulted
+     * when the turn landed no operations — see the zero-op branch below.
+     */
+    satisfied?: boolean;
   }): {
     record: AgentStep;
     applied: boolean;
@@ -5595,6 +5638,12 @@ export class Orchestrator {
       return {
         record: { index, rationale, toolCalls, applied: false, note: baseNote },
         applied: false,
+        // Same distinction the identical-patch branch below draws, reached earlier: a
+        // turn whose every operation was a no-op never assembles a patch, so its id can
+        // never match a banked one. Without this it read as a turn that landed nothing —
+        // which the reducer files as `failed`, and the model then hunts for a cause that
+        // does not exist.
+        ...(args.satisfied === true ? { satisfied: true } : {}),
         working,
       };
     }
@@ -6106,6 +6155,8 @@ export class Orchestrator {
       turnOps: AnyOperation[];
       notes: string[];
       turnStatuses: ToolStatus[];
+      /** Some call reported the timeline already matched it. See `AgentCallOutcome.satisfied`. */
+      satisfied: boolean;
       /** Calls the harness refused this turn (commit-only latch, recovery surface). */
       withheldCallCount: number;
       rejectedOpCount: number;
@@ -6134,6 +6185,8 @@ export class Orchestrator {
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
     const turnStatuses: ToolStatus[] = [];
+    /** Did any call report the timeline already matched it? See `AgentCallOutcome.satisfied`. */
+    let satisfied = false;
     let withheldCallCount = 0;
     /** Frames this turn's `get_frame` calls rendered, for the NEXT request's images. */
     const frames: AiImage[] = [];
@@ -6376,6 +6429,7 @@ export class Orchestrator {
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
+        if (outcome.satisfied === true) satisfied = true;
         // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
         {
           const tool = getTool(call.name);
@@ -6452,6 +6506,7 @@ export class Orchestrator {
       turnOps,
       notes,
       turnStatuses,
+      satisfied,
       withheldCallCount,
       rejectedOpCount,
       derivedOpCount,
@@ -8324,6 +8379,7 @@ export class Orchestrator {
           turnOps,
           notes,
           turnStatuses,
+          satisfied: executedSatisfied,
           withheldCallCount,
           rejectedOpCount,
           derivedOpCount,
@@ -8454,6 +8510,7 @@ export class Orchestrator {
           turnOps,
           working,
           appliedPatchIds,
+          ...(executedSatisfied ? { satisfied: true } : {}),
           beatEvidence,
         });
         // A whole-turn rejection un-settles the cards that proposed it. Not a cosmetic

@@ -1056,7 +1056,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:12",
-      "summary": "Deleted range Video 1 · 0s–1s",
+      "summary": "Deleted range Video 1 · 0s–1s — nothing moved: the project already said exactly this. Read the current value with get_timeline or get_clips before setting it again.",
       "toolCallId": "c2",
       "ts": 1000,
       "turnId": "turn_1",
@@ -1420,7 +1420,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s9",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2502,
+            "tokenEstimate": 2536,
             "type": "system",
           },
           {
@@ -1434,8 +1434,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 11379,
-          "estimatedRemainingCapacity": 180429,
+          "estimatedInputTokensBeforeSend": 11413,
+          "estimatedRemainingCapacity": 180395,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1445,7 +1445,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 11379,
+      "usedTokens": 11413,
     },
     {
       "conversationId": "conv_1",
@@ -1627,7 +1627,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:21",
-      "text": "The repair pass proposed a fix and the validator rejected all of it: Deleted range Video 1 · 0s–1s; already in place — this exact change is already on the timeline",
+      "text": "The repair pass proposed a fix and the validator rejected all of it: Deleted range Video 1 · 0s–1s — nothing moved: the project already said exactly this. Read the current value with get_timeline or get_clips before setting it again.; already in place — this exact change is already on the timeline",
       "ts": 1000,
       "turnId": "turn_1",
       "type": "notification",
@@ -1892,7 +1892,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s9",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 2743,
+            "tokenEstimate": 2776,
             "type": "system",
           },
           {
@@ -1906,8 +1906,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 10999,
-          "estimatedRemainingCapacity": 180809,
+          "estimatedInputTokensBeforeSend": 11032,
+          "estimatedRemainingCapacity": 180776,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -1917,7 +1917,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 10999,
+      "usedTokens": 11032,
     },
     {
       "conversationId": "conv_1",
@@ -2120,7 +2120,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:28",
-      "text": "The repair pass proposed a fix and the validator rejected all of it: Deleted range Video 1 · 0s–1s; already in place — this exact change is already on the timeline",
+      "text": "The repair pass proposed a fix and the validator rejected all of it: Deleted range Video 1 · 0s–1s — nothing moved: the project already said exactly this. Read the current value with get_timeline or get_clips before setting it again.; already in place — this exact change is already on the timeline",
       "ts": 1000,
       "turnId": "turn_1",
       "type": "notification",
