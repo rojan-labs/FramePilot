@@ -10,7 +10,7 @@
     "resources": "playwright test --workers=1 --grep @resources"
   },
   "devDependencies": {
-    "@playwright/test": "^1.47.0",
+    "@playwright/test": "^1.62.1",
     "@types/node": "^20.14.0",
     "electron": "^39.8.10"
   }
