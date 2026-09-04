@@ -1229,3 +1229,60 @@ describe('a declared host refusal reaches the run’s durable account of itself'
     expect(briefing).not.toContain('ALREADY APPLIED');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A tool with no implementation on this surface — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * `render_preview` and `export_video` have no sidecar route: the editor renders through
+ * its own Export dialog, and the executor says exactly that — "Do not call it again".
+ *
+ * Nothing enforced it. Host failures are deliberately never keyed, so the refusal cost
+ * the run nothing per attempt and repeated freely. Run `137d8fd0` called `render_preview`
+ * three separate times and `export_video` once, on a run that ended at its budget ceiling.
+ *
+ * The channel is the one `stock-host.ts` already uses: the executor declares
+ * `surface_unavailable`, which is a verdict about the surface rather than an event on it,
+ * and the run refuses the second call.
+ */
+const renderPreview = (id: string): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'render_preview', arguments: {} }],
+});
+
+const SURFACE_SENTENCE =
+  '"render_preview" cannot be run from here — the editor renders and exports through its ' +
+  'own Export dialog. Do not call it again: finish the edit, then tell the editor it is ' +
+  'ready to export.';
+
+const surfaceRefusingHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async () => {
+    counter.calls += 1;
+    return { status: 'failed', summary: SURFACE_SENTENCE, refusalCause: 'surface_unavailable' };
+  },
+});
+
+describe('a tool this surface cannot run is refused on the second call', () => {
+  it('answers the repeat as a repeat, and keeps the remedy', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([renderPreview('r1'), renderPreview('r2'), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: surfaceRefusingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toBe(SURFACE_SENTENCE);
+    expect(results[1]?.summary).toBe(
+      'Refused repeat of "render_preview" — it already failed this run',
+    );
+    // The instruction the refusal carries has to outlive the tool result.
+    const seenByModel = modelFacingText(provider);
+    expect(seenByModel).toContain('finish the edit, then tell the editor it is ready to export');
+  });
+});
