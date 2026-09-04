@@ -1603,8 +1603,26 @@ function checkJumpCut(project: Project, fps: number): CriticCheck {
  * A word with no `assetId` (schema ≤ v11, or a single-asset project) applies to every
  * clip; an attributed one applies only to its own asset, so a two-camera project does not
  * report camera A's words as cut by camera B's edges.
+ *
+ * WHY the detected transcript loop is a parameter: `checkTranscriptReliable` already decided the transcript
+ * is fabricated over a range, and this check has to agree with that decision rather than
+ * re-litigate it. Run `137d8fd0` is what forced the point. Its transcript is 397
+ * back-to-back repeats of "I'll try to follow you later." covering 91% of the recording;
+ * `transcript_reliable` warned, in as many words, "do not select or cut on them" — and
+ * then `word_severed` failed the run for cuts inside "follow" and "God.", which are two
+ * of those words. Nobody said them. The run's repair pass looked at the failure, found
+ * nothing to repair, and the whole edit — 416 applied changes — was reported as failed
+ * on the strength of a word that does not exist.
+ *
+ * So a cut inside a hallucinated word is not a defect and is not counted. Real speech
+ * outside the loop is still protected, which is the part that matters: this transcript's
+ * first ~21s are genuine and cutting through those words is still wrong.
  */
-function checkWordSevered(project: Project, fps: number): CriticCheck {
+function checkWordSevered(
+  project: Project,
+  fps: number,
+  loop: TranscriptLoop | undefined,
+): CriticCheck {
   if (project.transcript.length === 0) {
     return check(
       'word_severed',
@@ -1627,7 +1645,20 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
   // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
   // hour of footage that is a thousand cuts against nine thousand words on every review,
   // and the Critic runs at the end of every run.
-  const spans = project.transcript
+  const inLoop = (word: TranscriptWord): boolean =>
+    loop !== undefined && word.end > loop.startSeconds && word.start < loop.endSeconds;
+  const real = project.transcript.filter((word) => !inLoop(word));
+  const excluded = project.transcript.length - real.length;
+  if (real.length === 0) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'skipped',
+      'Every transcribed word falls inside a speech-recognition loop, so there are no ' +
+        'real word boundaries to protect. Re-transcribe before trusting word timings.',
+    );
+  }
+  const spans = real
     .map((word) => ({
       assetId: word.assetId,
       word: word.word,
@@ -1682,12 +1713,16 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
       severedWordAt(from, from?.sourceEnd ?? 0) ?? severedWordAt(to, to?.sourceStart ?? 0);
     if (word !== undefined) severed.push({ frame: secondsToFrame(boundary.at, fps), word });
   }
+  const aside =
+    excluded === 0
+      ? ''
+      : ` ${String(excluded)} word(s) were ignored as speech-recognition loop artefacts.`;
   if (severed.length === 0) {
     return check(
       'word_severed',
       'No words cut through',
       'pass',
-      `Every cut lands between words (${boundaries.length} cut(s) against ${project.transcript.length} word(s)).`,
+      `Every cut lands between words (${boundaries.length} cut(s) against ${real.length} word(s)).${aside}`,
     );
   }
   const where = severed
@@ -1700,7 +1735,7 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
     'fail',
     `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
       'Move each boundary to the nearest word edge — read startFrame/endFrame from ' +
-      'get_mapped_transcript and trim_clip (or split_clip) to that frame.',
+      `get_mapped_transcript and trim_clip (or split_clip) to that frame.${aside}`,
   );
 }
 
@@ -2081,6 +2116,10 @@ export interface TranscriptLoop {
   readonly seconds: number;
   /** That span as a share of the transcript's own span, 0..1. */
   readonly share: number;
+  /** Source second the repetition starts at — the low edge of the unreliable stretch. */
+  readonly startSeconds: number;
+  /** Source second it ends at. Word timings in `[startSeconds, endSeconds]` mean nothing. */
+  readonly endSeconds: number;
 }
 
 /** Repeats before a phrase is a hallucination rather than a chorus. */
@@ -2147,6 +2186,8 @@ export function detectTranscriptLoop(words: readonly TranscriptWord[]): Transcri
         repeats,
         seconds,
         share,
+        startSeconds: words[start]!.start,
+        endSeconds: words[index - 1]!.end,
       };
     }
   }
@@ -2154,7 +2195,7 @@ export function detectTranscriptLoop(words: readonly TranscriptWord[]): Transcri
 }
 
 /** The transcript grounding every word-level edit is not obviously fabricated. */
-function checkTranscriptReliable(project: Project): CriticCheck {
+function checkTranscriptReliable(project: Project, loop: TranscriptLoop | undefined): CriticCheck {
   const words = project.transcript;
   if (words.length === 0) {
     return check(
@@ -2164,7 +2205,6 @@ function checkTranscriptReliable(project: Project): CriticCheck {
       'No transcript to check.',
     );
   }
-  const loop = detectTranscriptLoop(words);
   if (loop === undefined) {
     return check(
       'transcript_reliable',
@@ -2193,6 +2233,9 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   // project's rate. `Project.fps` is required by the schema; the guard is for a
   // hand-built fixture that lies about it, which must not turn a review into a crash.
   const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  // Detected ONCE and shared: `transcript_reliable` reports the loop and `word_severed`
+  // has to honour the same verdict, and the scan is quadratic in the transcript.
+  const loop = detectTranscriptLoop(project.transcript);
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
@@ -2205,10 +2248,10 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     ...(options.vision === undefined ? [] : [checkVisionReview(options)]),
     checkMissingAssets(project),
     checkExportSettings(project, options),
-    checkTranscriptReliable(project),
+    checkTranscriptReliable(project, loop),
     // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
     checkJumpCut(project, fps),
-    checkWordSevered(project, fps),
+    checkWordSevered(project, fps, loop),
     checkDeadAir(project, fps, options),
     checkTransitionFit(project, fps),
     checkAudioSlam(project, fps),

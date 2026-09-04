@@ -1798,4 +1798,72 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
     expect(found?.detail).toContain('do not select or cut on them');
     expect(report.ok).toBe(true);
   });
+
+  it('reports the source range the loop covers', () => {
+    const loop = detectTranscriptLoop([
+      ...repeated('meeting at the bottom of this cliff', 3),
+      ...repeated("i'll try to follow you later", 200, 60),
+    ]);
+    expect(loop?.startSeconds).toBeCloseTo(60, 6);
+    expect(loop?.endSeconds).toBeCloseTo(60 + 200 * 6 * 0.3, 6);
+  });
+
+  /**
+   * Run `137d8fd0`, exactly: a 416-change edit reported as **failed** because
+   * `word_severed` counted cuts landing inside words from the loop that
+   * `transcript_reliable` had, in the same report, told the run not to trust. The two
+   * checks disagreed about the same transcript and the harsher one decided the run.
+   */
+  describe('word_severed honours the loop verdict', () => {
+    /** Two clips cut at 6s, with a word spanning the cut in whichever stretch. */
+    const cutAt6 = (transcript: unknown) =>
+      withTracks(
+        [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', start: 0, end: 6, sourceStart: 0, sourceEnd: 6 }),
+              clip({ id: 'b', start: 6, end: 12, sourceStart: 100, sourceEnd: 106 }),
+            ],
+          },
+        ],
+        { transcript } as Partial<Project>,
+      );
+
+    it('does not fail on a cut inside a hallucinated word', () => {
+      // The loop runs 3s → 363s, so the cut at source 6s lands inside one of its words.
+      const report = critique(cutAt6(repeated("i'll try to follow you later", 120, 3)), {});
+      expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
+      expect(idOf(report, 'word_severed')?.status).not.toBe('fail');
+      expect(report.ok).toBe(true);
+    });
+
+    it('still fails on a cut inside real speech outside the loop', () => {
+      const real = [
+        { word: 'severed', start: 5.5, end: 6.5 },
+        { word: 'here', start: 6.5, end: 7 },
+      ];
+      const report = critique(
+        cutAt6([...real, ...repeated("i'll try to follow you later", 120, 20)]),
+        {},
+      );
+      expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')?.detail).toContain('severed');
+      expect(idOf(report, 'word_severed')?.detail).toContain('loop artefacts');
+    });
+
+    it('is unchanged when the transcript is clean', () => {
+      const report = critique(
+        cutAt6([
+          { word: 'severed', start: 5.5, end: 6.5 },
+          { word: 'here', start: 6.5, end: 7 },
+        ]),
+        {},
+      );
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')?.detail).not.toContain('loop artefacts');
+    });
+  });
 });
