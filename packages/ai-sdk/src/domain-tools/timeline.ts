@@ -404,6 +404,13 @@ function addClipOperation(
   ctx: ToolContext,
   lanes: LaneAllocator,
   picture: PicturePlacer,
+  /**
+   * Placements already handed out by THIS call, so a batch cannot duplicate inside
+   * itself. `existingPlacement` reads the pre-call timeline and therefore cannot see an
+   * entry the same `add_clips` batch booked a moment ago — `add_clips` plans every entry
+   * against one snapshot, which is the whole reason the lane allocators are per-call too.
+   */
+  booked: Set<string>,
 ): Operation[] {
   // Resolve the lane rather than trusting the one that was named — by two
   // different rules, because picture and everything else fail differently.
@@ -443,14 +450,16 @@ function addClipOperation(
   // Nothing else catches it: a second placement really does change the project, so the
   // run's no-change guard cannot see it, and the copies share no track so the validator
   // cannot either.
+  const placementKey = `${clip.assetId}@${clip.start}-${clip.end}:${clip.sourceStart}`;
   const alreadyThere = existingPlacement(ctx.project, clip);
-  if (alreadyThere) {
+  if (alreadyThere || booked.has(placementKey)) {
     throw new ToolRefusalError(
       `${assetLabel(ctx, clip.assetId)} is already on the timeline from ` +
-        `${roundSeconds(clip.start)}s to ${roundSeconds(clip.end)}s, on ` +
-        `${alreadyThere.trackId}. A second copy of the same shot over the same moment ` +
-        'cannot be seen behind the first. Place it at a different time, use a different ' +
-        'shot, or change the one that is there with trim_clip or move_clip.',
+        `${roundSeconds(clip.start)}s to ${roundSeconds(clip.end)}s` +
+        `${alreadyThere ? `, on ${alreadyThere.trackId}` : ' — this call placed it already'}. ` +
+        'A second copy of the same shot over the same moment cannot be seen behind the ' +
+        'first. Place it at a different time, use a different shot, or change the one ' +
+        'that is there with trim_clip or move_clip.',
     );
   }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
@@ -476,6 +485,7 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
+  booked.add(placementKey);
   const ops = [...placed.setupOps, add];
   if (!crop || !clipId) return ops;
   return [...ops, { type: 'set_clip_crop', clipId, crop }];
@@ -1024,6 +1034,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         ctx,
         createLaneAllocator(ctx.project.timeline),
         createPicturePlacer(ctx.project),
+        // One placement, so nothing can precede it within the call.
+        new Set<string>(),
       ),
   ),
   mutateTool(
@@ -1067,8 +1079,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
       const picture = createPicturePlacer(ctx.project);
+      const booked = new Set<string>();
       return a.clips.flatMap((clip) =>
-        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture),
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture, booked),
       );
     },
   ),

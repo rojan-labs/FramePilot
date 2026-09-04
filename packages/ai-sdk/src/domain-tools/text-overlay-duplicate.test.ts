@@ -125,9 +125,9 @@ describe('add_clip refuses the same shot over the same moment', () => {
 
   it('allows the same shot at a different moment', () => {
     const once = place(project());
-    expect(place(once, { start: 10, end: 15 }).timeline.tracks.flatMap((t) => t.clips)).toHaveLength(
-      2,
-    );
+    expect(
+      place(once, { start: 10, end: 15 }).timeline.tracks.flatMap((t) => t.clips),
+    ).toHaveLength(2);
   });
 
   it('allows a different shot at the same moment — that is what layering is for', () => {
@@ -148,5 +148,44 @@ describe('add_clip refuses the same shot over the same moment', () => {
   it('is still refused from a different point in the file, by the clip-id rule', () => {
     const once = place(project());
     expect(() => place(once, { sourceStart: 12 })).toThrow(/Clip id already exists/);
+  });
+});
+
+/**
+ * The batch has to see itself. `existingPlacement` reads the pre-call timeline, and
+ * `add_clips` plans every entry against that one snapshot — which is exactly why its lane
+ * allocators are per-call too. Without a per-call booking set, two identical entries in
+ * one batch both pass the duplicate check and the allocator dutifully finds each a lane.
+ */
+describe('add_clips cannot duplicate inside one batch', () => {
+  const batch = (entries: readonly Record<string, unknown>[]): Project => {
+    const p = makeProject({
+      assets: [{ id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 }],
+      timeline: { tracks: [{ id: 'video_1', type: 'video', clips: [] }] },
+    } as never);
+    const tool = getTool('add_clips');
+    if (!tool || tool.kind !== 'mutate') throw new Error('add_clips is not a mutate tool');
+    const ops = tool.buildOps(
+      { trackId: 'video_1', clips: entries },
+      { project: p },
+    ) as AnyOperation[];
+    return applyProjectPatch(p, assembleEdit(p, ops, 'batch', 'agent').patch);
+  };
+
+  it('places a batch of distinct spans', () => {
+    const after = batch([
+      { assetId: 'asset_1', start: 0, end: 5, sourceStart: 0 },
+      { assetId: 'asset_1', start: 5, end: 10, sourceStart: 5 },
+    ]);
+    expect(after.timeline.tracks.flatMap((t) => t.clips)).toHaveLength(2);
+  });
+
+  it('refuses a batch that repeats one of its own entries', () => {
+    expect(() =>
+      batch([
+        { assetId: 'asset_1', start: 0, end: 5, sourceStart: 0 },
+        { assetId: 'asset_1', start: 0, end: 5, sourceStart: 0 },
+      ]),
+    ).toThrow(/this call placed it already/);
   });
 });
