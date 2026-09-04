@@ -1867,3 +1867,84 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
     });
   });
 });
+
+/**
+ * `broll-first-20s`: b-roll laid over the first 20s of narration, and `word_severed`
+ * failing the run on a cut inside a word — measured against the b-roll clip's own in and
+ * out points, on footage that contains no speech at all. The fixture transcripts carry no
+ * `assetId` (schema ≤ v11), so every word applied to every clip. The captured run spent 19
+ * model calls and $2.07 trying to move a cut away from a word that was never on that shot.
+ */
+describe('word_severed on footage the transcript cannot be describing', () => {
+  // The narration runs to 50s; the b-roll shot is 8s long and cannot have produced it.
+  const narrationWords = [
+    { word: 'severed', start: 5.5, end: 6.5 },
+    { word: 'here', start: 6.5, end: 7 },
+    { word: 'later', start: 49.5, end: 50 },
+  ];
+
+  /** Narration on `asset_talk` (60s), b-roll on `asset_broll`, cut at source 6s. */
+  const withBroll = (brollDuration: number): Project =>
+    makeProject({
+      assets: [
+        { id: 'asset_talk', path: 'talk.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_broll', path: 'broll.mov', kind: 'video', durationSeconds: brollDuration },
+      ],
+      transcript: narrationWords,
+      timeline: {
+        tracks: [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({
+                id: 'b1',
+                assetId: 'asset_broll',
+                start: 0,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 6,
+              }),
+              clip({
+                id: 'b2',
+                assetId: 'asset_broll',
+                start: 6,
+                end: 8,
+                sourceStart: 6,
+                sourceEnd: 8,
+              }),
+            ],
+          },
+        ],
+      },
+    } as never);
+
+  it('does not report a severed word on b-roll too short to hold the transcript', () => {
+    expect(idOf(critique(withBroll(8), {}), 'word_severed')?.status).not.toBe('fail');
+  });
+
+  it('still reports it when the clip is on footage that could hold the transcript', () => {
+    // Same cut, same words — only the asset's duration differs, so it is now a candidate.
+    expect(idOf(critique(withBroll(60), {}), 'word_severed')).toMatchObject({ status: 'fail' });
+  });
+
+  it('is unchanged on a single-asset project, where any-clip was always right', () => {
+    const single = makeProject({
+      assets: [{ id: 'asset_1', path: 'a.mp4', kind: 'video', durationSeconds: 60 }],
+      transcript: narrationWords,
+      timeline: {
+        tracks: [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', start: 0, end: 6, sourceStart: 0, sourceEnd: 6 }),
+              clip({ id: 'b', start: 6, end: 8, sourceStart: 6, sourceEnd: 8 }),
+            ],
+          },
+        ],
+      },
+    } as never);
+    expect(idOf(critique(single, {}), 'word_severed')).toMatchObject({ status: 'fail' });
+  });
+});

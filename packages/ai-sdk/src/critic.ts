@@ -1588,6 +1588,46 @@ function checkJumpCut(project: Project, fps: number): CriticCheck {
   );
 }
 
+/** Slack on the duration comparison in {@link unattributedSpeechAssets}, in seconds. */
+const SPEECH_ASSET_TOLERANCE = 0.5;
+
+/**
+ * Which assets an **unattributed** transcript can be speaking over.
+ *
+ * ## WHY
+ *
+ * A transcript word with no `assetId` (schema ≤ v11, and every fixture in
+ * `tests/fixtures/mission`) is treated as applying to any clip. On a single-asset project
+ * that is right and is the behaviour this preserves. On a project that has since gained
+ * *other* footage it is a fabrication, and it fabricates in the direction that fails runs:
+ * `broll-first-20s` places b-roll over the first 20s of narration, and `word_severed`
+ * judges the b-roll clip's own in and out points against the narration's words — reporting
+ * a severed word on footage that contains no speech at all. The agent then spends its run
+ * trying to move a cut away from a word that was never on that shot; the captured run
+ * burned 19 model calls and $2.07 doing exactly that.
+ *
+ * The timeline already knows the answer without a schema change: an unattributed
+ * transcript covers its own span, so it can only have come from an asset long enough to
+ * contain it. On `mission-talk` that is the 528s narration and not the 9–40s b-roll. When
+ * nothing qualifies — no durations known, or the transcript outruns every asset — the
+ * result is `undefined` and the old any-clip reading stands, so no project loses coverage
+ * it had.
+ *
+ * @returns The asset ids an unattributed word may be judged against, or `undefined` to
+ *   mean "cannot narrow it — judge against everything", which is the pre-existing rule.
+ */
+function unattributedSpeechAssets(project: Project): ReadonlySet<string> | undefined {
+  if (project.transcript.length === 0) return undefined;
+  const spokenUntil = project.transcript.reduce((max, word) => Math.max(max, word.end), 0);
+  const able = project.assets.filter(
+    (asset) =>
+      asset.kind !== 'image' &&
+      asset.durationSeconds !== undefined &&
+      asset.durationSeconds >= spokenUntil - SPEECH_ASSET_TOLERANCE,
+  );
+  return able.length === 0 ? undefined : new Set(able.map((asset) => asset.id));
+}
+
 /**
  * Did I cut through a word?
  *
@@ -1641,6 +1681,7 @@ function checkWordSevered(
     );
   }
   const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  const speechAssets = unattributedSpeechAssets(project);
   // Word frame spans are computed ONCE and searched, not recomputed per boundary. The
   // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
   // hour of footage that is a thousand cuts against nine thousand words on every review,
@@ -1698,6 +1739,9 @@ function checkWordSevered(
       // frame its last one ends is cutting AFTER it — both are correct edits.
       if (span.startFrame >= frame || span.endFrame <= frame) continue;
       if (span.assetId !== undefined && span.assetId !== clip.assetId) continue;
+      // An unattributed word is not automatically this clip's — see
+      // `unattributedSpeechAssets`. B-roll is the case this exists for.
+      if (span.assetId === undefined && speechAssets && !speechAssets.has(clip.assetId)) continue;
       return span.word;
     }
     return undefined;
