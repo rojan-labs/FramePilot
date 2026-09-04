@@ -556,6 +556,7 @@ async function runCase(goldenCase, run) {
       beatTimes,
       keepClipIds,
       expectedFirstClipEndSeconds: turn.expectedFirstClipEndSeconds,
+      durationTargetSeconds: turn.durationTargetSeconds,
       brollAssetIds,
       cutawayWindowSeconds: turn.cutawayWindowSeconds,
       musicAssetId,

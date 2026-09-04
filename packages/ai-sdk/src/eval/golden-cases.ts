@@ -80,6 +80,8 @@ export interface GoldenTurn {
   /** `refine-tighten`: the clips the request names as "keep" are resolved at run time. */
   readonly keep?: 'first-last';
   readonly expectedFirstClipEndSeconds?: number;
+  /** The programme length the prompt asked for, when it named one. Defaults to 60. */
+  readonly durationTargetSeconds?: number;
   readonly expectedHeadTrimSeconds?: number;
   readonly cutawayWindowSeconds?: readonly [number, number];
   readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
@@ -198,7 +200,14 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     project: 'mission-talk',
     why: 'Style decisions must survive across turns without being restated.',
     turns: [
-      { prompt: 'Cut this down to the best 45 seconds.', rubric: 'podcast-highlight-60s', intent: 'edit' },
+      {
+        prompt: 'Cut this down to the best 45 seconds.',
+        rubric: 'podcast-highlight-60s',
+        intent: 'edit',
+        // The prompt says 45; the rubric's name says 60. The number the run is judged on
+        // is the one the editor asked for.
+        durationTargetSeconds: 45,
+      },
       {
         prompt: 'Add captions in a bold, uppercase, centered style.',
         rubric: 'memory-captions',
