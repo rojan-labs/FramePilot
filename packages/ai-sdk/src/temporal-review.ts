@@ -35,7 +35,10 @@ const FrameEvidenceRequestSchema = RequestBaseSchema.extend({
    * representative opening/midpoint/ending probes did. Optional so an existing recorded
    * request stays valid and so a caller that genuinely only wants a measurement can say so.
    */
-  checks: z.array(z.enum(['black_frames'])).min(1).optional(),
+  checks: z
+    .array(z.enum(['black_frames']))
+    .min(1)
+    .optional(),
 }).strict();
 
 const RangeEvidenceRequestSchema = RequestBaseSchema.extend({
@@ -180,12 +183,39 @@ const MotionResultBaseSchema = ResultBaseSchema.extend({
   renderSettings: z.null(),
 });
 
+/**
+ * An engine-optional field: **`null` means absent**, and so does a missing key.
+ *
+ * ## WHY this exists
+ *
+ * The engine declares these as `X | None = None` and FastAPI serialises the route with
+ * `response_model=TemporalEvidenceBatch`, which emits every unset optional as an explicit
+ * `null` — `"perceptualHash": null`, `"value": null`, `"point": null`. Zod's `.optional()`
+ * accepts `undefined` and refuses `null`, and because a batch is an array of a `.strict()`
+ * discriminated union, **one null rejects the entire batch**.
+ *
+ * The whole reviewer then fails closed, exactly as designed, and reports "your edits are
+ * applied and validated, but were not perceptually checked". Run `137d8fd0` lost all seven
+ * of its reviews to this, and the error it printed —"Temporal evidence response did not
+ * match its contract" — named no field, so there was nothing to chase.
+ *
+ * It survived because every fixture in the TS tests is written in TypeScript, with
+ * `undefined` where the engine sends `null`. `boundaryJumpDb` had already been patched
+ * `.nullable()` on its own; this makes the rule general instead of per-incident, and
+ * `temporal-review.engine-shape.test.ts` now parses a real serialised batch.
+ *
+ * The parsed type is unchanged (`T | undefined`) — null is normalised away, so no consumer
+ * has to learn a third state.
+ */
+const fromEngine = <T extends z.ZodType>(schema: T) =>
+  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
+
 const FrameSampleSchema = z
   .object({
     frame,
     luma: unitInterval,
     blackRatio: unitInterval,
-    perceptualHash: z.string().trim().min(1).max(256).optional(),
+    perceptualHash: fromEngine(z.string().trim().min(1).max(256)),
   })
   .strict();
 
@@ -214,13 +244,13 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
             channel: z.string().trim().min(1),
             min: finite,
             max: finite,
-            mean: finite.optional(),
-            p10: finite.optional(),
-            p50: finite.optional(),
-            p90: finite.optional(),
-            nearBlackRatio: unitInterval.optional(),
-            nearWhiteRatio: unitInterval.optional(),
-            coverageRatio: unitInterval.optional(),
+            mean: fromEngine(finite),
+            p10: fromEngine(finite),
+            p50: fromEngine(finite),
+            p90: fromEngine(finite),
+            nearBlackRatio: fromEngine(unitInterval),
+            nearWhiteRatio: fromEngine(unitInterval),
+            coverageRatio: fromEngine(unitInterval),
           })
           .strict(),
       )
@@ -233,9 +263,9 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
         z
           .object({
             frame,
-            value: finite.optional(),
-            point: PointSchema.optional(),
-            bounds: BoundsSchema.optional(),
+            value: fromEngine(finite),
+            point: fromEngine(PointSchema),
+            bounds: fromEngine(BoundsSchema),
           })
           .strict(),
       )
@@ -246,8 +276,8 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
     sample: z
       .object({
         integratedLufs: finite,
-        loudnessRangeLu: finite.optional(),
-        truePeakDbfs: finite.optional(),
+        loudnessRangeLu: fromEngine(finite),
+        truePeakDbfs: fromEngine(finite),
       })
       .strict(),
   }).strict(),
@@ -261,7 +291,7 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
             endFrame: frame,
             peakDbfs: finite,
             rmsDbfs: finite,
-            boundaryJumpDb: finite.nonnegative().nullable().optional(),
+            boundaryJumpDb: fromEngine(finite.nonnegative()),
           })
           .strict(),
       )
