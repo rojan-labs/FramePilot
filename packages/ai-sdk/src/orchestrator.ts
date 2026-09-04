@@ -1435,6 +1435,63 @@ export function callMemoKey(call: ToolCall): string {
 }
 
 /**
+ * The one-phrase answer a VERIFICATION read gives, for its card. `undefined` for every
+ * other read, whose card is correctly just the action it performed.
+ *
+ * These tools exist to answer a yes/no question, and the answer is the reason the run
+ * called them. Leaving it out of the card makes a passing check and a failing one
+ * indistinguishable at a glance — see the call site.
+ */
+function readVerdict(toolName: string, value: unknown): string | undefined {
+  if (toolName !== 'verify_captions' && toolName !== 'verify_transitions') return undefined;
+  if (typeof value !== 'object' || value === null) return undefined;
+  const result = value as {
+    readonly ok?: unknown;
+    readonly issues?: unknown;
+    readonly cueCount?: unknown;
+    readonly speechCoverage?: unknown;
+    readonly transitionCount?: unknown;
+    readonly boundaryCount?: unknown;
+  };
+  if (result.ok !== true && result.ok !== false) return undefined;
+  const issues = Array.isArray(result.issues) ? result.issues.length : 0;
+  if (result.ok === false) {
+    return issues === 1 ? '1 problem' : `${String(issues)} problems`;
+  }
+  if (toolName === 'verify_captions' && typeof result.cueCount === 'number') {
+    return `in sync, ${String(result.cueCount)} cue(s)`;
+  }
+  if (toolName === 'verify_transitions' && typeof result.transitionCount === 'number') {
+    return `all good, ${String(result.transitionCount)} transition(s)`;
+  }
+  return 'all good';
+}
+
+/**
+ * The byte-identity of a MUTATING call, with argument order normalised away.
+ *
+ * {@link callMemoKey} stringifies the arguments as they arrived, so `{clipId, gainDb}`
+ * and `{gainDb, clipId}` are two keys for one call. That is harmless for a read memo and
+ * useless here: run `137d8fd0` sent `adjust_audio` with the same clip and the same −12 dB
+ * fifteen times in one order and ten times in the other, and a key that cannot see through
+ * the ordering cannot see that they are the same instruction.
+ *
+ * Only the top level is sorted — a nested params object's order is the model's own and
+ * has never varied in a captured run, and recursing would cost more than it buys.
+ */
+function appliedCallKey(call: ToolCall): string {
+  const args = call.arguments;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return `${call.name}:${JSON.stringify(args)}`;
+  }
+  const record = args as Record<string, unknown>;
+  const sorted = Object.keys(record)
+    .sort()
+    .map((key) => [key, record[key]] as const);
+  return `${call.name}:${JSON.stringify(Object.fromEntries(sorted))}`;
+}
+
+/**
  * The **novelty key** for one call: what the reducer uses to decide whether this call
  * could have taught the model anything it did not already have (see `TurnCallFact`).
  * Deliberately coarser than both {@link turnSignature} and {@link callMemoKey}: it
@@ -1623,6 +1680,24 @@ interface HostCallContext {
    * commute; one field did not (see `beat-evidence.ts`).
    */
   readonly beatEvidence?: BeatEvidence;
+  /**
+   * Every MUTATING call this run has already applied, by byte-identity
+   * ({@link appliedCallKey}).
+   *
+   * A per-run mutable ledger for the same reason `beatEvidence` is one: the Orchestrator
+   * serves concurrent runs and must not hold either.
+   *
+   * WHY it exists: a repeat of an applied edit is not caught by anything else. The turn
+   * loop's `appliedPatchIds` compares PATCHES, and a re-placement lands on a different
+   * lane so its patch id differs; `seenFailureKeys` only remembers refusals. Run
+   * `137d8fd0` therefore applied **66 mutating calls that were byte-identical repeats of
+   * an edit it had already made** — the same −12 dB on the same clip fifteen times, the
+   * same transition nine times, the same colour grade four times, `add_track "captions"`
+   * four times. The user's timeline came out with nineteen video layers for a
+   * sixty-second edit, the same stock clip on three of them, and the music bed and the
+   * title card each placed twice.
+   */
+  readonly appliedCalls?: Set<string>;
   /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
@@ -3730,7 +3805,13 @@ export class Orchestrator {
    */
   private readonly stableInstructionMemo = new WeakMap<
     ReadonlyMap<string, string>,
-    { size: number; plan: readonly string[] | undefined; text: string }
+    {
+      size: number;
+      plan: readonly string[] | undefined;
+      text: string;
+      /** The same head, as manifest rows — see `agentStableInstructionSections`. */
+      sections: readonly AssembledSection[];
+    }
   >();
 
   /**
@@ -3761,9 +3842,71 @@ export class Orchestrator {
     });
     // ADR 0057: playbooks loaded this run are pinned (never compacted away) so the
     // model keeps the craft instructions it already paid a turn to fetch.
-    const text = `${instruction}${agentPlanBlock(plan)}${agentSkillsBlock([...loadedSkills.values()])}`;
-    this.stableInstructionMemo.set(loadedSkills, { size: loadedSkills.size, plan, text });
+    const planBlock = agentPlanBlock(plan);
+    const skillsBlock = agentSkillsBlock([...loadedSkills.values()]);
+    const text = `${instruction}${planBlock}${skillsBlock}`;
+    const skillCount = loadedSkills.size;
+    this.stableInstructionMemo.set(loadedSkills, {
+      size: loadedSkills.size,
+      plan,
+      text,
+      // Sized once, here, where the parts already exist — the head is ~32k tokens on a
+      // run with playbooks pinned, and re-estimating it every turn to fill in a report
+      // would be the report costing more than the thing it reports on.
+      sections: [
+        {
+          tier: 'system' as const,
+          label: 'agent contract',
+          tokenEstimate: estimateTokens(instruction),
+          included: true,
+        },
+        {
+          tier: 'system' as const,
+          label: 'committed plan',
+          tokenEstimate: estimateTokens(planBlock),
+          included: true,
+        },
+        {
+          tier: 'skills' as const,
+          // The COUNT is in the label because it is the number that explains the size,
+          // and because a reader comparing two manifests wants to see it change.
+          label:
+            skillCount === 1 ? 'pinned playbook (1)' : `pinned playbooks (${String(skillCount)})`,
+          tokenEstimate: estimateTokens(skillsBlock),
+          included: true,
+        },
+      ].filter((section) => section.tokenEstimate > 0),
+    });
     return text;
+  }
+
+  /**
+   * The stable head, as manifest sections — so the biggest block in every agent request
+   * is attributed instead of bucketed.
+   *
+   * ## WHY
+   *
+   * `assembleContext` does not build this block, so it never appeared in the tier account,
+   * and `withRemainder` swept it into one row called "additional request content" —
+   * reported, because `sectionTypeFor` maps an unlabelled `prompt` tier to `system`, as a
+   * **system** section. In run `137d8fd0` that row was **32,338 tokens: 57% of every
+   * request**, and the manifest's whole promise (ADR 0080: "a change in the number always
+   * arrives with its cause attached") failed for the single largest number in the run.
+   * It is not the system contract — that is 135 tokens. It is eight pinned playbooks.
+   *
+   * The budget already subtracts this block (`agentTurnRequest` passes
+   * `estimateTokens(stableHead)`), so nothing about what is SENT changes here. Only the
+   * account does, and only so the next person to ask why a run costs what it costs can
+   * see the answer rather than a bucket.
+   *
+   * Read from the same memo that built the head, so this costs nothing per turn.
+   */
+  private agentStableInstructionSections(
+    loadedSkills: ReadonlyMap<string, string>,
+    plan: readonly string[] | undefined,
+  ): readonly AssembledSection[] {
+    this.agentStableInstruction(loadedSkills, plan);
+    return this.stableInstructionMemo.get(loadedSkills)?.sections ?? [];
   }
 
   /** Build the per-turn context: working-state context + agent instruction + action log. */
@@ -3926,7 +4069,9 @@ export class Orchestrator {
         turnMessage,
       ],
       assembled: {
-        sections: assembled.sections,
+        // The stable head is not assembled by `assembleContext`, so it has to be added
+        // here or `withRemainder` buckets it — see `agentStableInstructionSections`.
+        sections: [...assembled.sections, ...this.agentStableInstructionSections(loadedSkills, plan)],
         droppedTokenEstimate: assembled.droppedTokenEstimate,
       },
     };
@@ -4841,10 +4986,16 @@ export class Orchestrator {
         // object (`data`).
         const preview = summarizeReadResult(call.name, value, ctx.project.assets);
         const note = stored ? `${desc} → ${preview} [${stored.id}]` : `${desc} → ${preview}`;
+        // A CHECK'S CARD HAS TO CARRY ITS VERDICT. Every other read's card is right to be
+        // the action label — "Reading the timeline" is the whole story. A verification is
+        // not: run `137d8fd0` shows fourteen rows reading "Checking caption sync" and
+        // "Checking transitions", one of which found 287 of 287 words uncaptioned and the
+        // rest of which passed, and nothing on any of them said which was which.
+        const verdict = readVerdict(call.name, value);
         return {
           ops: [],
           note,
-          summary: desc,
+          summary: verdict === undefined ? desc : `${desc} — ${verdict}`,
           // The card wants the label; the run's memory wants the conclusion.
           finding: preview,
           status: 'completed',
@@ -4984,6 +5135,33 @@ export class Orchestrator {
       // depend on what the timeline happened to already say. Only the sentence changes,
       // which is the part the model reads.
       const changed = projectChanged(ctx.project, applied);
+      // A REPEAT THAT CHANGES NOTHING IS THE ONE CASE WORTH WITHHOLDING.
+      //
+      // Neither signal is enough alone. "Changed nothing" on its own is legitimate —
+      // `caption_the_edit` re-deriving cues off an unchanged timeline is the tool doing
+      // its job, and two incident regressions pin that its operations must still flow.
+      // "Byte-identical repeat" on its own is legitimate too — the same call after a cut
+      // is exactly how captions are repaired. Together they are neither: the run already
+      // made this call, and making it again moves nothing. Withholding is provably safe,
+      // because `applyProjectPatch` has just demonstrated the result is the same project.
+      //
+      // Run `137d8fd0` did this 66 times, and the timeline it produced is what that looks
+      // like: nineteen video layers for a sixty-second edit, one stock clip on three of
+      // them, the music bed and the title card each placed twice.
+      const callKey = appliedCallKey(call);
+      if (!changed && host.appliedCalls?.has(callKey) === true) {
+        const note =
+          `${desc} — already done, and doing it again moved nothing. This run has ` +
+          'made this exact call before and the project is unchanged by it, so the ' +
+          'operations were not applied a second time. Read the current state with ' +
+          'get_timeline or get_clips, and go on to the next part of the request.';
+        orchestratorLog.warn('withheld a repeated call that changed nothing', {
+          tool: call.name,
+          opCount: normalized.length,
+        });
+        return { ops: [], note, summary: note, status: 'warning', satisfied: true };
+      }
+      host.appliedCalls?.add(callKey);
       const note =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
@@ -5076,6 +5254,8 @@ export class Orchestrator {
     appliedPatchIds: Set<string>;
     /** This run's beat ledger, so a repair is held to the grid like any other turn. */
     beatEvidence?: BeatEvidence;
+    /** The run's applied-call ledger (see `HostCallContext.appliedCalls`). */
+    appliedCalls?: Set<string>;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -5234,6 +5414,9 @@ export class Orchestrator {
         // Every caller of `attemptRepair` threads the run's `analysisBudget` (created
         // once, up front, and always truthy) straight through — see `HostCallContext`.
         analysisBudget: args.analysisBudget,
+        // The repair pass is the SAME run: an edit it re-issues unchanged is as much a
+        // repeat as one a turn re-issues.
+        ...(args.appliedCalls ? { appliedCalls: args.appliedCalls } : {}),
       });
       turnOps.push(...ops);
       notes.push(note);
@@ -5358,6 +5541,8 @@ export class Orchestrator {
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
     const beatEvidence = createBeatEvidence();
+    // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
+    const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     const loadedToolDomains = new Set<ToolDomain>();
@@ -5450,6 +5635,7 @@ export class Orchestrator {
           effectRuntime,
           evidence,
           beatEvidence,
+          appliedCalls,
           loadedSkills,
           loadedToolDomains,
           analysisBudget,
@@ -5577,6 +5763,7 @@ export class Orchestrator {
         stepIndex: steps.length + 1,
         appliedPatchIds,
         beatEvidence,
+        appliedCalls,
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
@@ -6205,6 +6392,8 @@ export class Orchestrator {
      * but has no turn to hold to a grid.
      */
     beatEvidence?: BeatEvidence,
+    /** Mutating calls this run already applied (see `HostCallContext.appliedCalls`). */
+    appliedCalls?: Set<string>,
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
     /**
@@ -6281,6 +6470,7 @@ export class Orchestrator {
       effectRuntime,
       evidence,
       ...(beatEvidence ? { beatEvidence } : {}),
+      ...(appliedCalls ? { appliedCalls } : {}),
       loadedSkills,
       loadedToolDomains,
       ...(askUser ? { askUser } : {}),
@@ -6907,7 +7097,9 @@ export class Orchestrator {
             Date.now,
             analysisBudget,
             // A question turn can `ask_user` too, and an answer given there is just as
-            // worth keeping as one given mid-edit.
+            // worth keeping as one given mid-edit. It never edits, so it needs no beat
+            // ledger and no applied-call ledger.
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -7761,6 +7953,8 @@ export class Orchestrator {
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
     const beatEvidence = createBeatEvidence();
+    // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
+    const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -8496,6 +8690,7 @@ export class Orchestrator {
             ).map((tool) => tool.name),
           ),
           beatEvidence,
+          appliedCalls,
           controls.rememberDecision,
           withholdSearch ? bankedSearches : undefined,
           // The run's proven-refusal memory, so a call that settles to a refusal this run
@@ -8700,6 +8895,7 @@ export class Orchestrator {
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             beatEvidence,
+            appliedCalls,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -9040,7 +9236,10 @@ function withheldCallOutcome(
       `"${call.name}" is not available on this turn. This turn is for acting on what ` +
       'the run has already gathered: make the edit, recall_evidence for a detail you ' +
       'need, or ask_user. It becomes available again on the next turn.',
-    summary: `${call.name} is unavailable this turn`,
+    // The MODEL gets the paragraph above; the editor gets this row, and "unavailable this
+    // turn" told them nothing about why or for how long. Run `137d8fd0` showed five of
+    // them in a stack with no reason attached to any.
+    summary: `${call.name} held back — this turn is for acting on what has been gathered`,
     status: 'warning',
   };
 }

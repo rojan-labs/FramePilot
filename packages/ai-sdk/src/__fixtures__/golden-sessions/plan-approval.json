@@ -300,12 +300,26 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2399,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "committed plan",
+            "tokenEstimate": 22,
+            "included": true
+          },
+          {
+            "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 255,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -772,12 +786,26 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2538,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "committed plan",
+            "tokenEstimate": 22,
+            "included": true
+          },
+          {
+            "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 394,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -1068,12 +1096,26 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2709,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "committed plan",
+            "tokenEstimate": 22,
+            "included": true
+          },
+          {
+            "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 565,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 13358,

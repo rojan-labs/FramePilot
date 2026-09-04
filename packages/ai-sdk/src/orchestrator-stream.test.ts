@@ -2186,6 +2186,30 @@ describe('streamAgent', () => {
     expect(labels).toContain('additional request content');
   });
 
+  /**
+   * The remainder row exists for the briefing, the steering and the action log. It was
+   * also swallowing the run-stable head — the agent contract, the committed plan and every
+   * pinned playbook — because `assembleContext` does not build that block and nothing else
+   * accounted for it. In run `137d8fd0` the row was **32,338 tokens, 57% of every
+   * request**, reported as a `system` section, and ADR 0080's promise that "a change in
+   * the number always arrives with its cause attached" failed for the largest number in
+   * the run. The actual system contract is 135 tokens.
+   */
+  it('attributes the run-stable head instead of bucketing it as the remainder', async () => {
+    const events = await drain(
+      new Orchestrator(new MockProvider()).streamAgent(input, opts(), { maxSteps: 1 }),
+    );
+    const usage = events.find((e) => e.type === 'context_usage');
+    const sections = usage?.type === 'context_usage' ? usage.manifest.sections : [];
+    const labels = sections.map((s) => s.label);
+    expect(labels).toContain('agent contract');
+    const contract = sections.find((s) => s.label === 'agent contract');
+    expect(contract?.tokenEstimate).toBeGreaterThan(0);
+    // No playbook is pinned on this turn, so no playbook row is drawn — a zero-token row
+    // would be a line item for nothing.
+    expect(labels).not.toContain('pinned playbooks (0)');
+  });
+
   it('defaults the clock when absent; a run that never edits emits no diff', async () => {
     const bare: ContextInput = { project: makeProject(), userPrompt: '' };
     const events = await drain(
@@ -5061,7 +5085,12 @@ describe('streamAgent cached-read action recovery', () => {
       (event) => event.type === 'tool_result' && event.toolCallId === 'b1',
     );
     const summary = refused?.type === 'tool_result' ? refused.summary : '';
-    expect(summary).toContain('unavailable this turn');
+    // The card says it was HELD BACK and why — not that it was redundant, which is the
+    // distinction this test exists for. The wording changed on 2026-09-05: "unavailable
+    // this turn" told the editor nothing about the reason or the duration, and run
+    // `137d8fd0` showed five of them stacked with no explanation on any.
+    expect(summary).toContain('held back');
+    expect(summary).toContain('acting on what has been gathered');
     expect(summary).not.toContain('redundant');
     // And the model is told what the turn IS for, so it has somewhere to go.
     const note = JSON.stringify(provider.requests[3]?.messages ?? []);

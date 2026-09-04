@@ -225,8 +225,18 @@ describe('agent mode', () => {
     // One applied step, then a step whose edit was already on the timeline. The note says
     // exactly that rather than "no progress": a run that recomputes an edit it already made
     // has nothing to fix, and telling it otherwise is what drives a retry loop.
+    //
+    // WHICH of the two notes says it moved on 2026-09-05. The call-level guard now catches
+    // a repeat that changes nothing before the turn assembles a patch, so the repeat is
+    // answered "already done, and doing it again moved nothing" instead of reaching the
+    // turn-level "already in place — this exact change is already on the timeline". Both
+    // carry `satisfied`, which is the property this test is really about: a recomputed
+    // edit must not be filed as a failure. Asserted on the property and on either
+    // sentence, so the incident stays pinned without pinning which layer says it.
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
-    expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
+    expect(
+      run.steps.some((s) => /already in place|already done, and doing it again/.test(s.note)),
+    ).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
     // 21 since `transcript_reliable` joined the battery. `critic.test.ts` is what pins the
     // set itself, by id and in order; this line only asserts the run carries a full report.

@@ -185,12 +185,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2277,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 155,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,
@@ -268,7 +275,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "f",
-      "summary": "generate_mask is unavailable this turn"
+      "summary": "generate_mask held back — this turn is for acting on what has been gathered"
     },
     {
       "id": "turn_golden:run-state",
@@ -445,12 +452,19 @@
           {
             "id": "s9",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 2356,
+            "label": "agent contract",
+            "tokenEstimate": 2122,
             "included": true
           },
           {
             "id": "s10",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 234,
+            "included": true
+          },
+          {
+            "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 6931,

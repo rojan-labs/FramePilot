@@ -1359,3 +1359,120 @@ describe('a tool call that moved nothing says so', () => {
     expect(modelFacingText(provider)).toContain('the project already said exactly this');
   });
 });
+
+// ---------------------------------------------------------------------------
+// A repeat of an applied edit — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * **66 mutating calls in run `137d8fd0` were byte-identical repeats of an edit the run
+ * had already applied** — the same −12 dB on the same clip fifteen times, the same
+ * transition nine times, the same colour grade four times, `add_track "captions"` four
+ * times. Nothing caught them: the turn loop compares PATCHES, and `seenFailureKeys` only
+ * remembers refusals.
+ *
+ * The guard needs BOTH signals. "Changed nothing" alone is legitimate —
+ * `caption_the_edit` re-deriving cues off an unchanged timeline is the tool working, and
+ * two incident regressions pin that its operations still flow. "Byte-identical repeat"
+ * alone is legitimate too — the same call after a cut is how captions are repaired.
+ * Together they are neither, and withholding is provably safe because the apply has just
+ * demonstrated the result is the same project.
+ */
+const gainOn = (id: string, clipId: string, gainDb: number): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'adjust_audio', arguments: { clipId, gainDb } }],
+});
+
+describe('a mutating call the run has already applied', () => {
+  it('is withheld when making it again moves nothing', async () => {
+    // Turn 2 carries a read alongside the repeat, so the turn's own signature differs and
+    // the no-progress guard does not end the run before the repeat is reached. The
+    // guard under test is the CALL-level one, not the turn-level one.
+    const provider = new RecordingProvider([
+      gainOn('g1', 'clip_a', -12),
+      {
+        text: '',
+        toolCalls: [
+          { id: 'r1', name: 'get_timeline', arguments: {} },
+          { id: 'g2', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } },
+        ],
+      },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summaries = toolResults(events).map((r) => r.summary);
+    expect(summaries.some((s) => s.includes('already done, and doing it again moved nothing'))).toBe(
+      true,
+    );
+    expect(modelFacingText(provider)).toContain('the next part of the request');
+  });
+
+  it('sees through the order the arguments arrived in', async () => {
+    // The captured run sent the same instruction both ways round — 15 times one way and
+    // 10 the other — and a key that stringifies as-received cannot tell them apart.
+    const provider = new RecordingProvider([
+      { text: '', toolCalls: [{ id: 'a', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } }] },
+      {
+        text: '',
+        toolCalls: [
+          { id: 'r1', name: 'get_timeline', arguments: {} },
+          { id: 'b', name: 'adjust_audio', arguments: { gainDb: -12, clipId: 'clip_a' } },
+        ],
+      },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summaries = toolResults(events).map((r) => r.summary);
+    expect(summaries.some((s) => s.includes('already done'))).toBe(true);
+  });
+
+  it('lets a repeat through when it actually changes something', async () => {
+    const provider = new RecordingProvider([
+      gainOn('g1', 'clip_a', -12),
+      gainOn('g2', 'clip_a', -6),
+      gainOn('g3', 'clip_a', -12),
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    // The third call repeats the first, but the second moved the value, so re-setting
+    // −12 dB is a real change and must land.
+    const results = toolResults(events);
+    expect(results.map((r) => r.summary).filter((s) => s.includes('already done'))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A check's card carries its verdict — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * Run `137d8fd0` shows fourteen rows reading "Checking caption sync" and "Checking
+ * transitions". One of them found 287 of 287 retained words with no caption over them;
+ * the rest passed. Nothing on any of the rows said which was which.
+ *
+ * Every other read's card is correctly just the action — "Reading the timeline" is the
+ * whole story. A verification is not: the answer is the reason the run called it.
+ */
+describe('a verification read shows what it found', () => {
+  const verify = (name: string): AiResponse => ({
+    text: '',
+    toolCalls: [{ id: `v-${name}`, name, arguments: {} }],
+  });
+
+  it('says how many cues are in sync when captions pass', async () => {
+    const provider = new RecordingProvider([verify('verify_captions'), done]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summary = toolResults(events)[0]?.summary ?? '';
+    expect(summary).toMatch(/in sync|problem/);
+  });
+
+  it('leaves an ordinary read as the action it performed', async () => {
+    const provider = new RecordingProvider([
+      { text: '', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summary = toolResults(events)[0]?.summary ?? '';
+    expect(summary).not.toMatch(/in sync|problem|all good/);
+  });
+});
