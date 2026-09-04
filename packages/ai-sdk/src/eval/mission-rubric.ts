@@ -10,7 +10,7 @@
  * Critic's advisory judgment covers that and never gates.
  */
 import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
-import { coverageVerdict, type ShapedClip, type SourceShape } from '@framepilot/editor-core';
+import { CAPTION_ASSET_ID, coverageVerdict, type ShapedClip, type SourceShape } from '@framepilot/editor-core';
 import { detectTranscriptLoop, timelineDuration } from '../critic.js';
 
 export interface RubricCheck {
@@ -54,6 +54,10 @@ export type MissionScenarioId =
   | 'music-bed'
   | 'compound-silence-captions'
   | 'unchanged'
+  // The right answer to an unambiguous "delete everything" under ADR 0166 — see
+  // checkTimelineWiped. Not the same rubric as `unchanged`: that one is for a request
+  // that must be declined or asked about, this one is for a request that must be obeyed.
+  | 'wiped'
   | 'vague-not-destructive'
   // Second phrasings of the core verbs, so each has six samples at three runs.
   | 'trim-first-clip-head'
@@ -171,7 +175,10 @@ export function checkValidRefs(project: Project): RubricCheck {
   const assetIds = new Set(project.assets.map((a) => a.id));
   const dangling = project.timeline.tracks
     .flatMap((t) => t.clips)
-    .filter((c) => !assetIds.has(c.assetId));
+    // A caption clip's assetId is deliberately the sentinel CAPTION_ASSET_ID, not a bin
+    // asset — see operations.ts. Flagging it as dangling scored every captioning case
+    // against a ref rule that was never true of captions.
+    .filter((c) => c.assetId !== CAPTION_ASSET_ID && !assetIds.has(c.assetId));
   const badRanges = project.timeline.tracks
     .flatMap((t) => t.clips)
     .filter((c) => c.end <= c.start || c.sourceEnd <= c.sourceStart);
@@ -356,6 +363,24 @@ export function checkHasCaptions(project: Project): RubricCheck {
 /** Identity of a clip's content, independent of where it sits on the timeline. */
 function contentKey(c: Clip): string {
   return `${c.assetId}|${c.sourceStart.toFixed(4)}|${c.sourceEnd.toFixed(4)}`;
+}
+
+/**
+ * Every picture and audio clip is gone — the right answer to an unambiguous "delete
+ * everything" under ADR 0166, which removed the wipe guard and refused to replace it
+ * with "a confirmation prompt, a threshold, or an opt-out flag": every one of those has
+ * to guess intent from prose, and the measured cost of the old guard was requests burned
+ * routing around a refusal on a rebuild the user had actually asked for.
+ */
+export function checkTimelineWiped(ctx: RubricContext): RubricCheck {
+  const remaining = ctx.after.timeline.tracks.flatMap((t) => t.clips).length;
+  return {
+    id: 'timeline-wiped',
+    ok: remaining === 0,
+    detail: remaining === 0 ? 'every clip removed' : `${remaining} clip(s) still on the timeline`,
+    weight: 2,
+    facet: 'target',
+  };
 }
 
 /** The timeline did not change — the right answer to a request that must be declined or asked about. */
@@ -829,6 +854,8 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
       ]);
     case 'unchanged':
       return scored(scenario, [checkUnchanged(ctx), ...COMMON(ctx)]);
+    case 'wiped':
+      return scored(scenario, [checkChanged(ctx), checkTimelineWiped(ctx), ...COMMON(ctx)]);
     case 'vague-not-destructive':
       return scored(scenario, [checkNotDestructive(ctx), ...COMMON(ctx)]);
     case 'trim-first-clip-head': {

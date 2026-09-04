@@ -3,14 +3,14 @@
   "category": "captions",
   "project": "mission-talk",
   "run": 1,
-  "replayed": false,
+  "replayed": true,
   "turns": [
     {
       "turnIndex": 0,
       "prompt": "Add captions to this video.",
       "rubric": "captions",
       "expectedIntent": "edit",
-      "score": 0.9,
+      "score": 1,
       "checks": [
         {
           "id": "timeline-changed",
@@ -39,8 +39,8 @@
         },
         {
           "id": "valid-refs",
-          "ok": false,
-          "detail": "334 dangling asset ref(s), 0 empty range(s)"
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
         },
         {
           "id": "no-overlaps",
@@ -79,26 +79,26 @@
           "invalid": 0,
           "rate": 1
         },
-        "firstPass": false,
+        "firstPass": true,
         "silentSuccess": false,
         "modelCalls": 10,
         "toolCalls": 11,
         "tokens": {
-          "prompt": 372794,
-          "output": 3620,
-          "total": 376414
+          "prompt": 0,
+          "output": 0,
+          "total": 0
         },
         "usd": 0.650193,
         "latency": {
-          "firstProgressMs": 2920,
-          "doneMs": 70747
+          "firstProgressMs": 29,
+          "doneMs": 438
         },
         "reversibility": {
           "ok": true,
           "detail": "identical after 4 patch(es) undone (timeline.revision excluded — monotonic by design)"
         },
         "failureQuality": null,
-        "score": 0.9,
+        "score": 1,
         "finalStatus": "completed",
         "operations": 1457
       },
@@ -106,7 +106,7 @@
       "assistantText": "**Applied 1457 edits** in 4 steps — review the proposed change below.\n\n- Add layer\n- Added captions caption_caption_1_120 · 0.133s–5.3s\n- Set caption cue caption_caption_1_120 (×2)\n- Added captions caption_caption_1_5300 · 5.3s–8.933s\n- Set caption cue caption_caption_1_5300 (×2)\n- Added captions caption_caption_1_8920 · 8.933s–10.733s (×2)\n- Set caption cue caption_caption_1_8920 (×2)\n- Added captions caption_caption_1_10720 · 10.733s–15.467s\n- Set caption cue caption_caption_1_10720 (×2)\n- Added captions caption_caption_1_15460 · 15.467s–19.133s\n- …and 1211 more",
       "recording": "reports/golden/baseline/recordings/captions-plain-r1-t1.json",
       "metrics": {
-        "wallMs": 70747,
+        "wallMs": 438,
         "modelCalls": 10,
         "tierCalls": {
           "small": 0,
@@ -114,113 +114,14 @@
           "large": 0
         },
         "tokens": {
-          "prompt": 372794,
-          "input": 198631,
-          "output": 3620,
-          "cacheRead": 174163,
-          "cacheCreate": 277450
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
         },
-        "perCall": [
-          {
-            "ttftMs": 2916,
-            "wallMs": 4102,
-            "input": 6733,
-            "output": 168,
-            "cacheRead": 10906
-          },
-          {
-            "ttftMs": 2734,
-            "wallMs": 5941,
-            "input": 7966,
-            "output": 323,
-            "cacheRead": 18921
-          },
-          {
-            "ttftMs": 3074,
-            "wallMs": 8299,
-            "input": 9036,
-            "output": 491,
-            "cacheRead": 18921
-          },
-          {
-            "ttftMs": 3191,
-            "wallMs": 8200,
-            "input": 9213,
-            "output": 530,
-            "cacheRead": 18921
-          },
-          {
-            "ttftMs": 2870,
-            "wallMs": 9144,
-            "input": 9292,
-            "output": 501,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 3291,
-            "wallMs": 12333,
-            "input": 23750,
-            "output": 839,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 4849,
-            "wallMs": 5715,
-            "input": 23794,
-            "output": 89,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 3222,
-            "wallMs": 4975,
-            "input": 23926,
-            "output": 217,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 3238,
-            "wallMs": 5203,
-            "input": 42438,
-            "output": 229,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 2307,
-            "wallMs": 6169,
-            "input": 42483,
-            "output": 233,
-            "cacheRead": 17749
-          }
-        ],
-        "summary": {
-          "turnCount": 10,
-          "ttftMs": {
-            "p50": 3074,
-            "p95": 4849,
-            "min": 2307,
-            "max": 4849
-          },
-          "wallMs": {
-            "p50": 5941,
-            "p95": 12333,
-            "min": 4102,
-            "max": 12333
-          },
-          "inputTokensPerTurn": {
-            "p50": 9292,
-            "p95": 42483,
-            "min": 6733,
-            "max": 42483
-          },
-          "outputTokensPerTurn": {
-            "p50": 233,
-            "p95": 839,
-            "min": 89,
-            "max": 839
-          },
-          "cacheHitRate": 0.4671829482234156,
-          "cacheReportingTurns": 10
-        },
+        "perCall": [],
+        "summary": null,
         "usd": 0.650193,
         "usageTokens": 202251,
         "toolCalls": 11,
@@ -240,166 +141,166 @@
         "contextRequests": 20,
         "contextByType": [
           {
-            "system": 2276,
-            "retrieved_evidence": 2238,
+            "system": 2475,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 6710
+            "tool_schemas": 6931
           },
           {
-            "system": 2276,
-            "retrieved_evidence": 2238,
+            "system": 2475,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 6710
+            "tool_schemas": 6931
           },
           {
-            "system": 3615,
-            "retrieved_evidence": 2238,
+            "system": 3814,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 3615,
-            "retrieved_evidence": 2238,
+            "system": 3814,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 4073,
-            "retrieved_evidence": 2238,
+            "system": 4272,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 4073,
-            "retrieved_evidence": 2238,
+            "system": 4272,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 4198,
-            "retrieved_evidence": 2238,
+            "system": 4396,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 4198,
-            "retrieved_evidence": 2238,
+            "system": 4396,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 4235,
-            "retrieved_evidence": 2249,
+            "system": 4434,
+            "retrieved_evidence": 2176,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 4235,
-            "retrieved_evidence": 2249,
+            "system": 4434,
+            "retrieved_evidence": 2176,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 10941,
-            "retrieved_evidence": 5033,
+            "system": 11139,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 10941,
-            "retrieved_evidence": 5033,
+            "system": 11139,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 10980,
-            "retrieved_evidence": 5033,
+            "system": 11179,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 10980,
-            "retrieved_evidence": 5033,
+            "system": 11179,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 11076,
-            "retrieved_evidence": 5033,
+            "system": 11275,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 11076,
-            "retrieved_evidence": 5033,
+            "system": 11275,
+            "retrieved_evidence": 4960,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 22356,
-            "retrieved_evidence": 5783,
+            "system": 22555,
+            "retrieved_evidence": 5710,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 22356,
-            "retrieved_evidence": 5783,
+            "system": 22555,
+            "retrieved_evidence": 5710,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 22391,
-            "retrieved_evidence": 5783,
+            "system": 22589,
+            "retrieved_evidence": 5710,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 22391,
-            "retrieved_evidence": 5783,
+            "system": 22589,
+            "retrieved_evidence": 5710,
             "skill": 1649,
             "latest_user_message": 11,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           }
         ],
         "contextUsedTokens": [
-          12884,
+          13231,
           6733,
-          18818,
+          19165,
           7966,
-          19276,
+          19623,
           9036,
-          19401,
+          19747,
           9213,
-          18722,
+          19069,
           9292,
-          28212,
+          28558,
           23750,
-          28251,
+          28598,
           23794,
-          28347,
+          28694,
           23926,
-          40377,
+          40724,
           42438,
-          40412,
+          40758,
           42483
         ],
         "contextCachedTokens": [
@@ -453,6 +354,6 @@
       }
     }
   ],
-  "provider": "claude-agent-sdk",
-  "model": "claude-sonnet-5"
+  "provider": "replay",
+  "model": "replay"
 }

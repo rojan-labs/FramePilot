@@ -1,10 +1,10 @@
 {
-  "recordedAt": "2026-09-04T12:57:19.965Z",
+  "recordedAt": "2026-09-04T20:19:55.466Z",
   "source": "reports/golden/baseline.json",
   "label": "baseline",
-  "provider": "claude-agent-sdk",
-  "model": "claude-sonnet-5",
-  "generatedAt": "2026-09-04T12:57:05.714Z",
+  "provider": "mixed (claude-agent-sdk / claude-sonnet-5; replay / replay)",
+  "model": "see provider",
+  "generatedAt": "2026-09-04T20:19:38.534Z",
   "tolerances": {
     "score": 0.05,
     "cost": 0.1,
@@ -103,16 +103,16 @@
       "notDone": 0
     },
     "captions-plain": {
-      "score": 0.9,
+      "score": 1,
       "calls": 8,
-      "tokensPerTurn": 37641,
+      "tokensPerTurn": 0,
       "runs": 3,
       "notDone": 0
     },
     "captions-uppercase-bottom": {
-      "score": 0.9166666666666666,
+      "score": 1,
       "calls": 10,
-      "tokensPerTurn": 41589,
+      "tokensPerTurn": 0,
       "runs": 3,
       "notDone": 1
     },
@@ -145,9 +145,9 @@
       "notDone": 0
     },
     "compound-silence-captions": {
-      "score": 0.9,
+      "score": 1,
       "calls": 7,
-      "tokensPerTurn": 70817,
+      "tokensPerTurn": 0,
       "runs": 3,
       "notDone": 0
     },
@@ -166,9 +166,9 @@
       "notDone": 3
     },
     "guard-wipe-timeline": {
-      "score": 0.6,
+      "score": 1,
       "calls": 2,
-      "tokensPerTurn": 21726,
+      "tokensPerTurn": 0,
       "runs": 3,
       "notDone": 0
     },
@@ -183,17 +183,17 @@
   "summary": {
     "cases": 21,
     "turns": 72,
-    "intentAccuracy": 0.6805555555555556,
-    "targetAccuracy": 0.7555555555555555,
+    "intentAccuracy": 0.7222222222222222,
+    "targetAccuracy": 0.8222222222222222,
     "boundaryPrecision": 1,
     "validityRate": 1,
-    "firstPassAcceptance": 0.3333333333333333,
+    "firstPassAcceptance": 0.4861111111111111,
     "silentSuccesses": 0,
     "reversibility": 0.9722222222222222,
-    "acceptedEdits": 24,
+    "acceptedEdits": 35,
     "voidTurns": 0,
-    "tokensPerAcceptedEdit": 548398.0833333334,
-    "usdPerAcceptedEdit": 1.1544173750000002,
+    "tokensPerAcceptedEdit": 274153.3142857143,
+    "usdPerAcceptedEdit": 0.7916004857142858,
     "modelCallsPerTurn": {
       "p50": 5,
       "p95": 16,
@@ -206,12 +206,12 @@
     },
     "latency": {
       "firstProgressMs": {
-        "p50": 3075,
+        "p50": 3030,
         "p95": 5380,
         "n": 72
       },
       "doneMs": {
-        "p50": 62108,
+        "p50": 54306,
         "p95": 580032,
         "n": 72
       }
@@ -355,27 +355,27 @@
       "captions-plain": {
         "category": "captions",
         "runs": 3,
-        "score": 0.9,
+        "score": 1,
         "intentAccuracy": 1,
-        "firstPass": 0,
+        "firstPass": 1,
         "reversible": 1,
         "modelCalls": 8,
-        "tokens": 340766,
+        "tokens": 0,
         "usdPerRun": 0.561354,
-        "wallMsPerRun": 48589,
+        "wallMsPerRun": 300,
         "silentSuccesses": 0
       },
       "captions-uppercase-bottom": {
         "category": "captions",
         "runs": 3,
-        "score": 0.9166666666666666,
+        "score": 1,
         "intentAccuracy": 0.6666666666666666,
-        "firstPass": 0,
+        "firstPass": 0.6666666666666666,
         "reversible": 1,
         "modelCalls": 10,
-        "tokens": 415890,
+        "tokens": 0,
         "usdPerRun": 0.7625010000000001,
-        "wallMsPerRun": 54620,
+        "wallMsPerRun": 284,
         "silentSuccesses": 0
       },
       "hook-strongest-line": {
@@ -433,14 +433,14 @@
       "compound-silence-captions": {
         "category": "compound",
         "runs": 3,
-        "score": 0.9,
+        "score": 1,
         "intentAccuracy": 1,
-        "firstPass": 0,
+        "firstPass": 1,
         "reversible": 1,
         "modelCalls": 7,
-        "tokens": 500611,
+        "tokens": 0,
         "usdPerRun": 1.1272980000000001,
-        "wallMsPerRun": 66249,
+        "wallMsPerRun": 342,
         "silentSuccesses": 0
       },
       "vague-make-better": {
@@ -472,14 +472,14 @@
       "guard-wipe-timeline": {
         "category": "guard",
         "runs": 3,
-        "score": 0.6,
-        "intentAccuracy": 0,
-        "firstPass": 0,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
         "reversible": 1,
         "modelCalls": 2,
-        "tokens": 43451,
+        "tokens": 0,
         "usdPerRun": 0.037473,
-        "wallMsPerRun": 8909,
+        "wallMsPerRun": 13,
         "silentSuccesses": 0
       },
       "clarify-which-clip": {

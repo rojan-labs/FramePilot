@@ -46,6 +46,137 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `baseline` — 2026-09-04 (session 2) — **three real defects closed, floor re-cut**
+
+Same label, re-scored and re-accepted after three code fixes this session — not a fresh
+21×3 run (explicitly avoided to conserve credits; see "How this was verified" below).
+`intentAccuracy` 68%→72%, `targetAccuracy` 76%→82%, `firstPassAcceptance` 33%→49%,
+`acceptedEdits` 24→35, all from removing false failures, not from any prompt/model change.
+
+| | |
+| --- | --- |
+| commit | pending (this session, branch `feat/golden-eval-harness`) |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5` (cases below re-scored via `--replay` on prior recordings — zero new model calls — except the one live check named below) |
+| cases touched | `captions-plain`, `captions-uppercase-bottom`, `compound-silence-captions`, `guard-wipe-timeline` rescored via replay; `broll-first-20s` re-run live once (1 run, not 3) to confirm a code fix |
+
+### Fix 1 — `checkValidRefs` didn't know about the caption sentinel (instrument bug)
+
+`mission-rubric.ts`'s `valid-refs` check flagged every caption clip as a "dangling asset
+ref" because a caption clip's `assetId` is deliberately `CAPTION_ASSET_ID` (`'__caption__'`,
+`operations.ts`) — a sentinel, not a bin asset. This silently capped every captioning
+case's score (`captions-plain` 0.90, `captions-uppercase-bottom` 0.92) and made
+`compound-silence-captions` look like it had a real schema-integrity bug (548–575
+"dangling" refs, flagged as an open lead in the prior entry). Fixed by excluding the
+sentinel; added a regression test. Re-scored via `--replay` (the caption tool calls were
+already recorded, so re-scoring them costs nothing):
+
+| case | before | after |
+| --- | --- | --- |
+| captions-plain | 0.90 (p50 across 3 runs) | **1.00 × 3** |
+| captions-uppercase-bottom | 0.92 | **1.00, 1.00, 0.83** (see Fix 1's real residual below) |
+| compound-silence-captions | 0.90, `valid-refs` failing on every run | **1.00 × 3** |
+
+`compound-silence-captions`'s "548 dangling refs" lead from the prior entry is now
+**closed as an instrument artifact** — it was never a caption/silence-removal engine bug.
+
+**A real, separate defect survived the fix**, visible only now that the false failure
+stopped masking it: `captions-uppercase-bottom` run 2 genuinely called `caption_the_edit`
+(captioning the whole edit) but never followed up with `set_track_caption_style`, so the
+captions landed without the requested uppercase/bottom styling — `intent: failed`, not
+scored 1.00. This is 1 of 3 runs; not yet diagnosed further. See leads below.
+
+### Fix 2 — the Claude Agent SDK provider discarded correct edits as hard failures
+
+The real, systemic bug of this session. `claude-agent-sdk.ts`'s sandbox deliberately sets
+`maxTurns: 1` (the orchestrator owns the loop; the SDK should only ever need one of its
+own turns to propose-and-defer a batch of tool calls). When the model proposes more than
+one parallel tool call in a single message, the SDK sometimes needs more than one of its
+own internal turns to finish deferring all of them — even though every one of them is
+still deferred, never executed. When that happens, the SDK does not yield a `result`
+message the adapter could inspect; it throws `Error: Claude Code returned an error
+result: Reached maximum number of turns (1)` directly out of the `for await`, after the
+tool-call chunks already streamed through. The adapter's `catch` block rethrew
+unconditionally, discarding an edit that had, in every observed case, already landed
+correctly on the timeline.
+
+Measured before the fix: 16 case+run files carried this exact error
+(`broll-first-20s` 3/3, `broll-empty-overlay-track` 3/3, `memory-captions` 3/3,
+`beat-sync` 1/3, `captions-uppercase-bottom` 1/3) — every one of them scored
+`intent: failed` against an `edit` expectation despite `checks` showing the requested
+edit had actually been applied correctly.
+
+Fix: when this specific error is caught and at least one tool call was already yielded in
+the same stream, treat it as a normal completion instead of rethrowing. A result subtype
+with no usable output (e.g. `error_max_budget_usd`) still throws. Two regression tests
+added — one for a `result`-message shape defense-in-depth, one reproducing the real
+throw-based shape measured against the installed SDK (0.3.259).
+
+**How this was verified without re-running the baseline**: `--replay` cannot exercise
+this fix — replay works from already-parsed chunk recordings, downstream of the provider
+code that changed, and the affected recordings are truncated exactly at the crash (the
+SDK never yielded the final "result" the recorder could capture). The only way to confirm
+was a live call. Ran `broll-first-20s` once (not three times) before the fix — confirmed
+the exact "max turns" crash reproduces on real media, `intent: failed`, $0.08. Fixed,
+rebuilt, ran it again once — the crash is gone; the run now reaches its own self-check
+(Critic) and fails there instead, on a real, different, newly-surfaced defect (below).
+**This is not reflected in the `baseline` label's cached rows for `broll-first-20s`,
+`broll-empty-overlay-track`, `memory-captions`, or `beat-sync`'s r1** — those still carry
+the pre-fix crash and were deliberately NOT re-run under `baseline` (3 cases × 3 runs
+would cost real money to re-confirm something already confirmed once). Read those four
+cases' current numbers in this baseline as **stale positives for the wrong reason** — the
+true state is "no longer crashes," not "still scores 0%."
+
+### Fix 3 — `guard-wipe-timeline` conformed to the shipped decision (ADR 0166)
+
+Not a bug — a decision the prior entry deliberately left open (see the pre-instrument
+entry below and REMAINING.md §3.1). ADR 0166 is accepted and shipped (`wipe-guard.ts` is
+gone); goal.md's "guard destructive intent" line predates it and was never reconciled.
+Conformed the case rather than continuing to fail it against a requirement the product no
+longer implements: added `checkTimelineWiped` + a `'wiped'` rubric (delete-everything is
+`intent: edit`, not `ask`), changed the case's expectation to match. Rescored via
+`--replay`: **0.60 → 1.00 × 3, first-pass.** Reversible if goal.md's line is reinstated —
+see the comment left in `golden-cases.ts`.
+
+### New leads, not yet run down
+
+1. **`captions-uppercase-bottom` r2**: `caption_the_edit` ran, `set_track_caption_style`
+   never followed. 1 of 3 runs. Real, now-visible defect (see Fix 1).
+2. **`broll-first-20s`, live-verified post-fix**: with the crash gone, the run's own
+   Critic self-check (`checkWordSevered`) now correctly fails on a genuinely severed word
+   the agent's b-roll placement introduced — confirmed NOT an instrument bug:
+   `runVerify` (orchestrator.ts:8541) already reconciles inherited-vs-new failures via
+   `reconcileInheritedFailures`, so this is the run's own new defect, not footage it
+   inherited. The agent burned 19 model calls / $2.07 failing to resolve it. Real
+   accuracy problem in b-roll placement near a spoken word; not diagnosed further this
+   session — expensive to reproduce (a full live run) and out of budget for this pass.
+3. **`reorder-last-first` r1's reversibility failure investigated, not resolved.** Traced
+   to the agent redundantly re-issuing `move_clip` on the same clip four times, one call
+   using a truncated `toStart` (`119.967` vs the exact `119.96666666666667`). Confirmed
+   `editor-core`'s `invertProjectPatch`/`applyMove` are correct in isolation, and confirmed
+   `snapSecondsToFrame` collapses both values to the identical quantized float — so the
+   **production path (`commitProjectPatch`, which quantizes once before invert/apply)
+   should not reproduce this**. Whether the golden harness's `checkReversibility` (which
+   calls `invertProjectPatch`/`applyProjectPatch` directly on `event.edit.patch`, bypassing
+   `commitProjectPatch`) is scoring on genuinely unquantized data is unresolved — plausible
+   instrument gap, not confirmed. r2/r3 of the same case used a different, cleaner
+   strategy (new track, one move per clip) and undo perfectly. Needs a from-scratch repro
+   with quantization traced step by step, not attempted this session (deep, uncertain
+   payoff, no live-run budget left).
+4. **`clarify-which-clip` mutates while asking, on all 3 runs, root cause identified but
+   not fixed.** The agent correctly asks a clarifying question (`intent: ask` matches) but
+   also applies 5 unrelated `set_clip_crop` (vertical-reframe) operations in the same
+   turn — confirmed nothing in the orchestrator's ask-handling path (`orchestrator.ts`
+   ~3976) stops mutating tool calls batched alongside an `ask` call from executing. The
+   same "reframe everything" pattern appears across most cases on this project and is
+   usually harmless/expected (most edit-intent cases score fine with it) — it is
+   specifically wrong on an ask-only turn. Not fixed: `orchestrator.ts` is ~8,000 lines
+   with dense, incident-driven invariants (see its own comments), and a structural fix
+   here needs live verification this session's budget does not cover. The safe, narrow
+   fix shape: when a batch of proposed tool calls includes an `ask`, do not apply the
+   other calls in that same batch.
+
+---
+
 ## `baseline` — 2026-09-04 — **the first real floor; accepted**
 
 The first baseline where all four dead rubric checks are live, undo is measured, void

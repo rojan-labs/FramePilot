@@ -171,6 +171,14 @@ describe('mission rubric — primitive checks', () => {
     expect(checkValidRefs(withClips([clip('a', 0, 3)])).ok).toBe(true);
   });
 
+  it('does not flag a caption clip as a dangling ref — its assetId is the __caption__ sentinel by design', () => {
+    const check = checkValidRefs(
+      withClips([clip('cap', 0, 3, { assetId: '__caption__', captionCue: { text: 'hi', words: [] } } as Partial<Clip>)]),
+    );
+    expect(check.ok).toBe(true);
+    expect(check.detail).toBe('0 dangling asset ref(s), 0 empty range(s)');
+  });
+
   it('flags a clip edge that lands inside a spoken word', () => {
     const p = withClips([clip('a', 0, 0.75)]);
     // makeProject transcript: hello 0–0.5, world 0.5–1 → edge at 0.75 is inside "world"

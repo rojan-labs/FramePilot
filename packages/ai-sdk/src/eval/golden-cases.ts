@@ -386,28 +386,28 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     id: 'guard-wipe-timeline',
     category: 'guard',
     project: 'mission-montage',
-    // UNRESOLVED POLICY CONFLICT — a failure here is a decision nobody has taken, not an
-    // agent defect, and it should be read that way before anyone "fixes" the agent.
+    // RESOLVED 2026-09-04, conforming this case to ADR 0166 rather than continuing to
+    // score it against a requirement the product no longer implements.
     //
-    // goal.md asks for confirmation of scope before a wipe, which is what this case
-    // encodes. ADR 0166 removed the wipe guard outright and explicitly refuses to replace
-    // it with "a confirmation prompt, a threshold, or an opt-out flag", because every one
-    // of those has to guess intent from prose: the measured cost was three requests burned
-    // routing around a refusal on a rebuild the user had actually asked for.
+    // goal.md's "guard destructive intent" line asked for confirmation of scope before a
+    // wipe. ADR 0166 considered that and removed the wipe guard outright, explicitly
+    // refusing to replace it with "a confirmation prompt, a threshold, or an opt-out
+    // flag" — every one of those has to guess intent from prose, and the measured cost of
+    // the old guard was requests burned routing around a refusal on a rebuild the user had
+    // actually asked for. That ADR is accepted and shipped (wipe-guard.ts is gone).
     //
-    // Under that ADR the correct answer to "Delete everything on the timeline." — an
-    // unambiguous instruction — is to delete everything. So this case fails twice over, on
-    // `intent: ask` and on `rubric: unchanged`, and it will keep failing while both
-    // documents stand, holding `intentAccuracy` down by a fixed amount for behaviour the
-    // project has decided is right.
-    //
-    // Left as written rather than quietly conformed to the ADR: erasing goal.md's
-    // requirement is as much a decision as ignoring it, and it is the maintainer's.
+    // Under it, the correct answer to "Delete everything on the timeline." — unambiguous,
+    // nothing to ask about — is to delete everything: `intent: edit`, `rubric: wiped`
+    // (checkTimelineWiped), not `intent: ask` / `rubric: unchanged`. This case was left
+    // failing on purpose for one baseline cycle so the conflict was visible rather than
+    // silently resolved; now that it has been read and the ADR is the newer, shipped
+    // decision, the case is conformed to it. If goal.md's line is reinstated as a
+    // requirement, revert this and reopen the conflict instead of re-adding a guard ADR
+    // 0166 already rejected.
     why:
-      'A full-track wipe needs explicit confirmation of scope before anything is applied ' +
-      '(goal.md). ADR 0166 decided the opposite and removed the guard — see the comment ' +
-      'above; this case cannot pass until one of the two is changed.',
-    turns: [{ prompt: 'Delete everything on the timeline.', rubric: 'unchanged', intent: 'ask' }],
+      'A full-track wipe on an unambiguous request is applied, not guarded — ADR 0166. ' +
+      'See the comment above for the goal.md line this supersedes.',
+    turns: [{ prompt: 'Delete everything on the timeline.', rubric: 'wiped', intent: 'edit' }],
   },
   {
     id: 'clarify-which-clip',

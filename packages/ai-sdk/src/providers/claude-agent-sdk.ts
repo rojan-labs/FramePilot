@@ -401,6 +401,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     const tools = request.tools ?? [];
     const text: string[] = [];
     let truncated = false;
+    let yieldedToolCall = false;
 
     try {
       const { query } = await this.loadAgentSdk();
@@ -444,6 +445,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
           // `deferred_tool_use` — see the module header on parallel calls.
           for (const block of message.message.content) {
             if (block.type === 'tool_use') {
+              yieldedToolCall = true;
               yield {
                 type: 'tool-call',
                 call: {
@@ -457,7 +459,12 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
           continue;
         }
         if (message.type === 'result') {
-          if (message.subtype !== 'success') {
+          // `error_max_turns` is not a failure here when it comes through as a `result`
+          // message (rather than the stream-error path below): every `tool_use` block from
+          // every `assistant` message this call streamed was already yielded above,
+          // deferred — never executed, see the module header — by the time this result
+          // arrives. See the `catch` block for why the SDK usually does not take this path.
+          if (message.subtype !== 'success' && message.subtype !== 'error_max_turns') {
             throw classifyAgentSdkError(
               new Error(message.errors?.join('; ') ?? `Claude Code ended: ${message.subtype}`),
             );
@@ -467,6 +474,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
           log.debug('claude agent sdk turn finished', {
             terminalReason: message.terminal_reason,
             turns: message.num_turns,
+            subtype: message.subtype,
           });
         }
       }
@@ -475,6 +483,25 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
       // A genuine user cancel must stay an AbortError so the retry loop and the
       // orchestrator report "cancelled" rather than retrying a stopped run.
       if (signal?.aborted === true) throw error;
+      // Measured against the real SDK (0.3.259): a turn-budget exhaustion does NOT reach
+      // the `message.type === 'result'` handling above — the SDK's own query reader
+      // catches its process-exit error internally and re-throws a wrapped "Claude Code
+      // returned an error result" error out of the `for await`, before this generator ever
+      // sees a `result` message for it. `maxTurns: 1` is deliberately tight (see
+      // SANDBOX_OPTIONS), so a message proposing more than one parallel tool call routinely
+      // costs the SDK more of its own internal turns to finish deferring all of them than
+      // that budget allows — and every one of those tool calls was already yielded above,
+      // deferred, never executed, before the throw. Discarding them as a hard failure threw
+      // away an edit that had already landed correctly; only turn-exhaustion with nothing
+      // usable produced (no tool call got out) is still a real failure worth retrying.
+      if (yieldedToolCall && /reached maximum number of turns/i.test(String(error))) {
+        log.debug('claude agent sdk exhausted its turn budget after deferring tool calls; treating as done', {
+          error: String(error),
+        });
+        yield { type: 'usage', usage: usageFromModelUsage({}) };
+        yield { type: 'done', text: text.join('') };
+        return;
+      }
       throw classifyAgentSdkError(error);
     } finally {
       signal?.removeEventListener('abort', forwardAbort);

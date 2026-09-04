@@ -3,14 +3,14 @@
   "category": "captions",
   "project": "mission-talk",
   "run": 2,
-  "replayed": false,
+  "replayed": true,
   "turns": [
     {
       "turnIndex": 0,
       "prompt": "Add captions in all caps at the bottom of the frame.",
       "rubric": "captions-styled",
       "expectedIntent": "edit",
-      "score": 0.75,
+      "score": 0.8333333333333334,
       "checks": [
         {
           "id": "timeline-changed",
@@ -46,8 +46,8 @@
         },
         {
           "id": "valid-refs",
-          "ok": false,
-          "detail": "262 dangling asset ref(s), 0 empty range(s)"
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
         },
         {
           "id": "no-overlaps",
@@ -89,17 +89,17 @@
         },
         "firstPass": false,
         "silentSuccess": false,
-        "modelCalls": 4,
+        "modelCalls": 3,
         "toolCalls": 7,
         "tokens": {
-          "prompt": 138438,
-          "output": 877,
-          "total": 139315
+          "prompt": 0,
+          "output": 0,
+          "total": 0
         },
         "usd": 0.24935400000000002,
         "latency": {
-          "firstProgressMs": 2962,
-          "doneMs": 20964
+          "firstProgressMs": 4,
+          "doneMs": 100
         },
         "reversibility": {
           "ok": true,
@@ -108,9 +108,9 @@
         "failureQuality": {
           "loud": true,
           "explained": true,
-          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Reached maximum number of turns (1)"
+          "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it. — Replay over-ran the recording at effect #3 (kind \"model_stream\") — the run asked for more effects than were recorded (3)."
         },
-        "score": 0.75,
+        "score": 0.8333333333333334,
         "finalStatus": "failed",
         "operations": 525
       },
@@ -118,79 +118,22 @@
       "assistantText": "",
       "recording": "reports/golden/baseline/recordings/captions-uppercase-bottom-r2-t1.json",
       "metrics": {
-        "wallMs": 20964,
-        "modelCalls": 4,
+        "wallMs": 100,
+        "modelCalls": 3,
         "tierCalls": {
           "small": 0,
           "mid": 0,
           "large": 0
         },
         "tokens": {
-          "prompt": 138438,
-          "input": 78733,
-          "output": 877,
-          "cacheRead": 59705,
-          "cacheCreate": 85168
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
         },
-        "perCall": [
-          {
-            "ttftMs": 2958,
-            "wallMs": 4303,
-            "input": 6739,
-            "output": 217,
-            "cacheRead": 23035
-          },
-          {
-            "ttftMs": 3188,
-            "wallMs": 6296,
-            "input": 35932,
-            "output": 347,
-            "cacheRead": 18921
-          },
-          {
-            "ttftMs": 3268,
-            "wallMs": 5657,
-            "input": 36062,
-            "output": 313,
-            "cacheRead": 17749
-          },
-          {
-            "ttftMs": 3512,
-            "wallMs": 4567,
-            "input": 0,
-            "output": 0,
-            "cacheRead": null
-          }
-        ],
-        "summary": {
-          "turnCount": 4,
-          "ttftMs": {
-            "p50": 3188,
-            "p95": 3512,
-            "min": 2958,
-            "max": 3512
-          },
-          "wallMs": {
-            "p50": 4567,
-            "p95": 6296,
-            "min": 4303,
-            "max": 6296
-          },
-          "inputTokensPerTurn": {
-            "p50": 6739,
-            "p95": 36062,
-            "min": 0,
-            "max": 36062
-          },
-          "outputTokensPerTurn": {
-            "p50": 217,
-            "p95": 347,
-            "min": 0,
-            "max": 347
-          },
-          "cacheHitRate": 0.4312760947138791,
-          "cacheReportingTurns": 3
-        },
+        "perCall": [],
+        "summary": null,
         "usd": 0.24935400000000002,
         "usageTokens": 79610,
         "toolCalls": 7,
@@ -207,63 +150,63 @@
         "contextRequests": 7,
         "contextByType": [
           {
-            "system": 2276,
-            "retrieved_evidence": 2238,
+            "system": 2475,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 6710
+            "tool_schemas": 6931
           },
           {
-            "system": 2276,
-            "retrieved_evidence": 2238,
+            "system": 2475,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 6710
+            "tool_schemas": 6931
           },
           {
-            "system": 15939,
-            "retrieved_evidence": 2238,
+            "system": 16138,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 15939,
-            "retrieved_evidence": 2238,
+            "system": 16138,
+            "retrieved_evidence": 2165,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 11305
+            "tool_schemas": 11526
           },
           {
-            "system": 16020,
-            "retrieved_evidence": 2249,
+            "system": 16219,
+            "retrieved_evidence": 2176,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 16020,
-            "retrieved_evidence": 2249,
+            "system": 16219,
+            "retrieved_evidence": 2176,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           },
           {
-            "system": 22980,
-            "retrieved_evidence": 5098,
+            "system": 23179,
+            "retrieved_evidence": 5025,
             "skill": 1649,
             "latest_user_message": 17,
-            "tool_schemas": 10578
+            "tool_schemas": 10799
           }
         ],
         "contextUsedTokens": [
-          12890,
+          13237,
           6739,
-          31148,
+          31495,
           35932,
-          30513,
+          30860,
           36062,
-          40322
+          40669
         ],
         "contextCachedTokens": [
           null,
@@ -278,7 +221,7 @@
         "validDiffs": 2,
         "operations": 525,
         "errors": [
-          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+          "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it."
         ],
         "finalStatus": "failed"
       },
@@ -305,6 +248,6 @@
       }
     }
   ],
-  "provider": "claude-agent-sdk",
-  "model": "claude-sonnet-5"
+  "provider": "replay",
+  "model": "replay"
 }

@@ -201,6 +201,105 @@ describe('tool calls', () => {
       { id: 't2', name: 'add_clip', arguments: { b: 2 } },
     ]);
   });
+
+  it('keeps parallel tool calls when maxTurns is exhausted deferring them, instead of throwing them away', async () => {
+    // The bug this guards: with SANDBOX_OPTIONS.maxTurns: 1, a message proposing more than
+    // one parallel tool call can cost the SDK more of its own internal turns to finish
+    // deferring all of them than the budget allows, so the trailing result reports
+    // `subtype: 'error_max_turns'` even though every tool_use block already streamed
+    // through as an `assistant` message and none of them executed (deferral guarantees
+    // that regardless of how many internal turns it took). Measured on real media: this
+    // discarded an already-correct, already-applied edit as a hard failure.
+    const { module } = fakeSdk([
+      {
+        type: 'assistant',
+        message: {
+          content: [
+            { type: 'tool_use', id: 't1', name: 'mcp__framepilot__caption_the_edit', input: { preset: 'subtitle' } },
+            { type: 'tool_use', id: 't2', name: 'mcp__framepilot__discover_caption_styles', input: {} },
+          ],
+        },
+      },
+      {
+        type: 'result',
+        subtype: 'error_max_turns',
+        stop_reason: null,
+        terminal_reason: 'max_turns',
+        num_turns: 1,
+        errors: ['Reached maximum number of turns (1)'],
+        modelUsage: {},
+      },
+    ]);
+    const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    const response = await provider.complete({ messages: [{ role: 'user', content: 'go' }] });
+
+    expect(response.toolCalls).toEqual([
+      { id: 't1', name: 'caption_the_edit', arguments: { preset: 'subtitle' } },
+      { id: 't2', name: 'discover_caption_styles', arguments: {} },
+    ]);
+  });
+
+  it('keeps parallel tool calls when the SDK throws "reached maximum number of turns" mid-stream', async () => {
+    // Measured against the real SDK (0.3.259) on real media: turn-budget exhaustion does
+    // NOT reach the `message.type === 'result'` handling — the SDK's own query reader
+    // catches the underlying process-exit error internally and re-throws a wrapped "Claude
+    // Code returned an error result: Reached maximum number of turns (1)" out of the
+    // `for await`, after the assistant message's tool_use blocks already streamed through
+    // (and were deferred, never executed). The case this reproduced on: `caption_the_edit`
+    // + `discover_caption_styles` requested together, run correctly, then the whole edit
+    // was thrown away as a hard failure.
+    const module = {
+      query() {
+        return (async function* () {
+          yield {
+            type: 'assistant',
+            message: {
+              content: [
+                { type: 'tool_use', id: 't1', name: 'mcp__framepilot__caption_the_edit', input: { preset: 'subtitle' } },
+                { type: 'tool_use', id: 't2', name: 'mcp__framepilot__discover_caption_styles', input: {} },
+              ],
+            },
+          };
+          throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)');
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    const response = await provider.complete({ messages: [{ role: 'user', content: 'go' }] });
+
+    expect(response.toolCalls).toEqual([
+      { id: 't1', name: 'caption_the_edit', arguments: { preset: 'subtitle' } },
+      { id: 't2', name: 'discover_caption_styles', arguments: {} },
+    ]);
+  });
+
+  it('still throws "reached maximum number of turns" when no tool call got out before it', async () => {
+    const module = {
+      query() {
+        return (async function* () {
+          throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)');
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    await expect(provider.complete({ messages: [{ role: 'user', content: 'go' }] })).rejects.toThrow();
+  });
+
+  it('still throws for a result subtype with no usable output', async () => {
+    const { module } = fakeSdk([
+      { type: 'result', subtype: 'error_max_budget_usd', errors: ['Budget exceeded'] },
+    ]);
+    const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    await expect(provider.complete({ messages: [{ role: 'user', content: 'go' }] })).rejects.toThrow();
+  });
 });
 
 describe('buildToolServer', () => {
