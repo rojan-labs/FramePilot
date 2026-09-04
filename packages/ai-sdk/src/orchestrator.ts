@@ -1713,6 +1713,12 @@ interface AgentCallOutcome {
    */
   satisfied?: boolean;
   /**
+   * This call put a question to the editor. See {@link applyAgentTurn}: a turn that asks
+   * does not apply its own edits, because every operation in it was composed by the same
+   * model response that asked, and therefore before any answer existed.
+   */
+  askedQuestion?: boolean;
+  /**
    * Which RULE refused this call, when a policy refusal named one
    * (`tool-refusal.ts#RefusalCause`). `deterministicFailureKey` keys run memory on this
    * in preference to the sentence, because a refusal sentence is written to be acted on
@@ -4021,7 +4027,13 @@ export class Orchestrator {
           'Could not ask the editor — this run has no way to reach them. Do not ask ' +
           'again. Use your best judgement, and say plainly in your summary what you ' +
           `assumed. (You asked: "${parsed.question}")`;
-        return { ops: [], note, summary: 'No one available to answer', status: 'warning' };
+        return {
+          ops: [],
+          note,
+          summary: 'No one available to answer',
+          status: 'warning',
+          askedQuestion: true,
+        };
       }
       const answerResult = await host.effectRuntime.run(
         {
@@ -4081,6 +4093,7 @@ export class Orchestrator {
           note: `The editor dismissed the question "${parsed.question}" and stopped the run.`,
           summary: 'Question dismissed',
           status: 'cancelled',
+          askedQuestion: true,
         };
       }
       /* v8 ignore start -- TS-narrowing guard only: the check above already proved
@@ -4109,6 +4122,7 @@ export class Orchestrator {
         summary: answerText,
         status: 'completed',
         data: { question: parsed.question, answer: answerText },
+        askedQuestion: true,
       };
     }
     if (tool.kind === 'action' || tool.kind === 'analysis') {
@@ -5191,12 +5205,14 @@ export class Orchestrator {
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
     let satisfied = false;
+    let askedQuestion = false;
     for (const call of calls) {
       const {
         ops,
         note,
         project,
         satisfied: callSatisfied,
+        askedQuestion: callAsked,
       } = await this.runAgentCall(call, ctx, names, {
         ...(args.signal ? { signal: args.signal } : {}),
         effectRuntime: args.effectRuntime,
@@ -5209,6 +5225,7 @@ export class Orchestrator {
       turnOps.push(...ops);
       notes.push(note);
       if (callSatisfied === true) satisfied = true;
+      if (callAsked === true) askedQuestion = true;
       if (project) {
         ctx = { ...ctx, project };
         names = projectNames(project);
@@ -5260,6 +5277,7 @@ export class Orchestrator {
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
       ...(satisfied ? { satisfied: true } : {}),
+      ...(askedQuestion ? { askedQuestion: true } : {}),
       ...(args.beatEvidence ? { beatEvidence: args.beatEvidence } : {}),
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
@@ -5399,6 +5417,7 @@ export class Orchestrator {
       const turnOps: AnyOperation[] = [];
       const notes: string[] = [];
       let turnSatisfied = false;
+      let turnAskedQuestion = false;
       const callFacts: TurnCallFact[] = [];
       const turnFrames: AiImage[] = [];
       /** Ops a tool derived from the project — excluded from the bound (see below). */
@@ -5413,6 +5432,7 @@ export class Orchestrator {
           images,
           derivedOpCount: callDerivedOps,
           satisfied: callSatisfied,
+          askedQuestion: callAskedQuestion,
         } = await this.runAgentCall(call, ctx, names, {
           effectRuntime,
           evidence,
@@ -5424,6 +5444,7 @@ export class Orchestrator {
         turnOps.push(...ops);
         notes.push(note);
         if (callSatisfied === true) turnSatisfied = true;
+        if (callAskedQuestion === true) turnAskedQuestion = true;
         if (callDerivedOps) derivedOpCount += callDerivedOps;
         if (images) turnFrames.push(...images);
         // Parity with the streaming loop's `executeToolCalls` (K1.2): both control paths
@@ -5463,6 +5484,7 @@ export class Orchestrator {
         working,
         appliedPatchIds,
         ...(turnSatisfied ? { satisfied: true } : {}),
+        ...(turnAskedQuestion ? { askedQuestion: true } : {}),
         beatEvidence,
       });
       steps.push(step.record);
@@ -5605,6 +5627,11 @@ export class Orchestrator {
      * when the turn landed no operations — see the zero-op branch below.
      */
     satisfied?: boolean;
+    /**
+     * Some call in this turn put a question to the editor. The turn's operations are then
+     * withheld — see the branch below.
+     */
+    askedQuestion?: boolean;
   }): {
     record: AgentStep;
     applied: boolean;
@@ -5644,6 +5671,35 @@ export class Orchestrator {
         // which the reducer files as `failed`, and the model then hunts for a cause that
         // does not exist.
         ...(args.satisfied === true ? { satisfied: true } : {}),
+        working,
+      };
+    }
+
+    // ASKING IS NOT EDITING.
+    //
+    // Every operation in a turn comes from ONE model response, so a turn that calls
+    // `ask_user` composed its edits BEFORE any answer existed — including the answer it
+    // was asking for. Applying them anyway is the run acting on the guess it just told
+    // the editor it could not make.
+    //
+    // The golden case `clarify-which-clip` is this, three runs out of three: "Cut the
+    // clip a bit shorter" over five clips and no selection, the agent correctly asks
+    // which one — and reframes all five in the same turn. The run reported "Applied 5
+    // edits", the rubric expected an untouched timeline, and the editor got work they
+    // never asked for while their question sat open.
+    //
+    // The ops are withheld, not rejected: nothing about them was invalid, and the note
+    // says to make them again once the answer is in. A turn that only asks is unaffected
+    // (it has no ops), and a run whose next turn re-issues them loses one step — which is
+    // what asking a question costs, and is the point of asking one.
+    if (args.askedQuestion === true) {
+      const note =
+        `${baseNote}; asked the editor a question, so this turn's ` +
+        `${String(args.turnOps.length)} edit(s) were not applied — they were composed ` +
+        'before the answer. Make them on the next turn, in light of what they said.';
+      return {
+        record: { index, rationale, toolCalls, applied: false, note },
+        applied: false,
         working,
       };
     }
@@ -6157,6 +6213,8 @@ export class Orchestrator {
       turnStatuses: ToolStatus[];
       /** Some call reported the timeline already matched it. See `AgentCallOutcome.satisfied`. */
       satisfied: boolean;
+      /** Some call put a question to the editor. See `AgentCallOutcome.askedQuestion`. */
+      askedQuestion: boolean;
       /** Calls the harness refused this turn (commit-only latch, recovery surface). */
       withheldCallCount: number;
       rejectedOpCount: number;
@@ -6187,6 +6245,8 @@ export class Orchestrator {
     const turnStatuses: ToolStatus[] = [];
     /** Did any call report the timeline already matched it? See `AgentCallOutcome.satisfied`. */
     let satisfied = false;
+    /** Did any call put a question to the editor? See `AgentCallOutcome.askedQuestion`. */
+    let askedQuestion = false;
     let withheldCallCount = 0;
     /** Frames this turn's `get_frame` calls rendered, for the NEXT request's images. */
     const frames: AiImage[] = [];
@@ -6430,6 +6490,7 @@ export class Orchestrator {
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
         if (outcome.satisfied === true) satisfied = true;
+        if (outcome.askedQuestion === true) askedQuestion = true;
         // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
         {
           const tool = getTool(call.name);
@@ -6507,6 +6568,7 @@ export class Orchestrator {
       notes,
       turnStatuses,
       satisfied,
+      askedQuestion,
       withheldCallCount,
       rejectedOpCount,
       derivedOpCount,
@@ -8380,6 +8442,7 @@ export class Orchestrator {
           notes,
           turnStatuses,
           satisfied: executedSatisfied,
+          askedQuestion: executedAskedQuestion,
           withheldCallCount,
           rejectedOpCount,
           derivedOpCount,
@@ -8511,6 +8574,7 @@ export class Orchestrator {
           working,
           appliedPatchIds,
           ...(executedSatisfied ? { satisfied: true } : {}),
+          ...(executedAskedQuestion ? { askedQuestion: true } : {}),
           beatEvidence,
         });
         // A whole-turn rejection un-settles the cards that proposed it. Not a cosmetic
