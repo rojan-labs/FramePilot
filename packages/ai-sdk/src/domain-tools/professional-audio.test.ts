@@ -469,3 +469,49 @@ describe('professional_audio role-authored ducking', () => {
     ).toThrow();
   });
 });
+
+/**
+ * Run `137d8fd0` sent `target: "music_1"`, `"music_bed"` and `"layer_audio_5"` across
+ * ten `professional_audio` calls and was told, each time, `target: Invalid input:
+ * expected "this"`. That reads as a typo, so the model kept trying ids. It is a category
+ * error — `target` names what the *editor* has selected — and the message now says so,
+ * and names the tool that does take an id.
+ */
+describe('professional_audio target is a referent, not an id', () => {
+  const messageFor = (args: Record<string, unknown>): string => {
+    try {
+      AudioObjectiveSchema.parse(args);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error('expected a rejection');
+  };
+
+  for (const intent of ['level', 'eq', 'compress', 'automate_gain'] as const) {
+    it(`explains the wrong kind of value on ${intent}`, () => {
+      const message = messageFor({ intent, target: 'music_1', gainDb: -6 });
+      expect(message).toContain('never a clip or track id');
+      expect(message).toContain('music_1');
+      expect(message).toContain('adjust_audio');
+    });
+  }
+
+  it('explains it on the duck intents, whose referent is fixed', () => {
+    const message = messageFor({
+      intent: 'duck_selection',
+      target: 'music_bed',
+      reductionDb: 12,
+    });
+    expect(message).toContain('never a clip or track id');
+    expect(message).toContain('adjust_audio');
+  });
+
+  it('still accepts the referents themselves', () => {
+    expect(
+      AudioObjectiveSchema.parse({ intent: 'level', target: 'these', gainDb: -6 }),
+    ).toMatchObject({ target: 'these' });
+    expect(AudioObjectiveSchema.parse({ intent: 'level', gainDb: -6 })).toMatchObject({
+      target: 'this',
+    });
+  });
+});

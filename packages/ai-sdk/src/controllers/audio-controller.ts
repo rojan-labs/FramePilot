@@ -117,11 +117,41 @@ function requiredBy(intent: string, field: string) {
       : undefined;
 }
 
+/**
+ * The message a model gets when it puts an id where a referent belongs.
+ *
+ * WHY it is worth spelling out: `target` names what the *editor* has selected, never a
+ * thing the model can name, and Zod's own words for that — `target: Invalid input:
+ * expected "this"` — read as a typo rather than as a category error. Run `137d8fd0` sent
+ * `target: "music_1"`, `"music_bed"`, `"layer_audio_5"` and gave up after ten refusals,
+ * never once being told that an id is the wrong KIND of thing here or which tool does
+ * take one.
+ */
+const TARGET_REFERENTS = ['this', 'these', 'playhead'] as const;
+
+const targetHint = (input: unknown): string | undefined =>
+  typeof input === 'string' &&
+  !TARGET_REFERENTS.includes(input as (typeof TARGET_REFERENTS)[number])
+    ? `target names what is selected in the editor — "this" (the selected clip), "these" ` +
+      `(all selected clips) or "playhead" (the clip under the playhead). It is never a clip ` +
+      `or track id, so "${input}" cannot be resolved. To act on a clip you can name, call ` +
+      `adjust_audio with its clipId — get_timeline lists them.`
+    : undefined;
+
 /** Every intent may name what it acts on; ducking derives its tracks and takes no referent. */
 const targetField = z
-  .enum(['this', 'these', 'playhead'])
+  .enum(TARGET_REFERENTS, { error: (issue) => targetHint(issue.input) })
   .default('this')
-  .describe('What to act on.');
+  .describe(
+    'What the editor has selected: "this" (the selected clip), "these" (all selected clips), ' +
+      'or "playhead" (the clip under the playhead). Never a clip or track id — use ' +
+      'adjust_audio when you have an id.',
+  );
+
+/** Ducking derives its own targets, so its referent is fixed — same wrong-kind message. */
+const duckTargetField = z
+  .literal('this', { error: (issue) => targetHint(issue.input) })
+  .default('this');
 
 const reductionField = z
   .number()
@@ -249,7 +279,7 @@ const DuckSelectionObjectiveSchema = z.strictObject(
   {
     intent: z.literal('duck_selection'),
     /** Fixed: the bed and sidechain come from the selection, never from a referent. */
-    target: z.literal('this').default('this'),
+    target: duckTargetField,
     reductionDb: reductionField,
   },
   { error: foreignKeyError('duck_selection') },
@@ -261,7 +291,7 @@ const DuckRolesObjectiveSchema = z
     {
       intent: z.literal('duck_roles'),
       /** Fixed: the bed and sidechain come from the authored roles, never from a referent. */
-      target: z.literal('this').default('this'),
+      target: duckTargetField,
       bedRole: AudioRoleSchema.describe('The role that gets quieter (the bed).'),
       sidechainRole: AudioRoleSchema.describe('The role it makes way for (the trigger).'),
       reductionDb: reductionField,

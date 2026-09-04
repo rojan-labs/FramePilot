@@ -239,6 +239,7 @@ import {
   type TouchedRegion,
 } from './review-findings.js';
 import { BUNDLED_SKILLS, skillsByName } from './skills.js';
+import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import {
@@ -3316,7 +3317,20 @@ export class Orchestrator {
       // that passes history gets dated memory writes without changing its call.
       turn: (input.history ?? []).filter((m) => m.role === 'user').length + 1,
       ...(input.selection ? { selection: input.selection } : {}),
-      ...(input.interaction ? { interaction: input.interaction } : {}),
+      // Re-stamped, not passed through. The snapshot is captured once when the turn
+      // starts, and in agent mode the agent's own first edit would otherwise make every
+      // selection-authored tool refuse `stale_context` for the rest of the run — see
+      // `rebaseEditorInteractionContext`. A selection whose clips have moved is still
+      // refused; only an intact one is carried forward.
+      ...(input.interaction
+        ? {
+            interaction: rebaseEditorInteractionContext(
+              input.interaction,
+              input.project,
+              input.projectRevision,
+            ),
+          }
+        : {}),
       // ADR 0057: hand the load_skill tool its lookup map. Bundled skills are the
       // default; ContextInput.skills overrides for tests/host configuration.
       skills: skillsByName(input.skills ?? BUNDLED_SKILLS),

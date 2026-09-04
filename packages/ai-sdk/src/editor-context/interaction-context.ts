@@ -6,7 +6,7 @@
  * project document. Keeping the contract serialisable lets browser and Electron
  * feed the same resolver without giving tools access to live UI objects.
  */
-import { effectLayersOf, type Project } from '@framepilot/timeline-schema';
+import { effectLayersOf, type Clip, type Project } from '@framepilot/timeline-schema';
 import { secondsToFrame, type RationalFrameRate } from '../frame-time.js';
 
 export const EDITOR_INTERACTION_CONTEXT_VERSION = 2 as const;
@@ -280,4 +280,82 @@ export function assertEditorInteractionReferences(
   if (missing.length > 0) {
     throw new Error(`Interaction references are not live in this project: ${missing.join(', ')}.`);
   }
+}
+
+/**
+ * Re-stamp a turn-start interaction snapshot onto the project as it stands now.
+ *
+ * ## WHY
+ *
+ * The snapshot is captured once, when the user sends the turn, and carries the
+ * revision the timeline had at that moment. `validateEditorTarget` refuses any
+ * selection-authored tool whose snapshot revision disagrees with the project's —
+ * correctly, because a selection made against different content means something
+ * different.
+ *
+ * In agent mode that rule has a consequence nobody chose: **the agent's own first
+ * mutation invalidates the user's selection for the rest of the run.** Run
+ * `137d8fd0` spent 153 steps taking the timeline from revision 56 to 127, and every
+ * `professional_audio` and `track_subject_automatically` call after step one was
+ * refused with `stale_context: Interaction context targets …@56, but the project is
+ * …@100`. The tools were not unavailable, they were not misused, and no phrasing the
+ * model could reach would have helped: they were dead from the first edit onward.
+ *
+ * What the staleness rule is actually protecting is the *meaning* of the selection, and
+ * that is checkable without trusting the renderer for anything new: every selected clip
+ * and track must still exist, on a track that still exists, and any selected time range
+ * must still fall inside one of those clips. Then the snapshot is re-stamped and the
+ * tool proceeds. If anything the selection names has been retimed or removed, nothing is
+ * re-stamped and the refusal stands — which is the case the rule exists for.
+ *
+ * Deliberately narrow: only the revisions move. Playhead, visible range and source
+ * monitor are the user's, and the agent has no standing to invent new values for them.
+ *
+ * @param context - The snapshot captured when the turn started.
+ * @param project - The project as it stands now.
+ * @param projectRevision - Current host authority revision, when the host tracks one.
+ * @returns A snapshot valid against `project`, or `context` unchanged when the
+ *   selection can no longer be shown to mean the same thing.
+ */
+export function rebaseEditorInteractionContext(
+  context: EditorInteractionContext,
+  project: Project,
+  projectRevision?: number,
+): EditorInteractionContext {
+  const timelineRevision = project.timeline.revision ?? 0;
+  if (
+    context.sequenceId === project.id &&
+    context.timelineRevision === timelineRevision &&
+    (projectRevision === undefined || projectRevision === context.projectRevision)
+  ) {
+    return context;
+  }
+  // A different project is not a stale snapshot, it is the wrong one.
+  if (context.sequenceId !== project.id) return context;
+  const clips = new Map(
+    project.timeline.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)),
+  );
+  const trackIds = new Set(project.timeline.tracks.map((track) => track.id));
+  for (const id of context.selection.trackIds) if (!trackIds.has(id)) return context;
+  const selected: Clip[] = [];
+  for (const id of context.selection.clipIds) {
+    const clip = clips.get(id);
+    if (clip === undefined) return context;
+    if (!trackIds.has(clip.trackId)) return context;
+    selected.push(clip);
+  }
+  // When the user selected a time range, that range is what the selection MEANT, and it
+  // is the one part of the snapshot the wire already carries that can be re-checked
+  // against the timeline. If the selected clips have been retimed out from under it, the
+  // selection no longer picks out what it picked out, and the refusal is correct.
+  const range = context.selection.timeRange;
+  if (range !== undefined && selected.length > 0) {
+    const covers = selected.some((clip) => clip.start <= range.start && clip.end >= range.end);
+    if (!covers) return context;
+  }
+  return {
+    ...context,
+    timelineRevision,
+    ...(projectRevision === undefined ? {} : { projectRevision }),
+  };
 }
