@@ -8,6 +8,45 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Captions work when b-roll is stacked over your footage.** If the same clip appeared on
+  two video layers at once — a cutaway, a second angle, a picture-in-picture — asking for
+  captions produced none at all, and asking again produced none again. Two layers meant two
+  captions competing for the same instant, and the whole caption pass was thrown away
+  rather than one of them. Captions are now laid out one at a time, in order, exactly as
+  they play.
+- **A run is no longer reported as failed over words nobody said.** When speech recognition
+  loops on quiet audio — the same sentence transcribed hundreds of times over wind or music
+  — FramePilot already spotted it and said not to trust those timings. It then failed the
+  whole edit for cutting through one of those imaginary words. Real speech is still
+  protected; the phantom words are not counted, and the report says how many were set
+  aside.
+- **The AI's finished edits get their perceptual check again.** Every run on this path
+  ended "your edits are applied and validated, but were not perceptually checked" because
+  the reviewer could not read the engine's own reply. It can now, and if it ever cannot
+  again it says which field it choked on.
+- **Asking you a question no longer edits your timeline first.** When the AI needed to know
+  which clip you meant, it asked — and applied a batch of unrelated changes in the same
+  breath, composed before you had answered. It now holds those back and makes them once it
+  knows what you meant.
+- **Undo restores a moved clip exactly.** Moving a clip and undoing it could leave it a
+  fraction of a millionth of a second shorter than it started. Nothing looked different,
+  and nothing sounded different, but the file was not the file you had.
+- **Caption styling accepts the words designers use.** Asking for bold captions on a dark
+  chip could be refused for spelling `bold` instead of `700`, and the captions kept the
+  plain default look for the rest of the session.
+- **The AI stops repeating work that changed nothing.** Setting a clip to the volume it
+  already had reported success, so it kept setting it. It now says the value did not move,
+  and where to check before trying again.
+- **The AI stops re-trying things this window cannot do.** Asking it to render or export
+  from a chat run told it, correctly, to finish the edit and use the Export dialog — and
+  nothing stopped it asking three more times.
+- **Selection-based audio and tracking tools survive the AI's own edits.** They read what
+  you have selected in the timeline, and the AI's very first change made every later call
+  refuse as out of date for the rest of the run.
+- **Clearer refusals when the AI gets an argument wrong.** A clip length sent where a
+  timeline position belongs now names the position that would have worked, and a tool that
+  wants your selection says so rather than reporting a typo.
+
 - **The AI can lay b-roll and montages over your footage again.** Asking for a cutaway on a
   talking head, or a photo montage cut to a music bed, was refused every time — the main
   track has picture everywhere, and any second layer was rejected before it was tried. A
