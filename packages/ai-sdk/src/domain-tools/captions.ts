@@ -30,6 +30,7 @@ import {
 import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
 import { mutateTool, readTool } from './tool-factories.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
 /**
@@ -306,7 +307,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'cue on the track — replacing whatever cues are already there. This is the tool to ' +
         'use for "add captions"; it is also how you REPAIR captions that verify_captions ' +
         'reports as stale or out of sync after a cut, because re-running it re-derives every ' +
-        'cue from the current timeline. Words in deleted footage are dropped and no cue can ' +
+        'cue from the current timeline. That re-run is local and free. Words in deleted footage are dropped and no cue can ' +
         'span a cut, so it cannot produce the errors hand-placed cues do. preset picks the ' +
         'register: short-form (default, punchy 1-2 lines), subtitle (broadcast, longer ' +
         'reading lines), one-word (one word per cue, for the one-word template family). ' +
@@ -347,7 +348,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         );
       }
       if (ctx.project.transcript.length === 0) {
-        throw new Error(
+        throw new ToolRefusalError(
           'This project has no transcript yet, so there is no speech to caption. Run transcribe first.',
         );
       }
@@ -363,7 +364,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         ctx.project.fps,
       );
       if (cues.length === 0 && track.clips.length === 0) {
-        throw new Error(
+        throw new ToolRefusalError(
           'No speech survives on the timeline to caption. Check the transcript covers the footage that is still in the edit.',
         );
       }
@@ -433,13 +434,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       const mapped = mapTranscript(buildTimelineMap(ctx.project.timeline), ctx.project.transcript);
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
-        throw new Error(
+        throw new ToolRefusalError(
           `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. To caption a stretch this long call caption_the_edit, which segments the whole edit in one call; to place this cue by hand, split it into separate 3–7 word phrases.`,
         );
       }
       const clipIds = new Set(mappedWords.map((word) => word.clipId));
       if (clipIds.size > 1) {
-        throw new Error(
+        throw new ToolRefusalError(
           `add_caption_layer cannot cross an edit boundary (${a.start}s–${a.end}s contains words from ${clipIds.size} clips). Split the cue at the cut, or call caption_the_edit, which never places a cue across one.`,
         );
       }

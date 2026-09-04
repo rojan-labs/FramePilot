@@ -16,6 +16,7 @@ const contextWindow: ContextWindowState = {
   usedTokens: 20,
   contextWindow: 100,
   estimated: false,
+  limitAssumed: false,
 };
 
 const atEntities: PinnedEntity[] = [

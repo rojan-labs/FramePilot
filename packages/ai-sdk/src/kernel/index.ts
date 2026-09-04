@@ -21,6 +21,7 @@ export * from './cost/run-metrics.js';
 export * from './cost/baseline-capture.js';
 export * from './agent-graph.js';
 export * from './cost/usage-summary.js';
+export * from './cost/usage-ledger.js';
 export * from './cost/analysis-caps.js';
 export * from './context/invariants.js';
 export * from './context/manifest.js';

@@ -10,13 +10,17 @@ import {
   applyProjectPatch,
 } from '@framepilot/editor-core';
 import {
+  INHERITED_PREFIX,
   critique,
   explicitDurationTarget,
+  detectTranscriptLoop,
+  reconcileInheritedFailures,
   explicitDurationTargetSeconds,
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
   type CritiqueOptions,
+  type CritiqueReport,
 } from './critic.js';
 import { checkableAcceptance } from './acceptance.js';
 import { makeProject } from './__fixtures__/project.js';
@@ -57,6 +61,32 @@ describe('explicitDurationTargetSeconds', () => {
   it('does not mistake an edit timestamp for a duration goal', () => {
     expect(explicitDurationTargetSeconds('Cut at 30 seconds and add a transition')).toBeUndefined();
     expect(explicitDurationTargetSeconds('Move this clip to 12s')).toBeUndefined();
+  });
+
+  it('reads the deliverable nouns people actually use, and the bare "best N" idiom', () => {
+    // The golden set's own podcast case stated its length as plainly as a request can and
+    // yielded nothing, so `duration_target` reported "skipped — no duration target was set"
+    // and a run that answered a 60-second brief with 36 seconds completed as a success.
+    expect(
+      explicitDurationTargetSeconds(
+        'Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.',
+      ),
+    ).toBe(60);
+    // No anchor anywhere: the length itself names the deliverable.
+    expect(explicitDurationTargetSeconds('Give me the best 60 seconds.')).toBe(60);
+    expect(explicitDurationTargetSeconds('Build a 20-35 second teaser')).toBe(27.5);
+    expect(explicitDurationTargetSeconds('Make a 30 second supercut')).toBe(30);
+  });
+
+  it('reads "cut this down to N" only when the object is the whole deliverable', () => {
+    expect(explicitDurationTargetSeconds('Cut this down to 45 seconds.')).toBe(45);
+    expect(explicitDurationTargetSeconds('Shorten it down to 2 minutes.')).toBe(120);
+    expect(explicitDurationTargetSeconds('Bring the video down to 90s')).toBe(90);
+    // …and never when it is one clip. This is why the bare preposition is not an anchor.
+    expect(explicitDurationTargetSeconds('Trim the first clip down to 5 seconds.')).toBeUndefined();
+    expect(
+      explicitDurationTargetSeconds('Trim the first clip so it ends at exactly 10 seconds.'),
+    ).toBeUndefined();
   });
 
   it('regression: a montage brief\u2019s pacing spec is not the deliverable length', () => {
@@ -284,6 +314,80 @@ describe('treatment coverage', () => {
       critique(cut(5, 0, 0), {}).checks.find((c) => c.id === 'treatment_coverage'),
     ).toMatchObject({ status: 'skipped' });
   });
+
+  /** A 9:16 project holding one landscape clip and one already-vertical clip. */
+  const mixedSourceCut = (cropLandscape: boolean): Project =>
+    makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                ...(cropLandscape ? { crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 } } : {}),
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+
+  it('counts a clip that already fills the frame as satisfying a "no black bars" demand', () => {
+    // `crop` coverage is parsed from "reframe / fill the frame / no black bars", so it is
+    // the framing requirement — and a source already no wider than the frame meets it while
+    // carrying no crop, which is exactly what `add_clip`'s placer leaves behind.
+    expect(
+      critique(mixedSourceCut(true), { coverage: ['crop'] }).checks.find(
+        (c) => c.id === 'treatment_coverage',
+      ),
+    ).toMatchObject({ status: 'pass' });
+  });
+
+  it('still fails the demand when the landscape clip is the one left uncropped', () => {
+    const found = critique(mixedSourceCut(false), { coverage: ['crop'] }).checks.find(
+      (c) => c.id === 'treatment_coverage',
+    );
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('1 of 2');
+  });
 });
 
 describe('reframe coverage', () => {
@@ -317,12 +421,141 @@ describe('reframe coverage', () => {
     // Two captured runs failed exactly this way: the editor asked for a full-bleed vertical
     // cut, the agent reframed the opening shots, stopped, and the run reported "All checks
     // passed" over 9 reframed and 38 letterboxed shots.
+    // Every clip here comes off ONE unmeasured asset, so nobody can measure the shape —
+    // but the run itself cropped three of them, which is its own evidence that the source
+    // does not fill the frame, and the seven it skipped will letterbox beside them.
     const report = critique(verticalCut(10, 3), {});
     const found = report.checks.find((c) => c.id === 'reframe_coverage');
     expect(found).toMatchObject({ status: 'fail' });
-    expect(found?.detail).toContain('3 of 10');
+    // The count names the clips that are WRONG (7), not the ones already right (3): it is
+    // the number an editor has to act on.
+    expect(found?.detail).toContain('7 of 10');
     expect(found?.detail).toContain('c3');
     expect(report.ok).toBe(false);
+  });
+
+  it('passes a mixed-source cut where the uncropped clips already fill the frame', () => {
+    // The montage failure this check caused: a 9:16 montage pulling from a 4K landscape
+    // camera and one phone clip shot vertically. `add_clip` crops the landscape sources and
+    // deliberately leaves the vertical one bare — `coverCropForFrame` returns undefined for
+    // a source no wider than the frame — and the run was failed for that single correct
+    // clip, after thirty edits the rubric scored perfect.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                crop: { x: 0.2917, y: 0, width: 0.4167, height: 1 },
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+    const report = critique(project, {});
+    expect(report.checks.find((c) => c.id === 'reframe_coverage')).toMatchObject({
+      status: 'pass',
+    });
+  });
+
+  it('still fails when a measured landscape clip is left uncropped beside a fitting one', () => {
+    // The same shape, except the landscape clip was never cropped: that one really does
+    // render with bars, and measurement — not the presence of a crop elsewhere — says so.
+    const project = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        {
+          id: 'land',
+          path: 'media/a.mov',
+          kind: 'video',
+          durationSeconds: 40,
+          media: { width: 3840, height: 2160 },
+        },
+        {
+          id: 'port',
+          path: 'media/b.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1080, height: 1920 },
+        },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v',
+            type: 'video',
+            clips: [
+              {
+                id: 'c0',
+                assetId: 'land',
+                trackId: 'v',
+                start: 0,
+                end: 5,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+              },
+              {
+                id: 'c1',
+                assetId: 'port',
+                trackId: 'v',
+                start: 5,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 5,
+                effects: [],
+                keyframes: [],
+                crop: { x: 0, y: 0.2, width: 1, height: 0.6 },
+              },
+            ],
+          },
+        ],
+      },
+    } as never);
+    const found = critique(project, {}).checks.find((c) => c.id === 'reframe_coverage');
+    expect(found).toMatchObject({ status: 'fail' });
+    expect(found?.detail).toContain('c0');
   });
 
   it('passes when every picture clip is reframed', () => {
@@ -443,6 +676,8 @@ describe('critique — shape', () => {
       'black_frames',
       'missing_assets',
       'export_settings',
+      // Whether the words the transcript-reading checks below are about were ever spoken.
+      'transcript_reliable',
       // Editorial checks (context-management Phase 4). The battery above answers "is the
       // deliverable well-formed?" and not one of it answers "is this a good cut?"; these
       // six do, and they run on every review rather than behind a flag.
@@ -1434,6 +1669,133 @@ describe('run 4c9b5f82, end to end', () => {
       minShotCount: 61,
     });
     expect(report.checks.filter((check) => check.status === 'fail')).toEqual([]);
+    expect(report.ok).toBe(true);
+  });
+});
+
+// goal.md Workstream A/D: verification judges the delta, not the absolute state.
+describe('reconcileInheritedFailures', () => {
+  type Check = CritiqueReport['checks'][number];
+  const check = (id: Check['id'], status: Check['status'], detail: string): Check => ({
+    id,
+    label: id,
+    status,
+    detail,
+  });
+  const report = (checks: readonly Check[]): CritiqueReport => ({
+    checks,
+    ok: checks.every((c) => c.status !== 'fail'),
+    summary: 'x',
+  });
+
+  it('a health check that failed identically before the run becomes an advisory', () => {
+    const before = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const after = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out.ok).toBe(true);
+    expect(out.checks[0]).toMatchObject({
+      status: 'warn',
+      detail: `${INHERITED_PREFIX}5 of 5 landscape`,
+    });
+    expect(out.summary).toBe('Passed with 1 warning(s) (1 inherited from the footage).');
+  });
+
+  it('a request-derived check is never inherited — the run was asked to change it', () => {
+    const before = report([check('duration_target', 'fail', '136s vs 30s')]);
+    const after = report([check('duration_target', 'fail', '136s vs 30s')]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out).toBe(after);
+    expect(out.ok).toBe(false);
+  });
+
+  it("a health check whose reading changed is the edit's finding, not the footage's", () => {
+    const before = report([check('reframe_coverage', 'fail', '5 of 5 landscape')]);
+    const after = report([check('reframe_coverage', 'fail', '9 of 9 landscape')]);
+    expect(reconcileInheritedFailures(before, after).ok).toBe(false);
+  });
+
+  it("a check that passed before and fails now is the edit's finding", () => {
+    const before = report([check('picture_coverage', 'pass', 'covered')]);
+    const after = report([check('picture_coverage', 'fail', '3.2s uncovered')]);
+    expect(reconcileInheritedFailures(before, after).ok).toBe(false);
+  });
+
+  it('mixed: the summary counts remaining failures and the inherited advisory', () => {
+    const before = report([
+      check('reframe_coverage', 'fail', 'landscape'),
+      check('picture_coverage', 'pass', 'covered'),
+    ]);
+    const after = report([
+      check('reframe_coverage', 'fail', 'landscape'),
+      check('picture_coverage', 'fail', '3.2s uncovered'),
+    ]);
+    const out = reconcileInheritedFailures(before, after);
+    expect(out.ok).toBe(false);
+    expect(out.summary).toBe('1 check(s) failed, 1 warning(s) (1 inherited from the footage).');
+  });
+});
+
+describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
+  /** `n` repeats of `phrase`, one word per `step` seconds, starting at `from`. */
+  const repeated = (phrase: string, n: number, from = 0, step = 0.3) => {
+    const parts = phrase.split(' ');
+    const out: { word: string; start: number; end: number }[] = [];
+    let t = from;
+    for (let i = 0; i < n; i++) {
+      for (const word of parts) {
+        out.push({ word, start: t, end: t + step });
+        t += step;
+      }
+    }
+    return out;
+  };
+
+  it('flags a phrase looping over most of the recording', () => {
+    // `mission-podcast`: real speech stops around 30s and whisper then emits one sentence
+    // 397 times to 575s, with plausible timings, over quiet audio.
+    const words = [
+      ...repeated('meeting at the bottom of this cliff', 3),
+      ...repeated("i'll try to follow you later", 200, 60),
+    ];
+    const loop = detectTranscriptLoop(words);
+    expect(loop).toBeDefined();
+    expect(loop?.repeats).toBe(200);
+    expect(loop?.share).toBeGreaterThan(0.5);
+  });
+
+  it('leaves a real transcript alone', () => {
+    expect(
+      detectTranscriptLoop([
+        ...repeated('the first thing to understand here', 1),
+        ...repeated('and that changes how we think about it', 1, 10),
+        ...repeated('so the answer is usually no', 1, 20),
+      ]),
+    ).toBeUndefined();
+  });
+
+  it('does not flag a chorus, which repeats without taking over', () => {
+    // A refrain repeats often and still leaves most of the song to the verses. Both
+    // conditions have to hold, which is what keeps a song, a chant or a drill out of this.
+    const words = [
+      ...repeated('some verse words that carry the song along here', 12),
+      ...repeated('we will never stop', 9, 200),
+      ...repeated('more verse words that carry the song along again', 12, 260),
+    ];
+    expect(detectTranscriptLoop(words)).toBeUndefined();
+  });
+
+  it('does not flag a phrase repeated only a few times', () => {
+    expect(detectTranscriptLoop(repeated('say it again', 4))).toBeUndefined();
+  });
+
+  it('warns without failing the run — the edit may still be the best available', () => {
+    const project = makeProject({
+      transcript: repeated("i'll try to follow you later", 120),
+    } as never);
+    const report = critique(project, {});
+    const found = report.checks.find((c) => c.id === 'transcript_reliable');
+    expect(found).toMatchObject({ status: 'warn' });
+    expect(found?.detail).toContain('do not select or cut on them');
     expect(report.ok).toBe(true);
   });
 });

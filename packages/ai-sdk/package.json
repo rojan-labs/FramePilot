@@ -4,7 +4,7 @@
   "private": true,
   "type": "module",
   "sideEffects": false,
-  "description": "Multi-provider AI layer (Anthropic, NVIDIA, mock) \u2014 tool registry, orchestrator, context builder (PRD \u00a78).",
+  "description": "Multi-provider AI layer (Anthropic, NVIDIA, mock) — tool registry, orchestrator, context builder (PRD §8).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "exports": {
     ".": {
@@ -26,10 +26,13 @@
     "test:coverage": "vitest run --coverage",
     "lint": "eslint .",
     "typecheck": "tsc -b",
-    "eval:mission": "node scripts/mission-score.mjs reports/system-mission/after-orchestration-merged.json",
-    "eval:mission:real": "node scripts/mission-baseline.mjs --runs 3 --label after --dump-events reports/system-mission/runs --out reports/system-mission/after-orchestration.json"
+    "eval:golden": "node scripts/mission-baseline.mjs",
+    "eval:golden:gate": "node scripts/golden-gate.mjs",
+    "eval:mission": "node scripts/golden-gate.mjs reports/golden/baseline.json",
+    "eval:mission:real": "node scripts/mission-baseline.mjs --case montage-30s,podcast-highlight-60s,remove-dead-air,beat-sync,refine-tighten,memory-captions --runs 3 --label nightly --force --yes --dump-events --out reports/golden/nightly.json"
   },
   "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.259",
     "@framepilot/capability-packs": "workspace:*",
     "@framepilot/editor-core": "workspace:*",
     "@framepilot/shared-types": "workspace:*",
@@ -42,6 +45,7 @@
     "@langchain/langgraph": "1.4.9",
     "@langchain/ollama": "1.3.0",
     "@langchain/openai": "1.5.6",
+    "@modelcontextprotocol/sdk": "1.29.0",
     "zod": "^3.25.76"
   },
   "devDependencies": {

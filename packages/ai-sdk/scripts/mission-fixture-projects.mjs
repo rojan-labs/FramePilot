@@ -16,6 +16,8 @@ import { basename, dirname, extname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 import { parseProject, SCHEMA_VERSION } from '@framepilot/timeline-schema';
+import { normalizeOperationTime } from '@framepilot/editor-core';
+import { detectTranscriptLoop } from '../dist/critic.js';
 
 process.env.FRAMEPILOT_LOG_LEVEL ??= 'silent';
 
@@ -28,7 +30,7 @@ const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799
 const VIDEO_EXT = new Set(['.mp4', '.mov']);
 const AUDIO_EXT = new Set(['.wav', '.mp3']);
 
-/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string }} Def */
+/** @typedef {{ id: string, name: string, fps: number, resolution: {width:number,height:number}, media: {file: string, onTimeline?: boolean}[], transcribe?: string, overlayTrackId?: string }} Def */
 
 /** @type {Def[]} */
 const DEFS = [
@@ -66,6 +68,31 @@ const DEFS = [
     transcribe: 'speech-9min-b.mp4',
   },
   {
+    // The shape that trapped run `369e8c82`: narration gapless across the WHOLE sequence
+    // on the occupied video track, and a second video track that is empty. Under ADR 0140
+    // every placement on the empty track overlaps picture and is refused, so the track is
+    // an invitation with no legal move behind it — the run took it four times over fifteen
+    // minutes. No other fixture can reproduce that: they all have exactly one video track.
+    //
+    // Same narration file as `mission-talk` on purpose. It makes the pair of b-roll cases
+    // differ in one variable only (the empty overlay track), and whisper hits its
+    // content-hash cache (`engine/python/.../audio/asr.py#transcribe`) instead of
+    // transcribing a second file, so the transcript costs nothing extra.
+    id: 'mission-overlay',
+    name: 'Mission overlay (gapless narration + an empty b-roll track)',
+    fps: 30,
+    resolution: { width: 1920, height: 1080 },
+    overlayTrackId: 'b_roll',
+    media: [
+      { file: 'speech-9min-b.mp4', onTimeline: true },
+      // In the bin, deliberately NOT on the timeline: the b-roll a request asks for has to
+      // be cut into the narration track, because `b_roll` has no free span to receive it.
+      { file: 'broll/b2-4k60-9s.mov' },
+      { file: 'broll/b3-1080p60-15s.mov' },
+    ],
+    transcribe: 'speech-9min-b.mp4',
+  },
+  {
     id: 'mission-photos',
     name: 'Mission photos (60 stills + music)',
     fps: 30,
@@ -95,6 +122,23 @@ function kindOf(file) {
   if (VIDEO_EXT.has(ext)) return 'video';
   if (AUDIO_EXT.has(ext)) return 'audio';
   return 'image';
+}
+
+/**
+ * The project's tracks, in composite order.
+ *
+ * `tracks[0]` is the visual FRONT (`activeEffectLayersAt` in `@framepilot/timeline-schema`
+ * composites bottom-up from the last track), so a def's `overlayTrackId` goes first — it is
+ * the layer a model reaches for when it wants to put something "over" the picture.
+ *
+ * @param {Def} def
+ * @param {unknown[]} clips - the clips laid on the occupied video track.
+ */
+function tracksOf(def, clips) {
+  const occupied = { id: 'video_1', type: 'video', clips };
+  const audio = { id: 'audio_1', type: 'audio', clips: [] };
+  if (!def.overlayTrackId) return [occupied, audio];
+  return [{ id: def.overlayTrackId, type: 'video', clips: [] }, occupied, audio];
 }
 
 async function buildProject(def) {
@@ -127,29 +171,65 @@ async function buildProject(def) {
       },
     });
     if (m.onTimeline && kind === 'video' && durationSeconds) {
+      // Lay the clip through the SAME boundary a real placement crosses. A person dropping
+      // this asset on the timeline builds an `add_clip` operation, and `commitProjectPatch`
+      // runs `quantizePatch` over it (ADR 0146 / GAP-005) — so their clip lands on the
+      // project's frame grid with its source range rescaled around `sourceStart`. Laying
+      // raw media durations here instead produced a project the product cannot produce:
+      // every fixture started off-grid, and `cuts-on-frame-grid` then failed on every case
+      // no matter what the agent did, charging an inherited defect to the agent and pinning
+      // goal.md's boundary-precision metric to the fixture rather than the run.
+      const snapped = normalizeOperationTime(
+        {
+          type: 'add_clip',
+          trackId: 'video_1',
+          assetId: id,
+          start: cursor,
+          end: cursor + durationSeconds,
+          sourceStart: 0,
+          sourceEnd: durationSeconds,
+        },
+        def.fps,
+      );
       clips.push({
         id: `clip_${String(clips.length + 1).padStart(3, '0')}`,
         assetId: id,
         trackId: 'video_1',
-        start: cursor,
-        end: cursor + durationSeconds,
-        sourceStart: 0,
-        sourceEnd: durationSeconds,
+        start: snapped.start,
+        end: snapped.end,
+        sourceStart: snapped.sourceStart,
+        sourceEnd: snapped.sourceEnd,
         effects: [],
         keyframes: [],
       });
-      cursor += durationSeconds;
+      // Advance by the SNAPPED end, so the next clip's start is on-grid too — the same way
+      // an append-at-end placement reads the committed timeline, not the raw asset duration.
+      cursor = snapped.end;
     }
   }
   let transcript = [];
   if (def.transcribe) {
     const asset = assets.find((a) => a.path.endsWith(basename(def.transcribe)));
-    const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: [{ id: 'video_1', type: 'video', clips }, { id: 'audio_1', type: 'audio', clips: [] }] } };
+    const draft = { id: def.id, name: def.name, version: 1, fps: def.fps, resolution: def.resolution, assets, timeline: { tracks: tracksOf(def, clips) } };
     process.stdout.write(`  transcribing ${asset.path} (local whisper)…`);
     const t0 = Date.now();
     const resp = await post('/transcribe', { project: draft, asset_id: asset.id, provider: 'whisper-cli', use_cache: true, project_id: def.id });
     transcript = resp.words.map((w) => ({ word: String(w.word ?? w.text ?? ''), start: Number(w.start), end: Number(w.end) })).filter((w) => w.word.length > 0 && w.end >= w.start);
     process.stdout.write(` ${transcript.length} words in ${((Date.now() - t0) / 1000).toFixed(0)}s\n`);
+    // Say so at BUILD time when the transcript is mostly one phrase repeated. Whisper loops
+    // over quiet audio and the result is indistinguishable from speech downstream, so a
+    // fabricated transcript otherwise becomes the silent ground truth for every
+    // transcript-grounded case measured against this fixture. `mission-podcast` is 92% one
+    // sentence, and nothing said so until a run refused the case and was scored as failing.
+    const loop = detectTranscriptLoop(transcript);
+    if (loop) {
+      process.stdout.write(
+        `  WARNING: this transcript repeats "${loop.phrase}" ${loop.repeats} times back to back, ` +
+          `covering ${loop.seconds.toFixed(0)}s (${Math.round(loop.share * 100)}% of it).\n` +
+          `  That is speech recognition looping over quiet audio, not speech. Any case that ` +
+          `selects or cuts on words in this fixture is measuring a fabrication.\n`,
+      );
+    }
   }
   const project = parseProject({
     id: def.id,
@@ -158,7 +238,7 @@ async function buildProject(def) {
     fps: def.fps,
     resolution: def.resolution,
     assets,
-    timeline: { tracks: [{ id: 'video_1', type: 'video', clips }, { id: 'audio_1', type: 'audio', clips: [] }] },
+    timeline: { tracks: tracksOf(def, clips) },
     transcript,
     aiMemory: {},
     history: [],

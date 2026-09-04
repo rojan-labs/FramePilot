@@ -26,7 +26,14 @@ import {
   type ResolvedTransition,
 } from '../preview/transitions/transition-engine.js';
 import { LEGACY_TRANSITION_IDS } from '@framepilot/timeline-schema/transition-catalog';
-import { hasTimeBasedSource, TRANSITION_OUT_EFFECT_TYPE } from '@framepilot/editor-core';
+import {
+  hasTimeBasedSource,
+  hidesWhatIsBehind,
+  isFullFrameOpaque,
+  type ShapedClip,
+  type SourceShape,
+  TRANSITION_OUT_EFFECT_TYPE,
+} from '@framepilot/editor-core';
 
 /**
  * A clean, human display name for an asset: the basename of its file path
@@ -344,25 +351,64 @@ export function clipKind(clip: Clip, assetById: ReadonlyMap<string, Asset>): Cli
 export function canvasPreviewEligible(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
+  resolution: { readonly width: number; readonly height: number },
 ): boolean {
-  const pictureClips: Clip[] = [];
-  for (const track of timeline.tracks) {
-    if (track.hidden) continue;
-    for (const clip of track.clips) {
-      const kind = clipKind(clip, assetById);
-      if (kind !== 'video' && kind !== 'image') continue; // overlays/audio: no constraint
-      if (clipSpeed(clip) !== 1) return false;
-      pictureClips.push(clip);
-    }
-  }
-  if (pictureClips.length === 0) return false;
-  pictureClips.sort((a, b) => a.start - b.start);
-  for (let i = 1; i < pictureClips.length; i++) {
-    const prev = pictureClips[i - 1];
-    const cur = pictureClips[i];
-    if (prev && cur && cur.start < prev.end) return false; // overlap
+  const stacked = stackedPictureClips(timeline, assetById);
+  if (stacked.length === 0) return false;
+  for (const { clip } of stacked) if (clipSpeed(clip) !== 1) return false;
+  const shaped = (entry: StackedPicture): ShapedClip => ({
+    clip: entry.clip,
+    source: sourceShape(assetById.get(entry.clip.assetId)),
+  });
+  // Stacked picture is admissible only where the compositor and the export agree.
+  //
+  // The canvas paints ONE clip per run of the flattened chain — the front-most —
+  // while `render/compiler.py` composites every track. The two produce the same
+  // frame exactly when every clip in the overlap covers the frame opaquely
+  // (`isFullFrameOpaque`, ADR 0169): the layer in front hides what is under it,
+  // and the export has nothing left to blend in.
+  //
+  // ADR 0170 made that a RELATION rather than a property of the front clip. The renderer
+  // FITS rather than covers, so a source whose aspect does not match the frame is
+  // letterboxed and its bars are transparent at export — but the clip behind it is fitted
+  // by the same renderer, and when the two are the same shape their bars coincide exactly.
+  // Both paint black there. What actually diverges is a front clip whose fitted rect fails
+  // to CONTAIN the ones it covers.
+  //
+  // `isFullFrameOpaque` stays as a separate check on the COVERED clips, because it protects
+  // something else. A covered clip is cut into two runs, and the engine derives both its
+  // source time and its clip-relative compositing time from the run's `projectStart` —
+  // correct for the source (the run carries its own sliced in/out) and wrong for anything
+  // animated. A clip with no keyframes and no transition has nothing clip-relative left to
+  // get wrong. That guarantee is about the clip underneath, not about coverage, so the
+  // relation does not replace it.
+  for (const run of pictureRuns(stacked)) {
+    if (run.covering.length < 2) continue;
+    // Two clips on ONE lane have no defined order — which is why the validator refuses
+    // to create them. Nothing here can invent one, so such a timeline keeps the DOM
+    // fallback rather than being painted in an order nobody chose.
+    if (run.covering[0]?.depth === run.covering[1]?.depth) return false;
+    if (!run.covering.every(({ clip }) => isFullFrameOpaque(clip))) return false;
+    const [front, ...behind] = run.covering;
+    /* v8 ignore next -- `covering.length >= 2` was just established */
+    if (!front) continue;
+    if (!hidesWhatIsBehind(shaped(front), behind.map(shaped), resolution)) return false;
   }
   return true;
+}
+
+/**
+ * An asset's measured source shape, or `undefined` when nothing probed it.
+ *
+ * Both dimensions or neither: `Asset.media.width/height` are optional since schema v21 and
+ * are "honestly absent rather than guessed at", and half a shape is not a shape.
+ */
+function sourceShape(asset: Asset | undefined): SourceShape | undefined {
+  const width = asset?.media?.width;
+  const height = asset?.media?.height;
+  if (typeof width !== 'number' || typeof height !== 'number') return undefined;
+  if (width <= 0 || height <= 0) return undefined;
+  return { width, height };
 }
 
 /**
@@ -378,8 +424,9 @@ export function canvasPreviewEligible(
 export function webCodecsPreviewEligible(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
+  resolution: { readonly width: number; readonly height: number },
 ): boolean {
-  if (!canvasPreviewEligible(timeline, assetById)) return false;
+  if (!canvasPreviewEligible(timeline, assetById, resolution)) return false;
 
   for (const track of timeline.tracks) {
     if (track.hidden) continue;
@@ -392,36 +439,148 @@ export function webCodecsPreviewEligible(
   return true;
 }
 
+/** A visible picture clip and the z-order slot of the track it sits on (0 = front). */
+interface StackedPicture {
+  readonly clip: Clip;
+  readonly depth: number;
+}
+
+/**
+ * Every picture clip on a visible track, tagged with its track's z-order slot.
+ *
+ * Track order IS z-order and index 0 is the visual front — the export composites
+ * `reversed(picture_by_track)`, so the first track's clips are drawn last
+ * (`render/compiler.py`, `AddLayerOp.atIndex`). Hidden tracks contribute nothing,
+ * mirroring the render.
+ */
+function stackedPictureClips(
+  timeline: Timeline,
+  assetById: ReadonlyMap<string, Asset>,
+): readonly StackedPicture[] {
+  const stacked: StackedPicture[] = [];
+  timeline.tracks.forEach((track, depth) => {
+    if (track.hidden) return;
+    for (const clip of track.clips) {
+      const kind = clipKind(clip, assetById);
+      if (kind !== 'video' && kind !== 'image') continue; // overlays/audio: no constraint
+      stacked.push({ clip, depth });
+    }
+  });
+  return stacked;
+}
+
+/** One run of the picture chain: a span over which the same set of clips is active. */
+interface PictureRun {
+  readonly start: number;
+  readonly end: number;
+  /** Every clip active over the whole run, front-most first. */
+  readonly covering: readonly StackedPicture[];
+}
+
+/**
+ * Split the picture chain at every clip edge, and say what is active over each run.
+ *
+ * Because the cut points are exactly the clip starts and ends, a clip active
+ * anywhere inside a run is active across the WHOLE run — which is what makes
+ * "the front-most one wins" a per-run answer rather than a per-frame one.
+ *
+ * O(edges x clips). A run of picture is tens of clips, and this is memoized by
+ * its callers on timeline identity.
+ */
+function pictureRuns(stacked: readonly StackedPicture[]): readonly PictureRun[] {
+  const edges = new Set<number>();
+  for (const { clip } of stacked) {
+    edges.add(clip.start);
+    edges.add(clip.end);
+  }
+  const times = [...edges].sort((a, b) => a - b);
+  const runs: PictureRun[] = [];
+  for (let i = 0; i + 1 < times.length; i++) {
+    const start = times[i] as number;
+    const end = times[i + 1] as number;
+    if (!(end > start)) continue;
+    const covering = stacked
+      .filter(({ clip }) => clip.start <= start && clip.end >= end)
+      .sort((a, b) => a.depth - b.depth);
+    runs.push({ start, end, covering });
+  }
+  return runs;
+}
+
 /** One span of the flattened "picture" timeline (P2): either a clip
  * (video or image) or a gap (nothing active — `clip: null`). Ordered,
- * contiguous from 0, covering exactly `[0, timelineDuration(timeline))`. Only
- * meaningful when {@link canvasPreviewEligible} is true (assumes no overlaps). */
+ * contiguous from 0. Only meaningful when {@link canvasPreviewEligible} is
+ * true — that is what guarantees the front-most clip is the whole picture. */
 export interface PictureSegment {
   readonly start: number;
   readonly end: number;
   readonly clip: Clip | null;
+  /**
+   * The source in/out THIS span plays, which is the clip's own only when the
+   * span covers the whole clip.
+   *
+   * A clip partly covered by one in front of it contributes two spans, and each
+   * must read from the part of the source that plays there — the engine maps
+   * `sourceTime = sourceStart + (projectTime - start)`, so handing it the clip's
+   * original in-point would restart the shot at the cut. `0` on a gap.
+   */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
 }
 
+/**
+ * The picture chain the preview paints: at every instant, the clip on the
+ * front-most track.
+ *
+ * The old projection sorted every picture clip by `start` alone and let a later
+ * clip overwrite time. That was documented as "assumes no overlaps" and it was
+ * not a resolution rule at all — with two layers it produced an order nothing had
+ * chosen, which is why ADR 0140 refused to create the overlap in the first place.
+ * The export has always resolved it by track order, and now so does this: same
+ * rule, same answer, in both places (ADR 0169).
+ */
 export function pictureSegments(
   timeline: Timeline,
   assetById: ReadonlyMap<string, Asset>,
 ): readonly PictureSegment[] {
-  const pictureClips = timeline.tracks
-    .flatMap((track) => (track.hidden ? [] : track.clips))
-    .filter((clip) => {
-      const kind = clipKind(clip, assetById);
-      return kind === 'video' || kind === 'image';
-    })
-    .sort((a, b) => a.start - b.start);
+  const stacked = stackedPictureClips(timeline, assetById);
+  if (stacked.length === 0) return [];
+
+  /** The part of `clip`'s source that plays over `[start, end)`. */
+  const sourceSpan = (clip: Clip, start: number, end: number): [number, number] => {
+    // The whole clip: hand back its own numbers untouched, so the ordinary
+    // (unstacked) projection is bit-for-bit what it always was.
+    if (start === clip.start && end === clip.end) return [clip.sourceStart, clip.sourceEnd];
+    const rate = (clip.sourceEnd - clip.sourceStart) / (clip.end - clip.start);
+    return [
+      clip.sourceStart + (start - clip.start) * rate,
+      clip.sourceStart + (end - clip.start) * rate,
+    ];
+  };
 
   const segments: PictureSegment[] = [];
   let cursor = 0;
-  for (const clip of pictureClips) {
-    if (clip.start > cursor) {
-      segments.push({ start: cursor, end: clip.start, clip: null });
+  for (const run of pictureRuns(stacked)) {
+    const front = run.covering[0]?.clip ?? null;
+    // A run nothing covers is a hole. The cursor is deliberately NOT advanced past it, so
+    // the next real run emits one gap segment spanning it — including several holes in a
+    // row, which must read as one gap and not as several.
+    if (front === null) continue;
+    if (run.start > cursor) {
+      segments.push({ start: cursor, end: run.start, clip: null, sourceStart: 0, sourceEnd: 0 });
     }
-    segments.push({ start: clip.start, end: clip.end, clip });
-    cursor = Math.max(cursor, clip.end);
+    cursor = Math.max(cursor, run.end);
+    // Runs that a clip behind split are stitched back together, so a clip the
+    // stack does not actually interrupt stays ONE segment — the engine treats a
+    // segment boundary as a cut, and a spurious one would reload the decoder.
+    const previous = segments[segments.length - 1];
+    if (previous && previous.clip === front && previous.end === run.start) {
+      const [sourceStart, sourceEnd] = sourceSpan(front, previous.start, run.end);
+      segments[segments.length - 1] = { ...previous, end: run.end, sourceStart, sourceEnd };
+      continue;
+    }
+    const [sourceStart, sourceEnd] = sourceSpan(front, run.start, run.end);
+    segments.push({ start: run.start, end: run.end, clip: front, sourceStart, sourceEnd });
   }
   return segments;
 }

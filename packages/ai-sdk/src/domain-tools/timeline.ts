@@ -18,6 +18,7 @@ import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
 import type { CropRect, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
+  coverCropFor,
   listEditBoundaries,
   mapSequenceTime,
   mapSourceTime,
@@ -28,10 +29,14 @@ import { createLaneAllocator } from '@framepilot/editor-core';
 
 /** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
 type LaneAllocator = ReturnType<typeof createLaneAllocator>;
+/** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
+type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
 import { readEditSignals } from '../proposers/edit-signals.js';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
+import { clipCandidates } from './clip-candidates.js';
+import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
@@ -61,14 +66,15 @@ import { boolean, filterString, numeric, seconds } from './tool-args.js';
  * changes the off-grid case that was broken.
  */
 const clipDeleteOp = (
-  timeline: Timeline,
+  project: ToolContext['project'],
   clipId: string,
   ripple: boolean,
-  fps: number,
 ): { type: 'delete_range' | 'ripple_delete'; trackId: string; start: number; end: number } => {
+  const timeline = project.timeline;
+  const fps = project.fps;
   const found = findClipById(timeline, clipId);
   if (!found) {
-    throw new Error(`Unknown clip "${clipId}". Use get_clips to list real clip ids.`);
+    throw new Error(`Unknown clip "${clipId}". ${clipCandidates(project, clipId)}`);
   }
   return {
     type: ripple ? 'ripple_delete' : 'delete_range',
@@ -225,18 +231,6 @@ const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }
 export const MAX_CLIPS_PER_BATCH = 50;
 
 /**
- * Fractional places kept on an auto-derived crop rect.
- *
- * The rect is a ratio of ratios, so it is an endless binary fraction more often than not
- * (16:9 into 9:16 is 0.31640625). Six places is well under a source pixel on any frame
- * FFmpeg will decode, and it keeps the number short in the patch, the diff, and the
- * project file — where a human reads it.
- */
-const CROP_PRECISION = 1e6;
-
-const roundCrop = (value: number): number => Math.round(value * CROP_PRECISION) / CROP_PRECISION;
-
-/**
  * The centred crop that makes a source FILL a frame of a different aspect, or `undefined`
  * when the source is not wider than the frame and so needs no horizontal crop.
  *
@@ -260,11 +254,13 @@ export function coverCropForFrame(
   if (source.width <= 0 || source.height <= 0 || target.width <= 0 || target.height <= 0) {
     return undefined;
   }
-  const sourceAspect = source.width / source.height;
-  const targetAspect = target.width / target.height;
-  if (sourceAspect <= targetAspect) return undefined;
-  const width = roundCrop(targetAspect / sourceAspect);
-  return { x: roundCrop((1 - width) / 2), y: 0, width, height: 1 };
+  // The horizontal-only gate is this function's POLICY, not the maths (ADR 0170 moved the
+  // maths to `editor-core#coverCropFor`, which crops either axis because the placement
+  // refusal has to be able to suggest a rect for a taller source too). Padding a 4:5 still
+  // in a 9:16 sequence is a real editorial choice; cropping its height silently is not one
+  // `add_clip` should make on the run's behalf. See {@link autoReframeCrop}.
+  if (source.width / source.height <= target.width / target.height) return undefined;
+  return coverCropFor(source, target);
 }
 
 /**
@@ -307,6 +303,11 @@ function autoReframeCrop(
 ): CropRect | undefined {
   const { resolution } = ctx.project;
   if (resolution.height <= resolution.width) return undefined;
+  // The lane the CALLER NAMED, which is the lane the policy is about. Reading the RESOLVED
+  // lane instead was a latent bug: a lane the picture placer had just opened
+  // (`video_cutaway_N`) is not in the pre-turn timeline, so the lookup found nothing,
+  // `track?.type !== 'video'` was true, and a lifted placement never reframed — the one
+  // case where the source is most likely to be the wrong shape for the frame.
   const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === placement.trackId);
   if (track?.type !== 'video') return undefined;
   const asset = ctx.project.assets.find((candidate) => candidate.id === placement.assetId);
@@ -362,36 +363,46 @@ function addClipOperation(
   },
   ctx: ToolContext,
   lanes: LaneAllocator,
+  picture: PicturePlacer,
 ): Operation[] {
-  // Resolve the lane rather than trusting the one that was named — but NEVER for
-  // picture.
+  // Resolve the lane rather than trusting the one that was named — by two
+  // different rules, because picture and everything else fail differently.
   //
   // Clips on one track can never overlap, and a placement that collided used to
   // take the whole patch down with the validator's overlap error. For an overlay,
   // a caption or an audio bed that is a dead end for an intent lanes exist to
   // express, so those are relocated to a lane with room.
   //
-  // Picture is different, and `picture-occupancy.ts` says why in as many words:
-  // the preview flattens picture clips from EVERY track into one time-ordered
-  // chain while the export composites stacked layers properly, so two picture
-  // clips overlapping IN TIME render one way and preview another (blocker #1,
-  // SUC-P1). "Overlap is measured in time, not by layer" — which means moving a
-  // colliding video or image to another lane does not solve the problem, it
-  // creates it, and hands the user an edit that looks right until they export.
-  // `add_stock` already refuses for exactly this reason; so does this, by leaving
-  // the named lane in place and letting the validator reject as before.
+  // Picture is answered by `picture-layers.ts` (ADR 0169) because "a lane with
+  // room" is not enough for it: the preview paints ONE picture layer, so the
+  // clip has to end up in FRONT of everything it covers or the user approves a
+  // frame the export does not produce. That placer keeps the named lane when the
+  // lane can be seen, moves to an existing front lane when there is one, and
+  // otherwise opens a front lane in the same patch. A placement that could not
+  // preview honestly at all — scaled, cropped, faded, blended — it refuses.
   //
-  // The allocator, rather than a lookup, because `add_clips` plans every entry
+  // Both are allocators rather than lookups because `add_clips` plans every entry
   // against the same pre-call timeline: without booking each span as it is handed
-  // out, two overlapping entries in one batch would both be told the lane was free.
+  // out, two overlapping entries in one batch would both be told the lane was
+  // free, and two entries needing a front layer would each open one with the same id.
+  //
+  // The auto-reframe crop is computed FIRST and handed to the placer. Under ADR 0170 a crop
+  // is geometry, so the cover crop is exactly what lets a landscape source sit over picture
+  // in a portrait project; deciding the placement against the bare clip and cropping
+  // afterwards refused the very placement the reframe exists to make legal.
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
+  const crop = autoReframeCrop(ctx, clip);
   const placed = isPicture
-    ? { trackId: clip.trackId, setupOps: [] as Operation[] }
+    ? picture.place({
+        trackId: clip.trackId,
+        assetId: clip.assetId,
+        start: clip.start,
+        end: clip.end,
+        compositing: crop ? { crop } : {},
+      })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
-  const cropClip = { ...clip, trackId: placed.trackId };
-  const crop = autoReframeCrop(ctx, cropClip);
-  const clipId = crop ? placementClipId(cropClip) : undefined;
+  const clipId = crop ? placementClipId({ ...clip, trackId: placed.trackId }) : undefined;
   const add: Operation = {
     type: 'add_clip',
     trackId: placed.trackId,
@@ -493,12 +504,19 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     },
     noArgs,
     (_args, ctx) => {
+      // Which video tracks nothing could be SEEN on, because picture in front of them
+      // already covers the whole sequence. `arrangementLine` reports the same fact from
+      // the same helper — a run that reads this tool and a run that reads the arrangement
+      // fact must hold the timeline in the same terms, and run `369e8c82` spent fifteen
+      // minutes placing stock onto an "empty" track neither of them said was unusable.
+      const blocked = tracksCoveredByPictureInFront(ctx.project);
       const tracks = ctx.project.timeline.tracks.map((track) => ({
         id: track.id,
         type: track.type,
         clipCount: track.clips.length,
         firstClipStart: track.clips.length ? Math.min(...track.clips.map((c) => c.start)) : null,
         lastClipEnd: track.clips.length ? Math.max(...track.clips.map((c) => c.end)) : null,
+        ...(blocked.has(track.id) ? { hiddenBehindPicture: true } : {}),
         ...(track.muted !== undefined ? { muted: track.muted } : {}),
         ...(track.locked !== undefined ? { locked: track.locked } : {}),
         ...(track.hidden !== undefined ? { hidden: track.hidden } : {}),
@@ -709,7 +727,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     z.object({ clipId: z.string() }).strict(),
     (a, ctx) => {
       const found = findClipById(ctx.project.timeline, a.clipId);
-      if (!found) return { error: `Unknown clip "${a.clipId}". Use get_clips to list real ids.` };
+      if (!found) {
+        return { error: `Unknown clip "${a.clipId}". ${clipCandidates(ctx.project, a.clipId)}` };
+      }
       return { trackId: found.track.id, clip: found.clip };
     },
   ),
@@ -763,7 +783,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'ripple_delete when you mean a specific clip — no hand-computed times.',
     },
     z.object({ clipId: z.string(), ripple: boolean().optional() }).strict(),
-    (a, ctx) => [clipDeleteOp(ctx.project.timeline, a.clipId, a.ripple ?? false, ctx.project.fps)],
+    (a, ctx) => [clipDeleteOp(ctx.project, a.clipId, a.ripple ?? false)],
   ),
   mutateTool(
     {
@@ -782,7 +802,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     (a, ctx) => {
       const ripple = a.ripple ?? false;
       const ops = [...new Set(a.clipIds)].map((clipId) =>
-        clipDeleteOp(ctx.project.timeline, clipId, ripple, ctx.project.fps),
+        clipDeleteOp(ctx.project, clipId, ripple),
       );
       // Ripple shifts everything after each cut earlier, so delete back-to-front:
       // the ranges were computed against the CURRENT timeline and stay correct
@@ -806,7 +826,33 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description: 'Move a clip to a track at a new timeline start time (duration unchanged).',
     },
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
-    (a) => [{ type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart }],
+    (a, ctx) => {
+      // Moving picture over picture is the same question `add_clip` answers, so it
+      // goes through the same placer: a full-frame clip lands in front of what it
+      // covers (on a layer opened here when there is none), and one that could not
+      // preview honestly is refused in the same words. Unlike a fresh placement
+      // this clip ALREADY carries compositing — a crop, a punch-in, a blend mode —
+      // so the real fields are handed over rather than assumed empty. An unknown
+      // clip is left to the validator, which names the ids that do exist.
+      const found = findClipById(ctx.project.timeline, a.clipId);
+      if (!found) {
+        return [
+          { type: 'move_clip', clipId: a.clipId, toTrackId: a.toTrackId, toStart: a.toStart },
+        ];
+      }
+      const placed = createPicturePlacer(ctx.project).place({
+        trackId: a.toTrackId,
+        assetId: found.clip.assetId,
+        start: a.toStart,
+        end: a.toStart + (found.clip.end - found.clip.start),
+        ignoreClipId: a.clipId,
+        compositing: found.clip,
+      });
+      return [
+        ...placed.setupOps,
+        { type: 'move_clip', clipId: a.clipId, toTrackId: placed.trackId, toStart: a.toStart },
+      ];
+    },
   ),
   mutateTool(
     {
@@ -814,9 +860,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Create a new empty track (a "layer") to get a free lane for clips that ' +
         'would otherwise overlap. Clips on one track can never overlap, so this is ' +
-        'how you stack simultaneous elements — a title over b-roll, picture-in-' +
-        'picture, an extra overlay, or a second audio bed — when no existing track ' +
-        "has a free range. `type` is the track's advisory role " +
+        'how you stack simultaneous elements — titles, captions, overlays, an audio ' +
+        'bed, or full-frame picture over existing footage — when no existing track ' +
+        'has a free range. You rarely need it for picture: add_clip opens a front ' +
+        "layer itself when the shot has to go over what is already there. `type` is the track's advisory role " +
         '(video/audio/caption/overlay): it sets the default label/icon only, not a ' +
         'content limit, so any clip can live on any track. `atIndex` is the z-order ' +
         'slot where index 0 is the visual front (nearer the viewer); omit it to add ' +
@@ -880,7 +927,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         'add_clip has no speed argument and the two must agree. To play a specific source ' +
         'range, set sourceStart and make the timeline span the same length. Read the ' +
         'timeline and assets first so you use real track/asset ids, and pick a ' +
-        'track whose range is free — clips on one track can never overlap. ' +
+        'track whose range is free — clips on one track can never overlap. Placing ' +
+        'video or an image over footage that is already there is fine: the shot is put ' +
+        'on a layer in FRONT of what it covers, opening one if needed, and the result ' +
+        'is in the patch you get back. It covers the frame completely, so use it for a ' +
+        'cutaway or a montage, not for a picture-in-picture or a see-through overlay — ' +
+        'a scaled, cropped, faded or blended clip over other picture is refused, ' +
+        'because the preview can only show one picture layer at a time. ' +
         'In a PORTRAIT project, a source the engine has measured as landscape gets a ' +
         'centred fill crop on the way in (a set_clip_crop you will see in the result), ' +
         'because the renderer fits rather than fills and it would otherwise export with ' +
@@ -902,7 +955,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         sourceEnd: seconds.optional(),
       })
       .strict(),
-    (a, ctx) => addClipOperation(a, ctx, createLaneAllocator(ctx.project.timeline)),
+    (a, ctx) =>
+      addClipOperation(
+        a,
+        ctx,
+        createLaneAllocator(ctx.project.timeline),
+        createPicturePlacer(ctx.project),
+      ),
   ),
   mutateTool(
     {
@@ -941,11 +1000,12 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       })
       .strict(),
     (a, ctx) => {
-      // ONE allocator for the whole batch, so entry N sees the lanes entries
-      // 1..N-1 already took.
+      // ONE allocator and ONE picture placer for the whole batch, so entry N sees
+      // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
+      const picture = createPicturePlacer(ctx.project);
       return a.clips.flatMap((clip) =>
-        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes),
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture),
       );
     },
   ),

@@ -160,12 +160,19 @@ export function describeRuntimeEffect(effect: RuntimeEffect): JsonValue {
 export function describeEffectResult(result: EffectResult): JsonValue {
   switch (result.kind) {
     case 'host_tool': {
-      const { status, summary, data, images } = result.outcome;
+      const { status, summary, data, images, refusalCause } = result.outcome;
       return {
         kind: result.kind,
         cached: result.cached,
         status,
         summary,
+        // WHY the host said no, when it said. A declared `refusalCause` is what makes the
+        // orchestrator remember the refusal and answer a repeat as a repeat, so without it
+        // in the WAL a run nobody watched shows only THAT a call was refused twice and
+        // never that the second was recognised as the first. Run `369e8c82` was diagnosed
+        // from exactly this kind of record; the audit trail has to carry the discriminator
+        // the guard keys on. One short enum member, never a payload.
+        ...(refusalCause === undefined ? {} : { refusalCause }),
         // Decoded frames are the single largest thing a tool can return and are useless
         // in an audit log — record only that they existed.
         ...(images === undefined ? {} : { imageCount: images.length }),

@@ -4,9 +4,12 @@ from __future__ import annotations
 
 from collections.abc import Callable, Sequence
 from pathlib import Path
+from typing import Any
 
 import pytest
 
+from framepilot_engine.analysis.black import BlackRange
+from framepilot_engine.analysis.silence import SilentRange
 from framepilot_engine.media.ffmpeg import FFmpegError
 from framepilot_engine.media.probe import MediaInfo, StreamInfo, inspect_media
 from framepilot_engine.validation.render_validation import (
@@ -17,6 +20,8 @@ from framepilot_engine.validation.render_validation import (
     detect_max_volume_dbfs,
     parse_black_seconds,
     parse_max_volume_dbfs,
+    plain_failures,
+    tail_seconds,
     validate_render,
 )
 
@@ -309,3 +314,249 @@ def test_validate_real_via_inspect_media(media_factory: Callable[..., Path]) -> 
         probe=inspect_media,
     )
     assert _status(report, "file_exists") == CheckStatus.PASS
+
+
+# --- the intended spec: resolution, frame rate, black/silent tails (goal.md F) ---------
+
+
+def _logs_for(argv: Sequence[str], *, black: str = "", silence: str = "") -> str:
+    """Answer each ffmpeg QC pass with its own canned stderr."""
+    joined = " ".join(argv)
+    if "blackdetect" in joined:
+        return black
+    if "silencedetect" in joined:
+        return silence
+    return "max_volume: -6.0 dB"
+
+
+def _spec(**over: Any) -> ExpectedRender:
+    base: dict[str, Any] = {
+        "duration_seconds": 10.0,
+        "width": 1080,
+        "height": 1920,
+        "fps": 30.0,
+    }
+    base.update(over)
+    return ExpectedRender(**base)
+
+
+def _out(tmp_path: Path) -> Path:
+    out = tmp_path / "out.mp4"
+    out.write_bytes(b"\x00" * 1024)
+    return out
+
+
+def test_tail_seconds_measures_only_a_span_that_reaches_the_end() -> None:
+    reaches = [BlackRange(start=8.5, end=9.97, duration=1.47)]
+    assert tail_seconds(reaches, 10.0) == pytest.approx(1.5)
+    interior = [BlackRange(start=2.0, end=4.0, duration=2.0)]
+    assert tail_seconds(interior, 10.0) == 0.0
+    assert tail_seconds([], 10.0) == 0.0
+    assert tail_seconds([SilentRange(start=9.0, end=10.0, duration=1.0)], 10.0) == pytest.approx(
+        1.0
+    )
+
+
+def test_validate_spec_passes_when_the_file_matches(tmp_path: Path) -> None:
+    report = validate_render(
+        _out(tmp_path), _spec(), probe=lambda _p: _media(10.0), log_runner=_logs_for
+    )
+    assert report.ok
+    assert _status(report, "resolution") == CheckStatus.PASS
+    assert _status(report, "frame_rate") == CheckStatus.PASS
+    assert _status(report, "black_tail") == CheckStatus.PASS
+    assert _status(report, "silent_tail") == CheckStatus.PASS
+
+
+def test_validate_wrong_resolution_fails(tmp_path: Path) -> None:
+    report = validate_render(
+        _out(tmp_path),
+        _spec(width=1920, height=1080),
+        probe=lambda _p: _media(10.0),
+        log_runner=_logs_for,
+    )
+    assert _status(report, "resolution") == CheckStatus.FAIL
+    assert "actual=1080x1920 expected=1920x1080" in (
+        next(c.detail for c in report.checks if c.name == "resolution") or ""
+    )
+    assert not report.ok
+
+
+def test_validate_frame_rate_tolerates_ntsc_and_catches_a_wrong_rate(tmp_path: Path) -> None:
+    ntsc = MediaInfo(
+        path="/out.mp4",
+        duration_seconds=10.0,
+        streams=[
+            StreamInfo(index=0, codec_type="video", width=1080, height=1920, fps=30000 / 1001),
+            _AUDIO_STREAM,
+        ],
+    )
+    ok = validate_render(_out(tmp_path), _spec(), probe=lambda _p: ntsc, log_runner=_logs_for)
+    assert _status(ok, "frame_rate") == CheckStatus.PASS
+    bad = validate_render(
+        _out(tmp_path), _spec(fps=60.0), probe=lambda _p: _media(10.0), log_runner=_logs_for
+    )
+    assert _status(bad, "frame_rate") == CheckStatus.FAIL
+
+
+def test_validate_spec_checks_skip_without_an_expectation(tmp_path: Path) -> None:
+    report = validate_render(
+        _out(tmp_path),
+        ExpectedRender(duration_seconds=10.0),
+        probe=lambda _p: _media(10.0),
+        log_runner=_logs_for,
+    )
+    assert _status(report, "resolution") == CheckStatus.SKIP
+    assert _status(report, "frame_rate") == CheckStatus.SKIP
+    assert report.ok
+
+
+def test_validate_black_tail_fails_while_the_black_ratio_passes(tmp_path: Path) -> None:
+    # 1.5 s of black at the end of 10 s: 15% black overall (fine), but the picture ended
+    # early — the duration tolerance alone would never see it.
+    logs = "black_start:8.5 black_end:9.97 black_duration:1.47"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, black=logs),
+    )
+    assert _status(report, "black_frames") == CheckStatus.PASS
+    assert _status(report, "black_tail") == CheckStatus.FAIL
+    assert not report.ok
+
+
+def test_validate_black_tail_skips_when_the_whole_render_is_black(tmp_path: Path) -> None:
+    logs = "black_start:0 black_end:9.97 black_duration:9.97"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, black=logs),
+    )
+    assert _status(report, "black_frames") == CheckStatus.FAIL
+    # One defect, reported once.
+    assert _status(report, "black_tail") == CheckStatus.SKIP
+
+
+def test_validate_interior_black_is_not_a_tail(tmp_path: Path) -> None:
+    logs = "black_start:2 black_end:4 black_duration:2"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, black=logs),
+    )
+    assert _status(report, "black_tail") == CheckStatus.PASS
+
+
+def test_validate_silent_tail_fails_when_sound_should_reach_the_end(tmp_path: Path) -> None:
+    # silencedetect leaves a trailing silence open; the parser closes it at the duration.
+    logs = "[silencedetect @ 0x1] silence_start: 8.2"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, silence=logs),
+    )
+    assert _status(report, "silent_tail") == CheckStatus.FAIL
+    assert "silent_tail=1.800s" in (
+        next(c.detail for c in report.checks if c.name == "silent_tail") or ""
+    )
+
+
+def test_validate_silent_tail_is_the_edit_when_audio_ends_early_by_design(tmp_path: Path) -> None:
+    logs = "[silencedetect @ 0x1] silence_start: 8.2"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(expect_audio_to_end=False),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, silence=logs),
+    )
+    assert _status(report, "silent_tail") == CheckStatus.SKIP
+    assert report.ok
+
+
+def test_validate_silent_tail_under_a_second_is_a_fade_not_a_defect(tmp_path: Path) -> None:
+    logs = "[silencedetect @ 0x1] silence_start: 9.4"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, silence=logs),
+    )
+    assert _status(report, "silent_tail") == CheckStatus.PASS
+
+
+def test_validate_silent_tail_skips_without_audio(tmp_path: Path) -> None:
+    report = validate_render(
+        _out(tmp_path),
+        _spec(expect_audio=False),
+        probe=lambda _p: _media(10.0, audio=False),
+        log_runner=_logs_for,
+    )
+    assert _status(report, "silent_tail") == CheckStatus.SKIP
+
+
+def test_plain_failures_speak_to_the_editor(tmp_path: Path) -> None:
+    logs = "black_start:8.5 black_end:9.97 black_duration:1.47"
+    report = validate_render(
+        _out(tmp_path),
+        _spec(width=1920, height=1080, fps=60.0),
+        probe=lambda _p: _media(10.0),
+        log_runner=lambda argv: _logs_for(argv, black=logs),
+    )
+    lines = plain_failures(report)
+    assert lines == [
+        "The export is not the requested size (actual=1080x1920 expected=1920x1080).",
+        "The export is not the requested frame rate (actual=30.000 expected=60.000).",
+        "The export ends on black (black_tail=1.500s).",
+    ]
+    assert plain_failures(ValidationReport.from_checks("/x", [])) == []
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_validate_real_black_tail_flagged(
+    media_factory: Callable[..., Path], ffmpeg_bin: str, tmp_path: Path
+) -> None:
+    # 1 s of red then 1 s of black, one file: the picture "ends" a second early.
+    red = media_factory("tail_red.mp4", seconds=1.0, color="red", with_audio=False)
+    black = media_factory("tail_black.mp4", seconds=1.0, color="black", with_audio=False)
+    listing = tmp_path / "concat.txt"
+    listing.write_text(f"file '{red}'\nfile '{black}'\n")
+    out = red.parent / "tail.mp4"
+    import subprocess
+
+    subprocess.run(
+        [
+            ffmpeg_bin,
+            "-y",
+            "-f",
+            "concat",
+            "-safe",
+            "0",
+            "-i",
+            str(listing),
+            "-c",
+            "copy",
+            str(out),
+        ],
+        check=True,
+        capture_output=True,
+    )
+    report = validate_render(
+        out,
+        ExpectedRender(
+            expect_audio=False,
+            duration_seconds=2.0,
+            duration_tolerance_seconds=0.3,
+            width=320,
+            height=240,
+            fps=30.0,
+        ),
+    )
+    assert _status(report, "resolution") == CheckStatus.PASS
+    assert _status(report, "frame_rate") == CheckStatus.PASS
+    assert _status(report, "black_frames") == CheckStatus.PASS
+    assert _status(report, "black_tail") == CheckStatus.FAIL
+    assert not report.ok

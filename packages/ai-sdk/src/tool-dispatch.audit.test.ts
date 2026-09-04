@@ -149,3 +149,79 @@ describe('strict tool intent boundary', () => {
     ).toThrow(/requires at least one folder or assignment/);
   });
 });
+
+/**
+ * GOLDEN-F.5 follow-up. `ToolInvocationError.message` is the model's copy — raw Zod
+ * text it can act on — and it used to reach the AI panel verbatim through
+ * `streamEdit`'s warning + failure card. "Expected number, received undefined" tells a
+ * video editor nothing, and `\bundefined\b` is exactly what the golden harness grades
+ * as an unexplained failure (`eval/golden-metrics.ts` INTERNAL_LEAK). `editorSummary`
+ * is the human's copy; `message` is unchanged.
+ */
+describe('what the editor is told about a rejected tool call', () => {
+  /** Replicated from `eval/golden-metrics.ts` — the words that mean nothing was explained. */
+  const MACHINE_SPEAK = /\breceived\b|\bundefined\b/;
+
+  const cases: readonly {
+    readonly label: string;
+    readonly call: { readonly id: string; readonly name: string; readonly arguments: unknown };
+    readonly expected: string;
+  }[] = [
+    {
+      label: 'missing required fields',
+      call: { id: 'a', name: 'add_clip', arguments: { start: 0, end: 2 } },
+      expected: '"add_clip" was called without the required trackId and assetId',
+    },
+    {
+      label: 'a field of the wrong type',
+      call: {
+        id: 'b',
+        name: 'ripple_delete',
+        arguments: { trackId: 'video_1', start: 'the beginning', end: 'the drop' },
+      },
+      expected: '"ripple_delete" needs start and end as numbers (in seconds)',
+    },
+    {
+      label: 'a nested path',
+      call: {
+        id: 'c',
+        name: 'set_clip_crop',
+        arguments: { clipId: 'c1', crop: { x: 0, y: 0, width: 'half' } },
+      },
+      expected: 'crop.width',
+    },
+    {
+      label: 'a tool that does not exist',
+      call: { id: 'd', name: 'colour_grade_everything', arguments: {} },
+      expected: `The assistant asked for a tool FramePilot doesn't have`,
+    },
+  ];
+
+  it.each(cases)('explains $label without machine-speak', ({ call, expected }) => {
+    let thrown: unknown;
+    try {
+      operationsForCall(call as Parameters<typeof operationsForCall>[0], ctx);
+    } catch (error) {
+      thrown = error;
+    }
+    const error = thrown as ToolInvocationError;
+    expect(error).toBeInstanceOf(ToolInvocationError);
+    expect(error.editorSummary).toContain(expected);
+    expect(MACHINE_SPEAK.test(error.editorSummary)).toBe(false);
+    expect(error.editorSummary).toContain(call.name);
+  });
+
+  it('keeps the raw schema text on `message` for the model to correct itself with', () => {
+    let thrown: unknown;
+    try {
+      operationsForCall({ id: 'e', name: 'add_clip', arguments: { start: 0, end: 2 } }, ctx);
+    } catch (error) {
+      thrown = error;
+    }
+    const error = thrown as ToolInvocationError;
+    expect(error.message).toContain('Invalid arguments for "add_clip"');
+    expect(error.message).toContain('trackId');
+    // The model's copy is allowed to be machine-speak — that is the point of the split.
+    expect(error.message).not.toBe(error.editorSummary);
+  });
+});

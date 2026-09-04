@@ -30,6 +30,8 @@ import { toolContract } from './tool-contract.js';
 import { toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
+import { describeTransportFailure } from './sidecar-executor.js';
+import { unknownToolNote } from './reliability/refusal-notes.js';
 import { DIMINISHING_RETURNS_TURNS, STALL_CONFIRM_TURNS } from './kernel/conductor.js';
 
 /** A provider that replays a scripted response and records the last request. */
@@ -226,7 +228,9 @@ describe('agent mode', () => {
     expect(run.steps.filter((s) => s.applied)).toHaveLength(1);
     expect(run.steps.some((s) => /already in place/.test(s.note))).toBe(true);
     expect(run.log.length).toBeGreaterThan(0);
-    expect(run.critique.checks.length).toBe(20);
+    // 21 since `transcript_reliable` joined the battery. `critic.test.ts` is what pins the
+    // set itself, by id and in order; this line only asserts the run carries a full report.
+    expect(run.critique.checks.length).toBe(21);
   });
 
   it('interleaves asset management and timeline editing in one project-scoped run', async () => {
@@ -612,7 +616,9 @@ describe('agent mode', () => {
     // did not make would leave it believing the scope was honored.
     expect(note).toMatch(/Invalid arguments for "get_transcript"/);
     expect(note).toMatch(/Unrecognized key: "bogus"/);
-    expect(note).toMatch(/Refused unknown tool "frobnicate"/);
+    // The unknown-tool verdict is now one sentence shared with the concurrent path: it
+    // says the name does not exist AND not to send it again (goal.md C).
+    expect(note).toContain(unknownToolNote('frobnicate'));
     expect(note).toMatch(/Skipped "generate_mask"/);
   });
 
@@ -831,6 +837,74 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
     // An empty track is named, not omitted: a run needs to know it exists and is free,
     // which is exactly the question a missing row leaves it guessing at.
     expect(line).toContain('audio_1 [audio] empty');
+    // …and with one picture track there is no cross-track constraint to report, so the
+    // row is exactly the row it has always been. (Frozen golden corpora hold this text.)
+    expect(line).not.toContain('no free span');
+  });
+
+  /**
+   * Run `369e8c82`. `b_roll [video] empty` was rendered on every one of sixty-eight
+   * minutes' worth of turns while `v_main` carried narration across the whole sequence,
+   * so ADR 0140 refused every placement the line invited. A row that advertises a layer
+   * nothing may go on is worse than no row.
+   */
+  describe('a video track with nowhere to put picture', () => {
+    const stacked = (tailStart: number): Project =>
+      makeProject({
+        assets: [{ id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 }],
+        timeline: {
+          tracks: [
+            {
+              id: 'v_main',
+              type: 'video',
+              clips: [
+                {
+                  id: 'clip_head',
+                  assetId: 'asset_1',
+                  trackId: 'v_main',
+                  start: 0,
+                  end: 5,
+                  sourceStart: 0,
+                  sourceEnd: 5,
+                  effects: [],
+                  keyframes: [],
+                },
+                {
+                  id: 'clip_tail',
+                  assetId: 'asset_1',
+                  trackId: 'v_main',
+                  start: tailStart,
+                  end: 10,
+                  sourceStart: tailStart,
+                  sourceEnd: 10,
+                  effects: [],
+                  keyframes: [],
+                },
+              ],
+            },
+            { id: 'b_roll', type: 'video', clips: [] },
+            { id: 'audio_1', type: 'audio', clips: [] },
+          ],
+        },
+      } as unknown as Partial<Project>);
+
+    it('says so on its own row, and says where a cutaway would go instead', () => {
+      const line = arrangementLine(stacked(5));
+      expect(line).toContain(
+        'b_roll [video] empty — hidden behind picture 0–10s ' +
+          '(a full-frame clip added here lands on a new front layer)',
+      );
+      // The track doing the covering is in FRONT of it, so it says nothing extra.
+      expect(line).toContain('v_main [video] 2 clips 0–10s;');
+      // Audio stacks freely — that is what layers are for.
+      expect(line).toContain('audio_1 [audio] empty');
+      expect(line).not.toContain('audio_1 [audio] empty — hidden');
+    });
+
+    it('says nothing when the track still has a gap to land in', () => {
+      // A 5–7s hole in the narration is a legal cutaway span, so the row must stay quiet.
+      expect(arrangementLine(stacked(7))).not.toContain('hidden behind picture');
+    });
   });
 
   // GAP-007 (run `fc10301a`). The run shipped a timeline whose last 23.7 of 47.8 seconds
@@ -2313,6 +2387,22 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
     );
   });
 
+  it('detect_beats: a failed call keeps the instruction the executor wrote', () => {
+    // End-to-end pin for the unreachable-engine path: `sidecar-executor` puts its
+    // sentence in `data`, and `data` is what this digest turns into the model's note.
+    // This arm used to report the string as "no beats detected" — the model was told the
+    // track had no beats when the truth was that nothing had run, and it retried.
+    const data = describeTransportFailure(
+      'detect_beats',
+      new TypeError('fetch failed'),
+      'http://127.0.0.1:8765',
+    );
+    const note = summarizeReadResult('detect_beats', data);
+    expect(note).toContain('could not reach the media engine');
+    expect(note).toContain('retry this call once');
+    expect(note).not.toContain('no beats detected');
+  });
+
   it('detect_beats: omits the tempo when the engine could not determine one', () => {
     const note = summarizeReadResult('detect_beats', { beats: [{ time: 0 }, { time: 1 }] });
     expect(note).toContain('2 exact beat onsets');
@@ -2442,6 +2532,20 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 
   it('visual reads report "no visual evidence" when the packets key is entirely absent', () => {
     expect(summarizeReadResult('search_visual', {})).toBe('no visual evidence');
+  });
+
+  it('visual reads: a failed call keeps the instruction the executor wrote', () => {
+    // Same end-to-end pin as the detect_beats row: "no visual evidence" for a failure
+    // string reads as an answered question, and the model has nothing to act on.
+    const data = describeTransportFailure(
+      'describe_footage',
+      new TypeError('fetch failed'),
+      'http://127.0.0.1:8765',
+    );
+    const note = summarizeReadResult('describe_footage', data);
+    expect(note).toContain('could not reach the media engine');
+    expect(note).toContain('retry this call once');
+    expect(note).not.toContain('no visual evidence');
   });
 
   it('visual reads reject safety-only text as grounding and bound by whole packets', () => {
@@ -2626,7 +2730,7 @@ describe('summarizeReadResult (agent must never invent ids)', () => {
 describe('review mode', () => {
   it('returns a deterministic critic report + readable text', async () => {
     const review = await new Orchestrator(new MockProvider()).review(input);
-    expect(review.report.checks.length).toBe(20);
+    expect(review.report.checks.length).toBe(21);
     expect(review.text).toContain(review.report.summary);
     expect(review.text).toMatch(/\[(PASS|WARN|FAIL|SKIPPED)\]/);
   });

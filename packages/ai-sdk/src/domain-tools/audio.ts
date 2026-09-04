@@ -62,6 +62,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       name: 'transcribe',
       description:
         'Transcribe an audio or video asset with the configured speech-to-text provider. ' +
+        'Minutes on a long recording, paid per audio-minute on hosted providers, ' +
+        'cached per file. ' +
         'The trusted host produces word timestamps and writes them through a reversible ' +
         'set_transcript patch; never provide transcript words yourself.',
     },
@@ -71,7 +73,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
     {
       name: 'analyze_silence',
       description:
-        "Detect silent ranges in an asset's audio (ffmpeg silencedetect). Returns " +
+        "Detect silent ranges in an asset's audio (ffmpeg silencedetect). Seconds of " +
+        'ffmpeg, free, cached per file at default settings. Returns ' +
         'start/end/duration for each gap; does not edit the timeline.',
     },
     analyzeSilenceSchema,
@@ -81,7 +84,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       name: 'detect_beats',
       description:
         "Detect musical beat/onset timestamps in an asset's audio (energy-flux onset " +
-        'detection) plus an estimated BPM. Use for beat-synced montage cuts. Returns ' +
+        'detection) plus an estimated BPM. Use for beat-synced montage cuts. Seconds of ' +
+        'ffmpeg, free, cached per file at default settings. Returns ' +
         'beat times in seconds; does not edit the timeline. Needs an asset that has an ' +
         "audio track — silent footage has no beats, so pass the music asset's id. " +
         'Set hardSync when the editor asked for cuts ON the beat — "cut to the beat", ' +
@@ -116,7 +120,8 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'Cut the dead air out of a recording in ONE call: measures the silences in the ' +
         'asset that plays on the timeline and ripple-deletes them where that asset is placed, ' +
         'keeping keepSeconds of breath on each side so words never touch. Use this instead of ' +
-        'analyze_silence followed by many delete_range calls. assetId names the recording ' +
+        'analyze_silence followed by many delete_range calls. Seconds of ffmpeg, free, and ' +
+        'the measurement is cached per file. assetId names the recording ' +
         '(default: the asset under the first picture clip); minSilenceSeconds (default 0.5) is ' +
         'the shortest pause that counts as dead air — 0.25-0.35 for short-form, 0.8-1.0 to leave ' +
         'long-form room to breathe; noiseFloorDb (default -30) is the level below which audio ' +

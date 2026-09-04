@@ -434,6 +434,7 @@ export type AiStreamMode = 'auto' | 'chat' | 'plan' | 'edit' | 'agent';
 export type AiProviderName =
   | 'mock'
   | 'anthropic'
+  | 'claude-agent-sdk'
   | 'nvidia'
   | 'openrouter'
   | 'vercel-gateway'
@@ -688,6 +689,10 @@ export interface AiStreamAgentOptions {
   readonly maxSteps?: number;
   readonly maxOpsPerTurn?: number;
   readonly maxOpsPerRun?: number;
+  /** Cost bound on the run in USD (goal.md D); defaults in the SDK. */
+  readonly maxUsd?: number;
+  /** Wall-clock bound on the run in minutes; defaults in the SDK. */
+  readonly maxMinutes?: number;
   readonly autoRepair?: boolean;
   readonly planFirst?: boolean;
   readonly durationTargetSeconds?: number;

@@ -38,6 +38,16 @@ interface FailureFamily {
  * failed").
  */
 const FAMILIES: readonly FailureFamily[] = [
+  // FIRST, and it must stay first. The Claude Agent SDK provider signs in with the user's
+  // Claude Code login, so it has no API key at all — but its failure text says things like
+  // "Invalid API key · Please run /login", which the generic auth family below matches
+  // happily and answers with "check the key in Settings → AI". That sends someone to a
+  // field that does not exist for their provider. Matching `claude login` / `/login` first
+  // is what keeps the advice actionable.
+  {
+    match: /claude login|\/login\b|not (logged in|signed in)|claude code (is )?not/i,
+    text: 'FramePilot is not signed in to Claude. Run `claude login` in a terminal, then start the run again — this provider uses your Claude subscription, not an API key.',
+  },
   {
     match: /\b(401|403)\b|unauthori[sz]ed|invalid[ _-]?api[ _-]?key|authentication[ _-]?error/i,
     text: 'The AI provider rejected FramePilot’s key. Check the key in Settings → AI, then try again.',

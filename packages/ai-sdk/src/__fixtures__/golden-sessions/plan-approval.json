@@ -233,7 +233,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 10994,
+      "usedTokens": 11276,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -301,14 +301,14 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2266,
+            "tokenEstimate": 2399,
             "included": true
           },
           {
             "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 6782,
+            "tokenEstimate": 6931,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -316,9 +316,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 10994,
+          "estimatedInputTokensBeforeSend": 11276,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180814,
+          "estimatedRemainingCapacity": 180532,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -705,7 +705,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11133,
+      "usedTokens": 11415,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -773,14 +773,14 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2405,
+            "tokenEstimate": 2538,
             "included": true
           },
           {
             "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 6782,
+            "tokenEstimate": 6931,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -788,9 +788,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11133,
+          "estimatedInputTokensBeforeSend": 11415,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180675,
+          "estimatedRemainingCapacity": 180393,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1001,7 +1001,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 17664,
+      "usedTokens": 17966,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1069,14 +1069,14 @@
             "id": "s9",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 2576,
+            "tokenEstimate": 2709,
             "included": true
           },
           {
             "id": "s10",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 13142,
+            "tokenEstimate": 13311,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1084,10 +1084,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 17664,
+          "estimatedInputTokensBeforeSend": 17966,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 174144,
-          "toolSchemaTokensRebilled": 13142,
+          "estimatedRemainingCapacity": 173842,
+          "toolSchemaTokensRebilled": 13311,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1287,6 +1287,15 @@
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
+      "type": "error",
+      "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "retryable": false
+    },
+    {
+      "id": "turn_golden:notice:17",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
       "type": "warning",
       "text": "Not everything in the plan was done — 1 of 2 planned tasks completed."
     },
@@ -1455,7 +1464,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:17",
+      "id": "turn_golden:usage:18",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1465,7 +1474,15 @@
       "modelCalls": 3
     },
     {
-      "id": "turn_golden:status:18",
+      "id": "turn_golden:assistant",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "assistant_message",
+      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–3s"
+    },
+    {
+      "id": "turn_golden:status:19",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

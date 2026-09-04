@@ -13,11 +13,330 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
+harness on `feat/golden-eval-harness`.** `goal.md` requires a measured baseline before any
+prompt, tool or model change. The mission runner (`mission-baseline.mjs`) becomes the golden
+harness: a golden set covering every request category (`eval/golden-cases.ts`), checkable
+outcome assertions per case (`eval/mission-rubric.ts`), the ten tracked metrics computed from
+events + patches (`eval/golden-metrics.ts` — intent, target, boundary, validity, first-pass,
+turns/tools, tokens+USD per accepted edit, latency p50/p95, reversibility, failure quality),
+one command per case, per-case result files (resumable), effect recordings for replay, a
+cost/duration estimate before the run, and `golden-gate.mjs` as the regression gate.
+Real-media runs are the maintainer's; the baseline for the new cases is **pending manual
+verification** (run recipe in `docs/guides/golden-eval.md`).
+
+- `[x]` GOLDEN-0.1 — golden set + rubric + metrics + runner + gate + operator guide
+  (fixture-verified; commit `2ac473c`).
+- `[ ]` GOLDEN-0.2 — maintainer runs `pnpm eval:golden --yes`; floor written with `--write`.
+- `[x]` GOLDEN-A.1 — **verification judges the delta.** Found by the harness's mock smoke:
+  a correct trim on the montage fixture (landscape sources, 9:16 frame) failed "Reframing is
+  consistent" — a defect the footage had BEFORE the edit — bought a repair turn that could not
+  fix it, and settled `failed` with the edit applied and no error card. `critic.ts#
+reconcileInheritedFailures`: a health check failing identically before and after is an
+  advisory; request-derived checks are never excused. A failed run that applied work now
+  emits one `error` card (`conductor.ts#failedAfterApplyMessage`) and still gets its receipt.
+  Real-media effect on `trim-first-clip-10s`/`reorder-last-first`: **pending manual
+  verification** (expected: `completed`, advisory notice, no repair turn).
+- `[x]` GOLDEN-F.1 — **export validated against the intended spec.** `render_validation.py`
+  gained resolution, frame-rate, black-tail and silent-tail checks (one blackdetect pass
+  serves ratio + tail; silencedetect at −50 dB for the tail); `compiler.py#expected_render`
+  now carries the preset's frame/rate, counts a probed video source (`media.peaks`) as sound,
+  and says whether sound is meant to reach the end; a failed export reads as sentences
+  (`plain_failures`). 159 engine tests green across validation/compiler/pipeline. Real export
+  on `mission-export-30s/60s`: **pending manual verification** (expected: all new checks PASS).
+- `[x]` GOLDEN-F.2 — **"the same project produces the same file" measured.** Software encodes
+  are byte-identical (pinned by `test_export_is_byte_identical_across_runs`); VideoToolbox
+  renders differ by one byte inside `mdat` — inherent hardware nondeterminism, documented in
+  `docs/guides/export.md`. Whether the desktop default should trade export speed for
+  reproducibility is a **maintainer decision** (currently hardware first).
+- `[x]` GOLDEN-D.1 — **runs are bounded by cost and time, announced up front.** No USD or
+  wall-clock bound existed (only steps/ops). `ConductorConfig.maxUsd/maxWallMs`
+  (`AgentOptions.maxUsd/maxMinutes`, defaults $5 / 20 min), the meter folded from each
+  turn (`AgentTurnResult.runUsd/runElapsedMs`), `budgetNotice` said as the second event of
+  every run, `budgetExhausted` routed through verify so applied work is still reported.
+  Desktop IPC allowlists the two keys; no settings UI yet (defaults apply). Whether $5/20 min
+  are the right desktop defaults: **maintainer decision**; effect on real runs **pending
+  manual verification** (expected: the notice at the top of every run; no valid run stopped).
+- `[x]` GOLDEN-B.0 — **index cache audited, no change:** analysis results are keyed by
+  content SHA-256 + analyzer version + params (`analysis/tiers.py`), assets carry
+  `content_sha256` in the brain store, transcription honours `use_cache`, TwelveLabs has its
+  own content-keyed cache. goal.md B's "never analyzed or billed twice" holds by construction.
+- `[x]` GOLDEN-F.3 — a failed master-audio pass no longer leaves `<export>.master.tmp` beside
+  the output (`pipeline.py#_apply_master_audio_pass`, test pinned). Frame-grid parity between
+  `editor-core/frame-grid.ts` and `render/frame_grid.py` audited: one shared fixture
+  (`tests/fixtures/frame_grid_parity.json`), both runtimes tested — preview and export round
+  seconds→frames identically by construction; no change.
+- `[x]` GOLDEN-0.3 — **one gate, one floor.** `mission-score.mjs` and `mission-efficiency-gate.mjs`
+  folded into `golden-gate.mjs` (rubric + efficiency per scenario, goal.md metrics run-wide);
+  `reports/golden/floor.json` written from the 2026-08-29 merged run; CI's PR lane gates
+  `reports/golden/baseline.json` (skips until it exists), the nightly runs the six mission
+  scenarios with `--force` (the runner resumes from per-case files by default, which would
+  otherwise make a nightly re-run nothing) and gates `reports/golden/nightly.json`.
+- `[x]` GOLDEN-0.4 — a second phrasing for each core verb (`trim-opening-10s`,
+  `reorder-swap-first-two`, `captions-uppercase-bottom`; 20 cases) so the release gate's
+  "no core verb materially below the others" has six samples per verb at `--runs 3`.
+  Validation rejections audited: `ValidationIssue{code, severity, message, operationIndex}`
+  is already machine-readable (goal.md A); no change.
+- `[x]` GOLDEN-D.2 — **progress guards audited together** (goal.md D). A 40-step run that
+  alternates novel reads and landed edits passes stall, loop-window, research-budget,
+  diminishing-returns, op-cap and cost/time guards untouched; only the step cap ends it
+  (`conductor.test.ts › progress guards, audited together`). Finding: a run that only ever
+  reads something NEW is progress by design and was bounded by nothing but the 300-step
+  cap — the new cost budget (D.1) is now its backstop, pinned by the second test.
+- `[x]` GOLDEN-C.2 — a sidecar transport failure tells the model what to do next
+  (`sidecar-executor.ts#describeTransportFailure`); 35 bare "fetch failed" refusals in the
+  real log were the shape. Real-media effect: **pending manual verification**.
+- `[x]` GOLDEN-E.1 — model tiers are real: `FRAMEPILOT_TIER_*` (declared since the initial commit, read by nothing) now route `tier: 'small'` calls — the ADR 0055 route classifier — to a cheaper provider/model; opt-in, unset = byte-identical. Accuracy neutrality of classification on a small model: **pending manual verification** (run the golden set once with `FRAMEPILOT_TIER_SMALL_MODEL` set and compare intent accuracy).
+- `[x]` GOLDEN-F.4 — every reducer decision is one structured log line (`agent-graph.ts` `conductor decided`: stage, effects, guards/budget/verify texts, spend) so a run can be debugged from its log alone.
+- `[x]` GOLDEN-F.5 — a run that throws shows a plain sentence with the next action (`reliability/plain-failure.ts`), raw text in `detail`; a rejected tool call is explained in the editor's words too (`tool-dispatch.ts#describeArgValidationForEditor`, raw Zod text kept for the model); every message passes the harness's failure-quality predicate.
+- `[x]` GOLDEN-C.4 — paid/slow tools state their cost, latency and caching in their descriptions (+60 tokens/request measured).
+- `[x]` GOLDEN-A.2 — a wrong clip id is answered with the nearest real ids and what is on the timeline (mirrors `dca15af` for tracks), so mistargeting costs a sentence, not a turn.
+- `[x]` GOLDEN-D.3 — the run budget is the editor's to set: "Stop a run after $__ / __ min" in **Settings → AI**, persisted in `framepilot.settings`, sent as `maxUsd`/`maxMinutes` on every run including a resumed one. Maintainer decision (2026-09-02): the budget is surfaced **permanently in Settings**, not announced per run — the SDK's opening `budgetNotice` is deleted, so a run's first event is the `thinking` status. This supersedes goal.md D's "surfaced before an expensive operation starts"; `budgetExhausted` still says why a run stopped.
+- `[x]` GOLDEN-C.5 — **two tool results that named no next move** (run `369e8c82`).
+  `map_footage` interpolated the engine's bare `not_indexed` token; it now goes through the
+  same expansion `describe_footage` uses, with mapping-specific wording (sampling across the
+  asset, not one `get_frame`) via a per-tool override table on the same reason vocabulary.
+  `add_music` / `add_stock` refused a re-add with the panel's "Place it from the bin", which
+  names no tool; both now name `add_clip` and hand over the asset id. Unrecognized reasons
+  still pass through verbatim. Open: the re-add case could simply succeed by placing the
+  asset already in the project — **maintainer decision**, it changes what the tool does.
+- `[x]` GOLDEN-D.5 — **the wall-clock budget now fires during a step** (`aa671ee`). Run
+  `369e8c82` hung inside its twentieth model call and was still hanging 39 minutes past its
+  37-minute limit when the app closed, reporting none of its nine committed patches:
+  `budgetExhausted` is read only by `advance()`, on a TURN RESULT, so the bound covered the
+  gaps between calls and never a call. `reliability/deadline.ts` arms the run's own clock on
+  the step in flight — the third layer after the per-call timeout and the retry policy, and
+  the only one that knows the number the user set. It covers the turn loop ONLY: the plan
+  draft, approval gate and verify/repair stay on the editor's Stop signal, because
+  `toVerify` ISSUES a verify effect and a run-wide abort would kill the reporting it
+  triggers. A deadline takes the between-steps budget route, so the run still verifies and
+  still reports. `maxWallMsFor` is the one place `maxMinutes` meets its default. Found
+  on the way (pre-existing): the P4.3 verify fix turn fired even after a budget stop.
+  Real-run effect: **pending manual verification**.
+- `[x]` GOLDEN-D.6 — **a waiting run says it is waiting** (`560d684`). GOLDEN-D.5 bounded run
+  `369e8c82`'s 39 minutes of silence but did not explain them: with a 37-minute budget the
+  user still watches 37 minutes of nothing, and an unmoving spinner does not distinguish a
+  thinking model from a dead socket. `reliability/wait-heartbeat.ts` interleaves a `progress`
+  event after 240s of TRUE silence — a chunk resets it, so a steadily streaming call never
+  announces anything. The cadence is measured off that run: its nineteen healthy calls span
+  23–193s, so nothing it completed would have tripped this, and the hang would have spoken
+  35 minutes before the user quit. `progress` and not `notification` because its id is
+  key-derived and does not consume `seq`, so a beat cannot shift a downstream event id and
+  the frozen corpora are stable by construction. Only the agent turn's model call opts in.
+  Real-run effect: **pending manual verification**.
+- `[x]` GOLDEN-A.4 — **a policy refusal names its rule, so the guard stops reading the
+  sentence** (`f51fe20`). Run `369e8c82` was refused ADR 0140's picture-over-picture rule
+  four times in fifteen minutes: `deterministicFailureKey` keyed on the refusal text, which
+  names the asset, both times and the conflicting clip, so a model that nudged 4.48–6s to
+  4.2–6s banked a second key. `RefusalCause` now rides from `ToolRefusalError` to the
+  outcome and the key prefers it; a causeless refusal keys on text as before, and a
+  corrected placement is never blocked (the key is computed after the call settles).
+  A refused call also now files as a `failed` operation via the existing `lostOpsPerCall`
+  route, so the remedy reaches the briefing instead of ageing out with the tool result;
+  and `arrangementLine` / `get_timeline_summary` mark a video track with no free picture
+  span, so the state stops advertising a layer nothing may go on. Not reproducible on the
+  golden set — every mission fixture has one video track; see TRACKING.md for the shape.
+- `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
+  **Narrowed twice since, and the narrowing is the shipped rule.** ADR 0169: a full-frame
+  opaque placement over picture is legal and goes on a layer in front. ADR 0170: "full-frame"
+  was the wrong test — the renderer fits rather than covers, so coverage is a relation
+  between the front clip, everything it covers and the project frame
+  (`editor-core#coverageVerdict`), asked identically by the placement guard, the canvas
+  preview and the eval rubric. A cover-cropped source is legal; a mixed-shape stack of
+  different UNMEASURED assets is the only shape refusal left, and it names a cutaway hole.
+- `[x]` GOLDEN-C.6 — **failure quality is a gate, not a habit** (`6e39e64`). `92a0387` fixed
+  two dead-end failures found by reading run `369e8c82` by hand; this makes the property
+  testable. `reliability/next-action.ts#namesNextAction` requires a failure to say what
+  happened (4+ real words, killing a bare token) AND name a move the model can execute — a
+  tool in the LIVE registry, or an explicit closing directive. No "offers an alternative"
+  arm: `add_music`'s "or pick a different track" offered one and was still a dead end, and
+  the two historical strings are negative fixtures. A third property, deliberately not a
+  reuse of `plain-failure.ts` (the editor's words) or `golden-metrics#failureQuality`
+  (whether the editor was told anything) — the module documents all three so they cannot
+  drift. The gate walks the real registry and the real executor rather than a hand-copied
+  list, reaching 21 sentences ≈ a quarter of the package's surface; its header states what
+  it cannot see (`orchestrator.ts`'s 36 note sites, the domain tools' 36 throw sites, the
+  desktop host overrides). 13 dead ends fixed, 6 of them collapsed into 2 shared producers;
+  1 exemption recorded with its reason.
+- `[x]` GOLDEN-A.6 — **a host can declare WHY it refused** (`28a5322`). The last unbounded
+  path from run `369e8c82`: `stock-host.ts` refuses the ADR 0140 conflict BEFORE the
+  download, which arrives as an ordinary host failure, and host failures are deliberately
+  never keyed — so on desktop the loop cost nothing per iteration and could repeat without
+  limit. `HostToolOutcome.refusalCause` is the channel neither side could add alone. The
+  flag goes with the cause because `deterministicFailureKey` reads it first (a cause alone
+  is inert) and because a host declaring a cause IS the branch saying the failure is not
+  transient. The invariant it narrows is pinned at both ends: an undeclared host failure
+  is still never keyed and still retryable — a timeout, a 5xx, a missing key and an
+  unresolvable id all look like `failed`, and blocking any of them would lose the tool for
+  the run over a fault it had no part in. Eight other host outcomes were considered and
+  rejected, each with its reason.
+- `[x]` GOLDEN-A.7 — **a declared host refusal now leaves the same trace an in-process one
+  does.** `rejectedOpCount: 1` on the host tail's declared-refusal spread, so the refusal
+  files through `lostOpsPerCall` as a `failed` operation whose `failureReason` is the
+  refusal sentence — and the remedy ("the first free moment is 10.0s") reaches the state
+  briefing's "FAILED — fix the cause" section instead of ageing out of the context window
+  with the tool result it lived in. Every consumer of the count was checked: the empty-run
+  notice (a run whose ONLY event is a refused host call now says "No edits were applied"
+  and why, where it used to say it "reviewed the footage but never made a change"), the
+  partial-run notice, the completion report's "Skipped" line, and the conductor's
+  `recordSucceeded`. The post-download stock refusal got the same line, so one rule refused
+  before and after the download leaves one shape of trace. Pinned end to end through
+  `streamAgent`'s warning events and at the conductor seam through the briefing.
+- `[x]` GOLDEN-A.8 — **the two refusals that still had no key** (same slice).
+  `add_music`'s duck-sidechain refusal is an in-process policy check after a completed paid
+  download — the `add_stock` shape, a different rule — and it put the raw host payload where
+  `deterministicFailureKey` needs a string, so it had no key on two grounds. Keyed on its
+  TEXT, not on a new `RefusalCause`: the only thing that varies in the sentence is the
+  `duckUnderTrackId` it names, which is the argument the refusal is asking the model to
+  correct, so the same bad id twice is the loop and two different bad ids are two different
+  corrections that each deserve their own answer. It also files a ledger trace.
+  The five host-backed validator probes (`transcribe`, `remove_silences`, `add_music`,
+  `add_stock`, `track_subject_automatically`) are collapsed into one helper and keyed. The
+  collision hazard — two different assets colliding on one validator sentence — is resolved,
+  not skipped: a key is computed only once a call has SETTLED and only a `failed` outcome
+  ever yields one, so the second asset is fetched and validated in full and one that
+  VALIDATES lands with no key to match. A collision can only replace the prose of a call
+  that had already failed, with the sentence of a call that failed for the identical stated
+  reason. Both halves pinned, including the two-different-assets case.
+  Desktop's WAL now records `refusalCause` on a host result, so a run nobody watched shows
+  WHY a repeat was refused rather than only that it was.
+- `[x]` GOLDEN-A.9 — **a run that lost its work to a validator probe now says what it lost,
+  and how much.** The five host-backed probes returned `ops: []` with the operations they
+  refused carried nowhere, so the turn reported zero, `lostOpsPerCall` saw nothing, no
+  ledger row was written, and a run that lost everything to one of them closed with
+  "reviewed the footage but never made a change" — true of the timeline, false about the
+  run, and the class of report goal.md's release gate names outright. Fixed the way
+  `b7f1fd3` fixed the refusal paths, with the one difference that matters: a refusal loses
+  ONE proposed change, a probe loses every operation the tool built, so the count is
+  `ops.length` and not `1` — three for a music bed, one `ripple_delete` per silence cut,
+  one `set_transcript`, the stock placement's own list, the compiled tracking batch. The
+  helper takes the OPERATIONS rather than a number so a site cannot report a count that is
+  not the list it refused. `emptyRunMessage`, `partialRunMessage` and the completion
+  report's "Skipped: N proposed changes did not validate" all print that number, so a
+  hardcoded `1` in front of a fifty-cut silence pass would have been its own small
+  dishonesty. Every consumer re-checked: the per-call accumulation and `rejectionNotes`,
+  the conductor's fold and `lostOpsPerCall` → `recordOperation`, the `rejectionReasons`
+  tally and its cap of three, the three closing notices, the completion report and the
+  plan-step status (already `failed` via `anyToolFailed`). Pinned end to end: an empty run,
+  a partial run and the ledger row read back through the briefing.
+  `track_subject_automatically`'s op-build catch branch, the adjacent leftover, is keyed
+  and traced too. It is a throw out of the BUILDER rather than a probe, so its count is
+  `1` — nothing was built to count — but everything it can throw (`compileTrackingCommand`'s
+  eleven rejection codes, `validateProfessionalOperationBatch`'s validator and
+  apply/invert round-trip) is a pure verdict over the working copy, and each unkeyed repeat
+  re-ran an isolated pack worker over the media. The key still cannot pre-empt that worker:
+  it is read off a settled outcome, so the measurement is always made and only the prose of
+  a call that already failed is replaced.
+  Left recorded, not fixed: `unusableHostPayload` and the generic invalid-args rejection
+  still file no count, so a run whose only work was one of those still reads as a run that
+  never tried; a repeat answered by `repeatedFailureOutcome` files no count either, so a
+  re-proposal of the same lost operations is not counted twice; and the reasons list is
+  capped at three while the count is not, so a large N prints a sample of reasons without
+  saying it is a sample.
+- `[x]` GOLDEN-A.5 — **a refused stock placement can no longer repeat without limit**
+  (`760bc57`). `add_stock`'s placement refusal set no `deterministicFailure` and put a
+  refusal RECORD where `deterministicFailureKey` needs a string, so it had no key on two
+  independent grounds and `seenFailureKeys` could never match it — the same unbounded loop
+  `f51fe20` closed for `add_clip`, on the tool a b-roll request reaches for. It is on the
+  IN-PROCESS side of the metered boundary: the branch runs only after the paid download
+  SUCCEEDED, and what refuses is `picturePlacementConflict` on our own working copy. The
+  key is computed after a call settles, so a metered tool is never pre-empted and a
+  corrected placement never has a key to match; not keying costs unboundedly, since every
+  repeat buys another download.
+- `[x]` GOLDEN-C.8 — **every desktop host override answers the model as well as the SDK**
+  (`9d2162a`). `d95ec25` caught `hostTranscribe` by accident; the rest had never been
+  examined. SIX exist, not five — following the registrations rather than the `hostX`
+  naming found `automaticTrackingExecutor`, a whole-executor override with no `host`
+  prefix. `hostMusicSearch` forwarded the Sounds panel's vocabulary under a comment
+  claiming it was the provider's verbatim reason; `cancelled` renders as the EMPTY STRING
+  by design (right for a person, so a cancelled search reached the model as a failure with
+  no text); the tracking executor's `pack_missing` said only what NOT to report.
+  `reliability/sourcing-notes.ts` is the model's counterpart to the panel strings —
+  exhaustive over every music and stock code, so a new code is a compile error — and it
+  subsumes `search-failure-summary.ts`. A desktop gate now judges with `namesNextAction`
+  IMPORTED from the SDK, walking `createStockHost` and the tracking table at runtime and
+  `main.ts` by following its registration call; weaker than the SDK's, and its header says
+  how.
+- `[x]` GOLDEN-C.7 — **the dead ends the gate could not reach** (`d95ec25`). Six literal
+  failures in `orchestrator.ts` plus the two `apps/desktop/electron/main.ts` copies that
+  the `hostTranscribe` override shipped verbatim, bypassing the fix one layer down — live
+  on the primary surface. Lifted into `reliability/refusal-notes.ts` as named producers,
+  exported through the index so desktop consumes the SDK's sentence rather than a third
+  copy (the `localMusicAssetRefusal` pattern). Wording is honest about what it does not
+  know: `analyze_silence` is named as a PROBE that may fail the same way (shared engine
+  route), music/stock say "do not retry the same track" because the request was metered,
+  and tracking names no substitute because the manual path authors coordinates and the
+  model may not. `:7854` exempted with its reason — it returns `done: true`, so the model
+  never reads it, and the run's own objective is what could not be trusted. The gate now
+  walks the producers, asserts every table key is a REGISTERED tool (a rename fails the
+  build), and reads `orchestrator.ts`'s notes off the file with a stale-exemption check;
+  it still cannot judge the 33 COMPOSED notes whose instruction is interpolated. Two more
+  dead ends the walk exposed were fixed. 711 tests, nothing frozen moved.
+- `[x]` GOLDEN-E.4 — **the context stops growing with the project's age** (`b7a88da`).
+  `summarizeMemory` joined every accepted/rejected reason uncapped, and a reason is now a
+  four-sentence narration — 82 tokens per accepted turn on every future request, forever.
+  The briefing rendered one line per operation record, and `caption_the_edit` fans out per
+  cue: 34 + 34 identical lines. Measured: ALREADY APPLIED 306 → 20 tok/turn (−93%); memory
+  block at 40 turns 6,903 → 70 tok, and FLAT in project age. Both are gated tests now.
+  Accuracy argued: the truncation keeps the sentence saying what the edit DID; newest-first
+  rather than a spread because the store already encodes supersession; rejections get a
+  bigger budget than acceptances because losing one lets the agent redo what was refused.
+  Three recordings regenerated — every changed line a token estimate, every one a decrease.
+- `[x]` GOLDEN-E.2 — **the duplicated edit prose costs the model nothing: audited, no
+  change.** Run `369e8c82` shows the same 4-sentence paragraph as the diff card's `Summary`
+  and its `Reason` in all 6 (in the full export, 9) proposed-edit blocks. Mechanically
+  verified from `run.md`: in every block `Summary == Reason ==` that turn's assistant chat
+  message, byte for byte. They are ONE string, produced once, assigned at one site —
+  `assemble.ts#assembleEdit(project, operations, reason)` returns `{patch: {…, reason}, …,
+  text: reason}`, fed from `orchestrator.ts#applyAgentTurn`'s `rationale`, which is
+  `turn.text` (`orchestrator.ts:8238`). The model never re-reads it: the agent loop rebuilds
+  its prompt every turn from `assembleContext` + the stable head + the briefing
+  (`orchestrator.ts#agentMessages`) — it does not replay a transcript — the briefing renders
+  applied work as `o.intent` only (`briefing.ts:258`, from `describeOperation`'s "Added
+  captions", not the prose), and `rationale` reaches the reducer only through
+  `normalizeIntent`, which collapses it to a one-word enum (`loop-detector.ts:133`). Cost of
+  the duplication: **0 model tokens**; ~3.3 KB per extra copy in a 2.0 MB conversation export
+  (0.33%). Both fields are load-bearing for different audiences and lifetimes —
+  `patch.reason` is persisted in the project file, read by the History panel
+  (`HistoryPanel.tsx:246`), by `history.ts#mergedReason` when collapsing entries, and prefixed as
+  `Revert: …` by the inverse patch (`patch.ts:247`); `edit.text` lives in the conversation
+  (search, export). Restructuring the event contract to save those bytes was rejected.
+  **Where the run's 218,036 output tokens over 20 calls actually went:** not into any
+  artifact the export can show. Model-authored output across the WHOLE run totals ~7.2 KB of
+  assistant text (19 messages) plus ~10 KB of non-derived operation JSON — under ~5,000
+  tokens; the two largest patches (`set_transcript` 19 KB, 69 caption ops 22 KB) are
+  `derivedFanOut` tools, built from the transcript, not written by the model. The 20 turns
+  spent 4,067 s "thinking" with zero reasoning text captured — 218,036 / 4,067 s ≈ 54 tok/s,
+  i.e. the routed model was generating for essentially the entire 68-minute run. **≥95% of
+  the bill is invisible reasoning tokens from `openrouter/auto`**, which the SDK never
+  requests, never bounds (correctly — `outputRoomFor` omits `max_tokens` for a model the
+  catalog does not carry) and cannot see. Input was never the problem: the context manifests
+  hold 40 k/turn at the peak (15 k cached tool schemas + 20 k turn message). The lever here
+  is model/route selection, not prompt trimming.
+- `[ ]` GOLDEN-E.3 — **accepted-edit reasons are unbounded in the memory block (browser path
+  only).** `memory-store.ts#summarizeMemory` joins EVERY `acceptedEdits[].reason` and
+  `rejectedEdits[].reason` into the `memory` context tier with no cap, and since a turn's
+  `reason` is now the model's full narration, each accepted turn adds ~370 chars to a block
+  re-sent on every request of every future run and persisted in `project.fp.json`. It does
+  not fire on desktop — `AiSidebar.tsx`'s auto-apply effect returns early when
+  `commitProjectPatch` exists, so `recordAccepted` is never reached for host-committed
+  diffs, which is why run `369e8c82`'s `project memory` section measured 53 tokens. Not
+  fixed here: the fix moves a token golden, and regenerating one while another agent is in
+  `ai-sdk` would corrupt it. Intended change: cap the two lists to the most recent N and
+  truncate each reason to one clause.
+
 **Status snapshot (2026-09-01, AGENT-RUN-RELIABILITY):** `[~]` **Agent runs on
 `fix/agent-run-reliability`. Three root causes found and fixed from captured run
 `35746d4c` (`run.md`), which spent 11 model calls, 230,473 tokens and $1.20 on a caption
 restyle and applied nothing.**
 
+- `[x]` GOLDEN-B.1 — **incremental + resumable indexing audited, no change:** `/brain/visual/index`
+  works in per-project slices under a lock, skips assets already prepared (resume), wipes and
+  redoes an asset whose `content_hash` changed, persists a per-asset outcome
+  (`brain/visual_outcomes.py`), and is cancellable. goal.md B holds by construction.
+- `[x]` GOLDEN-C.3 — **prompt-cache prefix audited, no change:** the 2026-08-29 real runs show
+  95–100% `cacheRead/prompt` per turn (Anthropic breakpoints on system+tools and the message
+  boundary), so the volatile sections already sit past the cached prefix.
 - `[x]` **The per-turn op cap was two different numbers.** `orchestrator.ts` enforced 100
   in the streaming path; `kernel/conductor.ts` reported 200 from the reducer. A 101–200-op
   turn was refused by one half and invisible to the other, and the refusing branch stated
@@ -3535,6 +3854,25 @@ workspace typecheck/lint clean, dist rebuilt.
         `anthropic/claude-sonnet-4.6`) over the same OpenAI-compatible adapter as OpenRouter —
         one key fronting 100+ upstream models, registered in `PROVIDER_NAMES`, the engine
         roster, both config stores, and Settings → AI (2026-08-19).
+  - [x] Added **Claude via the user's existing Claude Code login** (`claude-agent-sdk`, no
+        API key, default `claude-opus-5`) over `@anthropic-ai/claude-agent-sdk`, replacing
+        the `trial/auth2api` OAuth proxy for subscribers. ADR 0171 (2026-09-03).
+        Verified end to end against a real login: two parallel tool calls returned with
+        correct args and neither executed. The package is an agent runtime, so it runs in a
+        frozen non-agentic sandbox (`tools: []`, `settingSources: []`, custom system prompt,
+        `maxTurns: 1`) asserted as a security contract; tools are published as an in-process
+        MCP server from raw JSON Schema and handed back via a `PreToolUse` `defer` hook, so
+        invariant 5 holds. Desktop-only (spawns a subprocess) and deliberately unlisted in
+        the browser roster. Known gaps, all documented in the ADR: no `temperature`,
+        `maxTokens`, `cacheBoundary` or image support; cost reported in tokens, not dollars.
+  - [ ] **Ship `claude-agent-sdk` in the packaged desktop app.** Works in dev; the signed
+        build does not yet. The SDK ships a per-platform `claude` binary that cannot be
+        spawned from inside `app.asar`, so it needs `extraResources` + a `signIgnore` entry
+        + staged signing (the treatment `scripts/sign-engine.mjs` gives the Python engine).
+        Separately, the macOS Keychain token is bound to Claude Code's own code signature —
+        a differently-signed app may be prompted or denied, which has to be tested against a
+        real notarized build rather than asserted. Until this lands the provider is
+        dev/self-build only.
 - [x] Tool Registry — AI may ONLY edit via registered, schema-validated tools (PRD §8.3)
   ```
   — `tool-registry.ts` + Python `ai_tools/registry.py`+`handlers.py`+`dispatch.py`
@@ -7369,6 +7707,21 @@ finalized with "No changes were made" — 0 ops applied.
   lint clean; `dist` rebuilt (desktop consumes built dist). ADR 0057 amended; CHANGELOG
   "Fixed". No schema change, no new dependency. **Last updated:** 2026-07-15
 
+## Discovered (2026-09-03) — Orchestration: no silent successes — `[~]` IN PROGRESS
+
+> **Sub-plan: [`plan/ORCHESTRATION-SILENT-SUCCESS.md`](./ORCHESTRATION-SILENT-SUCCESS.md)**
+> — captured run `9835620c` (one-shot 23-ask brief, 9:36 single-take GoPro source) applied
+> five of twenty-three asks, left 14.833s of a 59.833s programme with no picture under it,
+> narrated four source moments that are not in the timeline, and reported `completed`. The
+> run's own state shows the mechanical cause: the brief was never decomposed — one
+> `objective` whose description is a truncation of the request, verified against a
+> `criterion` that is the same truncated text, `passed: true`. Nothing could notice that ten
+> tools in successfully-pinned domains were never called. FramePilot detected most of the
+> defects while the run was alive and appended every one of them as prose to a success
+> message; the sub-plan converts detections into gates (SS-0…SS-9) and adds no new
+> subsystem. Gated on SS-0, a failing golden case that reproduces the run.
+> **Last updated:** 2026-09-03
+
 ## Discovered (2026-07-15) — Agent Orchestration Hardening — `[x]` COMPLETE (2026-07-15)
 
 > **Sub-plan: [`plan/AGENT-ORCHESTRATION-HARDENING.md`](./AGENT-ORCHESTRATION-HARDENING.md)**
@@ -8618,10 +8971,10 @@ temporal_evidence.py` — `AudioEvidenceRequest.boundaryFrame` (optional, strict
 oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent that owns
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
-                                                          Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                          a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                          engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                          **Last updated:** 2026-08-14
+                                                            Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
+                                                            a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                            **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 

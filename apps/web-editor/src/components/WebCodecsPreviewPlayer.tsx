@@ -144,7 +144,9 @@ export function WebCodecsPreviewPlayer({
   };
 
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
-  const eligible = canvasPreviewEligible(editor.state.timeline, assetById);
+  // `resolution` is the project frame the canvas composites into, and coverage is a relation
+  // between the stacked clips and that frame (ADR 0170).
+  const eligible = canvasPreviewEligible(editor.state.timeline, assetById, resolution);
   const segments = useMemo(
     () => (eligible ? pictureSegments(editor.state.timeline, assetById) : []),
     [eligible, editor.state.timeline, assetById],
@@ -214,8 +216,12 @@ export function WebCodecsPreviewPlayer({
           sourceId: seg.clip.assetId,
           url: previewMediaSrc(asset),
           kind,
-          sourceStart: seg.clip.sourceStart,
-          sourceEnd: seg.clip.sourceEnd,
+          // The SEGMENT's source range, not the clip's. They differ only when a
+          // clip in front covers part of this one and splits it in two (ADR 0169);
+          // the engine maps source time from the segment's `projectStart`, so the
+          // second half must start where it actually resumes.
+          sourceStart: seg.sourceStart,
+          sourceEnd: seg.sourceEnd,
           // Transform/crop/grade/blend for the canvas pass (P3a). Refreshed in
           // place by the compositing effect below so an edit doesn't reload the
           // decoder (which the media-identity-keyed mount effect guards against).

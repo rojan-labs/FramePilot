@@ -58,8 +58,48 @@ The desktop Settings interface can store provider and model choices for normal u
 `.env` for local development, CI-safe defaults, base URL overrides, and services that are
 not yet represented by a settings control.
 
-One provider and model own an entire request. Classification, planning, editing, repair,
-and completion do not silently jump between providers midway through a run.
+One provider and model own an entire request. Planning, editing, repair, and completion
+do not silently jump between providers midway through a run. The one deliberate exception
+is the routing step, which you can opt into moving — see [Model tiers](#model-tiers).
+
+## Model tiers
+
+Not every model call needs the same model. FramePilot labels each call with a cost class —
+`small`, `mid` or `large` — and one call is `small` today: the **route classifier**
+(ADR 0055), the single short call at the top of a turn that reads your command and decides
+whether it is a greeting, a question, a planned edit, or an agent run. It is a
+classification, not judgement about your footage, and a cheap fast model does it well.
+
+Point it somewhere cheaper with either variable — the provider, the model, or both:
+
+```bash
+# Keep editing on Claude, route on Haiku.
+FRAMEPILOT_TIER_SMALL_MODEL=claude-haiku-4-5
+
+# Or send routing to a different provider entirely.
+FRAMEPILOT_TIER_SMALL_PROVIDER=groq
+FRAMEPILOT_TIER_SMALL_MODEL=llama-3.1-8b-instant
+```
+
+`FRAMEPILOT_TIER_MID_*` and `FRAMEPILOT_TIER_LARGE_*` exist and resolve the same way, but
+nothing is routed by them yet: the editing turns are `mid`/`large` and stay on the provider
+you selected.
+
+Rules worth knowing:
+
+- **Unset changes nothing.** With neither variable set for a tier, that tier uses
+  `FRAMEPILOT_AI_PROVIDER` (or the Settings choice on desktop) exactly as before. This is
+  opt-in by construction, so a default install is unaffected.
+- **Setting only `_MODEL`** keeps the active provider and swaps the model — the usual case,
+  since a provider almost always offers a smaller model of its own.
+- **Setting only `_PROVIDER`** uses that provider's own credentials and model
+  (`GROQ_API_KEY` / `GROQ_MODEL` for `groq`, and so on), so no new key variables exist.
+- **A missing key degrades, it does not break.** If the tier's provider cannot be built,
+  the desktop app logs it and that tier falls back to the active provider rather than
+  failing to start.
+- **Routing accuracy is yours to verify.** A smaller model classifies well in practice, but
+  if you see turns taking the wrong route after setting this, unset it — that is the whole
+  cost of backing out.
 
 ## Mock
 

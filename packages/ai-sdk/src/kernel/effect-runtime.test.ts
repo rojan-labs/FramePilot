@@ -257,11 +257,11 @@ describe('createEffectRuntime — model', () => {
   });
 });
 
-describe('createEffectRuntime — single-provider model execution', () => {
+describe('createEffectRuntime — tiered model execution', () => {
   const req: AiCompletionRequest = { messages: [{ role: 'user', content: 'hi' }] };
 
-  it('keeps tier labels as telemetry without changing the active provider', async () => {
-    const provider = okProvider({ text: 'active-provider' });
+  it('routes every tier to the base provider when no tier providers are configured', async () => {
+    const provider = okProvider({ text: 'base-provider' });
     const runtime = createEffectRuntime({ provider });
 
     const smallResult = await runtime.run({ kind: 'model', request: req, tier: 'small' });
@@ -269,9 +269,68 @@ describe('createEffectRuntime — single-provider model execution', () => {
     const largeResult = await runtime.run({ kind: 'model', request: req, tier: 'large' });
 
     expect(provider.calls).toBe(3);
-    expect(smallResult.kind === 'model' && smallResult.response.text).toBe('active-provider');
-    expect(midResult.kind === 'model' && midResult.response.text).toBe('active-provider');
-    expect(largeResult.kind === 'model' && largeResult.response.text).toBe('active-provider');
+    expect(smallResult.kind === 'model' && smallResult.response.text).toBe('base-provider');
+    expect(midResult.kind === 'model' && midResult.response.text).toBe('base-provider');
+    expect(largeResult.kind === 'model' && largeResult.response.text).toBe('base-provider');
+  });
+
+  it('sends a small-tier effect to the small provider and leaves other tiers on the base', async () => {
+    const base = okProvider({ text: 'base-provider' });
+    const small = okProvider({ text: 'small-provider' });
+    const runtime = createEffectRuntime({ provider: base, tierProviders: { small } });
+
+    const smallResult = await runtime.run({ kind: 'model', request: req, tier: 'small' });
+    const midResult = await runtime.run({ kind: 'model', request: req, tier: 'mid' });
+    const largeResult = await runtime.run({ kind: 'model', request: req, tier: 'large' });
+    // An untiered effect defaults to `mid`, so it must stay on the base provider too.
+    const untieredResult = await runtime.run({ kind: 'model', request: req });
+
+    expect(small.calls).toBe(1);
+    expect(base.calls).toBe(3);
+    expect(smallResult.kind === 'model' && smallResult.response.text).toBe('small-provider');
+    expect(midResult.kind === 'model' && midResult.response.text).toBe('base-provider');
+    expect(largeResult.kind === 'model' && largeResult.response.text).toBe('base-provider');
+    expect(untieredResult.kind === 'model' && untieredResult.response.text).toBe('base-provider');
+  });
+
+  it('routes a streamed small-tier effect to the small provider, mid to the base', async () => {
+    const base = okProvider({ text: 'base-provider' });
+    const small = okProvider({ text: 'small-provider' });
+    const runtime = createEffectRuntime({ provider: base, tierProviders: { small } });
+
+    const drain = async (tier: 'small' | 'mid'): Promise<string> => {
+      const gen = runtime.streamModel!({ kind: 'model_stream', request: req, tier });
+      let text = '';
+      for (let next = await gen.next(); !next.done; next = await gen.next()) {
+        if (next.value.type === 'text-delta') text += next.value.text;
+      }
+      return text;
+    };
+
+    expect(await drain('small')).toBe('small-provider');
+    expect(await drain('mid')).toBe('base-provider');
+    expect(small.calls).toBe(1);
+    expect(base.calls).toBe(1);
+  });
+
+  it('keeps the memo policy tier-agnostic: a keyed small-tier effect runs once', async () => {
+    const base = okProvider({ text: 'base-provider' });
+    const small = okProvider({ text: 'small-provider' });
+    const runtime = createEffectRuntime({ provider: base, tierProviders: { small } });
+    const effect: ModelEffect = {
+      kind: 'model',
+      request: req,
+      tier: 'small',
+      idempotencyKey: 'tier-k1',
+    };
+
+    const first = await runtime.run(effect);
+    const second = await runtime.run(effect);
+
+    expect(small.calls).toBe(1);
+    expect(first.cached).toBe(false);
+    expect(second.cached).toBe(true);
+    expect(second.kind === 'model' && second.response.text).toBe('small-provider');
   });
 });
 

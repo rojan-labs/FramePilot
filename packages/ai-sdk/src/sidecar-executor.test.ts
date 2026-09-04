@@ -10,6 +10,7 @@ import {
   canUseUnifiedRoute,
   createSidecarExecutor,
   describeFootageBody,
+  describeTransportFailure,
   engineErrorDetail,
   footageMapBody,
   frameBody,
@@ -397,7 +398,12 @@ describe('unwrapSearch', () => {
     expect(unavailable.summary).toContain('no sandbox root');
     const malformed = unwrapSearch('search_media', project, 'not an object');
     expect(malformed.status).toBe('failed');
-    expect(malformed.summary).toContain('malformed');
+    // An unreadable answer says WHAT broke and what to do with the rest of the run — the
+    // model cannot tell a broken engine from a bad argument otherwise, and its only move is
+    // to send the identical call again (goal.md Workstream C).
+    expect(malformed.summary).toContain('no result list');
+    expect(malformed.summary).toContain('not about your arguments');
+    expect(malformed.summary).toContain('tell the editor');
     // `data` itself absent (null/undefined), not just a non-object value.
     expect(unwrapSearch('search_media', project, null).status).toBe('failed');
   });
@@ -583,8 +589,46 @@ describe('visual grounding (MI6.1)', () => {
         chapters: [],
       });
       expect(outcome.status).toBe('warning');
-      expect(outcome.summary).toContain('not_indexed');
-      expect((outcome.data as { reason: string }).reason).toBe('not_indexed');
+      // The bare token is what run `369e8c82` read six times and could not act on.
+      expect(outcome.summary).not.toContain('"map_footage": not_indexed');
+      expect(outcome.summary).toContain('do not call this again');
+      expect((outcome.data as { reason: string }).reason).toContain('chapters or highlights');
+    });
+
+    it('speaks about mapping, not describing, and offers a map-sized substitute', () => {
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'not_indexed',
+        chapters: [],
+      });
+      // A whole-asset map is replaced by sampling ACROSS the asset — one frame is the
+      // answer to `describe_footage`'s question, not to this one.
+      expect(outcome.summary).toContain('chapters or highlights');
+      expect(outcome.summary).toContain('across its duration');
+      expect(outcome.summary).not.toContain('nothing to describe');
+    });
+
+    it('passes an unrecognized reason through verbatim rather than decorating it', () => {
+      // `invalid_api_key` also comes back available:true with no chapters. We have no
+      // evidence about it, so it must reach the model exactly as the engine said it.
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'invalid_api_key',
+        chapters: [],
+      });
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).toBe('"map_footage": invalid_api_key');
+      expect((outcome.data as { reason: string }).reason).toBe('invalid_api_key');
+    });
+
+    it('expands pegasus_unavailable into a run-wide stop, not a per-clip one', () => {
+      const outcome = unwrapFootageMap({
+        available: true,
+        reason: 'pegasus_unavailable',
+        chapters: [],
+      });
+      expect(outcome.summary).toContain('no clip can be mapped in this run');
+      expect(outcome.summary).toContain('could not map the footage');
     });
 
     it('warns with a route the model can actually take on an empty map', () => {
@@ -608,10 +652,12 @@ describe('visual grounding (MI6.1)', () => {
       expect(outcome.summary).toContain('projects_root is not set');
     });
 
-    it('fails on a malformed payload with a generic reason', () => {
+    it('fails on a malformed payload with a reason the model can act on', () => {
       const outcome = unwrapFootageMap(null);
       expect(outcome.status).toBe('failed');
-      expect(outcome.summary).toContain('footage-map response was malformed');
+      expect(outcome.summary).toContain('no chapters and no reason');
+      expect(outcome.summary).toContain('not about your arguments');
+      expect(outcome.summary).toContain('tell the editor');
     });
   });
 
@@ -878,7 +924,8 @@ describe('visual grounding (MI6.1)', () => {
         executor.run(call('measure_color', { clipId: 'missing' }), ctx),
       ).resolves.toMatchObject({
         status: 'failed',
-        summary: expect.stringContaining('missing or is not visual'),
+        // The wrong-id answer names the tool that lists the right ids (commit 629b822).
+        summary: expect.stringContaining('Call get_clips'),
       });
       expect(called).toBe(false);
     });
@@ -1609,7 +1656,10 @@ describe('createSidecarExecutor', () => {
     });
     const outcome = await executor.run(call('render_preview'), ctx);
     expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toMatch(/not runnable from the AI panel yet/);
+    expect(outcome.summary).toContain('Export dialog');
+    // "use the Export dialog" alone is an instruction for someone with a mouse — the same
+    // dead end run `369e8c82` hit with "Place it from the bin". Retrying must be closed off.
+    expect(outcome.summary).toContain('Do not call it again');
   });
 
   it('returns cancelled when the run signal aborts mid-request', async () => {
@@ -1691,6 +1741,53 @@ describe('createSidecarExecutor', () => {
     const outcome = await executor.run(call('analyze_silence'), ctx);
     expect(outcome).toMatchObject({ status: 'failed' });
     expect(outcome.summary).toMatch(/ECONNREFUSED/);
+  });
+
+  it('tells the model what to do when the engine socket is refused', async () => {
+    // The captured run took 35 tool failures as `"<tool>" failed: fetch failed` — undici's
+    // message for a dead socket, with the real code one level down in `cause` and the base
+    // URL nowhere. The model cannot tell that from a bad argument, so it retried the same
+    // call. The card now says it plainly; `data` (what the model reads) says what to do.
+    const fetchFn = (async () => {
+      throw Object.assign(new TypeError('fetch failed'), { cause: { code: 'ECONNREFUSED' } });
+    }) as unknown as typeof fetch;
+    const executor = createSidecarExecutor({ baseUrl: 'http://127.0.0.1:8765', fetchFn });
+    const outcome = await executor.run(call('detect_beats'), ctx);
+    expect(outcome.status).toBe('failed');
+    // The editor's card: plain, and about the engine rather than about fetch.
+    expect(outcome.summary).toBe(
+      "The media engine is not responding — check that FramePilot's engine is running",
+    );
+    const modelFacing = String(outcome.data);
+    expect(modelFacing).toContain('http://127.0.0.1:8765');
+    expect(modelFacing).toContain('ECONNREFUSED');
+    expect(modelFacing).toContain('retry this call once');
+    expect(modelFacing).toContain('not about your arguments');
+    // Transient by nature: nothing here may be banked as a permanent refusal
+    // (see `deterministicFailureKey` / `mergeFailureKeys`).
+    expect(outcome).not.toHaveProperty('deterministicFailure');
+  });
+
+  it('names the transport codes undici hides behind "fetch failed"', () => {
+    for (const code of ['ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN', 'UND_ERR_SOCKET']) {
+      const described = describeTransportFailure(
+        'get_frame',
+        Object.assign(new TypeError('fetch failed'), { cause: { code } }),
+        'http://x',
+      );
+      expect(described).toContain(code);
+    }
+    // A bare `fetch failed` with no cause still gets the instruction, just no code.
+    expect(
+      describeTransportFailure('get_frame', new TypeError('fetch failed'), 'http://x'),
+    ).toContain('(connection failed)');
+  });
+
+  it('leaves a non-transport error reading exactly as it did', () => {
+    // Only the unreachable-engine shape is rewritten; an engine that answered with a real
+    // fault must keep saying what the fault was.
+    expect(describeTransportFailure('x', new Error('boom'), 'http://x')).toBeUndefined();
+    expect(describeTransportFailure('x', 'boom', 'http://x')).toBeUndefined();
   });
 
   it('stringifies a non-Error rejection into the failure summary', async () => {
@@ -1809,6 +1906,27 @@ describe('D1 — a machine reason the model can act on', () => {
 
   it('passes an unrecognized reason through untouched', () => {
     expect(visualReasonGuidance('quota_exhausted')).toBe('quota_exhausted');
+    // ...including when a tool asks for its own wording: an override table must not
+    // become a place where an unknown token gets swallowed or invented for.
+    expect(visualReasonGuidance('quota_exhausted', 'map_footage')).toBe('quota_exhausted');
+    expect(visualReasonGuidance('invalid_api_key', 'map_footage')).toBe('invalid_api_key');
+  });
+
+  it('keeps describe_footage wording while giving map_footage its own', () => {
+    const describing = visualReasonGuidance('not_indexed', 'describe_footage');
+    // describe_footage has no override, so it still gets the shared sentence verbatim.
+    expect(describing).toBe(visualReasonGuidance('not_indexed'));
+    expect(describing).toContain('nothing to describe yet');
+    const mapping = visualReasonGuidance('not_indexed', 'map_footage');
+    expect(mapping).not.toBe(describing);
+    expect(mapping).toContain('chapters or highlights');
+    expect(mapping).toContain('do not call this again');
+  });
+
+  it('gives a tool with no override the shared sentence rather than the raw token', () => {
+    expect(visualReasonGuidance('not_indexed', 'search_visual')).toBe(
+      visualReasonGuidance('not_indexed'),
+    );
   });
 
   it('reaches the model through the warning outcome', () => {

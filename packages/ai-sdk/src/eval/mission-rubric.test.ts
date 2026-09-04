@@ -2,6 +2,23 @@ import { describe, expect, it } from 'vitest';
 import type { Clip, Project } from '@framepilot/timeline-schema';
 import { makeProject } from '../__fixtures__/project.js';
 import {
+  checkCaptionStyleMatches,
+  checkCaptionsWellFormed,
+  checkFirstClipHeadTrimmed,
+  checkFirstTwoSwapped,
+  checkContentPreserved,
+  checkCutawayInWindow,
+  checkDurationKept,
+  checkStackedPictureIsPreviewable,
+  checkFirstClipEndsAt,
+  checkLastClipMovedFirst,
+  checkMusicCovers,
+  checkMusicQuieter,
+  checkNoGaps,
+  checkNotDestructive,
+  checkOnlyClipsTouched,
+  checkOpensLaterInSource,
+  checkUnchanged,
   checkCutsOnBeats,
   checkCutsOnFrameGrid,
   checkKeptClipsUntouched,
@@ -41,6 +58,70 @@ function withClips(clips: Clip[], audio: Clip[] = []): Project {
   } as Project;
 }
 
+describe('cuts-on-beats — measured onsets, not a nominal grid', () => {
+  // The first fourteen onsets `detect_beats` actually returns for the fixture's
+  // `beat-100bpm.wav`. It reads the file as 99.4 BPM, and only 30 of its 50 onsets fall
+  // within the check's tolerance of an ideal 0.6s grid.
+  const detected = [
+    0.581, 0.975, 1.184, 1.788, 1.974, 2.972, 3.971, 4.18, 4.992, 5.991, 6.595, 6.989, 7.779,
+    7.988,
+  ];
+
+  /** A montage whose cuts land exactly on `at`, under a music bed starting at 0. */
+  const cutOn = (at: readonly number[]): Project => {
+    const clips = at.map((start, i) => clip(`c${String(i)}`, start, at[i + 1] ?? start + 0.5));
+    const p = withClips(clips) as Project;
+    return {
+      ...p,
+      assets: [
+        ...p.assets,
+        { id: 'music', path: 'media/beat.wav', kind: 'audio', durationSeconds: 30 },
+      ],
+      timeline: {
+        tracks: [
+          ...p.timeline.tracks,
+          {
+            id: 'audio_1',
+            type: 'audio',
+            clips: [
+              {
+                id: 'bed',
+                assetId: 'music',
+                trackId: 'audio_1',
+                start: 0,
+                end: 30,
+                sourceStart: 0,
+                sourceEnd: 30,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    } as Project;
+  };
+
+  it('passes a cut placed on every detected onset', () => {
+    // Which is exactly what the runtime's own beat snapping produces.
+    const check = checkCutsOnBeats(cutOn(detected), 0.6, detected);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('measured onset');
+  });
+
+  it('fails that same cut when scored against the nominal grid', () => {
+    // The bug: three baseline runs snapped correctly and scored 45-54%.
+    const check = checkCutsOnBeats(cutOn(detected), 0.6);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('nominal beat');
+  });
+
+  it('still fails cuts that land on neither', () => {
+    const off = detected.map((t) => t + 0.25);
+    expect(checkCutsOnBeats(cutOn(off), 0.6, detected).ok).toBe(false);
+  });
+});
+
 describe('mission rubric — primitive checks', () => {
   it('measures timeline duration as the furthest clip end on any track', () => {
     expect(projectDuration(withClips([clip('a', 0, 4), clip('b', 4, 9.5)]))).toBe(9.5);
@@ -51,6 +132,32 @@ describe('mission rubric — primitive checks', () => {
     const off = checkCutsOnFrameGrid(withClips([clip('a', 0, 1.01)]));
     expect(off.ok).toBe(false);
     expect(off.detail).toContain('1 clip edge');
+  });
+
+  it('does not charge the run for an off-grid edge the project already had', () => {
+    // The project arrives off-grid and the turn leaves that clip alone. Charging it made
+    // this check a property of the fixture rather than of the edit.
+    const before = withClips([clip('a', 0, 1.01)]);
+    const after = withClips([clip('a', 0, 1.01), clip('b', 2, 3)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('1 inherited off-grid edge(s) not charged');
+  });
+
+  it('charges an off-grid edge on a clip the run created', () => {
+    const before = withClips([clip('a', 0, 1)]);
+    const after = withClips([clip('a', 0, 1), clip('b', 1, 2.01)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('1 clip edge');
+  });
+
+  it('charges an inherited clip once the run moves its edge off the grid', () => {
+    const before = withClips([clip('a', 0, 1)]);
+    const after = withClips([clip('a', 0, 1.01)]);
+    const check = checkCutsOnFrameGrid(after, before);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('1 clip edge');
   });
 
   it('flags overlapping clips on one track', () => {
@@ -69,6 +176,28 @@ describe('mission rubric — primitive checks', () => {
     // makeProject transcript: hello 0–0.5, world 0.5–1 → edge at 0.75 is inside "world"
     expect(checkNoMidWordCuts(p).ok).toBe(false);
     expect(checkNoMidWordCuts(withClips([clip('a', 0, 0.5)])).ok).toBe(true);
+    // An edge the project arrived with is not the run's. `mission-podcast` has exactly one:
+    // whisper ends the last word past the media, so the clip's natural end sits inside it.
+    const inherited = checkNoMidWordCuts(p, p);
+    expect(inherited.ok).toBe(true);
+    expect(inherited.detail).toContain('inherited edge(s) not charged');
+  });
+
+  it('does not score cuts against a transcript ASR fabricated', () => {
+    // `mission-podcast`'s transcript is 92% one looped sentence, so "this cut lands inside a
+    // word" is a claim about words nobody said — and `remove-dead-air`, which decides where
+    // to cut from silence and never reads the transcript, was failed by it.
+    const looped = Array.from({ length: 200 }, (_, i) =>
+      "i'll try to follow you later".split(' ').map((word, k) => ({
+        word,
+        start: i * 1.8 + k * 0.3,
+        end: i * 1.8 + k * 0.3 + 0.3,
+      })),
+    ).flat();
+    const p = { ...withClips([clip('a', 0, 5, { sourceStart: 0.4, sourceEnd: 5 })]), transcript: looped } as Project;
+    const check = checkNoMidWordCuts(p);
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('not measurable');
   });
 
   it('scores cuts against a beat grid anchored on the placed music', () => {
@@ -126,5 +255,335 @@ describe('mission rubric — scenarios', () => {
     } as Project;
     expect(scoreMissionScenario('memory-captions', { before, after }).checks.find((c) => c.id === 'has-captions')?.ok).toBe(true);
     expect(scoreMissionScenario('memory-captions', { before, after: before }).checks.find((c) => c.id === 'has-captions')?.ok).toBe(false);
+  });
+});
+
+// ── goal.md Phase 0 golden-set checks ────────────────────────────────────────────────
+
+describe('golden-set checks', () => {
+  const five = () =>
+    withClips([clip('c1', 0, 40), clip('c2', 40, 62), clip('c3', 62, 71), clip('c4', 71, 86), clip('c5', 86, 136)]);
+
+  it('checkFirstClipEndsAt is frame-exact', () => {
+    expect(checkFirstClipEndsAt(withClips([clip('c1', 0, 10)]), 10).ok).toBe(true);
+    // One frame off at 30 fps is a miss, not "close enough".
+    const off = checkFirstClipEndsAt(withClips([clip('c1', 0, 10 + 1 / 30)]), 10);
+    expect(off.ok).toBe(false);
+    expect(off.detail).toMatch(/1\.00 frame/);
+    expect(off.facet).toBe('boundary');
+    expect(checkFirstClipEndsAt(withClips([]), 10).ok).toBe(false);
+  });
+
+  it('checkOnlyClipsTouched allows the target and a ripple, not a stray edit', () => {
+    const before = five();
+    // Trim c1 to 10 s with ripple: everyone else moves but keeps content.
+    const rippled = withClips([
+      clip('c1', 0, 10, { sourceStart: 0, sourceEnd: 10 }),
+      clip('c2', 10, 32, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c3', 32, 41, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 41, 56, { sourceStart: 71, sourceEnd: 86 }),
+      clip('c5', 56, 106, { sourceStart: 86, sourceEnd: 136 }),
+    ]);
+    expect(checkOnlyClipsTouched({ before, after: rippled }, ['c1']).ok).toBe(true);
+    const stray = withClips([clip('c1', 0, 10, { sourceEnd: 10 }), clip('c2', 10, 20, { sourceStart: 40, sourceEnd: 50 })]);
+    const r = checkOnlyClipsTouched({ before, after: stray }, ['c1']);
+    expect(r.ok).toBe(false);
+    expect(r.detail).toContain('c2');
+    expect(r.detail).toContain('c3');
+  });
+
+  it('checkLastClipMovedFirst + checkContentPreserved + checkNoGaps describe a reorder', () => {
+    const before = five();
+    const rotated = withClips([
+      clip('c5', 0, 50, { sourceStart: 86, sourceEnd: 136 }),
+      clip('c1', 50, 90, { sourceStart: 0, sourceEnd: 40 }),
+      clip('c2', 90, 112, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c3', 112, 121, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 121, 136, { sourceStart: 71, sourceEnd: 86 }),
+    ]);
+    expect(checkLastClipMovedFirst({ before, after: rotated }).ok).toBe(true);
+    expect(checkContentPreserved({ before, after: rotated }).ok).toBe(true);
+    expect(checkNoGaps(rotated).ok).toBe(true);
+    expect(checkLastClipMovedFirst({ before, after: before }).ok).toBe(false);
+    expect(checkLastClipMovedFirst({ before: withClips([clip('c1', 0, 1)]), after: before }).ok).toBe(false);
+    const cut = withClips([clip('c5', 0, 40, { sourceStart: 86, sourceEnd: 126 }), clip('c1', 45, 85)]);
+    expect(checkContentPreserved({ before, after: cut }).ok).toBe(false);
+    expect(checkNoGaps(cut).detail).toBe('1 gap(s)');
+  });
+
+  it('checkOpensLaterInSource sees a hook pulled forward', () => {
+    const before = withClips([clip('c1', 0, 100)]);
+    const hooked = withClips([clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }), clip('c1', 5, 105)]);
+    expect(checkOpensLaterInSource({ before, after: hooked }).ok).toBe(true);
+    expect(checkOpensLaterInSource({ before, after: before }).ok).toBe(false);
+    expect(checkOpensLaterInSource({ before: withClips([]), after: before }).ok).toBe(false);
+  });
+
+  it('checkCutawayInWindow + checkDurationKept describe a b-roll cutaway', () => {
+    const before = withClips([clip('talk', 0, 100)]);
+    const cutaway = withClips([
+      clip('talk', 0, 5),
+      clip('b', 5, 12, { assetId: 'asset_broll', sourceStart: 0, sourceEnd: 7 }),
+      clip('talk2', 12, 100, { sourceStart: 12, sourceEnd: 100 }),
+    ]);
+    expect(checkCutawayInWindow(cutaway, ['asset_broll'], [0, 20]).ok).toBe(true);
+    expect(checkCutawayInWindow(cutaway, ['asset_broll'], [30, 50]).ok).toBe(false);
+    expect(checkCutawayInWindow(cutaway, ['other'], [0, 20]).ok).toBe(false);
+    expect(checkDurationKept({ before, after: cutaway }).ok).toBe(true);
+    expect(checkDurationKept({ before, after: withClips([clip('talk', 0, 90)]) }).ok).toBe(false);
+  });
+
+  it('checkMusicCovers + checkMusicQuieter describe a music bed', () => {
+    const base = makeProject();
+    const withMusicAsset: Project = {
+      ...base,
+      assets: [...base.assets, { id: 'asset_music', path: 'media/beat.wav', kind: 'audio', durationSeconds: 120 }],
+    };
+    const music = (gainDb: number | undefined, end = 100) =>
+      ({
+        ...withMusicAsset,
+        timeline: {
+          ...withMusicAsset.timeline,
+          tracks: [
+            { id: 'video_1', type: 'video', clips: [clip('talk', 0, 100)] },
+            {
+              id: 'audio_1',
+              type: 'audio',
+              clips: [
+                clip('m', 0, end, {
+                  assetId: 'asset_music',
+                  effects: gainDb === undefined ? [] : [{ id: 'g', type: 'audio_gain', params: { gainDb }, keyframes: [] }],
+                }),
+              ],
+            },
+          ],
+        },
+      }) as Project;
+    expect(checkMusicCovers(music(-12), 'asset_music').ok).toBe(true);
+    expect(checkMusicCovers(music(-12, 30), 'asset_music').ok).toBe(false);
+    expect(checkMusicCovers(music(-12), undefined).ok).toBe(true);
+    expect(checkMusicQuieter(music(-12), 'asset_music').ok).toBe(true);
+    expect(checkMusicQuieter(music(0), 'asset_music').ok).toBe(false);
+    expect(checkMusicQuieter(music(undefined), 'asset_music').ok).toBe(false);
+    expect(checkMusicQuieter(withMusicAsset, 'asset_music').ok).toBe(false);
+  });
+
+  it('checkCaptionsWellFormed wants text inside the programme', () => {
+    const base = withClips([clip('talk', 0, 30)]);
+    const captions = (cues: Clip[]) =>
+      ({
+        ...base,
+        timeline: { ...base.timeline, tracks: [...base.timeline.tracks, { id: 'caption_1', type: 'caption', clips: cues }] },
+      }) as Project;
+    const cue = (id: string, start: number, end: number, text: string) =>
+      clip(id, start, end, { assetId: '__caption__', captionCue: { text, words: [] } } as Partial<Clip>);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 0, 2, 'hello'), cue('k2', 2, 4, 'world')])).ok).toBe(true);
+    expect(checkCaptionsWellFormed(captions([])).ok).toBe(false);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 0, 2, '  ')])).ok).toBe(false);
+    expect(checkCaptionsWellFormed(captions([cue('k1', 40, 42, 'late')])).ok).toBe(false);
+  });
+
+  it('checkUnchanged and checkNotDestructive guard the ask/decline/vague cases', () => {
+    const before = five();
+    expect(checkUnchanged({ before, after: before }).ok).toBe(true);
+    expect(checkUnchanged({ before, after: withClips([]) }).ok).toBe(false);
+    expect(checkNotDestructive({ before, after: withClips([clip('c1', 0, 70)]) }).ok).toBe(true);
+    expect(checkNotDestructive({ before, after: withClips([clip('c1', 0, 30)]) }).ok).toBe(false);
+    expect(checkNotDestructive({ before: withClips([]), after: withClips([]) }).ok).toBe(true);
+  });
+
+  it('every golden rubric scores and the intent-only rubrics are 1 on an untouched timeline', () => {
+    const before = five();
+    expect(scoreMissionScenario('unchanged', { before, after: before }).score).toBe(1);
+    expect(scoreMissionScenario('vague-not-destructive', { before, after: before }).score).toBe(1);
+    for (const id of [
+      'trim-first-clip',
+      'reorder-last-first',
+      'captions',
+      'hook-first',
+      'broll-cutaway',
+      'music-bed',
+      'compound-silence-captions',
+    ] as const) {
+      const s = scoreMissionScenario(id, { before, after: before, expectedFirstClipEndSeconds: 10 });
+      expect(s.score, id).toBeLessThan(1);
+      expect(s.checks.some((c) => c.facet === 'target' || c.facet === 'boundary'), `${id} has a faceted check`).toBe(true);
+    }
+  });
+});
+
+describe('second phrasings of the core verbs', () => {
+  const five = () =>
+    withClips([clip('c1', 0, 40), clip('c2', 40, 62), clip('c3', 62, 71), clip('c4', 71, 86), clip('c5', 86, 136)]);
+
+  it('checkFirstClipHeadTrimmed wants the source start moved by exactly N seconds', () => {
+    const before = five();
+    const headTrimmed = withClips([clip('c1', 0, 30, { sourceStart: 10, sourceEnd: 40 }), clip('c2', 30, 52, { sourceStart: 40, sourceEnd: 62 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: headTrimmed }, 10).ok).toBe(true);
+    // Trimming the END by ten seconds is the other verb, and it does not pass.
+    const tailTrimmed = withClips([clip('c1', 0, 30, { sourceStart: 0, sourceEnd: 30 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: tailTrimmed }, 10).ok).toBe(false);
+    const oneFrameOff = withClips([clip('c1', 0, 30, { sourceStart: 10 + 1 / 30, sourceEnd: 40 + 1 / 30 })]);
+    expect(checkFirstClipHeadTrimmed({ before, after: oneFrameOff }, 10).ok).toBe(false);
+    expect(checkFirstClipHeadTrimmed({ before: withClips([]), after: before }, 10).ok).toBe(false);
+  });
+
+  it('checkFirstTwoSwapped accepts only the swap', () => {
+    const before = five();
+    const swapped = withClips([
+      clip('c2', 0, 22, { sourceStart: 40, sourceEnd: 62 }),
+      clip('c1', 22, 62, { sourceStart: 0, sourceEnd: 40 }),
+      clip('c3', 62, 71, { sourceStart: 62, sourceEnd: 71 }),
+      clip('c4', 71, 86, { sourceStart: 71, sourceEnd: 86 }),
+      clip('c5', 86, 136, { sourceStart: 86, sourceEnd: 136 }),
+    ]);
+    expect(checkFirstTwoSwapped({ before, after: swapped }).ok).toBe(true);
+    expect(checkFirstTwoSwapped({ before, after: before }).ok).toBe(false);
+    expect(checkFirstTwoSwapped({ before: withClips([clip('c1', 0, 1)]), after: before }).ok).toBe(false);
+    expect(scoreMissionScenario('reorder-swap-first-two', { before, after: swapped }).score).toBe(1);
+  });
+
+  it('checkCaptionStyleMatches reads the cue style, else the track default', () => {
+    const base = withClips([clip('talk', 0, 30)]);
+    const captions = (trackStyle: object | undefined, cues: Clip[]) =>
+      ({
+        ...base,
+        timeline: {
+          ...base.timeline,
+          tracks: [
+            ...base.timeline.tracks,
+            { id: 'caption_1', type: 'caption', clips: cues, ...(trackStyle ? { captionStyle: trackStyle } : {}) },
+          ],
+        },
+      }) as Project;
+    const cue = (id: string, style?: object) =>
+      clip(id, 0, 2, { assetId: '__caption__', captionCue: { text: 'hi', words: [] }, ...(style ? { captionStyle: style } : {}) } as Partial<Clip>);
+    const want = { textTransform: 'uppercase', position: 'bottom' };
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase' }, [cue('k1'), cue('k2')]), want).ok).toBe(true);
+    expect(checkCaptionStyleMatches(captions(undefined, [cue('k1', { textTransform: 'uppercase' }), cue('k2')]), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase', position: 'top' }, [cue('k1')]), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions({ textTransform: 'uppercase' }, []), want).ok).toBe(false);
+    expect(checkCaptionStyleMatches(captions(undefined, [cue('k1')]), {}).ok).toBe(true);
+  });
+});
+
+/**
+ * Run `369e8c82`'s shape, and what a correct answer to it looks like. `mission-overlay` is
+ * the only fixture that has it: a gapless picture track plus an EMPTY second video track,
+ * where ADR 0140 refuses every placement on the empty one.
+ */
+describe('b-roll over an empty overlay track', () => {
+  /** Narration gapless on `video_1`, `b_roll` above it holding whatever is passed. */
+  const overlay = (main: Clip[], broll: Clip[] = []): Project => {
+    const base = makeProject();
+    return {
+      ...base,
+      // Both picture assets MEASURED, to the fixture's 1920x1080 frame. Coverage is a
+      // relation (ADR 0170): two different assets nobody probed are refused for want of a
+      // shape, which would make every row here grade the unmeasured arm instead of the
+      // stack. The desktop path measures footage on derive and stock on download.
+      assets: [
+        ...base.assets.map((asset) =>
+          asset.id === 'asset_1' ? { ...asset, media: { width: 1920, height: 1080 } } : asset,
+        ),
+        {
+          id: 'asset_broll',
+          path: 'media/broll/b2.mov',
+          kind: 'video',
+          durationSeconds: 9,
+          media: { width: 1920, height: 1080 },
+        },
+        {
+          id: 'asset_broll_portrait',
+          path: 'media/broll/vertical.mov',
+          kind: 'video',
+          durationSeconds: 9,
+          media: { width: 1080, height: 1920 },
+        },
+      ],
+      timeline: {
+        ...base.timeline,
+        // `tracks[0]` is the visual front, so the overlay track comes first.
+        tracks: [
+          { id: 'b_roll', type: 'video', clips: broll },
+          { id: 'video_1', type: 'video', clips: main },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as Project;
+  };
+  const b = (id: string, start: number, end: number, trackId: string) =>
+    clip(id, start, end, { assetId: 'asset_broll', trackId, sourceStart: 0, sourceEnd: end - start });
+  const before = () => overlay([clip('talk', 0, 100)]);
+  /** The right answer: split the narration and drop the cutaway into the gap it opened. */
+  const cutIn = () =>
+    overlay([
+      clip('talk', 0, 5),
+      b('bro', 5, 12, 'video_1'),
+      clip('talk2', 12, 100, { sourceStart: 12, sourceEnd: 100 }),
+    ]);
+  /** The trap: the same b-roll dropped on the empty layer, on top of the narration. */
+  const stacked = () => overlay([clip('talk', 0, 100)], [b('bro', 5, 12, 'b_roll')]);
+
+  /** The other right answer since ADR 0169: a full-frame cutaway taking the front layer. */
+  const stackedOpaque = () => stacked();
+  /** The same stack, but cropped to half the source width — a 16:9 source cut to 8:9 is
+      fitted to 960x1080 in the 1920x1080 frame, so the narration's left and right edges
+      leak past it at export while the monitor shows only the cutaway. */
+  const stackedCropped = () =>
+    overlay(
+      [clip('talk', 0, 100)],
+      [{ ...b('bro', 5, 12, 'b_roll'), crop: { x: 0, y: 0, width: 0.5, height: 1 } } as Clip],
+    );
+
+  it('checkStackedPictureIsPreviewable passes a stack the monitor can actually show', () => {
+    // Both routes score: the split-and-cut-in, and the full-frame front layer.
+    expect(checkStackedPictureIsPreviewable(cutIn()).ok).toBe(true);
+    const layered = checkStackedPictureIsPreviewable(stackedOpaque());
+    expect(layered.ok).toBe(true);
+    expect(layered.detail).toContain('full-frame');
+  });
+
+  it('passes a LETTERBOXED stack whose bars coincide — both clips are the same shape', () => {
+    // Two portrait sources in a landscape frame: both are fitted to 607.5x1080 and pillar-
+    // boxed identically, so the export blends transparent over transparent and paints black
+    // exactly where the monitor does. Refusing this buys nothing, and "does the front clip
+    // fill the frame?" refused it.
+    const portrait = overlay(
+      [{ ...clip('talk', 0, 100), assetId: 'asset_broll_portrait' } as Clip],
+      [{ ...b('bro', 5, 12, 'b_roll'), assetId: 'asset_broll_portrait' } as Clip],
+    );
+    expect(checkStackedPictureIsPreviewable(portrait).ok).toBe(true);
+  });
+
+  it('checkStackedPictureIsPreviewable fails the stack that previews differently', () => {
+    const bad = checkStackedPictureIsPreviewable(stackedCropped());
+    expect(bad.ok).toBe(false);
+    expect(bad.detail).toContain('bro on b_roll');
+    expect(bad.detail).toContain('leaks');
+    // The per-track check is blind to it — which is exactly why this one exists.
+    expect(checkNoOverlaps(stackedCropped()).ok).toBe(true);
+  });
+
+  it('scores the cut-in 1 and every wrong answer below it', () => {
+    const ctx = (after: Project) => ({
+      before: before(),
+      after,
+      brollAssetIds: ['asset_broll'],
+      cutawayWindowSeconds: [0, 20] as const,
+    });
+    // BOTH right answers score 1 since ADR 0169: cut into the programme, or take the front
+    // layer with a full-frame clip. Scoring the second below the first would fail a run for
+    // choosing the other correct route.
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(cutIn())).score).toBe(1);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedOpaque())).score).toBe(1);
+    // A stack the monitor cannot show is still wrong — that is what 0169 kept refusing.
+    expect(
+      scoreMissionScenario('broll-cutaway-empty-overlay', ctx(stackedCropped())).score,
+    ).toBeLessThan(1);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(before())).score).toBeLessThan(1);
+    // A cutaway that lengthened the programme instead of covering part of it.
+    const appended = overlay([clip('talk', 0, 100), b('bro', 100, 107, 'video_1')]);
+    expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(appended)).score).toBeLessThan(1);
   });
 });

@@ -178,9 +178,31 @@ const RANGE_TAIL = /^\s*(?:-|–|—|to)\s*\d+/;
  * non-word character and `\b` matches between it and the digit.
  */
 const SHOT_COUNT_NUMBER_FIRST = new RegExp(
+  // The last alternative is the COMPOUND form — "a 12-shot montage", "a 6-clip intro" —
+  // which fell through both nets: not read as a floor, and not caught by
+  // `mentionsUnreadableShotCount` either, so the requirement went silently unchecked.
+  //
+  // It is spelled as its own branch, with the hyphen attaching the number DIRECTLY to the
+  // shot noun and no filler words between, because loosening the general branch to accept a
+  // hyphen there instead made "use 30-second cuts" read as a floor of 30: that phrase
+  // matches by treating "second" as a filler word, and shifting the span slipped it past
+  // `isDurationContext`. A hyphen bound straight to a shot noun cannot be a duration —
+  // "shot" and "clip" are not time units.
   `(?<![\\d.])(\\d+)(\\s*\\+)?\\s*(?:(?:-|–|—|to)\\s*\\d+\\s*)?(?:[a-z-]+\\s+){0,3}(?:${SHOT_NOUNS})\\b`,
   'g',
 );
+
+/**
+ * The COMPOUND form: `a 12-shot montage`, `a 6-clip intro`.
+ *
+ * Its own pattern rather than a branch of the one above, and deliberately tight — the
+ * hyphen binds the number DIRECTLY to the shot noun, with no filler words between. Widening
+ * the general pattern to accept a hyphen there instead made "use 30-second cuts" read as a
+ * floor of 30: that phrase matches by treating "second" as a filler word, and shifting the
+ * matched span slipped it past `readsAsDuration`. A number hyphenated straight onto a shot
+ * noun cannot be a duration, because "shot" and "clip" are not time units.
+ */
+const SHOT_COUNT_COMPOUND = new RegExp(`(?<![\\d.])(\\d+)-(?:${SHOT_NOUNS})\\b`, 'g');
 
 /**
  * `minimum clips: 50`, `clip count 50` — how a written SPEC states the same requirement.
@@ -205,7 +227,11 @@ const SHOT_COUNT_NOUN_FIRST = new RegExp(
  * `checkShotCount` reporting `skipped` and let a one-clip timeline report `completed`.
  */
 function readsAsDuration(normalized: string, index: number, digits: string): boolean {
-  return new RegExp(`^${digits}\\s*(?:${TIME_UNITS})\\b`).test(
+  // `[\s-]*`, not `\s*`: the unit is attached by a HYPHEN in the commonest phrasing of all
+  // — "use 30-second cuts", "10-second clips" — and the guard did not match there, so a
+  // per-shot DURATION was read as a floor of 30 shots. That is the exact confusion this
+  // function exists to prevent, and it was blind to the hyphenated half of it.
+  return new RegExp(`^${digits}[\\s-]*(?:${TIME_UNITS})\\b`).test(
     normalized.slice(index, index + digits.length + 12),
   );
 }
@@ -248,6 +274,7 @@ function statedShotCounts(normalized: string): StatedCount[] {
     }
   };
   collect(SHOT_COUNT_NUMBER_FIRST, false);
+  collect(SHOT_COUNT_COMPOUND, false);
   collect(SHOT_COUNT_NOUN_FIRST, true);
   return found;
 }

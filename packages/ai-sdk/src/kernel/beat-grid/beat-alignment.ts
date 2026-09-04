@@ -170,8 +170,21 @@ function ungroundedReason(analyzedAssetIds: readonly string[]): string {
   );
 }
 
-/** Index every track id → type, and every existing clip id → its track type. */
-function trackTypeLookups(project: Project): {
+/**
+ * Index every track id → type, and every existing clip id → its track type.
+ *
+ * The proposal's OWN `add_layer` operations are folded in, not just the tracks the
+ * project already has. A turn may open a layer and put picture on it in the same patch —
+ * `add_clip` does exactly that when a full-frame shot has to go in front of existing
+ * footage (ADR 0169) — and a lookup that only knew the pre-turn timeline classified those
+ * cuts as "not a picture track" and exempted the whole montage from the grid. Silent
+ * non-enforcement exactly when it matters is failure mode 2 in this module's header; this
+ * is the same mistake with a newer cause.
+ */
+function trackTypeLookups(
+  project: Project,
+  operations: readonly AnyOperation[],
+): {
   readonly byTrackId: ReadonlyMap<string, string>;
   readonly byClipId: ReadonlyMap<string, string>;
 } {
@@ -180,6 +193,11 @@ function trackTypeLookups(project: Project): {
   for (const track of project.timeline.tracks) {
     byTrackId.set(track.id, track.type);
     for (const clip of track.clips) byClipId.set(clip.id, track.type);
+  }
+  for (const operation of operations) {
+    if (operation.type !== 'add_layer') continue;
+    byTrackId.set(operation.layerId, operation.layerType);
+    for (const clip of operation.clips ?? []) byClipId.set(clip.id, operation.layerType);
   }
   return { byTrackId, byClipId };
 }
@@ -190,7 +208,7 @@ function trackTypeLookups(project: Project): {
  * interior by construction — it sits inside an existing clip — so it is never exempt.
  */
 function structuralBoundaries(project: Project, operations: readonly AnyOperation[]): Boundary[] {
-  const { byTrackId, byClipId } = trackTypeLookups(project);
+  const { byTrackId, byClipId } = trackTypeLookups(project, operations);
   const isPicture = (type: string | undefined): boolean =>
     type !== undefined && PICTURE_TRACK_TYPES.has(type);
   const boundaries: Boundary[] = [];
@@ -377,7 +395,7 @@ export function alignBeatBackedBoundaries(
         error:
           'you declared hard sync, so every interior picture cut must land on a detected ' +
           `onset. Off-grid: ${list}. Replace each with the detected onset time exactly as ` +
-          'supplied — do not round or interpolate. Only the sequence\'s own opening (before ' +
+          "supplied — do not round or interpolate. Only the sequence's own opening (before " +
           'the first onset) and its final end (after the last onset) may sit off-grid; audio ' +
           'and caption boundaries are never checked. Drop hardSync if the picture should ' +
           'lead instead.',

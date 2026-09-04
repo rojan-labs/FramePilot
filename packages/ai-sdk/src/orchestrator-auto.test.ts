@@ -441,3 +441,54 @@ describe('Orchestrator.streamAuto', () => {
     expect(statuses(events).at(-1)).toBe('cancelled');
   });
 });
+
+describe('Orchestrator.streamAuto — tiered model routing (goal.md Workstream E)', () => {
+  /** A chitchat classification ends the turn in one call; an edit route needs a second. */
+  const classifyAsQuestion = { text: '{"route":"question"}' };
+
+  it('sends only the classification to the small provider, the turn itself to the base', async () => {
+    const base = new ScriptedProvider([{ text: 'It is a 12-second clip.' }]);
+    const small = new ScriptedProvider([classifyAsQuestion]);
+
+    const events = await collect(
+      new Orchestrator(base, { tierProviders: { small } }).streamAuto(input, opts),
+    );
+
+    expect(small.calls).toBe(1);
+    // The classifier prompt carries the user's command; the base provider got the turn.
+    expect(JSON.stringify(small.requests[0])).toContain('do the thing');
+    expect(base.calls).toBe(1);
+    expect(assistantTexts(events)).toContain('It is a 12-second clip.');
+  });
+
+  it('reports the small model in the classifier context manifest, not the base model', async () => {
+    class NamedProvider extends ScriptedProvider {
+      public constructor(
+        responses: readonly AiResponse[],
+        public readonly modelId: string,
+      ) {
+        super(responses);
+      }
+    }
+    const base = new NamedProvider([{ text: 'answer' }], 'big-model');
+    const small = new NamedProvider([classifyAsQuestion], 'small-model');
+
+    const events = await collect(
+      new Orchestrator(base, { tierProviders: { small } }).streamAuto(input, opts),
+    );
+
+    const usage = events.find((e) => e.type === 'context_usage') as
+      | { manifest?: { model?: string } }
+      | undefined;
+    expect(usage?.manifest?.model).toBe('small-model');
+  });
+
+  it('routes both calls to the base provider when no tier providers are configured', async () => {
+    const base = new ScriptedProvider([classifyAsQuestion, { text: 'It is a 12-second clip.' }]);
+
+    const events = await collect(new Orchestrator(base).streamAuto(input, opts));
+
+    expect(base.calls).toBe(2);
+    expect(assistantTexts(events)).toContain('It is a 12-second clip.');
+  });
+});

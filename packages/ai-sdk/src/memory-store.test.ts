@@ -14,6 +14,7 @@ import {
   writeMemory,
 } from './memory-store.js';
 import { makeProject } from './__fixtures__/project.js';
+import { estimateTokens } from './context-builder.js';
 
 const patch = (id: string, reason: string): Patch => ({
   patchId: asId<'PatchId'>(id),
@@ -84,6 +85,124 @@ describe('memory store', () => {
     expect(summary).toContain('Export platforms: reels');
     expect(summary).toContain('rejected edits (avoid repeating): aggressive zoom');
     expect(summary).toContain('accepted edits: tighten intro');
+  });
+});
+
+/**
+ * The memory block is injected on EVERY request and persisted in `project.fp.json`, so an
+ * uncapped list of reasons is a permanent, per-project, per-request tax that grows for the
+ * life of the file. A `reason` is no longer a short label — `assemble.ts#assembleEdit` is
+ * handed the model's full narration of the turn (~370 characters, four sentences).
+ */
+describe("summarizeMemory is bounded in the project's age (Workstream E)", () => {
+  const NARRATION =
+    'Tightened the opening of the interview by removing the filler and the dead air before ' +
+    'the first line. The result keeps the hook inside the first two seconds, which is what ' +
+    'the platform rewards. I left the second beat alone because it is already carrying the ' +
+    'transition. Nothing downstream moved, so the caption cues still line up.';
+
+  const withAccepted = (reasons: readonly string[]) =>
+    reasons.reduce(
+      (project, reason, i) => recordAccepted(project, patch(`p${i}`, reason)),
+      makeProject(),
+    );
+
+  const line = (summary: string, prefix: string): string =>
+    summary.split('\n').find((l) => l.startsWith(prefix)) ?? '';
+
+  it('renders nothing for an empty list', () => {
+    expect(summarizeMemory(readMemory(makeProject()))).toBe('');
+  });
+
+  it('renders a single short reason exactly as it always did', () => {
+    // No qualifier, no truncation, no ellipsis: a project with a handful of remembered
+    // decisions must read byte-identically to before the cap existed.
+    const summary = summarizeMemory(readMemory(withAccepted(['tighten intro'])));
+    expect(summary).toBe('Previously accepted edits: tighten intro');
+  });
+
+  it('keeps the first sentence of a narration and drops the justification after it', () => {
+    // The taste signal is what the edit DID; the sentences after it are justification
+    // addressed to a reader who is no longer present.
+    const summary = summarizeMemory(readMemory(withAccepted([NARRATION])));
+    expect(summary).toBe(
+      'Previously accepted edits: Tightened the opening of the interview by removing the ' +
+        'filler and the dead air before the first line.',
+    );
+    expect(summary).not.toContain('platform rewards');
+  });
+
+  it('keeps only the newest distinct reasons once past the cap, and says it did', () => {
+    const reasons = Array.from(
+      { length: 30 },
+      (_, i) => `Cut beat ${i}. Because the pacing dragged.`,
+    );
+    const rendered = line(
+      summarizeMemory(readMemory(withAccepted(reasons))),
+      'Previously accepted',
+    );
+    expect(rendered).toContain('[newest 5 of 30]');
+    // Newest, oldest-first, because a later decision supersedes an earlier one.
+    expect(rendered).toContain('Cut beat 25.');
+    expect(rendered).toContain('Cut beat 29.');
+    expect(rendered).not.toContain('Cut beat 24.');
+    expect(rendered.indexOf('Cut beat 25.')).toBeLessThan(rendered.indexOf('Cut beat 29.'));
+  });
+
+  it('gives rejections more room than acceptances — a rejection is an instruction', () => {
+    let project = makeProject();
+    for (let i = 0; i < 20; i += 1)
+      project = recordRejected(project, patch(`r${i}`, `No zoom ${i}.`));
+    const rendered = line(summarizeMemory(readMemory(project)), 'Previously rejected');
+    expect(rendered).toContain('[newest 8 of 20]');
+    expect(rendered).toContain('No zoom 12.');
+    expect(rendered).not.toContain('No zoom 11.');
+  });
+
+  it('collapses a reason the project learned repeatedly into one signal', () => {
+    // A preference stated five times is not five preferences.
+    const rendered = line(
+      summarizeMemory(
+        readMemory(withAccepted(Array.from({ length: 9 }, () => 'Punchier cold open.'))),
+      ),
+      'Previously accepted',
+    );
+    expect(rendered).toBe('Previously accepted edits [newest 1 of 9]: Punchier cold open.');
+  });
+
+  it('cuts a reason with no clause boundary at a word, and marks the cut', () => {
+    const runOn = Array.from({ length: 60 }, (_, i) => `word${i}`).join(' ');
+    const rendered = line(
+      summarizeMemory(readMemory(withAccepted([runOn]))),
+      'Previously accepted',
+    );
+    const reason = rendered.slice('Previously accepted edits: '.length);
+    expect(reason.endsWith('…')).toBe(true);
+    expect(reason.length).toBeLessThanOrEqual(121);
+    expect(reason).not.toMatch(/word\d+[a-z]/);
+  });
+
+  it('drops an empty reason rather than rendering a blank entry', () => {
+    const summary = summarizeMemory(readMemory(withAccepted(['   ', 'tighten intro'])));
+    expect(summary).toBe('Previously accepted edits [newest 1 of 2]: tighten intro');
+  });
+
+  it('folds a multi-line reason onto one line', () => {
+    // A newline would otherwise break the block's one-entry-per-line shape and misattribute
+    // the tail to whatever the context builder printed next.
+    const summary = summarizeMemory(readMemory(withAccepted(['Trimmed\nthe\nintro'])));
+    expect(summary).toBe('Previously accepted edits: Trimmed the intro');
+  });
+
+  it('costs a bounded number of tokens however long the project lives (gated)', () => {
+    // 40 narrated turns. Uncapped this block was 40 × ~93 tokens ≈ 3,700 tokens, on every
+    // request, forever. Loosen this only with a measured accuracy reason.
+    let project = makeProject();
+    for (let i = 0; i < 40; i += 1) {
+      project = recordAccepted(project, patch(`a${i}`, `Cut beat ${i}. ${NARRATION}`));
+      project = recordRejected(project, patch(`r${i}`, `No zoom ${i}. ${NARRATION}`));
+    }
+    expect(estimateTokens(summarizeMemory(readMemory(project)))).toBeLessThanOrEqual(260);
   });
 });
 

@@ -178,8 +178,100 @@ export function recordRejected(project: Project, patch: Patch): Project {
 }
 
 /**
+ * Longest a single remembered reason may run in the prompt, in characters.
+ *
+ * Sized off what the first sentence of a real narration costs: ~90–110 characters. The
+ * cap is the backstop for a reason that never punctuates, not the normal path.
+ */
+const REASON_CHARS = 120;
+
+/**
+ * How many remembered decisions of each kind reach the prompt.
+ *
+ * Rejections outrank acceptances because they are explicit negative instructions — "do
+ * not do that again" — and losing one lets the agent redo something the editor actively
+ * refused. An acceptance is a weaker signal (the editor may simply not have objected), and
+ * beyond a handful of examples the marginal taste information in another one is ~zero:
+ * the block is read to infer a preference, not to replay a history.
+ */
+const MAX_REMEMBERED_REJECTED = 8;
+const MAX_REMEMBERED_ACCEPTED = 5;
+
+/**
+ * The first sentence of a remembered reason, on one line, bounded.
+ *
+ * A `reason` used to be a short label ("tighten intro"). It is now whatever the model
+ * narrated for the turn — `assemble.ts#assembleEdit` is handed `turn.text`, which runs to
+ * several sentences. The taste signal an editor's decision carries lives in the opening
+ * statement of what the edit *did*; the sentences after it are justification addressed to
+ * a reader who is no longer present. Keeping the first sentence keeps the signal and drops
+ * the essay.
+ *
+ * The sentence terminator is kept, so a reason that was already one short sentence renders
+ * byte-identically to before this cap existed.
+ */
+function firstClause(reason: string): string {
+  // Collapsed first: a multi-line reason would otherwise break the block's one-entry-per-
+  // line shape and silently misattribute its tail to the next entry.
+  const collapsed = reason.replace(/\s+/g, ' ').trim();
+  // Whitespace-or-end lookahead so "trimmed to 3.5s" is not cut at the decimal point.
+  const boundary = /[.!?](?=\s|$)/.exec(collapsed);
+  const sentence = boundary ? collapsed.slice(0, boundary.index + 1) : collapsed;
+  if (sentence.length <= REASON_CHARS) return sentence;
+  // No punctuation anywhere, or an opening sentence longer than the cap: cut on a word
+  // boundary and say so, rather than ending mid-word as if the reason stopped there.
+  const cut = sentence.slice(0, REASON_CHARS);
+  const lastSpace = cut.lastIndexOf(' ');
+  return `${(lastSpace > 0 ? cut.slice(0, lastSpace) : cut).trimEnd()}…`;
+}
+
+/**
+ * The newest distinct reasons, oldest-first, capped at `limit`.
+ *
+ * Newest rather than a spread across the project's history because this module already
+ * treats a later decision as *superseding* an earlier one (see {@link setPreference}):
+ * offering both would resurrect a superseded taste as a rival for the model to choose
+ * between, which is exactly the failure that rule exists to prevent.
+ *
+ * Distinct because a run that accepts the same kind of edit repeatedly writes the same
+ * first sentence repeatedly, and a preference stated five times is not five preferences.
+ */
+function recentReasons(edits: readonly MemoryEdit[], limit: number): readonly string[] {
+  const seen = new Set<string>();
+  const newestFirst: string[] = [];
+  for (let i = edits.length - 1; i >= 0 && newestFirst.length < limit; i -= 1) {
+    const clause = firstClause(edits[i]?.reason ?? '');
+    if (clause === '' || seen.has(clause)) continue;
+    seen.add(clause);
+    newestFirst.push(clause);
+  }
+  return newestFirst.reverse();
+}
+
+/**
+ * One "previously …" line, or `undefined` when nothing survives the filter.
+ *
+ * The `[newest n of m]` qualifier is rendered only when entries were actually left out, so
+ * a project with a handful of remembered decisions reads exactly as it always did. When it
+ * IS rendered it is load-bearing: without it the model reads five acceptances as the whole
+ * history of the project and infers a taste from a sample it does not know is a sample.
+ */
+function renderEdits(label: string, edits: readonly MemoryEdit[], limit: number): string | null {
+  const reasons = recentReasons(edits, limit);
+  if (reasons.length === 0) return null;
+  const qualifier =
+    reasons.length < edits.length ? ` [newest ${reasons.length} of ${edits.length}]` : '';
+  return `${label}${qualifier}: ${reasons.join('; ')}`;
+}
+
+/**
  * Render memory as a compact prompt block the context builder injects so the
  * model honours learned preferences. Returns '' when nothing is remembered.
+ *
+ * Bounded on purpose. Every accepted and rejected edit used to be joined in full into a
+ * block that is injected on EVERY request and persisted in `project.fp.json`, so a project
+ * paid for its whole edit history on every turn of every future run, forever. The cap and
+ * the per-reason truncation above are what make this block flat in the project's age.
  */
 export function summarizeMemory(memory: ProjectMemory): string {
   const lines: string[] = [];
@@ -205,13 +297,17 @@ export function summarizeMemory(memory: ProjectMemory): string {
   if (memory.exportPlatforms.length > 0) {
     lines.push(`Export platforms: ${memory.exportPlatforms.join(', ')}`);
   }
-  if (memory.rejectedEdits.length > 0) {
-    const reasons = memory.rejectedEdits.map((e) => e.reason).join('; ');
-    lines.push(`Previously rejected edits (avoid repeating): ${reasons}`);
-  }
-  if (memory.acceptedEdits.length > 0) {
-    const reasons = memory.acceptedEdits.map((e) => e.reason).join('; ');
-    lines.push(`Previously accepted edits: ${reasons}`);
-  }
+  const rejected = renderEdits(
+    'Previously rejected edits (avoid repeating)',
+    memory.rejectedEdits,
+    MAX_REMEMBERED_REJECTED,
+  );
+  if (rejected) lines.push(rejected);
+  const accepted = renderEdits(
+    'Previously accepted edits',
+    memory.acceptedEdits,
+    MAX_REMEMBERED_ACCEPTED,
+  );
+  if (accepted) lines.push(accepted);
   return lines.join('\n');
 }

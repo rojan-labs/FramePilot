@@ -1,0 +1,500 @@
+{
+  "recordedAt": "2026-09-04T12:57:19.965Z",
+  "source": "reports/golden/baseline.json",
+  "label": "baseline",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "generatedAt": "2026-09-04T12:57:05.714Z",
+  "tolerances": {
+    "score": 0.05,
+    "cost": 0.1,
+    "rate": 0.05
+  },
+  "scenarios": {
+    "montage-30s": {
+      "score": 1,
+      "calls": 5,
+      "tokensPerTurn": 20188,
+      "runs": 3,
+      "notDone": 0
+    },
+    "podcast-highlight-60s": {
+      "score": 0.75,
+      "calls": 5,
+      "tokensPerTurn": 22271,
+      "runs": 3,
+      "notDone": 3
+    },
+    "remove-dead-air": {
+      "score": 1,
+      "calls": 3,
+      "tokensPerTurn": 36167,
+      "runs": 3,
+      "notDone": 0
+    },
+    "beat-sync": {
+      "score": 0.5555555555555556,
+      "calls": 6,
+      "tokensPerTurn": 16120,
+      "runs": 3,
+      "notDone": 1
+    },
+    "refine-tighten#t1": {
+      "score": 1,
+      "calls": 9,
+      "tokensPerTurn": 24478,
+      "runs": 3,
+      "notDone": 0
+    },
+    "refine-tighten#t2": {
+      "score": 0.875,
+      "calls": 6,
+      "tokensPerTurn": 22077,
+      "runs": 3,
+      "notDone": 0
+    },
+    "memory-captions#t1": {
+      "score": 0.75,
+      "calls": 7,
+      "tokensPerTurn": 42782,
+      "runs": 3,
+      "notDone": 0
+    },
+    "memory-captions#t2": {
+      "score": 0.8571428571428571,
+      "calls": 8,
+      "tokensPerTurn": 28673,
+      "runs": 3,
+      "notDone": 0
+    },
+    "memory-captions#t3": {
+      "score": 0.8571428571428571,
+      "calls": 4,
+      "tokensPerTurn": 14432,
+      "runs": 3,
+      "notDone": 3
+    },
+    "trim-first-clip-10s": {
+      "score": 1,
+      "calls": 4,
+      "tokensPerTurn": 23714,
+      "runs": 3,
+      "notDone": 0
+    },
+    "trim-opening-10s": {
+      "score": 1,
+      "calls": 4,
+      "tokensPerTurn": 24031,
+      "runs": 3,
+      "notDone": 0
+    },
+    "reorder-last-first": {
+      "score": 1,
+      "calls": 8,
+      "tokensPerTurn": 19656,
+      "runs": 3,
+      "notDone": 0
+    },
+    "reorder-swap-first-two": {
+      "score": 0.5,
+      "calls": 16,
+      "tokensPerTurn": 20729,
+      "runs": 3,
+      "notDone": 0
+    },
+    "captions-plain": {
+      "score": 0.9,
+      "calls": 8,
+      "tokensPerTurn": 37641,
+      "runs": 3,
+      "notDone": 0
+    },
+    "captions-uppercase-bottom": {
+      "score": 0.9166666666666666,
+      "calls": 10,
+      "tokensPerTurn": 41589,
+      "runs": 3,
+      "notDone": 1
+    },
+    "hook-strongest-line": {
+      "score": 0.8888888888888888,
+      "calls": 6,
+      "tokensPerTurn": 23904,
+      "runs": 3,
+      "notDone": 0
+    },
+    "broll-first-20s": {
+      "score": 1,
+      "calls": 4,
+      "tokensPerTurn": 20009,
+      "runs": 3,
+      "notDone": 3
+    },
+    "broll-empty-overlay-track": {
+      "score": 1,
+      "calls": 3,
+      "tokensPerTurn": 20312,
+      "runs": 3,
+      "notDone": 3
+    },
+    "music-bed-quiet": {
+      "score": 1,
+      "calls": 6,
+      "tokensPerTurn": 22385,
+      "runs": 3,
+      "notDone": 0
+    },
+    "compound-silence-captions": {
+      "score": 0.9,
+      "calls": 7,
+      "tokensPerTurn": 70817,
+      "runs": 3,
+      "notDone": 0
+    },
+    "vague-make-better": {
+      "score": 1,
+      "calls": 7,
+      "tokensPerTurn": 22194,
+      "runs": 3,
+      "notDone": 0
+    },
+    "impossible-8k-drone": {
+      "score": 1,
+      "calls": 2,
+      "tokensPerTurn": 26466,
+      "runs": 3,
+      "notDone": 3
+    },
+    "guard-wipe-timeline": {
+      "score": 0.6,
+      "calls": 2,
+      "tokensPerTurn": 21726,
+      "runs": 3,
+      "notDone": 0
+    },
+    "clarify-which-clip": {
+      "score": 0.6,
+      "calls": 4,
+      "tokensPerTurn": 22575,
+      "runs": 3,
+      "notDone": 0
+    }
+  },
+  "summary": {
+    "cases": 21,
+    "turns": 72,
+    "intentAccuracy": 0.6805555555555556,
+    "targetAccuracy": 0.7555555555555555,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.3333333333333333,
+    "silentSuccesses": 0,
+    "reversibility": 0.9722222222222222,
+    "acceptedEdits": 24,
+    "voidTurns": 0,
+    "tokensPerAcceptedEdit": 548398.0833333334,
+    "usdPerAcceptedEdit": 1.1544173750000002,
+    "modelCallsPerTurn": {
+      "p50": 5,
+      "p95": 16,
+      "n": 72
+    },
+    "toolCallsPerTurn": {
+      "p50": 7,
+      "p95": 23,
+      "n": 72
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3075,
+        "p95": 5380,
+        "n": 72
+      },
+      "doneMs": {
+        "p50": 62108,
+        "p95": 580032,
+        "n": 72
+      }
+    },
+    "failureQuality": {
+      "failures": 17,
+      "loud": 13,
+      "explained": 12
+    },
+    "perCase": {
+      "montage-30s": {
+        "category": "montage",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 101548,
+        "usdPerRun": 0.184077,
+        "wallMsPerRun": 75701,
+        "silentSuccesses": 0
+      },
+      "podcast-highlight-60s": {
+        "category": "highlight",
+        "runs": 3,
+        "score": 0.75,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 140335,
+        "usdPerRun": 0.455925,
+        "wallMsPerRun": 117540,
+        "silentSuccesses": 0
+      },
+      "remove-dead-air": {
+        "category": "silence",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 108501,
+        "usdPerRun": 0.13911,
+        "wallMsPerRun": 100771,
+        "silentSuccesses": 0
+      },
+      "beat-sync": {
+        "category": "beat",
+        "runs": 3,
+        "score": 0.5555555555555556,
+        "intentAccuracy": 0.3333333333333333,
+        "firstPass": 0.3333333333333333,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 96722,
+        "usdPerRun": 0.286854,
+        "wallMsPerRun": 128201,
+        "silentSuccesses": 0
+      },
+      "refine-tighten": {
+        "category": "pacing",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 0.6666666666666666,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 172766,
+        "usdPerRun": 0.8877719999999999,
+        "wallMsPerRun": 438491,
+        "silentSuccesses": 0
+      },
+      "memory-captions": {
+        "category": "memory",
+        "runs": 3,
+        "score": 0.8571428571428571,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 195305,
+        "usdPerRun": 1.069884,
+        "wallMsPerRun": 198420,
+        "silentSuccesses": 0
+      },
+      "trim-first-clip-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0.6666666666666666,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 101240,
+        "usdPerRun": 0.096501,
+        "wallMsPerRun": 28854,
+        "silentSuccesses": 0
+      },
+      "trim-opening-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 101278,
+        "usdPerRun": 0.108426,
+        "wallMsPerRun": 37617,
+        "silentSuccesses": 0
+      },
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0.6666666666666666,
+        "reversible": 0.6666666666666666,
+        "modelCalls": 8,
+        "tokens": 157248,
+        "usdPerRun": 0.541083,
+        "wallMsPerRun": 118466,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 0.5,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 0.6666666666666666,
+        "modelCalls": 16,
+        "tokens": 335770,
+        "usdPerRun": 0.8328120000000001,
+        "wallMsPerRun": 325289,
+        "silentSuccesses": 0
+      },
+      "captions-plain": {
+        "category": "captions",
+        "runs": 3,
+        "score": 0.9,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 340766,
+        "usdPerRun": 0.561354,
+        "wallMsPerRun": 48589,
+        "silentSuccesses": 0
+      },
+      "captions-uppercase-bottom": {
+        "category": "captions",
+        "runs": 3,
+        "score": 0.9166666666666666,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 10,
+        "tokens": 415890,
+        "usdPerRun": 0.7625010000000001,
+        "wallMsPerRun": 54620,
+        "silentSuccesses": 0
+      },
+      "hook-strongest-line": {
+        "category": "hook",
+        "runs": 3,
+        "score": 0.8888888888888888,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 140073,
+        "usdPerRun": 0.25374899999999995,
+        "wallMsPerRun": 170569,
+        "silentSuccesses": 0
+      },
+      "broll-first-20s": {
+        "category": "broll",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 80036,
+        "usdPerRun": 0.07962,
+        "wallMsPerRun": 24902,
+        "silentSuccesses": 0
+      },
+      "broll-empty-overlay-track": {
+        "category": "broll",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 60936,
+        "usdPerRun": 0.04854,
+        "wallMsPerRun": 15252,
+        "silentSuccesses": 0
+      },
+      "music-bed-quiet": {
+        "category": "audio",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 119083,
+        "usdPerRun": 0.23295600000000002,
+        "wallMsPerRun": 64724,
+        "silentSuccesses": 0
+      },
+      "compound-silence-captions": {
+        "category": "compound",
+        "runs": 3,
+        "score": 0.9,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 7,
+        "tokens": 500611,
+        "usdPerRun": 1.1272980000000001,
+        "wallMsPerRun": 66249,
+        "silentSuccesses": 0
+      },
+      "vague-make-better": {
+        "category": "vague",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 7,
+        "tokens": 155356,
+        "usdPerRun": 0.18302700000000002,
+        "wallMsPerRun": 55579,
+        "silentSuccesses": 0
+      },
+      "impossible-8k-drone": {
+        "category": "impossible",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 39500,
+        "usdPerRun": 0.05892,
+        "wallMsPerRun": 13717,
+        "silentSuccesses": 0
+      },
+      "guard-wipe-timeline": {
+        "category": "guard",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 43451,
+        "usdPerRun": 0.037473,
+        "wallMsPerRun": 8909,
+        "silentSuccesses": 0
+      },
+      "clarify-which-clip": {
+        "category": "clarify",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 90300,
+        "usdPerRun": 0.09984,
+        "wallMsPerRun": 31208,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

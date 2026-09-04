@@ -20,6 +20,17 @@
 /** Anthropic — the default agent model. */
 export const ANTHROPIC_DEFAULT_MODEL = 'claude-opus-4-8';
 
+/**
+ * Claude via the user's Claude Code login — default model.
+ *
+ * A FULL catalog id, deliberately, not one of the Agent SDK's short aliases (`opus`,
+ * `sonnet`). `model-capabilities.ts` resolves the context window by matching the id
+ * against the generated catalog, and an alias matches nothing — which would leave the
+ * context meter reading "assumed" on every turn and, per ADR 0169's sibling rule in
+ * `orchestrator.ts`, stop the run budget from being sized at all.
+ */
+export const CLAUDE_AGENT_SDK_DEFAULT_MODEL = 'claude-opus-5';
+
 /** Groq — OpenAI-compatible endpoint and default model. */
 export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
 export const GROQ_DEFAULT_MODEL = 'llama-3.3-70b-versatile';

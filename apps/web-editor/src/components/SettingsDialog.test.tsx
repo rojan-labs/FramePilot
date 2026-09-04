@@ -11,6 +11,7 @@ import { applyBrowserUpdate, loadBrowserAiConfig } from '../editor/aiConfigStora
 import { loadUserMemory } from '../editor/userMemoryStorage.js';
 import { SettingsDialog } from './SettingsDialog.js';
 import type { FramePilotBridge } from '@framepilot/shared-types';
+import { capabilitiesFor, DEFAULT_MAX_RUN_MINUTES, DEFAULT_MAX_RUN_USD } from '@framepilot/ai-sdk';
 
 afterEach(() => {
   localStorage.clear();
@@ -164,6 +165,68 @@ describe('SettingsDialog', () => {
     expect(loadBrowserAiConfig().activeProvider).toBe('deepseek');
   });
 
+  it('gives every provider the picker offers a settings row of its own', () => {
+    // The regression this guards: the picker was built from the HOST's provider list
+    // while the accordions below were built from a hardcoded browser roster. On desktop
+    // those diverged — `claude-agent-sdk` was selectable but had no panel, so choosing it
+    // left another provider's API-key field open underneath as if it were the one being
+    // configured. One source of truth, asserted rather than assumed.
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Active provider' }));
+    const offered = screen
+      .getAllByRole('option')
+      .map((option) => option.textContent ?? '')
+      .filter((label) => label !== 'Offline mock');
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Active provider' }), {
+      key: 'Escape',
+    });
+
+    for (const label of offered) {
+      expect(screen.getByRole('button', { name: `${label} settings` })).toBeTruthy();
+    }
+  });
+
+  it('gives the Claude-login provider a panel with directions and a model field, and no key box', async () => {
+    // The desktop case the browser roster cannot reach: `claude-agent-sdk` is offered by
+    // the host, so it must get a real settings row. A key field here would be a dead end —
+    // the credential is an OS-keychain login — so the row has to explain how signing in
+    // works instead, while still letting the model be set.
+    window.framepilot = {
+      aiConfigGet: vi.fn(async () => ({
+        activeProvider: 'claude-agent-sdk' as const,
+        providers: [
+          {
+            name: 'claude-agent-sdk' as const,
+            label: 'Claude (your Claude Code login)',
+            model: 'claude-opus-5',
+            ready: true,
+          },
+        ],
+      })),
+    } as unknown as FramePilotBridge;
+
+    // The shared `open()` helper renders without AiConfigProvider, so it never reads the
+    // bridge — this case needs the desktop provider tree.
+    render(
+      <SettingsProvider>
+        <AiConfigProvider>
+          <SettingsDialog open onClose={() => {}} />
+        </AiConfigProvider>
+      </SettingsProvider>,
+    );
+    fireEvent.click(screen.getByText('AI'));
+    await screen.findByRole('button', { name: 'Claude (your Claude Code login) settings' });
+
+    // The ACTIVE provider's row is the one that opens, so its fields are the visible ones.
+    await waitFor(() => expect(document.getElementById('ai-model-claude-agent-sdk')).toBeTruthy());
+    expect(document.getElementById('ai-key-claude-agent-sdk')).toBeNull();
+    expect(screen.getByText('How this signs in')).toBeTruthy();
+    expect(screen.getAllByText('claude login').length).toBeGreaterThan(0);
+    // Suggestions exist, but the field stays free text so a newer model is still usable.
+    expect(document.getElementById('ai-model-options-claude-agent-sdk')).toBeTruthy();
+  });
+
   it('expands a collapsed provider row to reveal its fields (accordion)', () => {
     open();
     fireEvent.click(screen.getByText('AI'));
@@ -175,6 +238,47 @@ describe('SettingsDialog', () => {
     fireEvent.change(keyField, { target: { value: 'sk-or-1' } });
     fireEvent.keyDown(keyField, { key: 'Enter' });
     expect(loadBrowserAiConfig().keys.openrouter).toBe('sk-or-1');
+  });
+
+  it('warns that an unknown model id makes the context capacity a guess', () => {
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    const modelField = document.getElementById('ai-model-openrouter') as HTMLInputElement;
+    fireEvent.change(modelField, { target: { value: 'openrouter/auto' } });
+
+    // A hint, not a validation error: the value still saves exactly as typed, because a
+    // model newer than the bundled catalog must stay usable.
+    expect(loadBrowserAiConfig().models.openrouter).toBe('openrouter/auto');
+    expect(screen.getByText(/context capacity will be assumed at 128K tokens/)).toBeTruthy();
+    expect(screen.getByRole('note')).toBeTruthy();
+    expect(screen.getByRole('note').textContent).toMatch(/each model keeps its own prompt cache/);
+  });
+
+  it('says nothing about capacity or caching for a model the catalog knows', () => {
+    // Guard the premise: if this id ever leaves the catalog the test must fail loudly
+    // rather than pass because both hints are absent for the wrong reason.
+    expect(capabilitiesFor('openrouter', 'anthropic/claude-sonnet-4-5').source).toBe('known_model');
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    fireEvent.change(document.getElementById('ai-model-openrouter') as HTMLInputElement, {
+      target: { value: 'anthropic/claude-sonnet-4-5' },
+    });
+    expect(screen.queryByText(/context capacity will be assumed/)).toBeNull();
+    expect(screen.queryByRole('note')).toBeNull();
+  });
+
+  it('warns about capacity but not caching for an unknown id that is not auto-routed', () => {
+    expect(capabilitiesFor('openrouter', 'some-unreleased-model').source).toBe('provider_default');
+    open();
+    fireEvent.click(screen.getByText('AI'));
+    fireEvent.click(screen.getByRole('button', { name: 'OpenRouter settings' }));
+    fireEvent.change(document.getElementById('ai-model-openrouter') as HTMLInputElement, {
+      target: { value: 'some-unreleased-model' },
+    });
+    expect(screen.getByText(/context capacity will be assumed at 128K tokens/)).toBeTruthy();
+    expect(screen.queryByRole('note')).toBeNull();
   });
 
   it('expands the collapsed DeepSeek row to reveal its fields (accordion)', () => {
@@ -219,6 +323,78 @@ describe('SettingsDialog', () => {
     fireEvent.click(toggle);
     expect(toggle.getAttribute('aria-checked')).toBe('true');
     expect(loadSettings().showAiUsageDetails).toBe(true);
+  });
+
+  // goal.md Workstream D: the run budget is a SETTING — set once here, applied to every
+  // agent run — rather than a pair of fields under the composer plus a line the run
+  // emitted before every first model call.
+  describe('AI → Run budget', () => {
+    const openBudget = (): { usd: HTMLInputElement; minutes: HTMLInputElement } => {
+      open();
+      fireEvent.click(screen.getByText('AI'));
+      return {
+        usd: screen.getByLabelText('Stop a run after, dollars') as HTMLInputElement,
+        minutes: screen.getByLabelText('Stop a run after, minutes') as HTMLInputElement,
+      };
+    };
+
+    it('renders the stored budget and the sentence that makes the numbers mean something', () => {
+      const { usd, minutes } = openBudget();
+      expect(usd.value).toBe(String(DEFAULT_MAX_RUN_USD));
+      expect(minutes.value).toBe(String(DEFAULT_MAX_RUN_MINUTES));
+      expect(screen.getByText('Stop a run after')).toBeTruthy();
+      expect(
+        screen.getByText(
+          'The AI stops at the next step once a run reaches either limit, and tells you what it applied.',
+        ),
+      ).toBeTruthy();
+    });
+
+    it('commits on blur and persists through the shared settings store', () => {
+      const { usd, minutes } = openBudget();
+      fireEvent.change(usd, { target: { value: '2.5' } });
+      // Typing alone is a draft — nothing is stored until the field is committed.
+      expect(loadSettings().maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+      fireEvent.blur(usd);
+      fireEvent.change(minutes, { target: { value: '7' } });
+      fireEvent.blur(minutes);
+      expect(loadSettings()).toMatchObject({ maxRunUsd: 2.5, maxRunMinutes: 7 });
+      // One key, not a second budget-only one.
+      expect(localStorage.getItem('framepilot.ai.maxUsd')).toBeNull();
+      expect(localStorage.getItem('framepilot.ai.maxMinutes')).toBeNull();
+    });
+
+    it('commits on Enter without leaving the field by hand', () => {
+      const { minutes } = openBudget();
+      // Enter commits by blurring the field, so the field has to be focused — which it
+      // always is for the keyboard user this is for.
+      minutes.focus();
+      fireEvent.change(minutes, { target: { value: '9' } });
+      fireEvent.keyDown(minutes, { key: 'Enter' });
+      expect(document.activeElement).not.toBe(minutes);
+      expect(loadSettings().maxRunMinutes).toBe(9);
+    });
+
+    it('clamps a typed value into range rather than storing an impossible bound', () => {
+      const { usd, minutes } = openBudget();
+      fireEvent.change(usd, { target: { value: '999' } });
+      fireEvent.blur(usd);
+      fireEvent.change(minutes, { target: { value: '0' } });
+      fireEvent.blur(minutes);
+      expect(usd.value).toBe('50');
+      expect(minutes.value).toBe('1');
+      expect(loadSettings()).toMatchObject({ maxRunUsd: 50, maxRunMinutes: 1 });
+    });
+
+    it('keeps the committed budget when the field is left as nonsense', () => {
+      const { usd } = openBudget();
+      fireEvent.change(usd, { target: { value: '3' } });
+      fireEvent.blur(usd);
+      fireEvent.change(usd, { target: { value: 'lots' } });
+      fireEvent.blur(usd);
+      expect(usd.value).toBe('3');
+      expect(loadSettings().maxRunUsd).toBe(3);
+    });
   });
 
   // Media understanding became automatic: the standalone "Embeddings" sub-view, its

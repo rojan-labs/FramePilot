@@ -6,7 +6,145 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI can lay b-roll and montages over your footage again.** Asking for a cutaway on a
+  talking head, or a photo montage cut to a music bed, was refused every time — the main
+  track has picture everywhere, and any second layer was rejected before it was tried. A
+  full-frame shot now goes onto a layer in front of what it covers, created for you if there
+  isn't one, and the whole thing is a single undo. What the monitor shows is what exports.
+  Shots that would only *partly* cover the frame — scaled or repositioned picture-in-picture,
+  a see-through or blended layer — are still refused, and now say which of those it was:
+  the preview can only show one picture layer at a time, so those really would export
+  differently from what you approved.
+- **Vertical shorts can take b-roll over the footage again, and it fills the frame.** A
+  wide clip dropped into a vertical project is cropped to fit automatically — but if the
+  moment was already occupied, that placement was refused for the very black bars the crop
+  was about to remove. It now lands on its own layer with the crop applied, in one step and
+  one undo. The reverse case is fixed too: two clips of different shapes that letterbox the
+  same way are no longer refused, because they look identical on the monitor and in the
+  export. What is still refused is a shot that genuinely leaves your footage showing at the
+  edges — and the refusal now tells you the exact crop that would close the gap. Stock
+  clips the AI downloads also arrive with their dimensions again, which is what lets all of
+  this work on b-roll.
+
+### Added
+
+- **If you already pay for Claude, you can now use it in FramePilot without an API key.**
+  Settings → AI has a new provider, **Claude (your Claude Code login)**. It signs in with
+  the login the Claude CLI already stored on your machine, so there is no key to find and
+  nothing to paste — pick it and start editing. If a run stops and says you are not signed
+  in, run `claude login` in a terminal and start it again. Desktop only, and captions from
+  scene descriptions stay off while it is selected. Two things to know: it can't look at
+  frames of your footage the way the API-key Claude provider can, so edits that depend on
+  seeing a shot are better on that one; and because your subscription is billed by
+  Anthropic, not per request, the cost figures for these runs are shown in tokens rather
+  than dollars.
+
+- **You can set what a single AI run may spend and how long it may take.** Settings → AI
+  now carries a run budget — `Stop a run after $__ / __ min`. Set it once and it applies to
+  every AI run from then on. Runs no longer open by reciting it; when one reaches either
+  limit it stops at the next step and tells you what it applied.
+- **FramePilot now tells you when it is guessing how much a model can hold.** Type a model
+  id it does not recognise into Settings → AI and the field says so straight away: the
+  context capacity will be assumed at the provider's floor, and a run budget cannot be
+  sized to it. The context meter says the same thing while a run is going — "128K tokens
+  (assumed)" instead of a number that looks verified. The id still saves exactly as you
+  typed it, so a brand-new model stays usable. Auto-routing ids like `openrouter/auto` get
+  a second warning: they pick a different model for every request, each with its own prompt
+  cache, so most of your prompt is re-sent and re-billed each time it switches — pinning
+  one model keeps the cache.
+- **You can point the quick routing step at a cheaper model.** Every turn starts with one
+  short call that decides what you asked for — a greeting, a question, an edit — before any
+  editing model runs. That call can now go to a smaller, cheaper, faster model while your
+  edits stay on the model you chose: set `FRAMEPILOT_TIER_SMALL_MODEL` (and optionally
+  `FRAMEPILOT_TIER_SMALL_PROVIDER`) in your `.env`. Leave them unset and nothing changes.
+  See [the provider guide](docs/guides/ai-providers.md#model-tiers).
+
 ### Changed
+
+- **When the AI goes quiet, it tells you it is waiting.** A model that takes a long time
+  to answer used to look exactly like one that had died — an unmoving spinner, with no way
+  to tell the difference. After four minutes of silence you now get a quiet line saying how
+  long it has been waiting, updating as it goes and disappearing the moment the reply
+  arrives. It never appears while the AI is actually writing, however long that takes.
+- **A run that runs out of time now stops on time, and tells you what it applied.** The
+  limit you set in Settings was only checked between the AI's steps, so a step that never
+  came back could run past it indefinitely — one run sat silent for 39 minutes past its
+  37-minute limit and then reported nothing, despite having made nine edits. The clock now
+  runs on the step itself, and a run that hits it still checks its work and lists the edits
+  it made. Pressing Stop is still a cancellation, and reads as one.
+- **The assistant stops asking for the same impossible thing over and over.** When it is
+  told an edit can't be done — a second picture on top of another, say — it now remembers
+  *the reason*, not the sentence, so shifting the clip half a second and asking again gets
+  "you already tried this, here's what to do instead" rather than a fresh refusal. One run
+  spent fifteen minutes in that loop. A corrected edit that genuinely fits is never blocked.
+- **The timeline summary the assistant reads no longer offers a layer nothing can go on.**
+  An empty video track above a full one now says it has no free span, in the same words the
+  refusal uses — so the assistant plans a cutaway instead of walking into a wall.
+- **The assistant no longer gives up when a track or clip is already in your bin.** Asking
+  for music or stock it had already downloaded used to answer "place it from the bin" — an
+  instruction meant for a person looking at the bin, which the assistant has no way to
+  follow, so it abandoned the request. It now places what it already has.
+- **Cancelling a music or stock search no longer leaves the assistant with nothing to go on.**
+  A cancelled search showed the assistant a failure with no text at all, so it had no idea
+  what had happened. Music, stock and automatic-tracking failures now all tell it what went
+  wrong and what to try — while the panels keep the shorter wording written for you.
+- **The desktop app no longer ships an older, less helpful failure message than the browser.**
+  When speech-to-text came back empty, the desktop took a different code path that still
+  carried the old dead-end wording. Both now say the same thing, from one place.
+- **When something the assistant tries fails, it is told what to do next — always.** A
+  failure that named no next move used to send it round the same loop: one run asked the
+  same unanswerable question six times. Thirteen such messages were rewritten to say what
+  happened and what to do instead, and a build check now fails if a new one is added.
+- **When footage hasn't been indexed yet, the assistant is told what to do instead.** It
+  used to get back the bare word `not_indexed` and kept asking the same question of the
+  same clip. It now hears that indexing may not finish during this run, and to look at a
+  few moments directly or work from what it already knows.
+- **The AI no longer stacks one picture over another on a second layer.** The preview
+  can't show that yet, so it places a cutaway or tells you why it didn't — naming the clip
+  it would have covered and where there is room.
+- **When the assistant declines to do something, it no longer blames your arguments.** A
+  refusal it made on purpose — it won't stack a second picture layer, it won't stretch one
+  caption cue across a cut — used to reach the assistant labelled "invalid arguments", so
+  it went off adjusting numbers that were already right instead of taking the alternative
+  it had just been given. The refusal now reads as one, and the failure card shows the
+  same plain sentence.
+- **When an AI run fails, you get a sentence you can act on.** Instead of the raw error
+  the provider sent back, the failure card now says what happened and what to do next —
+  check the API key in Settings, wait and retry a rate limit, check your connection —
+  and tells you when nothing on your timeline was changed. The technical text is still
+  there, tucked behind "details", for when you want to report it. A tool call the
+  assistant got wrong is explained the same way — "add_clip was called without the
+  required trackId and assetId" instead of a line of schema jargon.
+- **When the media engine is not running, the AI panel says so.** A tool that could not
+  reach the engine used to fail with a cryptic `fetch failed`, and the assistant would
+  retry the identical call. The card now reads "The media engine is not responding —
+  check that FramePilot's engine is running", and the assistant is told to try once more
+  and then carry on without that analysis rather than looping on it.
+- **A problem your footage already had no longer fails a correct edit.** The agent's
+  self-check now grades what the edit *changed*: a finding that was already true before
+  the run — five landscape clips in a portrait sequence, say — is reported once as an
+  advisory ("Already so before this edit, not caused by it") instead of failing the run
+  and spending a repair turn that could not fix it. Anything the request asked for (a
+  target length, a shot count) is still held to the letter.
+- **Every agent run states its budget up front and stops when it reaches it.** The first
+  line of a run now says how many steps, how many dollars and how many minutes it may
+  use. If a run reaches its cost or time limit it stops at the next step boundary, checks
+  and reports what it applied, and says which limit it hit — instead of spending on
+  without landing anything. The defaults are generous (a good long edit fits inside them);
+  hosts can set `maxUsd` / `maxMinutes` per run.
+- **Every export is now checked against what you asked for.** After encoding, FramePilot
+  verifies the file's size and frame rate match the chosen export target, that a
+  timeline with sound produced sound, and that the picture and the audio run to the end —
+  an export that ends on black, or on a second of silence when the sound was meant to
+  continue, is refused rather than handed over. When a check fails, the message says what
+  is wrong in plain words ("The export ends on black (1.5 s)") instead of listing internal
+  check names.
+- **A run that applies edits and then cannot finish says so in one place.** Instead of a
+  bare "failed" over a timeline that had changed, you now get a single error card — what
+  was applied, why the run stopped, and that undo takes it back — followed by the usual
+  receipt of what landed.
 
 - **The timeline has been redesigned.** Every lane now carries its name (`V1`, `A2`,
   `C1`), the ruler labels itself only as finely as the current zoom can distinguish

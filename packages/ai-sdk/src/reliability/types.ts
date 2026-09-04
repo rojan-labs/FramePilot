@@ -38,17 +38,31 @@ export class ProviderError extends Error {
   public readonly retryable: boolean;
   /** Milliseconds to wait before retry, parsed from `Retry-After` when present. */
   public readonly retryAfterMs: number | undefined;
+  /**
+   * A sentence already written for the editor, when the thrower knows more than the
+   * classification does (e.g. "the model spent its whole output allowance thinking").
+   * `plainRunFailure` shows this verbatim instead of the generic copy for `kind`.
+   * Classified wire failures leave it `undefined` — there is nothing to say beyond
+   * what `kind` already means.
+   */
+  public readonly editorMessage: string | undefined;
 
   public constructor(
     message: string,
     kind: ProviderErrorKind,
-    opts: { status?: number; retryable?: boolean; retryAfterMs?: number } = {},
+    opts: {
+      status?: number;
+      retryable?: boolean;
+      retryAfterMs?: number;
+      editorMessage?: string;
+    } = {},
   ) {
     super(message);
     this.name = 'ProviderError';
     this.kind = kind;
     this.status = opts.status;
     this.retryAfterMs = opts.retryAfterMs;
+    this.editorMessage = opts.editorMessage;
     this.retryable = opts.retryable ?? isRetryableKind(kind);
   }
 }

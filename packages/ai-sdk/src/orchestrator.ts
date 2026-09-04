@@ -17,7 +17,11 @@ import {
   noCutsNote,
   silenceCutOps,
 } from './silence-cut.js';
-import { type AnyOperation, applyProjectPatch } from '@framepilot/editor-core';
+import {
+  type AnyOperation,
+  type ValidationIssue,
+  applyProjectPatch,
+} from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   DEFAULT_DUCK_DB,
@@ -31,6 +35,8 @@ import {
   AutomaticTrackingMeasurementSchema,
   automaticTrackingOpsFromMeasurement,
 } from './domain-tools/automatic-tracking.js';
+import { clipCandidates } from './domain-tools/clip-candidates.js';
+import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
   TranscriptWordSchema,
   type Asset,
@@ -65,6 +71,7 @@ import {
   repairTrailingSoundOverrun,
   standingAgainstAcceptance,
   timelineDuration,
+  reconcileInheritedFailures,
 } from './critic.js';
 import { describeOperation, describeToolCall } from './describe.js';
 import {
@@ -112,6 +119,7 @@ import {
   DIMINISHING_RETURNS_TURNS,
   PLAN_STEP_HEADROOM,
   STALL_CONFIRM_TURNS,
+  maxWallMsFor,
   type RepairOutcome,
   type TurnCallFact,
   turnLearnedSomethingNew,
@@ -203,9 +211,22 @@ import {
 } from './kernel/context/manifest.js';
 import { ProviderError } from './reliability/types.js';
 import type { ContextBudget, ContextTier, Usage } from './reliability/types.js';
+import { plainRunFailure } from './reliability/plain-failure.js';
+import {
+  unavailableToolNote,
+  unknownToolNote,
+  unusableHostPayload,
+} from './reliability/refusal-notes.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
+import { createRunDeadline } from './reliability/deadline.js';
+import type { TimerApi } from './reliability/timeout.js';
+import {
+  MODEL_WAIT_HEARTBEAT_MS,
+  modelWaitLabel,
+  withWaitHeartbeat,
+} from './reliability/wait-heartbeat.js';
 import {
   REVIEW_CONCURRENCY_ENV,
   REVIEW_STEERING_PREAMBLE,
@@ -227,6 +248,7 @@ import {
   sanitizeToolArgs,
 } from './tool-dispatch.js';
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
+import type { RefusalCause } from './tool-refusal.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
@@ -1536,8 +1558,30 @@ export interface OrchestratorOptions {
   readonly recordEffects?: boolean;
   /** Receives the just-completed run's {@link RunRecording} when `recordEffects` is on. */
   readonly onRecording?: (recording: RunRecording) => void;
+  /**
+   * Eval affordance (goal.md Phase 0, `scripts/mission-baseline.mjs --replay`): build each
+   * run's {@link EffectRuntime} from a recording instead of the live provider/executor —
+   * `createReplayEffectRuntime(recording)` — so a golden case can be re-scored with zero
+   * model or host calls. A factory, because a replay runtime holds a cursor and each run
+   * needs a fresh one. Composes with `recordEffects`. Never set by a product host.
+   */
+  readonly replayRuntime?: () => EffectRuntime;
   /** Awaited durable audit observer for every fine-grained runtime effect. */
   readonly effectObserver?: EffectRuntimeObserver;
+  /**
+   * Per-{@link ModelTier} provider overrides (goal.md Workstream E): the cheap, mechanical
+   * calls need not run on the model the editing turns need. Today exactly one call is
+   * stamped `tier: 'small'` — the ADR 0055 route classifier — so a host that sets
+   * `FRAMEPILOT_TIER_SMALL_*` pays small-model prices for routing and nothing else.
+   *
+   * Opt-in and normally absent: hosts build it from `resolveTierProviderConfigs`, which
+   * returns no entries unless those variables are set. With it absent every call runs on
+   * the constructor's provider, exactly as before.
+   *
+   * `replayRuntime` bypasses this by design — a replayed run makes no provider calls at
+   * all, so which provider WOULD have served a tier is not a question it can answer.
+   */
+  readonly tierProviders?: Partial<Record<ModelTier, AiProvider>>;
 }
 
 /** Per-call host context threaded through {@link Orchestrator.runAgentCall}. */
@@ -1648,13 +1692,43 @@ interface AgentCallOutcome {
    * loop the memory exists to stop. So a failure is transient unless the branch that
    * produced it says otherwise here.
    *
+   * A HOST outcome says otherwise the only way it can — by declaring a
+   * {@link HostToolOutcome.refusalCause}, which the host-tool branch converts into this
+   * flag. That is a policy verdict the host read off the project (ADR 0140's picture rule,
+   * checked before the download), not work that failed, and it is the whole of the
+   * exception: an undeclared host `failed` is still transient however often it repeats.
+   *
    * Consumed by `executeToolCalls` to build `TurnCallFact.failureKey`; absent ⇒ nothing
    * about this failure is remembered for the rest of the run.
    */
   deterministicFailure?: boolean;
+  /**
+   * Which RULE refused this call, when a policy refusal named one
+   * (`tool-refusal.ts#RefusalCause`). `deterministicFailureKey` keys run memory on this
+   * in preference to the sentence, because a refusal sentence is written to be acted on
+   * and therefore varies with the placement: run `369e8c82` was refused ADR 0140's
+   * picture-over-picture rule four times and banked four keys. Absent ⇒ the failure is
+   * remembered by its text, exactly as before.
+   *
+   * Set from the thrown {@link ToolInvocationError} on the in-process path, and from
+   * {@link HostToolOutcome.refusalCause} when a HOST declared one — one vocabulary, so a
+   * rule refused before a download and the same rule refused after it are one key.
+   */
+  refusalCause?: RefusalCause;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
-  /** How many proposed ops the validator rejected (drives the empty-run notice). */
+  /**
+   * How many proposed ops this call lost (drives the empty-run notice AND the ledger).
+   *
+   * Non-zero is the ONLY route a call that landed nothing has into the run's durable
+   * account of itself: the conductor reads it as `lostOpsPerCall` and files the turn as a
+   * `failed` operation whose reason is {@link AgentCallOutcome.note}. Absent ⇒ the run
+   * reports as though the call never tried.
+   *
+   * The unit is operations where operations were built (`ops.length`, the validator
+   * probes and the generic mutate path), and one where the call was refused before it
+   * built any — one refused call being one thing the run could not do.
+   */
   rejectedOpCount?: number;
   /**
    * How many of this call's applied ops are DERIVED fan-out rather than model-composed
@@ -1750,6 +1824,14 @@ const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
  * and clip counts, then a row per track with its span — so a run that reads the tool and a
  * run that reads this fact hold the timeline in the same terms.
  *
+ * A video track nothing placed on could be SEEN on says so on its own row. Run `369e8c82`
+ * read `b_roll [video] empty; v_main [video] 1 clips 0–49.77s` every turn and took the
+ * invitation four times, because the narration on `v_main` covers the whole sequence and
+ * `b_roll` sits behind it. Under ADR 0169 the placement is no longer refused — `add_clip`
+ * lifts a full-frame shot onto a new front layer — but the row still has to say so, because
+ * this line is what the run PLANS from and a lane that shows nothing must not read as one
+ * that does.
+ *
  * Bounded by construction: one row per track, and a project has few of those.
  */
 export function arrangementLine(project: Project): string {
@@ -1759,12 +1841,18 @@ export function arrangementLine(project: Project): string {
     (max, track) => track.clips.reduce((m, clip) => Math.max(m, clip.end), max),
     0,
   );
+  const blocked = tracksCoveredByPictureInFront(project);
   const rows = tracks
     .map((track) => {
-      if (track.clips.length === 0) return `${track.id} [${track.type}] empty`;
+      // Same words `get_timeline_summary`'s `hiddenBehindPicture` flag stands for, so the
+      // constraint the run reads here and the answer it gets from the tool are one rule.
+      const noRoom = blocked.has(track.id)
+        ? ` — hidden behind picture 0–${round2(end)}s (a full-frame clip added here lands on a new front layer)`
+        : '';
+      if (track.clips.length === 0) return `${track.id} [${track.type}] empty${noRoom}`;
       const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
       const last = track.clips.reduce((m, c) => Math.max(m, c.end), 0);
-      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s`;
+      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s${noRoom}`;
     })
     .join('; ');
   return `Timeline now: sequence ${round2(end)}s, ${String(tracks.length)} tracks, ${String(clipCount)} clips — ${rows}`;
@@ -2246,6 +2334,12 @@ export function summarizeReadResult(
     }
     case 'search_visual':
     case 'describe_footage':
+      // A FAILED call's `data` is a string, not a payload — the engine-unreachable
+      // instruction, say. Digesting it as "no visual evidence" threw away the one
+      // sentence telling the model what to do next. An absent `packets` key on a real
+      // OBJECT payload still reports no evidence, as it always has.
+      if (typeof value !== 'object' || value === null)
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
       return visualEvidenceDigest(obj);
     case 'search_music': {
       // A JSON blob of track rows, cut mid-string, is exactly what the model
@@ -2445,6 +2539,10 @@ export function summarizeReadResult(
       // It was then asked to cut to a grid it had never received. Same defect class as
       // the load_skill truncation; the fix is the same shape as the read digests — bound
       // by whole records with an explicit tail, never a blind character cut.
+      // A FAILED call's `data` is a string, not a payload: "no beats detected" would
+      // bury the reason the call failed. An object with no beats is still no beats.
+      if (typeof value !== 'object' || value === null)
+        return previewJson(value, ANALYSIS_PREVIEW_MAX);
       const beats = (Array.isArray(obj.beats) ? obj.beats : []) as Record<string, unknown>[];
       const times = beats
         .map((b) => b?.time)
@@ -2477,6 +2575,13 @@ export function summarizeReadResult(
           `${String(t.id)} [${String(t.type)}] ${String(t.clipCount ?? 0)} clips${
             typeof t.firstClipStart === 'number' && typeof t.lastClipEnd === 'number'
               ? ` ${round2(t.firstClipStart)}–${round2(t.lastClipEnd)}s`
+              : ''
+            // The same words `arrangementLine` uses for the same fact, per its doc comment:
+            // the tool and the arrangement fact must describe the timeline identically, or
+            // a run that read one plans against a constraint the other never mentioned.
+          }${
+            t.hiddenBehindPicture === true
+              ? ` — hidden behind picture 0–${duration} (a full-frame clip added here lands on a new front layer)`
               : ''
           }`,
         'tracks',
@@ -3035,12 +3140,42 @@ function measuredSilences(evidence: EvidenceStore): Pick<CritiqueOptions, 'silen
   return {};
 }
 
+/**
+ * The clip ids a rejected patch was withholding.
+ *
+ * `editor-core` rejects a bad clip reference with `Clip not found: <id>` and stops there —
+ * correctly, since it must not import the AI layer, and it already names the clip and the
+ * operation. But the model reads only this note, and "not found" alone leaves it re-issuing
+ * the same id or spending a turn on `get_clips`. This is the same repair `dca15af` made for
+ * tracks, applied where validation issues become the model's note: append the real ids once,
+ * for the first unknown clip in the batch (a batch tool usually mistyped one id, and eight
+ * copies of the timeline listing would cost more than the rejection itself).
+ *
+ * Matched on the message rather than on `missing_reference`: the same `Clip not found: <id>`
+ * reaches here as `unsupported_operation` when the semantic contract replay is what rejected
+ * it, and the reader cannot tell — or care — which gate caught the typo.
+ *
+ * @param project - The working copy the operations were validated against.
+ * @param issues - The error-severity issues, in the order they are reported.
+ * @returns The candidates line, or `''` when no issue names an unknown clip.
+ */
+function unknownClipHelp(project: Project, issues: readonly ValidationIssue[]): string {
+  for (const issue of issues) {
+    const named = /Clip not found: ([^\s,;]+)/.exec(issue.message);
+    if (named) return clipCandidates(project, named[1]!);
+  }
+  return '';
+}
+
 export class Orchestrator {
   private readonly executor: HostToolExecutor | undefined;
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
+  private readonly replayRuntime: (() => EffectRuntime) | undefined;
   private readonly effectObserver: EffectRuntimeObserver | undefined;
+  /** See {@link OrchestratorOptions.tierProviders}. Empty unless the host opted in. */
+  private readonly tierProviders: Partial<Record<ModelTier, AiProvider>>;
 
   public constructor(
     private readonly provider: AiProvider,
@@ -3049,7 +3184,18 @@ export class Orchestrator {
     this.executor = options.executor;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
+    this.replayRuntime = options.replayRuntime;
     this.effectObserver = options.effectObserver;
+    this.tierProviders = options.tierProviders ?? {};
+  }
+
+  /**
+   * The provider serving one {@link ModelTier}: its configured override, else the
+   * host-selected provider. The direct-call twin of the effect runtime's own tier lookup,
+   * for the one model call that does not go through a run runtime (the classifier).
+   */
+  private providerForTier(tier: ModelTier): AiProvider {
+    return this.tierProviders[tier] ?? this.provider;
   }
 
   /**
@@ -3062,12 +3208,17 @@ export class Orchestrator {
     runtime: EffectRuntime;
     finish: () => void;
   } {
-    const base = createEffectRuntime({
-      provider: this.provider,
-      ...(this.effectObserver === undefined ? {} : { observer: this.effectObserver }),
-      ...(this.executor ? { executor: this.executor } : {}),
-      ...(structuredExecutor ? { structuredExecutor } : {}),
-    });
+    const base = this.replayRuntime
+      ? this.replayRuntime()
+      : createEffectRuntime({
+          provider: this.provider,
+          ...(Object.keys(this.tierProviders).length === 0
+            ? {}
+            : { tierProviders: this.tierProviders }),
+          ...(this.effectObserver === undefined ? {} : { observer: this.effectObserver }),
+          ...(this.executor ? { executor: this.executor } : {}),
+          ...(structuredExecutor ? { structuredExecutor } : {}),
+        });
     if (!this.recordEffects) return { runtime: base, finish: () => {} };
     const recorder = createRecordingEffectRuntime(base);
     let finished = false;
@@ -3783,7 +3934,11 @@ export class Orchestrator {
     const registered = getTool(call.name);
     const desc = describeToolCall(call, names);
     if (!registered) {
-      const note = `Refused unknown tool "${call.name}"`;
+      // One verdict, one sentence: the concurrent path below (`withheldCallOutcome`) meets
+      // the same invented name and used to answer it in better words than this one, which
+      // said only that the call was refused — not that the name does not exist, and not to
+      // stop sending it.
+      const note = unknownToolNote(call.name);
       orchestratorLog.warn('tool call refused — unknown', { tool: call.name });
       // BANKED. A name the registry has never heard of will not appear in it on the next
       // turn, so this is the most deterministic failure a run can have — and without both
@@ -3793,14 +3948,19 @@ export class Orchestrator {
       return {
         ops: [],
         note,
-        summary: note,
+        // The card keeps the short verdict; the note carries the instruction. Same split
+        // as `withheldCallOutcome`'s unknown-tool branch, which this now shares words with.
+        summary: `Refused unknown tool "${call.name}"`,
         status: 'failed',
         data: note,
         deterministicFailure: true,
       };
     }
     if (!registered.available) {
-      const note = `Skipped "${call.name}" — not available yet`;
+      // "not available yet" invited the next turn to try again; `available` is a
+      // build-time constant, so the answer never changes within a run (goal.md C, run
+      // `369e8c82`). The producer says that and closes the call off.
+      const note = unavailableToolNote(call.name);
       return { ops: [], note, summary: note, status: 'warning' };
     }
     // The mutate path (`operationsFor` → `operationsForCall`, tool-dispatch.ts) already
@@ -4018,8 +4178,10 @@ export class Orchestrator {
         const record = (outcome.data ?? {}) as Record<string, unknown>;
         const parsedWords = TranscriptWordSchema.array().safeParse(record.words);
         if (!parsedWords.success || parsedWords.data.length === 0) {
-          const note =
-            'Rejected "transcribe" — the speech-to-text provider returned no valid timed words; the existing transcript was preserved.';
+          // Shared with the desktop's `hostTranscribe` override, which returns its own
+          // failed outcome and never reaches this branch — two copies of this sentence
+          // meant the fix for one was invisible on the product's primary surface.
+          const note = unusableHostPayload('transcribe');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const ops: AnyOperation[] = [{ type: 'set_transcript', words: parsedWords.data }];
@@ -4028,12 +4190,7 @@ export class Orchestrator {
            references to check (see validator.ts), so a schema-valid word array can
            never fail validation; kept defensive, not reachable. */
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "transcribe" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('transcribe', probe.validation.issues, ops);
         }
         /* v8 ignore stop */
         // The transcript itself was just rewritten, so transcript-derived evidence is
@@ -4057,8 +4214,7 @@ export class Orchestrator {
         // The measurement came back; the cuts are arithmetic (plan/system-mission P4.1).
         const parsed = SilenceRangesPayloadSchema.safeParse(outcome.data);
         if (!parsed.success) {
-          const note =
-            'Rejected "remove_silences" — the silence analysis returned no usable ranges.';
+          const note = unusableHostPayload('remove_silences');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const args = (call.arguments ?? {}) as Record<string, unknown>;
@@ -4092,12 +4248,7 @@ export class Orchestrator {
         }
         const probe = assembleEdit(ctx.project, ops, 'Remove dead air', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "remove_silences" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('remove_silences', probe.validation.issues, ops);
         }
         const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
         return {
@@ -4115,8 +4266,7 @@ export class Orchestrator {
         if (!parsed.success) {
           // Fail closed. A download that produced nothing placeable must not be
           // reported as a completed edit on an unchanged timeline (ADR 0083).
-          const note =
-            'Rejected "add_music" — the download did not return a usable audio asset, so nothing was placed.';
+          const note = unusableHostPayload('add_music');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const { asset, atSeconds, duckUnderTrackId } = parsed.data;
@@ -4127,27 +4277,66 @@ export class Orchestrator {
         const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
         if (duckIssue !== null) {
           const note = `Rejected "add_music" — ${duckIssue}`;
-          return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
+          // IN-PROCESS, despite arriving after a completed paid download — the same reading
+          // the post-download stock refusal below gets, for the same reasons. The download
+          // SUCCEEDED (this branch runs only under `status === 'completed'`); what refuses
+          // is `musicDuckSidechainIssue` reading the orchestrator's own working copy, an
+          // `editor-core` predicate over the track list with the same verdict every time.
+          // A policy decision reached by a different route, not host work, so the call
+          // site's "host work is never keyed" invariant is untouched: a download timeout or
+          // a provider 5xx still settles as a plain host `failed` and still gets no key.
+          //
+          // Keyed on the TEXT, not on a new `RefusalCause`, and the difference from run
+          // `369e8c82`'s picture rule is the whole argument. There the sentence varied with
+          // the asset and the timestamps — incidental detail around one unchanging rule, so
+          // four attempts banked four keys and matched none. Here the only thing that varies
+          // is the `duckUnderTrackId` the sentence names, which is the argument the refusal
+          // is asking the model to CORRECT. Two attempts with the same bad id are the loop
+          // and share a key; two attempts with different bad ids are two genuinely different
+          // corrections, and each deserves its own answer naming its own id. A rule-shaped
+          // cause would collapse them and quote back a sentence about a track the model is
+          // no longer asking for. A cause invented on speculation is vocabulary with no
+          // captured loop behind it.
+          //
+          // `data` carries the SENTENCE, not the raw host payload: a key promises
+          // `repeatedFailureOutcome` something to quote back, and an object yields no key
+          // at all (`deterministicFailureKey` requires a non-empty string).
+          //
+          // `rejectedOpCount: 1` files it through the ledger's existing route so the remedy
+          // — "pass the id of the dialogue track", "omit duckUnderTrackId" — reaches the
+          // briefing's "FAILED — fix the cause" section instead of ageing out of the context
+          // window with the tool result. One, not `ops.length`: the refusal is reached
+          // before `buildAddMusicOps` runs, so no operations were ever built to count.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: duckIssue,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
         }
         // Already in the bin. Deterministic asset ids make a re-add land as a
         // `duplicate_asset` validation error whose text ("Asset id already
         // exists: music_openverse_ov_1") reads to the model as a bug rather than
         // as an answer. Said plainly here, before an edit is even assembled.
         if (ctx.project.assets.some((existing) => existing.id === asset.id)) {
+          // "Place it from the bin" is the Sounds panel's instruction — true for a human
+          // looking at a bin, and a dead end for the caller here, which has no hands and
+          // no panel. Captured run `369e8c82` read it and gave up on the call. Name the
+          // tool and hand over the id it needs, the same way `localMusicAssetRefusal`
+          // already answers the sibling "that is a local id" case.
           const note =
-            `That track is already in your media bin — it was not downloaded again. ` +
-            `Place it from the bin, or pick a different track.`;
+            `That track is already in your media bin as asset "${asset.id}" — it was not ` +
+            `downloaded again. Place it with add_clip on an audio track (assetId ` +
+            `"${asset.id}"), or search for a different track.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
         }
         const ops = buildAddMusicOps(ctx.project.timeline, asset, atSeconds, duckUnderTrackId);
         const probe = assembleEdit(ctx.project, ops, 'Add background music', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "add_music" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('add_music', probe.validation.issues, ops);
         }
         // Tell the model about the credit rather than leaving it a surprise for the
         // user at publish time: it can then mention it in its own summary.
@@ -4181,36 +4370,75 @@ export class Orchestrator {
           // reported as a completed edit on an unchanged timeline (ADR 0083) —
           // quota and disk were spent either way, and saying "added" about a
           // timeline that did not move is the one outcome the user cannot see.
-          const note =
-            'Rejected "add_stock" — the download did not return a usable photo or video asset, so nothing was placed.';
+          const note = unusableHostPayload('add_stock');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         const { asset: stockAsset } = parsed.data;
         // Same as `add_music`: a deterministic id means a re-add would surface a
         // raw `duplicate_asset` message instead of an answer.
         if (ctx.project.assets.some((existing) => existing.id === stockAsset.id)) {
+          // Same dead end as `add_music`'s, and the same fix: this path's own success note
+          // three branches down already tells the model "place it with add_clip", so the
+          // refusal must not send it looking for a bin it cannot touch.
           const note =
-            `That clip is already in your media bin — it was not downloaded again. ` +
-            `Place it from the bin, or pick a different one.`;
+            `That clip is already in your media bin as asset "${stockAsset.id}" — it was ` +
+            `not downloaded again. Place it with add_clip (assetId "${stockAsset.id}"), ` +
+            `or search for a different one.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
         }
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {
           const note = `Rejected "add_stock" — ${placement.reason}`;
-          // The refusal goes back as DATA, not only as prose: the sentence is
-          // what the model reads, the fields are what a caller acts on, and both
-          // are built from the same numbers so they cannot disagree.
-          return { ops: [], note, summary: note, status: 'failed', data: placement.refusal };
+          // BANKED — and this sits on the IN-PROCESS side of the metered line, despite
+          // arriving after a paid download.
+          //
+          // The download SUCCEEDED: this branch runs only under `status === 'completed'`.
+          // What refuses here is `stockOpsFromPayload` reading the orchestrator's own
+          // working copy through `editor-core`'s occupancy predicate — ADR 0140's
+          // picture-over-picture rule, unchanged for `add_stock`, which picks the track
+          // itself and so cannot be handed a front layer the way `add_clip` now is
+          // (ADR 0169). Same inputs, same verdict every time. It is a policy decision
+          // reached by a different route, not a host failure, so the call-site invariant
+          // ("host work never reaches this test") still holds: a download timeout, a
+          // provider 5xx, or `stock-host.ts`'s pre-download refusal all settle as a plain
+          // host `failed` and still get no key.
+          //
+          // Un-keyed, this was the run `369e8c82` loop with a bill attached. The sentence
+          // names the requested span AND the free moment, so 4.5s → 4.2s → 4.2s read as
+          // three unrelated failures; each repeat spends another download. Keying is the
+          // strictly cheaper side: the key is computed only once the call has SETTLED, so
+          // it cannot stop the second download, but it ends the loop before the third.
+          // A CORRECTED placement is never touched — a free span (or an omitted
+          // `atSeconds`, which is bin-only) does not fail, so it has no key to match.
+          //
+          // `data` carries the SENTENCE, not the structured `refusal` record: a key
+          // promises `repeatedFailureOutcome` a sentence to quote back, and the record had
+          // no reader — the model reads `note`, the card's popup reads this.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: placement.reason,
+            deterministicFailure: true,
+            // The same trace the HOST-side refusal of this rule now files (see the host
+            // tail). Without it, one rule refused before the download left a `failed`
+            // ledger row carrying its remedy and the same rule refused after it left
+            // nothing — and run `369e8c82`'s lesson is that a remedy living only in a tool
+            // result ages out of the window with it. One, not `ops.length`: the refusal is
+            // reached before any operation is built.
+            rejectedOpCount: 1,
+            // `StockPlacementRefusal.kind === 'picture_occupied'` is this module's name for
+            // ADR 0140; the RULE is the one `add_clip` names, so run memory must call it
+            // the same thing. Keys stay per-tool (`add_stock:…` vs `add_clip:…`), so
+            // sharing the cause never blocks one tool on the other's refusal.
+            refusalCause: 'picture_over_picture',
+          };
         }
         const ops = [...placement.operations];
         const probe = assembleEdit(ctx.project, ops, 'Add stock media', 'agent');
         if (!probe.validation.valid) {
-          const problems = probe.validation.issues
-            .filter((issue) => issue.severity === 'error')
-            .map((issue) => issue.message)
-            .join('; ');
-          const note = `Rejected "add_stock" — ${problems}`;
-          return { ops: [], note, summary: note, status: 'failed', data: problems };
+          return hostBackedValidatorRejection('add_stock', probe.validation.issues, ops);
         }
         // Same reasoning as `add_music`: tell the model about the credit now, so
         // it can mention it, rather than leaving it a surprise at publish time.
@@ -4240,19 +4468,16 @@ export class Orchestrator {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME && outcome.status === 'completed') {
         const parsedMeasurement = AutomaticTrackingMeasurementSchema.safeParse(outcome.data);
         if (!parsedMeasurement.success) {
-          const note = `Rejected "${call.name}" — the tracking host returned an invalid measurement payload.`;
+          // The constant, not `call.name`: the producer throws on a tool it has no
+          // sentence for, and this branch is already gated on that exact name.
+          const note = unusableHostPayload(AUTOMATIC_TRACKING_TOOL_NAME);
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
         try {
           const ops = automaticTrackingOpsFromMeasurement(parsedMeasurement.data, ctx);
           const probe = assembleEdit(ctx.project, ops, 'Track subject automatically', 'agent');
           if (!probe.validation.valid) {
-            const problems = probe.validation.issues
-              .filter((issue) => issue.severity === 'error')
-              .map((issue) => issue.message)
-              .join('; ');
-            const note = `Rejected "${call.name}" — ${problems}`;
-            return { ops: [], note, summary: note, status: 'failed', data: problems };
+            return hostBackedValidatorRejection(call.name, probe.validation.issues, ops);
           }
           return {
             ops,
@@ -4265,7 +4490,39 @@ export class Orchestrator {
         } catch (cause) {
           const reason = cause instanceof Error ? cause.message : String(cause);
           const note = `Rejected "${call.name}" — ${reason}`;
-          return { ops: [], note, summary: note, status: 'failed', data: reason };
+          // KEYED, on the same argument as the probe above and for a stricter reason than
+          // the probe has. Everything this `try` can throw is a pure verdict over the
+          // working copy: `compileTrackingCommand`'s eleven rejection codes (`missing_mask`,
+          // `locked_track`, `unusable_track`, …) read the timeline and the compiled samples,
+          // and `validateProfessionalOperationBatch` runs the validator and the
+          // apply/invert round-trip. Same measurement, same project, same sentence, every
+          // time — so without a key this refusal could be re-earned every turn for the
+          // length of the run, and each repeat re-runs an isolated pack worker over the
+          // media, which is the most expensive loop any of these branches can spin.
+          //
+          // The guard cannot pre-empt that worker even so: a key is read off a SETTLED
+          // outcome (see the repeat gate in `executeToolCalls`), so the measurement is
+          // always made and only the prose of a call that already failed is replaced. And a
+          // re-measure that produces a usable track never fails, so it never has a key to
+          // match — a corrected mask is never refused for an earlier one's verdict.
+          //
+          // `rejectedOpCount: 1`, not a count of operations, and the difference from the
+          // probe above is the point: the throw comes out of the op BUILDER, so no
+          // operation was ever built to count. One refused call is one thing the run could
+          // not do — the same reading `b7f1fd3` gave the refusal paths. Without it a run
+          // whose only work was a refused track reported "reviewed the footage but never
+          // made a change", and the compiler's remedy ("draw a rectangle mask on the clip
+          // first", "the track is too unreliable") aged out of the context window with the
+          // tool result, exactly as run `369e8c82`'s did.
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: reason,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
         }
       }
       // A cached replay reports the call itself (`desc`), not the original outcome's
@@ -4297,6 +4554,33 @@ export class Orchestrator {
       // fix the card and leave the model with the same false claim.
       const preview =
         data !== undefined ? ` → ${summarizeReadResult(call.name, data, ctx.project.assets)}` : '';
+      // THE ONE HOST FAILURE THE RUN IS ALLOWED TO REMEMBER — the one that says so itself.
+      //
+      // The call site of `deterministicFailureKey` states that host work is never keyed,
+      // and that stays true of every host failure that merely HAPPENED: a sidecar restart,
+      // a download timeout, a provider 5xx, an unresolvable id, a missing key. Keying one
+      // of those would refuse, for the rest of the run, work the next attempt would have
+      // completed. The exception is narrow and opt-in: a host that declares a
+      // `refusalCause` is asserting the outcome is a POLICY verdict it reached from the
+      // project it was handed — `stock-host.ts` answering ADR 0140's picture-over-picture
+      // rule before spending the download, through the same `editor-core` predicate
+      // `add_clip` uses. Undeclared, that refusal was the last unbounded arm of run
+      // `369e8c82`'s loop, and on desktop it is the arm a b-roll request reaches FIRST.
+      //
+      // `deterministicFailure` as well as the cause, because the key function gates on the
+      // flag BEFORE it ever looks at the cause — a cause alone would be inert — and because
+      // the flag is documented as the single opt-in discriminator every `failed` branch
+      // answers for itself. The host has now answered it.
+      //
+      // `data` carries the SENTENCE, for the same reason the post-download refusal's does:
+      // a key promises `repeatedFailureOutcome` something to quote back, and a host refusal
+      // usually returns no `data` at all. Set AFTER the `data` spread and after `note` is
+      // built, so the model's note keeps reading as the refusal itself rather than gaining
+      // a `→ …` echo of its own sentence.
+      const declaredRefusal =
+        outcome.status === 'failed' && outcome.refusalCause !== undefined
+          ? outcome.refusalCause
+          : undefined;
       return {
         ops: [],
         note: `${base}${runtimeCached ? ' (cached)' : ''}${preview}${hostEvidence ? ` [${hostEvidence.id}]` : ''}`,
@@ -4305,6 +4589,31 @@ export class Orchestrator {
         ...(runtimeCached ? { fromCache: true } : {}),
         ...(data !== undefined ? { data } : {}),
         ...(outcome.images && outcome.images.length > 0 ? { images: outcome.images } : {}),
+        ...(declaredRefusal === undefined
+          ? {}
+          : {
+              deterministicFailure: true,
+              refusalCause: declaredRefusal,
+              data: typeof data === 'string' && data.trim() !== '' ? data : outcome.summary,
+              // THE REMEDY HAS TO OUTLIVE THE TOOL RESULT, and a bounded loop alone does
+              // not give it that. `28a5322` stopped the declared refusal repeating; it left
+              // the model able to lose the remedy to compaction anyway and be told only
+              // that something is forbidden, never what to do instead. Run `369e8c82`'s
+              // briefing never once carried the picture-over-picture rule for exactly that
+              // reason: only a landed patch's `describedActions` reach `recordOperation`,
+              // so a refusal's sentence lived in a tool result and aged out with it.
+              //
+              // This is the route the in-process refusals already take — the per-call
+              // rejection tally the conductor reads as `lostOpsPerCall`, which files the
+              // turn as a `failed` operation whose `failureReason` is this note. No
+              // parallel ledger, and the host side now leaves the same trace as the branch
+              // that refuses the same rule after the download.
+              //
+              // One, not a count of operations: the host refused before the orchestrator
+              // built any. The count is what the empty-run notice tallies, and one refused
+              // call is one thing the run could not do.
+              rejectedOpCount: 1,
+            }),
       };
     }
     if (tool.kind === 'read' && tool.read) {
@@ -4513,10 +4822,26 @@ export class Orchestrator {
       ops = this.operationsFor(call, host.evidence ? { ...ctx, evidence: host.evidence } : ctx);
     } catch (error) {
       // `operationsForCall` only ever throws `ToolInvocationError` (unknown/unavailable/
-      // invalid args) — all three are the model's to fix and all three are worth banking.
+      // invalid args/refusal) — all four are the model's to act on and all four are worth
+      // banking.
+      //
+      // A REFUSAL is worded differently on purpose. The other three are mistakes, and
+      // "Rejected … Invalid arguments for …" is the right thing to say about a mistake. A
+      // refusal is the tool declining a call it understood — the picture-over-picture rule
+      // of ADR 0140, a caption cue that would cross a cut — and telling the model its
+      // arguments were invalid sends it to fix a `start` that was already correct instead
+      // of taking the alternative the sentence names. So the sentence stands alone.
+      const refusal =
+        error instanceof ToolInvocationError && error.code === 'refusal' ? error : undefined;
+      const refused = refusal !== undefined;
       const reason = error instanceof Error ? error.message : String(error);
-      const note = `Rejected "${call.name}": ${reason}`;
-      orchestratorLog.warn('tool call rejected — invalid args', { tool: call.name, reason });
+      const note = refused
+        ? `Refused "${call.name}": ${reason}`
+        : `Rejected "${call.name}": ${reason}`;
+      orchestratorLog.warn(
+        refused ? 'tool call refused — policy' : 'tool call rejected — invalid args',
+        { tool: call.name, reason },
+      );
       return {
         ops: [],
         note,
@@ -4524,6 +4849,19 @@ export class Orchestrator {
         status: 'failed',
         data: reason,
         deterministicFailure: true,
+        // The rule's name, so run memory identifies the refusal by what it IS rather than
+        // by a sentence that changes with every placement (see `deterministicFailureKey`).
+        ...(refusal?.refusalCause ? { refusalCause: refusal.refusalCause } : {}),
+        // A refusal loses its call's work, and until now it left NO trace in the run's
+        // working state: only a landed patch's `describedActions` reach `recordOperation`,
+        // so the remedy lived in a tool result and aged out of the window with it. Run
+        // `369e8c82`'s briefing never once carried the picture-over-picture rule. The
+        // ledger's existing route in is the per-call rejection tally the conductor reads
+        // as `lostOpsPerCall`, which files the turn as a `failed` operation carrying this
+        // note — and the note is the refusal sentence, remedy included. One, not
+        // `ops.length`: the throw came out of `buildOps`, so no operations were ever built
+        // to count.
+        ...(refused ? { rejectedOpCount: 1 } : {}),
       };
     }
     try {
@@ -4547,10 +4885,14 @@ export class Orchestrator {
         // the model's only move is to reissue the identical call. `probe.patch.operations`
         // is the list the issues were raised against — normalized when the rejection came
         // after quantization, raw when it came before.
-        const problems = probe.validation.issues
-          .filter((i) => i.severity === 'error')
+        const errors = probe.validation.issues.filter((i) => i.severity === 'error');
+        const located = errors
           .map((i) => describeValidationIssue(i, probe.patch.operations))
           .join('; ');
+        const clipHelp = unknownClipHelp(ctx.project, errors);
+        // `Clip not found: clip_zz` ends without one, and two sentences need the stop.
+        const problems =
+          clipHelp === '' ? located : `${located}${located.endsWith('.') ? '' : '.'} ${clipHelp}`;
         const note = `Rejected "${call.name}" — ${problems}`;
         orchestratorLog.warn('tool call rejected — validator', { tool: call.name, problems });
         return {
@@ -5433,6 +5775,16 @@ export class Orchestrator {
       tier: 'mid',
       contextWindow: capabilitiesFor(this.provider.name, this.provider.modelId).contextWindow,
     },
+    /**
+     * The silence heartbeat for this call (`reliability/wait-heartbeat.ts`).
+     *
+     * Opt-in per caller, and today only the agent turn opts in: run `369e8c82` hung inside
+     * the agent loop's twentieth model call, and the single-call routes (chat, edit, plan)
+     * have a composer that is visibly disabled and a run that is over in one step — they
+     * are not the surface where a user was left guessing for thirty-nine minutes. Absent ⇒
+     * no timer is armed and the stream is drained exactly as it was before this existed.
+     */
+    wait?: { readonly timers?: TimerApi; readonly intervalMs?: number },
   ): AsyncGenerator<
     AiEvent,
     {
@@ -5496,6 +5848,18 @@ export class Orchestrator {
       ? segment.slice(emit.assistantId.length + 1)
       : undefined;
     const reasoningKey = explicitKey ?? segmentKey;
+    /**
+     * The waiting bar's stable id, scoped to THIS model call (`wait:seg-20`, `wait:seg-20:retry-1`).
+     *
+     * `emit.progress` upserts by id, so every beat of one silent call updates the same
+     * single row instead of stacking a new line every four minutes — and a later step's
+     * wait gets its own row, in its own place in the transcript, rather than reviving the
+     * previous step's. It also does NOT consume the turn's `seq` counter, so a run that
+     * beats and a run that does not produce byte-identical ids for every other event.
+     */
+    const waitKey = `wait:${segmentKey ?? 'main'}`;
+    /** The last wait announced, if any — the row exists only once this is set. */
+    let waitLabel: string | undefined;
     // Per-step reasoning (agent, explicitly keyed) opens its shimmer EAGERLY so every step
     // shows its own "Thinking…" → "Thought for Ns" (U3) in order, even when the model
     // streams no reasoning tokens. A segment-scoped node (chat/edit) stays LAZY so a call
@@ -5553,7 +5917,25 @@ export class Orchestrator {
           { kind: 'model_stream', request: modelRequest, tier: modelCall.tier },
           signal,
         ) ?? providerChunks(this.provider, modelRequest, signal);
-      for await (const chunk of chunks) {
+      // A CALL THAT IS WAITING SAYS IT IS WAITING (run `369e8c82`: a manifest at 15:16:45,
+      // then nothing at all until the user force-quit at 15:55:33). Every chunk — text,
+      // reasoning, tool-call fragment — resets the silence, so a call that streams says
+      // nothing extra; only a call that has genuinely gone quiet does.
+      for await (const step of withWaitHeartbeat(chunks, {
+        intervalMs: wait ? (wait.intervalMs ?? MODEL_WAIT_HEARTBEAT_MS) : 0,
+        ...(wait?.timers ? { timers: wait.timers } : {}),
+        ...(signal ? { signal } : {}),
+      })) {
+        if (step.kind === 'waiting') {
+          waitLabel = modelWaitLabel(step.waitedMs);
+          // `progress`, not `notification`: the editor renders a progress node as an
+          // indeterminate shimmer that updates in place and vanishes when it settles —
+          // ongoing progress, not a new fact filed in the transcript. A notice per beat
+          // would leave ten permanent info cards behind a slow call.
+          yield emit.progress(waitLabel, 0, waitKey);
+          continue;
+        }
+        const chunk = step.chunk;
         if (signal?.aborted) {
           settled = true;
           // A cancelled turn still owns whatever the narration filter was holding: it is a
@@ -5632,6 +6014,12 @@ export class Orchestrator {
         const settle = settleReasoning();
         if (settle) yield settle;
       }
+      // Settle the waiting row on EVERY exit — answered, aborted, deadline, or a consumer
+      // that stopped draining. A bar left under 1 shimmers forever (`ProgressBar` renders
+      // nothing at all once it reaches 1), and "waiting" outliving the wait is the same
+      // class of lie as the spinner that outlived run `369e8c82`. Skipped entirely when no
+      // beat ever fired, so a healthy call adds no event of any kind.
+      if (waitLabel !== undefined) yield emit.progress(waitLabel, 1, waitKey);
     }
   }
 
@@ -5918,9 +6306,13 @@ export class Orchestrator {
         // overlapped a clip at 3s. Refusing a corrected retry is a worse bug than the loop.
         //
         // Nothing is wasted by letting it settle: every branch that can produce a
-        // `deterministicFailure` is in-process and side-effect-free (schema parse, op
-        // build, validator probe). Host work never reaches this test, because a host
-        // failure is never given a key.
+        // `deterministicFailure` is side-effect-free (schema parse, op build, validator
+        // probe). Host work that merely FAILED still never reaches this test — a timeout,
+        // a 5xx, an unresolvable id and a missing key are all transient and are given no
+        // key. The single exception is a host that DECLARES a `refusalCause`
+        // (`tool-executor.ts#HostToolOutcome`): that is a policy verdict the host reached
+        // from the project, not work it attempted, and `stock-host.ts` reaches it before
+        // spending the download — so letting it settle still costs nothing.
         const bankedKey = deterministicFailureKey(call.name, settledOutcome);
         const isRepeat = bankedKey !== undefined && seenFailureKeys?.has(bankedKey) === true;
         if (isRepeat) {
@@ -6081,8 +6473,14 @@ export class Orchestrator {
       ...(input.selection ? { selection: input.selection } : {}),
       hasSelection: input.selection !== undefined,
     });
+    // Routing is the cheapest judgement the orchestrator makes, so it is the one call
+    // stamped `small`: with `FRAMEPILOT_TIER_SMALL_*` configured it runs on a cheap model
+    // and the editing turn still runs on the host-selected one. Unset, this IS
+    // `this.provider` and nothing about the call changes.
+    const provider = this.providerForTier('small');
     orchestratorLog.action('classifyCommand → request', {
-      provider: this.provider.name,
+      provider: provider.name,
+      model: provider.modelId,
       userTextChars: input.userPrompt.length,
     });
     const estimatedInput = messages.reduce(
@@ -6091,22 +6489,25 @@ export class Orchestrator {
     );
     // Classification is a small, self-contained call with no assembled tiers behind it,
     // so its manifest is payload-derived: honest about being coarse, but every figure
-    // real. It is what makes the "thinking" phase's occupancy explainable too.
-    const capabilities = capabilitiesFor(this.provider.name, this.provider.modelId);
+    // real. It is what makes the "thinking" phase's occupancy explainable too. The limits
+    // come from the provider that ACTUALLY serves this call — a small model's context
+    // window is smaller, and a manifest reporting the large model's would understate
+    // occupancy for the one request it describes.
+    const capabilities = capabilitiesFor(provider.name, provider.modelId);
     const manifest = buildRequestManifest({
       requestId: 'classify',
-      provider: this.provider.name,
-      ...(this.provider.modelId ? { model: this.provider.modelId } : {}),
-      contextWindow: contextWindowFor(input, this.provider),
+      provider: provider.name,
+      ...(provider.modelId ? { model: provider.modelId } : {}),
+      contextWindow: contextWindowFor(input, provider),
       windowSource: capabilities.source,
-      reservedOutputTokens: reservedOutputFor(input, this.provider),
+      reservedOutputTokens: reservedOutputFor(input, provider),
       request: { messages },
     });
     try {
-      const response = await this.provider.complete({ messages }, signal);
+      const response = await provider.complete({ messages }, signal);
       const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
-        provider: this.provider.name,
+        provider: provider.name,
         route: classification.route,
         usage: response.usage,
       });
@@ -6178,6 +6579,12 @@ export class Orchestrator {
     orchestratorLog.action('streamAuto classified', {
       route: classification.route,
       conversationId: options.conversationId,
+      // WHICH model made the routing call, and what it cost. Routing runs on the `small`
+      // tier, so a run that routed oddly is often a run that routed on a different model
+      // than the reader assumes; without these the log cannot tell those apart.
+      provider: classifierManifest.provider,
+      model: classifierManifest.model,
+      ...(classifierUsage === undefined ? {} : { usage: classifierUsage }),
     });
     const sharedEditorControls: EditorRunControls = {
       ...(autoOptions.onLifecycleEvent === undefined
@@ -6998,7 +7405,9 @@ export class Orchestrator {
       try {
         operations.push(...this.operationsFor(call, ctx));
       } catch (error) {
-        callErrors.push((error as ToolInvocationError).message);
+        // The editor reads this (a warning, and the failure card when every call was
+        // rejected), so it gets the plain summary — the raw schema text is machine-speak.
+        callErrors.push((error as ToolInvocationError).editorSummary);
       }
     }
     for (const message of callErrors) yield emit.warning(message);
@@ -7101,7 +7510,7 @@ export class Orchestrator {
       requirePlanApproval: agentOptions.requirePlanApproval ?? false,
       conversationId: options.conversationId,
     });
-    const { command, handlers, settle } = this.agentRun(
+    const { command, handlers, settle, dispose } = this.agentRun(
       input,
       options,
       agentOptions,
@@ -7114,6 +7523,11 @@ export class Orchestrator {
     } catch (error) {
       orchestratorLog.error('streamAgent threw — settling partial run', { error: String(error) });
       yield* settle(error);
+    } finally {
+      // Normal completion, error, Stop, deadline — and the fourth path neither `finalize`
+      // nor `settle` reaches: a consumer that stops draining this generator. An armed
+      // deadline is a live `setTimeout`, and a leaked one keeps the process alive.
+      dispose();
     }
   }
 
@@ -7148,6 +7562,8 @@ export class Orchestrator {
     command: Command;
     handlers: ConductorHandlers;
     settle: (error: unknown) => AsyncGenerator<AiEvent>;
+    /** Clear the run's wall-clock deadline. Idempotent; a leaked timer holds the process open. */
+    dispose: () => void;
   } {
     // `async function*` handlers below carry their own `this`; capture the instance so
     // they can reuse the orchestrator's shared turn mechanics without `.bind` (which
@@ -7157,7 +7573,41 @@ export class Orchestrator {
     // ADR 0057: agent runs advertise the bundled skills manifest by default.
     input = this.withSkills(input);
     const now = options.now ?? Date.now;
+    const runStartedAt = now();
     const signal = options.signal;
+    /**
+     * THE RUN'S OWN CLOCK, armed on the step that is in flight.
+     *
+     * The Conductor's budget check reads `runElapsedMs`, and `turnBase` below stamps that
+     * only when a turn FINISHES — so the wall-clock bound covered the gaps between model
+     * calls and never a call itself. Run `369e8c82` was given 37 minutes, hung inside its
+     * twentieth model call at 15:16:45, and was still hanging at 15:55:33 when the app
+     * closed: the limit expired at 15:24:11 and nothing was there to notice. A step that
+     * does not return was unbounded.
+     *
+     * Same number as the reducer's cap, from the same function, so the two can never
+     * disagree about when this run is over.
+     */
+    const deadline = createRunDeadline(
+      maxWallMsFor(agentOptions.maxMinutes),
+      options.signal,
+      controls.timers,
+    );
+    /**
+     * The signal for the run's IN-FLIGHT step work — the model stream and the turn's tool
+     * calls (which is also what reaches `withRetry`, so a retry loop is cut off too).
+     *
+     * Deliberately not threaded into the plan draft, the approval gate, or the verify /
+     * repair pass. None of those sits inside the turn loop, and none has a route that could
+     * turn an abort into a report: `toVerify` issues a `run_verify` effect, so a deadline
+     * that aborted the whole run would kill the very verification it triggered and the run
+     * would report nothing — the exact failure this exists to remove, reproduced by the fix.
+     * They stay on the editor's Stop signal, where an abort means what it says.
+     */
+    const runSignal = deadline.signal;
+    /** The run stopped on its own clock rather than on the editor's Stop. */
+    const deadlineStopped = (): boolean =>
+      deadline.expired() && !(options.signal?.aborted ?? false);
     const maxOpsPerTurn = agentOptions.maxOpsPerTurn ?? DEFAULT_MAX_OPS_PER_TURN;
     const { runtime: effectRuntime, finish: finishEffects } = this.createRunRuntime(
       this.controlEffectExecutor(controls),
@@ -7357,6 +7807,9 @@ export class Orchestrator {
       intent: '',
       log: [...log],
       endSeq,
+      // The run's meter and clock, so the reducer can hold the run to its budget.
+      runUsd: usageUsd,
+      runElapsedMs: now() - runStartedAt,
       ...(hostRefusals.length > 0 ? { hostRefusals: hostRefusals.splice(0) } : {}),
       ...over,
     });
@@ -7377,7 +7830,7 @@ export class Orchestrator {
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
 
-    const handlers: ConductorHandlers = {
+    const stepHandlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
       // ledger + emits `plan`/`status('thinking')`; here we emit `status('planning')`
       // and thread the labels into every turn's context.
@@ -7519,8 +7972,16 @@ export class Orchestrator {
         activeEmit = emit;
         const index = effect.stepIndex;
 
-        // Top-of-loop cancellation (streamAgent's `if (signal.aborted) break`).
-        if (signal?.aborted) return turnBase(index, emit.seq(), { aborted: true });
+        // Top-of-loop stop (streamAgent's `if (signal.aborted) break`) — now reading the
+        // run signal, so an expired deadline stops the loop here too. Which of the two
+        // fired decides how the run settles: Stop cancels, the clock running out reports.
+        if (runSignal.aborted) {
+          return turnBase(
+            index,
+            emit.seq(),
+            deadlineStopped() ? { deadlineExpired: true } : { aborted: true },
+          );
+        }
 
         // P11.4 mid-run steering: pop any message the editor queued while this run was
         // in flight and fold it into THIS turn's context — a queued, next-boundary
@@ -7571,6 +8032,16 @@ export class Orchestrator {
           yield emit.warning(describeUnrecovered(invariants.unrecovered));
           // Integrity loss is an execution barrier. Do not call the model and do not
           // expose mutating tools while the durable ledger cannot authorize this turn.
+          //
+          // This note names no next action ON PURPOSE, and it is the one failure in this
+          // file that should not (goal.md C; exempted by name in
+          // `model-facing-failure.gate.test.ts`). It carries `done: true`, so the model is
+          // never called again and never reads it: the reducer files it as the failed plan
+          // step's detail, for the editor. There is also no move to name — the run's own
+          // objective and committed plan are what could not be recovered, so every tool
+          // the model could be pointed at would act on a ledger this turn just refused to
+          // trust. The move belongs to the person, and `describeUnrecovered` above is what
+          // reaches them.
           return turnBase(index, emit.seq(), {
             done: true,
             note: 'Run paused because its objective or committed plan could not be recovered.',
@@ -7625,7 +8096,7 @@ export class Orchestrator {
                 ? self.agentTools('action-recovery', undefined, loadedToolDomains)
                 : self.agentTools(turnScope, effect.stage, loadedToolDomains),
             },
-            signal,
+            runSignal,
             // Per-step thinking (U3, redesign §12): each step captures the model's
             // reasoning into its OWN node `${turnId}:reasoning:${index}`, so an agent run's
             // thinking blocks stay distinct, ordered, and interleaved with that step's tool
@@ -7652,6 +8123,11 @@ export class Orchestrator {
               /* v8 ignore next -- taskMemory is always defined on the live path (see the effect.working guard above), so the empty-object fallback never runs. */
               ...(taskMemory ? { memory: memoryStatusFrom(taskMemory) } : {}),
             },
+            // The waiting heartbeat, on the one call that actually went silent for
+            // thirty-nine minutes. Same injected timers as the run's deadline — one clock
+            // abstraction for the run, not two — and the same `runSignal`, so Stop and the
+            // deadline end the beat exactly where they end the call.
+            { ...(controls.timers ? { timers: controls.timers } : {}) },
           );
         let turn = yield* streamOnce(0);
         modelCalls += 1;
@@ -7725,7 +8201,13 @@ export class Orchestrator {
               : 'The model response was truncated before it proposed anything.',
           });
         }
-        if (turn.aborted) return turnBase(index, emit.seq(), { aborted: true });
+        if (turn.aborted) {
+          return turnBase(
+            index,
+            emit.seq(),
+            deadlineStopped() ? { deadlineExpired: true } : { aborted: true },
+          );
+        }
 
         if (turn.calls.length === 0) {
           // A turn with NEITHER prose NOR a tool call is not a finished run — it is a turn
@@ -7758,7 +8240,9 @@ export class Orchestrator {
               return turnBase(index, emit.seq(), { done: true, note: detail });
             }
             log.push(`Step ${index}: empty model response — nothing to apply.`);
-            throw new ProviderError(detail, 'server');
+            // `detail` is already the editor's sentence (it names the cause and the next
+            // step), so the failure card keeps it instead of the generic server copy.
+            throw new ProviderError(detail, 'server', { editorMessage: detail });
           }
           log.push(`Step ${index}: ${turn.text}`);
           yield emit.assistant(segmentId, turn.text);
@@ -7843,7 +8327,7 @@ export class Orchestrator {
           loadedSkills,
           loadedToolDomains,
           controls.askUser,
-          signal,
+          runSignal,
           now,
           analysisBudget,
           // Enforced, not merely advertised. `allowedToolNames` used to be passed only on
@@ -7878,9 +8362,14 @@ export class Orchestrator {
         // will read the next turn's timeline as proof that the missing call did nothing and
         // move on without it.
         for (const lost of new Set(turn.droppedToolCalls ?? [])) {
+          // The instruction has to close off the WRONG move as well as name the right
+          // one — the comment above is the whole reason this note exists, and a model that
+          // reads the next turn's timeline as proof the call did nothing moves on without
+          // it (goal.md C; `reliability/next-action.ts`).
           const note =
             `"${lost}" was not run: its arguments arrived incomplete and were discarded. ` +
-            'Nothing from that call happened. Call it again on its own.';
+            'Nothing from that call happened. Do not use the timeline as proof it did ' +
+            'nothing; call it again on its own.';
           notes.push(note);
           log.push(`Step ${index}: ${note}`);
         }
@@ -8046,7 +8535,11 @@ export class Orchestrator {
           state.cumulativeOps.length > 0,
           evidence,
         );
-        let report = critique(working, verifyOptions);
+        // The self-check grades what the run CHANGED. A defect the footage already had —
+        // measured on the project the run started from, with the same reading — is said as
+        // an advisory and does not fail a correct edit (`reconcileInheritedFailures`).
+        const inheritedFrom = critique(input.project, verifyOptions);
+        let report = reconcileInheritedFailures(inheritedFrom, critique(working, verifyOptions));
         const repairOps: AnyOperation[] = [];
         let repairOutcome: RepairOutcome | undefined;
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
@@ -8099,7 +8592,10 @@ export class Orchestrator {
               turnIndex: state.planSteps.length + 1,
               runId: analysisRunId,
             });
-            report = critique(working, self.critiqueOptions(input, agentOptions, true, evidence));
+            report = reconcileInheritedFailures(
+              inheritedFrom,
+              critique(working, self.critiqueOptions(input, agentOptions, true, evidence)),
+            );
           }
         }
         const named = (status: 'fail' | 'warn'): { label: string; detail: string }[] =>
@@ -8164,7 +8660,10 @@ export class Orchestrator {
         // said nothing about any of them, because this gate treated "cancelled" as "there
         // is nothing to report". The last word the editor got was a perceptual warning
         // about frames, over a timeline they had no summary of.
-        if (!effect.failed && reportedOps.length > 0) {
+        // A FAILED run that applied something gets the receipt too. The edits are on the
+        // timeline whether or not verification passed; withholding the list left the
+        // editor with a bare "failed" over a project that had changed under them.
+        if (reportedOps.length > 0) {
           yield emit.assistant(
             emit.assistantId,
             agentCompletionReport({
@@ -8175,6 +8674,7 @@ export class Orchestrator {
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
               ...(effect.cancelled ? { cancelled: true } : {}),
+              ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(offGridNote ? { offGrid: offGridNote } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
@@ -8183,7 +8683,36 @@ export class Orchestrator {
         // No run-level reasoning settle here: each step settled its OWN reasoning node
         // (per-step ids), so there is no shared per-run node left spinning.
         yield emit.status(effect.cancelled ? 'cancelled' : effect.failed ? 'failed' : 'completed');
+        deadline.dispose();
         finishEffects();
+      },
+    };
+
+    /**
+     * The deadline's landing pad.
+     *
+     * A model call or host tool that the deadline aborts does not RETURN a turn result — it
+     * THROWS, out of `streamAssistant` and out of the handler, and the graph settles a
+     * throw as an error card plus a terminal `failed`. That is how run `369e8c82` reported
+     * `failed` with nine committed patches it never mentioned, and re-arming the clock
+     * without catching here would have reproduced it 39 minutes earlier.
+     *
+     * So: catch, and only when the run's own clock is what stopped it (a real provider
+     * failure, and the editor's Stop, both still settle exactly as before). The synthetic
+     * result folds nothing — the interrupted turn applied nothing — and carries the flag
+     * that routes it through the ordinary budget stop instead of the cancel path. Seeded at
+     * `seqAtThrow()`, the seq the throwing handler had reached, so the run's event ids stay
+     * continuous.
+     */
+    const handlers: ConductorHandlers = {
+      ...stepHandlers,
+      runTurn: async function* (effect, state) {
+        try {
+          return yield* stepHandlers.runTurn(effect, state);
+        } catch (error) {
+          if (!deadlineStopped()) throw error;
+          return turnBase(effect.stepIndex, seqAtThrow(), { deadlineExpired: true });
+        }
       },
     };
 
@@ -8214,14 +8743,20 @@ export class Orchestrator {
     // until they changed something outside the app. An unrecognised throw keeps the
     // optimistic default: without a classification, offering the retry is kinder
     // than refusing one that might have worked.
+    //
+    // The headline itself comes from `plainRunFailure` (GOLDEN-F.5): the same
+    // classification that decides retryability also decides which sentence the
+    // editor reads, so the card never shows a raw wire message.
+    // `function*` expressions do not inherit `this`, so the provider name is captured here.
+    const providerName = this.provider.name;
     const settle = async function* (error: unknown): AsyncGenerator<AiEvent> {
       const emit = createTurnEmitter(options, seqAtThrow());
       const aborted = options.signal?.aborted ?? false;
       if (!aborted) {
-        yield emit.error(
-          error instanceof Error ? error.message : 'The agent run failed unexpectedly.',
-          { retryable: error instanceof ProviderError ? error.retryable : true },
-        );
+        // The card the editor reads is a sentence naming the next action; the raw
+        // provider text moves into `detail` so nothing is lost for a bug report.
+        const plain = plainRunFailure(error, providerName);
+        yield emit.error(plain.message, { detail: plain.detail, retryable: plain.retryable });
       }
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,
       // completed turns, a repair call) — settle honestly with whatever cost accrued
@@ -8230,23 +8765,31 @@ export class Orchestrator {
       // Per-step reasoning nodes each settled themselves (streamAssistant's abort-safe
       // settle) — no shared per-run node to close here.
       yield emit.status(aborted ? 'cancelled' : 'failed');
+      deadline.dispose();
       finishEffects();
     };
 
-    return { command, handlers, settle };
+    return { command, handlers, settle, dispose: () => deadline.dispose() };
   }
 
   /**
    * The Conductor execution handlers for one agent run — the parity harness's seam
    * onto {@link agentRun}. {@link streamAgent} itself uses `agentRun` directly so it
    * also gets the run's {@link Command} and the throw-settling generator.
+   *
+   * `dispose` comes with them because a run compiled here arms the same wall-clock
+   * deadline `streamAgent`'s does (that is the point of a parity seam — it must exercise
+   * what the real path runs), and this seam has no `finally` of its own to clear it. The
+   * caller owns the run, so the caller owns the timer: drive the handlers, then dispose.
    */
   public agentConductorHandlers(
     input: ContextInput,
     options: StreamOptions,
     agentOptions: AgentOptions = {},
-  ): ConductorHandlers {
-    return this.agentRun(input, options, agentOptions).handlers;
+    controls: AgentRunControls = {},
+  ): { handlers: ConductorHandlers; dispose: () => void } {
+    const { handlers, dispose } = this.agentRun(input, options, agentOptions, controls);
+    return { handlers, dispose };
   }
 }
 
@@ -8308,12 +8851,10 @@ function withheldCallOutcome(
   // turn with having learned something, resetting the guards that exist to stop it.
   //
   // The one honest thing to say is that the name is wrong, and to say it as a failure.
-  // `runAgentCall` already answers this way on the serial path (`Refused unknown tool`);
-  // this is the same verdict for the path that never reaches it.
+  // `runAgentCall` answers this way on the serial path too, in the SAME words —
+  // `unknownToolNote` — because it is the same verdict for the path that never reaches it.
   if (!getTool(call.name)) {
-    const note =
-      `There is no tool called "${call.name}". Use one of the tools offered on this ` +
-      'turn — inventing a name will not make it exist on the next one.';
+    const note = unknownToolNote(call.name);
     // `data` + the flag, or `deterministicFailureKey` banks nothing and the sentence above
     // is all this branch achieves — the model waits a turn and calls the same invented name
     // again, which is precisely the loop described in the comment at the top of this branch.
@@ -8357,6 +8898,79 @@ function withheldCallOutcome(
 }
 
 /**
+ * The outcome for a HOST-BACKED tool whose built operations the validator refused.
+ *
+ * Five branches ran this probe after a host returned a usable payload — `transcribe`,
+ * `remove_silences`, `add_music`, `add_stock` and `track_subject_automatically` — and not
+ * one of them set {@link AgentCallOutcome.deterministicFailure}, while the generic mutate
+ * path's byte-identical branch always has. So the same rejection could be re-earned every
+ * turn for the length of the run, which is run `369e8c82`'s loop with a host in front of
+ * it. The probe itself is as deterministic as the generic one: `assembleEdit` reads only
+ * the working copy and the operations, so the same operations against the same project are
+ * refused the same way every time.
+ *
+ * THE COLLISION HAZARD, resolved rather than skipped. These operations are built from a
+ * DOWNLOADED payload, so two different assets can produce one validator sentence and share
+ * one key — and refusing a second asset because a first one failed is the mistake ADR 0166
+ * is the standing lesson about. It cannot happen here. The key is computed only once a
+ * call has SETTLED, and only a `failed` outcome ever yields one, so the second asset is
+ * fetched and validated in full and a payload that VALIDATES lands with no key to match
+ * against. The most a collision can do is replace the prose of a call that had already
+ * failed — with the sentence of a call that failed for the identical stated reason, since
+ * the validator names the clip ids, track ids and times it objected to and `failureCause`
+ * strips only the operation locator. The remedy transfers because it is the same remedy.
+ *
+ * `rejectedOpCount` IS the trace, and without it the run lied about itself. These five
+ * return `ops: []` with the operations they lost carried nowhere, so the turn reported zero
+ * operations, `lostOpsPerCall` saw nothing, no `failed` ledger row was written, and a run
+ * that lost everything to one of them closed with "this run reviewed the footage but never
+ * made a change" — true of the timeline, false about the run, and the class of dishonest
+ * report goal.md's release gate names outright. It is the same defect `b7f1fd3` closed for
+ * the declared host refusal, and the same route out: the count reaches the conductor's
+ * `lostOpsPerCall`, which files the turn as a `failed` operation whose `failureReason` is
+ * this note — so the validator's sentence reaches the state briefing's "FAILED — fix the
+ * cause" section and the closing empty-/partial-run notice, instead of ageing out of the
+ * context window with the tool result the way run `369e8c82`'s remedy did.
+ *
+ * The count is the REAL one, not the refusal path's `1`. A refusal is reached before any
+ * operation is built; these five have already built theirs and lose every one — three for a
+ * music bed (`add_asset`, `add_layer`, `add_clip`, four with a duck), one `ripple_delete`
+ * per silence cut, one per compiled tracking operation. `emptyRunMessage` and
+ * `agentCompletionReport` both say "N proposed change(s)", so a hardcoded `1` in front of a
+ * fifty-cut silence pass would be its own small dishonesty. The unit is the one the generic
+ * mutate path's byte-identical branch already uses (`rejectedOpCount: ops.length`), so an
+ * operation lost behind a host and one lost in process are counted the same way.
+ *
+ * The OPERATIONS are taken rather than a number so a call site cannot report a count that
+ * does not belong to the list the probe actually refused.
+ *
+ * @param callName - The tool being refused — the note the model reads and the key's prefix.
+ * @param issues - The probe's validation issues; only errors are quoted.
+ * @param refusedOps - The operations the probe refused; their count is what the run lost.
+ * @returns A failed outcome the run can remember for the rest of its life.
+ */
+function hostBackedValidatorRejection(
+  callName: string,
+  issues: readonly ValidationIssue[],
+  refusedOps: readonly AnyOperation[],
+): AgentCallOutcome {
+  const problems = issues
+    .filter((issue) => issue.severity === 'error')
+    .map((issue) => issue.message)
+    .join('; ');
+  const note = `Rejected "${callName}" — ${problems}`;
+  return {
+    ops: [],
+    note,
+    summary: note,
+    status: 'failed',
+    data: problems,
+    deterministicFailure: true,
+    rejectedOpCount: refusedOps.length,
+  };
+}
+
+/**
  * The run-memory key for a refusal the run can PROVE will repeat, or `undefined`.
  *
  * `name:error`, because the error is the identity and the arguments are not. In run
@@ -8368,16 +8982,28 @@ function withheldCallOutcome(
  *
  * Only a {@link AgentCallOutcome.deterministicFailure} yields a key: a host or transport
  * failure is transient by nature, and a permanent block on one would refuse work that the
- * next attempt would have completed.
+ * next attempt would have completed. A host outcome earns the flag in exactly one way —
+ * by DECLARING a {@link HostToolOutcome.refusalCause}, which asserts a policy verdict read
+ * off the project rather than work that failed. Nothing else about a host outcome, however
+ * byte-identical it repeats, is ever keyed.
  */
 function deterministicFailureKey(
   callName: string,
-  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure'>,
+  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure' | 'refusalCause'>,
 ): string | undefined {
   if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
   // The error text is the key's whole discriminating power; without it every failure of a
-  // tool would collapse to one key and the guard would block the tool outright.
+  // tool would collapse to one key and the guard would block the tool outright. Tested
+  // before the cause branch as well, because a key promises the caller a sentence to
+  // hand back (`repeatedFailureOutcome`), and a refusal always has one.
   if (typeof outcome.data !== 'string' || outcome.data.trim() === '') return undefined;
+  // A POLICY refusal that named its rule is keyed on the RULE. Its sentence is written to
+  // be acted on, so it carries the asset, the times and the conflicting clip — and in run
+  // `369e8c82` that made four refusals of one rule into four keys. Nothing matched, and
+  // the model, nudging 4.48–6s to 4.2–6s to 4.2–6.2s, spent fifteen minutes discovering
+  // the same "no" three more times. Prose-stripping cannot rescue that the way it rescues
+  // a validator locator: here the varying parts are the whole body of the sentence.
+  if (outcome.refusalCause !== undefined) return `${callName}:${outcome.refusalCause}`;
   return `${callName}:${failureCause(outcome.data)}`;
 }
 
@@ -8409,28 +9035,39 @@ function failureCause(error: string): string {
 }
 
 /**
- * The outcome for a call the run has already been refused with, word for word.
+ * The outcome for a call the run has already been refused for the same CAUSE.
+ *
+ * It used to say "with exactly this error", and while the key was the error text that was
+ * literally true. It no longer is: a policy refusal keys on its rule
+ * ({@link deterministicFailureKey}), so run `369e8c82`'s second attempt — a different
+ * asset at different times against a different clip — reaches here with a sentence the run
+ * has never seen, matched to a rule it has.
  *
  * Settled as `failed`, NOT `warning` — the same trap `withheldCallOutcome`'s unknown-tool
  * branch documents. `callAnswered` treats a warning as an answer, so a warning here would
  * credit the turn with progress and bank the call's novelty key, which is to say the guard
  * against spinning would reset the guards against spinning.
  *
- * The message names a way out, because a refusal with no legal move left is how a run gets
- * stranded: fix the precondition the error names, pick a different tool, or move on.
+ * The REMEDY has to survive, and that is the whole reason `error` is quoted in full rather
+ * than summarized. This note REPLACES the refusal the model would otherwise have read, and
+ * the picture-over-picture sentence is where "split at the in/out and place it on the same
+ * track" lives. Dropping it would turn a helpful refusal into a dead end — worse than the
+ * loop it is closing.
  */
 function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome {
   const note =
-    `"${call.name}" already failed this run with exactly this error: ${error} ` +
-    'Retrying it cannot succeed. Fix the precondition it names, use a different tool, ' +
-    'or move on to the next part of the request.';
+    `"${call.name}" already failed this run for this same reason: ${error} ` +
+    'The arguments changed and the answer did not, so nudging them again will not help. ' +
+    'Do what that reason names instead, use a different tool, or move on to the next ' +
+    'part of the request.';
   return {
     ops: [],
     note,
     summary: `Refused repeat of "${call.name}" — it already failed this run`,
     status: 'failed',
-    // The ORIGINAL error, so this refusal keys back to the entry it matched instead of
-    // banking a second, wordier key for the same cause.
+    // The ORIGINAL error, not the wrapper prose. This outcome carries no `refusalCause`,
+    // so a policy repeat banks its own text key beside the rule key that caught it —
+    // harmless bookkeeping, since the rule key is what every further attempt matches on.
     data: error,
     deterministicFailure: true,
   };
@@ -8466,6 +9103,11 @@ export function agentCompletionReport(args: {
    * accounting for; only the claim that the work is finished changes.
    */
   cancelled?: boolean;
+  /**
+   * True when the run settled `failed` after applying these edits (verification did not
+   * pass). The list is the same receipt; the head stops claiming the work is done.
+   */
+  failed?: boolean;
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -8484,9 +9126,12 @@ export function agentCompletionReport(args: {
     .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
   const more = distinct.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
+  const applied = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
   const head = args.cancelled
-    ? `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} before you stopped the run — they are on your timeline and can be undone.`
-    : `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'} — review the proposed change below.`;
+    ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
+    : args.failed
+      ? `${applied}, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.`
+      : `${applied} — review the proposed change below.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`

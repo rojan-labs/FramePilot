@@ -242,7 +242,11 @@ def test_render_fails_validation_on_black_output(
 
     assert job.state == RenderState.FAILED
     assert job.validation is not None and not job.validation.ok
-    assert job.error is not None and "black_frames" in job.error
+    # The check name stays in the report for the details pane; the editor reads a sentence.
+    assert any(c.name == "black_frames" and c.status.value == "fail" for c in job.validation.checks)
+    assert (
+        job.error == "The export did not pass its checks. The export is black — nothing was drawn."
+    )
 
 
 # --- master-bus audio pass (plan Phase 6 sound) ------------------------------
@@ -267,6 +271,23 @@ def test_master_audio_pass_threads_eq_and_compression(tmp_path: Path, monkeypatc
     _apply_master_audio_pass(output, REELS, RenderOptions(eq="voice-clarity", compression="voice"))
     assert "equalizer" in seen["filter"] and "acompressor" in seen["filter"]
     assert output.read_bytes() == b"filtered"
+
+
+def test_master_audio_pass_failure_leaves_no_partial_temp(tmp_path: Path, monkeypatch: Any) -> None:
+    """goal.md F: cleanup of temporary artifacts on failure, not only on success."""
+    output = tmp_path / "out.mp4"
+    output.write_bytes(b"render")
+
+    def failing_apply(src: Path, dst: Path, _filter: str, *, audio_codec: str) -> None:
+        dst.write_bytes(b"half-written")
+        raise RuntimeError("ffmpeg exploded")
+
+    monkeypatch.setattr("framepilot_engine.render.pipeline.apply_master_audio", failing_apply)
+    with pytest.raises(RuntimeError, match="ffmpeg exploded"):
+        _apply_master_audio_pass(output, REELS, RenderOptions(compression="voice"))
+    assert not output.with_suffix(".mp4.master.tmp").exists()
+    # The finished render is the caller's to keep or discard; this pass never eats it.
+    assert output.read_bytes() == b"render"
 
 
 def test_master_audio_pass_noop_without_options(tmp_path: Path, monkeypatch: Any) -> None:
@@ -417,3 +438,33 @@ def test_discarding_a_partial_survives_a_missing_or_unresolved_path(tmp_path: Pa
     job = RenderJob(id="j3", project_id="p1", state=RenderState.FAILED, error="boom")
     _discard_partial_output(job, None)
     _discard_partial_output(job, tmp_path / "never-created.mp4")
+
+
+# --- determinism: the same project produces the same file (goal.md F) ---------------
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_export_is_byte_identical_across_runs(
+    tmp_project_dir: Path, media_factory: Callable[..., Path], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The same project produces the same file — on the SOFTWARE encoder.
+
+    Measured 2026-09-02 on Apple Silicon: two libx264 renders of one project are
+    byte-identical; two h264_videotoolbox renders differ by one byte inside ``mdat`` —
+    the hardware rate controller is not bit-reproducible, and nothing in the muxer or
+    the audio pass is at fault. So the guarantee is stated for software encoding, which
+    is what CI runs and what ``FRAMEPILOT_HW_ENCODE=0`` selects on a desktop.
+    """
+    import hashlib
+
+    monkeypatch.setenv("FRAMEPILOT_HW_ENCODE", "0")
+    _place_asset(media_factory, tmp_project_dir, "clip.mp4", seconds=1.0, color="red")
+    first = export_video(_video_project(), base_dir=tmp_project_dir)
+    assert first.state == RenderState.COMPLETED and first.output_path
+    first_bytes = Path(first.output_path).read_bytes()
+    Path(first.output_path).unlink()
+    second = export_video(_video_project(), base_dir=tmp_project_dir)
+    assert second.state == RenderState.COMPLETED and second.output_path
+    second_bytes = Path(second.output_path).read_bytes()
+    assert first.encoder is not None and first.encoder.startswith("libx264")
+    assert hashlib.sha256(first_bytes).hexdigest() == hashlib.sha256(second_bytes).hexdigest()

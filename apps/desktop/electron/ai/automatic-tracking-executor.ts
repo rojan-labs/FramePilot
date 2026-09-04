@@ -210,7 +210,11 @@ async function runDetection(
     status: detections.length === 0 ? 'warning' : 'completed',
     summary:
       detections.length === 0
-        ? `Detected nothing (looked for ${objective.labels.join(', ')}) — an honest empty result, not a guess.`
+        ? `Detected nothing (looked for ${objective.labels.join(', ')}) — an honest empty ` +
+          'result, not a guess. The detector saw the frames and found none of those ' +
+          'labels, so asking again for the same labels on the same clip returns the same ' +
+          'nothing. Call detect_subjects once with different labels if another subject ' +
+          'would do, or continue without a tracked subject and tell the editor.'
         : `Detected ${labelSummary} across ${frames} frame${frames === 1 ? '' : 's'} with ${job.engine}`,
     data: {
       kind: 'detect_subjects',
@@ -260,9 +264,12 @@ async function runTracking(
   // but the plan type is shared with detection (maskless) — make the
   // dependency explicit instead of asserting.
   if (plan.maskEffectId === undefined) {
+    // Its OWN code, not `target_unresolved`: the target resolved fine, and this is the one
+    // failure in this file the model can actually repair itself (`add_mask`). Sharing the
+    // "only the editor can fix this" code would have hidden that.
     return failed(
       AUTOMATIC_TRACKING_TOOL_NAME,
-      'target_unresolved',
+      'mask_missing',
       'The selected clip has no rectangle or ellipse mask for the track to steer.',
     );
   }
@@ -329,10 +336,16 @@ function mapJobFailure(toolName: string, outcome: PackJobFailureOutcome): HostTo
   if (outcome.status === 'pack_missing') {
     return {
       status: 'failed',
+      // Installing is the EDITOR's move — the install prompt is already on their screen —
+      // so the sentence closes the call off rather than leaving the model to re-issue it
+      // while the download runs. "Do not claim the measurement succeeded" was the only
+      // instruction here, and it says what not to REPORT, never what to do next.
       summary:
-        `"${toolName}" needs a pack that is not installed on this machine. The user can install ` +
-        'it from the prompt shown here or from Settings › Capability Packs; do not claim the ' +
-        'measurement succeeded.',
+        `"${toolName}" needs a Capability Pack that is not installed on this machine. ` +
+        'Installing it is the editor’s decision and FramePilot has already offered it to ' +
+        `them, so do not call ${toolName} again in this run — carry on with the rest of ` +
+        'the edit, tell the editor the pack has to be installed first, and do not claim ' +
+        'the measurement succeeded.',
       data: { code: 'pack_missing', proposal: outcome.proposal },
     };
   }
@@ -340,19 +353,117 @@ function mapJobFailure(toolName: string, outcome: PackJobFailureOutcome): HostTo
     if (outcome.code === 'cancelled') {
       return { status: 'cancelled', summary: `Stopped "${toolName}" — run cancelled` };
     }
-    return failed(
-      toolName,
-      outcome.code,
-      `${outcome.detail}${outcome.retryable ? ' (Retryable.)' : ''}`,
-    );
+    // `outcome.detail` is the pack authority's or the worker's own sentence, forwarded
+    // verbatim — we do not get to invent an account of a failure we have never seen. What
+    // IS ours is whether a second call can help, which the authority states, so the tail
+    // below turns its boolean into the move.
+    return failed(toolName, outcome.code, outcome.detail, outcome.retryable);
   }
   return failed(toolName, 'worker_failed', 'The pack job ended without a result.');
 }
 
-function failed(toolName: string, code: string, detail: string): HostToolOutcome {
+/**
+ * The move the model can make, per failure code this executor produces.
+ *
+ * goal.md Workstream C: "Errors are prompts too." Every sentence in this file used to stop
+ * at the fact — "The worker returned no detection set.", "Automatic tracking could not
+ * resolve a target." — which is the shape `packages/ai-sdk/src/reliability/next-action.ts`
+ * pins as a dead end: true, unactionable, and answered by repeating the call.
+ *
+ * Written the way `VISUAL_REASON_GUIDANCE` and `reliability/refusal-notes.ts` are written:
+ * whether retrying helps, then a tool the model can call or an explicit close. Nothing
+ * here tells it to author coordinates — the one thing the automatic-tracking contract
+ * forbids the model to do (`domain-tools/automatic-tracking.ts`), which is why the
+ * worker-failure arm names no substitute and simply stops.
+ *
+ * `{tool}` renders as the failing tool's own name. A code with no entry falls through to
+ * {@link externalFailureGuidance}, because inventing an "instead" for a worker error we
+ * have never seen is the one thing this file must not do.
+ */
+const FAILURE_GUIDANCE: Readonly<Record<string, string>> = {
+  target_unresolved:
+    'This needs the clip the editor has selected in the timeline, and only the editor can ' +
+    'change that selection — calling {tool} again resolves the same way. Check what is ' +
+    'selected with get_selected_range; if it is not the clip you meant, tell the editor ' +
+    'which clip to select and carry on with the rest of the edit.',
+  mask_missing:
+    'A track steers an existing mask, so there is nothing to move yet. Add one with ' +
+    'add_mask on that clip and then call {tool} again for it.',
+  worker_failed:
+    'This is the measurement itself failing, not your arguments, and repeating it measures ' +
+    'the same shot the same way. Do not call {tool} again for this clip — tell the editor ' +
+    'that automatic tracking could not produce a usable measurement and that nothing was ' +
+    'changed.',
+  routing_error:
+    'This is a FramePilot routing bug, not something your arguments can fix, and it will ' +
+    'answer the same way every time. Do not call {tool} again — tell the editor this tool ' +
+    'is misrouted in this build.',
+};
+
+/**
+ * The tail for a code this file does not author — the pack authority's or the worker's.
+ *
+ * The detail is theirs and is forwarded verbatim; the only thing we know for certain is
+ * what the authority told us about retrying, so that is the only thing this adds.
+ */
+function externalFailureGuidance(toolName: string, retryable: boolean): string {
+  return retryable
+    ? `The pack worker reports this as worth one more attempt. Call ${toolName} once more; ` +
+        `if it fails the same way, do not call it again — tell the editor that automatic ` +
+        `tracking could not run and carry on with the rest of the edit.`
+    : `The pack worker reports this as final, so a second attempt answers the same way. Do ` +
+        `not call ${toolName} again for this clip — tell the editor that automatic tracking ` +
+        `could not run and carry on with the rest of the edit.`;
+}
+
+/**
+ * One refusal from this executor, as the model reads it.
+ *
+ * @param toolName - The registry name of the call that failed.
+ * @param code - The failure code, which is also the key into {@link FAILURE_GUIDANCE}.
+ * @param detail - What went wrong, in this file's or the worker's words.
+ * @param retryable - The authority's verdict, used only when the code is not one of ours.
+ */
+function failed(
+  toolName: string,
+  code: string,
+  detail: string,
+  retryable = false,
+): HostToolOutcome {
+  const guidance = FAILURE_GUIDANCE[code]?.replaceAll('{tool}', toolName);
+  const instead = guidance ?? externalFailureGuidance(toolName, retryable);
+  // The detail may or may not be punctuated (this file's sentences are; a worker's may not
+  // be), and the two halves have to read as two sentences either way.
+  const said = detail.trim().replace(/[.!?]+$/, '');
   return {
     status: 'failed',
-    summary: `"${toolName}" refused (${code}): ${detail}`,
+    summary: `"${toolName}" refused (${code}): ${said}. ${instead}`,
     data: { code, detail },
   };
+}
+
+/**
+ * Every sentence {@link failed} can produce for a code this file authors.
+ *
+ * Exported so the desktop failure-quality gate WALKS the table rather than quoting it: a
+ * list copied into a test rots on the commit that adds a code, which is the failure mode
+ * the gate exists to end.
+ */
+export function trackingFailureNoteEntries(): readonly {
+  readonly tool: string;
+  readonly code: string;
+  readonly note: string;
+}[] {
+  const tools = [AUTOMATIC_TRACKING_TOOL_NAME, DETECT_SUBJECTS_TOOL_NAME];
+  const codes = [...Object.keys(FAILURE_GUIDANCE), 'an_unrecognized_worker_code'];
+  return tools.flatMap((tool) =>
+    codes.flatMap((code) =>
+      [true, false].map((retryable) => ({
+        tool,
+        code: `${code} (retryable=${String(retryable)})`,
+        note: failed(tool, code, 'The worker said something we do not recognize', retryable)
+          .summary,
+      })),
+    ),
+  );
 }

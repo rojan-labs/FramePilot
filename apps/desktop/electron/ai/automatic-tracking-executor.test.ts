@@ -29,9 +29,7 @@ function project(): Project {
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [
-      { id: 'asset', path: '/tmp/media/shot.mp4', kind: 'video', durationSeconds: 900 },
-    ],
+    assets: [{ id: 'asset', path: '/tmp/media/shot.mp4', kind: 'video', durationSeconds: 900 }],
     timeline: {
       revision: 7,
       tracks: [
@@ -120,13 +118,20 @@ const call = (argumentsValue: Record<string, unknown> = {}) => ({
 
 describe('createAutomaticTrackingExecutor', () => {
   it('refuses a call that was not routed to it', async () => {
-    const executor = createAutomaticTrackingExecutor({ tracking: async () => serviceWith(completedOutcome()).service });
-    const outcome = await executor.run({ name: 'analyze_silence', arguments: {} }, context(project()));
+    const executor = createAutomaticTrackingExecutor({
+      tracking: async () => serviceWith(completedOutcome()).service,
+    });
+    const outcome = await executor.run(
+      { name: 'analyze_silence', arguments: {} },
+      context(project()),
+    );
     expect(outcome.status).toBe('failed');
   });
 
   it('fails honestly without a live editor selection', async () => {
-    const executor = createAutomaticTrackingExecutor({ tracking: async () => serviceWith(completedOutcome()).service });
+    const executor = createAutomaticTrackingExecutor({
+      tracking: async () => serviceWith(completedOutcome()).service,
+    });
     const outcome = await executor.run(call(), { project: project() });
     expect(outcome.status).toBe('failed');
     expect(outcome.summary).toContain('target_unresolved');
@@ -136,7 +141,9 @@ describe('createAutomaticTrackingExecutor', () => {
     const bare = project();
     const clip = bare.timeline.tracks[0]!.clips[0]!;
     bare.timeline.tracks[0]!.clips[0] = { ...clip, effects: [] };
-    const executor = createAutomaticTrackingExecutor({ tracking: async () => serviceWith(completedOutcome()).service });
+    const executor = createAutomaticTrackingExecutor({
+      tracking: async () => serviceWith(completedOutcome()).service,
+    });
     const outcome = await executor.run(call(), context(bare));
     expect(outcome.status).toBe('failed');
     expect(outcome.summary).toContain('mask_unresolved');
@@ -151,7 +158,10 @@ describe('createAutomaticTrackingExecutor', () => {
     );
 
     expect(run).toHaveBeenCalledTimes(1);
-    const [request, options] = run.mock.calls[0] as [CapabilityPackWorkerRequest, { projectRevision: number; mediaRoot: string }];
+    const [request, options] = run.mock.calls[0] as [
+      CapabilityPackWorkerRequest,
+      { projectRevision: number; mediaRoot: string },
+    ];
     expect(request.capability).toBe('tracking.region');
     expect(request.projectRevision).toBe(7);
     expect(request.media.absolutePath).toBe('/tmp/media/shot.mp4');
@@ -194,11 +204,33 @@ describe('createAutomaticTrackingExecutor', () => {
     const outcome = await executor.run(call(), context(project()));
     expect(outcome.status).toBe('failed');
     expect(outcome.summary).toContain('timed_out');
-    expect(outcome.summary).toContain('(Retryable.)');
+    // `(Retryable.)` was a parenthetical fact. The model can only act on a call, so the
+    // authority's boolean is now rendered as the call to make — and as the close for when
+    // that one fails too.
+    expect(outcome.summary).toContain('Call track_subject_automatically once more');
+    expect(outcome.summary).toContain('do not call it again');
+  });
+
+  it('renders a final worker failure as a close rather than an invitation to retry', async () => {
+    const { service } = serviceWith({
+      status: 'failed',
+      code: 'worker_crashed',
+      detail: 'the worker exited',
+      retryable: false,
+    });
+    const executor = createAutomaticTrackingExecutor({ tracking: async () => service });
+    const outcome = await executor.run(call(), context(project()));
+    expect(outcome.summary).toContain('worker_crashed');
+    expect(outcome.summary).toContain('Do not call track_subject_automatically again');
   });
 
   it('reports cancellation as cancelled', async () => {
-    const { service } = serviceWith({ status: 'failed', code: 'cancelled', detail: 'aborted', retryable: false });
+    const { service } = serviceWith({
+      status: 'failed',
+      code: 'cancelled',
+      detail: 'aborted',
+      retryable: false,
+    });
     const executor = createAutomaticTrackingExecutor({ tracking: async () => service });
     const outcome = await executor.run(call(), context(project()));
     expect(outcome.status).toBe('cancelled');
@@ -224,9 +256,24 @@ describe('createAutomaticTrackingExecutor', () => {
         backend: 'opencv-dnn-5.0.0',
         modelDigests: {},
         detections: [
-          { frame: 3, label: 'face', box: { x: 0.4, y: 0.2, width: 0.1, height: 0.1 }, confidence: 0.91 },
-          { frame: 9, label: 'person', box: { x: 0.35, y: 0.15, width: 0.25, height: 0.6 }, confidence: 0.87 },
-          { frame: 9, label: 'face', box: { x: 0.41, y: 0.19, width: 0.09, height: 0.09 }, confidence: 0.83 },
+          {
+            frame: 3,
+            label: 'face',
+            box: { x: 0.4, y: 0.2, width: 0.1, height: 0.1 },
+            confidence: 0.91,
+          },
+          {
+            frame: 9,
+            label: 'person',
+            box: { x: 0.35, y: 0.15, width: 0.25, height: 0.6 },
+            confidence: 0.87,
+          },
+          {
+            frame: 9,
+            label: 'face',
+            box: { x: 0.41, y: 0.19, width: 0.09, height: 0.09 },
+            confidence: 0.83,
+          },
         ],
       },
     });
@@ -313,7 +360,9 @@ describe('createAutomaticTrackingExecutor', () => {
     };
     const outcome = await executor.run(call(objective), context(project()));
     expect(outcome.status).toBe('completed');
-    const data = outcome.data as { samples: { frame: number; box: { y: number; height: number }; confidence: number }[] };
+    const data = outcome.data as {
+      samples: { frame: number; box: { y: number; height: number }; confidence: number }[];
+    };
     expect(data.samples).toHaveLength(2);
     expect(data.samples[0]).toMatchObject({
       frame: 0,

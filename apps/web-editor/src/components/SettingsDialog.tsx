@@ -24,6 +24,7 @@ import type {
   CapabilityPackProgressWire,
 } from '@framepilot/shared-types';
 import {
+  capabilitiesFor,
   LocalWhisperCliClient,
   type LocalAsrSetupProgress,
   type LocalAsrStatus,
@@ -35,7 +36,12 @@ import {
 import {
   type Density,
   type Theme,
+  MAX_RUN_MINUTES,
+  MAX_RUN_USD,
+  MIN_RUN_MINUTES,
+  MIN_RUN_USD,
   OVERLAY_SECONDS_BOUNDS,
+  RUN_USD_STEP,
   useSettings,
 } from '../editor/useSettings.js';
 import type { TimeDisplay } from '../editor/selectors.js';
@@ -63,6 +69,7 @@ import {
   ICON_SIZE,
   Keyboard,
   HardDrive,
+  Receipt,
   Monitor,
   Play,
   RotateCcw,
@@ -73,6 +80,7 @@ import {
 } from './icons.js';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { CapabilityPackStorageSettings } from './CapabilityPackStorageSettings.js';
+import { UsageAndSpend } from './UsageAndSpend.js';
 import { getBridge } from '../editor/bridge.js';
 
 export type SettingsSection =
@@ -80,6 +88,7 @@ export type SettingsSection =
   | 'editing'
   | 'playback'
   | 'ai'
+  | 'usage'
   | 'storage'
   | 'memory'
   | 'shortcuts';
@@ -129,6 +138,13 @@ const SECTIONS: readonly SectionMeta[] = [
     group: 'Intelligence',
     icon: Sparkles,
     description: 'Providers and media intelligence',
+  },
+  {
+    id: 'usage',
+    label: 'Usage & Spend',
+    group: 'Intelligence',
+    icon: Receipt,
+    description: 'What your AI edits cost, and where it went',
   },
   {
     id: 'memory',
@@ -227,21 +243,72 @@ const BASE_URL_PLACEHOLDER: Partial<Record<AiProviderName, string>> = {
   'openai-compatible': 'http://127.0.0.1:8000/v1',
 };
 
+/**
+ * Providers whose credential is a login the user already has, not a key they paste.
+ *
+ * These need no API-key field at all, and showing one is worse than showing nothing: it
+ * invites the user to hunt for a credential that does not exist for this provider, and a
+ * key typed into it would be stored and never sent anywhere.
+ */
+const LOGIN_PROVIDERS: readonly AiProviderName[] = ['claude-agent-sdk'];
+
+/**
+ * Model ids a Claude Code login can serve, offered as suggestions on that provider's
+ * model field.
+ *
+ * Full ids only — the SDK also accepts short aliases (`opus`, `sonnet`), but those match
+ * nothing in the capability catalogue, which leaves the context meter reading "assumed"
+ * on every turn and stops the run budget being sized. Suggesting them would be suggesting
+ * the broken option.
+ */
+const CLAUDE_LOGIN_MODELS: readonly string[] = [
+  'claude-opus-5',
+  'claude-sonnet-5',
+  'claude-opus-4-8',
+  'claude-haiku-4-5',
+];
+
 function providerStatus(
   info: AiProviderInfo | undefined,
   keyOptional: boolean,
   urlRequired: boolean,
+  signsInSeparately = false,
 ): {
   readonly text: string;
   readonly ready: boolean;
 } {
   const ready = info?.ready === true;
+  // Neither "Key saved" nor "No key" is true of a provider that signs in elsewhere.
+  // Whether the login is actually valid is not knowable from here without reading the OS
+  // keychain, so this states the arrangement rather than claiming a verdict.
+  if (signsInSeparately) return { text: 'Uses your Claude Code login', ready };
   // What is missing differs by provider, and "No key" would be actively misleading on
   // one that needs no key — it would send the user looking for a credential when the
   // server URL is the empty field.
   if (urlRequired) return { text: ready ? 'Ready' : 'No server URL', ready };
   return { text: ready ? (keyOptional ? 'Ready' : 'Key saved') : 'No key', ready };
 }
+
+/** `128000` → `128K`, matching the context meter's own compaction of the same figure. */
+function compactTokens(value: number): string {
+  if (value < 1_000) return String(Math.round(value));
+  const scaled = value / 1_000;
+  if (scaled >= 1_000) return `${Math.round(scaled / 100) / 10}M`;
+  return `${scaled >= 100 ? Math.round(scaled) : Math.round(scaled * 10) / 10}K`;
+}
+
+/**
+ * Mirrors `normalizeModelId` in `@framepilot/ai-sdk`'s `model-capabilities.ts` (not
+ * exported): lower-case, drop a `:tag` suffix, drop the `vendor/` prefix. Kept in step
+ * with that helper so `openrouter/auto`, `auto` and `auto:free` are one id here too.
+ */
+function normalizedModelId(model: string): string {
+  const withoutTag = model.trim().toLowerCase().split(':')[0] ?? '';
+  return (withoutTag.split('/').at(-1) ?? '').trim();
+}
+
+/** Providers that will pick the underlying model for you, and so lose the prompt cache. */
+const AUTO_ROUTING_PROVIDERS: readonly AiProviderName[] = ['openrouter', 'vercel-gateway'];
 
 function ProviderKeyField({
   name,
@@ -253,6 +320,7 @@ function ProviderKeyField({
   const [keyDraft, setKeyDraft] = useState('');
   const showBaseUrl = BASE_URL_PROVIDERS.includes(name);
   const keyOptional = KEYLESS_PROVIDERS.includes(name);
+  const signsInSeparately = LOGIN_PROVIDERS.includes(name);
 
   const saveKey = (): void => {
     const value = keyDraft.trim();
@@ -260,6 +328,22 @@ function ProviderKeyField({
     setKey(name, value);
     setKeyDraft('');
   };
+
+  // An unknown id is not a validation error — it still saves as typed, because the
+  // capability table is a cache and a genuinely new model must remain usable. It is a
+  // cost the user should meet here rather than discover mid-run in the context meter.
+  const modelDraft = info?.model ?? '';
+  const capabilities = capabilitiesFor(name, modelDraft);
+  const unknownModelHint =
+    modelDraft.trim() && capabilities.source === 'provider_default'
+      ? `Not a model this app knows — context capacity will be assumed at ${compactTokens(
+          capabilities.contextWindow,
+        )} tokens and the run budget cannot be sized to it. Pick an id from the provider's model list to fix that.`
+      : undefined;
+  const autoRoutingHint =
+    normalizedModelId(modelDraft) === 'auto' && AUTO_ROUTING_PROVIDERS.includes(name)
+      ? 'Auto-routing picks a different model for every request, and each model keeps its own prompt cache, so most of the prompt is re-sent and re-billed on every switch. Pin one model to keep the cache.'
+      : undefined;
 
   return (
     <>
@@ -279,34 +363,63 @@ function ProviderKeyField({
           />
         </div>
       ) : null}
-      <div className="setting-row setting-row--stack">
-        <label className="setting-field-label" htmlFor={`ai-key-${name}`}>
-          {keyOptional ? 'API key (optional)' : 'API key'}
-        </label>
-        <div className="setting-key-row">
-          <input
-            id={`ai-key-${name}`}
-            type="password"
-            className="setting-text-input"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={info?.ready && !keyOptional ? 'Saved, type to replace' : 'Paste API key'}
-            value={keyDraft}
-            onChange={(event) => setKeyDraft(event.target.value)}
-            onKeyDown={(event) => {
-              if (event.key === 'Enter') saveKey();
-            }}
-          />
-          <Button variant="secondary" type="button" disabled={!keyDraft.trim()} onClick={saveKey}>
-            Save
-          </Button>
-          {info?.ready && !keyOptional ? (
-            <Button variant="ghost" type="button" onClick={() => setKey(name, null)}>
-              Clear
-            </Button>
-          ) : null}
+      {signsInSeparately ? (
+        // Where the API-key field would be. A key box here would invite a hunt for a
+        // credential that does not exist for this provider, and anything typed into it
+        // would be stored and never sent. What replaces it has to do the field's job:
+        // tell someone how this provider gets authorised and what to do when it is not.
+        <div className="setting-row setting-row--stack">
+          <span className="setting-field-label">How this signs in</span>
+          <ol className="setting-steps">
+            <li>
+              Sign in once with <code>claude login</code> in a terminal. FramePilot reads the same
+              login the Claude CLI stores — there is no key to copy here.
+            </li>
+            <li>
+              Runs are billed to your Claude plan, not per request. Settings &rarr; Usage &amp;
+              Spend shows this as covered by your plan rather than as money spent.
+            </li>
+            <li>
+              If a run stops saying it is not signed in, your login has expired — run{' '}
+              <code>claude login</code> again.
+            </li>
+          </ol>
+          <span className="setting-hint" role="note">
+            Desktop only: it starts the <code>claude</code> program, which a browser tab cannot do.
+            It also cannot look at frames of your footage — for edits that depend on seeing a shot,
+            use Claude (Anthropic) with an API key.
+          </span>
         </div>
-      </div>
+      ) : (
+        <div className="setting-row setting-row--stack">
+          <label className="setting-field-label" htmlFor={`ai-key-${name}`}>
+            {keyOptional ? 'API key (optional)' : 'API key'}
+          </label>
+          <div className="setting-key-row">
+            <input
+              id={`ai-key-${name}`}
+              type="password"
+              className="setting-text-input"
+              autoComplete="off"
+              spellCheck={false}
+              placeholder={info?.ready && !keyOptional ? 'Saved, type to replace' : 'Paste API key'}
+              value={keyDraft}
+              onChange={(event) => setKeyDraft(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Enter') saveKey();
+              }}
+            />
+            <Button variant="secondary" type="button" disabled={!keyDraft.trim()} onClick={saveKey}>
+              Save
+            </Button>
+            {info?.ready && !keyOptional ? (
+              <Button variant="ghost" type="button" onClick={() => setKey(name, null)}>
+                Clear
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      )}
       <div className="setting-row setting-row--stack">
         <label className="setting-field-label" htmlFor={`ai-model-${name}`}>
           Model
@@ -316,9 +429,36 @@ function ProviderKeyField({
           type="text"
           className="setting-text-input"
           spellCheck={false}
+          {...(signsInSeparately
+            ? { list: `ai-model-options-${name}`, placeholder: 'claude-opus-5' }
+            : {})}
           value={info?.model ?? ''}
           onChange={(event) => setModel(name, event.target.value)}
         />
+        {/* Suggestions, not a fixed dropdown: the field must stay free text so a model
+            released after this build is still usable, but nobody should have to guess an
+            id from memory. A `datalist` gives both. Only offered for the login provider,
+            whose accepted ids are a short known set — every other provider serves an
+            open-ended catalogue where a five-item list would be misleading. */}
+        {signsInSeparately ? (
+          <datalist id={`ai-model-options-${name}`}>
+            {CLAUDE_LOGIN_MODELS.map((id) => (
+              <option key={id} value={id} />
+            ))}
+          </datalist>
+        ) : null}
+        {signsInSeparately ? (
+          <span className="setting-hint">
+            Use a full model id, not a short alias like <code>opus</code>: the context meter sizes
+            the window by matching the id, and an alias matches nothing.
+          </span>
+        ) : null}
+        {unknownModelHint ? <span className="setting-hint">{unknownModelHint}</span> : null}
+        {autoRoutingHint ? (
+          <span className="setting-hint" role="note">
+            {autoRoutingHint}
+          </span>
+        ) : null}
       </div>
     </>
   );
@@ -340,6 +480,7 @@ function ProviderAccordion({
     info,
     KEYLESS_PROVIDERS.includes(name),
     URL_REQUIRED_PROVIDERS.includes(name),
+    LOGIN_PROVIDERS.includes(name),
   );
   const [everExpanded, setEverExpanded] = useState(expanded);
   useEffect(() => {
@@ -1256,11 +1397,142 @@ function isRealProvider(name: AiProviderName): name is Exclude<AiProviderName, '
   return (REAL_PROVIDERS as readonly AiProviderName[]).includes(name);
 }
 
+/** Said in the dialog, in the words the run itself uses when it stops. */
+const RUN_BUDGET_HINT =
+  'The AI stops at the next step once a run reaches either limit, and tells you what it applied.';
+
+/** Clamp a typed budget into range, falling back to `fallback` for anything that is not a
+    finite number. Only a COMMITTED value goes through here, so a half-entered "1." never
+    becomes the bound; and because a commit clamps, the store can safely distrust anything
+    it later reads back out of range (see `mergeSettings`). */
+function clampRunBudget(
+  raw: string,
+  fallback: number,
+  min: number,
+  max: number,
+  integer: boolean,
+): number {
+  const text = raw.trim();
+  // A number input reports '' for anything it cannot parse ("lots") as well as for an
+  // emptied field. Both mean "no value entered" — `Number('')` is 0, which would silently
+  // become the floor of the range instead of leaving the last real choice alone.
+  if (text === '') return fallback;
+  const parsed = Number(text);
+  if (!Number.isFinite(parsed)) return fallback;
+  const clamped = Math.min(max, Math.max(min, parsed));
+  return integer ? Math.round(clamped) : clamped;
+}
+
+/**
+ * The run budget (goal.md Workstream D) — a preference, not a per-run announcement.
+ *
+ * It sits in Settings because it is set once and applies to every agent run; the SDK no
+ * longer spends a transcript line restating it before each run. Typing is a draft so a
+ * half-entered number never reaches the wire; blur and Enter commit it, clamped, through
+ * the shared settings store — one key, every panel reading the same figure.
+ */
+function RunBudgetSettings(): JSX.Element {
+  const { settings, update } = useSettings();
+  const [usdDraft, setUsdDraft] = useState(() => String(settings.maxRunUsd));
+  const [minutesDraft, setMinutesDraft] = useState(() => String(settings.maxRunMinutes));
+
+  const commitUsd = (raw: string): void => {
+    const next = clampRunBudget(raw, settings.maxRunUsd, MIN_RUN_USD, MAX_RUN_USD, false);
+    setUsdDraft(String(next));
+    update({ maxRunUsd: next });
+  };
+  const commitMinutes = (raw: string): void => {
+    const next = clampRunBudget(
+      raw,
+      settings.maxRunMinutes,
+      MIN_RUN_MINUTES,
+      MAX_RUN_MINUTES,
+      true,
+    );
+    setMinutesDraft(String(next));
+    update({ maxRunMinutes: next });
+  };
+
+  return (
+    <SettingGroup
+      title="Run budget"
+      description="Applied to every agent run, from the moment you save it."
+    >
+      <div className="setting-row">
+        <div className="setting-text">
+          <span className="setting-label">Stop a run after</span>
+          <span className="setting-hint">{RUN_BUDGET_HINT}</span>
+        </div>
+        <div className="setting-budget">
+          <span className="setting-budget-unit" aria-hidden="true">
+            $
+          </span>
+          <input
+            type="number"
+            className="setting-number"
+            inputMode="decimal"
+            aria-label="Stop a run after, dollars"
+            min={MIN_RUN_USD}
+            max={MAX_RUN_USD}
+            step={RUN_USD_STEP}
+            value={usdDraft}
+            data-testid="ai-max-usd"
+            onChange={(event) => setUsdDraft(event.target.value)}
+            onBlur={(event) => commitUsd(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+          />
+          <input
+            type="number"
+            className="setting-number"
+            inputMode="numeric"
+            aria-label="Stop a run after, minutes"
+            min={MIN_RUN_MINUTES}
+            max={MAX_RUN_MINUTES}
+            step={1}
+            value={minutesDraft}
+            data-testid="ai-max-minutes"
+            onChange={(event) => setMinutesDraft(event.target.value)}
+            onBlur={(event) => commitMinutes(event.currentTarget.value)}
+            onKeyDown={(event) => {
+              if (event.key === 'Enter') event.currentTarget.blur();
+            }}
+          />
+          <span className="setting-budget-unit" aria-hidden="true">
+            min
+          </span>
+        </div>
+      </div>
+    </SettingGroup>
+  );
+}
+
 function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element {
   const { config, setActiveProvider } = useAiConfig();
   const { settings, update } = useSettings();
-  const defaultOpen = isRealProvider(config.activeProvider) ? config.activeProvider : 'anthropic';
+  // Which row opens first must be judged against the HOST's roster, not the browser
+  // constant. Judged against the constant, selecting `claude-agent-sdk` on desktop fell
+  // through to 'anthropic' — so the screen showed "Claude (Anthropic)" with an API-key
+  // field expanded while the active provider was the login one, which reads as the
+  // active provider asking for a key it does not use.
+  const offeredHere = useMemo(
+    () => new Set(config.providers.map((provider) => provider.name)),
+    [config.providers],
+  );
+  const defaultOpen: AiProviderName =
+    config.activeProvider !== 'mock' && offeredHere.has(config.activeProvider)
+      ? config.activeProvider
+      : isRealProvider(config.activeProvider)
+        ? config.activeProvider
+        : 'anthropic';
   const [openProvider, setOpenProvider] = useState<AiProviderName | null>(defaultOpen);
+  // The desktop roster arrives asynchronously over IPC, after this state has already
+  // initialised from the pre-hydration config. Without this the correct row is computed
+  // and then never applied.
+  useEffect(() => {
+    setOpenProvider(defaultOpen);
+  }, [defaultOpen]);
 
   return (
     <>
@@ -1283,17 +1555,28 @@ function AiSettings({ projectId }: { readonly projectId?: string }): JSX.Element
             onChange={setActiveProvider}
           />
         </div>
-        {[...REAL_PROVIDERS]
-          .sort((a, b) => (a === config.activeProvider ? -1 : b === config.activeProvider ? 1 : 0))
-          .map((name) => (
+        {/* Driven by the host's roster — the SAME list the picker above uses — not by the
+            hardcoded browser constant. They diverged once: the desktop app offers
+            `claude-agent-sdk` (it can spawn a subprocess) while the browser roster
+            deliberately omits it, so selecting it on desktop left the user with a picker
+            entry whose settings panel did not exist and another provider's key field open
+            underneath it. One source of truth is what keeps the two halves of this screen
+            describing the same set of providers on both platforms. */}
+        {[...config.providers]
+          .filter((provider) => provider.name !== 'mock')
+          .sort((a, b) =>
+            a.name === config.activeProvider ? -1 : b.name === config.activeProvider ? 1 : 0,
+          )
+          .map(({ name }) => (
             <ProviderAccordion
               key={name}
-              name={name}
+              name={name as Exclude<AiProviderName, 'mock'>}
               expanded={openProvider === name}
               onToggle={() => setOpenProvider((current) => (current === name ? null : name))}
             />
           ))}
       </SettingGroup>
+      <RunBudgetSettings />
       <AsrSettings />
       <MediaIntelligenceSettings {...(projectId ? { projectId } : {})} />
       <StockMediaSettings />
@@ -1695,6 +1978,14 @@ function SettingsDialogContent({
               ) : null}
 
               {section === 'ai' ? <AiSettings {...(projectId ? { projectId } : {})} /> : null}
+              {section === 'usage' ? (
+                <UsageAndSpend
+                  trackHistory={settings.trackUsageHistory}
+                  onTrackHistoryChange={(trackUsageHistory) => update({ trackUsageHistory })}
+                  maxRunUsd={settings.maxRunUsd}
+                  onOpenAiSettings={() => setSection('ai')}
+                />
+              ) : null}
               {section === 'storage' ? <CapabilityPackStorageSettings /> : null}
               {section === 'memory' ? <MemorySettings /> : null}
               {section === 'shortcuts' ? <ShortcutList /> : null}

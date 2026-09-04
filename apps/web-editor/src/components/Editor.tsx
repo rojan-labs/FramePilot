@@ -502,8 +502,11 @@ export function Editor({
     [project.assets],
   );
   const useWebCodecsPreview = useMemo(
-    () => webCodecsPreviewEligible(editor.state.timeline, programAssetById),
-    [editor.state.timeline, programAssetById],
+    // The project's own frame: coverage is a relation between the stacked clips AND the
+    // frame they are fitted into (ADR 0170), so the same stack is honest in one aspect
+    // ratio and divergent in another.
+    () => webCodecsPreviewEligible(editor.state.timeline, programAssetById, project.resolution),
+    [editor.state.timeline, programAssetById, project.resolution],
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;
 

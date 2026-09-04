@@ -19,6 +19,7 @@
  * interface (`durable-run-controls.ts`); the renderer never owns these objects.
  */
 import { createLogger } from '@framepilot/shared-types';
+import type { TimerApi } from './reliability/timeout.js';
 
 const log = createLogger('ai-sdk:run-controls');
 
@@ -173,6 +174,15 @@ export function createAskUserGate(): AskUserGate {
  */
 export interface AgentRunControls {
   readonly steering?: SteeringQueue;
+  /**
+   * Timer API backing the run's wall-clock deadline (`reliability/deadline.ts`).
+   *
+   * Live, host-supplied, and non-serialisable like everything else here. Only tests pass
+   * one: a run that hangs inside a model call cannot be made to stop on time by a clock
+   * alone — `options.now` is read, never awaited — so the deadline needs a timer, and a
+   * deterministic test needs to be the thing that fires it. Absent ⇒ real timers.
+   */
+  readonly timers?: TimerApi;
   readonly planApproval?: PlanApproval;
   /** Answers the model's own questions (P12); absent ⇒ `ask_user` degrades honestly. */
   readonly askUser?: AskUser;

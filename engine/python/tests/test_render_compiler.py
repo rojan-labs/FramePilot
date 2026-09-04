@@ -314,6 +314,52 @@ def test_expected_render_derives_streams_and_duration() -> None:
     expected = expected_render(project, REELS)
     assert expected.duration_seconds == 4.0
     assert expected.expect_video and expected.expect_audio
+    # The intended spec travels with the expectation (goal.md F): frame and rate exactly.
+    assert (expected.width, expected.height, expected.fps) == (1080, 1920, 30)
+    assert expected.expect_audio_to_end
+
+
+def test_expected_render_counts_a_probed_video_source_as_sound() -> None:
+    # A talking head is one video clip whose SOURCE carries the audio; nothing on an
+    # audio track. Probed with peaks ⇒ sound is expected, and expected to reach the end.
+    assets = [{"id": "vid", "path": "v.mp4", "kind": "video", "media": {"peaks": [0.1, 0.5]}}]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 4, "vid")]}], assets=assets
+    )
+    expected = expected_render(project, REELS)
+    assert expected.expect_audio and expected.expect_audio_to_end
+
+
+def test_expected_render_does_not_assume_sound_from_an_unprobed_video() -> None:
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 4, "vid")]}],
+        assets=_MEDIA_ASSETS,
+    )
+    assert not expected_render(project, REELS).expect_audio
+
+
+def test_expected_render_sound_that_stops_early_is_the_edit() -> None:
+    project = _project(
+        [
+            {"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 4, "vid")]},
+            {"id": "a", "type": "audio", "clips": [_clip("c2", "a", 0, 2, "aud")]},
+        ],
+        assets=_MEDIA_ASSETS,
+    )
+    expected = expected_render(project, REELS)
+    assert expected.expect_audio
+    assert not expected.expect_audio_to_end
+
+
+def test_expected_render_ignores_sound_on_a_muted_track() -> None:
+    project = _project(
+        [
+            {"id": "v", "type": "video", "clips": [_clip("c1", "v", 0, 4, "vid")]},
+            {"id": "a", "type": "audio", "muted": True, "clips": [_clip("c2", "a", 0, 4, "aud")]},
+        ],
+        assets=_MEDIA_ASSETS,
+    )
+    assert not expected_render(project, REELS).expect_audio
 
 
 # --- compile error paths (no real media needed) ------------------------------

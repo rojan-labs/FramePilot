@@ -8,6 +8,13 @@ export * from './reliability/retry.js';
 export * from './reliability/timeout.js';
 export * from './reliability/tracer.js';
 export * from './reliability/signals.js';
+export * from './reliability/plain-failure.js';
+export * from './reliability/refusal-notes.js';
+export * from './reliability/sourcing-notes.js';
+// The failure-quality PREDICATE, exported so `apps/desktop` can gate its own host
+// overrides against the same property this package gates itself against. A copy of it in
+// the desktop package would be the duplicated-string defect it exists to catch.
+export * from './reliability/next-action.js';
 export * from './events.js';
 export * from './run-contracts.js';
 export * from './stable-key.js';
@@ -85,6 +92,8 @@ export * from './run-controls.js';
 export * from './orchestrator.js';
 export * from './kernel/index.js';
 export * from './eval/mission-rubric.js';
+export * from './eval/golden-cases.js';
+export * from './eval/golden-metrics.js';
 // The typed specialist boundary (P5.1). Exported because the desktop host's tracking
 // executor is a production caller and must go through the contract like everything else.
 export * from './specialists/index.js';

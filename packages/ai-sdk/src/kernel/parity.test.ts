@@ -119,8 +119,13 @@ async function kernelPath(s: Scenario): Promise<AiEvent[]> {
     stream: opts,
     ...(s.agentOptions ? { agentOptions: s.agentOptions } : {}),
   };
-  const handlers = orch.agentConductorHandlers(run, opts, s.agentOptions ?? {});
-  return drain(runAgentGraph(command, handlers, opts.signal));
+  const { handlers, dispose } = orch.agentConductorHandlers(run, opts, s.agentOptions ?? {});
+  try {
+    return await drain(runAgentGraph(command, handlers, opts.signal));
+  } finally {
+    // This seam has no `streamAgent` around it to clear the run's deadline timer.
+    dispose();
+  }
 }
 
 /** Assert the two control paths emit identical event streams, and return them. */
@@ -434,10 +439,11 @@ describe('Conductor ↔ streamAgent event parity (K1.2)', () => {
   it('defaults the event clock to Date.now when the run opts omit one', async () => {
     const orch = new Orchestrator(new ScriptedProvider([done]));
     const opts = { conversationId: 'conv_1', turnId: 'turn_1' };
-    const handlers = orch.agentConductorHandlers(input, opts);
+    const { handlers, dispose } = orch.agentConductorHandlers(input, opts);
     const events = await drain(
       runAgentGraph({ kind: 'submit_turn', mode: 'agent', input, stream: opts }, handlers),
     );
+    dispose();
     // `done` makes no tool calls — no edit landed, so ADR 0081 ends the run `failed`.
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });

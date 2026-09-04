@@ -33,6 +33,7 @@ import {
   onCommand,
   onEffectResult,
   MAX_VERIFY_FIX_TURNS,
+  failedAfterApplyMessage,
 } from './conductor.js';
 import { SEMANTIC_LOOP_TURNS } from './loop-detector.js';
 
@@ -147,6 +148,8 @@ describe('onCommand', () => {
     ]);
     // No run-level reasoning node any more — reasoning is opened PER STEP inside each
     // run_turn (`${turnId}:reasoning:${index}`). onCommand only emits the header spinner.
+    // Just the header spinner: the run budget is a permanent editor setting, not a line
+    // the run opens with (see the 'run budgets' block below).
     expect(types(events)).toEqual(['status']);
     expect(events[0]).toMatchObject({ type: 'status', status: 'thinking' });
   });
@@ -218,6 +221,8 @@ describe('onCommand', () => {
       maxSteps: 300,
       maxOpsPerTurn: 200,
       maxOpsPerRun: 800,
+      maxUsd: 5,
+      maxWallMs: 20 * 60_000,
       planApprovalGated: false,
       diminishingReturnsTurns: DIMINISHING_RETURNS_TURNS,
       diminishingReturnsMinOutputTokens: DIMINISHING_RETURNS_MIN_OUTPUT_TOKENS,
@@ -229,6 +234,8 @@ describe('onCommand', () => {
           maxSteps: 3,
           maxOpsPerTurn: 5,
           maxOpsPerRun: 9,
+          maxUsd: 2,
+          maxMinutes: 1,
           diminishingReturns: { turns: 4, minOutputTokens: 50 },
         }),
       ).state.config,
@@ -236,6 +243,8 @@ describe('onCommand', () => {
       maxSteps: 3,
       maxOpsPerTurn: 5,
       maxOpsPerRun: 9,
+      maxUsd: 2,
+      maxWallMs: 60_000,
       planApprovalGated: false,
       diminishingReturnsTurns: 4,
       diminishingReturnsMinOutputTokens: 50,
@@ -1445,6 +1454,134 @@ describe('onEffectResult — turn stop/continue decisions', () => {
   });
 });
 
+// goal.md Workstream D: every run is bounded by explicit turn, time and cost budgets.
+// The bound is SURFACED as a permanent editor setting (Settings → AI → Run budget), not
+// as a line the run emits before its first model call — so the opener spends no transcript
+// on it, and the run only speaks about the budget when it actually stops on one.
+describe('run budgets', () => {
+  it('does not announce the budget — the opener is just the status', () => {
+    const { events } = onCommand(idle, command());
+    expect(events.some((e) => e.type === 'notification')).toBe(false);
+    expect(types(events)).toEqual(['status']);
+  });
+
+  it("honours the caller's own caps", () => {
+    const { events, state } = onCommand(idle, command({ maxUsd: 1.5, maxMinutes: 3 }));
+    // The caps live in the run's config, where every later budget check reads them; there
+    // is no announcement left to read them out of.
+    expect(state.config).toMatchObject({ maxUsd: 1.5, maxWallMs: 180_000 });
+    expect(events.some((e) => e.type === 'notification')).toBe(false);
+  });
+
+  it('stops at the cost budget and verifies what was applied', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const { state, effects, events } = onEffectResult(s, turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }));
+    expect(state.runUsd).toBe(1.25);
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    expect(events.some((e) => e.type === 'notification' && e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"))).toBe(true);
+  });
+
+  it('stops at the time limit', () => {
+    const s = started({ config: { ...started().config, maxWallMs: 60_000 } });
+    const { effects, events } = onEffectResult(s, turn({ runElapsedMs: 61_000 }));
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    expect(events.some((e) => e.type === 'notification' && e.text.includes("1-minute limit"))).toBe(true);
+  });
+
+  it('within budget, the run advances; an unpriced run is never stopped for money', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const within = onEffectResult(s, turn({ runUsd: 0.4 }));
+    expect(within.effects[0]).toMatchObject({ kind: 'run_turn' });
+    const unpriced = onEffectResult(s, turn({ runUsd: 0 }));
+    expect(unpriced.effects[0]).toMatchObject({ kind: 'run_turn' });
+    expect(unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget'))).toBe(false);
+  });
+
+  it('a turn that does not report spend keeps the last known figures', () => {
+    const s = started({ runUsd: 0.7, runElapsedMs: 5_000 });
+    const { state } = onEffectResult(s, turn({}));
+    expect(state).toMatchObject({ runUsd: 0.7, runElapsedMs: 5_000 });
+  });
+});
+
+// goal.md Workstream D: "audit these guards together — overlapping stop conditions
+// silently kill valid long runs". Six stoppers act on a run (stall streak, semantic loop
+// window, research budget, diminishing returns, op caps, cost/time budget); this drives a
+// long run that keeps LEARNING and LANDING through all of them and asserts that only the
+// step cap ends it.
+describe('progress guards, audited together', () => {
+  const STOP_WORDS = /stopping|stall|circles|budget|limit|diminish|converg|cap of|no longer/i;
+
+  it('a long productive run is ended by the step cap and nothing else', () => {
+    const maxSteps = 40;
+    let s = started({ config: { ...started().config, maxSteps } });
+    const notices: string[] = [];
+    let usd = 0;
+    let elapsed = 0;
+    for (let i = 1; i < maxSteps; i += 1) {
+      usd += 0.05;
+      elapsed += 20_000;
+      const applied = i % 2 === 0;
+      const step = onEffectResult(
+        s,
+        turn({
+          stepIndex: i,
+          signature: `turn-${String(i)}`,
+          rationale: applied ? `Now placing shot ${String(i)}.` : `Reading scene ${String(i)} to choose the next shot.`,
+          callFacts: applied
+            ? []
+            : [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          ...(applied ? { applied: true, turnOpCount: 1, appliedOps: ops(1) } : {}),
+          runUsd: usd,
+          runElapsedMs: elapsed,
+        }),
+      );
+      notices.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
+      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({ kind: 'run_turn' });
+      expect(step.state.stallStreak, `turn ${String(i)} stall streak`).toBe(0);
+      expect(step.state.actionRecoveryPending, `turn ${String(i)} recovery`).toBe(false);
+      s = step.state;
+    }
+    // The step cap, and only the step cap, ends it.
+    const last = onEffectResult(
+      s,
+      turn({ stepIndex: maxSteps, signature: 'last', applied: true, turnOpCount: 1, appliedOps: ops(1) }),
+    );
+    expect(last.effects[0]).toMatchObject({ kind: 'run_verify' });
+    const stoppers = notices.filter((text) => STOP_WORDS.test(text));
+    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual([]);
+    expect(s.cumulativeOps.length).toBe(19);
+  });
+
+  it('a run that only ever reads something NEW is bounded by the cost budget, not the guards', () => {
+    // Each novel, successful read is progress by design (W3: reconnaissance is how an edit
+    // becomes possible), so the stall, loop and research guards correctly let a run read
+    // forty different scenes. What bounds it is money: without the cost budget such a run
+    // ran to the 300-step cap. Here the budget is the backstop, and it says so.
+    let s = started({ config: { ...started().config, maxSteps: 40, maxUsd: 1 } });
+    let ended: string | undefined;
+    let i = 1;
+    for (; i < 40 && ended === undefined; i += 1) {
+      const step = onEffectResult(
+        s,
+        turn({
+          stepIndex: i,
+          signature: `read-${String(i)}`,
+          rationale: `Reading scene ${String(i)}.`,
+          callFacts: [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          runUsd: i * 0.1,
+        }),
+      );
+      s = step.state;
+      if (step.effects[0]?.kind !== 'run_turn') {
+        ended = step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])).join(' | ');
+      }
+    }
+    expect(ended).toMatch(/Reached this run's \$1\.00 budget after 10 steps \(\$1\.00 spent\)/);
+    expect(i).toBe(11);
+  });
+});
+
 describe('onEffectResult — verify(+repair) → finalize', () => {
   it('surfaces the self-check summary + a warning per failed check, then finalizes', () => {
     const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
@@ -1457,9 +1594,54 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       }),
     );
     expect(state.phase).toBe('review');
-    expect(types(events)).toEqual(['notification', 'warning']);
+    // …and, because work was applied and the run still could not finish, ONE error card
+    // that says the edits are on the timeline and why the run stopped.
+    expect(types(events)).toEqual(['notification', 'warning', 'error']);
     expect(events[0]).toMatchObject({ text: 'Deterministic self-check: one issue' });
-    expect(effects[0]).toMatchObject({ kind: 'finalize', ops: s.cumulativeOps, cancelled: false });
+    expect(events[2]).toMatchObject({
+      type: 'error',
+      message: expect.stringContaining(
+        'Applied 2 changes, but the run could not finish: the self-check still fails — Duration',
+      ),
+      retryable: false,
+    });
+    expect(effects[0]).toMatchObject({
+      kind: 'finalize',
+      ops: s.cumulativeOps,
+      cancelled: false,
+      failed: true,
+    });
+  });
+
+  it('a failed run that applied nothing gets no "applied" error card', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: [], appliedTurns: 0 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+      }),
+    );
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('a cancelled run never gets the failure card — the checkpoint is its account', () => {
+    const s = started({
+      phase: 'verifying',
+      cumulativeOps: ops(2),
+      appliedTurns: 1,
+      cancelled: true,
+    });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+      }),
+    );
+    expect(events.some((e) => e.type === 'error')).toBe(false);
   });
 
   // GAP-010 (run `fc10301a`). Advisory checks are non-blocking on purpose, and the price
@@ -1482,7 +1664,7 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
     );
     // The failure is a warning event; the advisory is a notification — the severity
     // distinction survives to the stream rather than being flattened.
-    expect(types(events)).toEqual(['notification', 'warning', 'notification']);
+    expect(types(events)).toEqual(['notification', 'warning', 'notification', 'error']);
     expect(events[2]).toMatchObject({
       text: 'Reframing is consistent: any landscape source will render…',
     });
@@ -2227,5 +2409,51 @@ describe('working state', () => {
       turn({ applied: true, appliedOps: ops(1), turnOpCount: 1 }),
     );
     expect(step.state.working.facts.map((f) => f.id)).toEqual(['fact_1']);
+  });
+});
+
+
+describe('failedAfterApplyMessage — the card an editor actually reads', () => {
+  const detail = (label: string, text: string) => `${label}: ${text}`;
+
+  it('says what is wrong, not the name of the property that was checked', () => {
+    // The label alone is a positive assertion, so a card built from labels reads inside
+    // out. A real montage run was told "the self-check still fails — Reframing is
+    // consistent." and given nothing to act on.
+    const message = failedAfterApplyMessage(30, [
+      detail(
+        'Reframing is consistent',
+        '13 of 13 picture clips use a landscape source in a 1080x1920 portrait frame with no crop, so they render with black bars. Crop each to fill the frame.',
+      ),
+    ]);
+    expect(message).toContain('Applied 30 changes, but the run could not finish');
+    expect(message).toContain('render with black bars');
+    expect(message).toContain('Crop each to fill the frame.');
+    expect(message).toContain('The changes are on your timeline; undo reverts them');
+  });
+
+  it('spells out the first two failures and counts the rest', () => {
+    const message = failedAfterApplyMessage(4, [
+      detail('A', 'first thing is wrong.'),
+      detail('B', 'second thing is wrong.'),
+      detail('C', 'third thing is wrong.'),
+      detail('D', 'fourth thing is wrong.'),
+    ]);
+    expect(message).toContain('first thing is wrong.');
+    expect(message).toContain('second thing is wrong.');
+    expect(message).not.toContain('third thing is wrong.');
+    expect(message).toContain('(2 more checks also failed.)');
+  });
+
+  it('punctuates a reason that does not end in a full stop, and singularises the rest', () => {
+    const message = failedAfterApplyMessage(2, ['A: no full stop', 'B: nor here', 'C: third']);
+    expect(message).toContain('A: no full stop. B: nor here.');
+    expect(message).toContain('(1 more check also failed.)');
+  });
+
+  it('passes a single prose reason through unchanged', () => {
+    expect(failedAfterApplyMessage(1, 'the run ran out of budget')).toContain(
+      'Applied 1 change, but the run could not finish: the run ran out of budget',
+    );
   });
 });

@@ -239,6 +239,35 @@ describe('checkableAcceptance', () => {
     expect(hasCheckableAcceptance(acceptance)).toBe(true);
   });
 
+  it('reads the count when it is hyphenated onto the noun', () => {
+    // "a 12-shot montage" fell through BOTH nets: not read as a floor, and not caught by
+    // `mentionsUnreadableShotCount` either, so the requirement was silently unchecked and
+    // `shot_count` reported skipped.
+    expect(checkableAcceptance('Make it a 12-shot montage.', undefined).minShotCount).toBe(12);
+    expect(checkableAcceptance('Give me a 6-clip intro.', undefined).minShotCount).toBe(6);
+    // The guards either side of it are untouched: a range is still a range, and a per-shot
+    // duration is still a duration.
+    expect(checkableAcceptance('12-15 clips please', undefined).minShotCount).toBe(12);
+    expect(
+      checkableAcceptance('Hold each shot for 2 seconds.', undefined).minShotCount,
+    ).toBeUndefined();
+  });
+
+  it('does not read a hyphenated per-shot duration as a shot count', () => {
+    // Pre-existing, found while adding the compound form above. `readsAsDuration` allowed
+    // only whitespace between the number and its unit, so "30-second" walked straight past
+    // the one guard written to stop a duration being counted as shots — and "use 30-second
+    // cuts" asked for a floor of thirty shots.
+    expect(
+      checkableAcceptance('Use 30-second cuts throughout.', undefined).minShotCount,
+    ).toBeUndefined();
+    expect(checkableAcceptance('Make 10-second clips.', undefined).minShotCount).toBeUndefined();
+    // The unhyphenated form it always handled still works, and a real compound count still
+    // reads — the fix separates the two, it does not silence both.
+    expect(checkableAcceptance('Use 30 second cuts.', undefined).minShotCount).toBeUndefined();
+    expect(checkableAcceptance('Give me 5-shot bursts.', undefined).minShotCount).toBe(5);
+  });
+
   it('is empty for a request that states no measurable condition', () => {
     const acceptance = checkableAcceptance('make this look nicer', undefined);
     expect(acceptance).toEqual({});

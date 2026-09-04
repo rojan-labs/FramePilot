@@ -1,0 +1,310 @@
+{
+  "scenario": "captions-uppercase-bottom",
+  "category": "captions",
+  "project": "mission-talk",
+  "run": 2,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Add captions in all caps at the bottom of the frame.",
+      "rubric": "captions-styled",
+      "expectedIntent": "edit",
+      "score": 0.75,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "has-captions",
+          "ok": true,
+          "detail": "262 caption clip(s)",
+          "weight": 2
+        },
+        {
+          "id": "captions-well-formed",
+          "ok": true,
+          "detail": "262 cue(s), 0 outside the programme or empty",
+          "facet": "boundary"
+        },
+        {
+          "id": "caption-style-matches",
+          "ok": false,
+          "detail": "262/262 cue(s) not {\"textTransform\":\"uppercase\",\"position\":\"bottom\"}",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": false,
+          "detail": "262 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "caption-style-matches: 262/262 cue(s) not {\"textTransform\":\"uppercase\",\"position\":\"bottom\"}",
+            "content-preserved: same clips, same source ranges"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "captions-well-formed: 262 cue(s), 0 outside the programme or empty",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 2,
+          "valid": 2,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 4,
+        "toolCalls": 7,
+        "tokens": {
+          "prompt": 138438,
+          "output": 877,
+          "total": 139315
+        },
+        "usd": 0.24935400000000002,
+        "latency": {
+          "firstProgressMs": 2962,
+          "doneMs": 20964
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 2 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Reached maximum number of turns (1)"
+        },
+        "score": 0.75,
+        "finalStatus": "failed",
+        "operations": 525
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/baseline/recordings/captions-uppercase-bottom-r2-t1.json",
+      "metrics": {
+        "wallMs": 20964,
+        "modelCalls": 4,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 138438,
+          "input": 78733,
+          "output": 877,
+          "cacheRead": 59705,
+          "cacheCreate": 85168
+        },
+        "perCall": [
+          {
+            "ttftMs": 2958,
+            "wallMs": 4303,
+            "input": 6739,
+            "output": 217,
+            "cacheRead": 23035
+          },
+          {
+            "ttftMs": 3188,
+            "wallMs": 6296,
+            "input": 35932,
+            "output": 347,
+            "cacheRead": 18921
+          },
+          {
+            "ttftMs": 3268,
+            "wallMs": 5657,
+            "input": 36062,
+            "output": 313,
+            "cacheRead": 17749
+          },
+          {
+            "ttftMs": 3512,
+            "wallMs": 4567,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 4,
+          "ttftMs": {
+            "p50": 3188,
+            "p95": 3512,
+            "min": 2958,
+            "max": 3512
+          },
+          "wallMs": {
+            "p50": 4567,
+            "p95": 6296,
+            "min": 4303,
+            "max": 6296
+          },
+          "inputTokensPerTurn": {
+            "p50": 6739,
+            "p95": 36062,
+            "min": 0,
+            "max": 36062
+          },
+          "outputTokensPerTurn": {
+            "p50": 217,
+            "p95": 347,
+            "min": 0,
+            "max": 347
+          },
+          "cacheHitRate": 0.4312760947138791,
+          "cacheReportingTurns": 3
+        },
+        "usd": 0.24935400000000002,
+        "usageTokens": 79610,
+        "toolCalls": 7,
+        "toolCallsByName": {
+          "load_skill": 1,
+          "load_tools": 1,
+          "get_mapped_transcript": 1,
+          "add_track": 1,
+          "discover_caption_styles": 2,
+          "caption_the_edit": 1
+        },
+        "repeatedToolCalls": 1,
+        "analysisFromCache": 0,
+        "contextRequests": 7,
+        "contextByType": [
+          {
+            "system": 2276,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2276,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 15939,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 11305
+          },
+          {
+            "system": 15939,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 11305
+          },
+          {
+            "system": 16020,
+            "retrieved_evidence": 2249,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 10578
+          },
+          {
+            "system": 16020,
+            "retrieved_evidence": 2249,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 10578
+          },
+          {
+            "system": 22980,
+            "retrieved_evidence": 5098,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 10578
+          }
+        ],
+        "contextUsedTokens": [
+          12890,
+          6739,
+          31148,
+          35932,
+          30513,
+          36062,
+          40322
+        ],
+        "contextCachedTokens": [
+          null,
+          23035,
+          null,
+          18921,
+          null,
+          17749,
+          null
+        ],
+        "diffs": 2,
+        "validDiffs": 2,
+        "operations": 525,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 528.7333333333333,
+        "pictureClips": 1,
+        "tracks": [
+          {
+            "id": "captions_1",
+            "type": "caption",
+            "clips": 262
+          },
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

@@ -36,8 +36,8 @@ from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.safety import resolve_within
 from framepilot_engine.timeline.models import Project
 from framepilot_engine.validation.render_validation import (
-    CheckStatus,
     ValidationReport,
+    plain_failures,
     validate_render,
 )
 
@@ -274,8 +274,11 @@ def render(
         job.output_path = str(output)
 
         if not report.ok:
-            failed = ", ".join(c.name for c in report.checks if c.status == CheckStatus.FAIL)
-            raise RenderError(f"Render produced an invalid output (failed checks: {failed}).")
+            # The one line the editor reads: what is wrong with the file, in words they
+            # can act on. The check names stay in `job.validation` for the details pane.
+            raise RenderError(
+                "The export did not pass its checks. " + " ".join(plain_failures(report))
+            )
 
         job.state = RenderState.COMPLETED
         job.progress = 1.0
@@ -425,7 +428,14 @@ def _apply_master_audio_pass(output: Path, preset: ExportPreset, opts: RenderOpt
     if filter_str is None:
         return
     tmp = output.with_suffix(output.suffix + ".master.tmp")
-    apply_master_audio(output, tmp, filter_str, audio_codec=preset.audio_codec)
+    try:
+        apply_master_audio(output, tmp, filter_str, audio_codec=preset.audio_codec)
+    except BaseException:
+        # ffmpeg writes `tmp` progressively, so a failed pass leaves a half-written file
+        # beside the export — and the outer handler only ever discards `output`. Remove
+        # what THIS pass was writing; the original render is untouched for the caller.
+        tmp.unlink(missing_ok=True)
+        raise
     tmp.replace(output)
 
 

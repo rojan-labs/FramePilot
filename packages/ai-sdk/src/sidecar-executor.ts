@@ -86,6 +86,15 @@ const VISUAL_FOOTAGE_MAP_ROUTE = '/brain/visual/footage-map';
  * composites through the SAME compiler the export uses and returns the picture inline as
  * base64, so what the model inspects is what will be delivered.
  */
+/**
+ * The two tools whose absence from this seam is by DESIGN rather than a gap: rendering and
+ * export run in the editor, not the AI panel (AGENTS.md render-vs-preview). Every other
+ * unrouted tool is a capability this surface simply does not have, and telling the model to
+ * "use the Export dialog" about, say, `detect_subjects` is a wrong instruction on top of a
+ * dead-end one.
+ */
+const RENDER_ACTIONS: ReadonlySet<string> = new Set(['render_preview', 'export_video']);
+
 const RENDER_FRAME_ROUTE = '/render/frame';
 const TEMPORAL_EVIDENCE_ROUTE = '/review/temporal-evidence';
 const MAX_COLOR_MEASUREMENT_FRAMES = 300;
@@ -391,7 +400,9 @@ export function unwrapUnifiedAnalysis(name: string, data: unknown): HostToolOutc
   if (assetId === undefined || entry === undefined) {
     return {
       status: 'failed',
-      summary: `"${name}" failed: unified analysis response is missing the ${UNIFIED_KIND[name]} entry`,
+      summary: `"${name}" failed: ${unreadableEngineAnswer(
+        `the analysis response carried no ${UNIFIED_KIND[name]} entry`,
+      )}`,
     };
   }
   if (entry.status !== 'ok' || typeof entry.result !== 'object' || entry.result === null) {
@@ -443,7 +454,9 @@ export function unwrapSearch(toolName: string, project: Project, data: unknown):
   const record = (data ?? {}) as Record<string, unknown>;
   if (record.available !== true) {
     const reason =
-      typeof record.reason === 'string' ? record.reason : 'search response was malformed';
+      typeof record.reason === 'string'
+        ? record.reason
+        : unreadableEngineAnswer('the search index answered with no result list');
     return { status: 'failed', summary: `"${toolName}" failed: ${reason}`, data: reason };
   }
   const index = indexFor(project);
@@ -569,9 +582,110 @@ const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
     'plainly that you could not inspect the footage.',
 };
 
-/** Expand a machine reason into guidance; anything unrecognized is passed through. */
-export function visualReasonGuidance(reason: string): string {
-  return VISUAL_REASON_GUIDANCE[reason.trim()] ?? reason;
+/**
+ * Per-tool wording for the SAME reasons, where the INSTEAD differs by what was asked.
+ *
+ * `map_footage` asks a different question from `describe_footage`: chapters and highlights
+ * over a whole asset, not what is on screen at one moment. "Nothing to describe yet" is
+ * the wrong fact for it, and a single `get_frame` is the wrong scale of substitute — an
+ * asset-length map is replaced by sampling ACROSS the asset, or not at all.
+ *
+ * Keyed by the same reason token so there is still one vocabulary; a tool with no entry
+ * falls through to the shared sentence rather than losing its guidance.
+ */
+const TOOL_VISUAL_REASON_GUIDANCE: Readonly<Record<string, Readonly<Record<string, string>>>> = {
+  map_footage: {
+    not_indexed:
+      'this clip has not been indexed, so it has no chapters or highlights yet. Indexing ' +
+      'runs in the background and may not finish during this run — do not call this again ' +
+      'for the same clip. Sample it with get_frame at a few times across its duration, or ' +
+      'work from what you already know about it (its title, its duration, and the query ' +
+      'that found it) and say plainly that no map is available yet.',
+    pegasus_unavailable:
+      'the understanding backend is not available for this project, so no clip can be ' +
+      'mapped in this run. Do not call this again for any clip. Work from the titles and ' +
+      'durations you already have, look at a moment with get_frame if you need to see one, ' +
+      'and say plainly that you could not map the footage.',
+  },
+};
+
+/**
+ * Expand a machine reason into guidance; anything unrecognized is passed through.
+ *
+ * @param reason - The engine's reason token, verbatim.
+ * @param toolName - The tool that got it, when its INSTEAD differs from the shared one.
+ */
+export function visualReasonGuidance(reason: string, toolName?: string): string {
+  const key = reason.trim();
+  const perTool = toolName === undefined ? undefined : TOOL_VISUAL_REASON_GUIDANCE[toolName]?.[key];
+  return perTool ?? VISUAL_REASON_GUIDANCE[key] ?? reason;
+}
+
+/**
+ * Every sentence the two guidance tables above can hand the model, with the reason token
+ * and the tool it was written for.
+ *
+ * Exported so the failure-quality gate (`model-facing-failure.gate.test.ts`) can WALK the
+ * tables instead of quoting them: a list copied into a test rots the day someone adds a
+ * reason, which is exactly how `not_indexed` sat unexpanded on the `map_footage` path
+ * while `describe_footage` next door had guidance for it (captured run `369e8c82`).
+ */
+export function visualReasonGuidanceEntries(): readonly {
+  readonly reason: string;
+  readonly toolName: string | null;
+  readonly guidance: string;
+}[] {
+  const entries: { reason: string; toolName: string | null; guidance: string }[] = [];
+  for (const [reason, guidance] of Object.entries(VISUAL_REASON_GUIDANCE)) {
+    entries.push({ reason, toolName: null, guidance });
+  }
+  for (const [toolName, table] of Object.entries(TOOL_VISUAL_REASON_GUIDANCE)) {
+    for (const [reason, guidance] of Object.entries(table))
+      entries.push({ reason, toolName, guidance });
+  }
+  return entries;
+}
+
+/**
+ * The failure sentence for an answer this package could not read.
+ *
+ * goal.md Workstream C: "Every failure returned to the model must say what was wrong and
+ * what a valid next action looks like." `search response was malformed` said the first
+ * half and stopped — the caller cannot tell a broken engine from a bad argument, so its
+ * only move is to send the same call again. Six settle functions produced the same
+ * shape, so the sentence is written once here rather than six times.
+ *
+ * Modelled on {@link describeTransportFailure}, which is the one failure on this seam
+ * already proven to stop a retry loop: it says WHAT broke, that the arguments are not the
+ * cause, and what to do with the rest of the run.
+ *
+ * @param what - The specific thing that could not be read, in the editor's words.
+ */
+function unreadableEngineAnswer(what: string): string {
+  return (
+    `${what}. This is not about your arguments — the media engine's answer could not be ` +
+    'read. Retry this call once; if it comes back the same way, continue without this ' +
+    'result and tell the editor the media engine returned something FramePilot could not read.'
+  );
+}
+
+/**
+ * The failure sentence for work that only the desktop app can do.
+ *
+ * The fact alone ("it runs in the FramePilot desktop app") is a dead end for a caller with
+ * no way to install anything: run `369e8c82` shows what a model does with a fact it cannot
+ * act on, which is to try again. The move has to be named, and it is always the same one —
+ * stop asking for this capability, work with what the project already holds, and tell the
+ * editor what could not be done.
+ *
+ * @param what - The capability, capitalised, as the sentence's subject.
+ * @param instead - What to do with the rest of the run, naming a tool where one applies.
+ */
+function desktopOnlyCapability(what: string, instead: string): string {
+  return (
+    `${what} is not available on this surface — it runs in the FramePilot desktop app. ` +
+    `Do not call it again in this run: ${instead}`
+  );
 }
 
 /**
@@ -602,7 +716,9 @@ export function unwrapVisualSearch(toolName: string, data: unknown): HostToolOut
   const record = (data ?? {}) as Record<string, unknown>;
   if (record.available !== true) {
     const reason =
-      typeof record.reason === 'string' ? record.reason : 'visual search response was malformed';
+      typeof record.reason === 'string'
+        ? record.reason
+        : unreadableEngineAnswer('the visual index answered with no result list');
     return { status: 'failed', summary: `"${toolName}" failed: ${reason}`, data: reason };
   }
   const packets = Array.isArray(record.packets) ? record.packets : [];
@@ -612,7 +728,7 @@ export function unwrapVisualSearch(toolName: string, data: unknown): HostToolOut
     // no reason is simply an empty search — index the footage or widen the query.
     const reason =
       typeof record.reason === 'string'
-        ? visualReasonGuidance(record.reason)
+        ? visualReasonGuidance(record.reason, toolName)
         : 'no visual evidence — this footage may not be indexed yet (indexing runs ' +
           'automatically in the background). Look at a moment with get_frame, widen the ' +
           'query, or say plainly that content search found nothing.';
@@ -718,7 +834,9 @@ export function unwrapFrame(args: Record<string, unknown>, data: unknown): HostT
   const at = typeof record.time_seconds === 'number' ? record.time_seconds : 0;
   const requested = typeof args.timeSeconds === 'number' ? args.timeSeconds : at;
   if (base64 === '' || !FORWARDABLE_IMAGE_TYPES.has(mediaType)) {
-    const reason = `the engine returned no usable image (media type ${mediaType || 'missing'})`;
+    const reason = unreadableEngineAnswer(
+      `the engine returned no usable image (media type ${mediaType || 'missing'})`,
+    );
     return { status: 'failed', summary: `"get_frame" failed: ${reason}`, data: reason };
   }
   const width = typeof record.width === 'number' ? record.width : 0;
@@ -752,7 +870,9 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
   const record = (data ?? {}) as Record<string, unknown>;
   if (record.available !== true) {
     const reason =
-      typeof record.reason === 'string' ? record.reason : 'footage-map response was malformed';
+      typeof record.reason === 'string'
+        ? record.reason
+        : unreadableEngineAnswer('the footage map came back with no chapters and no reason');
     return { status: 'failed', summary: `"map_footage" failed: ${reason}`, data: reason };
   }
   // Through the CONTRACT, not past it. `footageMapSchema` is what every other reader of a
@@ -781,9 +901,16 @@ export function unwrapFootageMap(data: unknown): HostToolOutcome {
   const summary = typeof record.summary === 'string' ? record.summary : '';
   const durationSec = typeof record.durationSec === 'number' ? record.durationSec : 0;
   if (chapters.length === 0) {
+    // Through the SAME expansion `describe_footage` goes through. The engine answers
+    // `not_indexed` and nothing else, so this branch used to hand the model
+    // `"map_footage": not_indexed` — a token with no instruction in it, next to
+    // `durationSec: 0` and an empty summary. Captured run `369e8c82` read it six times
+    // over six freshly-downloaded stock clips and then placed that stock blind.
+    // Unrecognized reasons (`invalid_api_key`) still pass through verbatim: guidance is
+    // written from evidence, never invented for a token we have not seen fail.
     const reason =
       typeof record.reason === 'string'
-        ? record.reason
+        ? visualReasonGuidance(record.reason, 'map_footage')
         : 'no footage map yet — this footage may not be indexed (indexing runs ' +
           'automatically in the background). Look at a few moments with get_frame, or say ' +
           'plainly that no map is available yet.';
@@ -857,24 +984,51 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
     case 'no-key':
       return {
         status: 'warning',
+        // The key has to be added by a person in Settings, so the caller's move is not to
+        // fix it — it is to stop asking and work without an index. Naming only the human's
+        // move is the `Place it from the bin` mistake of run `369e8c82`.
         summary:
-          '"index_media": no embedding key is configured, so the footage cannot be indexed. Add an NVIDIA embeddings key in Settings → AI → Embeddings.',
+          '"index_media": no embedding key is configured, so the footage cannot be indexed ' +
+          'and search_visual, describe_footage and map_footage have nothing to answer from. ' +
+          'Do not call it again in this run. Look at moments directly with get_frame, and ' +
+          'tell the editor to add an NVIDIA embeddings key in Settings → AI → Embeddings if ' +
+          'they want content search.',
         data: result.last,
       };
     case 'unavailable':
       return {
         status: 'failed',
-        summary: `"index_media" failed: ${result.last?.reason ?? 'visual indexing is unavailable on this build'}`,
+        // The REASON may be the engine's own words and is kept verbatim; the instruction
+        // after it is keyed to the loop status, which this package classified itself, so it
+        // is written from evidence rather than guessed at a token we have not seen.
+        summary:
+          `"index_media" failed: ${result.last?.reason ?? 'visual indexing is unavailable on this build'}. ` +
+          'Indexing cannot be made to work from here, so do not call it again in this run. ' +
+          'Look at moments directly with get_frame, and tell the editor that content search ' +
+          'is unavailable for this project.',
         data: result.last,
       };
     case 'unreachable':
-      return { status: 'failed', summary: '"index_media" failed: the media engine is unreachable' };
+      // Worded like `describeTransportFailure`, for the same reason: a dead socket is
+      // transient, so the honest instruction is one retry and then carry on without it.
+      return {
+        status: 'failed',
+        summary:
+          '"index_media" failed: the media engine is unreachable. This is not about your ' +
+          'arguments: retry this call once; if it fails again, continue without an index — ' +
+          'look at moments with get_frame — and tell the editor the media engine is not ' +
+          'responding.',
+      };
     case 'cancelled':
       return { status: 'cancelled', summary: 'Stopped "index_media" — run cancelled' };
     case 'keys-failing':
       return {
         status: 'warning',
-        summary: `"index_media": embedding keys are failing — indexed ${cursor}/${total} so far, resumable later.`,
+        summary:
+          `"index_media": embedding keys are failing — indexed ${cursor}/${total} so far, and ` +
+          'the rest is resumable later. Do not call it again in this run; the same keys will ' +
+          'fail. Search what is already indexed with search_visual, look at the rest with ' +
+          'get_frame, and tell the editor the index is incomplete.',
         data: result.last,
       };
     case 'exhausted-slices':
@@ -882,7 +1036,7 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
       return {
         status: wait ? 'warning' : 'completed',
         summary: wait
-          ? `"index_media" did not finish (indexed ${cursor}/${total}); call again to continue.`
+          ? `"index_media" did not finish (indexed ${cursor}/${total}); call index_media again to continue where it stopped.`
           : `Indexing started — ${cursor}/${total} assets done, continuing in the background.`,
         data: result.last,
       };
@@ -903,7 +1057,9 @@ export function unwrapSessionContext(data: unknown): HostToolOutcome {
   const record = (data ?? {}) as Record<string, unknown>;
   if (record.available !== true) {
     const reason =
-      typeof record.reason === 'string' ? record.reason : 'session context response was malformed';
+      typeof record.reason === 'string'
+        ? record.reason
+        : unreadableEngineAnswer('the session context came back with no sections and no reason');
     return { status: 'failed', summary: `"session_context" failed: ${reason}`, data: reason };
   }
   const text = (key: string): string => (typeof record[key] === 'string' ? record[key] : '');
@@ -1105,7 +1261,11 @@ export function planSidecarCall(
         if (!Array.isArray(words) || words.length === 0) {
           return {
             status: 'failed',
-            summary: '"transcribe" returned no timed words; the existing transcript was preserved.',
+            summary:
+              '"transcribe" returned no timed words, so the existing transcript was ' +
+              'preserved. Speech-to-text found nothing to time — do not call it again for ' +
+              'this asset. Check with list_assets that you named the one carrying speech, ' +
+              'or say plainly that this footage has no usable speech to caption.',
             data,
           };
         }
@@ -1161,7 +1321,13 @@ export async function chargeAnalysisBudget(
       });
       return {
         status: 'failed',
-        summary: `"${call.name}" was not run — ${decision.reason}.`,
+        // The cap's own reason is kept verbatim (it carries the numbers); what follows is
+        // the move, because a refusal that reads as a transient failure gets retried, and
+        // every retry is refused identically for the rest of the run.
+        summary:
+          `"${call.name}" was not run — ${decision.reason}. Retrying it will be refused the ` +
+          'same way for the rest of this run. Work from the analysis you already have, and ' +
+          'tell the editor which measurement you had to skip.',
         data: decision.reason,
       };
     }
@@ -1236,8 +1402,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         if (!options.hostMusicSearch) {
           return {
             status: 'failed',
-            summary:
-              'Music search is not available on this surface — it runs in the FramePilot desktop app.',
+            summary: desktopOnlyCapability(
+              'Music search',
+              'score the edit with audio the project already holds (list_assets shows it), ' +
+                'and tell the editor that searching for music needs the desktop app.',
+            ),
           };
         }
         const query = typeof call.arguments?.query === 'string' ? call.arguments.query : '';
@@ -1249,8 +1418,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         if (!options.hostAddMusic) {
           return {
             status: 'failed',
-            summary:
-              'Adding music is not available on this surface — it runs in the FramePilot desktop app.',
+            summary: desktopOnlyCapability(
+              'Adding music',
+              'place audio the project already holds with add_clip (list_assets shows it), ' +
+                'and tell the editor that downloading music needs the desktop app.',
+            ),
           };
         }
         // Every declared parameter is forwarded. Dropping `atSeconds` or
@@ -1288,8 +1460,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         if (!options.hostStockSearch) {
           return {
             status: 'failed',
-            summary:
-              'Stock search is not available on this surface — it runs in the FramePilot desktop app.',
+            summary: desktopOnlyCapability(
+              'Stock search',
+              'build the edit from the footage the project already holds (list_assets shows ' +
+                'it), and tell the editor that searching for stock needs the desktop app.',
+            ),
           };
         }
         const query = typeof call.arguments?.query === 'string' ? call.arguments.query : '';
@@ -1320,8 +1495,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         if (!options.hostAddStock) {
           return {
             status: 'failed',
-            summary:
-              'Adding stock media is not available on this surface — it runs in the FramePilot desktop app.',
+            summary: desktopOnlyCapability(
+              'Adding stock media',
+              'place footage the project already holds with add_clip (list_assets shows it), ' +
+                'and tell the editor that downloading stock needs the desktop app.',
+            ),
           };
         }
         const remoteId =
@@ -1347,7 +1525,12 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         if (!target || target.track.type === 'audio' || target.track.type === 'caption') {
           return {
             status: 'failed',
-            summary: `Cannot measure color: clip "${clipId}" is missing or is not visual.`,
+            // The wrong-clip-id answer this codebase already gives everywhere else: say
+            // which ids ARE valid rather than only that this one is not (commit 629b822).
+            summary:
+              `Cannot measure color: clip "${clipId}" is not on the timeline, or it is on an ` +
+              'audio or caption track and has no picture to measure. Call get_clips to see ' +
+              'the clips on the video tracks and their ids, then measure one of those.',
           };
         }
       }
@@ -1359,7 +1542,16 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         log.warn('run → no sidecar route for tool', { tool: call.name });
         return {
           status: 'failed',
-          summary: `"${call.name}" is not runnable from the AI panel yet — use the Export dialog.`,
+          // "use the Export dialog" is an instruction for someone with a mouse — the same
+          // dead end as run `369e8c82`'s "Place it from the bin". The caller needs to know
+          // that no retry helps and what to do with the rest of the run instead.
+          summary: RENDER_ACTIONS.has(call.name)
+            ? `"${call.name}" cannot be run from here — the editor renders and exports ` +
+              'through its own Export dialog. Do not call it again: finish the edit, then ' +
+              'tell the editor it is ready to export.'
+            : `"${call.name}" has no implementation on this surface, so nothing here can ` +
+              'run it. Do not call it again in this run: do what you can with the other ' +
+              'tools, and tell the editor which step you had to skip.',
         };
       }
       log.action('run → dispatching sidecar call', { tool: call.name, route: plan.route });
@@ -1376,6 +1568,7 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
       const outcome = await postAnalysis({
         fetchFn,
         url: `${options.baseUrl}${plan.route}`,
+        baseUrl: options.baseUrl,
         call,
         body: plan.body,
         interpret: plan.interpret,
@@ -1456,10 +1649,69 @@ function trimEngineError(text: string): string {
     : `${text.slice(0, MAX_ENGINE_ERROR_CHARS)}… (truncated)`;
 }
 
+/**
+ * Node error codes that mean "the request never reached the engine": the socket was
+ * refused, the name did not resolve, the peer hung up, or undici gave up on the
+ * connection. `TypeError: fetch failed` is the message undici puts on ALL of them, and
+ * the real code hides one level down in `error.cause`.
+ */
+const TRANSPORT_ERROR_CODES = ['ECONNREFUSED', 'ENOTFOUND', 'ECONNRESET', 'EAI_AGAIN'] as const;
+
+/** The one-line, engine-free sentence the EDITOR sees on the tool card. */
+const ENGINE_UNREACHABLE_SUMMARY =
+  "The media engine is not responding — check that FramePilot's engine is running";
+
+/** The `code` off an error's `cause`, when there is one (undici nests the real cause). */
+function transportErrorCode(error: unknown): string | undefined {
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const code = (cause as { code?: unknown } | null)?.code;
+  return typeof code === 'string' && code.length > 0 ? code : undefined;
+}
+
+/**
+ * Turn a transport-level failure into an instruction the MODEL can act on.
+ *
+ * In the captured run 35 tool failures reached the model as `"<tool>" failed: fetch
+ * failed` — undici's message for a refused socket, with the cause one level down and the
+ * base URL nowhere. The model cannot tell that from a bad argument, so it retried the
+ * identical call and burned turns on an engine that was not running. The sentence below
+ * says three things the raw message does not: WHERE we tried to reach, that the arguments
+ * are not the problem, and what a valid next action is.
+ *
+ * Deliberately NOT a deterministic failure (see `conductor.ts#mergeFailureKeys`): a dead
+ * socket is transient by nature, and banking it as a permanent refusal would keep the tool
+ * blocked for the rest of the run after the engine came back.
+ *
+ * @param toolName - The failing tool, quoted into the sentence.
+ * @param error - The rejection from `fetch`.
+ * @param baseUrl - The engine origin the call was aimed at.
+ * @returns The model-facing sentence, or `undefined` when this is not a transport failure.
+ */
+export function describeTransportFailure(
+  toolName: string,
+  error: unknown,
+  baseUrl: string,
+): string | undefined {
+  const code = transportErrorCode(error);
+  const message = error instanceof Error ? error.message : '';
+  const isTransport =
+    (code !== undefined &&
+      (TRANSPORT_ERROR_CODES.some((known) => known === code) || code.startsWith('UND_ERR_'))) ||
+    message.includes('fetch failed');
+  if (!isTransport) return undefined;
+  return (
+    `"${toolName}" could not reach the media engine at ${baseUrl} (${code ?? 'connection failed'}). ` +
+    'This is not about your arguments: retry this call once; if it fails again, continue ' +
+    'without this analysis and tell the editor the media engine is not responding.'
+  );
+}
+
 /** POST one analysis request and settle EVERY path (2xx/4xx/abort/timeout/network) to an outcome. */
 async function postAnalysis(args: {
   fetchFn: typeof fetch;
   url: string;
+  /** The engine origin, named in a transport failure so the model can see WHERE we tried. */
+  baseUrl: string;
   call: ToolCall;
   body: Record<string, unknown>;
   /** Settle a 2xx payload to an outcome (legacy pass-through vs. unified unwrap). */
@@ -1496,6 +1748,14 @@ async function postAnalysis(args: {
         status: 'failed',
         summary: `"${call.name}" timed out after ${Math.round(args.timeoutMs / 1000)}s`,
       };
+    }
+    // A dead socket gets the card's plain sentence and the model's instruction — the
+    // card is what the editor reads, `data` is what the model reads (see the
+    // `emit.toolResult` comment in orchestrator.ts: card gets the summary, popup +
+    // model get `data`).
+    const transport = describeTransportFailure(call.name, error, args.baseUrl);
+    if (transport !== undefined) {
+      return { status: 'failed', summary: ENGINE_UNREACHABLE_SUMMARY, data: transport };
     }
     const reason = error instanceof Error ? error.message : String(error);
     return { status: 'failed', summary: `"${call.name}" failed: ${reason}`, data: reason };

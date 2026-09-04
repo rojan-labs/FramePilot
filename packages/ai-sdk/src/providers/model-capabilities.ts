@@ -112,6 +112,13 @@ const KNOWN_MODEL_IDS: readonly string[] = Object.freeze(Object.keys(KNOWN_MODEL
  */
 const PROVIDER_DEFAULTS: Readonly<Record<ProviderName, ModelCapabilities>> = Object.freeze({
   anthropic: { contextWindow: 200_000, maxOutputTokens: 64_000, source: 'provider_default' },
+  // Serves the same Claude models as `anthropic`, so the same floor. In practice this is
+  // rarely reached: the default model is a full catalog id, which resolves exactly.
+  'claude-agent-sdk': {
+    contextWindow: 200_000,
+    maxOutputTokens: 64_000,
+    source: 'provider_default',
+  },
   nvidia: { contextWindow: 128_000, maxOutputTokens: 4_096, source: 'provider_default' },
   openrouter: { contextWindow: 128_000, maxOutputTokens: 8_192, source: 'provider_default' },
   // An aggregator like OpenRouter: the id names the real vendor, so a known slug resolves
@@ -297,6 +304,13 @@ export function supportsVision(
   model: string | undefined,
 ): boolean {
   if (provider === 'mock') return true;
+  // The model can see; the transport cannot carry a picture. The Claude Agent SDK takes a
+  // string prompt, which has nowhere to put an image block, so every frame this SDK
+  // attached would be dropped on the floor — and the model would then describe footage it
+  // never saw, which is exactly the hallucination VISION_MODEL_PREFIXES exists to prevent.
+  // Gating on the transport rather than the id is the whole point: `claude-opus-5` is a
+  // sighted model reached through a blind pipe.
+  if (provider === 'claude-agent-sdk') return false;
   const id = normalizeModelId(model ?? '');
   if (!id) return false;
   return VISION_MODEL_PREFIXES.some((prefix) => id.startsWith(prefix));

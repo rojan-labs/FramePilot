@@ -59,6 +59,7 @@ import {
 } from '../../editor/ai.js';
 import { useAiConfig } from '../../editor/useAiConfig.js';
 import { useSettings } from '../../editor/useSettings.js';
+import { recordUsageRun } from '../../editor/usageHistory.js';
 import { loadUserMemory } from '../../editor/userMemoryStorage.js';
 import type { UseEditor } from '../../editor/useEditor.js';
 import { selectionRange } from '../../editor/selectors.js';
@@ -984,6 +985,14 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     modelCalls: 0,
   });
   const { settings } = useSettings();
+  // The run budget (goal.md Workstream D) is a SETTING, not a per-run choice: set once in
+  // Settings → AI and applied to every agent run, including a resumed one. It used to be a
+  // pair of fields docked under the composer plus a notification the run emitted before its
+  // first model call; the maintainer replaced both with a permanent control the user can
+  // consult at any time, so the transcript no longer opens by restating three numbers. The
+  // run still says why it stopped when it actually reaches a limit.
+  const maxUsd = settings.maxRunUsd;
+  const maxMinutes = settings.maxRunMinutes;
 
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const contentRef = useRef<HTMLDivElement>(null);
@@ -1437,7 +1446,7 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
           // classifies to an edit it delegates to the very same agent loop (ADR 0055).
           ...(runMode === 'agent' || runMode === 'auto'
             ? {
-                agentOptions: { planFirst, requirePlanApproval: planFirst },
+                agentOptions: { planFirst, requirePlanApproval: planFirst, maxUsd, maxMinutes },
                 controls: { planApproval: planApprovalGate, steering: steeringQueue },
               }
             : {}),
@@ -1493,6 +1502,25 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
             usd: sessionCost.current.usd + signals.cost.usd,
             modelCalls: sessionCost.current.modelCalls + (signals.cost.modelCalls ?? 0),
           };
+          // Fold the run into local history for Settings → Usage & Spend. This is the only
+          // place that knows all four facts at once — what it cost, which provider served
+          // it, which model, and which project it belonged to — which is why the record is
+          // written here and not somewhere more central. Failed runs are already excluded
+          // by the branch above: a provider that dropped the request reports no usage, so
+          // recording it would file a measured zero against a run that really called out.
+          recordUsageRun(
+            {
+              at: new Date(),
+              provider: activeProviderName,
+              model: activeProvider?.model ?? 'unknown',
+              projectId: project.id,
+              projectName: project.name,
+              tokens: signals.cost.tokens,
+              usd: signals.cost.usd,
+              modelCalls: signals.cost.modelCalls ?? 0,
+            },
+            settings.trackUsageHistory,
+          );
           const summary = summarizeUsage(signals.cost, sessionCost.current);
           // When the run really called the model but no provider reported usage, the raw
           // numbers are a floor, not a measurement — saying "0 tokens · $0.0000" would
@@ -1567,6 +1595,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       activeProviderName,
       activeProvider,
       planFirst,
+      maxUsd,
+      maxMinutes,
       wantVariations,
       composerSelection,
       pinnedEntities,
@@ -1651,6 +1681,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         ...(activeProviderName !== 'mock' ? { provider: activeProviderName } : {}),
         agentOptions: {
           planFirst,
+          // A resumed run is a fresh run to the SDK, so it needs the budget too.
+          maxUsd,
+          maxMinutes,
           resume: {
             ops: cp.ops as readonly AnyOperation[],
             log: cp.log,
@@ -1687,6 +1720,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     projectRevision,
     activeProviderName,
     planFirst,
+    maxUsd,
+    maxMinutes,
     conversations,
   ]);
 

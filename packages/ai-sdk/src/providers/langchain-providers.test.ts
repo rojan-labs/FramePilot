@@ -439,9 +439,14 @@ describe('lazy LangChain provider roster', () => {
     expect(provider.modelId).toBe(createProvider(name as ProviderName).modelId);
   });
 
-  it('serves every real provider through LangChain, leaving only mock native', () => {
+  it('serves every HTTP provider through LangChain, leaving only the two native paths', () => {
     const unserved = PROVIDER_NAMES.filter((name) => !LANGCHAIN_SERVABLE.includes(name));
-    expect(unserved).toEqual(['mock']);
+    // Exactly two providers are not LangChain, and each is native for a stated reason:
+    // `mock` must run with no network client at all (the offline/no-key path), and
+    // `claude-agent-sdk` talks to a spawned `claude` process rather than an HTTP endpoint,
+    // so there is no chat model for LangChain to wrap. Any THIRD name appearing here means
+    // a provider was added without wiring its adapter — which is what this asserts.
+    expect(unserved).toEqual(['claude-agent-sdk', 'mock']);
   });
 
   it('leaves the mock provider alone', () => {

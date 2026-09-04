@@ -7,12 +7,16 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { Orchestrator, agentCompletionReport, type StreamOptions } from './orchestrator.js';
+import { INHERITED_PREFIX, critique } from './critic.js';
+import { unusableHostPayload } from './reliability/refusal-notes.js';
 import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@framepilot/editor-core';
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
 import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
+import type { TimerApi } from './reliability/timeout.js';
+import { MODEL_WAIT_HEARTBEAT_MS } from './reliability/wait-heartbeat.js';
 import { createAskUserGate, createPlanApprovalGate, createSteeringQueue } from './run-controls.js';
 import { DIMINISHING_RETURNS_TURNS, PLAN_APPROVAL_STEP_THRESHOLD } from './kernel/conductor.js';
 
@@ -99,6 +103,101 @@ const editCall = {
 };
 
 /**
+ * A hand-fired timer, so "the run stopped on time" is a deterministic assertion.
+ *
+ * A never-returning step cannot be expressed with a `Date.now`-based `setTimeout`, and
+ * vitest's fake timers have raced under this repo's coverage instrumentation. This is the
+ * pattern `reliability/timeout.ts` already uses for the idle watchdog: inject the timer,
+ * fire it by hand, and the deadline lands exactly where the test says it does.
+ */
+function handFiredTimers(): {
+  api: TimerApi;
+  fire: () => void;
+  pending: () => number;
+  /**
+   * Fire only the timers armed for exactly `ms`.
+   *
+   * Two independent clocks now run inside one agent run — the run deadline
+   * (`maxMinutes` × 60_000) and the wait heartbeat (`MODEL_WAIT_HEARTBEAT_MS`) — and a
+   * test that could only fire both at once could never show one working without the
+   * other. The delay is what tells them apart.
+   */
+  fireDelay: (ms: number) => number;
+  /** How many timers armed for exactly `ms` are pending right now. */
+  armed: (ms: number) => number;
+  /** How many timers with exactly `ms` were EVER armed — a live, re-arming heartbeat. */
+  arms: (ms: number) => number;
+} {
+  const scheduled = new Map<number, { ms: number; handler: () => void }>();
+  const armedEver: number[] = [];
+  let next = 1;
+  const fireMatching = (match: (ms: number) => boolean): number => {
+    let fired = 0;
+    for (const [id, entry] of [...scheduled]) {
+      if (!match(entry.ms)) continue;
+      scheduled.delete(id);
+      fired += 1;
+      entry.handler();
+    }
+    return fired;
+  };
+  return {
+    api: {
+      setTimeout: (handler: () => void, ms: number) => {
+        const id = next++;
+        scheduled.set(id, { ms, handler });
+        armedEver.push(ms);
+        return id;
+      },
+      clearTimeout: (handle: unknown) => {
+        scheduled.delete(handle as number);
+      },
+    },
+    fire: () => {
+      fireMatching(() => true);
+    },
+    fireDelay: (ms) => fireMatching((armedMs) => armedMs === ms),
+    armed: (ms) => [...scheduled.values()].filter((entry) => entry.ms === ms).length,
+    arms: (ms) => armedEver.filter((armedMs) => armedMs === ms).length,
+    pending: () => scheduled.size,
+  };
+}
+
+/**
+ * A provider whose Nth call never returns — run `369e8c82`'s `seg-20`, which was logged
+ * and then heard from no more.
+ *
+ * It respects the signal it is handed (as every real transport does), so the run's own
+ * deadline is the only thing that can end the call — which is exactly the property under
+ * test. `onStall` fires the injected deadline timer, so the stall and the clock running
+ * out are one deterministic sequence with no wall time in it.
+ */
+class StallingProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  private stalledOnce = false;
+  public constructor(
+    private readonly responses: readonly AiResponse[],
+    private readonly stallAtCall: number,
+    private readonly onStall: () => void,
+  ) {}
+  public async complete(_request: AiCompletionRequest, signal?: AbortSignal): Promise<AiResponse> {
+    const call = this.index;
+    this.index += 1;
+    if (call === this.stallAtCall && !this.stalledOnce) {
+      this.stalledOnce = true;
+      return new Promise<AiResponse>((_resolve, reject) => {
+        const stop = (): void => reject(new ProviderError('The operation was aborted', 'network'));
+        if (signal?.aborted) stop();
+        else signal?.addEventListener('abort', stop, { once: true });
+        this.onStall();
+      });
+    }
+    return this.responses[Math.min(call, this.responses.length - 1)] as AiResponse;
+  }
+}
+
+/**
  * A provider that returns a queued sequence of responses across successive
  * `complete()` calls (repeating the last once exhausted). Lets a test script a
  * multi-turn agent run deterministically: turn 1, turn 2, then the repair pass.
@@ -134,6 +233,58 @@ class ScriptedStreamProvider implements AiProvider {
     this.index += 1;
     for (const chunk of script) yield chunk;
   }
+}
+
+/**
+ * A provider whose Nth streamed call PARKS: the request was accepted, and nothing comes
+ * back until the test releases it. Run `369e8c82`'s `seg-20`, with a way out.
+ *
+ * `onPark` is invoked from inside the parked promise's executor, so it starts running
+ * before the call suspends but does its work afterwards — which is where the wait
+ * heartbeat arms its first timer. It respects the signal, so Stop and the run deadline
+ * still end the call exactly as a real transport would.
+ */
+class ParkedStreamProvider implements AiProvider {
+  public readonly name = 'mock' as const;
+  private index = 0;
+  public constructor(
+    private readonly scripts: readonly (readonly ProviderChunk[])[],
+    private readonly parkAtCall: number,
+    private readonly onPark: (release: () => void) => Promise<void>,
+  ) {}
+  public async complete(): Promise<AiResponse> {
+    return { text: '' };
+  }
+  public async *stream(
+    _request: AiCompletionRequest,
+    signal?: AbortSignal,
+  ): AsyncGenerator<ProviderChunk> {
+    const call = this.index;
+    this.index += 1;
+    if (call === this.parkAtCall) {
+      await new Promise<void>((resolve, reject) => {
+        const stop = (): void => {
+          reject(new ProviderError('The operation was aborted', 'network'));
+        };
+        if (signal?.aborted === true) stop();
+        else signal?.addEventListener('abort', stop, { once: true });
+        void this.onPark(resolve);
+      });
+    }
+    for (const chunk of this.scripts[Math.min(call, this.scripts.length - 1)]!) yield chunk;
+  }
+}
+
+/**
+ * Spin the event loop until `predicate` holds. Bounded and zero-delay — the wait is for
+ * the run's own microtasks to reach the point under test, never for wall time.
+ */
+async function until(predicate: () => boolean, what: string): Promise<void> {
+  for (let i = 0; i < 500; i += 1) {
+    if (predicate()) return;
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  }
+  throw new Error(`timed out waiting for ${what}`);
 }
 
 /** An in-scope read-only call for the question route's tool loop. */
@@ -1586,7 +1737,13 @@ describe('streamAgent', () => {
       }
     }
     const events = await drain(new Orchestrator(new ThrowingProvider()).streamAgent(input, opts()));
-    expect(events.some((e) => e.type === 'error' && /network exploded/.test(e.message))).toBe(true);
+    // GOLDEN-F.5: the card is a sentence the editor can act on; the raw throw text
+    // survives untouched in `detail` (behind "details"), never in the headline.
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message:
+        'The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it.',
+      detail: 'network exploded',
+    });
     expect(events.some((e) => e.type === 'reasoning' && e.done)).toBe(true);
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });
@@ -1612,7 +1769,9 @@ describe('streamAgent', () => {
       ).streamAgent(input, opts()),
     );
     expect(permanent.find((e) => e.type === 'error')).toMatchObject({
-      message: expect.stringContaining('Key limit exceeded'),
+      message:
+        "FramePilot can't sign in to mock. Check the API key in Settings → AI, then try again.",
+      detail: expect.stringContaining('Key limit exceeded'),
       retryable: false,
     });
     expect(permanent.at(-1)).toMatchObject({ status: 'failed' });
@@ -1641,9 +1800,10 @@ describe('streamAgent', () => {
       }
     }
     const events = await drain(new Orchestrator(new ThrowNonError()).streamAgent(input, opts()));
-    expect(events.some((e) => e.type === 'error' && /failed unexpectedly/.test(e.message))).toBe(
-      true,
-    );
+    expect(events.find((e) => e.type === 'error')).toMatchObject({
+      message: expect.stringContaining('The AI run stopped unexpectedly.'),
+      detail: 'not-an-error-object',
+    });
     expect(events.at(-1)).toMatchObject({ type: 'status', status: 'failed' });
   });
 
@@ -2309,6 +2469,404 @@ describe('streamAgent robustness (parity with agent())', () => {
     );
   });
 
+  // goal.md Workstream A/D: verification judges the delta, not the absolute state. The
+  // mission-montage fixture is five landscape camera files in a 9:16 frame; every correct
+  // trim on it used to fail "Reframing is consistent", buy a repair turn that could not fix
+  // it, and settle `failed` — with the edit applied and no error card.
+  it('a defect the footage already had does not fail a correct edit (inherited advisory)', async () => {
+    const portrait = makeProject({
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        {
+          id: 'asset_1',
+          path: 'media/a.mp4',
+          kind: 'video',
+          durationSeconds: 30,
+          media: { width: 1920, height: 1080 },
+        },
+      ],
+    });
+    // Sanity: the starting project already fails the reframing check on its own.
+    expect(critique(portrait).checks.find((c) => c.id === 'reframe_coverage')?.status).toBe('fail');
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'done' },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(
+        { project: portrait, userPrompt: 'trim the first second' },
+        opts(),
+        { autoRepair: false },
+      ),
+    );
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    // Said, once, as an advisory — not withheld, not blocking.
+    expect(events.some((e) => e.type === 'notification' && e.text.includes(INHERITED_PREFIX))).toBe(
+      true,
+    );
+    expect(events.some((e) => e.type === 'warning' && e.text.startsWith('Reframing'))).toBe(false);
+    expect(events.some((e) => e.type === 'error')).toBe(false);
+  });
+
+  it('a failed run that applied edits gets one error card and still gets its receipt', async () => {
+    // A 1s duration target the edited fixture cannot meet: request-derived, never inherited.
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'done' },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), {
+        durationTargetSeconds: 1,
+        autoRepair: false,
+      }),
+    );
+    expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    const errors = events.filter((e) => e.type === 'error');
+    expect(errors).toHaveLength(1);
+    expect(errors[0]).toMatchObject({
+      message: expect.stringContaining('Applied 1 change, but the run could not finish'),
+      retryable: false,
+    });
+    expect(errors[0]).toMatchObject({ message: expect.stringContaining('undo reverts them') });
+    const receipt = events.filter((e) => e.type === 'assistant_message').at(-1);
+    expect(receipt).toMatchObject({
+      text: expect.stringContaining('but the run did not finish cleanly'),
+    });
+  });
+
+  // goal.md Workstream D: a run is bounded by a wall-clock budget. It is NOT announced —
+  // the bound lives in Settings → AI → Run budget, where the user set it (GOLDEN-D.4). What
+  // the run owes them is the REASON it stopped, at the moment it stops.
+  it('stops at the time limit, says why, and still reports what it applied', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'edit', toolCalls: [deleteRange('a', 0, 1)] },
+      { text: 'edit', toolCalls: [deleteRange('b', 6, 7)] },
+      { text: 'done' },
+    ]);
+    // A clock that jumps eleven minutes per read: the first turn boundary already sees
+    // more than the two-minute limit below.
+    let t = 1_000;
+    const now = () => (t += 11 * 60_000);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(
+        input,
+        { ...opts(), now },
+        {
+          maxMinutes: 2,
+          autoRepair: false,
+        },
+      ),
+    );
+    // Nothing recites the budget before the work: the only notification about it is the
+    // one that names the limit actually reached.
+    expect(
+      events.some((e) => e.type === 'notification' && e.text.includes('This run may use up to')),
+    ).toBe(false);
+    expect(events.some((e) => e.type === 'notification' && e.text.includes('2-minute limit'))).toBe(
+      true,
+    );
+    // One turn landed; the second scripted edit never ran.
+    expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+    expect(events.at(-1)).toMatchObject({ status: 'completed' });
+    expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+      text: expect.stringContaining('Applied 1 edit'),
+    });
+  });
+
+  // Run `369e8c82`: the 37-minute limit expired at 15:24:11 inside a model call that had
+  // been in flight since 15:16:45 and never returned. The between-steps check above is read
+  // on a TURN RESULT, so it never got a turn to be read on. These four cover the deadline
+  // that is now armed on the step itself.
+  describe('the run deadline (a step that never returns)', () => {
+    it('stops a hung model call on time and reports the edits applied before it', async () => {
+      const timers = handFiredTimers();
+      // Turn 1 lands an edit; turn 2's call never comes back.
+      const provider = new StallingProvider(
+        [{ text: 'edit', toolCalls: [deleteRange('a', 0, 1)] }],
+        1,
+        () => timers.fire(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      // Said once, naming the limit the editor actually set.
+      const stops = events.filter(
+        (e) => e.type === 'notification' && e.text.includes('37-minute limit'),
+      );
+      expect(stops).toHaveLength(1);
+      // NOT a cancellation, NOT a failure: the run ran out of time and reported.
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // The whole point — the captured run had nine committed patches and named none.
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+        text: expect.stringContaining('Applied 1 edit'),
+      });
+      // Every exit path clears the timer; a leaked one holds the process open.
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('stops a run whose FIRST call hangs, with nothing applied, and still says why', async () => {
+      const timers = handFiredTimers();
+      const provider = new StallingProvider([{ text: 'done' }], 0, () => timers.fire());
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 5, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(
+        events.some((e) => e.type === 'notification' && e.text.includes('5-minute limit')),
+      ).toBe(true);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(0);
+      // `failed`, and correctly so: ADR 0081 forbids `completed` without a traceable
+      // mutation, and this run has none. The point of the assertion is what it is NOT — a
+      // dead-end `failed` with no account of itself. It stopped on ITS OWN clock, said so,
+      // and raised no error card, exactly as a zero-edit between-steps budget stop does.
+      expect(events.at(-1)).toMatchObject({ status: 'failed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('still verifies and repairs after the deadline — the stop must not kill the report', async () => {
+      // The trap: `toVerify` does not finish a run, it ISSUES a verify effect. A deadline
+      // that aborted the run-wide signal would abort the verification it just triggered, and
+      // the run would report nothing — the captured failure, reproduced by its own fix.
+      const timers = handFiredTimers();
+      const provider = new StallingProvider(
+        [
+          { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
+          { text: 'fix', toolCalls: [deleteRange('b', 8, 9)] }, // the repair pass, post-deadline
+        ],
+        1,
+        () => timers.fire(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          // An unmeetable duration target, so verification fails and the repair pass runs.
+          { maxMinutes: 37, durationTargetSeconds: 1 },
+          { timers: timers.api },
+        ),
+      );
+      // The repair pass ran (its own turn-scoped diff) — verification was not aborted.
+      expect(events.filter((e) => e.type === 'diff').length).toBeGreaterThanOrEqual(2);
+      expect(
+        events.filter((e) => e.type === 'notification' && e.text.includes('37-minute limit')),
+      ).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'assistant_message').at(-1)).toMatchObject({
+        text: expect.stringContaining('Applied'),
+      });
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('hands the handler seam its own disposer — nothing else there clears the timer', () => {
+      // `agentConductorHandlers` (the parity harness's seam) compiles the same run
+      // `streamAgent` does, deadline included, but has no `finally` of its own around it.
+      const timers = handFiredTimers();
+      const { dispose } = new Orchestrator(new MockProvider()).agentConductorHandlers(
+        input,
+        opts(),
+        { maxMinutes: 12 },
+        { timers: timers.api },
+      );
+      expect(timers.pending()).toBe(1);
+      dispose();
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('a user Stop still cancels — distinguishable from running out of time', async () => {
+      const timers = handFiredTimers();
+      const controller = new AbortController();
+      // Same hung-call shape; the editor presses Stop instead of the clock running out.
+      const provider = new StallingProvider(
+        [{ text: 'edit', toolCalls: [deleteRange('a', 0, 1)] }],
+        1,
+        () => controller.abort(),
+      );
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(controller.signal),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
+      // The two stops are told apart by what they say: Stop is silent about budgets, and
+      // it does not route through verification the way running out of time does.
+      expect(events.some((e) => e.type === 'notification' && e.text.includes('minute limit'))).toBe(
+        false,
+      );
+      expect(
+        events.some((e) => e.type === 'notification' && e.text.startsWith('Deterministic')),
+      ).toBe(false);
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // The deadline it never reached is cleared all the same.
+      expect(timers.pending()).toBe(0);
+    });
+  });
+
+  // Run `369e8c82`'s last event was a context manifest at 15:16:45; the next thing that
+  // happened was the user force-quitting at 15:55:33. The deadline above bounds that
+  // silence — these cover SAYING it, which is the part the user actually needed.
+  describe('the waiting heartbeat (a run that is waiting says so)', () => {
+    const HEARTBEAT = MODEL_WAIT_HEARTBEAT_MS;
+    const editScript: readonly ProviderChunk[] = [
+      { type: 'text-delta', text: 'Trimming the intro.' },
+      { type: 'tool-call', call: deleteRange('a', 0, 1) },
+      { type: 'done' },
+    ];
+    const doneScript: readonly ProviderChunk[] = [
+      { type: 'text-delta', text: 'Done.' },
+      { type: 'done' },
+    ];
+
+    it('announces the wait, keeps announcing it, and clears it when the call lands', async () => {
+      const timers = handFiredTimers();
+      let pumpError: unknown;
+      // The first call parks. Two heartbeat intervals pass, then the model answers.
+      const provider = new ParkedStreamProvider([editScript, doneScript], 0, async (release) => {
+        try {
+          for (let beat = 1; beat <= 2; beat += 1) {
+            await until(() => timers.armed(HEARTBEAT) === 1, `heartbeat ${String(beat)}`);
+            timers.fireDelay(HEARTBEAT);
+          }
+          // Released with a beat still armed — the "call returned" path has to clear it.
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to re-arm');
+          release();
+        } catch (error) {
+          pumpError = error;
+          release();
+        }
+      });
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(pumpError).toBeUndefined();
+      const waits = events.filter((e) => e.type === 'progress');
+      // Two beats and the settle — one row, updated in place, not three transcript lines.
+      expect(waits.map((e) => `${e.label} @${String(e.value)}`)).toEqual([
+        'Waiting on the AI — no reply for 4 minutes @0',
+        'Waiting on the AI — no reply for 8 minutes @0',
+        'Waiting on the AI — no reply for 8 minutes @1',
+      ]);
+      expect(new Set(waits.map((e) => e.id)).size).toBe(1);
+      // It is not an error card, and it says nothing about what the run will do next.
+      expect(events.some((e) => e.type === 'error' || e.type === 'warning')).toBe(false);
+      // The heartbeat ended with the call: nothing waiting-shaped after the settle, and the
+      // run's own events carried on untouched.
+      const settleAt = events.indexOf(waits[2]!);
+      expect(events.slice(settleAt + 1).some((e) => e.type === 'progress')).toBe(false);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('says nothing at all when every call answers promptly', async () => {
+      // The test that stops this becoming noise on every turn.
+      const timers = handFiredTimers();
+      const provider = new ScriptedStreamProvider([editScript, doneScript]);
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.filter((e) => e.type === 'progress')).toHaveLength(0);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      // Armed on every call all the same — silent because no interval ever elapsed, not
+      // because the heartbeat was switched off.
+      expect(timers.arms(HEARTBEAT)).toBeGreaterThan(0);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('says nothing while a call streams, however many deltas it takes', async () => {
+      // Deltas ARE progress. Each one clears the armed beat and starts a fresh one, so a
+      // call that keeps producing can never reach an interval — see the re-arm count.
+      const timers = handFiredTimers();
+      const longStream: readonly ProviderChunk[] = [
+        ...Array.from(
+          { length: 200 },
+          (_, i): ProviderChunk => ({ type: 'text-delta', text: `word${String(i)} ` }),
+        ),
+        { type: 'tool-call', call: deleteRange('a', 0, 1) },
+        { type: 'done' },
+      ];
+      const provider = new ScriptedStreamProvider([longStream, doneScript]);
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(events.filter((e) => e.type === 'progress')).toHaveLength(0);
+      // One arm per chunk pulled: the watchdog was restarted 200-plus times and never
+      // survived long enough to fire.
+      expect(timers.arms(HEARTBEAT)).toBeGreaterThan(200);
+      expect(timers.armed(HEARTBEAT)).toBe(0);
+      expect(timers.pending()).toBe(0);
+    });
+
+    it('the deadline fires with a heartbeat armed — the run still stops and still reports', async () => {
+      // The adversarial one: two clocks alive at once inside the same call. The run must
+      // stop on ITS budget, still name what it applied, and leave no beat behind it.
+      const timers = handFiredTimers();
+      let pumpError: unknown;
+      const provider = new ParkedStreamProvider([editScript, []], 1, async () => {
+        try {
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to arm');
+          timers.fireDelay(HEARTBEAT);
+          await until(() => timers.armed(HEARTBEAT) === 1, 'the heartbeat to re-arm');
+          // …and now the run runs out of time, mid-beat.
+          timers.fireDelay(37 * 60_000);
+        } catch (error) {
+          pumpError = error;
+        }
+      });
+      const events = await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          { maxMinutes: 37, autoRepair: false },
+          { timers: timers.api },
+        ),
+      );
+      expect(pumpError).toBeUndefined();
+      // The user was told it was waiting, once, and the row was settled on the way out.
+      const waits = events.filter((e) => e.type === 'progress');
+      expect(waits.map((e) => e.value)).toEqual([0, 1]);
+      expect(waits[0]?.label).toBe('Waiting on the AI — no reply for 4 minutes');
+      // The deadline still did its job: stopped, said why, and reported the edit.
+      expect(
+        events.filter((e) => e.type === 'notification' && e.text.includes('37-minute limit')),
+      ).toHaveLength(1);
+      expect(events.filter((e) => e.type === 'diff')).toHaveLength(1);
+      expect(events.at(-1)).toMatchObject({ status: 'completed' });
+      expect(events.some((e) => e.type === 'error')).toBe(false);
+      // No heartbeat outlives the run that armed it.
+      expect(timers.armed(HEARTBEAT)).toBe(0);
+      expect(timers.pending()).toBe(0);
+    });
+  });
+
   it('runs one bounded repair pass that applies a fix, then re-checks (R3 C3)', async () => {
     const provider = new ScriptedProvider([
       { text: 'edit', toolCalls: [deleteRange('a', 0, 3)] }, // turn 1 applies
@@ -2395,7 +2953,18 @@ describe('streamAgent robustness (parity with agent())', () => {
     expect(events.at(-1)).toMatchObject({ status: 'cancelled' });
   });
 
-  it('threads the run signal into every complete() call, including the repair pass', async () => {
+  // Two signals are in play now, and which one a stage gets is load-bearing.
+  //
+  // A turn's model call and tool calls run under the RUN signal — the editor's Stop combined
+  // with the run's own wall-clock deadline (`reliability/deadline.ts`), so a step that never
+  // returns is cut off. The verify/repair pass runs under the editor's signal ALONE, because
+  // it is the stage that reports what the run applied: a deadline that aborted it would kill
+  // the very report the deadline stop exists to produce.
+  //
+  // Asserted as behaviour, not identity. The turn loop's signal is derived, so it is no
+  // longer `controller.signal` by reference — what must stay true is that Stop still reaches
+  // every call.
+  it('every complete() aborts on Stop; the repair pass runs on the editor signal alone', async () => {
     const controller = new AbortController();
     const signals: (AbortSignal | undefined)[] = [];
     const responses: AiResponse[] = [
@@ -2422,7 +2991,15 @@ describe('streamAgent robustness (parity with agent())', () => {
     );
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
     expect(signals.length).toBeGreaterThanOrEqual(3);
-    expect(signals.every((s) => s === controller.signal)).toBe(true);
+    expect(signals.every((s) => s !== undefined)).toBe(true);
+    // The repair pass — the last call — is handed the editor's own signal, unwrapped. This
+    // is the property that keeps a deadline stop able to report: verification is not
+    // abortable by the clock that sent the run to it.
+    expect(signals.at(-1)).toBe(controller.signal);
+    // The turn loop's calls get the derived run signal instead — Stop OR the deadline. That
+    // Stop still reaches them is proved live by the deadline suite's Stop case, where an
+    // abort raised inside a turn's `complete()` settles the run `cancelled`.
+    expect(signals[0]).not.toBe(controller.signal);
   });
 
   it('emits no self-check when the run is cancelled (partial)', async () => {
@@ -2945,7 +3522,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
       const terminal = events.filter((e) => e.type === 'tool_call' && e.id === 't1').at(-1);
       expect(terminal).toMatchObject({ status: 'failed' });
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 't1');
-      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(/no valid timed words/);
+      // The refusal is the shared producer's, word for word — the same sentence
+      // `apps/desktop`'s `hostTranscribe` override now returns (goal.md C).
+      expect(result?.type === 'tool_result' ? result.summary : '').toBe(
+        unusableHostPayload('transcribe'),
+      );
       expect(events.some((e) => e.type === 'diff')).toBe(false);
     });
   });
@@ -3255,10 +3836,14 @@ describe('streamAgent host tool execution (Phase T)', () => {
       );
       expect(events.some((e) => e.type === 'diff')).toBe(false);
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
-      expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
-        /already in your media bin/,
-      );
-      expect(result?.type === 'tool_result' ? result.summary : '').not.toMatch(/Asset id already/);
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already in your media bin/);
+      expect(summary).not.toMatch(/Asset id already/);
+      // "Place it from the bin" is a human's instruction; the caller here needs the tool
+      // name and the asset id, exactly as this path's own success note gives them.
+      expect(summary).not.toMatch(/Place it from the bin/);
+      expect(summary).toContain('add_clip');
+      expect(summary).toContain('stock_pexels_px_1');
     });
 
     it('fails closed when the span filled up between the host check and the placement', async () => {
@@ -3276,6 +3861,66 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
         /already picture on the timeline/,
       );
+    });
+  });
+
+  describe('add_music (host-backed mutation)', () => {
+    const musicCall = {
+      id: 'm1',
+      name: 'add_music',
+      arguments: { remoteId: 'ov_1', atSeconds: 0 },
+    };
+    const musicAsset = {
+      id: 'music_openverse_ov_1',
+      path: 'media/music/ov_1.mp3',
+      kind: 'audio' as const,
+      durationSeconds: 90,
+      source: {
+        provider: 'openverse',
+        remoteId: 'ov_1',
+        license: 'CC0',
+        attributionRequired: false,
+        fetchedAt: '2026-09-02T00:00:00.000Z',
+      },
+    };
+    const musicProvider = () =>
+      new ScriptedProvider([
+        { text: 'scoring it', toolCalls: [musicCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+    const hostRun = (data: unknown) => ({
+      run: async (): Promise<HostToolOutcome> => ({
+        status: 'completed' as const,
+        summary: 'Downloaded "media/music/ov_1.mp3".',
+        ...(data === undefined ? {} : { data }),
+      }),
+    });
+
+    it('answers a re-add by naming the tool that places it, not the media bin', async () => {
+      // Captured run `369e8c82`: the refusal was the Sounds panel's sentence ("Place it
+      // from the bin"), which names no tool and no id. The model has no bin to click, so
+      // it gave up on the call. The result must be an instruction it can execute.
+      const withMusic = makeProject({
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+          { ...musicAsset },
+        ],
+      });
+      const events = await drain(
+        new Orchestrator(musicProvider(), {
+          executor: hostRun({ asset: musicAsset, atSeconds: 0 }),
+        }).streamAgent({ project: withMusic, userPrompt: 'add music' }, opts()),
+      );
+      expect(events.some((e) => e.type === 'diff')).toBe(false);
+      const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'm1');
+      const summary = result?.type === 'tool_result' ? result.summary : '';
+      expect(summary).toMatch(/already in your media bin/);
+      // The deterministic-id validator message stays out of the model's way...
+      expect(summary).not.toMatch(/Asset id already/);
+      // ...and the dead-end instruction is gone, replaced by a tool and the id it needs.
+      expect(summary).not.toMatch(/Place it from the bin/);
+      expect(summary).toContain('add_clip');
+      expect(summary).toContain('music_openverse_ov_1');
     });
   });
 
@@ -4685,5 +5330,303 @@ describe('load_tools changes what the next turn is offered', () => {
     const second = provider.requests[1]?.tools ?? [];
     // Loading a domain grows the block; the point is that turn one never paid for it.
     expect(second.length).toBeGreaterThan(first.length);
+  });
+});
+
+/**
+ * The picture-over-picture refusal, given once instead of four times — and, since
+ * ADR 0169, given only where it is still true.
+ *
+ * Run `369e8c82` (2026-09-02) had `v_main` carrying one narration clip across the whole
+ * 0–49.77s sequence and an empty `b_roll`. Four times — 14:56:38, ~15:03, ~15:07,
+ * 15:11:56 — it called `add_clips`/`add_clip` to put stock footage on `b_roll`, and four
+ * times ADR 0140's guard refused it. Roughly fifteen of the run's sixty-eight
+ * minutes went into that loop, and the reason it could is that
+ * `deterministicFailureKey` keyed on the refusal's PROSE. The sentence names the asset,
+ * both times and the conflicting clip, so four refusals of one rule banked four keys and
+ * nothing ever matched. The model was not repeating itself blindly: it nudged 4.48–6s to
+ * 4.2–6s to 4.2–6.2s, believing each was a new attempt.
+ *
+ * That run's own request — plain full-frame b-roll over the narration — is now legal and
+ * lands on a layer opened in front (first test below). What is still refused is the
+ * placement the preview genuinely cannot show: a see-through or scaled layer over other
+ * picture. The banking mechanism is unchanged and is pinned here against that.
+ */
+describe('picture over picture is refused once, not once per placement (run 369e8c82)', () => {
+  const asset = (id: string, path: string) => ({
+    id,
+    path,
+    kind: 'video' as const,
+    durationSeconds: 30,
+    // Measured, to the fixture's own 1920x1080 frame. Coverage is a relation (ADR 0170):
+    // a stack of two different assets nobody probed is refused for want of a shape, which
+    // is a different refusal from the one this block is about. The captured run's media was
+    // real footage and downloaded stock, both of which the desktop path measures.
+    media: { width: 1920, height: 1080 },
+  });
+  const mainClip = (id: string, start: number, end: number) => ({
+    id,
+    assetId: 'asset_main',
+    trackId: 'v_main',
+    start,
+    end,
+    sourceStart: start,
+    sourceEnd: end,
+    effects: [],
+    keyframes: [],
+  });
+
+  /**
+   * The captured run's shape: two picture tracks, one carrying picture across every
+   * instant of the sequence, the other empty and therefore unusable.
+   *
+   * `v_main` holds TWO clips so the two refusals under test can name two different
+   * conflicting clip ids — the whole point being that they still key the same.
+   */
+  const overlayProject = (tailStart: number): Project =>
+    makeProject({
+      assets: [
+        asset('asset_main', 'media/narration.mp4'),
+        asset('asset_stock_a', 'media/Video_10374888-10374888.mp4'),
+        asset('asset_stock_b', 'media/Video_5495901-5495901.mp4'),
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
+          },
+          { id: 'b_roll', type: 'video', clips: [] },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<Project>);
+
+  /**
+   * The same shape with a SEE-THROUGH clip parked out at 20–22s on `b_roll`.
+   *
+   * Kept out of `overlayProject` deliberately: it extends the sequence to 22s, which the
+   * "hidden behind picture" digest below is measured against. This is the project for the
+   * refusal itself, which needs a clip the preview could not show over another.
+   */
+  const pipProject = (tailStart: number): Project =>
+    makeProject({
+      assets: [
+        asset('asset_main', 'media/narration.mp4'),
+        asset('asset_stock_a', 'media/Video_10374888-10374888.mp4'),
+        asset('asset_stock_b', 'media/Video_5495901-5495901.mp4'),
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [mainClip('clip_main', 0, 5), mainClip('clip_tail', tailStart, 10)],
+          },
+          {
+            id: 'b_roll',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_pip',
+                assetId: 'asset_stock_a',
+                trackId: 'b_roll',
+                start: 20,
+                end: 22,
+                sourceStart: 0,
+                sourceEnd: 2,
+                effects: [],
+                keyframes: [],
+                blendMode: 'screen',
+              },
+            ],
+          },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<Project>);
+
+  /** Picture on `v_main` covers 0–10s with no gap. */
+  const covered = (): ContextInput => ({
+    project: overlayProject(5),
+    userPrompt: 'add some b-roll over the intro',
+  });
+  /** The same, holding the see-through clip the refusal is about. */
+  const coveredPip = (): ContextInput => ({
+    project: pipProject(5),
+    userPrompt: 'lay that overlay across the intro',
+  });
+  /** …with a real 5–7s hole in the narration for the overlay to land in. */
+  const gappedPip = (): ContextInput => ({
+    project: pipProject(7),
+    userPrompt: 'lay that overlay across the intro',
+  });
+  /** The same, with a real 5–7s hole in the narration for a cutaway to land in. */
+  const gapped = (): ContextInput => ({
+    project: overlayProject(7),
+    userPrompt: 'add some b-roll over the intro',
+  });
+
+  const place = (id: string, assetId: string, start: number, end: number): ToolCall => ({
+    id,
+    name: 'add_clip',
+    arguments: { trackId: 'b_roll', assetId, start, end },
+  });
+
+  const fedBack = (provider: ScriptedProvider): string =>
+    provider.requests.flatMap((r) => r.messages.map((m) => m.content)).join('\n');
+
+  /** The overlay, moved onto the covered stretch — the placement still refused. */
+  const movePip = (id: string, toStart: number): ToolCall => ({
+    id,
+    name: 'move_clip',
+    arguments: { clipId: 'clip_pip', toTrackId: 'b_roll', toStart },
+  });
+
+  it('lands the run’s own request — plain b-roll over the narration — on a front layer', async () => {
+    // The captured run asked for exactly this and was refused four times. It is now a
+    // legal edit, because a full-frame cutaway previews the way it exports.
+    const provider = new ScriptedProvider([
+      { text: 'placing b-roll', toolCalls: [place('p1', 'asset_stock_a', 1, 3)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }),
+    );
+    expect(JSON.stringify(events)).not.toMatch(/would sit on top of/);
+    const diff = events.filter((e) => e.type === 'diff').at(-1);
+    const ops = diff?.type === 'diff' ? diff.edit.patch.operations : [];
+    expect(ops.map((o: AnyOperation) => o.type)).toEqual(['add_layer', 'add_clip']);
+    // The layer went in at the visual front, and the clip went on it.
+    expect(ops[0]).toMatchObject({ type: 'add_layer', atIndex: 0 });
+    expect(ops[1]).toMatchObject({
+      type: 'add_clip',
+      trackId: (ops[0] as { layerId: string }).layerId,
+    });
+  });
+
+  it('answers a second placement that hits the same rule as a repeat, remedy and all', async () => {
+    // Different times, different conflicting clip — what the refusal sentence varies on.
+    // Under the prose key these were two unrelated failures and the run was told the
+    // whole story twice.
+    const provider = new ScriptedProvider([
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'trying again', toolCalls: [movePip('p2', 6)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 4 }),
+    );
+    // The first attempt gets the full refusal…
+    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    // …and the second is answered as a repeat rather than run through the loop again.
+    expect(JSON.stringify(events)).toMatch(/Refused repeat of[^,]*already failed this run/);
+    const log = fedBack(provider);
+    expect(log).toMatch(/"move_clip" already failed this run for this same reason/);
+    // The repeat answer REPLACES the refusal the model would otherwise have read, so it
+    // has to carry the way out with it. A repeat notice that drops both remedies turns a
+    // helpful refusal into a dead end — worse than the loop it closes.
+    expect(log).toMatch(/split at 6s and 8s and add it on the same track as a cutaway/);
+  });
+
+  it('does not block a corrected placement that lands in a genuinely free span', async () => {
+    // The regression the guard's own comment is afraid of ("blocking on the tool's name
+    // would refuse an add_clip at 30s because an earlier one overlapped a clip at 3s").
+    // Keying on the CAUSE is not that mistake, because the key is computed AFTER the call
+    // settles: a placement into the 5–7s hole never refuses, so it never has a key to
+    // match, and the block never widens from the rule to the tool.
+    const provider = new ScriptedProvider([
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'taking the cutaway', toolCalls: [movePip('p2', 5)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(gappedPip(), opts(), { maxSteps: 4 }),
+    );
+    expect(JSON.stringify(events)).toMatch(/would sit on top of clip_main on v_main/);
+    expect(JSON.stringify(events)).not.toMatch(/Refused repeat of/);
+    // It LANDED — the corrected clip is on the timeline, not merely un-refused.
+    const diff = events.filter((e) => e.type === 'diff').at(-1);
+    const ops =
+      diff?.type === 'diff' ? diff.edit.patch.operations.map((o: AnyOperation) => o.type) : [];
+    expect(ops).toContain('move_clip');
+  });
+
+  it('keys a refusal with no named cause on its text, exactly as before', async () => {
+    // The fallback pin, in the same scenario so the contrast is visible. An unknown clip
+    // id is the VALIDATOR's rejection, not ADR 0140's refusal: it names no rule, so it
+    // still keys on `failureCause(text)` — and two different missing ids are two
+    // different failures, both of which are allowed to run.
+    const trimMissing = (id: string, clipId: string): ToolCall => ({
+      id,
+      name: 'trim_clip',
+      arguments: { clipId, start: 1, end: 3 },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'trimming', toolCalls: [trimMissing('m1', 'clip_zz')] },
+      { text: 'trimming again', toolCalls: [trimMissing('m2', 'clip_yy')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 4 }),
+    );
+    const text = JSON.stringify(events);
+    expect(text).toMatch(/clip_zz/);
+    expect(text).toMatch(/clip_yy/);
+    expect(text).not.toMatch(/Refused repeat of/);
+  });
+
+  it('records the refused call in the run working state, with the remedy as its reason', async () => {
+    // Only a landed patch's `describedActions` used to reach `recordOperation`, so the
+    // refusal survived exactly as long as its tool result did — and run `369e8c82`'s
+    // briefing never carried the rule once. A `failed` row puts it under the briefing's
+    // "FAILED — fix the cause, do not retry unchanged", where it survives compaction.
+    const provider = new ScriptedProvider([
+      { text: 'laying the overlay', toolCalls: [movePip('p1', 1)] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(coveredPip(), opts(), { maxSteps: 3 }),
+    );
+    const last = events.filter((e) => e.type === 'run_state').at(-1);
+    const working = last?.type === 'run_state' ? last.working : undefined;
+    const failed = working?.operations.filter((op) => op.status === 'failed') ?? [];
+    expect(failed.length).toBeGreaterThan(0);
+    expect(failed.map((op) => op.failureReason ?? '').join('\n')).toMatch(
+      /Refused "move_clip"[\s\S]*add it on the same track as a cutaway/,
+    );
+    // …and the row is not just stored, it is READ: the briefing puts it in front of the
+    // model under the one heading that tells it what to do with a refusal.
+    expect(fedBack(provider)).toMatch(
+      /FAILED — fix the cause, do not retry unchanged[\s\S]*add it on the same track as a cutaway/,
+    );
+  });
+
+  it('tells get_timeline_summary the same thing the arrangement line says', async () => {
+    // `arrangementLine`'s doc comment requires the two digests to describe the timeline in
+    // the same terms; a run that oriented with the tool would otherwise plan against a
+    // constraint the arrangement fact mentions and the tool does not.
+    const summary = (id: string): ToolCall => ({ id, name: 'get_timeline_summary', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'orienting', toolCalls: [summary('s1')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(covered(), opts(), { maxSteps: 3 }));
+    expect(fedBack(provider)).toMatch(
+      /b_roll \[video\] 0 clips — hidden behind picture 0–10s \(a full-frame clip added here lands on a new front layer\)/,
+    );
+  });
+
+  it('leaves get_timeline_summary silent about a track that still has a free span', async () => {
+    const summary = (id: string): ToolCall => ({ id, name: 'get_timeline_summary', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'orienting', toolCalls: [summary('s1')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    await drain(new Orchestrator(provider).streamAgent(gapped(), opts(), { maxSteps: 3 }));
+    const log = fedBack(provider);
+    expect(log).toMatch(/b_roll \[video\] 0 clips/);
+    expect(log).not.toMatch(/hidden behind picture/);
   });
 });

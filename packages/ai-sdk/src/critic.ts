@@ -24,7 +24,7 @@ import {
   listEditBoundaries,
   mapTranscript,
 } from '@framepilot/editor-core';
-import type { Clip, Effect, Project, Timeline } from '@framepilot/timeline-schema';
+import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
 import {
   COVERAGE_LABEL,
@@ -57,6 +57,7 @@ export type CheckId =
   | 'vision_review'
   | 'missing_assets'
   | 'export_settings'
+  | 'transcript_reliable'
   // Editorial checks (context-management Phase 4). Everything above answers "is the
   // deliverable well-formed?"; these answer "is this a good cut?".
   | 'jump_cut'
@@ -263,9 +264,20 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
     return /^m(?:in(?:ute)?s?)?$/.test(unit) ? amount * 60 : amount;
   };
   const units = '(s|sec|secs|second|seconds|m|min|mins|minute|minutes)';
+  // `highlight`, `supercut`, `teaser` and `trailer` are deliverable nouns exactly as
+  // `montage` and `reel` are — a request naming one has named the thing being made.
+  // `best` carries the commonest idiom of all ("the best 60 seconds of this"), where the
+  // deliverable is named by the length itself and no other anchor appears anywhere.
+  const deliverables = 'video|montage|reel|short|timeline|highlight|supercut|teaser|trailer';
   const anchors =
-    'full|complete|entire|video|montage|reel|short|timeline|duration|length|runtime|run time|' +
-    'make it|create|build|produce|export';
+    `full|complete|entire|${deliverables}|duration|length|runtime|run time|` +
+    'make it|create|build|produce|export|best|' +
+    // "Cut this down to 45 seconds" states a target as plainly as any phrasing here, and
+    // was read as nothing. The OBJECT is what makes it safe to read: `this`, `it` or the
+    // sequence itself is the whole deliverable, whereas "trim the first clip down to 5s"
+    // is about one clip and must stay unread — which is why the bare preposition is not an
+    // anchor on its own.
+    `(?:cut|trim|shorten|tighten|bring|get)\\s+(?:this|it|the (?:${deliverables}))\\s+down to`;
   // A candidate survives only if it is neither the far end of a range nor qualified
   // per-clip. Scanning rather than taking the first hit: the brief that broke this had a
   // dozen pacing figures before any real length, and stopping at the first match would
@@ -312,7 +324,7 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
   const trailingRange = firstDeliverableLength(
     new RegExp(
       `\\b(\\d+(?:\\.\\d+)?)\\s*(?:-|–|—|to)\\s*(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b` +
-        `.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+        `.{0,28}?\\b(?:${deliverables}|long)\\b`,
       'gd',
     ),
     2,
@@ -320,7 +332,7 @@ export function explicitDurationTarget(prompt: string): DurationTarget | undefin
   if (trailingRange !== undefined) return trailingRange;
   return firstDeliverableLength(
     new RegExp(
-      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:video|montage|reel|short|timeline|long)\\b`,
+      `\\b(\\d+(?:\\.\\d+)?)\\s*[- ]?${units}\\b.{0,28}?\\b(?:${deliverables}|long)\\b`,
       'gd',
     ),
   );
@@ -555,6 +567,63 @@ function aspectMismatchClipIds(project: Project, picture: readonly Clip[]): read
     .filter((clip) => {
       const aspect = aspects.get(clip.assetId);
       return aspect !== undefined && Math.abs(aspect - target) > 1e-3;
+    })
+    .map((clip) => clip.id);
+}
+
+/**
+ * Picture clips whose MEASURED source is already no wider than the frame, so they fill it
+ * with no crop at all. Unmeasured sources are deliberately absent: "we cannot see the
+ * shape" is not "the shape is fine".
+ */
+function fillsFrameUncroppedClipIds(
+  project: Project,
+  picture: readonly Clip[],
+): ReadonlySet<string> {
+  const target = project.resolution.width / project.resolution.height;
+  const aspects = new Map<string, number>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+      aspects.set(asset.id, width / height);
+    }
+  }
+  const ids = new Set<string>();
+  for (const clip of picture) {
+    const aspect = aspects.get(clip.assetId);
+    if (aspect !== undefined && aspect - target <= 1e-3) ids.add(clip.id);
+  }
+  return ids;
+}
+
+/**
+ * The picture clips that genuinely NEED a cover crop to fill the frame.
+ *
+ * The criterion is "fills the frame", not "carries a crop", and the two are not the same
+ * clip set. `add_clip`'s placer crops only a source WIDER than the frame
+ * (`coverCropForFrame` returns undefined for anything as narrow or narrower — padding a 4:5
+ * still into 9:16 is an editorial choice it will not make silently), so a source shot at
+ * the sequence's own shape is correctly left bare. Asking instead whether every clip has a
+ * crop failed a run for the one clip that needed none.
+ *
+ * Unmeasured sources are excluded here and handled by the `warn` branch above: absent
+ * dimensions mean unknown, never "fine".
+ */
+function needsCoverCropClipIds(project: Project, picture: readonly Clip[]): readonly string[] {
+  const target = project.resolution.width / project.resolution.height;
+  const aspects = new Map<string, number>();
+  for (const asset of project.assets) {
+    const { width, height } = asset.media ?? {};
+    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
+      aspects.set(asset.id, width / height);
+    }
+  }
+  return picture
+    .filter((clip) => {
+      const aspect = aspects.get(clip.assetId);
+      // Same comparison as `coverCropForFrame`, tolerance included, so the check and the
+      // placer cannot disagree about which clips are supposed to end up cropped.
+      return aspect !== undefined && aspect - target > 1e-3;
     })
     .map((clip) => clip.id);
 }
@@ -961,9 +1030,18 @@ function checkTreatmentCoverage(project: Project, options: CritiqueOptions): Cri
   if (picture.length === 0) {
     return check('treatment_coverage', 'Per-clip work is complete', 'skipped', 'No picture clips.');
   }
+  // A `crop` demand is the "fill the frame / no black bars" requirement (see the treatment
+  // readers in `acceptance.ts`), not a creative punch-in — so a clip whose source is already
+  // no wider than the frame SATISFIES it while carrying no crop, exactly as `add_clip`'s
+  // placer intends. Counting the crop rather than the framing failed mixed-source cuts for
+  // the one clip that needed nothing done to it. Unmeasured sources still need a crop: the
+  // request was explicit, and an unverifiable shape is not a satisfied one.
+  const alreadyFills = fillsFrameUncroppedClipIds(project, picture);
   const shortfalls: string[] = [];
   for (const treatment of wanted) {
-    const carried = picture.filter((clip) => clipCarries(clip, treatment)).length;
+    const carried = picture.filter(
+      (clip) => clipCarries(clip, treatment) || (treatment === 'crop' && alreadyFills.has(clip.id)),
+    ).length;
     if (carried < picture.length) {
       shortfalls.push(
         `${COVERAGE_LABEL[treatment]}: ${String(carried)} of ${String(picture.length)} clips`,
@@ -1092,16 +1170,44 @@ function checkReframeCoverage(project: Project): CriticCheck {
       `All ${String(picture.length)} picture clips are reframed.`,
     );
   }
-  const missing = picture.filter((clip) => clip.crop === undefined);
-  const named = missing.slice(0, 3).map((clip) => clip.id);
-  const rest = missing.length - named.length;
+  // A clip with no crop is only MISSING one for one of two reasons, and "some clips carry a
+  // crop and others do not" is neither of them. A partially reframed timeline is the normal
+  // result of mixing sources: a montage pulling from a 4K landscape camera and a phone shot
+  // vertically ends with the landscape clips cropped and the vertical one bare, and that is
+  // correct. Reading "reframed" as "has a crop" failed exactly that montage over the one
+  // clip that already filled the frame — thirty correct edits reported to the editor as a
+  // run that could not finish.
+  const uncropped = picture.filter((clip) => clip.crop === undefined);
+  // 1. Measured wider than the frame: it will letterbox, whatever else is on the timeline.
+  const needsCrop = new Set(needsCoverCropClipIds(project, picture));
+  // 2. Unmeasured, but a SIBLING clip off the same asset is cropped. Nobody can measure the
+  //    source, yet the run itself decided that source needs a crop to fill the frame, so the
+  //    clips it skipped will letterbox next to the ones it fixed. This is the captured
+  //    failure the check was written for: an agent reframed the opening shots and stopped.
+  const croppedAssets = new Set(
+    picture.filter((clip) => clip.crop !== undefined).map((clip) => clip.assetId),
+  );
+  const missing = uncropped
+    .filter((clip) => needsCrop.has(clip.id) || croppedAssets.has(clip.assetId))
+    .map((clip) => clip.id);
+  if (missing.length === 0) {
+    return check(
+      'reframe_coverage',
+      'Reframing is consistent',
+      'pass',
+      `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed; ` +
+        `the rest already fill the ${String(width)}x${String(height)} frame.`,
+    );
+  }
+  // The count named is the number of clips that are WRONG, not the number already right:
+  // it is the one an editor has to act on.
   return check(
     'reframe_coverage',
     'Reframing is consistent',
     'fail',
-    `${String(reframed.length)} of ${String(picture.length)} picture clips are reframed, so ` +
-      `${String(missing.length)} will not match: ${named.join(', ')}` +
-      `${rest > 0 ? `, plus ${String(rest)} more` : ''}.`,
+    `${String(missing.length)} of ${String(picture.length)} picture clips need a crop to fill ` +
+      `the ${String(width)}x${String(height)} frame and have none, so they render with bars: ` +
+      `${namedIds(missing)}. Crop each to fill the frame.`,
   );
 }
 
@@ -1904,6 +2010,183 @@ export function standingAgainstAcceptance(
     .map((c) => c.detail);
 }
 
+/**
+ * Checks that judge what the REQUEST asked for rather than the timeline's own health. A
+ * failure here can never be "inherited" from the starting project: a 136-second timeline
+ * fails a 30-second duration target before AND after a run that never shortened it, and
+ * that is the run's failure, not the footage's.
+ */
+const REQUEST_CHECKS: ReadonlySet<CheckId> = new Set<CheckId>([
+  'request_match',
+  'duration_target',
+  'shot_count',
+  'shot_length_target',
+  'treatment_coverage',
+  'temporal_evidence',
+  'vision_review',
+  'export_settings',
+]);
+
+/** How an inherited finding is worded, so the editor can tell it from one the run caused. */
+export const INHERITED_PREFIX = 'Already so before this edit, not caused by it — ';
+
+/**
+ * Verification judges the DELTA, not the absolute state (goal.md Workstream A/D).
+ *
+ * A failing check that already failed on the project the run started from, with the
+ * identical detail, describes something the footage had before the agent touched it —
+ * five landscape sources in a portrait frame, a jump cut the user made last week. Failing
+ * a correct edit for it costs a paid repair turn that cannot fix it (the repair pass is
+ * scoped to the edit), and settles the run as `failed` over work that was right. Such
+ * findings are carried as advisories: said, once, and not blocking. A request-derived
+ * check (see {@link REQUEST_CHECKS}) is never excused this way, and neither is a health
+ * check whose detail changed — that is a finding the edit touched.
+ *
+ * @param before - The critique of the project the run started from, same options.
+ * @param after - The critique of the project the run produced.
+ * @returns `after` with inherited failures downgraded to `warn`, and `ok`/`summary` recomputed.
+ */
+export function reconcileInheritedFailures(
+  before: CritiqueReport,
+  after: CritiqueReport,
+): CritiqueReport {
+  const priorFailures = new Map(
+    before.checks.filter((c) => c.status === 'fail').map((c) => [c.id, c.detail] as const),
+  );
+  let inherited = 0;
+  const checks = after.checks.map((check): CriticCheck => {
+    if (check.status !== 'fail' || REQUEST_CHECKS.has(check.id)) return check;
+    if (priorFailures.get(check.id) !== check.detail) return check;
+    inherited += 1;
+    return { ...check, status: 'warn', detail: `${INHERITED_PREFIX}${check.detail}` };
+  });
+  if (inherited === 0) return after;
+  const fails = checks.filter((c) => c.status === 'fail').length;
+  const warns = checks.filter((c) => c.status === 'warn').length;
+  const ok = fails === 0;
+  const tail = `${String(inherited)} inherited from the footage`;
+  const summary = ok
+    ? `Passed with ${String(warns)} warning(s) (${tail}).`
+    : `${String(fails)} check(s) failed, ${String(warns)} warning(s) (${tail}).`;
+  return { checks, ok, summary };
+}
+
+/** A stretch of transcript that is one phrase repeated — the ASR hallucination signature. */
+export interface TranscriptLoop {
+  /** The repeated phrase, as transcribed. */
+  readonly phrase: string;
+  /** How many times it repeats back to back. */
+  readonly repeats: number;
+  /** Seconds of the recording the repetition covers. */
+  readonly seconds: number;
+  /** That span as a share of the transcript's own span, 0..1. */
+  readonly share: number;
+}
+
+/** Repeats before a phrase is a hallucination rather than a chorus. */
+const LOOP_MIN_REPEATS = 8;
+/** …and the share of the transcript it must cover, so a real refrain is not flagged. */
+const LOOP_MIN_SHARE = 0.5;
+
+/**
+ * Is this transcript mostly one phrase repeated — i.e. did ASR hallucinate?
+ *
+ * Whisper's best-known failure mode is a loop: over quiet or music-only audio it emits one
+ * sentence again and again, with plausible timings, and nothing downstream can tell those
+ * words from spoken ones. `mission-podcast` is 2431 words of which 2384 — 92%, from 21.7s
+ * to 575.5s — are "I'll try to follow you later." repeated 397 times over a clip whose real
+ * speech stops around 30s.
+ *
+ * That matters well beyond one fixture. The transcript is what grounds a highlight
+ * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts
+ * confidently on words nobody said, and every check that reads the transcript — `dead_air`,
+ * `word_severed` — agrees with it. Detecting the loop is what lets the run say so instead.
+ *
+ * Deliberately conservative, because a chorus, a chant and a drill are all legitimately
+ * repetitive: the phrase must repeat back to back at least {@link LOOP_MIN_REPEATS} times AND
+ * cover at least half the transcript's span. Real speech does not do both.
+ *
+ * @param words - The transcript, in time order.
+ * @returns The loop, or `undefined` when the transcript does not look fabricated.
+ */
+export function detectTranscriptLoop(words: readonly TranscriptWord[]): TranscriptLoop | undefined {
+  if (words.length < LOOP_MIN_REPEATS * 2) return undefined;
+  const span = words[words.length - 1]!.end - words[0]!.start;
+  if (!(span > 0)) return undefined;
+  const norm = (w: TranscriptWord): string => w.word.trim().toLowerCase();
+  // Try each plausible phrase length, shortest first: the loop's period is unknown, and a
+  // longer window would also match a multiple of the true one.
+  for (let size = 1; size <= 12; size++) {
+    for (let start = 0; start + size * LOOP_MIN_REPEATS <= words.length; start++) {
+      const phrase = words
+        .slice(start, start + size)
+        .map(norm)
+        .join(' ');
+      if (!phrase) continue;
+      let repeats = 1;
+      let index = start + size;
+      while (
+        index + size <= words.length &&
+        words
+          .slice(index, index + size)
+          .map(norm)
+          .join(' ') === phrase
+      ) {
+        repeats++;
+        index += size;
+      }
+      if (repeats < LOOP_MIN_REPEATS) continue;
+      const seconds = words[index - 1]!.end - words[start]!.start;
+      const share = seconds / span;
+      if (share < LOOP_MIN_SHARE) continue;
+      return {
+        phrase: words
+          .slice(start, start + size)
+          .map((w) => w.word.trim())
+          .join(' '),
+        repeats,
+        seconds,
+        share,
+      };
+    }
+  }
+  return undefined;
+}
+
+/** The transcript grounding every word-level edit is not obviously fabricated. */
+function checkTranscriptReliable(project: Project): CriticCheck {
+  const words = project.transcript;
+  if (words.length === 0) {
+    return check(
+      'transcript_reliable',
+      'Transcript looks real',
+      'skipped',
+      'No transcript to check.',
+    );
+  }
+  const loop = detectTranscriptLoop(words);
+  if (loop === undefined) {
+    return check(
+      'transcript_reliable',
+      'Transcript looks real',
+      'pass',
+      `${String(words.length)} transcribed word(s), no repetition loop.`,
+    );
+  }
+  // A WARNING, never a failure. The transcript may be wrong but the edit built on it can
+  // still be the best available, and failing the run would leave it with nothing to do —
+  // whereas saying so lets it stop grounding cuts on words nobody said.
+  return check(
+    'transcript_reliable',
+    'Transcript looks real',
+    'warn',
+    `The transcript repeats "${loop.phrase}" ${String(loop.repeats)} times back to back, ` +
+      `covering ${round(loop.seconds)}s — ${String(Math.round(loop.share * 100))}% of it. That is ` +
+      'the signature of speech recognition looping over quiet audio, not of speech. Treat ' +
+      'word timings in that stretch as unreliable, and do not select or cut on them.',
+  );
+}
+
 export function critique(project: Project, options: CritiqueOptions = {}): CritiqueReport {
   const timeline = project.timeline;
   // Every editorial threshold is stated in frames, so every editorial check needs the
@@ -1922,6 +2205,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     ...(options.vision === undefined ? [] : [checkVisionReview(options)]),
     checkMissingAssets(project),
     checkExportSettings(project, options),
+    checkTranscriptReliable(project),
     // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
     checkJumpCut(project, fps),
     checkWordSevered(project, fps),

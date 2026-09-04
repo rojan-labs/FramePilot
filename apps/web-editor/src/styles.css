@@ -10276,7 +10276,6 @@ a.export-credits-license {
 .ai-agent-option-hint {
   color: var(--text-tertiary);
 }
-
 /* Composer — the row holding the textarea + send/stop inside the shell well. */
 .ai-composer {
   display: flex;

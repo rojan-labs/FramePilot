@@ -14,6 +14,7 @@
  */
 import {
   ANTHROPIC_DEFAULT_MODEL,
+  CLAUDE_AGENT_SDK_DEFAULT_MODEL,
   DEEPSEEK_DEFAULT_MODEL,
   GOOGLE_DEFAULT_MODEL,
   GROQ_DEFAULT_MODEL,
@@ -29,7 +30,15 @@ import {
   withResilience,
   type ResilientProviderOptions,
 } from './resilient-provider.js';
-import type { AiProvider, ProviderChunk, ProviderConfig, ProviderName } from './types.js';
+import {
+  isProviderName,
+  PROVIDER_NAMES,
+  type AiProvider,
+  type ProviderChunk,
+  type ProviderConfig,
+  type ProviderName,
+} from './types.js';
+import type { ModelTier } from '../kernel/proposers/types.js';
 import { DEFAULT_ENGINE_BASE_URL, LocalWhisperCliClient } from './local-asr.js';
 import { TwelveLabsTranscriptionProvider } from './twelvelabs-asr.js';
 import {
@@ -126,6 +135,12 @@ export function resolveProviderConfig(name: ProviderName): ProviderConfig {
   switch (name) {
     case 'anthropic':
       return buildConfig(name, { apiKey: 'ANTHROPIC_API_KEY', model: 'ANTHROPIC_MODEL' });
+    // No API key by design — the credential is the user's Claude Code login, which the
+    // Agent SDK reads from the OS keychain. Reading `ANTHROPIC_API_KEY` here would be
+    // actively wrong: the SDK prefers an env key over the login, so a stale key in the
+    // environment would silently bill an API account the user did not choose.
+    case 'claude-agent-sdk':
+      return buildConfig(name, { model: 'FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL' });
     case 'nvidia':
       return buildConfig(name, {
         apiKey: 'NVIDIA_API_KEY',
@@ -201,7 +216,7 @@ export function resolveProviderConfig(name: ProviderName): ProviderConfig {
  * default the real adapter uses, so context-occupancy sizing is correct from the
  * first render rather than after the first model call.
  */
-class LazyLangChainProvider implements AiProvider {
+class LazyLoadedProvider implements AiProvider {
   public readonly name: ProviderName;
 
   private delegate: AiProvider | null = null;
@@ -288,20 +303,29 @@ async function loadLangChainAdapter(config: ProviderConfig): Promise<AiProvider>
 /**
  * Instantiate a provider from a fully-resolved {@link ProviderConfig}.
  *
- * Every hosted provider goes through {@link LazyLangChainProvider}, which defers loading
+ * Every hosted provider goes through {@link LazyLoadedProvider}, which defers loading
  * the chat SDK until the first call. That laziness is load-bearing in the browser: the
  * adapters are one dynamic `import()` per provider, so selecting DeepSeek does not also
  * download Groq, Google, Ollama and OpenAI.
  */
 function instantiateProvider(config: ProviderConfig): AiProvider {
   if (config.name === 'mock') return new MockProvider();
+  // Not a LangChain provider and not an HTTP one: it spawns the `claude` binary, so it
+  // is Node-only. The dynamic import is what keeps it out of the renderer's module graph
+  // (`claude-agent-sdk.ts` explains why its own SDK specifiers are non-analyzable too).
+  if (config.name === 'claude-agent-sdk') {
+    return new LazyLoadedProvider(config, CLAUDE_AGENT_SDK_DEFAULT_MODEL, async (resolved) => {
+      const { ConcreteClaudeAgentSdkProvider } = await import('./claude-agent-sdk.js');
+      return new ConcreteClaudeAgentSdkProvider(resolved);
+    });
+  }
   const defaultModel = LANGCHAIN_DEFAULT_MODELS[config.name];
   /* v8 ignore next 3 -- unreachable: every non-mock ProviderName has a default above, and
      the roster test asserts exactly that. Kept as a typed guard rather than a `!`. */
   if (defaultModel === undefined) {
     throw new Error(`No LangChain adapter is registered for provider "${config.name}".`);
   }
-  return new LazyLangChainProvider(config, defaultModel, async (resolved) =>
+  return new LazyLoadedProvider(config, defaultModel, async (resolved) =>
     loadLangChainAdapter(resolved),
   );
 }
@@ -325,6 +349,71 @@ export function createProvider(name?: ProviderName): AiProvider {
  */
 export function createProviderFromConfig(config: ProviderConfig): AiProvider {
   return instantiateProvider(config);
+}
+
+/**
+ * Env var prefix for each {@link ModelTier}'s provider/model override.
+ *
+ * WHY a table rather than `tier.toUpperCase()`: the env names are a published contract
+ * (`.env.example`, `turbo.json` `globalEnv`), so the mapping is written out where a
+ * reader can compare it against those files by eye.
+ */
+const TIER_ENV_PREFIX: Readonly<Record<ModelTier, string>> = {
+  small: 'FRAMEPILOT_TIER_SMALL',
+  mid: 'FRAMEPILOT_TIER_MID',
+  large: 'FRAMEPILOT_TIER_LARGE',
+};
+
+const TIER_ORDER: readonly ModelTier[] = ['small', 'mid', 'large'];
+
+/**
+ * Resolve the per-tier provider overrides (`FRAMEPILOT_TIER_<TIER>_PROVIDER` / `_MODEL`).
+ *
+ * The point of tiering is that the cheap, mechanical calls — today the ADR 0055 route
+ * classifier, which is stamped `tier: 'small'` — need not run on the same expensive model
+ * as the editing turns. This is the one place that reads those variables.
+ *
+ * **Opt-in by construction.** A tier with neither variable set yields NO entry, and a
+ * runtime with no entry for a tier uses the host-selected provider exactly as before. That
+ * is what keeps an unconfigured install — and the golden-eval baseline — byte-identical.
+ *
+ * The tier's config starts from that provider's own env resolution, so its API key and
+ * base URL come from the same variables the provider always used; only the model is
+ * layered on top. An unset `_MODEL` therefore means "whatever that provider's configured
+ * or default model is", not "no model".
+ *
+ * @param base - The host-selected provider, used when only `_MODEL` is overridden.
+ * @param env - Environment to read (injectable for tests).
+ * @returns One {@link ProviderConfig} per overridden tier; tiers left alone are absent.
+ * @throws If a `_PROVIDER` value is not a known {@link ProviderName}.
+ */
+export function resolveTierProviderConfigs(
+  base: ProviderName,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = typeof process !== 'undefined'
+    ? process.env
+    : {},
+): Partial<Record<ModelTier, ProviderConfig>> {
+  const configs: Partial<Record<ModelTier, ProviderConfig>> = {};
+  for (const tier of TIER_ORDER) {
+    const prefix = TIER_ENV_PREFIX[tier];
+    const providerVar = `${prefix}_PROVIDER`;
+    const modelVar = `${prefix}_MODEL`;
+    const providerRaw = env[providerVar]?.trim();
+    const modelRaw = env[modelVar]?.trim();
+    if (!providerRaw && !modelRaw) continue;
+    let name: ProviderName = base;
+    if (providerRaw) {
+      if (!isProviderName(providerRaw)) {
+        throw new Error(
+          `${providerVar}="${providerRaw}" is not a known provider. Expected one of: ${PROVIDER_NAMES.join(', ')}.`,
+        );
+      }
+      name = providerRaw;
+    }
+    const resolved = resolveProviderConfig(name);
+    configs[tier] = modelRaw ? { ...resolved, model: modelRaw } : resolved;
+  }
+  return configs;
 }
 
 /** Create a provider already wrapped in the shared reliability policy. */

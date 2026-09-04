@@ -1,8 +1,13 @@
 /** Tests for the editor settings store and persistence shell. */
 import { afterEach, describe, expect, it } from 'vitest';
 import { fireEvent, render, screen } from '@testing-library/react';
+import { DEFAULT_MAX_RUN_MINUTES, DEFAULT_MAX_RUN_USD } from '@framepilot/ai-sdk';
 import {
   DEFAULT_SETTINGS,
+  MAX_RUN_MINUTES,
+  MAX_RUN_USD,
+  MIN_RUN_MINUTES,
+  MIN_RUN_USD,
   SettingsProvider,
   loadSettings,
   mergeSettings,
@@ -104,6 +109,50 @@ describe('mergeSettings', () => {
     expect(mergeSettings({}).showAiUsageDetails).toBe(false);
     expect(mergeSettings({ showAiUsageDetails: true }).showAiUsageDetails).toBe(true);
     expect(mergeSettings({ showAiUsageDetails: 'yes' }).showAiUsageDetails).toBe(false);
+  });
+
+  // goal.md Workstream D: the run budget is a setting, so the store is the one place that
+  // decides what a run is bounded by. The SDK owns the default; the editor only overrides.
+  it('takes the run budget defaults from the SDK, never a hard-coded figure', () => {
+    expect(DEFAULT_SETTINGS.maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+    expect(DEFAULT_SETTINGS.maxRunMinutes).toBe(DEFAULT_MAX_RUN_MINUTES);
+    expect(mergeSettings({}).maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+    expect(mergeSettings({}).maxRunMinutes).toBe(DEFAULT_MAX_RUN_MINUTES);
+  });
+
+  it('keeps a persisted budget that is in range', () => {
+    expect(mergeSettings({ maxRunUsd: 2.5, maxRunMinutes: 7 })).toMatchObject({
+      maxRunUsd: 2.5,
+      maxRunMinutes: 7,
+    });
+    // The bounds themselves are legal choices.
+    expect(mergeSettings({ maxRunUsd: MIN_RUN_USD }).maxRunUsd).toBe(MIN_RUN_USD);
+    expect(mergeSettings({ maxRunUsd: MAX_RUN_USD }).maxRunUsd).toBe(MAX_RUN_USD);
+    expect(mergeSettings({ maxRunMinutes: MAX_RUN_MINUTES }).maxRunMinutes).toBe(MAX_RUN_MINUTES);
+    // Minutes are whole; a fractional stored value rounds rather than reaching the SDK.
+    expect(mergeSettings({ maxRunMinutes: 7.6 }).maxRunMinutes).toBe(8);
+  });
+
+  it('does not trust an out-of-range budget as a choice — it defaults, it does not clamp', () => {
+    // The dialog clamps on commit, so a stored value outside the range was never something
+    // this UI could have written. Clamping it would silently adopt a figure the user never
+    // chose; the default is the honest reading.
+    expect(mergeSettings({ maxRunUsd: 999 }).maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+    expect(mergeSettings({ maxRunUsd: MIN_RUN_USD - 0.1 }).maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+    expect(mergeSettings({ maxRunMinutes: 0 }).maxRunMinutes).toBe(DEFAULT_MAX_RUN_MINUTES);
+    expect(mergeSettings({ maxRunMinutes: MAX_RUN_MINUTES + 1 }).maxRunMinutes).toBe(
+      DEFAULT_MAX_RUN_MINUTES,
+    );
+    expect(mergeSettings({ maxRunMinutes: MIN_RUN_MINUTES }).maxRunMinutes).toBe(MIN_RUN_MINUTES);
+  });
+
+  it('never lets a non-numeric budget reach the SDK as a bound', () => {
+    for (const bad of ['5', null, undefined, {}, [], Number.NaN, Number.POSITIVE_INFINITY]) {
+      const merged = mergeSettings({ maxRunUsd: bad, maxRunMinutes: bad });
+      expect(merged.maxRunUsd).toBe(DEFAULT_MAX_RUN_USD);
+      expect(merged.maxRunMinutes).toBe(DEFAULT_MAX_RUN_MINUTES);
+      expect(Number.isFinite(merged.maxRunUsd)).toBe(true);
+    }
   });
 });
 
