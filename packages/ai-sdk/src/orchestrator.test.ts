@@ -785,6 +785,32 @@ describe('agent auto-repair (C3) and plan ledger (C4)', () => {
     expect(recallStep?.note).toContain('You have: ev_1');
   });
 
+  /**
+   * Run `137d8fd0` made 27 recalls that came back "no such handle" for ids the run had
+   * genuinely issued and then invalidated — the list of live handles is visibly
+   * non-contiguous, and `ev_25` was answered at 18:26 and gone by 18:29. The model was
+   * not inventing an id; it was holding a reference to a reading the run threw away, and
+   * "no such handle" sent it back to reconnaissance rather than to the one tool that
+   * would refresh it.
+   */
+  it('tells recall_evidence that a handle EXPIRED, and what would refresh it', async () => {
+    const provider = new ScriptedProvider([
+      { text: 'read the timeline', toolCalls: [call('get_timeline', {})] },
+      // An applied cut invalidates the arrangement this handle described.
+      {
+        text: 'cut',
+        toolCalls: [call('trim_clip', { clipId: 'clip_a', start: 0, end: 4 })],
+      },
+      { text: 'recall it', toolCalls: [call('recall_evidence', { evidenceId: 'ev_1' })] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const run = await new Orchestrator(provider).agent(input);
+    const recallStep = run.steps.find((s) => s.toolCalls.includes('recall_evidence'));
+    expect(recallStep?.note).toContain('went stale when the timeline changed');
+    expect(recallStep?.note).toContain('Run get_timeline again');
+    expect(recallStep?.note).not.toContain('no such handle');
+  });
+
   it('says plainly that nothing has been read yet when recall_evidence is the very first call', async () => {
     const provider = new ScriptedProvider([
       { text: 'recall too soon', toolCalls: [call('recall_evidence', { evidenceId: 'ev_1' })] },

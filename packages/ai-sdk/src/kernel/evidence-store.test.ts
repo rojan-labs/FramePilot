@@ -302,6 +302,34 @@ describe('invalidation is scoped to what actually changed', () => {
   });
 
   /**
+   * …but it remembers that the handle WAS one. Run `137d8fd0` made 27 recalls that came
+   * back "no such handle" for ids the run had genuinely issued and then invalidated —
+   * `ev_25` answered at 18:26 and gone by 18:29 — and the model, holding a real
+   * reference, re-ran reconnaissance rather than the one tool that would refresh it.
+   */
+  it('remembers what an expired handle was, and what would refresh it', () => {
+    const store = seeded();
+    const timeline = store.lookup('get_timeline:{}')!;
+    store.invalidate(['delete_range']);
+    expect(store.expiredHandle(timeline.id)).toEqual({
+      descriptor: 'timeline',
+      source: 'get_timeline',
+    });
+  });
+
+  it('says nothing about a handle that never existed', () => {
+    expect(seeded().expiredHandle('ev_999')).toBeUndefined();
+  });
+
+  it('does not tombstone a handle that is still live', () => {
+    const store = seeded();
+    const transcript = store.lookup('get_transcript:{}')!;
+    store.invalidate(['ripple_delete']);
+    expect(store.byHandle(transcript.id)).toBeDefined();
+    expect(store.expiredHandle(transcript.id)).toBeUndefined();
+  });
+
+  /**
    * The regression this store's classification fix was for. A beat-synced montage applies
    * one cut per beat; while `detect_beats`, `index_media` and `list_assets` were missing
    * from the old revision-independent allowlist, the FIRST cut evicted all three and the

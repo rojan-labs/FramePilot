@@ -4676,9 +4676,22 @@ export class Orchestrator {
               .entries()
               .map((e) => e.id)
               .join(', ');
-            const note = `${desc} → no such handle "${args.evidenceId}"${
-              known ? `. You have: ${known}` : ' — you have not read anything yet this run'
-            }.`;
+            // A HANDLE THE RUN THREW AWAY IS NOT A HANDLE THAT NEVER EXISTED. The store
+            // invalidates a reading when an applied patch makes it untrue, and until now
+            // that left the same "no such handle" a made-up id gets — so the model, which
+            // was holding a real reference, went and re-ran reconnaissance instead of the
+            // one tool that would refresh it. 27 of run `137d8fd0`'s recalls landed here.
+            const expired = host.evidence.expiredHandle(args.evidenceId);
+            const note =
+              expired === undefined
+                ? `${desc} → no such handle "${args.evidenceId}"${
+                    known ? `. You have: ${known}` : ' — you have not read anything yet this run'
+                  }.`
+                : `${desc} → "${args.evidenceId}" (${expired.descriptor}) went stale when the ` +
+                  `timeline changed, so it is no longer true of this project. Run ` +
+                  `${expired.source} again for the current reading.${
+                    known ? ` Still current: ${known}.` : ''
+                  }`;
             return { ops: [], note, summary: desc, status: 'warning', data: note };
           }
           // A recall is explicitly NOT novel: it returns what the run already knew, so it
