@@ -13,7 +13,24 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
+**Status snapshot (2026-09-05, GOLDEN-EVAL — goal.md Phase 0):** the baseline exists and
+was **not re-run** this session (credits conserved). Sixteen defects closed on
+`fix/agent-reliability-2026-09-05`, each with a reproducing test — thirteen read out of a
+single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
+session's open leads, and one of those a **retraction**: `broll-first-20s`'s severed word
+was the instrument, not b-roll placement. Every number, every prediction the next run
+should test, and what each is *not* evidence of: `BASELINES.md` "session 3". What is still
+open, with root causes: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.1 — **thirteen defects from one transcript, and three golden leads.**
+  Caption patches discarded on stacked footage; `word_severed` failing runs on hallucinated
+  words and on b-roll it cannot be describing; selection-authored tools dying at the agent's
+  own first edit; the perceptual reviewer unable to parse the engine's own response; a
+  non-reversible `move_clip`; a turn that asks a question and edits anyway; and six
+  refusals the model could not act on. Commits `008cf0c..5deae6d`. Real-media effect on the
+  golden set: **pending the next baseline run** (predictions stated in `BASELINES.md`).
+
+**Prior snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
 harness on `feat/golden-eval-harness`.** `goal.md` requires a measured baseline before any
 prompt, tool or model change. The mission runner (`mission-baseline.mjs`) becomes the golden
 harness: a golden set covering every request category (`eval/golden-cases.ts`), checkable
