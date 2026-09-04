@@ -10,7 +10,7 @@ import type { AnyOperation } from '@framepilot/editor-core';
 import type { ToolCall } from './providers/types.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
-import { type ToolSpec, getTool } from './tool-registry.js';
+import { TOOL_REGISTRY, type ToolSpec, getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
 
 const log = createLogger('ai-sdk:tool-dispatch');
@@ -28,6 +28,8 @@ interface ArgIssue {
    * reads both, because the two shapes coexist across the schemas this dispatcher parses.
    */
   readonly received?: string;
+  /** For `unrecognized_keys`: the keys the strict object did not declare. */
+  readonly keys?: readonly string[];
 }
 
 /**
@@ -132,7 +134,41 @@ function argIssues(cause: unknown): readonly ArgIssue[] {
   return Array.isArray(issues) ? (issues as ArgIssue[]) : [];
 }
 
-export function describeArgValidationError(cause: unknown): string {
+/**
+ * The tools that DO declare every one of these argument names.
+ *
+ * WHY: a strict object's `Unrecognized keys: "subject", "intent"` says which words were
+ * wrong and nothing about where they belong, and the mistake behind it is almost always
+ * one tool's arguments sent to its neighbour. Run `137d8fd0` sent `track_object` the
+ * `subject` and `intent` that belong to `track_subject_automatically`, read the bare key
+ * list, and moved on without ever finding the tool it wanted.
+ *
+ * Only an exact match counts — every rejected key declared by the candidate — so a tool
+ * that happens to share one common name (`trackId`, `clipId`) is not offered as a guess.
+ * At most two are named; more than that is not a pointer, it is a search result.
+ */
+function toolsDeclaring(keys: readonly string[], calledTool: string): string[] {
+  if (keys.length === 0) return [];
+  const owners: string[] = [];
+  for (const spec of TOOL_REGISTRY) {
+    if (spec.name === calledTool) continue;
+    const properties = (spec.parameters as { properties?: Record<string, unknown> }).properties;
+    if (!properties) continue;
+    if (keys.every((key) => Object.hasOwn(properties, key))) owners.push(spec.name);
+    if (owners.length === 2) break;
+  }
+  return owners;
+}
+
+/** The "…which belong to X" clause for an unrecognized-keys issue, or ''. */
+function ownerHint(issue: ArgIssue, calledTool: string): string {
+  if (issue.code !== 'unrecognized_keys' || !issue.keys) return '';
+  const owners = toolsDeclaring(issue.keys, calledTool);
+  if (owners.length === 0) return '';
+  return ` — ${issue.keys.length === 1 ? 'that argument belongs' : 'those arguments belong'} to ${joinList(owners.map((name) => `"${name}"`))}.`;
+}
+
+export function describeArgValidationError(cause: unknown, calledTool = ''): string {
   /* v8 ignore start */
   if (
     !cause ||
@@ -145,7 +181,8 @@ export function describeArgValidationError(cause: unknown): string {
   return (cause as { issues: ArgIssue[] }).issues
     .map((issue) => {
       const path = issue.path.join('.');
-      return path ? `${path}: ${issue.message}` : issue.message;
+      const hint = ownerHint(issue, calledTool);
+      return path ? `${path}: ${issue.message}${hint}` : `${issue.message}${hint}`;
     })
     .join('; ');
 }
@@ -265,7 +302,7 @@ export function operationsForCall(call: ToolCall, ctx: ToolContext): AnyOperatio
         ...(cause.refusalCause ? { refusalCause: cause.refusalCause } : {}),
       });
     }
-    const reason = describeArgValidationError(cause);
+    const reason = describeArgValidationError(cause, call.name);
     log.warn('operationsForCall → invalid args', { tool: call.name, reason });
     throw new ToolInvocationError(
       'invalid_args',

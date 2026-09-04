@@ -12,6 +12,7 @@ import {
   operationsForCall,
   validateSemanticToolArgs,
 } from './tool-dispatch.js';
+import { makeProject } from './__fixtures__/project.js';
 
 const call = (name: string, args: unknown) => ({ id: 'c', name, arguments: args });
 
@@ -140,10 +141,9 @@ describe('a refusal is not a bad argument', () => {
   // layer. What is still refused is a layer the preview cannot show: here a scaled clip
   // moved over `clip_a`.
   const stack = () =>
-    operationsForCall(
-      call('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 2 }),
-      { project },
-    );
+    operationsForCall(call('move_clip', { clipId: 'clip_b', toTrackId: 'video_2', toStart: 2 }), {
+      project,
+    });
 
   it('is classified `refusal`, never `invalid_args`', () => {
     let error: unknown;
@@ -179,5 +179,59 @@ describe('a refusal is not a bad argument', () => {
     }
     expect(error?.code).toBe('invalid_args');
     expect(error?.message).toContain('Invalid arguments');
+  });
+});
+
+/**
+ * `Unrecognized keys: "subject", "intent"` says which words were wrong and nothing about
+ * where they belong, and the mistake behind it is almost always one tool's arguments sent
+ * to its neighbour. Run `137d8fd0` sent `track_object` the `subject` and `intent` that
+ * belong to `track_subject_automatically`, read the bare key list, and moved on without
+ * ever finding the tool it wanted.
+ */
+describe('arguments sent to the wrong tool', () => {
+  const reasonFor = (name: string, args: Record<string, unknown>): string => {
+    try {
+      operationsForCall({ id: 'c1', name, arguments: args }, { project: makeProject() } as never);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error('expected a rejection');
+  };
+
+  it('names the tool the rejected arguments belong to', () => {
+    const reason = reasonFor('track_object', {
+      clipId: 'clip_a',
+      target: 'object',
+      region: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
+      subject: 'object',
+      intent: 'track',
+    });
+    expect(reason).toContain('Unrecognized keys');
+    expect(reason).toContain('those arguments belong to');
+    expect(reason).toContain('track_subject_automatically');
+  });
+
+  it('offers nothing when no tool declares all of them', () => {
+    const reason = reasonFor('track_object', {
+      clipId: 'clip_a',
+      target: 'object',
+      region: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
+      subject: 'object',
+      zzNotAnArgumentAnywhere: 1,
+    });
+    expect(reason).toContain('Unrecognized keys');
+    expect(reason).not.toContain('belong to');
+  });
+
+  it('never offers the tool that was called', () => {
+    const reason = reasonFor('track_object', {
+      clipId: 'clip_a',
+      target: 'object',
+      region: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
+      subject: 'object',
+      intent: 'track',
+    });
+    expect(reason).not.toMatch(/belong to[^.]*"track_object"/);
   });
 });
