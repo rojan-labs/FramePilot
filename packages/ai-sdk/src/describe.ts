@@ -355,6 +355,98 @@ export interface OperationDescriptor {
  * @returns The action label, a compact detail string, and clickable clip/track/asset
  *   references pulled from the op's id fields.
  */
+/**
+ * The subject of an operation that keeps it somewhere other than a top-level
+ * `clipId`/`trackId`/`assetId` or a `start`/`end` pair.
+ *
+ * ## WHY this exists
+ *
+ * Without it those operations render as an action label and *nothing else* — a row that
+ * says "Added marker" and stops. In run `137d8fd0`, **52 of 416 edit cards were blank**
+ * that way: `add_layer` ×24, `add_asset` ×13, `add_marker` ×9, `remove_layer` ×4,
+ * `move_layer`, `set_ai_memory`. The user's prompt had asked, in as many words, to "drop
+ * markers on your candidates before you cut anything **so I can see what you picked**",
+ * and the nine markers the agent dropped appeared with no time and no label on any of
+ * them. The single thing that request was for was the thing the account could not show.
+ *
+ * Each entry answers "what is this row about?" in the terms the row is for. Anything not
+ * listed still falls through to the generic range/id path, which is right for the
+ * operations whose subject really is a clip and a span.
+ */
+function operationSubject(op: AnyOperation, record: Record<string, unknown>, names?: ProjectNames): string {
+  switch (op.type) {
+    case 'add_asset': {
+      const asset = record['asset'];
+      const id = typeof asset === 'object' && asset ? (asset as { id?: unknown }).id : undefined;
+      const path = typeof asset === 'object' && asset ? (asset as { path?: unknown }).path : undefined;
+      // The op's OWN path wins. `add_asset` is the operation that puts the asset in the
+      // project, so at the moment it is described the resolver has never heard of it —
+      // and `ProjectNames.asset` answers an unknown id with the id, not with `undefined`,
+      // so a `??` chain starting there never reaches the file name at all.
+      const name = basename(path);
+      if (name !== undefined) return name;
+      return typeof id === 'string' ? (names?.asset(id) ?? id) : '';
+    }
+    case 'remove_asset':
+    case 'move_asset': {
+      const id = record['assetId'];
+      return typeof id === 'string' ? (names?.asset(id) ?? id) : '';
+    }
+    case 'add_marker': {
+      const time = record['time'];
+      const label = record['label'];
+      const at = typeof time === 'number' ? `${round(time)}s` : '';
+      const text = typeof label === 'string' && label.trim() !== '' ? clampSubject(label) : '';
+      // Both when both exist: a marker with no time cannot be found and a marker with no
+      // label cannot be told apart from the eight others the run just dropped.
+      return text && at ? `${text} · ${at}` : text || at;
+    }
+    case 'remove_marker': {
+      const id = record['id'];
+      return typeof id === 'string' ? id : '';
+    }
+    case 'create_folder':
+    case 'rename_folder': {
+      const name = record['name'];
+      return typeof name === 'string' ? clampSubject(name) : '';
+    }
+    case 'move_folder':
+    case 'delete_folder': {
+      const id = record['folderId'];
+      return typeof id === 'string' ? id : '';
+    }
+    case 'set_ai_memory': {
+      const memory = record['memory'];
+      const keys = typeof memory === 'object' && memory ? Object.keys(memory).length : 0;
+      return keys === 1 ? '1 note' : `${String(keys)} notes`;
+    }
+    case 'restore_assets':
+    case 'restore_folders':
+    case 'restore_clips': {
+      const list = record['assets'] ?? record['folders'] ?? record['clips'];
+      const count = Array.isArray(list) ? list.length : 0;
+      return count === 1 ? '1 item' : `${String(count)} items`;
+    }
+    case 'set_transcript': {
+      const words = record['words'];
+      const count = Array.isArray(words) ? words.length : 0;
+      return count === 1 ? '1 word' : `${String(count)} words`;
+    }
+    case 'move_layer': {
+      const index = record['toIndex'];
+      return typeof index === 'number' ? `to slot ${String(index)}` : '';
+    }
+    default:
+      return '';
+  }
+}
+
+/** File name of a media path, for an asset the names resolver does not know yet. */
+function basename(path: unknown): string | undefined {
+  if (typeof path !== 'string' || path.trim() === '') return undefined;
+  return path.split('/').pop() || undefined;
+}
+
 export function describeOperation(op: AnyOperation, names?: ProjectNames): OperationDescriptor {
   const record = op as unknown as Record<string, unknown>;
   const action = ACTION_LABELS[op.type] ?? humanize(op.type);
@@ -368,9 +460,21 @@ export function describeOperation(op: AnyOperation, names?: ProjectNames): Opera
   if (typeof trackId === 'string') {
     refs.push({ kind: 'track', id: trackId, label: names?.track(trackId) ?? trackId });
   }
+  // A LAYER IS A TRACK. `add_layer`/`remove_layer`/`move_layer` name it `layerId`, and
+  // because nothing here read that field, all 29 of run `137d8fd0`'s layer operations
+  // rendered with no chip at all — the user could not tell which lane had been created.
+  const layerId = record['layerId'];
+  if (typeof layerId === 'string') {
+    refs.push({ kind: 'track', id: layerId, label: names?.track(layerId) ?? layerId });
+  }
   const assetId = record['assetId'];
   if (typeof assetId === 'string') {
     refs.push({ kind: 'asset', id: assetId, label: names?.asset(assetId) ?? assetId });
+  }
+  const nestedAsset = record['asset'];
+  if (refs.length === 0 && typeof nestedAsset === 'object' && nestedAsset) {
+    const id = (nestedAsset as { id?: unknown }).id;
+    if (typeof id === 'string') refs.push({ kind: 'asset', id, label: names?.asset(id) ?? id });
   }
 
   const start = record['start'];
@@ -380,7 +484,7 @@ export function describeOperation(op: AnyOperation, names?: ProjectNames): Opera
       ? trackFlagDetail(record)
       : typeof start === 'number' && typeof end === 'number'
         ? `${round(start)}s–${round(end)}s`
-        : '';
+        : operationSubject(op, record, names);
 
   return { action, detail, refs };
 }

@@ -258,3 +258,72 @@ describe('describeToolCall', () => {
     });
   });
 });
+
+/**
+ * Run `137d8fd0` applied 416 changes and **52 of its edit cards were blank** — an action
+ * label and nothing else. `add_layer` ×24, `add_asset` ×13, `add_marker` ×9,
+ * `remove_layer` ×4, `move_layer`, `set_ai_memory`. Every one of those operations keeps
+ * its subject somewhere other than a top-level clip/track/asset id or a start/end pair,
+ * and nothing here looked anywhere else.
+ *
+ * The user's prompt had asked, in as many words, to "drop markers on your candidates
+ * before you cut anything **so I can see what you picked**". Nine markers were dropped.
+ * All nine rendered with no time and no label on them.
+ */
+describe('describeOperation on the operations that used to render blank', () => {
+  const detailOf = (o: Record<string, unknown>) => describeOperation(op(o), names).detail;
+
+  it('names a marker by its label and its time', () => {
+    expect(detailOf({ type: 'add_marker', id: 'm1', time: 7.5, label: 'first big turn' })).toBe(
+      'first big turn · 7.5s',
+    );
+    // A marker with no label is still findable by when it is.
+    expect(detailOf({ type: 'add_marker', id: 'm2', time: 12 })).toBe('12s');
+  });
+
+  it('names an added asset by its file, and links it', () => {
+    const d = describeOperation(
+      op({ type: 'add_asset', asset: { id: 'asset_1', path: 'media/Intro.mp4', kind: 'video' } }),
+      names,
+    );
+    expect(d.detail).toBe('Intro.mp4');
+    expect(d.refs).toEqual([{ kind: 'asset', id: 'asset_1', label: 'Intro.mp4' }]);
+  });
+
+  it('falls back to the file name for an asset the project does not know yet', () => {
+    expect(
+      detailOf({ type: 'add_asset', asset: { id: 'asset_new', path: 'media/b-roll/Snow.mov' } }),
+    ).toBe('Snow.mov');
+  });
+
+  it('treats a layer as the track it is', () => {
+    const d = describeOperation(
+      op({ type: 'add_layer', layerId: 'video_1', layerType: 'video', atIndex: 0 }),
+      names,
+    );
+    expect(d.refs).toEqual([{ kind: 'track', id: 'video_1', label: 'Video 1' }]);
+    expect(describeOperation(op({ type: 'move_layer', layerId: 'video_1', toIndex: 2 })).detail).toBe(
+      'to slot 2',
+    );
+  });
+
+  it('names a folder by its name, and counts what a bulk op carries', () => {
+    expect(detailOf({ type: 'create_folder', folderId: 'f1', name: 'B-roll', parentId: null })).toBe(
+      'B-roll',
+    );
+    expect(detailOf({ type: 'set_ai_memory', memory: { pacing: 'fast', look: 'warm' } })).toBe(
+      '2 notes',
+    );
+    expect(detailOf({ type: 'set_ai_memory', memory: { pacing: 'fast' } })).toBe('1 note');
+    expect(detailOf({ type: 'set_transcript', words: [{}, {}, {}] })).toBe('3 words');
+    expect(detailOf({ type: 'restore_assets', assets: [{}] })).toBe('1 item');
+  });
+
+  it('leaves an operation whose subject really is a range alone', () => {
+    expect(detailOf({ type: 'delete_range', trackId: 'video_1', start: 1, end: 2 })).toBe('1s–2s');
+  });
+
+  it('still yields nothing for an operation with genuinely nothing to say', () => {
+    expect(detailOf({ type: 'frobnicate_widget' })).toBe('');
+  });
+});
