@@ -15,7 +15,7 @@
  */
 import { z } from 'zod/v4';
 import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
-import type { CropRect, Timeline, Track } from '@framepilot/timeline-schema';
+import type { CropRect, Project, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
   coverCropFor,
@@ -38,6 +38,7 @@ import type { ToolSpec } from '../tool-registry.js';
 import { clipCandidates } from './clip-candidates.js';
 import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
 /**
@@ -353,6 +354,45 @@ const placementClipId = (placement: {
  * grid after this runs, so an id derived here from the raw value would not be the one the
  * clip ends up with.
  */
+const roundSeconds = (n: number): string => (Math.round(n * 100) / 100).toString();
+
+/** A clip's file name for a refusal sentence, or its id when the bin does not know it. */
+function assetLabel(ctx: ToolContext, assetId: string): string {
+  const asset = ctx.project.assets?.find((a) => a.id === assetId);
+  const path = asset?.path;
+  const name = typeof path === 'string' ? path.split('/').pop() : undefined;
+  return `"${name && name !== '' ? name : assetId}"`;
+}
+
+/**
+ * The same asset already reading the same source range over the same sequence span.
+ *
+ * Exact on all three, and deliberately so: two different moments of one file stacked at
+ * one instant is a strange edit but a real one, and only the byte-identical placement is
+ * provably invisible. Compared on the frame grid's own slack so a placement recomputed a
+ * float apart still counts as the same one. See {@link addClipOperation}.
+ */
+function existingPlacement(
+  project: Project,
+  clip: {
+    readonly assetId: string;
+    readonly start: number;
+    readonly end: number;
+    readonly sourceStart: number;
+  },
+): { readonly trackId: string; readonly clipId: string } | undefined {
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+  for (const track of project.timeline.tracks) {
+    for (const existing of track.clips) {
+      if (existing.assetId !== clip.assetId) continue;
+      if (!near(existing.start, clip.start) || !near(existing.end, clip.end)) continue;
+      if (!near(existing.sourceStart, clip.sourceStart)) continue;
+      return { trackId: track.id, clipId: existing.id };
+    }
+  }
+  return undefined;
+}
+
 function addClipOperation(
   clip: {
     readonly trackId: string;
@@ -390,6 +430,29 @@ function addClipOperation(
   // is geometry, so the cover crop is exactly what lets a landscape source sit over picture
   // in a portrait project; deciding the placement against the bare clip and cropping
   // afterwards refused the very placement the reframe exists to make legal.
+  // THE SAME SHOT AT THE SAME MOMENT, TWICE, IS INVISIBLE WORK.
+  //
+  // The placer's job is to find a lane for a clip that collides with picture, and it does
+  // it well — for a clip that is genuinely NEW. It cannot tell that from the same clip
+  // sent again, and when the collision is with an identical copy of itself the honest
+  // answer is not "open another layer". Run `137d8fd0` placed `Video_6381282` over 0–9s
+  // three times and finished with nineteen video lanes for a sixty-second edit; two of
+  // those copies can never be seen, and every one of them costs a lane, a render pass and
+  // a row in the editor's timeline.
+  //
+  // Nothing else catches it: a second placement really does change the project, so the
+  // run's no-change guard cannot see it, and the copies share no track so the validator
+  // cannot either.
+  const alreadyThere = existingPlacement(ctx.project, clip);
+  if (alreadyThere) {
+    throw new ToolRefusalError(
+      `${assetLabel(ctx, clip.assetId)} is already on the timeline from ` +
+        `${roundSeconds(clip.start)}s to ${roundSeconds(clip.end)}s, on ` +
+        `${alreadyThere.trackId}. A second copy of the same shot over the same moment ` +
+        'cannot be seen behind the first. Place it at a different time, use a different ' +
+        'shot, or change the one that is there with trim_clip or move_clip.',
+    );
+  }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
   const crop = autoReframeCrop(ctx, clip);
