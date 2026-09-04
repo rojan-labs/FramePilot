@@ -1215,6 +1215,14 @@ function cancelFinalize(state: ConductorState, em: Emitter, events: AiEvent[]): 
  * Why the run must stop now on its cost or time budget, or `undefined` while within both.
  * Cost is only ever compared when a turn reported a price; an unpriced run (usd 0) is
  * never stopped for money it could not measure.
+ *
+ * THE BUDGET IS A STOPPING RULE, NOT A CEILING, and the notice now says so. The check
+ * runs after a turn settles, so the turn that crosses the line has already been paid for;
+ * and `toVerify` — the self-check and its one bounded repair pass — is what produces the
+ * report the notice promises, so it runs after the stop and costs model calls of its own.
+ * Run `137d8fd0` announced "$26.61 spent" against a $26.50 budget and finished at $27.76,
+ * 4.8% over, and every dollar of that gap is one of those two. Suppressing the check to
+ * hold the line would buy the number by deleting the verdict.
  */
 export function budgetExhausted(state: ConductorState): string | undefined {
   const { maxUsd, maxWallMs } = state.config;
@@ -1222,13 +1230,15 @@ export function budgetExhausted(state: ConductorState): string | undefined {
   if (state.runUsd > 0 && state.runUsd >= maxUsd) {
     return (
       `Reached this run's $${maxUsd.toFixed(2)} budget after ${steps} ` +
-      `($${state.runUsd.toFixed(2)} spent) — stopping and reporting what was applied.`
+      `($${state.runUsd.toFixed(2)} spent) — no more editing turns; a final self-check ` +
+      'still runs, then the run reports what was applied.'
     );
   }
   if (state.runElapsedMs >= maxWallMs) {
     return (
       `Reached this run's ${String(Math.round(maxWallMs / 60_000))}-minute limit after ${steps} ` +
-      `— stopping and reporting what was applied.`
+      '— no more editing turns; a final self-check still runs, then the run reports what ' +
+      'was applied.'
     );
   }
   return undefined;

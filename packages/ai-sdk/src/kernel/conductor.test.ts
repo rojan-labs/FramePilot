@@ -1475,17 +1475,28 @@ describe('run budgets', () => {
 
   it('stops at the cost budget and verifies what was applied', () => {
     const s = started({ config: { ...started().config, maxUsd: 1 } });
-    const { state, effects, events } = onEffectResult(s, turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }));
+    const { state, effects, events } = onEffectResult(
+      s,
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }),
+    );
     expect(state.runUsd).toBe(1.25);
     expect(effects[0]).toMatchObject({ kind: 'run_verify' });
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"))).toBe(true);
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'notification' &&
+          e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"),
+      ),
+    ).toBe(true);
   });
 
   it('stops at the time limit', () => {
     const s = started({ config: { ...started().config, maxWallMs: 60_000 } });
     const { effects, events } = onEffectResult(s, turn({ runElapsedMs: 61_000 }));
     expect(effects[0]).toMatchObject({ kind: 'run_verify' });
-    expect(events.some((e) => e.type === 'notification' && e.text.includes("1-minute limit"))).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && e.text.includes('1-minute limit'))).toBe(
+      true,
+    );
   });
 
   it('within budget, the run advances; an unpriced run is never stopped for money', () => {
@@ -1494,7 +1505,27 @@ describe('run budgets', () => {
     expect(within.effects[0]).toMatchObject({ kind: 'run_turn' });
     const unpriced = onEffectResult(s, turn({ runUsd: 0 }));
     expect(unpriced.effects[0]).toMatchObject({ kind: 'run_turn' });
-    expect(unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget'))).toBe(false);
+    expect(
+      unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget')),
+    ).toBe(false);
+  });
+
+  // Run `137d8fd0` announced "$26.61 spent" against its $26.50 budget and finished at
+  // $27.76. Both halves of that gap are structural: the check runs after a turn settles,
+  // so the turn that crosses the line is already paid for, and the self-check the notice
+  // promises costs model calls of its own. The notice says what happens next rather than
+  // claiming a stop that is not one.
+  it('says a self-check still runs, because one does', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const { effects, events } = onEffectResult(
+      s,
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }),
+    );
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    const notice = events.find((e) => e.type === 'notification' && e.text.includes('budget'));
+    expect(notice).toBeDefined();
+    expect((notice as { text: string }).text).toContain('a final self-check still runs');
+    expect((notice as { text: string }).text).not.toContain('stopping and reporting');
   });
 
   it('a turn that does not report spend keeps the last known figures', () => {
@@ -1527,17 +1558,27 @@ describe('progress guards, audited together', () => {
         turn({
           stepIndex: i,
           signature: `turn-${String(i)}`,
-          rationale: applied ? `Now placing shot ${String(i)}.` : `Reading scene ${String(i)} to choose the next shot.`,
+          rationale: applied
+            ? `Now placing shot ${String(i)}.`
+            : `Reading scene ${String(i)} to choose the next shot.`,
           callFacts: applied
             ? []
-            : [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+            : [
+                {
+                  key: `describe_footage:scene-${String(i)}`,
+                  status: 'completed',
+                  fromCache: false,
+                },
+              ],
           ...(applied ? { applied: true, turnOpCount: 1, appliedOps: ops(1) } : {}),
           runUsd: usd,
           runElapsedMs: elapsed,
         }),
       );
       notices.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
-      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({ kind: 'run_turn' });
+      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({
+        kind: 'run_turn',
+      });
       expect(step.state.stallStreak, `turn ${String(i)} stall streak`).toBe(0);
       expect(step.state.actionRecoveryPending, `turn ${String(i)} recovery`).toBe(false);
       s = step.state;
@@ -1545,11 +1586,19 @@ describe('progress guards, audited together', () => {
     // The step cap, and only the step cap, ends it.
     const last = onEffectResult(
       s,
-      turn({ stepIndex: maxSteps, signature: 'last', applied: true, turnOpCount: 1, appliedOps: ops(1) }),
+      turn({
+        stepIndex: maxSteps,
+        signature: 'last',
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: ops(1),
+      }),
     );
     expect(last.effects[0]).toMatchObject({ kind: 'run_verify' });
     const stoppers = notices.filter((text) => STOP_WORDS.test(text));
-    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual([]);
+    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual(
+      [],
+    );
     expect(s.cumulativeOps.length).toBe(19);
   });
 
@@ -1568,7 +1617,9 @@ describe('progress guards, audited together', () => {
           stepIndex: i,
           signature: `read-${String(i)}`,
           rationale: `Reading scene ${String(i)}.`,
-          callFacts: [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          callFacts: [
+            { key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false },
+          ],
           runUsd: i * 0.1,
         }),
       );
@@ -2411,7 +2462,6 @@ describe('working state', () => {
     expect(step.state.working.facts.map((f) => f.id)).toEqual(['fact_1']);
   });
 });
-
 
 describe('failedAfterApplyMessage — the card an editor actually reads', () => {
   const detail = (label: string, text: string) => `${label}: ${text}`;
