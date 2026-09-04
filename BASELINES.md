@@ -61,11 +61,11 @@ these moved anything.
 
 | | |
 | --- | --- |
-| commit range | `008cf0c..6099516` on `fix/agent-reliability-2026-09-05` |
+| commit range | `008cf0c..5deae6d` on `fix/agent-reliability-2026-09-05` |
 | provider / model of the transcript read | OpenRouter `inclusionai/ling-3.0-flash-fin:free`, agent mode, desktop |
 | the transcript | 5,257 events · 561 tool calls · 156 model calls · 5,538,888 tokens · $27.76 · 49 minutes · final status **failed** |
-| new tests | 33 across `editor-core`, `ai-sdk` and the Python contract mirror |
-| suites | ai-sdk 4,525 · editor-core 1,034 · engine 2,825 — all green |
+| new tests | 44 across `editor-core`, `ai-sdk` and the Python contract mirror |
+| suites | ai-sdk 4,536 · editor-core 1,034 · engine 2,825 — all green |
 
 ### What the transcript cost, and where it went
 
@@ -154,6 +154,40 @@ one of those is now closed:
    two spellings are now translated at the tool boundary, where no migration is involved.
    `fontWeight: "chunky"` and `1400` are still refused.
 
+### Four more, found in the same transcript after the list above was written
+
+10. **A rejected key set now names the tool it belongs to** (`8bc0328`). `Unrecognized
+    keys: "subject", "intent"` says which words were wrong and nothing about where they
+    belong, and the mistake behind it is almost always one tool's arguments sent to its
+    neighbour — the run sent `track_object` what `track_subject_automatically` takes. The
+    registry already knows who declares what; an exact key-set match names it.
+
+11. **The budget notice says what actually happens next** (`dd09e3e`). The run announced
+    "$26.61 spent" against a $26.50 budget and finished at $27.76 — 4.8% over. Both halves
+    of that gap are structural and neither is a bug: the check runs after a turn settles,
+    so the turn that crosses the line is already paid for, and the self-check the notice
+    promises costs model calls of its own. Suppressing it would buy the number by deleting
+    the verdict, so the sentence changed instead of the behaviour.
+
+12. **`word_severed` stopped judging b-roll against the narration** (`5d0dbab`) — and this
+    one **retracts a claim this file made**. The previous entry recorded `broll-first-20s`
+    as "a real accuracy defect in b-roll placement near speech", confirmed not an
+    instrument bug. It is an instrument bug. Every fixture transcript in
+    `tests/fixtures/mission` is schema ≤ v11 and carries no `assetId`, so every word
+    applies to every clip — including the b-roll clip's own in and out points, on footage
+    that contains no speech at all. An unattributed transcript can only have come from an
+    asset long enough to contain it; on `mission-talk` that is the 528s narration, not the
+    9–40s b-roll. The run that "burned 19 model calls and $2.07" was chasing a word that
+    was never on that shot.
+
+13. **An expired evidence handle says so** (`5deae6d`). `recall_evidence` was **103 of the
+    run's 561 tool calls**, and 27 came back "no such handle" — for ids the run had issued
+    and then invalidated. The live list is visibly non-contiguous, and `ev_25` was answered
+    at 18:26 and gone by 18:29. Invalidation dropped the handle entirely, so a reading the
+    run threw away looked exactly like one the model invented, and the model went back to
+    reconnaissance rather than to the tool that would refresh it. Invalidation now leaves a
+    tombstone naming the descriptor and the tool.
+
 Also closed, from the `baseline` label rather than the transcript: **`clarify-which-clip`
 mutates while asking, 3/3** (`d482676`). Every operation in a turn comes from one model
 response, so a turn that calls `ask_user` composed its edits before any answer existed.
@@ -172,6 +206,12 @@ Stated in advance so the next baseline is a test and not a rationalisation:
   still spends calls on them means the sentences are not being read.
 - **`reversibility` at 100% on `reorder-last-first`.** This one is deterministic — a
   failure here means the fix is wrong, not that the model varied.
+- **`broll-first-20s` no longer failing on `word_severed`.** Also deterministic given the
+  same placement: the check cannot fire on b-roll shorter than the transcript any more.
+- **Fewer `recall_evidence` calls per accepted edit.** 27 of the transcript's recalls were
+  answered "no such handle" for real, expired ids. This is the weakest prediction of the
+  set — the tombstone changes a sentence, and whether a model reads it is not something
+  the fix can guarantee.
 - **Perceptual review actually running.** Any run reporting "not perceptually checked" for
   a contract reason now names the field; if that line reappears, read the field.
 - **Cost per accepted edit down.** ~3,100 rejected operations and roughly a quarter of a
@@ -188,8 +228,9 @@ Stated in advance so the next baseline is a test and not a rationalisation:
   it found less real — a duplicate clip id, an unparseable review response, and a
   non-reversible move are the product's, not the model's — but it does mean the *rates*
   in the table above should not be read as rates for the baseline provider.
-- **That `broll-first-20s` is fixed.** It is not addressed here. The b-roll placement that
-  severs a spoken word is a real accuracy defect and still open (REMAINING.md §2.2).
+- **That `broll-first-20s` passes.** Fix 12 removes the false failure it was scored on;
+  whether the case then scores 1.00 is unmeasured, and the run still has to place the
+  b-roll correctly on its own merits.
 - **That `podcast-highlight-60s` measures anything.** Unchanged: the media still needs
   replacing (REMAINING.md §3).
 

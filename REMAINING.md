@@ -15,7 +15,7 @@ maintainer captured (1,064,475 lines, run `137d8fd0`, 49 minutes, $27.76, final 
 
 ## 1. WHAT'S CLOSED THIS SESSION
 
-Eleven commits on `fix/agent-reliability-2026-09-05`, each with a reproducing test that
+Sixteen commits on `fix/agent-reliability-2026-09-05`, each with a reproducing test that
 fails without it. See `BASELINES.md`'s "session 3" entry for the mechanism of each.
 
 **From `run.md`:**
@@ -41,17 +41,25 @@ fails without it. See `BASELINES.md`'s "session 3" entry for the mechanism of ea
    and Python boundaries. (`f51f4ee`)
 8. **A caption style written in CSS spelling** (`fontWeight: "bold"`) is translated at the
    tool boundary. (`6099516`)
+9. **Rejected arguments name the tool they belong to** — the run sent `track_object` what
+   `track_subject_automatically` takes and read back a bare key list. (`8bc0328`)
+10. **The budget notice says what actually happens next.** The run announced "$26.61 spent"
+    against a $26.50 budget and finished at $27.76; both halves of that gap are structural,
+    so the sentence changed rather than the behaviour. (`dd09e3e`)
+11. **An expired evidence handle says so.** `recall_evidence` was 103 of 561 tool calls and
+    27 came back "no such handle" for ids the run had issued and then invalidated.
+    (`5deae6d`)
 
 **From the previous session's open leads (§2 of the old file):**
 
-9. **§2.4 `clarify-which-clip` mutates while asking** — a turn that calls `ask_user`
+12. **§2.4 `clarify-which-clip` mutates while asking** — a turn that calls `ask_user`
    composed its edits before any answer existed, so `applyAgentTurn` withholds them.
    (`d482676`)
-10. **§2.3 `reorder-last-first` reversibility** — *not* an instrument gap, as that lead
+13. **§2.3 `reorder-last-first` reversibility** — *not* an instrument gap, as that lead
     guessed. `applyMove` recomputes the clip's end from coordinates that already drifted,
     and `(toStart + d) - toStart` is not always `d`. Proven with a one-ULP repro.
     (`bb8fb69`)
-11. **§2.1 `captions-uppercase-bottom` r2** — the follow-up `set_track_caption_style` was
+14. **§2.1 `captions-uppercase-bottom` r2** — the follow-up `set_track_caption_style` was
     almost certainly refused for CSS spelling, the same refusal `run.md` shows verbatim.
     Closed by fix 8. **Unverified against that case** — see §2.1 below.
 
@@ -75,26 +83,31 @@ own recording was not re-scored, so this is inference, not measurement.
 scratch-captions --force --yes`. If a run still ends unstyled, read the
 `set_track_caption_style` result in its case file — the refusal will now name the field.
 
-### 2.2 `broll-first-20s` severs a spoken word — untouched
+### 2.2 `broll-first-20s` — the failure was the instrument, and one more like it is open
 
-The agent's b-roll placement lands a cut inside a word, the Critic correctly catches it,
-and the run burned 19 calls / $2.07 failing to resolve it. Confirmed real (not an
-instrument bug) last session, and **nothing this session addressed it** — fix 2 above only
-stops *hallucinated* words from failing a run; this is real speech.
+This was closed after the section was first written (`5d0dbab`), and it retracts a
+claim the previous session made. The severed word was **not** a real b-roll placement
+defect: every fixture transcript is schema ≤ v11 and carries no `assetId`, so every word
+applied to every clip — including the b-roll clip's own in and out points, on footage with
+no speech on it. An unattributed transcript can only have come from an asset long enough to
+contain it, and `word_severed` now says so.
 
-The shape of a fix: `add_stock`/`add_clip` placement near speech should read
-`get_mapped_transcript` and snap the cutaway's in and out to word edges, the same way
-`caption_the_edit` refuses to let a cue cross a cut. That is placement policy, not a
-message, so it needs a live run to confirm.
+**The same gap is still open one layer down, and it is not fixed.** `bestSpanFor` in
+`editor-core/src/captions/derive.ts` carries the identical rule — "an unattributed word
+matches any asset — the v11 behavior" — so on a project with b-roll, a caption cue can be
+attributed to, and timed through, a cutaway that was never speaking. Nothing has been
+observed failing on it, which is why it was not changed blind: the fix needs
+`buildTimelineMap` to see the asset list, which it deliberately does not today, and it
+needs a case that exercises it.
+
+Separately and still unmeasured: whether the agent's b-roll placement is *good*. The
+instrument was lying about it, so nothing yet says either way.
 
 ### 2.3 The transcript's remaining small refusals
 
 Each is one or two calls in `run.md`, each a real rough edge, none diagnosed further:
 
-- **`track_object` given `subject` and `intent`** — the model confused it with
-  `track_subject_automatically`. `Unrecognized keys: "subject", "intent"` could name the
-  tool those keys belong to, the way `professional_audio` already names the intent that
-  owns a misfiled setting.
+- ~~`track_object` given `subject` and `intent`~~ — closed by `8bc0328`.
 - **`track_subject_automatically` given `subject: "object"`** — legal values are
   `point|region|plane|silhouette`.
 - **`search_stock` given a `kind` outside `photo|video`** (2 calls).
@@ -105,14 +118,16 @@ Each is one or two calls in `run.md`, each a real rough edge, none diagnosed fur
 
 ### 2.4 Cost and control, from `run.md` — measured, not fixed
 
-- **The run overshot its own budget**: stopped "after 153 steps ($26.61 spent)" against a
-  $26.50 ceiling, and the final usage line reads **$27.76 / 156 model calls**. The gap
-  between the ceiling, the announcement, and the total is worth a look.
+- ~~The run overshot its own budget~~ — explained and the notice corrected in `dd09e3e`.
+  The overshoot is structural (the turn that crosses the line is already paid for, and the
+  self-check the notice promises costs its own calls) and deliberately not "fixed", because
+  holding the number would mean deleting the verdict.
 - **`recall_evidence` was 103 of 561 tool calls** — 18% of every call the run made was
-  re-reading its own memory, plus 17 that came back empty. See the
-  `agent-log-payload-window` memory: only the two freshest log entries keep payloads, so
-  the run must buy back what it already knew. This is the single largest remaining line
-  item in the run's token bill.
+  re-reading its own memory. `5deae6d` closed the worst 27 of those (real handles the run
+  had invalidated, answered as if they never existed), but **the other ~76 are untouched**:
+  see the `agent-log-payload-window` memory — only the two freshest log entries keep
+  payloads, so the run must buy back what it already knew. This is still the single largest
+  line item in the run's token bill.
 - **95 more calls were state reads** (`get_timeline` ×61, `get_project` ×19,
   `skim_timeline` ×15). Two were already refused as "Skipped redundant get_timeline call",
   so a guard exists; it is not catching most of them.

@@ -43,9 +43,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Selection-based audio and tracking tools survive the AI's own edits.** They read what
   you have selected in the timeline, and the AI's very first change made every later call
   refuse as out of date for the rest of the run.
+- **The AI stops re-reading the timeline because it forgot where it put something.** When
+  an edit made an earlier reading out of date, asking for it back said only "no such
+  handle" — the same answer a made-up reference gets — so the AI went and did the
+  reconnaissance again. It now says what that reading was and which tool refreshes it.
+- **B-roll no longer trips a false "you cut through a word".** Laying b-roll over narration
+  could end a run on a cut inside a spoken word — measured on the b-roll clip, which has no
+  speech on it at all.
+- **The run's budget message says what happens next.** It said it was stopping, then ran a
+  final self-check that costs a little more. It now says so.
 - **Clearer refusals when the AI gets an argument wrong.** A clip length sent where a
-  timeline position belongs now names the position that would have worked, and a tool that
-  wants your selection says so rather than reporting a typo.
+  timeline position belongs now names the position that would have worked, a tool that
+  wants your selection says so rather than reporting a typo, and arguments sent to the
+  wrong tool name the tool they belong to.
 
 - **The AI can lay b-roll and montages over your footage again.** Asking for a cutaway on a
   talking head, or a photo montage cut to a music bed, was refused every time — the main
