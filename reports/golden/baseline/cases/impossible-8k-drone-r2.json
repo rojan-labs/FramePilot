@@ -1,0 +1,203 @@
+{
+  "scenario": "impossible-8k-drone",
+  "category": "impossible",
+  "project": "mission-podcast",
+  "run": 2,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Upscale this to 8K and add the drone footage I shot yesterday.",
+      "rubric": "unchanged",
+      "expectedIntent": "decline",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "decline",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 33046,
+          "output": 918,
+          "total": 33964
+        },
+        "usd": 0.038574,
+        "latency": {
+          "firstProgressMs": 3252,
+          "doneMs": 13717
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": false,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [],
+      "assistantText": "Neither part of this can be done as asked, and I want to flag that clearly rather than fake a fix.\n\nThere's no upscale tool in this editor — resolution is fixed by the project's export settings, and the source footage itself is only 640×360, so even changing the output setting to 8K would just stretch the existing pixels rather than add real detail. If you want a sharper delivery, the honest options are exporting at your current 1920×1080 (already an upscale over the 640×360 source) or re-shooting/sourcing higher-res footage.\n\nFor the drone footage, the media bin only has the one asset — the 5",
+      "recording": "reports/golden/baseline/recordings/impossible-8k-drone-r2-t1.json",
+      "metrics": {
+        "wallMs": 13717,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 33046,
+          "input": 8268,
+          "output": 918,
+          "cacheRead": 24778,
+          "cacheCreate": null
+        },
+        "perCall": [
+          {
+            "ttftMs": 3249,
+            "wallMs": 13683,
+            "input": 8268,
+            "output": 918,
+            "cacheRead": 24778
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 3249,
+            "p95": 3249,
+            "min": 3249,
+            "max": 3249
+          },
+          "wallMs": {
+            "p50": 13683,
+            "p95": 13683,
+            "min": 13683,
+            "max": 13683
+          },
+          "inputTokensPerTurn": {
+            "p50": 8268,
+            "p95": 8268,
+            "min": 8268,
+            "max": 8268
+          },
+          "outputTokensPerTurn": {
+            "p50": 918,
+            "p95": 918,
+            "min": 918,
+            "max": 918
+          },
+          "cacheHitRate": 0.7498033044846577,
+          "cacheReportingTurns": 1
+        },
+        "usd": 0.038574,
+        "usageTokens": 9186,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 2,
+        "contextByType": [
+          {
+            "system": 2277,
+            "retrieved_evidence": 3260,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2277,
+            "retrieved_evidence": 3260,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6710
+          }
+        ],
+        "contextUsedTokens": [
+          13915,
+          8268
+        ],
+        "contextCachedTokens": [
+          null,
+          24778
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 575.8666666666667,
+        "pictureClips": 1,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

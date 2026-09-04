@@ -1,185 +1,34 @@
 {
-  "recordedAt": "2026-09-04T12:57:19.965Z",
-  "source": "reports/golden/baseline.json",
   "label": "baseline",
+  "generatedAt": "2026-09-04T12:57:05.714Z",
   "provider": "claude-agent-sdk",
   "model": "claude-sonnet-5",
-  "generatedAt": "2026-09-04T12:57:05.714Z",
-  "tolerances": {
-    "score": 0.05,
-    "cost": 0.1,
-    "rate": 0.05
-  },
-  "scenarios": {
-    "montage-30s": {
-      "score": 1,
-      "calls": 5,
-      "tokensPerTurn": 20188,
-      "runs": 3,
-      "notDone": 0
-    },
-    "podcast-highlight-60s": {
-      "score": 0.75,
-      "calls": 5,
-      "tokensPerTurn": 22271,
-      "runs": 3,
-      "notDone": 3
-    },
-    "remove-dead-air": {
-      "score": 1,
-      "calls": 3,
-      "tokensPerTurn": 36167,
-      "runs": 3,
-      "notDone": 0
-    },
-    "beat-sync": {
-      "score": 0.5555555555555556,
-      "calls": 6,
-      "tokensPerTurn": 16120,
-      "runs": 3,
-      "notDone": 1
-    },
-    "refine-tighten#t1": {
-      "score": 1,
-      "calls": 9,
-      "tokensPerTurn": 24478,
-      "runs": 3,
-      "notDone": 0
-    },
-    "refine-tighten#t2": {
-      "score": 0.875,
-      "calls": 6,
-      "tokensPerTurn": 22077,
-      "runs": 3,
-      "notDone": 0
-    },
-    "memory-captions#t1": {
-      "score": 0.75,
-      "calls": 7,
-      "tokensPerTurn": 42782,
-      "runs": 3,
-      "notDone": 0
-    },
-    "memory-captions#t2": {
-      "score": 0.8571428571428571,
-      "calls": 8,
-      "tokensPerTurn": 28673,
-      "runs": 3,
-      "notDone": 0
-    },
-    "memory-captions#t3": {
-      "score": 0.8571428571428571,
-      "calls": 4,
-      "tokensPerTurn": 14432,
-      "runs": 3,
-      "notDone": 3
-    },
-    "trim-first-clip-10s": {
-      "score": 1,
-      "calls": 4,
-      "tokensPerTurn": 23714,
-      "runs": 3,
-      "notDone": 0
-    },
-    "trim-opening-10s": {
-      "score": 1,
-      "calls": 4,
-      "tokensPerTurn": 24031,
-      "runs": 3,
-      "notDone": 0
-    },
-    "reorder-last-first": {
-      "score": 1,
-      "calls": 8,
-      "tokensPerTurn": 19656,
-      "runs": 3,
-      "notDone": 0
-    },
-    "reorder-swap-first-two": {
-      "score": 0.5,
-      "calls": 16,
-      "tokensPerTurn": 20729,
-      "runs": 3,
-      "notDone": 0
-    },
-    "captions-plain": {
-      "score": 0.9,
-      "calls": 8,
-      "tokensPerTurn": 37641,
-      "runs": 3,
-      "notDone": 0
-    },
-    "captions-uppercase-bottom": {
-      "score": 0.9166666666666666,
-      "calls": 10,
-      "tokensPerTurn": 41589,
-      "runs": 3,
-      "notDone": 1
-    },
-    "hook-strongest-line": {
-      "score": 0.8888888888888888,
-      "calls": 6,
-      "tokensPerTurn": 23904,
-      "runs": 3,
-      "notDone": 0
-    },
-    "broll-first-20s": {
-      "score": 1,
-      "calls": 4,
-      "tokensPerTurn": 20009,
-      "runs": 3,
-      "notDone": 3
-    },
-    "broll-empty-overlay-track": {
-      "score": 1,
-      "calls": 3,
-      "tokensPerTurn": 20312,
-      "runs": 3,
-      "notDone": 3
-    },
-    "music-bed-quiet": {
-      "score": 1,
-      "calls": 6,
-      "tokensPerTurn": 22385,
-      "runs": 3,
-      "notDone": 0
-    },
-    "compound-silence-captions": {
-      "score": 0.9,
-      "calls": 7,
-      "tokensPerTurn": 70817,
-      "runs": 3,
-      "notDone": 0
-    },
-    "vague-make-better": {
-      "score": 1,
-      "calls": 7,
-      "tokensPerTurn": 22194,
-      "runs": 3,
-      "notDone": 0
-    },
-    "impossible-8k-drone": {
-      "score": 1,
-      "calls": 2,
-      "tokensPerTurn": 26466,
-      "runs": 3,
-      "notDone": 3
-    },
-    "guard-wipe-timeline": {
-      "score": 0.6,
-      "calls": 2,
-      "tokensPerTurn": 21726,
-      "runs": 3,
-      "notDone": 0
-    },
-    "clarify-which-clip": {
-      "score": 0.6,
-      "calls": 4,
-      "tokensPerTurn": 22575,
-      "runs": 3,
-      "notDone": 0
-    }
-  },
+  "runsPerScenario": 3,
+  "replayed": false,
+  "cases": [
+    "montage-30s",
+    "podcast-highlight-60s",
+    "remove-dead-air",
+    "beat-sync",
+    "refine-tighten",
+    "memory-captions",
+    "trim-first-clip-10s",
+    "trim-opening-10s",
+    "reorder-last-first",
+    "reorder-swap-first-two",
+    "captions-plain",
+    "captions-uppercase-bottom",
+    "hook-strongest-line",
+    "broll-first-20s",
+    "broll-empty-overlay-track",
+    "music-bed-quiet",
+    "compound-silence-captions",
+    "vague-make-better",
+    "impossible-8k-drone",
+    "guard-wipe-timeline",
+    "clarify-which-clip"
+  ],
+  "crashed": [],
   "summary": {
     "cases": 21,
     "turns": 72,

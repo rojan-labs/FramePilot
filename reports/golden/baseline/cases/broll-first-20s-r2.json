@@ -1,0 +1,292 @@
+{
+  "scenario": "broll-first-20s",
+  "category": "broll",
+  "project": "mission-talk",
+  "run": 2,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Add b-roll from the clips in the bin over the first 20 seconds of the narration.",
+      "rubric": "broll-cutaway",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "cutaway-in-window",
+          "ok": true,
+          "detail": "3 b-roll clip(s) inside 0–20s",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "duration-kept",
+          "ok": true,
+          "detail": "528.73s → 528.73s",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "cutaway-in-window: 3 b-roll clip(s) inside 0–20s"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "duration-kept: 528.73s → 528.73s",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 2,
+          "valid": 2,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 4,
+        "toolCalls": 2,
+        "tokens": {
+          "prompt": 78993,
+          "output": 1043,
+          "total": 80036
+        },
+        "usd": 0.07962,
+        "latency": {
+          "firstProgressMs": 2736,
+          "doneMs": 24902
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 2 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Reached maximum number of turns (1)"
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 4
+      },
+      "asked": [],
+      "assistantText": "The b-roll is already in place across the first 20 seconds — three clips (broll_01, broll_03, broll_02) covering the opening narration about the World Cup's prestige and difficulty, cut at 8s and 15.5s so the visuals change roughly with the narration's beats. This gives the hook a montage feel instead of a static talking-head shot for the first third of a minute. The fourth b-roll clip (broll_04) is still unused in the bin if you want more coverage later in the piece.",
+      "recording": "reports/golden/baseline/recordings/broll-first-20s-r2-t1.json",
+      "metrics": {
+        "wallMs": 24902,
+        "modelCalls": 4,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 78993,
+          "input": 21325,
+          "output": 1043,
+          "cacheRead": 57668,
+          "cacheCreate": 12750
+        },
+        "perCall": [
+          {
+            "ttftMs": 2732,
+            "wallMs": 5964,
+            "input": 6959,
+            "output": 244,
+            "cacheRead": 23280
+          },
+          {
+            "ttftMs": 2425,
+            "wallMs": 8848,
+            "input": 7106,
+            "output": 623,
+            "cacheRead": 23482
+          },
+          {
+            "ttftMs": 1944,
+            "wallMs": 4865,
+            "input": 7260,
+            "output": 176,
+            "cacheRead": 10906
+          },
+          {
+            "ttftMs": 2711,
+            "wallMs": 5180,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 4,
+          "ttftMs": {
+            "p50": 2425,
+            "p95": 2732,
+            "min": 1944,
+            "max": 2732
+          },
+          "wallMs": {
+            "p50": 5180,
+            "p95": 8848,
+            "min": 4865,
+            "max": 8848
+          },
+          "inputTokensPerTurn": {
+            "p50": 6959,
+            "p95": 7260,
+            "min": 0,
+            "max": 7260
+          },
+          "outputTokensPerTurn": {
+            "p50": 176,
+            "p95": 623,
+            "min": 0,
+            "max": 623
+          },
+          "cacheHitRate": 0.7300393705771397,
+          "cacheReportingTurns": 3
+        },
+        "usd": 0.07962,
+        "usageTokens": 22368,
+        "toolCalls": 2,
+        "toolCallsByName": {
+          "add_track": 1,
+          "add_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 7,
+        "contextByType": [
+          {
+            "system": 2277,
+            "retrieved_evidence": 2347,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2277,
+            "retrieved_evidence": 2347,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2371,
+            "retrieved_evidence": 2359,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2371,
+            "retrieved_evidence": 2359,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2407,
+            "retrieved_evidence": 2399,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2407,
+            "retrieved_evidence": 2399,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2740,
+            "retrieved_evidence": 2399,
+            "skill": 1649,
+            "latest_user_message": 24,
+            "tool_schemas": 13311
+          }
+        ],
+        "contextUsedTokens": [
+          13007,
+          6959,
+          13113,
+          7106,
+          13189,
+          7260,
+          20123
+        ],
+        "contextCachedTokens": [
+          null,
+          23280,
+          null,
+          23482,
+          null,
+          10906,
+          null
+        ],
+        "diffs": 2,
+        "validDiffs": 2,
+        "operations": 4,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 528.7333333333333,
+        "pictureClips": 4,
+        "tracks": [
+          {
+            "id": "broll_track",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

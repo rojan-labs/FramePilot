@@ -159,6 +159,7 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     id: 'beat-sync',
     category: 'beat',
     project: 'mission-montage',
+    musicAssetName: 'beat-100bpm.wav',
     why: 'Cuts must land on a measured beat grid, not an estimated one.',
     turns: [
       {
