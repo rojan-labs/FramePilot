@@ -10276,20 +10276,43 @@ a.export-credits-license {
 .ai-agent-option-hint {
   color: var(--text-tertiary);
 }
-/* Composer — the row holding the textarea + send/stop inside the shell well. */
+/* Composer — the message, then its controls, inside the shell well.
+   A COLUMN, not a row. As a row with `align-items: flex-end` the leading controls slid
+   down to sit against the message's last line while the text stayed indented past them,
+   and on an empty composer the three controls squeezed the placeholder until it truncated
+   mid-sentence. The message now owns the full width and the controls own the line below
+   it, so the layout does not change shape as you type. */
 .ai-composer {
   display: flex;
-  gap: var(--space-2);
-  align-items: flex-end;
+  flex-direction: column;
+  gap: var(--space-1);
   padding: var(--space-2);
 }
-.ai-composer-input {
+.ai-composer-controls {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+/* The lead group takes the slack so send/stop is pinned to the right edge. It had no
+   rule of its own at all — as a bare div beside the textarea its buttons stacked
+   vertically, which is why the "+" and the paperclip sat one above the other. */
+.ai-composer-lead {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
   flex: 1;
+  min-width: 0;
+}
+.ai-composer-input {
+  /* The composer is a COLUMN now, so the message owns the full width and grows only by
+     its own content. `flex: 1` here used to mean "take the row's slack"; along a column
+     axis it would mean "take the container's leftover HEIGHT", which is not a thing this
+     textarea should do. */
+  flex: none;
+  width: 100%;
   /* A flex item's default `min-width: auto` is its CONTENT width, and this one's content
-     is a long placeholder. With the attach control added beside the "+" the row ran out of
-     room, and because the textarea refused to shrink the send button was pushed out of the
-     row entirely — it wrapped to a second line and the placeholder rendered as its own
-     tail ("Me"). Letting it shrink is what keeps the row a row. */
+     is a long placeholder. Kept: the textarea is still a flex item, and letting it shrink
+     is what stops a long placeholder from setting a floor on the shell's width. */
   min-width: 0;
   resize: none;
   border: 0;
@@ -10298,7 +10321,7 @@ a.export-credits-license {
   /* Vertical padding only: the flex `gap` already spaces the input from the
      "+" button, so horizontal padding here just pushed the caret/placeholder
      needlessly inward (text now starts flush after the leading control). */
-  padding: var(--space-1) 0;
+  padding: var(--space-1) var(--space-1);
   font: inherit;
   font-size: var(--font-size-md);
   line-height: var(--leading);
@@ -11819,6 +11842,14 @@ a.export-credits-license {
 .ai-run-footer-duration {
   color: var(--text-tertiary);
   font-size: 12px;
+}
+/* How long the run took. `margin-left: auto` on nothing else in this row, so it sits
+   with the rest of the account rather than being pushed to an edge — the buttons are
+   the row's right-hand business. */
+.ai-run-footer-brewed {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
 }
 .ai-run-footer-note {
   color: var(--text-tertiary);

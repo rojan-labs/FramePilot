@@ -109,6 +109,7 @@ import { SteeringInput } from './SteeringInput.js';
 import { explainRunFailure } from '../../ai/runFailure.js';
 import { starterPrompts } from '../../ai/starterPrompts.js';
 import {
+  brewedLabel,
   formatDurationDelta,
   formatRunChangeGroups,
   summarizeRunChanges,
@@ -1861,6 +1862,25 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       view.status === 'idle' ||
       recoveryConversationId !== (active?.id ?? null));
 
+  /**
+   * How long the run took, from the message that started it to its last event.
+   *
+   * The sidebar showed what a run CHANGED and never what it cost the person waiting.
+   * Measured from the nodes themselves rather than from a stopwatch: a reload mid-run,
+   * or a conversation reopened later, still has the timestamps and still gets the same
+   * answer. Absent while a run is live, and absent when there is nothing after the
+   * user's message to measure to.
+   */
+  const brewedMs = useMemo(() => {
+    const lastUser = [...view.nodes].reverse().find((node) => node.kind === 'user');
+    if (!lastUser) return undefined;
+    const after = view.nodes.filter((node) => node.ts > lastUser.ts);
+    if (after.length === 0) return undefined;
+    const end = after.reduce((max, node) => Math.max(max, node.ts), lastUser.ts);
+    const elapsed = end - lastUser.ts;
+    return elapsed > 0 ? elapsed : undefined;
+  }, [view.nodes]);
+
   // The run's own edits, newest run only: what "Undo run" would take back.
   //
   // Undo is the entire safety net now that edits apply as they land, so this is the one
@@ -2265,13 +2285,18 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                 ))}
               </div>
             )}
-            {!running && lastRunPatchIds.length > 0 && (
+            {!running && (lastRunPatchIds.length > 0 || brewedMs !== undefined) && (
               <div className="ai-run-footer" role="status">
-                <span className="ai-run-footer-count">
-                  {lastRunPatchIds.length === 1
-                    ? 'Made 1 edit'
-                    : `Made ${String(lastRunPatchIds.length)} edits`}
-                </span>
+                {lastRunPatchIds.length > 0 && (
+                  <span className="ai-run-footer-count">
+                    {lastRunPatchIds.length === 1
+                      ? 'Made 1 edit'
+                      : `Made ${String(lastRunPatchIds.length)} edits`}
+                  </span>
+                )}
+                {brewedMs !== undefined && (
+                  <span className="ai-run-footer-brewed tabular">{brewedLabel(brewedMs)}</span>
+                )}
                 {lastRunSummary && lastRunSummary.groups.length > 0 && (
                   <span className="ai-run-footer-changes">
                     {formatRunChangeGroups(lastRunSummary.groups)}
@@ -2296,11 +2321,11 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                   <button type="button" className="ai-btn ai-btn--quiet" onClick={undoRun}>
                     Undo run
                   </button>
-                ) : (
+                ) : lastRunPatchIds.length > 0 ? (
                   // Deliberately not a disabled button: there is nothing to retry here, and
                   // a greyed-out control invites clicking. State the reason instead.
                   <span className="ai-run-footer-note">Undo is past this run now.</span>
-                )}
+                ) : null}
               </div>
             )}
             {!atBottom && (

@@ -390,14 +390,27 @@ export function Composer(props: ComposerProps): JSX.Element {
       )}
 
       <div className="ai-composer">
-        {/* One element for every leading control, whatever their number.
-            The composer row is a THREE-column grid — leading | input | send — and the
-            template is positional, so adding the attach button as a fourth child pushed
-            the textarea into the send column (28px wide: the placeholder rendered as
-            "Me") and wrapped the send button onto a second row. Grouping the leading
-            controls keeps the grid's child count fixed at three however many of them
-            there are. */}
-        <div className="ai-composer-lead">
+        <textarea
+          ref={inputRef}
+          className="ai-composer-input"
+          value={value}
+          placeholder="Message FramePilot…  (/ for commands)"
+          aria-label="Message FramePilot"
+          rows={1}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
+        />
+        {/* Controls sit UNDER the message, not beside it.
+            Beside it, the row was `align-items: flex-end`, so on a message of any length
+            the "+" and the paperclip slid down to sit against its last line while the text
+            block stayed indented past them — and on an empty composer the same three
+            controls squeezed the placeholder until it truncated mid-sentence ("Message
+            FramePilot…"). A full-width message with its own control row underneath is the
+            shape every one of these composers has settled on, and it is the shape that
+            stops the layout changing as you type. */}
+        <div className="ai-composer-controls">
+          <div className="ai-composer-lead">
           <button
             type="button"
             className="ai-icon-button"
@@ -434,18 +447,7 @@ export function Composer(props: ComposerProps): JSX.Element {
               </button>
             </>
           ) : null}
-        </div>
-        <textarea
-          ref={inputRef}
-          className="ai-composer-input"
-          value={value}
-          placeholder="Message FramePilot…  (/ for commands)"
-          aria-label="Message FramePilot"
-          rows={1}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
+          </div>
         {/* Context belongs to workspace chrome, not inside the message row. This component
             keeps owning the value but portals its circular progress control into the AI header. */}
         <ContextWindowIndicator
@@ -479,6 +481,7 @@ export function Composer(props: ComposerProps): JSX.Element {
             <Send size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
         )}
+        </div>
       </div>
     </div>
   );

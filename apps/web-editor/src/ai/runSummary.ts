@@ -111,3 +111,26 @@ export function formatDurationDelta(deltaSeconds: number): string | null {
   if (rounded === 0) return null;
   return `${rounded > 0 ? '+' : '−'}${Math.abs(rounded).toFixed(1)}s`;
 }
+
+/**
+ * `Brewed for 1m 14s` — how long the run took, from the message that started it.
+ *
+ * The sidebar showed what a run CHANGED and never what it cost the person waiting, so a
+ * three-second answer and a fifty-minute one closed identically. The word is deliberate:
+ * this is the run's own working time, not the programme's length, and "Brewed for" cannot
+ * be misread as either the edit's duration or the model's thinking time (which
+ * `thoughtLabel` already names separately).
+ *
+ * Whole seconds below a minute, `Nm Ns` above it, and `<1s` rather than `0s` — a run that
+ * finished instantly took *some* time, and rounding it to zero says it took none.
+ */
+export function brewedLabel(elapsedMs: number): string {
+  if (elapsedMs < 1000) return 'Brewed for <1s';
+  const seconds = Math.round(elapsedMs / 1000);
+  if (seconds < 60) return `Brewed for ${String(seconds)}s`;
+  const minutes = Math.floor(seconds / 60);
+  const rest = seconds % 60;
+  return rest === 0
+    ? `Brewed for ${String(minutes)}m`
+    : `Brewed for ${String(minutes)}m ${String(rest)}s`;
+}
