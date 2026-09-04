@@ -676,6 +676,92 @@ describe('move_clip', () => {
       }),
     ).toThrow(/Track not found/);
   });
+
+  /**
+   * Golden case `reorder-last-first` r1 failed reversibility at
+   * `$.timeline.tracks[0].clips[1].end` after the run moved one clip four times.
+   *
+   * `applyMove` recomputes the clip's end as `toStart + (end - start)`, and in binary
+   * floating point `(toStart + d) - toStart` is not always `d`. A clip 8.033333333333333s
+   * long moved to 48s and back comes home 8.033333333333331s long. The picture is
+   * identical — both quantize to the same frame — but undo is a promise about the file.
+   */
+  describe('a move whose length does not survive the arithmetic', () => {
+    const drifting = (): Timeline => ({
+      revision: 0,
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            {
+              id: 'a',
+              assetId: 'asset_1',
+              trackId: 'video_1',
+              start: 0,
+              end: 8.033333333333333,
+              sourceStart: 0,
+              sourceEnd: 8.033333333333333,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        { id: 'video_2', type: 'video', clips: [] },
+      ],
+    });
+
+    it('is the case — the forward move really does shed a ULP', () => {
+      const after = applyOperation(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_1',
+        toStart: 48,
+      });
+      const moved = findClipById(after, 'a')!;
+      expect(moved.end - moved.start).not.toBe(8.033333333333333);
+    });
+
+    it('restores the clip exactly anyway, on the same track', () => {
+      expectRoundTrip(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_1',
+        toStart: 48,
+      });
+    });
+
+    it('restores the clip exactly across tracks, leaving neither a copy nor a hole', () => {
+      const after = expectRoundTrip(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_2',
+        toStart: 48,
+      });
+      expect(track(after, 'video_1').clips).toHaveLength(0);
+      expect(track(after, 'video_2').clips).toHaveLength(1);
+    });
+
+    it('survives four moves and four undos, which is what the run did', () => {
+      const before = drifting();
+      let working = before;
+      const inverses: Operation[][] = [];
+      for (const toStart of [48, 12.5, 33.7, 0.9]) {
+        const op = {
+          type: 'move_clip' as const,
+          clipId: 'a',
+          toTrackId: 'video_1',
+          toStart,
+        };
+        inverses.push([...invertOperation(working, op)]);
+        working = applyOperation(working, op);
+      }
+      for (let i = inverses.length - 1; i >= 0; i -= 1) {
+        for (const op of inverses[i]!) working = applyOperation(working, op);
+      }
+      expect(findClipById(working, 'a')).toEqual(findClipById(before, 'a'));
+    });
+  });
 });
 
 // --- add_clip / overlays / captions ---------------------------------------

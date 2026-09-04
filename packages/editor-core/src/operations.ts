@@ -2359,10 +2359,32 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
       ];
     }
     case 'move_clip': {
-      const { clip } = findClip(timelineBefore, op.clipId);
-      return [
-        { type: 'move_clip', clipId: op.clipId, toTrackId: clip.trackId, toStart: clip.start },
-      ];
+      const { clip, track } = findClip(timelineBefore, op.clipId);
+      // A MOVE IS NOT ALWAYS EXACTLY REVERSIBLE, and the same-shape inverse cannot say so.
+      //
+      // `applyMove` places the clip at `toStart` and recomputes its end as
+      // `toStart + (end - start)`. In binary floating point `(toStart + d) - toStart` is
+      // not always `d`: a 8.033333333333333s clip moved to 48s comes back 1 ULP shorter,
+      // and moving it home restores `start` exactly and `end` to 8.033333333333331.
+      //
+      // Nothing about the picture changes — both values quantize to the same frame — but
+      // undo is a promise about the FILE, and the golden case `reorder-last-first` failed
+      // on exactly this, at `$.timeline.tracks[0].clips[1].end`, after the run moved one
+      // clip four times. Four moves, four chances to shed a ULP.
+      //
+      // So: keep the cheap same-shape inverse when the arithmetic proves it exact, and
+      // fall back to the file's own answer for an inverse that cannot be
+      // (`restore_clips`) when it does not. A cross-track move restores both tracks —
+      // the source, to put the clip back, and the destination, to take it away.
+      const moved = op.toStart + (clip.end - clip.start);
+      const exact = clip.start + (moved - op.toStart) === clip.end;
+      if (exact) {
+        return [
+          { type: 'move_clip', clipId: op.clipId, toTrackId: clip.trackId, toStart: clip.start },
+        ];
+      }
+      if (track.id === op.toTrackId) return [restoreFor(track)];
+      return [restoreFor(findTrack(timelineBefore, op.toTrackId).track), restoreFor(track)];
     }
     case 'set_track_flags': {
       // Same-shape inverse: restore the prior value of exactly the flags this op
