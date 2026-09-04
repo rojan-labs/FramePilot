@@ -381,12 +381,21 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           end: clip.end,
         }));
 
+      // Ids embed the cue start in ms: stable across re-runs of the same transcript,
+      // and unique within one because `deriveCaptionCues` returns a non-overlapping
+      // cue timeline. This set is the belt to that braces. A duplicate id makes
+      // `add_caption_layer` throw, and because a caption patch is one operation per
+      // cue, ONE collision discards every cue in the call — run `137d8fd0` lost nine
+      // consecutive captioning attempts and ~3,100 proposed changes to a single
+      // repeated id. A cue that is genuinely un-nameable is worth losing on its own;
+      // the other two hundred are not.
+      const seenIds = new Set<string>();
       return [
         ...clears,
         ...cues.flatMap((cue) => {
-          // Ids embed the cue start in ms: stable across re-runs of the same
-          // transcript, and unique within one.
           const clipId = `caption_${a.trackId}_${Math.round(cue.start * 1000)}`;
+          if (seenIds.has(clipId)) return [];
+          seenIds.add(clipId);
           return [
             {
               type: 'add_caption_layer' as const,

@@ -171,6 +171,18 @@ function bestSpanFor(
     if (overlap > bestOverlap) {
       best = span;
       bestOverlap = overlap;
+      return;
+    }
+    // The tie-break the doc comment above promises, actually applied. `candidatesIn`
+    // walks its group backwards from a binary search, so "whichever arrived first"
+    // is ordered by *source* in-point and by array position — neither of which is the
+    // earliest appearance on the timeline. Two clips reusing one source range then
+    // attributed their words by accident of iteration, and a later word could tip the
+    // other way and split one sentence across two runs.
+    if (overlap === bestOverlap && best !== undefined) {
+      if (span.start < best.start || (span.start === best.start && span.clipId < best.clipId)) {
+        best = span;
+      }
     }
   };
   // An unattributed word (pre-v12 transcript) matches any asset — the v11 behavior —
@@ -375,74 +387,132 @@ export function deriveCaptionCues(
 ): readonly DerivedCue[] {
   const { runs, revision } = mapTranscript(map, transcript);
 
-  return runs.flatMap((run) => {
-    // The segmenter works in whatever timebase its input uses; feed it sequence
-    // time so its pause/reading-speed reasoning matches what the viewer sees.
-    // At a speed != 1 that is deliberately the *played back* pacing, not the
-    // originally spoken pacing — a 2x clip really does need faster cues.
-    // Segment on the same grid the patch boundary will quantise to; without it
-    // a cue can be legal here and zero-length by the time it is validated.
-    const cues = segmentCaptions(
-      run.words.map(({ word, start, end }) => ({ word, start, end })),
-      config,
-      fps,
-    );
+  return resolveCueOverlaps(
+    runs.flatMap((run) => {
+      // The segmenter works in whatever timebase its input uses; feed it sequence
+      // time so its pause/reading-speed reasoning matches what the viewer sees.
+      // At a speed != 1 that is deliberately the *played back* pacing, not the
+      // originally spoken pacing — a 2x clip really does need faster cues.
+      // Segment on the same grid the patch boundary will quantise to; without it
+      // a cue can be legal here and zero-length by the time it is validated.
+      const cues = segmentCaptions(
+        run.words.map(({ word, start, end }) => ({ word, start, end })),
+        config,
+        fps,
+      );
 
-    let consumed = 0;
-    const derived: DerivedCue[] = [];
-    for (const cue of cues) {
-      const start = Math.max(cue.start, run.start);
-      const end = Math.min(cue.end, run.end);
-      // Recover the source range from the words the segmenter grouped. Counting
-      // forward through the run is safe: the segmenter preserves word order and
-      // partitions its input, so cue N's words follow cue N-1's exactly.
-      const sourceWords = run.words.slice(consumed, consumed + cue.words.length);
-      consumed += cue.words.length;
-      const first = sourceWords[0];
-      const last = sourceWords[sourceWords.length - 1];
-      const entry: DerivedCue = {
-        text: cue.text,
+      let consumed = 0;
+      const derived: DerivedCue[] = [];
+      for (const cue of cues) {
+        const start = Math.max(cue.start, run.start);
+        const end = Math.min(cue.end, run.end);
+        // Recover the source range from the words the segmenter grouped. Counting
+        // forward through the run is safe: the segmenter preserves word order and
+        // partitions its input, so cue N's words follow cue N-1's exactly.
+        const sourceWords = run.words.slice(consumed, consumed + cue.words.length);
+        consumed += cue.words.length;
+        const first = sourceWords[0];
+        const last = sourceWords[sourceWords.length - 1];
+        const entry: DerivedCue = {
+          text: cue.text,
+          words: cue.words.map((word) => ({
+            ...word,
+            start: Math.min(Math.max(word.start, start), end),
+            end: Math.min(Math.max(word.end, start), end),
+          })),
+          start,
+          end,
+          clipId: run.clipId,
+          assetId: run.assetId,
+          sourceStart: first?.sourceStart ?? 0,
+          sourceEnd: last?.sourceEnd ?? 0,
+          revision,
+        };
+
+        // The clamp above is the LAST place a cue can be squeezed out of existence, and
+        // segmentation cannot see it coming: `segmentCaptions` works inside the run and is
+        // allowed to extend its final cue past the last word, so a cue sitting within a
+        // frame of `run.end` comes back with nothing left after clamping to it. Only a cut
+        // exposes this — on a single untrimmed clip the run ends where the footage does and
+        // there is always room, which is why it survived a fix and a property test that
+        // both only ever saw one clip.
+        //
+        // Absorbed into the previous cue of the SAME run rather than dropped: the words
+        // were really spoken, and the run is the unit that guarantees no cue crosses a cut,
+        // so merging inside it cannot bridge one. With no predecessor there is nowhere to
+        // put them and the cue is dropped — its footage is under a frame, so there is
+        // genuinely no picture to caption.
+        const previous = derived[derived.length - 1];
+        if (fps !== undefined && secondsToFrame(end, fps) <= secondsToFrame(start, fps)) {
+          if (previous === undefined) continue;
+          derived[derived.length - 1] = {
+            ...previous,
+            text: `${previous.text} ${cue.text}`,
+            words: [...previous.words, ...entry.words],
+            end: Math.max(previous.end, end),
+            sourceEnd: entry.sourceEnd,
+          };
+          continue;
+        }
+        derived.push(entry);
+      }
+      return derived;
+    }),
+    fps,
+  );
+}
+
+/**
+ * Collapse the cue lists of overlapping runs into one non-overlapping cue timeline.
+ *
+ * WHY: runs are per-clip and clips stack. A b-roll cutaway, a second video track, a
+ * multicam angle — any of these puts two clips over the *same sequence instant*, and
+ * because each clip carries its own source range, each contributes its own words. Run
+ * segmentation is deliberately independent (that is what keeps a cue from crossing a
+ * cut), so nothing downstream had noticed that two runs could describe the same moment.
+ *
+ * Two things then went wrong at once, and the second one is fatal. A caption track can
+ * only ever show one cue at a time, so stacked cues are already wrong on screen. And
+ * `caption_the_edit` derives each cue's clip id from its start time — so two cues
+ * starting on the same frame collide, `add_caption_layer` rejects the duplicate id, and
+ * the *entire* captioning patch is thrown away. Observed in run `137d8fd0`: nine
+ * consecutive `caption_the_edit` calls rejected at the same op, ~3,100 proposed changes
+ * discarded, the run's whole caption budget spent on a retry loop that could not
+ * succeed, because one clip's footage had been stacked under another's.
+ *
+ * The rule is the one the renderer already enforces: **at any instant there is exactly
+ * one cue.** Cues are taken in sequence order and each is admitted only for the part of
+ * the timeline no earlier cue already occupies. Ties resolve by end then clip id so the
+ * result is total and stable. On a timeline with no stacked footage every cue is
+ * admitted whole and the output is unchanged — the ordering this imposes is the order
+ * the runs already produced.
+ */
+function resolveCueOverlaps(cues: readonly DerivedCue[], fps?: number): readonly DerivedCue[] {
+  const ordered = [...cues].sort(
+    (a, b) => a.start - b.start || a.end - b.end || a.clipId.localeCompare(b.clipId),
+  );
+  const kept: DerivedCue[] = [];
+  let occupiedUntil = -Infinity;
+  for (const cue of ordered) {
+    const start = Math.max(cue.start, occupiedUntil);
+    // Nothing left of this cue once the earlier one has its share. Dropped rather
+    // than shortened to zero: a zero-length cue is rejected at the patch boundary.
+    if (cue.end - start <= TIME_EPSILON) continue;
+    if (fps !== undefined && secondsToFrame(cue.end, fps) <= secondsToFrame(start, fps)) continue;
+    if (start === cue.start) {
+      kept.push(cue);
+    } else {
+      kept.push({
+        ...cue,
+        start,
         words: cue.words.map((word) => ({
           ...word,
-          start: Math.min(Math.max(word.start, start), end),
-          end: Math.min(Math.max(word.end, start), end),
+          start: Math.max(word.start, start),
+          end: Math.max(word.end, start),
         })),
-        start,
-        end,
-        clipId: run.clipId,
-        assetId: run.assetId,
-        sourceStart: first?.sourceStart ?? 0,
-        sourceEnd: last?.sourceEnd ?? 0,
-        revision,
-      };
-
-      // The clamp above is the LAST place a cue can be squeezed out of existence, and
-      // segmentation cannot see it coming: `segmentCaptions` works inside the run and is
-      // allowed to extend its final cue past the last word, so a cue sitting within a
-      // frame of `run.end` comes back with nothing left after clamping to it. Only a cut
-      // exposes this — on a single untrimmed clip the run ends where the footage does and
-      // there is always room, which is why it survived a fix and a property test that
-      // both only ever saw one clip.
-      //
-      // Absorbed into the previous cue of the SAME run rather than dropped: the words
-      // were really spoken, and the run is the unit that guarantees no cue crosses a cut,
-      // so merging inside it cannot bridge one. With no predecessor there is nowhere to
-      // put them and the cue is dropped — its footage is under a frame, so there is
-      // genuinely no picture to caption.
-      const previous = derived[derived.length - 1];
-      if (fps !== undefined && secondsToFrame(end, fps) <= secondsToFrame(start, fps)) {
-        if (previous === undefined) continue;
-        derived[derived.length - 1] = {
-          ...previous,
-          text: `${previous.text} ${cue.text}`,
-          words: [...previous.words, ...entry.words],
-          end: Math.max(previous.end, end),
-          sourceEnd: entry.sourceEnd,
-        };
-        continue;
-      }
-      derived.push(entry);
+      });
     }
-    return derived;
-  });
+    occupiedUntil = cue.end;
+  }
+  return kept;
 }

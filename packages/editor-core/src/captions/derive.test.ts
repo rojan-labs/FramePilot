@@ -859,3 +859,94 @@ describe('persistence', () => {
     );
   });
 });
+
+// ---------------------------------------------------------------------------
+// Stacked footage — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * The shape that broke captioning in run `137d8fd0`: a b-roll track carrying a
+ * *different* source range over the same sequence seconds as the main track. Both
+ * clips retain speech, so both produce a run, and both runs describe sequence 0–3.
+ */
+function stackedTimeline(): Timeline {
+  return {
+    revision: 7,
+    tracks: [
+      {
+        id: 'v_main',
+        type: 'video' as const,
+        clips: [
+          {
+            id: 'clip_main',
+            assetId: ASSET,
+            trackId: 'v_main',
+            start: 0,
+            end: 3,
+            sourceStart: 18,
+            sourceEnd: 21,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+      {
+        id: 'v_cutaway',
+        type: 'video' as const,
+        clips: [
+          {
+            id: 'clip_cutaway',
+            assetId: ASSET,
+            trackId: 'v_cutaway',
+            start: 0,
+            end: 3,
+            sourceStart: 0,
+            sourceEnd: 3,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  };
+}
+
+describe('stacked clips over the same sequence time', () => {
+  it('maps both clips speech but emits one cue per instant', () => {
+    const map = buildTimelineMap(stackedTimeline());
+    const { runs } = mapTranscript(map, sourceTranscript());
+
+    // Both clips really do carry speech — the overlap is not an artefact of mapping.
+    expect(runs.length).toBeGreaterThan(1);
+    expect(new Set(runs.map((run) => run.clipId))).toEqual(new Set(['clip_main', 'clip_cutaway']));
+
+    const cues = deriveCaptionCues(map, sourceTranscript(), config(), 30);
+    for (let i = 1; i < cues.length; i += 1) {
+      expect(cues[i]!.start).toBeGreaterThanOrEqual(cues[i - 1]!.end - 1e-9);
+    }
+  });
+
+  it('never emits two cues that would derive the same caption clip id', () => {
+    const cues = deriveCaptionCues(
+      buildTimelineMap(stackedTimeline()),
+      sourceTranscript(),
+      config(),
+      30,
+    );
+    const ids = cues.map((cue) => `caption_captions_${Math.round(cue.start * 1000)}`);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+
+  it('leaves an unstacked timeline byte-identical', () => {
+    const map = buildTimelineMap(rippledTimeline());
+    const words = sourceTranscript();
+    expect(deriveCaptionCues(map, words, config(), 30)).toEqual(
+      deriveCaptionCues(map, words, config(), 30),
+    );
+    const cues = deriveCaptionCues(map, words, config(), 30);
+    expect(cues.length).toBeGreaterThan(5);
+    for (let i = 1; i < cues.length; i += 1) {
+      expect(cues[i]!.start).toBeGreaterThanOrEqual(cues[i - 1]!.end - 1e-9);
+    }
+  });
+});
