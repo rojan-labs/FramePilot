@@ -28,7 +28,7 @@
  *
  * @see docs/adr/0076-canonical-timeline-mapping.md
  */
-import type { TranscriptWord } from '@framepilot/timeline-schema';
+import type { Asset, TranscriptWord } from '@framepilot/timeline-schema';
 import { secondsToFrame } from '../frame-grid.js';
 import {
   TIME_EPSILON,
@@ -144,6 +144,27 @@ function overlapThreshold(span: ClipSpan, word: TranscriptWord): number {
 }
 
 /**
+ * The span groups an UNATTRIBUTED word may be matched against.
+ *
+ * The named speech assets when at least one of them is actually placed on the timeline;
+ * every group otherwise. The "at least one placed" condition is what makes this safe to
+ * turn on: a caller naming an asset that no clip uses would otherwise leave a word with
+ * nowhere to land, and a dropped word is a missing caption.
+ */
+function unattributedGroups(
+  index: SourceSpanIndex,
+  speechAssetIds: ReadonlySet<string> | undefined,
+): Iterable<SourceSpanGroup> {
+  if (speechAssetIds === undefined || speechAssetIds.size === 0) return index.byAsset.values();
+  const named: SourceSpanGroup[] = [];
+  for (const assetId of speechAssetIds) {
+    const group = index.byAsset.get(assetId);
+    if (group !== undefined) named.push(group);
+  }
+  return named.length > 0 ? named : index.byAsset.values();
+}
+
+/**
  * The span that carries `word`, or `undefined` when the word did not survive the
  * edit — the **majority rule**: a word belongs to the clip that retained most of
  * it, among the clips that clear {@link overlapThreshold}.
@@ -162,6 +183,7 @@ function bestSpanFor(
   index: SourceSpanIndex,
   word: TranscriptWord,
   assetId: string | undefined,
+  speechAssetIds: ReadonlySet<string> | undefined,
 ): ClipSpan | undefined {
   let best: ClipSpan | undefined;
   let bestOverlap = 0;
@@ -185,10 +207,27 @@ function bestSpanFor(
       }
     }
   };
-  // An unattributed word (pre-v12 transcript) matches any asset — the v11 behavior —
-  // while an attributed one is confined to its own footage.
+  // An attributed word is confined to its own footage. An unattributed one (a pre-v12
+  // transcript, which is every mission fixture) matched ANY asset — the v11 behavior —
+  // and on a project that has since gained b-roll or a music bed that means a caption cue
+  // can be attributed to, and timed through, a clip that was never speaking.
+  //
+  // The same fabrication was fixed twice in one week elsewhere: in the Critic (`5d0dbab`,
+  // where `word_severed` judged b-roll against the narration) and in the golden rubric
+  // (`a255687`). This is the third copy, and it takes the same rule those two took: a
+  // transcript with no attribution can only have come from an asset long enough to
+  // contain it, so when the caller can say which assets those are, an unattributed word
+  // is confined to them.
+  //
+  // The caller says so only when it CAN — the agent path holds the whole project, the
+  // web-editor's `generateCaptionsPatch` holds a bare timeline. Absent, and whenever no
+  // named speech asset is actually on the timeline, the v11 reading stands unchanged, so
+  // no project loses captions it had. Captions are the most incident-heavy area in this
+  // repo; a narrowing that can empty a caption track is not worth a correct attribution.
   const groups =
-    assetId === undefined ? index.byAsset.values() : [index.byAsset.get(assetId) ?? EMPTY_GROUP];
+    assetId === undefined
+      ? unattributedGroups(index, speechAssetIds)
+      : [index.byAsset.get(assetId) ?? EMPTY_GROUP];
   for (const group of groups) {
     for (const span of candidatesIn(group, word)) consider(span);
   }
@@ -295,11 +334,15 @@ function mapWord(span: ClipSpan, word: TranscriptWord): MappedWord {
  *
  * @param map - Canonical timing, from `buildTimelineMap`.
  * @param transcript - Source-relative words (schema v12), in any order.
+ * @param speechAssetIds - Assets an UNATTRIBUTED word may belong to; see
+ *   {@link speechAssetIdsFor}. Omit when the caller cannot tell, and the pre-v12
+ *   any-asset reading stands.
  * @returns Surviving words with both timings, grouped into continuous runs.
  */
 export function mapTranscript(
   map: TimelineMap,
   transcript: readonly TranscriptWord[],
+  speechAssetIds?: ReadonlySet<string>,
 ): MappedTranscript {
   const mapped: MappedWord[] = [];
   let droppedCount = 0;
@@ -315,7 +358,7 @@ export function mapTranscript(
     // `?? undefined` because the attribution is nullish across the language
     // boundary (the Python engine serializes "no asset" as null), and null must
     // read as "unattributed", not as an asset literally named null.
-    const span = bestSpanFor(index, word, word.assetId ?? undefined);
+    const span = bestSpanFor(index, word, word.assetId ?? undefined, speechAssetIds);
     if (span === undefined) {
       droppedCount += 1;
       continue;
@@ -377,6 +420,8 @@ export interface DerivedCue extends CaptionCueDraft {
  *   operations: sequence times are quantised to a frame at the patch boundary,
  *   and a cue narrower than that grid is rejected as zero-length. See
  *   `coalesceSubFrameCues`.
+ * @param speechAssetIds - Assets an UNATTRIBUTED word may belong to; see
+ *   {@link speechAssetIdsFor}. Omit when the caller holds no assets.
  * @returns Cues in sequence order, each stamped with its source provenance.
  */
 export function deriveCaptionCues(
@@ -384,8 +429,9 @@ export function deriveCaptionCues(
   transcript: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
   fps?: number,
+  speechAssetIds?: ReadonlySet<string>,
 ): readonly DerivedCue[] {
-  const { runs, revision } = mapTranscript(map, transcript);
+  const { runs, revision } = mapTranscript(map, transcript, speechAssetIds);
 
   return resolveCueOverlaps(
     runs.flatMap((run) => {
@@ -515,4 +561,45 @@ function resolveCueOverlaps(cues: readonly DerivedCue[], fps?: number): readonly
     occupiedUntil = cue.end;
   }
   return kept;
+}
+
+/**
+ * Which assets an UNATTRIBUTED transcript could actually have come from.
+ *
+ * Every mission fixture's transcript is schema <= v11 and carries no `assetId`, and the
+ * v11 rule for such a word is "it applies to any clip". On a single-asset project that is
+ * right. On one that has since gained b-roll, stock, or a music bed it is a fabrication:
+ * a caption cue gets attributed to — and timed through — footage that was never speaking.
+ *
+ * The rule is the one the Critic (`5d0dbab`) and the golden rubric (`a255687`) already
+ * apply, stated once here so the three cannot drift: a transcript can only have come from
+ * an asset long enough to contain it. Images are excluded outright; an asset with no
+ * declared duration cannot be ruled out, so it is kept.
+ *
+ * Returns `undefined` — meaning "no constraint, keep the v11 reading" — when nothing
+ * qualifies. That is deliberate: no project may lose captions it had to a heuristic.
+ *
+ * @param assets - The project's assets.
+ * @param transcript - The source-relative words about to be mapped.
+ */
+export function speechAssetIdsFor(
+  assets: readonly Asset[] | undefined,
+  transcript: readonly TranscriptWord[],
+): ReadonlySet<string> | undefined {
+  if (assets === undefined || assets.length === 0 || transcript.length === 0) return undefined;
+  const spokenUntil = transcript.reduce((max, word) => Math.max(max, word.end), 0);
+  if (spokenUntil <= 0) return undefined;
+  const ids = new Set(
+    assets
+      .filter(
+        (asset) =>
+          asset.kind !== 'image' &&
+          (asset.durationSeconds === undefined || asset.durationSeconds >= spokenUntil - 0.5),
+      )
+      .map((asset) => asset.id),
+  );
+  // Everything qualified, so the set says nothing the v11 reading did not. Returning
+  // `undefined` keeps the fast path and makes the "narrowed" case visible in a debugger.
+  if (ids.size === 0 || ids.size === assets.length) return undefined;
+  return ids;
 }

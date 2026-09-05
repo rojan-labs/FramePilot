@@ -25,6 +25,7 @@ import {
   createLaneAllocator,
   deriveCaptionCues,
   mapTranscript,
+  speechAssetIdsFor,
   type CaptionSegmentPresetName,
 } from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
@@ -417,6 +418,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         ctx.project.transcript,
         config,
         ctx.project.fps,
+        // This path holds the whole project, so it can say which assets an unattributed
+        // word could have come from — and on a project with b-roll or a music bed, an
+        // unattributed word matching ANY asset times cues through footage that was never
+        // speaking. `speechAssetIdsFor` returns undefined when it cannot narrow, so a
+        // single-asset project behaves exactly as before.
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
       );
       if (cues.length === 0 && track.clips.length === 0) {
         throw new ToolRefusalError(
@@ -495,7 +502,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     z.object({ trackId: z.string(), start: seconds, end: seconds }).strict(),
     (a, ctx) => {
       const duration = a.end - a.start;
-      const mapped = mapTranscript(buildTimelineMap(ctx.project.timeline), ctx.project.transcript);
+      // Same narrowing as `caption_the_edit` below: this decides which clip a hand-placed
+      // cue belongs to, and attributing it to b-roll is the same fabrication.
+      const mapped = mapTranscript(
+        buildTimelineMap(ctx.project.timeline),
+        ctx.project.transcript,
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
+      );
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
         throw new ToolRefusalError(

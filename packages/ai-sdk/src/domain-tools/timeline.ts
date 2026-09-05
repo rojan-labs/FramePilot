@@ -23,6 +23,7 @@ import {
   mapSequenceTime,
   mapSourceTime,
   mapTranscript,
+  speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
 import { createLaneAllocator } from '@framepilot/editor-core';
@@ -691,7 +692,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     transcriptWindowSchema,
     (a, ctx) => {
       const map = buildTimelineMap(ctx.project.timeline);
-      const mapped = mapTranscript(map, ctx.project.transcript);
+      // The timings the model cuts on. An unattributed word matching any asset reports
+      // narration as audible inside a silent b-roll clip, and every cut placed from that
+      // reading is wrong before the model does anything.
+      const mapped = mapTranscript(
+        map,
+        ctx.project.transcript,
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
+      );
       const start = a.start ?? Number.NEGATIVE_INFINITY;
       const end = a.end ?? Number.POSITIVE_INFINITY;
       const words = mapped.words.filter((w) => w.end > start && w.start < end);

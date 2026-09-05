@@ -23,6 +23,7 @@ import {
   buildTimelineMap,
   listEditBoundaries,
   mapTranscript,
+  speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
@@ -1792,7 +1793,14 @@ function checkWordSevered(
  * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
  */
 function checkDeadAir(project: Project, fps: number, options: CritiqueOptions): CriticCheck {
-  const mapped = mapTranscript(buildTimelineMap(project.timeline), project.transcript);
+  const mapped = mapTranscript(
+    buildTimelineMap(project.timeline),
+    project.transcript,
+    // An unattributed word belonging to any asset means dead air is measured against the
+    // b-roll clip's edges as readily as the narration's — the same fabrication
+    // `word_severed` was fixed for in 5d0dbab.
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
   if (mapped.words.length === 0) {
     return check(
       'dead_air',

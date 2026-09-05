@@ -27,7 +27,7 @@ import {
 } from '../timeline-map.js';
 import * as segmentModule from './segment.js';
 import { captionSegmentConfig, type CaptionSegmentConfig } from './segment.js';
-import { deriveCaptionCues, mapTranscript } from './derive.js';
+import { deriveCaptionCues, mapTranscript, speechAssetIdsFor } from './derive.js';
 
 // ---------------------------------------------------------------------------
 // Fixtures
@@ -910,6 +910,162 @@ function stackedTimeline(): Timeline {
     ],
   };
 }
+
+/**
+ * An unattributed word (every pre-v12 transcript, which is every mission fixture) used to
+ * match ANY asset. On a project with b-roll or a music bed that is a fabrication: the
+ * narration's words get attributed to, and timed through, a clip that was never speaking.
+ *
+ * The same fabrication was fixed in the Critic (5d0dbab) and the golden rubric (a255687).
+ * This is the third copy, and it takes the same rule: a transcript with no attribution can
+ * only have come from an asset long enough to contain it.
+ */
+describe('an unattributed transcript is not put in the mouth of b-roll', () => {
+  const NARRATION = 'asset_talk';
+  const BROLL = 'asset_broll';
+
+  /**
+   * The shape that produces the fabrication.
+   *
+   * The edit kept narration source 10–20s and threw the first ten seconds away. A stock
+   * cutaway sits over the result, showing ITS OWN source 0–3s. A word spoken at source
+   * 0.5s was deleted — but under the v11 rule it matches any asset, and the cutaway's
+   * source range happens to cover it, so the word comes back attributed to footage that
+   * was never speaking.
+   */
+  const withBroll = (): Timeline =>
+    ({
+      revision: 1,
+      tracks: [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            {
+              id: 'talk',
+              assetId: NARRATION,
+              trackId: 'v_main',
+              start: 0,
+              end: 10,
+              sourceStart: 10,
+              sourceEnd: 20,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        {
+          id: 'v_broll',
+          type: 'video',
+          clips: [
+            {
+              id: 'cutaway',
+              assetId: BROLL,
+              trackId: 'v_broll',
+              start: 5,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 3,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    }) as unknown as Timeline;
+
+  /** Two deleted words inside the cutaway's source range, two the edit actually kept. */
+  const words = [
+    { word: 'deleted', start: 0.5, end: 1.0 },
+    { word: 'also', start: 2.2, end: 2.8 },
+    { word: 'kept', start: 15.0, end: 15.6 },
+    { word: 'too', start: 17.0, end: 17.6 },
+  ];
+
+  const assets = [
+    { id: NARRATION, path: 'talk.mp4', kind: 'video' as const, durationSeconds: 20 },
+    { id: BROLL, path: 'stock.mp4', kind: 'video' as const, durationSeconds: 3 },
+  ];
+
+  it('without the narrowing, the cutaway resurrects words the edit deleted', () => {
+    // The behaviour being fixed, asserted so the fix cannot be mistaken for a no-op.
+    const mapped = mapTranscript(buildTimelineMap(withBroll()), words);
+    expect(mapped.words.some((w) => w.clipId === 'cutaway')).toBe(true);
+  });
+
+  it('keeps only the words the edit kept, all on the narration', () => {
+    const speech = speechAssetIdsFor(assets, words);
+    expect(speech).toEqual(new Set([NARRATION]));
+    const mapped = mapTranscript(buildTimelineMap(withBroll()), words, speech);
+    expect(mapped.words.map((w) => w.word)).toEqual(['kept', 'too']);
+    expect(mapped.words.every((w) => w.clipId === 'talk')).toBe(true);
+  });
+
+  it('carries through to the cues, which is what reaches the screen', () => {
+    const cues = deriveCaptionCues(
+      buildTimelineMap(withBroll()),
+      words,
+      captionSegmentConfig(),
+      30,
+      speechAssetIdsFor(assets, words),
+    );
+    expect(cues.every((cue) => cue.clipId === 'talk')).toBe(true);
+    expect(cues.flatMap((cue) => cue.words.map((w) => w.word))).toEqual(['kept', 'too']);
+  });
+
+  it('leaves an attributed word alone: it was never ambiguous', () => {
+    const attributed = words.map((w) => ({ ...w, assetId: BROLL }));
+    const mapped = mapTranscript(
+      buildTimelineMap(withBroll()),
+      attributed,
+      speechAssetIdsFor(assets, attributed),
+    );
+    expect(mapped.words.every((w) => w.clipId === 'cutaway')).toBe(true);
+  });
+
+  describe('speechAssetIdsFor never narrows to nothing', () => {
+    it('returns undefined when every asset qualifies — the v11 reading, unchanged', () => {
+      expect(speechAssetIdsFor([assets[0]!], words)).toBeUndefined();
+    });
+
+    it('returns undefined when NO asset is long enough, rather than dropping every word', () => {
+      const tooShort = [{ id: 'a', path: 'a.mp4', kind: 'video' as const, durationSeconds: 1 }];
+      expect(speechAssetIdsFor(tooShort, words)).toBeUndefined();
+    });
+
+    it('keeps an asset whose duration is unknown — it cannot be ruled out', () => {
+      const unknown = [
+        { id: NARRATION, path: 'talk.mp4', kind: 'video' as const },
+        { id: BROLL, path: 'stock.mp4', kind: 'video' as const, durationSeconds: 3 },
+      ];
+      expect(speechAssetIdsFor(unknown, words)).toEqual(new Set([NARRATION]));
+    });
+
+    it('excludes an image, which cannot carry speech at any duration', () => {
+      const withPhoto = [
+        assets[0]!,
+        { id: 'photo', path: 'p.jpg', kind: 'image' as const, durationSeconds: 9999 },
+      ];
+      expect(speechAssetIdsFor(withPhoto, words)).toEqual(new Set([NARRATION]));
+    });
+
+    it('is undefined with no assets or no transcript', () => {
+      expect(speechAssetIdsFor(undefined, words)).toBeUndefined();
+      expect(speechAssetIdsFor(assets, [])).toBeUndefined();
+    });
+  });
+
+  it('falls back to every asset when the named speech asset is not on the timeline', () => {
+    // A caller can name an asset no clip uses. Confining the words to it would leave them
+    // nowhere to land, and a dropped word is a missing caption — so the v11 reading stands.
+    const mapped = mapTranscript(
+      buildTimelineMap(withBroll()),
+      words,
+      new Set(['asset_not_placed']),
+    );
+    expect(mapped.words.some((w) => w.clipId === 'cutaway')).toBe(true);
+  });
+});
 
 describe('stacked clips over the same sequence time', () => {
   it('maps both clips speech but emits one cue per instant', () => {
