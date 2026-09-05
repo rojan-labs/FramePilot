@@ -46,6 +46,162 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `session6` — 2026-09-05 (session 6) — **the fixture was replaced, and a reorder was found to lose footage**
+
+The first run on media that measures what its cases claim to measure. It ran in two passes
+and finished neither: the provider became unreachable partway through the first
+(`FramePilot couldn't reach claude-agent-sdk`, 47 void turns in seconds), and the second —
+a `--force` re-run of the 15 cases the outage had voided — was **stopped by the maintainer**
+after eight of them, with instructions not to run the baseline again. Eleven cases have
+clean evidence.
+
+`--force` on an existing label is normally forbidden because it overwrites per-case
+evidence in place. It was correct here and only here: those 15 files held nothing but a
+transport error, and the rule protects evidence.
+
+| | |
+| --- | --- |
+| commit | `1040f2e` (fixture), built before the run; the two later fixes are NOT in it |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, live |
+| media | **`mission-podcast` rebuilt on `speech-9min-c`** — see below |
+| cases with clean evidence | **11 of 21** |
+| turns | 72 · **39 clean**, 32 void (provider unreachable), 1 harness timeout |
+| wall clock / tier-priced cost | ~2h 45m across both passes · **$24.22** (priced, not billed) |
+
+### The metrics, on the 39 clean turns
+
+Computed from `reports/golden/session6/cases/*.json`; the merged `session6.json` on disk is
+from the first pass only, because the second was stopped before it could write one.
+
+| metric | `baseline` | `session3` (31 clean) | `session6` (39 clean) |
+| --- | --- | --- | --- |
+| intent accuracy | 0.72 | 0.935 | **0.821** |
+| first-pass acceptance | 0.49 | 0.839 | **0.769** |
+| rubric score p50 | — | 1.00 | **1.00** |
+
+**Read the two rates against the reorder rows below before reading them as a regression.**
+Nine of the eleven cases score 1.00 across every clean run. The whole of the gap to
+session 3 is two cases — `reorder-last-first` and `reorder-swap-first-two` — and three
+word-boundary turns.
+
+| case | clean scores |
+| --- | --- |
+| `montage-30s` | 1.00 · 1.00 · 1.00 |
+| `podcast-highlight-60s` | 1.00 · 1.00 · 1.00 |
+| `remove-dead-air` | 1.00 · 1.00 · 1.00 |
+| `beat-sync` | 1.00 · 1.00 (r1 harness-timed-out, excluded) |
+| `refine-tighten` | 1.00/0.89 · 1.00/1.00 · 1.00/1.00 |
+| `memory-captions` | 1.00 ×6, 0.88 ×1 |
+| `trim-first-clip-10s` | 1.00 · 1.00 · 1.00 |
+| `trim-opening-10s` | 1.00 · 1.00 · 1.00 |
+| `captions-plain` | 1.00 · 1.00 · 1.00 |
+| `reorder-last-first` | **0.60 · 1.00 · 0.60** |
+| `reorder-swap-first-two` | **0.60 · 0.60 · 0.60** |
+
+### What the fixture replacement bought
+
+`mission-podcast` now runs on `speech-9min-c` — `speech-9min-b`'s real narration with 116
+pauses cut in at its own sentence boundaries. Measuring the alternatives is what settled
+it: `speech-9min-b` has real words and **no silent gap at −30, −40 or −50 dB**, so pointing
+the project at it would have broken `remove-dead-air` exactly as `speech-9min` had broken
+selection. Details in `tests/fixtures/mission/README.md`.
+
+- `podcast-highlight-60s` **selects on meaning for the first time** and scores 1.00 ×3. One
+  run's own words: "the opening hook framing the World Cup as football's hardest trophy,
+  the striking '1 in 2,000' statistic … and the closing line". That sentence was not
+  expressible against 397 repeats of "I'll try to follow you later."
+- `remove-dead-air` removes **116 gaps in 3 model calls for $0.13**, which is the fixture
+  behaving exactly as designed.
+- **§2.2 is settled, in the opposite direction to the prediction.** `checkNoMidWordCuts`
+  reports `skipped: false` on every podcast turn — it is measuring, not being handed a
+  point — and the cases score 1.00 anyway. The handoff expected those four to come DOWN.
+  They did not.
+- `captions-plain` builds 1,355–1,457 cues from 1,464 real words. It was never listed as
+  invalid, but it had been captioning a fabrication too.
+
+### The finding that matters most: a reorder loses footage
+
+**Four of six clean reorder runs destroyed content**, and the rubric caught every one
+(`content-preserved`).
+
+| run | before → after | what it did |
+| --- | --- | --- |
+| `reorder-last-first` r1 | 5 clips → **0** | `delete_clips` on all five as its OPENING move, then asked the editor how to proceed |
+| `reorder-last-first` r3 | 5 → **1** | moved `clip_005` to a temp track, moved `clip_004` back, then deleted `clip_001..004` — including the one it had just moved |
+| `reorder-swap-first-two` r1 | 5 → **1** | deleted four, then asked "there's no second clip to swap it with. What did you mean by 'the first two clips'?" |
+| `reorder-swap-first-two` r2 | 5 → **1** | deleted four, then asked "the first 160s currently has no video, so it plays black. How should I fill that stretch?" |
+
+Twice the run destroyed the programme and then asked the editor to help it recover from the
+state it had just created, describing the damage as the project's own.
+
+**Every individual operation was legal.** The cause is that there is no reorder primitive:
+`move_clip` moves one clip to a start time, clips cannot overlap, so "put the last clip
+first" has no expressible route except destroy-and-rebuild — and under instant-apply the
+destroy commits before the rebuild is composed. Any run that then stops (asks, hits a wall,
+times out) leaves the destruction applied and the repair unwritten.
+
+This is evidence for two decisions already recorded as open:
+
+- **ADR 0056 — compound-request atomicity vs instant-apply.** All five of this run's
+  content-loss failures, `beat-sync` r1 included, are the same shape.
+- **ADR 0166 — the deleted wipe guard.** A narrow guard would have caught r1 and
+  `beat-sync` r1 (track emptied) but NOT the three 5→1 cases, so reinstating it is not
+  sufficient on its own.
+
+`reorder-last-first`'s floor is 1.00 and its median here is 0.60, so **the gate will flag
+it**. That should not be read as this branch breaking reordering:
+`reorder-swap-first-two`'s floor was already 0.50, i.e. it was failing when the floor was
+cut. The behaviour predates the branch and the 1.00 was a fortunate three.
+
+### The most expensive single failure: 29 identical calls, $3.93, an empty track
+
+`beat-sync` r1 declared `hardSync: true`, deleted the five clips, and proposed cuts on a
+regular ~99 BPM grid rather than on the 50 detected onsets. All 977 operations were
+rejected — correctly, with a message naming the nearest onset for each miss. The run then
+re-issued the identical `add_clip`/`add_clips` pair **29 times** until the harness timer
+cut it off at 20 minutes, leaving 0 picture clips.
+
+The guard for exactly this exists and passes its tests (`ea8e46ec`: six turns, one
+byte-identical beat-grid rejection, thirty minutes — `repeatedRejection` in
+`conductor.ts`). Something let this past it, and the neighbouring test says what can:
+one novel call fact per turn resets the streak. **Do not tune it by inspection** — there
+are five interacting run-stoppers. `--replay` on
+`reports/golden/session6/recordings/beat-sync-r1-t1.json` re-runs the orchestrator with no
+model calls and no cost, and is the way in.
+
+r2 and r3 both scored 1.00 having declared `hardSync: true` identically, so the wall is
+reachable but not deterministic. The missing guard is the amplifier, not the cause.
+
+### Two more defects, both with evidence
+
+- **A retimed clip leaves the frame grid.** `refine-tighten` r1 turn 2 made 16
+  `set_clip_speed` calls at 1.3× and produced exactly 16 off-grid edges. Arithmetic, not
+  model error: `end = start + sourceDuration / speed` is almost never a whole frame.
+  `frame-grid.ts:266` lists `set_clip_speed` among the ops `normalizeOperationTime` returns
+  unchanged — correct, since the op carries no time — and the time is invented inside
+  `applySetClipSpeed`, which receives only a `Timeline` and so has no fps. Python's
+  `_apply_set_clip_speed` uses the same formula, so the two engines AGREE and
+  preview/export parity is intact; both are consistently off-grid. **Not fixed** — see
+  `REMAINING.md` for the three routes and why each is a decision.
+- **The severed-word message named a frame for tools that take seconds.** Three turns lost,
+  one at $3.19. **Fixed** (`5693600`).
+
+### Not evidence of
+
+- **A complete run.** Ten of 21 cases have no clean turn at all: `hook-strongest-line`,
+  `compound-silence-captions`, `broll-first-20s`, `broll-empty-overlay-track`,
+  `music-bed-quiet`, `captions-uppercase-bottom`, `vague-make-better`,
+  `impossible-8k-drone`, `guard-wipe-timeline`, `clarify-which-clip`.
+- **`hook-strongest-line`'s repaired rubric being validated.** It has still never run on
+  media that can validate it — now for want of a run rather than for want of a fixture.
+- **The three fixes made after the build.** The build predates `6fc28d9` (caption fit) and
+  `5693600` (severed-word message); neither is measured here.
+- **A new floor.** None was written. A floor from 11 of 21 cases would gate on a partial
+  run.
+- **The reorder defect being new.** See the floor comparison above.
+
+---
+
 ## session 5 — 2026-09-05 — **no run; eight defects closed, and one recorded score is now known to be inflated**
 
 **This entry records no measurement.** No baseline was run: credits were explicitly to be

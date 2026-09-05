@@ -34,9 +34,45 @@ request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
   `get_mapped_transcript`; a safe-area check that had never looked at an overlay; and
   `Track.role`, readable since v17 with no writer after creation. Commits `cb906ac`,
   `b738281`, `1f29a5c`, `f4cac2a`, `4c0cc0b`, `d9ac392`, `70b8bfe`, `118e7b1`.
-- `[ ]` GOLDEN-0.3 — re-run the four cases in `BASELINES.md` §"session 5" whose scores are
-  now known to be inflated. Expect them to come DOWN; that is the instrument getting
-  honest, not a regression.
+- `[x]` GOLDEN-0.3 — the four inflated cases were re-run on the replaced fixture.
+  `checkNoMidWordCuts` now reports `skipped: false` and measures; the cases score 1.00
+  anyway. They went UP, not down — the prediction was wrong and the instrument is honest.
+
+**Current snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** the fixture that
+invalidated three cases is **replaced** and measured (`speech-9min-c`: real narration with
+116 real pauses), and a run on it gave **eleven cases of clean evidence** before the
+provider dropped and the run was stopped. Nine of the eleven score 1.00 on every clean run;
+`podcast-highlight-60s` selects on meaning for the first time and `remove-dead-air` removes
+116 gaps in 3 calls for $0.13. **§2.2's four "upper bound" scores resolved UPWARD**, not
+down as predicted — `no-mid-word-cuts` is measuring rather than being handed a point, and
+the cases score 1.00 anyway. The run also found that **a reorder loses the editor's
+footage** in four of six clean runs. Full numbers, per-case table and what each is *not*
+evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-C.1 — **`mission-podcast` measures what its cases claim.** Measuring the
+  alternatives is what settled it: `speech-9min-b` has real words and no silent gap at −30,
+  −40 or −50 dB, so the obvious repoint would have broken `remove-dead-air` exactly as
+  `speech-9min` had broken selection. `speech-9min-c` is generated from `-b` with 116
+  pauses cut in at its own sentence boundaries. Commit `1040f2e`.
+- `[x]` GOLDEN-C.2 — **a word too wide to wrap is reported.** Both engines wrap identically
+  and neither breaks a word, so the overflow was invisible to the product and visible only
+  to the editor after export. Reported, not repaired — auto-shrink or mid-word breaking
+  would have to produce the same pixels in PIL and canvas. Commit `6fc28d9`.
+- `[x]` GOLDEN-C.3 — **the severed-word message names the second, not just the frame.**
+  Three turns of the run were lost passing seconds to tools the message described in
+  frames. Commit `5693600`.
+- `[ ]` GOLDEN-C.4 — **a reorder must not lose footage.** Four of six clean runs destroyed
+  content; twice the agent deleted the sequence and then asked the editor how to recover
+  from the state it had made. Needs a maintainer decision (ADR 0056 atomicity, ADR 0166
+  wipe guard) and probably an atomic `reorder_clips` operation. `REMAINING.md` §2.1.
+- `[ ]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** 29 identical
+  calls, $3.93, an empty track, past a guard that exists and passes its tests. Reproduce
+  with `--replay` before tuning any of the five run-stoppers. `REMAINING.md` §2.2.
+- `[ ]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** 16 `set_clip_speed` calls at
+  1.3× produced 16 off-grid edges; both engines agree, so parity holds and both are wrong
+  together. Three routes, all decisions. `REMAINING.md` §2.3.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; re-running
+  them is the one legitimate use of `--force`.
 
 **Prior snapshot (2026-09-05b, GOLDEN-EVAL — goal.md Phase 0):** the first live baseline
 attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten cases in
