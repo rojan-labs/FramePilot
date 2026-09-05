@@ -10282,38 +10282,35 @@ a.export-credits-license {
    and on an empty composer the three controls squeezed the placeholder until it truncated
    mid-sentence. The message now owns the full width and the controls own the line below
    it, so the layout does not change shape as you type. */
+/* !!! THE COMPOSER'S LAYOUT IS NOT OWNED HERE. !!!
+   `components/ai/AiSidebar.beautiful.css` is imported after this file in `main.tsx`
+   and redeclares `.ai-composer`, so its rules are the ones that render. Editing the
+   block below will appear to do nothing — which is exactly what happened once: a
+   restructure landed here while the stylesheet that actually rendered still described
+   the old DOM, and the composer stayed visibly broken across a commit that claimed to
+   fix it. Change the layout THERE; what remains here is the fallback shape for any
+   host that loads this file alone, kept deliberately in step with it. */
 .ai-composer {
-  display: flex;
-  flex-direction: column;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
   gap: var(--space-1);
   padding: var(--space-2);
 }
-.ai-composer-controls {
-  display: flex;
-  align-items: center;
-  gap: var(--space-2);
-}
-/* The lead group takes the slack so send/stop is pinned to the right edge. It had no
-   rule of its own at all — as a bare div beside the textarea its buttons stacked
-   vertically, which is why the "+" and the paperclip sat one above the other. */
 .ai-composer-lead {
   display: flex;
   align-items: center;
-  gap: var(--space-1);
-  flex: 1;
+  gap: 2px;
+  flex: none;
   min-width: 0;
 }
 .ai-composer-input {
-  /* The composer is a COLUMN now, so the message owns the full width and grows only by
-     its own content. `flex: 1` here used to mean "take the row's slack"; along a column
-     axis it would mean "take the container's leftover HEIGHT", which is not a thing this
-     textarea should do. */
-  flex: none;
   width: 100%;
-  /* A flex item's default `min-width: auto` is its CONTENT width, and this one's content
-     is a long placeholder. Kept: the textarea is still a flex item, and letting it shrink
-     is what stops a long placeholder from setting a floor on the shell's width. */
+  /* A grid item's default `min-width: auto` is its CONTENT width, and this one's
+     content is a placeholder. Without this the track cannot shrink below it and the
+     send button is pushed off the row. */
   min-width: 0;
+  align-self: end;
   resize: none;
   border: 0;
   background: transparent;
@@ -10330,6 +10327,7 @@ a.export-credits-license {
 }
 .ai-composer-input::placeholder {
   color: var(--text-tertiary);
+  opacity: 0.72;
 }
 .ai-composer-input:focus-visible {
   outline: none;

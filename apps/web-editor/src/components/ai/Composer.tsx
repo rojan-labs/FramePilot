@@ -117,6 +117,18 @@ export interface ComposerProps {
 export function Composer(props: ComposerProps): JSX.Element {
   const { value, onChange, onSubmit, onStop, running } = props;
   const [showQuick, setShowQuick] = useState(false);
+  /**
+   * Has the message wrapped past its first line?
+   *
+   * Drives the shell's shape only — a full pill while it is one line, a rounded
+   * rectangle once it is taller. Measured in the auto-grow effect below rather than
+   * derived from the text, because wrapping is a layout fact: a long paragraph wraps
+   * to three lines without the value ever containing a newline.
+   *
+   * It lands on `.ai-composer-shell`, not on the writing row: the shell is the box
+   * with the border and the radius, and the row inside it has neither.
+   */
+  const [multiline, setMultiline] = useState(false);
   const slashMatches = useMemo(() => filterSlashCommands(value), [value]);
   const atMatches = useMemo(
     () => filterAtEntities(value, props.atEntities),
@@ -142,10 +154,25 @@ export function Composer(props: ComposerProps): JSX.Element {
     if (!el) return;
     if (value.trim() === '') {
       el.style.height = '';
+      setMultiline(false);
       return;
     }
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT)}px`;
+    const content = el.scrollHeight;
+    el.style.height = `${Math.min(content, MAX_COMPOSER_HEIGHT)}px`;
+    // WRAPPED, not "contains a newline": a long single paragraph wraps to three lines
+    // without the value holding one, and the shape has to follow what is on screen. One
+    // line's worth of box is the line-height plus the input's own vertical padding, both
+    // read off the element so a token change cannot desynchronise this from the CSS.
+    const styles = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(styles.lineHeight);
+    const padding =
+      Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    // A fractional line-height and sub-pixel layout make an exact compare unreliable, so
+    // "taller than one line plus half of another" is the threshold.
+    setMultiline(
+      Number.isFinite(lineHeight) ? content > padding + lineHeight * 1.5 : content > 44,
+    );
   }, [value]);
 
   const submit = (): void => {
@@ -246,6 +273,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     <div
       className="ai-composer-shell"
       data-dragging={dragging ? '' : undefined}
+      data-multiline={multiline ? '' : undefined}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -389,37 +417,36 @@ export function Composer(props: ComposerProps): JSX.Element {
         </ul>
       )}
 
+      {/* Context belongs to workspace chrome, not to the writing row. This component keeps
+          owning the value but portals its control into the AI header, so it renders
+          nothing here and is deliberately not a child of the row's layout. */}
+      <ContextWindowIndicator
+        value={props.contextWindow}
+        phase={props.contextPhase}
+        placement="header"
+        {...(props.contextDebug ? { debug: props.contextDebug } : {})}
+      />
+
+      {/* ONE ROW: lead controls, the message, send — with every control anchored to the
+          BOTTOM edge so nothing drifts downward as the message grows.
+
+          The middle column is `minmax(0, 1fr)`, which is the whole fix for what this
+          looked like before: the winning stylesheet declared three columns against a DOM
+          that had two children, so the textarea sat in an `auto` column and shrank to its
+          own content — the truncated "Message FramePilot…" with the icons crammed against
+          it. A track that cannot grow past its content is not a text field. */}
       <div className="ai-composer">
-        <textarea
-          ref={inputRef}
-          className="ai-composer-input"
-          value={value}
-          placeholder="Message FramePilot…  (/ for commands)"
-          aria-label="Message FramePilot"
-          rows={1}
-          onChange={(e) => onChange(e.target.value)}
-          onKeyDown={onKeyDown}
-          onPaste={onPaste}
-        />
-        {/* Controls sit UNDER the message, not beside it.
-            Beside it, the row was `align-items: flex-end`, so on a message of any length
-            the "+" and the paperclip slid down to sit against its last line while the text
-            block stayed indented past them — and on an empty composer the same three
-            controls squeezed the placeholder until it truncated mid-sentence ("Message
-            FramePilot…"). A full-width message with its own control row underneath is the
-            shape every one of these composers has settled on, and it is the shape that
-            stops the layout changing as you type. */}
-        <div className="ai-composer-controls">
-          <div className="ai-composer-lead">
+        <div className="ai-composer-lead">
           <button
             type="button"
             className="ai-icon-button"
             aria-label="Quick actions"
             title="Quick actions"
             data-active={showQuick}
+            aria-expanded={showQuick}
             onClick={() => setShowQuick((v) => !v)}
           >
-            +
+            <span aria-hidden="true">+</span>
           </button>
           {props.onAttachFiles ? (
             <>
@@ -447,15 +474,20 @@ export function Composer(props: ComposerProps): JSX.Element {
               </button>
             </>
           ) : null}
-          </div>
-        {/* Context belongs to workspace chrome, not inside the message row. This component
-            keeps owning the value but portals its circular progress control into the AI header. */}
-        <ContextWindowIndicator
-          value={props.contextWindow}
-          phase={props.contextPhase}
-          placement="header"
-          {...(props.contextDebug ? { debug: props.contextDebug } : {})}
+        </div>
+
+        <textarea
+          ref={inputRef}
+          className="ai-composer-input"
+          value={value}
+          placeholder="Message FramePilot…"
+          aria-label="Message FramePilot"
+          rows={1}
+          onChange={(e) => onChange(e.target.value)}
+          onKeyDown={onKeyDown}
+          onPaste={onPaste}
         />
+
         {running ? (
           // Visually STABLE stop control (H2): no pulsing/blinking — a static ring
           // with distinct hover/pressed states; activity is signalled elsewhere
@@ -481,7 +513,6 @@ export function Composer(props: ComposerProps): JSX.Element {
             <Send size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
         )}
-        </div>
       </div>
     </div>
   );
