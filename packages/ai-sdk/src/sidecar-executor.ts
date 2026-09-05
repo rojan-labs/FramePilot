@@ -1542,6 +1542,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         log.warn('run → no sidecar route for tool', { tool: call.name });
         return {
           status: 'failed',
+          // A verdict about this surface, not an event on it: `planSidecarCall` is a pure
+          // function of the tool name, so a second call gets the same answer. Declared so
+          // the orchestrator's proven-refusal guard can enforce the "do not call it
+          // again" the sentence already asks for — run `137d8fd0` ignored it four times.
+          refusalCause: 'surface_unavailable',
           // "use the Export dialog" is an instruction for someone with a mouse — the same
           // dead end as run `369e8c82`'s "Place it from the bin". The caller needs to know
           // that no retry helps and what to do with the rest of the run instead.

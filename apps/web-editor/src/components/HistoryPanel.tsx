@@ -91,6 +91,7 @@ function opIcon(type: string): JSX.Element {
     case 'ripple_delete':
       return <ListX size={size} aria-hidden="true" />;
     case 'move_clip':
+    case 'reorder_clips':
     case 'move_layer':
       return <ArrowLeftRight size={size} aria-hidden="true" />;
     case 'add_clip':

@@ -170,3 +170,31 @@ def test_caption_tool_nested_objects_forbid_unknown_fields_and_enforce_bounds() 
         "auto_emphasize_captions",
         {"trackId": "captions", "keywords": ["word"], "style": {"lineHeight": 4}},
     )
+
+
+def test_out_of_order_range_names_the_end_the_caller_meant() -> None:
+    """Run ``137d8fd0`` sent ``add_clip`` ``start: 44, end: 6`` three times.
+
+    A positive ``end`` below ``start`` is ``end`` read as a length. Restating the rule
+    taught the model nothing; naming the value that would have worked does. Mirrors
+    ``tool-input-contract.semantics.test.ts``.
+    """
+    spec = TOOL_REGISTRY["add_clip"]
+    with pytest.raises(ValidationError) as excinfo:
+        spec.input_model.model_validate(
+            {"trackId": "v_cutaways", "assetId": "stock_1", "start": 44, "end": 6}
+        )
+    message = str(excinfo.value)
+    assert "you gave start 44 and end 6" in message
+    assert "for a 6s span starting at 44, pass end: 50" in message
+
+
+def test_a_non_length_end_gets_no_guess() -> None:
+    spec = TOOL_REGISTRY["add_clip"]
+    with pytest.raises(ValidationError) as excinfo:
+        spec.input_model.model_validate(
+            {"trackId": "v_cutaways", "assetId": "stock_1", "start": 5, "end": 0}
+        )
+    message = str(excinfo.value)
+    assert "must be greater than start" in message
+    assert "pass end:" not in message

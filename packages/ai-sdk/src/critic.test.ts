@@ -952,6 +952,154 @@ describe('safe_area', () => {
     expect(check?.detail).toContain('(—,');
     expect(check?.detail).toContain(', —)');
   });
+
+  /**
+   * The vocabulary this product actually writes.
+   *
+   * The schema declares `xPercent`/`yPercent` on a 0–100 scale, `add_text_layer` writes
+   * them, and both the preview painter and `text_overlay.py` read them. This check read
+   * `x`/`y` on a 0–1 scale, which nothing writes — so it never saw an overlay at all.
+   * Run `137d8fd0` placed its title at `xPercent: 50, yPercent: 50` and was told there
+   * was nothing positioned to check.
+   */
+  const overlayWith = (params: Record<string, unknown>): Project =>
+    withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 'title',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            effects: [{ id: 'e', type: 'text', params, keyframes: [] }],
+          }),
+        ],
+      },
+    ]);
+
+  it('sees an overlay positioned the way the product writes positions', () => {
+    expect(idOf(critique(overlayWith({ xPercent: 50, yPercent: 50 })), 'safe_area')?.status).toBe(
+      'pass',
+    );
+  });
+
+  /**
+   * The defect this closes: neither renderer breaks a word, so one wider than its box runs
+   * out the sides — `wrap_lines` in `captions.py` and `wrapLines` in `overlay-painter.ts`
+   * both put it on a line of its own and draw it. They AGREE, so preview and export match
+   * and nothing looked wrong to either of them; the editor was the only one who could see
+   * it, after the export. Reported, not repaired: auto-shrinking or breaking mid-word would
+   * have to produce the same pixels in PIL and in canvas.
+   */
+  it('warns when a word cannot be wrapped into its box, and names the box that holds it', () => {
+    const check = idOf(
+      critique(
+        overlayWith({
+          text: 'Breck, opening weekend',
+          fontSizePercent: 18,
+          boxWidthPercent: 30,
+          xPercent: 50,
+          yPercent: 50,
+        }),
+      ),
+      'safe_area',
+    );
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('"weekend"');
+    expect(check?.detail).toContain('43%');
+    expect(check?.detail).toContain('boxWidthPercent is 30');
+  });
+
+  it('checks fit even when the overlay is centred by default', () => {
+    // Fit does not depend on position, and an overlay with no xPercent/yPercent used to
+    // leave this check reporting "nothing positioned to check" — which is true of the safe
+    // area and says nothing about whether the words fit.
+    const check = idOf(
+      critique(overlayWith({ text: 'championship', fontSizePercent: 20, boxWidthPercent: 25 })),
+      'safe_area',
+    );
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('championship');
+  });
+
+  it('says the size is the problem when no box is wide enough', () => {
+    const check = idOf(
+      critique(
+        overlayWith({ text: 'Unterhaltungselektronik', fontSizePercent: 20, boxWidthPercent: 80 }),
+      ),
+      'safe_area',
+    );
+    expect(check?.detail).toContain('the text size has to come down');
+  });
+
+  it('passes a caption whose words fit', () => {
+    const check = idOf(
+      critique(
+        overlayWith({
+          text: 'the world cup is the hardest trophy to win',
+          fontSizePercent: 8,
+          boxWidthPercent: 80,
+          xPercent: 50,
+          yPercent: 80,
+        }),
+      ),
+      'safe_area',
+    );
+    expect(check?.status).toBe('pass');
+  });
+
+  it('warns on a percent-positioned overlay outside the safe area', () => {
+    const check = idOf(critique(overlayWith({ xPercent: 50, yPercent: 3 })), 'safe_area');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('safe area');
+  });
+
+  it('still reads the legacy 0–1 keys, so old projects keep their coverage', () => {
+    expect(idOf(critique(overlayWith({ x: 0.02, y: 0.5 })), 'safe_area')?.status).toBe('warn');
+  });
+
+  describe('an overlay that leaves the frame is not merely unsafe', () => {
+    it('flags a headline whose glyph height runs off the top', () => {
+      // `add_text_layer`'s own description invites this: "18+ is a headline that
+      // dominates the frame". Centred at 5% of frame height, 18% of glyph height puts
+      // most of the letters above the picture.
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 5, fontSizePercent: 18 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('warn');
+      expect(check?.detail).toContain('will not be seen');
+      expect(check?.detail).toContain('glyph height');
+    });
+
+    it('flags a box wider than the room its centre leaves', () => {
+      const check = idOf(
+        critique(overlayWith({ xPercent: 80, yPercent: 50, boxWidthPercent: 60 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('warn');
+      expect(check?.detail).toContain('runs off the side');
+    });
+
+    it('leaves a headline that fits alone, however large', () => {
+      // 18% centred in the middle fits: this must not become a size police.
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 50, fontSizePercent: 18 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('pass');
+    });
+
+    it('reports the clipping first when an overlay is both off-frame and unsafe', () => {
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 2, fontSizePercent: 20 })),
+        'safe_area',
+      );
+      expect(check?.detail?.indexOf('will not be seen')).toBeLessThan(
+        check?.detail?.indexOf('safe area') ?? -1,
+      );
+    });
+  });
 });
 
 describe('audio_clipping / black_frames (render-derived)', () => {
@@ -1797,5 +1945,154 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
     expect(found).toMatchObject({ status: 'warn' });
     expect(found?.detail).toContain('do not select or cut on them');
     expect(report.ok).toBe(true);
+  });
+
+  it('reports the source range the loop covers', () => {
+    const loop = detectTranscriptLoop([
+      ...repeated('meeting at the bottom of this cliff', 3),
+      ...repeated("i'll try to follow you later", 200, 60),
+    ]);
+    expect(loop?.startSeconds).toBeCloseTo(60, 6);
+    expect(loop?.endSeconds).toBeCloseTo(60 + 200 * 6 * 0.3, 6);
+  });
+
+  /**
+   * Run `137d8fd0`, exactly: a 416-change edit reported as **failed** because
+   * `word_severed` counted cuts landing inside words from the loop that
+   * `transcript_reliable` had, in the same report, told the run not to trust. The two
+   * checks disagreed about the same transcript and the harsher one decided the run.
+   */
+  describe('word_severed honours the loop verdict', () => {
+    /** Two clips cut at 6s, with a word spanning the cut in whichever stretch. */
+    const cutAt6 = (transcript: unknown) =>
+      withTracks(
+        [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', start: 0, end: 6, sourceStart: 0, sourceEnd: 6 }),
+              clip({ id: 'b', start: 6, end: 12, sourceStart: 100, sourceEnd: 106 }),
+            ],
+          },
+        ],
+        { transcript } as Partial<Project>,
+      );
+
+    it('does not fail on a cut inside a hallucinated word', () => {
+      // The loop runs 3s → 363s, so the cut at source 6s lands inside one of its words.
+      const report = critique(cutAt6(repeated("i'll try to follow you later", 120, 3)), {});
+      expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
+      expect(idOf(report, 'word_severed')?.status).not.toBe('fail');
+      expect(report.ok).toBe(true);
+    });
+
+    it('still fails on a cut inside real speech outside the loop', () => {
+      const real = [
+        { word: 'severed', start: 5.5, end: 6.5 },
+        { word: 'here', start: 6.5, end: 7 },
+      ];
+      const report = critique(
+        cutAt6([...real, ...repeated("i'll try to follow you later", 120, 20)]),
+        {},
+      );
+      expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')?.detail).toContain('severed');
+      expect(idOf(report, 'word_severed')?.detail).toContain('loop artefacts');
+    });
+
+    it('is unchanged when the transcript is clean', () => {
+      const report = critique(
+        cutAt6([
+          { word: 'severed', start: 5.5, end: 6.5 },
+          { word: 'here', start: 6.5, end: 7 },
+        ]),
+        {},
+      );
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')?.detail).not.toContain('loop artefacts');
+    });
+  });
+});
+
+/**
+ * `broll-first-20s`: b-roll laid over the first 20s of narration, and `word_severed`
+ * failing the run on a cut inside a word — measured against the b-roll clip's own in and
+ * out points, on footage that contains no speech at all. The fixture transcripts carry no
+ * `assetId` (schema ≤ v11), so every word applied to every clip. The captured run spent 19
+ * model calls and $2.07 trying to move a cut away from a word that was never on that shot.
+ */
+describe('word_severed on footage the transcript cannot be describing', () => {
+  // The narration runs to 50s; the b-roll shot is 8s long and cannot have produced it.
+  const narrationWords = [
+    { word: 'severed', start: 5.5, end: 6.5 },
+    { word: 'here', start: 6.5, end: 7 },
+    { word: 'later', start: 49.5, end: 50 },
+  ];
+
+  /** Narration on `asset_talk` (60s), b-roll on `asset_broll`, cut at source 6s. */
+  const withBroll = (brollDuration: number): Project =>
+    makeProject({
+      assets: [
+        { id: 'asset_talk', path: 'talk.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_broll', path: 'broll.mov', kind: 'video', durationSeconds: brollDuration },
+      ],
+      transcript: narrationWords,
+      timeline: {
+        tracks: [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({
+                id: 'b1',
+                assetId: 'asset_broll',
+                start: 0,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 6,
+              }),
+              clip({
+                id: 'b2',
+                assetId: 'asset_broll',
+                start: 6,
+                end: 8,
+                sourceStart: 6,
+                sourceEnd: 8,
+              }),
+            ],
+          },
+        ],
+      },
+    } as never);
+
+  it('does not report a severed word on b-roll too short to hold the transcript', () => {
+    expect(idOf(critique(withBroll(8), {}), 'word_severed')?.status).not.toBe('fail');
+  });
+
+  it('still reports it when the clip is on footage that could hold the transcript', () => {
+    // Same cut, same words — only the asset's duration differs, so it is now a candidate.
+    expect(idOf(critique(withBroll(60), {}), 'word_severed')).toMatchObject({ status: 'fail' });
+  });
+
+  it('is unchanged on a single-asset project, where any-clip was always right', () => {
+    const single = makeProject({
+      assets: [{ id: 'asset_1', path: 'a.mp4', kind: 'video', durationSeconds: 60 }],
+      transcript: narrationWords,
+      timeline: {
+        tracks: [
+          {
+            id: 't',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', start: 0, end: 6, sourceStart: 0, sourceEnd: 6 }),
+              clip({ id: 'b', start: 6, end: 8, sourceStart: 6, sourceEnd: 8 }),
+            ],
+          },
+        ],
+      },
+    } as never);
+    expect(idOf(critique(single, {}), 'word_severed')).toMatchObject({ status: 'fail' });
   });
 });

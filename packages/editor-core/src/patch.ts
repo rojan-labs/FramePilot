@@ -16,7 +16,12 @@ import type {
   TranscriptWord,
 } from '@framepilot/timeline-schema';
 import { assertOperationContract } from './operation-contract.js';
-import { applyOperation, invertOperation, type Operation } from './operations.js';
+import {
+  applyOperation,
+  invertOperation,
+  type ApplyContext,
+  type Operation,
+} from './operations.js';
 import {
   applyProjectOperation,
   invertProjectOperation,
@@ -34,12 +39,7 @@ export type PatchAuthor = 'user' | 'agent';
 
 /** Patch lifecycle states (PRD §8.4). */
 export type PatchStatus =
-  | 'proposed'
-  | 'validated'
-  | 'previewed'
-  | 'applied'
-  | 'reverted'
-  | 'failed';
+  'proposed' | 'validated' | 'previewed' | 'applied' | 'reverted' | 'failed';
 
 export interface Patch {
   readonly patchId: PatchId;
@@ -86,7 +86,7 @@ export class PatchError extends Error {
  * That makes lock/range/keyframe/effect/audio safety a property of the canonical
  * patch authority for every caller.
  */
-export function applyPatch(timeline: Timeline, patch: Patch): Timeline {
+export function applyPatch(timeline: Timeline, patch: Patch, context?: ApplyContext): Timeline {
   let working = timeline;
   for (let i = 0; i < patch.operations.length; i += 1) {
     const op = patch.operations[i]!;
@@ -99,7 +99,7 @@ export function applyPatch(timeline: Timeline, patch: Patch): Timeline {
     }
     try {
       assertOperationContract(working, op);
-      working = applyOperation(working, op);
+      working = applyOperation(working, op, context);
     } catch (cause) {
       throw new PatchError(patch.patchId, i, cause);
     }
@@ -121,7 +121,10 @@ export function applyProjectPatch(project: Project, patch: Patch): Project {
         working = applyProjectOperation(working, op);
       } else {
         assertOperationContract(working.timeline, op);
-        working = { ...working, timeline: applyOperation(working.timeline, op) };
+        working = {
+          ...working,
+          timeline: applyOperation(working.timeline, op, { fps: working.fps }),
+        };
       }
     } catch (cause) {
       log.error('applyProjectPatch failed', {
@@ -230,7 +233,7 @@ export function collapseClipSnapshots<T extends AnyOperation>(
   return kept.length < inverseOps.length ? kept : null;
 }
 
-export function invertPatch(timelineBefore: Timeline, patch: Patch): Patch {
+export function invertPatch(timelineBefore: Timeline, patch: Patch, context?: ApplyContext): Patch {
   let working = timelineBefore;
   const inverseOps: Operation[] = [];
   for (const op of patch.operations) {
@@ -238,8 +241,8 @@ export function invertPatch(timelineBefore: Timeline, patch: Patch): Patch {
       throw new Error(`Operation "${op.type}" is project-scoped; use invertProjectPatch.`);
     }
     assertOperationContract(working, op);
-    inverseOps.unshift(...invertOperation(working, op));
-    working = applyOperation(working, op);
+    inverseOps.unshift(...invertOperation(working, op, context));
+    working = applyOperation(working, op, context);
   }
   return {
     patchId: `${patch.patchId}__inverse` as PatchId,
@@ -258,8 +261,9 @@ export function invertProjectPatch(projectBefore: Project, patch: Patch): Patch 
       working = applyProjectOperation(working, op);
     } else {
       assertOperationContract(working.timeline, op);
-      inverseOps.unshift(...invertOperation(working.timeline, op));
-      working = { ...working, timeline: applyOperation(working.timeline, op) };
+      const context: ApplyContext = { fps: working.fps };
+      inverseOps.unshift(...invertOperation(working.timeline, op, context));
+      working = { ...working, timeline: applyOperation(working.timeline, op, context) };
     }
   }
   return {
@@ -271,8 +275,79 @@ export function invertProjectPatch(projectBefore: Project, patch: Patch): Patch 
   };
 }
 
-export function revertPatch(timeline: Timeline, inversePatch: Patch): Timeline {
-  return applyPatch(timeline, inversePatch);
+export function revertPatch(
+  timeline: Timeline,
+  inversePatch: Patch,
+  context?: ApplyContext,
+): Timeline {
+  return applyPatch(timeline, inversePatch, context);
+}
+
+// ---------------------------------------------------------------------------
+// "did anything actually change?"
+// ---------------------------------------------------------------------------
+
+/**
+ * Structural equality for project values — plain data only, which is all a project holds.
+ *
+ * `JSON.stringify` was the tempting shortcut and is wrong here in both directions: it
+ * makes two objects with the same fields in a different order unequal, and it erases an
+ * explicit `undefined` that a spread has just written over a present value.
+ */
+function sameValue(a: unknown, b: unknown): boolean {
+  if (a === b) return true;
+  if (typeof a !== 'object' || typeof b !== 'object' || a === null || b === null) {
+    // NaN never equals itself, and no project field is allowed to be NaN, so treating it
+    // as a difference is the safe answer: a caller only ever loses an optimisation.
+    return false;
+  }
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a) && Array.isArray(b)) {
+    if (a.length !== b.length) return false;
+    return a.every((item, index) => sameValue(item, b[index]));
+  }
+  const left = a as Record<string, unknown>;
+  const right = b as Record<string, unknown>;
+  const keys = new Set([...Object.keys(left), ...Object.keys(right)]);
+  for (const key of keys) if (!sameValue(left[key], right[key])) return false;
+  return true;
+}
+
+/**
+ * Did applying a patch actually change the project?
+ *
+ * ## WHY this exists
+ *
+ * A valid operation that writes the value a field already holds applies cleanly, reports
+ * success, and changes nothing. To the agent that is indistinguishable from work: run
+ * `137d8fd0` made **65** `adjust_audio` calls, seven of them setting `music_1_clip` to the
+ * −18 dB it was already at, and every one came back "Adjusted audio WIZARDS_DRIVE.mp3".
+ * Nothing in the run could tell it the fader had not moved, so it kept moving it.
+ *
+ * Beyond the wasted steps it corrupts the numbers the run is judged on: a no-op counted as
+ * an accepted edit is a silent success, which is exactly the metric that is supposed to
+ * catch this.
+ *
+ * ## Cost
+ *
+ * Operations rebuild only the track they touch and share every other object by reference,
+ * so the reference check settles almost everything and the deep comparison is bounded to
+ * what the patch actually rewrote. This runs on every applied tool call.
+ *
+ * @param before - The project the patch was built against.
+ * @param after - The result of {@link applyProjectPatch}.
+ * @returns `true` when some field differs — i.e. the patch did something.
+ */
+export function projectChanged(before: Project, after: Project): boolean {
+  if (before === after) return false;
+  const keys = new Set([...Object.keys(before), ...Object.keys(after)]);
+  for (const key of keys) {
+    const a = (before as unknown as Record<string, unknown>)[key];
+    const b = (after as unknown as Record<string, unknown>)[key];
+    if (a === b) continue;
+    if (!sameValue(a, b)) return true;
+  }
+  return false;
 }
 
 // ---------------------------------------------------------------------------

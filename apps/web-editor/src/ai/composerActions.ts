@@ -37,22 +37,6 @@ export const SLASH_COMMANDS: readonly SlashCommand[] = [
   { name: 'plan-edit', description: 'Produce a structured edit plan (no mutation)' },
 ];
 
-/** A one-tap quick action that pre-fills a prompt. */
-export interface QuickAction {
-  readonly label: string;
-  readonly prompt: string;
-}
-
-export const QUICK_ACTIONS: readonly QuickAction[] = [
-  { label: 'Improve Edit', prompt: 'Improve this edit: tighten pacing and fix obvious issues.' },
-  { label: 'Create B-roll', prompt: 'Suggest and place B-roll over the talking-head sections.' },
-  { label: 'Fix Audio', prompt: 'Clean up the audio: normalize levels and remove noise.' },
-  { label: 'Generate Titles', prompt: 'Generate title-card text for the key sections.' },
-  { label: 'Make Viral', prompt: 'Restructure for retention: strong hook, fast pacing, captions.' },
-  { label: 'Trim Silence', prompt: 'Remove the silent gaps to tighten the cut.' },
-  { label: 'Animate Captions', prompt: 'Add animated word-by-word captions.' },
-];
-
 /** True when `text` is an active slash query (starts with `/`, no whitespace yet). */
 export function isSlashQuery(text: string): boolean {
   return text.startsWith('/') && !/\s/.test(text);

@@ -1,5 +1,6 @@
 /** Typed temporal evidence protocol and deterministic professional edit reviewer. */
 import { z } from 'zod/v4';
+import { fromEngine } from './engine-optional.js';
 import type { EditorCommand, EditorCommandFact } from '@framepilot/editor-core';
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import type { EditResult } from './assemble.js';
@@ -35,7 +36,10 @@ const FrameEvidenceRequestSchema = RequestBaseSchema.extend({
    * representative opening/midpoint/ending probes did. Optional so an existing recorded
    * request stays valid and so a caller that genuinely only wants a measurement can say so.
    */
-  checks: z.array(z.enum(['black_frames'])).min(1).optional(),
+  checks: z
+    .array(z.enum(['black_frames']))
+    .min(1)
+    .optional(),
 }).strict();
 
 const RangeEvidenceRequestSchema = RequestBaseSchema.extend({
@@ -180,12 +184,23 @@ const MotionResultBaseSchema = ResultBaseSchema.extend({
   renderSettings: z.null(),
 });
 
+/**
+ * `fromEngine` — an engine-optional field, where **`null` means absent**.
+ *
+ * Lifted to `engine-optional.ts` when `/references/analyze` was found to have the same
+ * defect: an image has no `video`, FastAPI sent `video: null`, and `.optional()` rejected
+ * the whole profile. The rule is not specific to this route, and neither is the reason it
+ * survives a test suite — every fixture written in TypeScript says `undefined` where the
+ * engine says `null`, which is what `temporal-review.engine-shape.test.ts` exists to
+ * catch. The full account is on the helper.
+ */
+
 const FrameSampleSchema = z
   .object({
     frame,
     luma: unitInterval,
     blackRatio: unitInterval,
-    perceptualHash: z.string().trim().min(1).max(256).optional(),
+    perceptualHash: fromEngine(z.string().trim().min(1).max(256)),
   })
   .strict();
 
@@ -214,13 +229,13 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
             channel: z.string().trim().min(1),
             min: finite,
             max: finite,
-            mean: finite.optional(),
-            p10: finite.optional(),
-            p50: finite.optional(),
-            p90: finite.optional(),
-            nearBlackRatio: unitInterval.optional(),
-            nearWhiteRatio: unitInterval.optional(),
-            coverageRatio: unitInterval.optional(),
+            mean: fromEngine(finite),
+            p10: fromEngine(finite),
+            p50: fromEngine(finite),
+            p90: fromEngine(finite),
+            nearBlackRatio: fromEngine(unitInterval),
+            nearWhiteRatio: fromEngine(unitInterval),
+            coverageRatio: fromEngine(unitInterval),
           })
           .strict(),
       )
@@ -233,9 +248,9 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
         z
           .object({
             frame,
-            value: finite.optional(),
-            point: PointSchema.optional(),
-            bounds: BoundsSchema.optional(),
+            value: fromEngine(finite),
+            point: fromEngine(PointSchema),
+            bounds: fromEngine(BoundsSchema),
           })
           .strict(),
       )
@@ -246,8 +261,8 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
     sample: z
       .object({
         integratedLufs: finite,
-        loudnessRangeLu: finite.optional(),
-        truePeakDbfs: finite.optional(),
+        loudnessRangeLu: fromEngine(finite),
+        truePeakDbfs: fromEngine(finite),
       })
       .strict(),
   }).strict(),
@@ -261,7 +276,7 @@ export const TemporalEvidenceResultSchema = z.discriminatedUnion('kind', [
             endFrame: frame,
             peakDbfs: finite,
             rmsDbfs: finite,
-            boundaryJumpDb: finite.nonnegative().nullable().optional(),
+            boundaryJumpDb: fromEngine(finite.nonnegative()),
           })
           .strict(),
       )

@@ -23,7 +23,14 @@ import type { RubricScore } from './mission-rubric.js';
 const T0 = 1_000_000;
 
 function ev(type: AiEvent['type'], extra: Record<string, unknown> = {}, ts = T0 + 100): AiEvent {
-  return { id: `e_${type}_${String(ts)}`, conversationId: 'c', turnId: 't', ts, type, ...extra } as unknown as AiEvent;
+  return {
+    id: `e_${type}_${String(ts)}`,
+    conversationId: 'c',
+    turnId: 't',
+    ts,
+    type,
+    ...extra,
+  } as unknown as AiEvent;
 }
 
 function patch(operations: Patch['operations'], id = 'p1'): Patch {
@@ -67,20 +74,33 @@ const completed = ev('status', { status: 'completed' }, T0 + 5000);
 
 describe('observeIntent', () => {
   it('a failed status is a failure whatever else happened', () => {
-    expect(observeIntent([ev('ask', { question: 'which?' }), ev('status', { status: 'failed' })], 3)).toBe('failed');
+    expect(
+      observeIntent([ev('ask', { question: 'which?' }), ev('status', { status: 'failed' })], 3),
+    ).toBe('failed');
   });
   it('a cancelled status is cancelled', () => {
     expect(observeIntent([ev('status', { status: 'cancelled' })], 0)).toBe('cancelled');
   });
   it('a question wins over a later edit — asking came first', () => {
-    expect(observeIntent([ev('ask', { question: 'which clip?' }), ev('status', { status: 'completed' })], 2)).toBe('ask');
+    expect(
+      observeIntent(
+        [ev('ask', { question: 'which clip?' }), ev('status', { status: 'completed' })],
+        2,
+      ),
+    ).toBe('ask');
   });
   it('applied operations mean an edit', () => {
     expect(observeIntent([ev('status', { status: 'completed' })], 1)).toBe('edit');
   });
   it('an explanation with no change is a decline', () => {
     expect(
-      observeIntent([ev('assistant_message', { text: 'There is no drone footage in this project.' }), ev('status', { status: 'completed' })], 0),
+      observeIntent(
+        [
+          ev('assistant_message', { text: 'There is no drone footage in this project.' }),
+          ev('status', { status: 'completed' }),
+        ],
+        0,
+      ),
     ).toBe('decline');
   });
   it('nothing at all is silent', () => {
@@ -154,7 +174,9 @@ describe('measureGoldenTurn', () => {
   });
 
   it('a run that completes with no edit where one was expected is a silent success', () => {
-    const m = measureGoldenTurn(evidence({ events: [ev('status', { status: 'completed' }, T0 + 100)] }));
+    const m = measureGoldenTurn(
+      evidence({ events: [ev('status', { status: 'completed' }, T0 + 100)] }),
+    );
     expect(m.intent.observed).toBe('silent');
     expect(m.silentSuccess).toBe(true);
     expect(m.firstPass).toBe(false);
@@ -190,19 +212,31 @@ describe('measureGoldenTurn', () => {
     ];
     const m = measureGoldenTurn(evidence({ events }));
     expect(m.intent.observed).toBe('failed');
-    expect(m.failureQuality).toEqual({ loud: true, explained: false, message: 'Internal Server Error' });
+    expect(m.failureQuality).toEqual({
+      loud: true,
+      explained: false,
+      message: 'Internal Server Error',
+    });
   });
 
   it('a failure in plain words is loud and explained', () => {
     const events = [
-      ev('error', { message: 'The model provider refused the request (rate limited). Try again in a minute.' }, T0 + 100),
+      ev(
+        'error',
+        {
+          message: 'The model provider refused the request (rate limited). Try again in a minute.',
+        },
+        T0 + 100,
+      ),
       ev('status', { status: 'failed' }, T0 + 200),
     ];
     expect(measureGoldenTurn(evidence({ events })).failureQuality?.explained).toBe(true);
   });
 
   it('target and boundary are null when the rubric has no such check', () => {
-    const m = measureGoldenTurn(evidence({ rubric: rubric(1, [{ id: 'x', ok: true, detail: '' }]) }));
+    const m = measureGoldenTurn(
+      evidence({ rubric: rubric(1, [{ id: 'x', ok: true, detail: '' }]) }),
+    );
     expect(m.target).toBeNull();
     expect(m.boundary).toBeNull();
   });
@@ -215,7 +249,9 @@ describe('measureGoldenTurn', () => {
     );
     expect(m.reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
     // And it is counted in neither direction: the one row leaves the rate with no sample.
-    const summary = summarizeGoldenRun([{ caseId: 'imported', category: 'trim', turnIndex: 0, run: 1, metrics: m }]);
+    const summary = summarizeGoldenRun([
+      { caseId: 'imported', category: 'trim', turnIndex: 0, run: 1, metrics: m },
+    ]);
     expect(summary.reversibility).toBeNull();
     expect(summary.perCase.imported?.reversible).toBeNull();
   });
@@ -236,8 +272,14 @@ describe('measureGoldenTurn', () => {
 
   it('half the evidence is no evidence: a `before` with no patches, and the mirror of it', () => {
     const { appliedPatches: _appliedPatches, ...beforeOnly } = evidence({ events: [completed] });
-    const { before: _before, ...patchesOnly } = evidence({ events: [completed], appliedPatches: [trimA] });
-    expect(measureGoldenTurn(beforeOnly).reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
+    const { before: _before, ...patchesOnly } = evidence({
+      events: [completed],
+      appliedPatches: [trimA],
+    });
+    expect(measureGoldenTurn(beforeOnly).reversibility).toEqual({
+      ok: null,
+      detail: 'patches not recorded',
+    });
     const mirrored = measureGoldenTurn(patchesOnly);
     expect(mirrored.reversibility).toEqual({ ok: null, detail: 'patches not recorded' });
     // The patches still count as operations — it is only the undo check that is unknown.
@@ -247,12 +289,17 @@ describe('measureGoldenTurn', () => {
   it('a compact dump scores the validity and operations of the live run it came from', () => {
     const live = measureGoldenTurn(
       evidence({
-        events: [ev('diff', { edit: { validation: { valid: true }, patch: trimA, text: '' } }, T0 + 900), completed],
+        events: [
+          ev('diff', { edit: { validation: { valid: true }, patch: trimA, text: '' } }, T0 + 900),
+          completed,
+        ],
         appliedPatches: [trimA],
       }),
     );
     const compact = measureGoldenTurn(
-      importedEvidence({ events: [ev('diff', { edit: { valid: true, ops: ['trim_clip'] } }, T0 + 900), completed] }),
+      importedEvidence({
+        events: [ev('diff', { edit: { valid: true, ops: ['trim_clip'] } }, T0 + 900), completed],
+      }),
     );
     expect(compact.validity).toEqual(live.validity);
     expect(compact.validity.rate).toBe(1);
@@ -297,11 +344,18 @@ describe('measureGoldenTurn', () => {
   });
 
   it('an explicit operation count overrides both the patches and the diffs', () => {
-    const events = [ev('diff', { edit: { valid: true, ops: ['a', 'b', 'c'] } }, T0 + 100), ev('status', { status: 'completed' }, T0 + 300)];
-    const overridden = measureGoldenTurn(evidence({ events, appliedPatches: [trimA, deleteTail], operations: 7 }));
+    const events = [
+      ev('diff', { edit: { valid: true, ops: ['a', 'b', 'c'] } }, T0 + 100),
+      ev('status', { status: 'completed' }, T0 + 300),
+    ];
+    const overridden = measureGoldenTurn(
+      evidence({ events, appliedPatches: [trimA, deleteTail], operations: 7 }),
+    );
     expect(overridden.operations).toBe(7); // not the 2 patch operations, not the 3 diff operations
     // Zero is a count, not a missing value: it must not fall back to the recorded patches.
-    const none = measureGoldenTurn(evidence({ events, appliedPatches: [trimA, deleteTail], operations: 0 }));
+    const none = measureGoldenTurn(
+      evidence({ events, appliedPatches: [trimA, deleteTail], operations: 0 }),
+    );
     expect(none.operations).toBe(0);
     expect(none.intent.observed).toBe('silent');
     expect(none.silentSuccess).toBe(true);
@@ -343,7 +397,18 @@ function metrics(overrides: Partial<GoldenTurnMetrics> = {}): GoldenTurnMetrics 
 describe('summarizeGoldenRun', () => {
   const rows: GoldenRow[] = [
     { caseId: 'trim', category: 'trim', turnIndex: 0, run: 1, metrics: metrics() },
-    { caseId: 'trim', category: 'trim', turnIndex: 0, run: 2, metrics: metrics({ firstPass: false, score: 0.5, usd: 0.07, latency: { firstProgressMs: 2000, doneMs: 50000 } }) },
+    {
+      caseId: 'trim',
+      category: 'trim',
+      turnIndex: 0,
+      run: 2,
+      metrics: metrics({
+        firstPass: false,
+        score: 0.5,
+        usd: 0.07,
+        latency: { firstProgressMs: 2000, doneMs: 50000 },
+      }),
+    },
     {
       caseId: 'guard',
       category: 'guard',
@@ -421,7 +486,13 @@ describe('summarizeGoldenRun', () => {
     expect(s.usdPerAcceptedEdit).toBeNull();
     expect(s.latency.doneMs).toEqual({ p50: 30000, p95: 50000, n: 3 });
     expect(s.failureQuality).toEqual({ failures: 1, loud: 0, explained: 0 });
-    expect(s.perCase.trim).toMatchObject({ runs: 2, score: 0.5, firstPass: 0.5, usdPerRun: 0.05, wallMsPerRun: 30000 });
+    expect(s.perCase.trim).toMatchObject({
+      runs: 2,
+      score: 0.5,
+      firstPass: 0.5,
+      usdPerRun: 0.05,
+      wallMsPerRun: 30000,
+    });
     expect(s.perCase.guard?.usdPerRun).toBeNull();
   });
 
@@ -438,7 +509,9 @@ describe('summarizeGoldenRun', () => {
         category: 'trim',
         turnIndex: 1,
         run: 1,
-        metrics: metrics({ reversibility: { ok: false, detail: 'differs after undo at $.timeline.tracks[0]' } }),
+        metrics: metrics({
+          reversibility: { ok: false, detail: 'differs after undo at $.timeline.tracks[0]' },
+        }),
       },
       {
         caseId: 'dump',
@@ -457,7 +530,12 @@ describe('summarizeGoldenRun', () => {
     // A case whose every turn recorded nothing has no rate at all, rather than a 0 that
     // reads as broken undo.
     expect(s.perCase.dump?.reversible).toBeNull();
-    const md = renderGoldenSummary(s, { label: 'mixed', provider: 'mock', model: 'm', generatedAt: '2026-09-02' });
+    const md = renderGoldenSummary(s, {
+      label: 'mixed',
+      provider: 'mock',
+      model: 'm',
+      generatedAt: '2026-09-02',
+    });
     expect(md).toContain('| reversibility | 50% |');
     expect(md).toContain('| dump | import | 1 |');
   });
@@ -479,7 +557,13 @@ describe('summarizeGoldenRun', () => {
 
 describe('estimateRun', () => {
   const prior = summarizeGoldenRun([
-    { caseId: 'a', category: 'trim', turnIndex: 0, run: 1, metrics: metrics({ usd: 0.5, latency: { firstProgressMs: 1, doneMs: 60000 } }) },
+    {
+      caseId: 'a',
+      category: 'trim',
+      turnIndex: 0,
+      run: 1,
+      metrics: metrics({ usd: 0.5, latency: { firstProgressMs: 1, doneMs: 60000 } }),
+    },
   ]) as GoldenSummary;
 
   it('multiplies the prior per-run cost by the run count', () => {
@@ -499,5 +583,82 @@ describe('estimateRun', () => {
 
   it('with no prior at all, everything is unknown', () => {
     expect(estimateRun(undefined, ['a'], 1).unknown).toEqual(['a']);
+  });
+});
+
+/**
+ * A turn the HARNESS stopped is not a measurement of the agent.
+ *
+ * `isVoidTurn` already separates "the provider never answered" for exactly this reason —
+ * folding those in reported 14% intent accuracy for an agent that had edited correctly on
+ * every case it was actually asked. A harness timeout is the same mistake with a different
+ * cause: the turn reached the model, billed tokens and did partial work, and was then cut
+ * off part-way through.
+ *
+ * Session 3 lost five turns of thirty-six this way, all inside two cases where the
+ * provider was answering at 123–660 seconds PER CALL against a normal seven to thirty.
+ * `reorder-last-first` r2 made three model calls in 1,980 seconds and was scored 0.7 for a
+ * reorder it never got to finish.
+ */
+describe('a turn the harness timed out', () => {
+  const row = (over: Partial<GoldenTurnMetrics>): GoldenRow =>
+    ({
+      caseId: 'c',
+      category: 'trim',
+      run: 1,
+      turnIndex: 0,
+      metrics: {
+        intent: { expected: 'edit', observed: 'edit', ok: true },
+        target: { ok: true, checks: [] },
+        boundary: { ok: true, checks: [] },
+        validity: { diffs: 1, valid: 1, invalid: 0, rate: 1 },
+        firstPass: true,
+        silentSuccess: false,
+        modelCalls: 3,
+        toolCalls: 3,
+        tokens: { prompt: 100, output: 10, total: 110 },
+        usd: 0.1,
+        latency: { firstProgressMs: 10, doneMs: 100 },
+        reversibility: { ok: true, detail: '' },
+        failureQuality: null,
+        score: 1,
+        finalStatus: 'completed',
+        operations: 1,
+        ...over,
+      },
+    }) as unknown as GoldenRow;
+
+  it('is counted separately and kept out of every rate', () => {
+    const summary = summarizeGoldenRun([
+      row({}),
+      row({
+        harnessTimedOut: true,
+        finalStatus: 'cancelled',
+        intent: { expected: 'edit', observed: 'cancelled', ok: false },
+        firstPass: false,
+        score: 0.7,
+      }),
+    ]);
+    expect(summary.timedOutTurns).toBe(1);
+    expect(summary.turns).toBe(1);
+    // The one real turn was perfect; the cut-off turn must not drag it down.
+    expect(summary.intentAccuracy).toBe(1);
+    expect(summary.firstPassAcceptance).toBe(1);
+  });
+
+  it('is not conflated with a turn the provider never answered', () => {
+    const summary = summarizeGoldenRun([
+      row({}),
+      row({ tokens: { prompt: 0, output: 0, total: 0 }, finalStatus: 'failed', operations: 0 }),
+      row({ harnessTimedOut: true, finalStatus: 'cancelled' }),
+    ]);
+    expect(summary.voidTurns).toBe(1);
+    expect(summary.timedOutTurns).toBe(1);
+  });
+
+  it('leaves a run with neither untouched', () => {
+    const summary = summarizeGoldenRun([row({}), row({})]);
+    expect(summary.timedOutTurns).toBe(0);
+    expect(summary.turns).toBe(2);
   });
 });

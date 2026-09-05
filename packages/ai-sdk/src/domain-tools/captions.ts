@@ -25,6 +25,7 @@ import {
   createLaneAllocator,
   deriveCaptionCues,
   mapTranscript,
+  speechAssetIdsFor,
   type CaptionSegmentPresetName,
 } from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
@@ -32,6 +33,61 @@ import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js'
 import { mutateTool, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
+/**
+ * CSS font-weight keywords, in the numeric vocabulary the schema and the font files use.
+ *
+ * The persisted schema takes 100–900 because a weight is a real font file, not a word;
+ * that stays. But the model writes CSS, and CSS spells these as names. Run `137d8fd0`
+ * sent `fontWeight: "bold"` and `background: "rgba(0,0,0,0.6)"` in one
+ * `set_track_caption_style` call and was refused for both — after which the captions it
+ * had just written kept the plain default look for the rest of the run. The golden case
+ * `captions-uppercase-bottom` loses a run to the same shape.
+ *
+ * Translating at the tool boundary is the right place for it: the timeline file keeps one
+ * spelling per value, and no migration is involved.
+ */
+const CSS_FONT_WEIGHTS: Readonly<Record<string, number>> = {
+  thin: 100,
+  hairline: 100,
+  extralight: 200,
+  ultralight: 200,
+  light: 300,
+  normal: 400,
+  regular: 400,
+  book: 400,
+  medium: 500,
+  semibold: 600,
+  demibold: 600,
+  bold: 700,
+  extrabold: 800,
+  ultrabold: 800,
+  black: 900,
+  heavy: 900,
+};
+
+/**
+ * Normalise a model-authored caption style into the persisted vocabulary.
+ *
+ * Only two rewrites, both of them a spelling difference rather than a change of meaning:
+ * a CSS font-weight keyword becomes its number, and a bare colour where a background chip
+ * belongs becomes `{ color }` — which is what a caller writing `background: "black"`
+ * means, and the only thing it could mean. Anything else is passed through untouched and
+ * refused by the schema exactly as before, because anything else is a real mistake.
+ */
+function normalizeAuthoredCaptionStyle(value: unknown): unknown {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return value;
+  const style = { ...(value as Record<string, unknown>) };
+  const weight = style.fontWeight;
+  if (typeof weight === 'string') {
+    const named = CSS_FONT_WEIGHTS[weight.trim().toLowerCase()];
+    if (named !== undefined) style.fontWeight = named;
+    else if (/^[1-9]00$/.test(weight.trim())) style.fontWeight = Number(weight.trim());
+  }
+  if (typeof style.background === 'string' && style.background.trim() !== '') {
+    style.background = { color: style.background.trim() };
+  }
+  return style;
+}
 
 /**
  * The caption tracks this project actually has, appended to a track-not-found message.
@@ -362,6 +418,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         ctx.project.transcript,
         config,
         ctx.project.fps,
+        // This path holds the whole project, so it can say which assets an unattributed
+        // word could have come from — and on a project with b-roll or a music bed, an
+        // unattributed word matching ANY asset times cues through footage that was never
+        // speaking. `speechAssetIdsFor` returns undefined when it cannot narrow, so a
+        // single-asset project behaves exactly as before.
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
       );
       if (cues.length === 0 && track.clips.length === 0) {
         throw new ToolRefusalError(
@@ -381,12 +443,21 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           end: clip.end,
         }));
 
+      // Ids embed the cue start in ms: stable across re-runs of the same transcript,
+      // and unique within one because `deriveCaptionCues` returns a non-overlapping
+      // cue timeline. This set is the belt to that braces. A duplicate id makes
+      // `add_caption_layer` throw, and because a caption patch is one operation per
+      // cue, ONE collision discards every cue in the call — run `137d8fd0` lost nine
+      // consecutive captioning attempts and ~3,100 proposed changes to a single
+      // repeated id. A cue that is genuinely un-nameable is worth losing on its own;
+      // the other two hundred are not.
+      const seenIds = new Set<string>();
       return [
         ...clears,
         ...cues.flatMap((cue) => {
-          // Ids embed the cue start in ms: stable across re-runs of the same
-          // transcript, and unique within one.
           const clipId = `caption_${a.trackId}_${Math.round(cue.start * 1000)}`;
+          if (seenIds.has(clipId)) return [];
+          seenIds.add(clipId);
           return [
             {
               type: 'add_caption_layer' as const,
@@ -431,7 +502,13 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     z.object({ trackId: z.string(), start: seconds, end: seconds }).strict(),
     (a, ctx) => {
       const duration = a.end - a.start;
-      const mapped = mapTranscript(buildTimelineMap(ctx.project.timeline), ctx.project.transcript);
+      // Same narrowing as `caption_the_edit` below: this decides which clip a hand-placed
+      // cue belongs to, and attributing it to b-roll is the same fabrication.
+      const mapped = mapTranscript(
+        buildTimelineMap(ctx.project.timeline),
+        ctx.project.transcript,
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
+      );
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
         throw new ToolRefusalError(
@@ -521,7 +598,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'first; unbundled fonts and unknown templates are rejected.',
       capabilities: ['edit', 'captions'],
     },
-    z.object({ trackId: z.string(), captionStyle: CaptionStyleSchema.nullable() }).strict(),
+    z
+      .object({
+        trackId: z.string(),
+        captionStyle: z.preprocess(normalizeAuthoredCaptionStyle, CaptionStyleSchema).nullable(),
+      })
+      .strict(),
     (a) => {
       assertKnownCaptionStyle(a.captionStyle);
       return [

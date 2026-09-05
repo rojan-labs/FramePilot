@@ -40,6 +40,7 @@ import type {
   AudioEqBand,
 } from './edit-value-contracts.js';
 import { transitionEligibility } from './edit-boundaries.js';
+import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
   DEFAULT_TRANSITION_ALIGNMENT,
@@ -126,6 +127,45 @@ export interface MoveClipOp {
   readonly clipId: string;
   readonly toTrackId: string;
   readonly toStart: Seconds;
+}
+
+/**
+ * Re-lay a track's clips in a given order, in ONE patch (ADR 0173).
+ *
+ * WHY this operation exists, when `move_clip` already moves a clip: it does not
+ * compose into a reorder. `move_clip` moves ONE clip to a start time, clips may not
+ * overlap, so "put the last clip first" has no expressible route through it except
+ * destroy-and-rebuild — delete the sequence, then add it back in the new order. Four of
+ * six clean reorder runs in the session-6 baseline did exactly that and lost the
+ * editor's footage: every individual operation was legal, so nothing caught it, and any
+ * run that then stopped — asked a question, hit a wall, timed out — left the destruction
+ * applied and the repair unwritten. One of them described the damage it had just done as
+ * the project's own state.
+ *
+ * The fix is not a guard on deletes (a guard on "a delete that empties a track" catches
+ * two of the five content-loss failures and misses the three 5→1 cases). It is a route
+ * that does not delete anything: given a track and an ordering, recompute the starts.
+ *
+ * Semantics, chosen so the result is the one an editor means by "reorder":
+ *
+ * - `clipIds` must be exactly the track's clip ids, each once. A partial list would
+ *   leave "where do the others go?" unanswerable, and answering it by guessing is how
+ *   the destroy-and-rebuild route lost footage in the first place.
+ * - Clips are butted end to end from the earliest current start, keeping each clip's own
+ *   duration and source range. **This closes gaps** — that is the ripple-reorder every
+ *   NLE performs, and a reorder that preserved gaps would have to decide which gap
+ *   belongs to which clip.
+ * - Nothing is added or removed, so the clip count is invariant and the operation cannot
+ *   lose content even if the run stops immediately after it.
+ *
+ * Inverse: `restore_clips` — exact, and cheap, since a reorder rewrites the whole array
+ * anyway.
+ */
+export interface ReorderClipsOp {
+  readonly type: 'reorder_clips';
+  readonly trackId: string;
+  /** The track's clip ids in their new left-to-right order. A permutation, not a subset. */
+  readonly clipIds: readonly string[];
 }
 
 export interface RippleDeleteOp {
@@ -471,6 +511,25 @@ export interface SetTrackFlagsOp {
   readonly locked?: boolean;
   readonly hidden?: boolean;
   readonly muted?: boolean;
+  /**
+   * Mix role for an audio track (schema v17), or `null` to clear it.
+   *
+   * WHY it lives on this op rather than a new one: `Track.role` shipped as a readable
+   * field with no way to write it after creation. `AddLayerOp.role` set it at creation
+   * and nothing else could, so `duck_roles` — "duck the music under the dialogue" —
+   * asked for a label that no tool, no UI and no code path in this product ever applied.
+   * Nothing writes `role: 'dialogue'` anywhere; a search of the repo finds the enum that
+   * declares it and no writer. Its refusal, "No track is labelled dialogue. Label the
+   * track you mean", named a move that did not exist, and run `137d8fd0` was refused that
+   * way twice.
+   *
+   * `set_track_flags` already means "change this track's properties" — it even renders as
+   * "Updated track" — so the label goes here rather than into a new operation.
+   *
+   * `null` clears, matching `SetTrackCaptionStyleOp`: JSON has no `undefined`, so an
+   * omitted field means "leave alone" and an explicit `null` means "remove".
+   */
+  readonly role?: AudioRole | null;
 }
 
 /**
@@ -659,6 +718,7 @@ export type Operation =
   | SplitClipOp
   | DeleteRangeOp
   | MoveClipOp
+  | ReorderClipsOp
   | RippleDeleteOp
   | AddClipOp
   | AddTextOverlayOp
@@ -843,6 +903,7 @@ export class OperationError extends Error {
       | 'missing_track'
       | 'invalid_range'
       | 'invalid_split'
+      | 'invalid_order'
       | 'duplicate_clip'
       | 'duplicate_layer'
       | 'missing_effect'
@@ -925,6 +986,46 @@ function mappingChanged(before: Timeline, after: Timeline): boolean {
 }
 
 /**
+ * Optional project facts an operation needs but a {@link Timeline} does not carry.
+ *
+ * WHY this exists at all: `set_clip_speed` does not carry a time field, so
+ * `normalizeOperationTime` correctly leaves it alone — and then `apply` INVENTS one,
+ * `end = start + sourceDuration / speed`, which is almost never a whole number of
+ * frames. `refine-tighten` r1 turn 2 made 16 retimes at 1.3x and produced exactly 16
+ * off-grid edges. The grid rule exists so preview and export agree about where a cut
+ * is; a retime is a cut like any other, so the rate has to be resolved against the
+ * project's frame grid at the moment the duration is computed.
+ *
+ * Optional, and absent means "behave exactly as before": every existing caller that
+ * holds only a `Timeline` keeps compiling and keeps its current numbers. The product
+ * paths that matter — {@link applyProjectPatch} and {@link invertProjectPatch} — hold a
+ * `Project` and therefore always pass `fps`, so the invariant holds where edits are
+ * actually committed.
+ */
+export interface ApplyContext {
+  /** Project frame rate. Positive and finite, or the context is ignored. */
+  readonly fps?: number;
+}
+
+function gridFps(context: ApplyContext | undefined): number | null {
+  const fps = context?.fps;
+  return typeof fps === 'number' && Number.isFinite(fps) && fps > 0 ? fps : null;
+}
+
+/**
+ * Resolve a retimed clip's `end` onto the project frame grid.
+ *
+ * Frame arithmetic rather than a `snapSecondsToFrame(end)` alone, because a retime must
+ * never collapse the clip: at 60x on a 12-frame source the exact end rounds onto the
+ * start's own frame, and a zero-length clip is a worse answer than a one-frame one.
+ */
+function snapRetimedEnd(start: Seconds, end: Seconds, fps: number): Seconds {
+  const startFrame = secondsToFrame(start, fps);
+  const endFrame = Math.max(startFrame + 1, secondsToFrame(end, fps));
+  return frameToSeconds(endFrame, fps);
+}
+
+/**
  * Apply a single operation to a timeline, returning a new immutable timeline.
  * The input timeline is never mutated.
  *
@@ -939,14 +1040,22 @@ function mappingChanged(before: Timeline, after: Timeline): boolean {
  * @throws {OperationError} when the operation references missing entities or
  *   would produce an invalid timeline.
  */
-export function applyOperation(timeline: Timeline, op: Operation): Timeline {
-  const next = applyOperationInner(timeline, op);
+export function applyOperation(
+  timeline: Timeline,
+  op: Operation,
+  context?: ApplyContext,
+): Timeline {
+  const next = applyOperationInner(timeline, op, context);
   if (!mappingChanged(timeline, next)) return next;
   return { ...next, revision: (timeline.revision ?? 0) + 1 };
 }
 
 /** The operation dispatch itself; {@link applyOperation} adds revision tracking. */
-function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
+function applyOperationInner(
+  timeline: Timeline,
+  op: Operation,
+  context: ApplyContext | undefined,
+): Timeline {
   switch (op.type) {
     case 'trim_clip':
       return applyTrim(timeline, op);
@@ -962,6 +1071,8 @@ function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
       return applyRippleDelete(timeline, op);
     case 'move_clip':
       return applyMove(timeline, op);
+    case 'reorder_clips':
+      return applyReorderClips(timeline, op, context);
     case 'add_clip':
       return applyAddClip(timeline, op);
     case 'add_text_overlay':
@@ -993,9 +1104,9 @@ function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
     case 'set_caption_cue':
       return applySetCaptionCue(timeline, op);
     case 'set_clip_speed':
-      return applySetClipSpeed(timeline, op);
+      return applySetClipSpeed(timeline, op, context);
     case 'set_clip_speed_ramp':
-      return applySetClipSpeedRamp(timeline, op);
+      return applySetClipSpeedRamp(timeline, op, context);
     case 'set_clip_crop':
       return applySetClipCrop(timeline, op);
     case 'set_clip_blend_mode':
@@ -1128,13 +1239,45 @@ function applySetClipMedia(timeline: Timeline, op: SetClipMediaOp): Timeline {
   return withTrackClips(timeline, loc.trackIndex, clips);
 }
 
+/**
+ * Why a split point is not usable, in words the caller can act on.
+ *
+ * The old sentence — "split point 48 is not strictly inside clip X" — is true and
+ * unactionable: it names neither the range that would work nor the far more common
+ * reason the number is wrong. Run `137d8fd0` asked to split
+ * `clip__v_main_asset_raw_skating_48000` at 48, which is that clip's own start. There
+ * was already a cut there. Told only that the point was "not strictly inside", the run
+ * dropped the split instead of moving it or reaching for the neighbouring clip.
+ *
+ * A point ON a boundary and a point OUTSIDE the clip are different mistakes with
+ * different remedies, so they get different sentences.
+ */
+function splitPointIssue(clip: Clip, clipId: string, at: number): string | null {
+  const span = `${clipId} runs ${clip.start}s–${clip.end}s`;
+  if (Math.abs(at - clip.start) <= EPSILON || Math.abs(at - clip.end) <= EPSILON) {
+    return (
+      `split point ${at} is a boundary of ${clipId}, not a point inside it — there is ` +
+      `already a cut there. ${span}; split strictly between those, or name the ` +
+      'neighbouring clip if that is the one you meant to divide.'
+    );
+  }
+  if (at < clip.start || at > clip.end) {
+    return (
+      `split point ${at} is outside ${clipId}. ${span}; get_clips names the clip that ` +
+      'covers that time.'
+    );
+  }
+  return null;
+}
+
 function applySplit(timeline: Timeline, op: SplitClipOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const { clip } = loc;
   if (op.at <= clip.start + EPSILON || op.at >= clip.end - EPSILON) {
     throw new OperationError(
       'invalid_split',
-      `split point ${op.at} is not strictly inside clip ${op.clipId}`,
+      splitPointIssue(clip, op.clipId, op.at) ??
+        `split point ${op.at} is not strictly inside clip ${op.clipId}`,
     );
   }
   const offset = op.at - clip.start;
@@ -1446,6 +1589,81 @@ function applyMove(timeline: Timeline, op: MoveClipOp): Timeline {
   );
   const destClips = afterRemoval.tracks[destIndex]!.clips;
   return withTrackClips(afterRemoval, destIndex, sortByStart([...destClips, moved]));
+}
+
+/**
+ * Lay `op.clipIds` out gaplessly on their track, preserving every clip's duration.
+ *
+ * Frame-domain arithmetic when the caller knows the fps, seconds otherwise. The frame
+ * path matters for more than tidiness: laying five clips end to end in seconds
+ * accumulates float error into every boundary after the first, so the fourth cut drifts
+ * off the grid even when all five source durations were on it.
+ */
+function applyReorderClips(
+  timeline: Timeline,
+  op: ReorderClipsOp,
+  context?: ApplyContext,
+): Timeline {
+  const { track, index: trackIndex } = findTrack(timeline, op.trackId);
+  const byId = new Map(track.clips.map((c) => [c.id, c]));
+
+  const seen = new Set<string>();
+  for (const id of op.clipIds) {
+    if (!byId.has(id)) {
+      throw new OperationError(
+        'missing_clip',
+        `reorder_clips: clip '${id}' is not on track '${op.trackId}'. ` +
+          `List exactly that track's clips, each once, in the order you want them.`,
+      );
+    }
+    if (seen.has(id)) {
+      throw new OperationError(
+        'invalid_order',
+        `reorder_clips: clip '${id}' is listed twice. Each clip appears exactly once.`,
+      );
+    }
+    seen.add(id);
+  }
+  if (seen.size !== track.clips.length) {
+    // Naming the omissions is what lets the model fix its own call instead of retrying
+    // the same partial list. Cap the list so a 200-clip track cannot flood the turn.
+    const missing = track.clips.filter((c) => !seen.has(c.id)).map((c) => c.id);
+    const shown = missing.slice(0, 8).join(', ');
+    const rest = missing.length > 8 ? `, and ${missing.length - 8} more` : '';
+    throw new OperationError(
+      'invalid_order',
+      `reorder_clips lists ${op.clipIds.length} of track '${op.trackId}''s ` +
+        `${track.clips.length} clips; it must list them all. Missing: ${shown}${rest}.`,
+    );
+  }
+
+  const anchor = Math.min(...track.clips.map((c) => c.start));
+  const fps = gridFps(context);
+  const reordered: Clip[] = [];
+  if (fps === null) {
+    let cursor = anchor;
+    for (const id of op.clipIds) {
+      const clip = byId.get(id)!;
+      const duration = clip.end - clip.start;
+      reordered.push({ ...clone(clip), start: cursor, end: cursor + duration });
+      cursor += duration;
+    }
+  } else {
+    let frame = secondsToFrame(anchor, fps);
+    for (const id of op.clipIds) {
+      const clip = byId.get(id)!;
+      // At least one frame: a sub-frame clip must still occupy a boundary, or the next
+      // clip starts where this one does and the track acquires an overlap.
+      const frames = Math.max(1, secondsToFrame(clip.end, fps) - secondsToFrame(clip.start, fps));
+      reordered.push({
+        ...clone(clip),
+        start: frameToSeconds(frame, fps),
+        end: frameToSeconds(frame + frames, fps),
+      });
+      frame += frames;
+    }
+  }
+  return withTrackClips(timeline, trackIndex, reordered);
 }
 
 function applyAddClip(timeline: Timeline, op: AddClipOp): Timeline {
@@ -2017,6 +2235,12 @@ function applySetTrackFlags(timeline: Timeline, op: SetTrackFlagsOp): Timeline {
   setFlag('locked', op.locked);
   setFlag('hidden', op.hidden);
   setFlag('muted', op.muted);
+  // Absent = leave alone; null = clear; a value = set. Deleting rather than storing null
+  // keeps undo landing on a deep-equal timeline, the same reason the flags do it.
+  if (op.role !== undefined) {
+    if (op.role === null) delete next.role;
+    else next.role = op.role;
+  }
   const tracks = timeline.tracks.slice();
   tracks[index] = next;
   return { ...timeline, tracks };
@@ -2131,7 +2355,11 @@ function scaleKeyframesToDuration(clip: Clip, newDuration: Seconds): Keyframe[] 
   return clip.keyframes.map((keyframe) => ({ ...clone(keyframe), time: keyframe.time * ratio }));
 }
 
-function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
+function applySetClipSpeed(
+  timeline: Timeline,
+  op: SetClipSpeedOp,
+  context?: ApplyContext,
+): Timeline {
   const loc = findClip(timeline, op.clipId);
   const speed = op.speed ?? 1;
   if (!Number.isFinite(speed)) {
@@ -2152,7 +2380,9 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   // holding a frame for the length it already occupied is the only answer that
   // does not invent a number, and the UI sets the span explicitly afterwards.
   if (speed !== 0) {
-    next.end = clip.start + sourceDuration / Math.abs(speed);
+    const fps = gridFps(context);
+    const exact = clip.start + sourceDuration / Math.abs(speed);
+    next.end = fps === null ? exact : snapRetimedEnd(clip.start, exact, fps);
     // The clip's span changed, so its animation stretches with it.
     next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
   }
@@ -2176,6 +2406,21 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
  * `ramp: null` (or an empty array) clears the curve back to constant speed.
  */
 /**
+ * Would re-applying this clip's OWN speed land back on its own `end`?
+ *
+ * Mirrors `applySetClipSpeed`/`applySetClipSpeedRamp`'s duration arithmetic exactly,
+ * frame snap included, so the answer is the real one rather than an approximation of it.
+ */
+function speedInverseIsExact(clip: Clip, fps: number): boolean {
+  const sourceDuration = clip.sourceEnd - clip.sourceStart;
+  const duration = hasSpeedRamp(clip)
+    ? clipTimelineDuration(clip)
+    : sourceDuration / Math.abs(clip.speed ?? 1);
+  if (duration === null || !Number.isFinite(duration)) return false;
+  return snapRetimedEnd(clip.start, clip.start + duration, fps) === clip.end;
+}
+
+/**
  * The exact inverse of any speed change — constant or curve (ADR 0090).
  *
  * Shared by `set_clip_speed` and `set_clip_speed_ramp` because the two are one
@@ -2192,11 +2437,26 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
  * The track snapshot is the established answer for a lossy op here
  * (`delete_range`, `ripple_delete`, `remove_keyframes` all use it).
  */
-function invertSpeedChange(timelineBefore: Timeline, clipId: string): Operation[] {
+function invertSpeedChange(
+  timelineBefore: Timeline,
+  clipId: string,
+  context?: ApplyContext,
+): Operation[] {
   const { clip, track } = findClip(timelineBefore, clipId);
   if (clip.speed === 0) {
     return [{ type: 'restore_clips', trackId: track.id, clips: track.clips.map(clone) }];
   }
+  // The same-shape inverse is only honest while re-applying the prior rate REPRODUCES
+  // the prior `end`. Snapping the retime to the frame grid can break that: a clip whose
+  // `end` predates the grid (an old project, a hand-built literal) would come back on a
+  // frame boundary it never sat on. Undo is a promise about the FILE, so where the
+  // arithmetic cannot prove itself, fall back to the file's own answer — the same rule
+  // `move_clip` above applies to its ULP.
+  // Only where the grid is actually in play: with no fps the arithmetic is unchanged
+  // from before this rule existed, and re-deciding those inverses would be a silent
+  // behaviour change on every timeline-only caller.
+  const fps = gridFps(context);
+  if (fps !== null && !speedInverseIsExact(clip, fps)) return [restoreFor(track)];
   if (hasSpeedRamp(clip)) {
     // `hasSpeedRamp` above already guarantees a non-empty array.
     return [{ type: 'set_clip_speed_ramp', clipId, ramp: clip.speedRamp!.map(clone) }];
@@ -2207,7 +2467,11 @@ function invertSpeedChange(timelineBefore: Timeline, clipId: string): Operation[
   ];
 }
 
-function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Timeline {
+function applySetClipSpeedRamp(
+  timeline: Timeline,
+  op: SetClipSpeedRampOp,
+  context?: ApplyContext,
+): Timeline {
   const loc = findClip(timeline, op.clipId);
   const { clip } = loc;
   const points = op.ramp ?? [];
@@ -2236,7 +2500,9 @@ function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Time
   }
   const duration = clipTimelineDuration(next);
   if (duration !== null) {
-    next.end = clip.start + duration;
+    const fps = gridFps(context);
+    const exact = clip.start + duration;
+    next.end = fps === null ? exact : snapRetimedEnd(clip.start, exact, fps);
     // Same rule as a constant speed: a ramp is a time stretch too.
     next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
   }
@@ -2319,7 +2585,11 @@ function assertPositiveRange(start: Seconds, end: Seconds, label: string): void 
  * @returns Operations that, applied in order, restore `timelineBefore`.
  * @throws {OperationError} when `op` references entities missing from `timelineBefore`.
  */
-export function invertOperation(timelineBefore: Timeline, op: Operation): Operation[] {
+export function invertOperation(
+  timelineBefore: Timeline,
+  op: Operation,
+  context?: ApplyContext,
+): Operation[] {
   switch (op.type) {
     case 'trim_clip': {
       const { clip, track } = findClip(timelineBefore, op.clipId);
@@ -2359,10 +2629,37 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
       ];
     }
     case 'move_clip': {
-      const { clip } = findClip(timelineBefore, op.clipId);
-      return [
-        { type: 'move_clip', clipId: op.clipId, toTrackId: clip.trackId, toStart: clip.start },
-      ];
+      const { clip, track } = findClip(timelineBefore, op.clipId);
+      // A MOVE IS NOT ALWAYS EXACTLY REVERSIBLE, and the same-shape inverse cannot say so.
+      //
+      // `applyMove` places the clip at `toStart` and recomputes its end as
+      // `toStart + (end - start)`. In binary floating point `(toStart + d) - toStart` is
+      // not always `d`: a 8.033333333333333s clip moved to 48s comes back 1 ULP shorter,
+      // and moving it home restores `start` exactly and `end` to 8.033333333333331.
+      //
+      // Nothing about the picture changes — both values quantize to the same frame — but
+      // undo is a promise about the FILE, and the golden case `reorder-last-first` failed
+      // on exactly this, at `$.timeline.tracks[0].clips[1].end`, after the run moved one
+      // clip four times. Four moves, four chances to shed a ULP.
+      //
+      // So: keep the cheap same-shape inverse when the arithmetic proves it exact, and
+      // fall back to the file's own answer for an inverse that cannot be
+      // (`restore_clips`) when it does not. A cross-track move restores both tracks —
+      // the source, to put the clip back, and the destination, to take it away.
+      const moved = op.toStart + (clip.end - clip.start);
+      const exact = clip.start + (moved - op.toStart) === clip.end;
+      if (exact) {
+        return [
+          { type: 'move_clip', clipId: op.clipId, toTrackId: clip.trackId, toStart: clip.start },
+        ];
+      }
+      if (track.id === op.toTrackId) return [restoreFor(track)];
+      return [restoreFor(findTrack(timelineBefore, op.toTrackId).track), restoreFor(track)];
+    }
+    case 'reorder_clips': {
+      // The whole clip array is rewritten, so the array itself is the only honest
+      // inverse — and it is cheap for exactly the same reason.
+      return [restoreFor(findTrack(timelineBefore, op.trackId).track)];
     }
     case 'set_track_flags': {
       // Same-shape inverse: restore the prior value of exactly the flags this op
@@ -2375,6 +2672,9 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
           ...(op.locked !== undefined ? { locked: track.locked ?? false } : {}),
           ...(op.hidden !== undefined ? { hidden: track.hidden ?? false } : {}),
           ...(op.muted !== undefined ? { muted: track.muted ?? false } : {}),
+          // `?? null` is the whole inverse: a track that had no role gets an explicit
+          // clear, so undoing a label removes it rather than leaving it behind.
+          ...(op.role !== undefined ? { role: track.role ?? null } : {}),
         },
       ];
     }
@@ -2414,13 +2714,11 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
           // track back unlabelled, and `duck_roles` quietly stopped finding it.
           ...(track.role === undefined ? {} : { role: track.role }),
         },
-        ...effectLayersOf(track).map(
-          (layer): AddEffectLayerOp => ({
-            type: 'add_effect_layer',
-            trackId: track.id,
-            layer: clone(layer),
-          }),
-        ),
+        ...effectLayersOf(track).map((layer): AddEffectLayerOp => ({
+          type: 'add_effect_layer',
+          trackId: track.id,
+          layer: clone(layer),
+        })),
       ];
     }
     case 'add_effect_layer':
@@ -2509,7 +2807,7 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
       // drift accumulates over repeated speed edits. Restoring the track is exact.
       const { clip, track } = findClip(timelineBefore, op.clipId);
       if (clip.keyframes.length > 0) return [restoreFor(track)];
-      return invertSpeedChange(timelineBefore, op.clipId);
+      return invertSpeedChange(timelineBefore, op.clipId, context);
     }
     case 'set_clip_crop': {
       // Same-shape inverse: restore the clip's prior crop wholesale (`null`

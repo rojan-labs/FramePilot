@@ -117,11 +117,41 @@ function requiredBy(intent: string, field: string) {
       : undefined;
 }
 
+/**
+ * The message a model gets when it puts an id where a referent belongs.
+ *
+ * WHY it is worth spelling out: `target` names what the *editor* has selected, never a
+ * thing the model can name, and Zod's own words for that — `target: Invalid input:
+ * expected "this"` — read as a typo rather than as a category error. Run `137d8fd0` sent
+ * `target: "music_1"`, `"music_bed"`, `"layer_audio_5"` and gave up after ten refusals,
+ * never once being told that an id is the wrong KIND of thing here or which tool does
+ * take one.
+ */
+const TARGET_REFERENTS = ['this', 'these', 'playhead'] as const;
+
+const targetHint = (input: unknown): string | undefined =>
+  typeof input === 'string' &&
+  !TARGET_REFERENTS.includes(input as (typeof TARGET_REFERENTS)[number])
+    ? `target names what is selected in the editor — "this" (the selected clip), "these" ` +
+      `(all selected clips) or "playhead" (the clip under the playhead). It is never a clip ` +
+      `or track id, so "${input}" cannot be resolved. To act on a clip you can name, call ` +
+      `adjust_audio with its clipId — get_timeline lists them.`
+    : undefined;
+
 /** Every intent may name what it acts on; ducking derives its tracks and takes no referent. */
 const targetField = z
-  .enum(['this', 'these', 'playhead'])
+  .enum(TARGET_REFERENTS, { error: (issue) => targetHint(issue.input) })
   .default('this')
-  .describe('What to act on.');
+  .describe(
+    'What the editor has selected: "this" (the selected clip), "these" (all selected clips), ' +
+      'or "playhead" (the clip under the playhead). Never a clip or track id — use ' +
+      'adjust_audio when you have an id.',
+  );
+
+/** Ducking derives its own targets, so its referent is fixed — same wrong-kind message. */
+const duckTargetField = z
+  .literal('this', { error: (issue) => targetHint(issue.input) })
+  .default('this');
 
 const reductionField = z
   .number()
@@ -249,7 +279,7 @@ const DuckSelectionObjectiveSchema = z.strictObject(
   {
     intent: z.literal('duck_selection'),
     /** Fixed: the bed and sidechain come from the selection, never from a referent. */
-    target: z.literal('this').default('this'),
+    target: duckTargetField,
     reductionDb: reductionField,
   },
   { error: foreignKeyError('duck_selection') },
@@ -261,7 +291,7 @@ const DuckRolesObjectiveSchema = z
     {
       intent: z.literal('duck_roles'),
       /** Fixed: the bed and sidechain come from the authored roles, never from a referent. */
-      target: z.literal('this').default('this'),
+      target: duckTargetField,
       bedRole: AudioRoleSchema.describe('The role that gets quieter (the bed).'),
       sidechainRole: AudioRoleSchema.describe('The role it makes way for (the trigger).'),
       reductionDb: reductionField,
@@ -611,18 +641,29 @@ function resolveDuckRoles(input: ResolveAudioObjectiveInput): AudioControllerRes
   const audioTracks = input.project.timeline.tracks.filter((track) => track.type === 'audio');
   const bedTracks = audioTracks.filter((track) => track.role === bedRole);
   const sidechainTracks = audioTracks.filter((track) => track.role === sidechainRole);
+  // "Label the track you mean" named a move that did not exist. `Track.role` shipped
+  // readable and unwritable: `add_layer` set it at creation and NOTHING else could, so on
+  // any project whose audio tracks already existed this refusal was a dead end. Run
+  // `137d8fd0` hit it twice and gave up on the editor's explicit ducking instruction.
+  // `set_track_flags` can write it now, so the sentence names the call.
+  const labelWith = (role: string): string =>
+    `Label it first: set_track_flags with trackId and role: "${role}". Roles are never ` +
+    `inferred from track names — a lane called "Music 2" routinely holds a voice-over.` +
+    (audioTracks.length > 0
+      ? ` Audio tracks here: ${audioTracks.map((track) => track.id).join(', ')}.`
+      : ' This project has no audio track yet.');
   if (bedTracks.length === 0) {
     return rejected(
       input.objective,
       'bed_role_unlabelled',
-      `No track is labelled ${bedRole}. Label the track you mean; roles are never inferred from track names.`,
+      `No track is labelled ${bedRole}. ${labelWith(bedRole)}`,
     );
   }
   if (sidechainTracks.length === 0) {
     return rejected(
       input.objective,
       'sidechain_role_unlabelled',
-      `No track is labelled ${sidechainRole}. Label the track you mean; roles are never inferred from track names.`,
+      `No track is labelled ${sidechainRole}. ${labelWith(sidechainRole)}`,
     );
   }
   if (sidechainTracks.length > 1) {

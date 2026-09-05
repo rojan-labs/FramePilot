@@ -23,6 +23,7 @@ import {
   addTransitionPatch,
   deleteClipPatch,
   duplicateClipPatch,
+  reorderClipPatch,
   rippleDeleteClipPatch,
   setClipSpeedPatch,
   splitClipPatch,
@@ -30,6 +31,8 @@ import {
 } from '../editor/patch-builders.js';
 import {
   ArrowLeftRight,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Gauge,
   ICON_SIZE,
@@ -129,6 +132,11 @@ export function ClipContextMenu({
   const playheadInside = clip !== undefined && playhead > clip.start && playhead < clip.end;
   const canTransition = addTransitionPatch(timeline, target.clipId, 'crossfade') !== null;
   const speed = clip?.speed ?? 1;
+  // Reordering is a different question from dragging: a drag puts a clip at a TIME, this
+  // puts it at a PLACE in the running order. Gated on the builder, so "move earlier" is
+  // never offered on the first clip (ADR 0173).
+  const earlier = reorderClipPatch(timeline, target.clipId, -1);
+  const later = reorderClipPatch(timeline, target.clipId, 1);
 
   return (
     <div
@@ -165,6 +173,18 @@ export function ClipContextMenu({
       >
         <Scissors size={ICON_SIZE.sm} aria-hidden="true" /> Trim end to playhead
         <MenuShortcut shortcutId="edit.trimOut" />
+      </button>
+      <div className="context-menu-sep" role="separator" />
+      <button
+        type="button"
+        role="menuitem"
+        disabled={earlier === null}
+        onClick={() => act(earlier)}
+      >
+        <ChevronLeft size={ICON_SIZE.sm} aria-hidden="true" /> Move earlier in sequence
+      </button>
+      <button type="button" role="menuitem" disabled={later === null} onClick={() => act(later)}>
+        <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" /> Move later in sequence
       </button>
       <div className="context-menu-sep" role="separator" />
       <div className="context-menu-group" role="group" aria-label="Speed">

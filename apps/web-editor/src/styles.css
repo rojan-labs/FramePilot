@@ -10276,21 +10276,41 @@ a.export-credits-license {
 .ai-agent-option-hint {
   color: var(--text-tertiary);
 }
-/* Composer — the row holding the textarea + send/stop inside the shell well. */
+/* Composer — the message, then its controls, inside the shell well.
+   A COLUMN, not a row. As a row with `align-items: flex-end` the leading controls slid
+   down to sit against the message's last line while the text stayed indented past them,
+   and on an empty composer the three controls squeezed the placeholder until it truncated
+   mid-sentence. The message now owns the full width and the controls own the line below
+   it, so the layout does not change shape as you type. */
+/* !!! THE COMPOSER'S LAYOUT IS NOT OWNED HERE. !!!
+   `components/ai/AiSidebar.beautiful.css` is imported after this file in `main.tsx`
+   and redeclares `.ai-composer`, so its rules are the ones that render. Editing the
+   block below will appear to do nothing — which is exactly what happened once: a
+   restructure landed here while the stylesheet that actually rendered still described
+   the old DOM, and the composer stayed visibly broken across a commit that claimed to
+   fix it. Change the layout THERE; what remains here is the fallback shape for any
+   host that loads this file alone, kept deliberately in step with it. */
 .ai-composer {
-  display: flex;
-  gap: var(--space-2);
-  align-items: flex-end;
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: end;
+  gap: var(--space-1);
   padding: var(--space-2);
 }
-.ai-composer-input {
-  flex: 1;
-  /* A flex item's default `min-width: auto` is its CONTENT width, and this one's content
-     is a long placeholder. With the attach control added beside the "+" the row ran out of
-     room, and because the textarea refused to shrink the send button was pushed out of the
-     row entirely — it wrapped to a second line and the placeholder rendered as its own
-     tail ("Me"). Letting it shrink is what keeps the row a row. */
+.ai-composer-lead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
   min-width: 0;
+}
+.ai-composer-input {
+  width: 100%;
+  /* A grid item's default `min-width: auto` is its CONTENT width, and this one's
+     content is a placeholder. Without this the track cannot shrink below it and the
+     send button is pushed off the row. */
+  min-width: 0;
+  align-self: end;
   resize: none;
   border: 0;
   background: transparent;
@@ -10298,7 +10318,7 @@ a.export-credits-license {
   /* Vertical padding only: the flex `gap` already spaces the input from the
      "+" button, so horizontal padding here just pushed the caret/placeholder
      needlessly inward (text now starts flush after the leading control). */
-  padding: var(--space-1) 0;
+  padding: var(--space-1) var(--space-1);
   font: inherit;
   font-size: var(--font-size-md);
   line-height: var(--leading);
@@ -10307,6 +10327,7 @@ a.export-credits-license {
 }
 .ai-composer-input::placeholder {
   color: var(--text-tertiary);
+  opacity: 0.72;
 }
 .ai-composer-input:focus-visible {
   outline: none;
@@ -11820,6 +11841,14 @@ a.export-credits-license {
   color: var(--text-tertiary);
   font-size: 12px;
 }
+/* How long the run took. `margin-left: auto` on nothing else in this row, so it sits
+   with the rest of the account rather than being pushed to an edge — the buttons are
+   the row's right-hand business. */
+.ai-run-footer-brewed {
+  color: var(--text-tertiary);
+  font-size: 12px;
+  white-space: nowrap;
+}
 .ai-run-footer-note {
   color: var(--text-tertiary);
   font-size: 12px;
@@ -12379,28 +12408,6 @@ a.export-credits-license {
 .ai-context-chip button:hover {
   opacity: 1;
   background: var(--bg-active);
-}
-.ai-quick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: var(--space-2) var(--space-2) 0;
-}
-.ai-quick-item {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  border-radius: var(--radius-lg);
-  padding: 4px 10px;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-.ai-quick-item:hover {
-  background: var(--bg-active);
-  color: var(--text-primary);
 }
 .ai-slash {
   list-style: none;

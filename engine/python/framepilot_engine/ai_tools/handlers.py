@@ -51,10 +51,12 @@ from framepilot_engine.ai_tools.registry import (
     RemoveKeyframesArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
+    ReorderClipsArgs,
     SetCaptionStyleArgs,
     SetClipBlendModeArgs,
     SetClipCropArgs,
     SetClipSpeedArgs,
+    SetClipSpeedRampArgs,
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
@@ -240,6 +242,36 @@ def delete_clips(args: DeleteClipsArgs, ctx: ToolContext) -> Operations:
         # only while nothing before them has moved.
         ops.sort(key=lambda op: -float(op["start"]))
     return ops
+
+
+def set_clip_speed_ramp(args: SetClipSpeedRampArgs, ctx: ToolContext) -> Operations:
+    """Mirror of ``domain-tools/timeline.ts#set_clip_speed_ramp``.
+
+    The point ids are DERIVED here, not taken from the caller: a ramp point is identified
+    by where it sits, and asking an untrusted caller for an id invites the collisions the
+    schema then rejects.
+    """
+    if args.ramp is None:
+        return [{"type": "set_clip_speed_ramp", "clipId": args.clip_id, "ramp": None}]
+    return [
+        {
+            "type": "set_clip_speed_ramp",
+            "clipId": args.clip_id,
+            "ramp": [
+                {
+                    "id": f"ramp_{args.clip_id}_{index}",
+                    "sourceTime": point.source_time,
+                    "rate": point.rate,
+                    "easing": point.easing or "linear",
+                }
+                for index, point in enumerate(args.ramp)
+            ],
+        }
+    ]
+
+
+def reorder_clips(args: ReorderClipsArgs, ctx: ToolContext) -> Operations:
+    return [{"type": "reorder_clips", "trackId": args.track_id, "clipIds": list(args.clip_ids)}]
 
 
 def move_clip(args: MoveClipArgs, ctx: ToolContext) -> Operations:
@@ -509,6 +541,10 @@ def set_track_flags(args: SetTrackFlagsArgs, ctx: ToolContext) -> Operations:
         op["locked"] = args.locked
     if args.hidden is not None:
         op["hidden"] = args.hidden
+    # Presence, not truthiness: ``role=None`` is the clear instruction, so the flags'
+    # ``is not None`` test would read a clear as "leave alone".
+    if "role" in args.model_fields_set:
+        op["role"] = args.role
     return [op]
 
 

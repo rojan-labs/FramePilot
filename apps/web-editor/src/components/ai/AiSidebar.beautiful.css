@@ -1338,6 +1338,40 @@
     0 10px 28px rgba(0, 0, 0, 0.12);
 }
 
+/* PILL WHILE IT IS ONE LINE, RECTANGLE ONCE IT IS NOT.
+   A single-line field reads as a pill; the same radius on a 200px-tall box bows
+   its sides and wastes the top and bottom corners, so the shape follows the
+   content. `data-multiline` is set from measured layout (`Composer.tsx`), not
+   from whether the value contains a newline — a long paragraph wraps to three
+   lines without ever holding one.
+
+   Only the radius transitions. The shell's height is driven by the textarea's
+   inline height and animating that would lag the caret behind the text. */
+.ai-composer-shell {
+  border-radius: 999px;
+  transition:
+    border-color 150ms ease,
+    box-shadow 150ms ease,
+    border-radius 140ms ease;
+}
+
+.ai-composer-shell[data-multiline],
+/* Anything stacked above the writing row — chips, reference tiles, the activity
+   line, a drop target — makes this a panel rather than a field, and a pill around
+   a panel is wrong however short the message is. */
+.ai-composer-shell:has(.ai-context-chips),
+.ai-composer-shell:has(.ai-attachments),
+.ai-composer-shell:has(.ai-composer-activity),
+.ai-composer-shell[data-dragging] {
+  border-radius: var(--ai-card-radius);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-composer-shell {
+    transition: none;
+  }
+}
+
 .ai-composer-activity {
   min-height: 24px;
   display: flex;
@@ -1385,18 +1419,51 @@
   padding: 0 1px;
 }
 
+/* ---------------------------------------------------------------------------
+   The writing row.
+
+   THIS FILE IS THE OWNER of the composer's layout. It is imported after
+   `styles.css` in `main.tsx`, so whatever it declares here wins — and that is how
+   the composer came to look broken: `aef2824` restructured the DOM into a column
+   and updated `styles.css` only, while the rule that actually rendered still
+   declared three grid columns against two children. The textarea landed in the
+   `auto` track, sized itself to its own content, and the result was a truncated
+   "Message FramePilot…" with the "+" and paperclip crammed against it. A fix in
+   the losing stylesheet is not a fix.
+   --------------------------------------------------------------------------- */
 .ai-composer {
   min-width: 0;
   display: grid;
-  /* leading controls | input | send — see `.ai-composer-lead` in Composer.tsx. */
-  grid-template-columns: auto minmax(0, 1fr) 28px;
+  /* lead controls | message | send. The middle track is `minmax(0, 1fr)`: `1fr`
+     alone still floors at the content's min-content width, which for a textarea
+     with a long placeholder is wide enough to push the send button off the row. */
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  /* Every control sits on the BOTTOM edge. Centred, they drift downward as the
+     message grows and the row's controls appear to slide; pinned, the message
+     grows upward past a stationary toolbar, which is what makes a growing
+     composer feel like it is standing still. */
   align-items: end;
   gap: 4px;
+}
+
+/* The lead cluster is tight — the two controls read as one group, distinct from
+   the send button across the row. It carries no `flex: 1`: the message column
+   takes the slack, and giving the cluster the slack too is what previously
+   indented the text away from its own controls. */
+.ai-composer-lead {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex: none;
+  min-width: 0;
 }
 
 .ai-icon-button,
 .ai-composer-send,
 .ai-composer-stop {
+  /* 28px of PAINT. The touch target is grown to 40px below without moving a
+     pixel of it — a composer row that reserved 40px of visual box for a 14px
+     glyph would be a toolbar, not a text field. */
   width: 28px;
   height: 28px;
   display: inline-flex;
@@ -1405,11 +1472,32 @@
   padding: 0;
   border: 0;
   border-radius: 8px;
+  cursor: pointer;
+  /* The pointer has to be able to reach the target it is being offered, so the
+     hit area needs somewhere to overflow into. */
+  position: relative;
+  flex: none;
   transition:
     background 120ms ease,
     color 120ms ease,
     transform 120ms ease,
     opacity 120ms ease;
+}
+
+/* THE HIT TARGET, not the button.
+   40×40 centred on a 28×28 control, painting nothing. Pointer events land on the
+   button because the pseudo-element is its own child, and it is `aria-hidden` by
+   construction — a pseudo-element is not in the accessibility tree at all.
+
+   Deliberately not padding or a bigger box: both would change the row's height
+   and reintroduce the vertical drift the bottom-anchoring exists to remove. */
+.ai-icon-button::after,
+.ai-composer-send::after,
+.ai-composer-stop::after {
+  content: '';
+  position: absolute;
+  inset: -6px;
+  border-radius: inherit;
 }
 
 .ai-icon-button {
@@ -1425,24 +1513,51 @@
   background: var(--ai-hover);
 }
 
+.ai-icon-button:active {
+  transform: scale(0.94);
+}
+
+/* Focus is drawn INSIDE the 28px box. An outline on the 40px hit target would
+   read as a stray rectangle floating around a small icon, and an outline that
+   sits outside the button would be clipped by the shell's rounded corner. */
+.ai-icon-button:focus-visible,
+.ai-composer-send:focus-visible,
+.ai-composer-stop:focus-visible {
+  outline: 2px solid var(--focus-ring);
+  outline-offset: -2px;
+}
+
 .ai-composer-input {
   min-width: 0;
   width: 100%;
+  /* One line at rest. The auto-grow effect writes an explicit height from
+     `scrollHeight` and caps it at 200px (`MAX_COMPOSER_HEIGHT` in `Composer.tsx`,
+     kept in step with the `max-height` below); past that this scrolls internally
+     instead of pushing the conversation off the top of the rail. */
   min-height: 28px;
   max-height: 200px;
   resize: none;
   overflow-y: auto;
-  padding: 5px 3px;
+  /* Vertical padding is read back by the multiline measurement, so it is one
+     value per axis rather than a shorthand a future edit can quietly reshape. */
+  padding-block: 5px;
+  padding-inline: 3px;
   border: 0;
   outline: 0;
   background: transparent;
   color: var(--ai-ink);
   font-size: 13px;
   line-height: 18px;
+  /* The row aligns its items to the bottom, and a textarea that has grown must
+     still align on its own box rather than a baseline the glyphs move. */
+  align-self: end;
 }
 
+/* Quieter than the text it stands in for, and it must not move when the field
+   takes focus: the placeholder is only dimmed, never re-laid-out. */
 .ai-composer-input::placeholder {
   color: var(--ai-ink-3);
+  opacity: 0.72;
 }
 
 .ai-composer-send {
@@ -1478,7 +1593,6 @@
 }
 
 /* Dropdowns rise from the composer like the reference PromptBar menus. */
-.ai-quick,
 .ai-slash {
   position: absolute;
   right: 0;
@@ -1498,7 +1612,6 @@
   transform-origin: bottom center;
 }
 
-.ai-quick-item,
 .ai-slash button {
   width: 100%;
   min-height: 34px;
@@ -1513,7 +1626,6 @@
   text-align: left;
 }
 
-.ai-quick-item:hover,
 .ai-slash button:hover,
 .ai-slash button:focus-visible {
   background: var(--ai-hover);

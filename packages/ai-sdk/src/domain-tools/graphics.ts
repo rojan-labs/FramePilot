@@ -27,6 +27,7 @@ import {
 } from '@framepilot/timeline-schema/transition-catalog';
 import { transitionParamsForKind } from '@framepilot/timeline-schema/transition-params';
 import {
+  TEXT_OVERLAY_ASSET_ID,
   createLaneAllocator,
   type Operation,
   textEffectId,
@@ -35,6 +36,7 @@ import {
 import { verifyTransitions } from '../verify.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
 /**
@@ -53,6 +55,43 @@ const effectTrackOf = (project: Project, preferred?: string): string | undefined
   }
   return project.timeline.tracks.find((t) => t.type === 'effect')?.id;
 };
+
+/** Overlay text long enough to bury a refusal is trimmed for the sentence, not for the check. */
+const clampTitle = (text: string): string =>
+  text.length <= 48 ? text : `${text.slice(0, 47).trimEnd()}…`;
+
+const round2 = (n: number): string => (Math.round(n * 100) / 100).toString();
+
+/**
+ * A text overlay already carrying this exact text over a range that overlaps `[start,end)`.
+ *
+ * Compared on the trimmed, case-folded text and on time overlap rather than on an exact
+ * range match: "the same title again, a frame later" is the same mistake as "the same
+ * title again", and a viewer cannot tell them apart either. Whitespace differences are not
+ * a different title.
+ */
+function findOverlayWithSameText(
+  project: Project,
+  text: string,
+  start: number,
+  end: number,
+): { readonly trackId: string; readonly clipId: string } | undefined {
+  const wanted = text.trim().replace(/\s+/g, ' ').toLowerCase();
+  if (wanted === '') return undefined;
+  for (const track of project.timeline.tracks) {
+    for (const clip of track.clips) {
+      if (clip.assetId !== TEXT_OVERLAY_ASSET_ID) continue;
+      if (!(clip.start < end && clip.end > start)) continue;
+      const existing = clip.effects.find((effect) => effect.type === 'text');
+      const value = existing?.params['text'];
+      if (typeof value !== 'string') continue;
+      if (value.trim().replace(/\s+/g, ' ').toLowerCase() === wanted) {
+        return { trackId: track.id, clipId: clip.id };
+      }
+    }
+  }
+  return undefined;
+}
 
 export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
   readTool(
@@ -246,6 +285,29 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // allocator keeps the fallback inside the role that was named — lanes are
       // type-agnostic, so an unconstrained search happily put a title on the audio
       // bed just because it was free.
+      // THE SAME TITLE, TWICE, IS NOT TWO TITLES.
+      //
+      // The lane fallback above exists for two DIFFERENT simultaneous elements. It cannot
+      // tell them from the same element sent twice, and the difference is what the viewer
+      // sees: run `137d8fd0` called this with `text: "Breck, opening weekend",
+      // trackId: "v_titles", start: 0, end: 5` and then called it again with exactly those
+      // arguments. The lane was busy — with the first one — so the second went onto a new
+      // overlay layer, and the export composited the headline on top of itself. In the
+      // preview it reads as illegible: two copies of the same words at the same size,
+      // offset by nothing.
+      //
+      // Not caught anywhere else. A second placement really does change the project (a new
+      // lane, a new clip), so the run's no-change guard cannot see it, and the two clips do
+      // not overlap on any one track so the validator cannot either.
+      const duplicate = findOverlayWithSameText(ctx.project, a.text, a.start, a.end);
+      if (duplicate) {
+        throw new ToolRefusalError(
+          `"${clampTitle(a.text)}" is already on screen from ${round2(a.start)}s to ` +
+            `${round2(a.end)}s, on ${duplicate.trackId}. Adding it again would composite ` +
+            'the same words on top of themselves. Change that overlay with ' +
+            'set_effect_params, move it with move_clip, or write different text.',
+        );
+      }
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
       const trackId = placed.trackId;
       const clipId = textOverlayClipId(trackId, a.start);

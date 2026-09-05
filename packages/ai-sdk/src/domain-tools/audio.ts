@@ -103,8 +103,10 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       description:
         'Put a track from search_music under the edit. Pass its remoteId; it lands on ' +
         'its own music track, from atSeconds (default the start), the full length of the ' +
-        'track. Give duckUnderTrackId the dialogue track id to have the bed drop under ' +
-        'the voice — that is almost always what you want under narration. Downloads the ' +
+        'track. Give duckUnderTrackId the id of the track carrying the sound the bed must ' +
+        'stay out of the way of — narration usually, but a video track counts when its ' +
+        'own audio is what you mean. The track must have clips on it; if a refusal says ' +
+        'it does not, it names the tracks that do. Downloads the ' +
         'file into the project, so it keeps working offline. If the track requires ' +
         'crediting, the project records the credit and says so. Undoing removes the ' +
         'track, its layer and the file reference in one step.',

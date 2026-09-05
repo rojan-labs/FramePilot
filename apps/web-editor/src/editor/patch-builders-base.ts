@@ -1415,6 +1415,46 @@ export function addClipPatch(
 }
 
 /**
+ * Move one clip earlier or later in its track's PLAY ORDER, as one `reorder_clips` patch.
+ *
+ * Closes the asymmetry ADR 0173 left behind: the agent could reorder a sequence safely and
+ * a human could not. Dragging is a placement gesture — it puts a clip at a TIME — and
+ * "make this shot come first" is an ORDER, which is why doing it by hand meant dragging
+ * every clip and hoping the gaps worked out. One menu action, one patch, one undo.
+ *
+ * Returns `null` when there is nothing to do: no such clip, or it is already at the end it
+ * is being moved toward. The caller gates the menu entry on that, so a no-op is never
+ * offered as an action.
+ *
+ * @param timeline - Current timeline.
+ * @param clipId - The clip to move within its own track.
+ * @param direction - `-1` one place earlier, `+1` one place later.
+ */
+export function reorderClipPatch(
+  timeline: Timeline,
+  clipId: string,
+  direction: -1 | 1,
+): Patch | null {
+  const track = timeline.tracks.find((t) => t.clips.some((c) => c.id === clipId));
+  if (!track) return null;
+  // Play order, not array order: the clip array is kept sorted by start, but sorting here
+  // makes that an assumption this builder does not have to make.
+  const ordered = [...track.clips].sort((a, b) => a.start - b.start).map((c) => c.id);
+  const from = ordered.indexOf(clipId);
+  const to = from + direction;
+  if (from < 0 || to < 0 || to >= ordered.length) return null;
+  const clipIds = [...ordered];
+  clipIds[from] = ordered[to] as string;
+  clipIds[to] = ordered[from] as string;
+  return {
+    patchId: patchId(`reorder_${track.id}_${clipId}_${direction === -1 ? 'earlier' : 'later'}`),
+    createdBy: 'user',
+    reason: `Move "${clipId}" ${direction === -1 ? 'earlier' : 'later'} on ${track.id}`,
+    operations: [{ type: 'reorder_clips', trackId: track.id, clipIds }],
+  };
+}
+
+/**
  * Insert-mode placement (plan/TIMELINE-REVAMP.md §4 "Edit modes"). Place `asset`
  * on `trackId` at `atStart` and **push the downstream same-lane clips right** by
  * the clip's duration — a CapCut/Premiere "insert" edit — as ONE reversible patch

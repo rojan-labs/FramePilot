@@ -54,7 +54,23 @@
  * Add a member only when a refusal needs run-memory identity of its own. A refusal with
  * no cause keys on its text exactly as it always has.
  */
-export type RefusalCause = 'picture_over_picture';
+export type RefusalCause =
+  | 'picture_over_picture'
+  /**
+   * The tool has no implementation on this surface — `planSidecarCall` routes it
+   * nowhere and no host override claims it. `render_preview` and `export_video` on the
+   * sidecar executor are the standing cases: the editor renders through its own Export
+   * dialog, and no argument the model can send changes that.
+   *
+   * Named rather than left to key on its text because the run has to be able to refuse
+   * the SECOND call. The sentence is constant, so text keying would have matched — but
+   * only `deterministicFailure` opts a host outcome into being remembered at all, and a
+   * host failure that merely happened (a sidecar restart, a timeout) must never be. This
+   * is the narrow other kind: a verdict about the surface, not an event on it. Run
+   * `137d8fd0` called `render_preview` three times and `export_video` once, each time
+   * reading "Do not call it again", and nothing enforced it.
+   */
+  | 'surface_unavailable';
 
 /**
  * A tool declining to act on arguments it understood.

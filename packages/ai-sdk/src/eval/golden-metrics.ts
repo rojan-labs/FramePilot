@@ -47,7 +47,8 @@ const PROGRESS_EVENT_TYPES: ReadonlySet<AiEvent['type']> = new Set<AiEvent['type
 ]);
 
 /** An error message that leaks an internal instead of explaining. */
-const INTERNAL_LEAK = /Internal Server Error|TypeError|ReferenceError|\bundefined\b|\bat\s+\S+\s+\(.*:\d+:\d+\)/;
+const INTERNAL_LEAK =
+  /Internal Server Error|TypeError|ReferenceError|\bundefined\b|\bat\s+\S+\s+\(.*:\d+:\d+\)/;
 /** Shorter than this and a message cannot have said what went wrong and what to do. */
 const MIN_EXPLAINED_LENGTH = 20;
 
@@ -56,6 +57,11 @@ export interface GoldenTurnEvidence {
   /** Epoch ms when `streamAgent` was called — the latency origin. */
   readonly startedAt: number;
   readonly wallMs: number;
+  /**
+   * The harness stopped this turn on its own clock — see
+   * {@link GoldenTurnMetrics.harnessTimedOut}. Absent ⇒ the turn ran to its own end.
+   */
+  readonly harnessTimedOut?: boolean;
   /**
    * The project the turn started from. Absent when the evidence was imported from an
    * event dump rather than produced by a live run — reversibility is then unknown.
@@ -95,10 +101,19 @@ export interface FailureQuality {
 }
 
 export interface GoldenTurnMetrics {
-  readonly intent: { readonly expected: ExpectedIntent; readonly observed: ObservedIntent; readonly ok: boolean };
+  readonly intent: {
+    readonly expected: ExpectedIntent;
+    readonly observed: ObservedIntent;
+    readonly ok: boolean;
+  };
   readonly target: FacetVerdict | null;
   readonly boundary: FacetVerdict | null;
-  readonly validity: { readonly diffs: number; readonly valid: number; readonly invalid: number; readonly rate: number | null };
+  readonly validity: {
+    readonly diffs: number;
+    readonly valid: number;
+    readonly invalid: number;
+    readonly rate: number | null;
+  };
   readonly firstPass: boolean;
   /** Completed, expected to edit, applied nothing — the run reported done on a no-op. */
   readonly silentSuccess: boolean;
@@ -112,6 +127,18 @@ export interface GoldenTurnMetrics {
   readonly failureQuality: FailureQuality | null;
   readonly score: number;
   readonly finalStatus: string | null;
+  /**
+   * The HARNESS stopped this turn on its own clock, not the agent finishing or failing.
+   *
+   * Distinct from {@link isVoidTurn}'s "the provider never answered": these turns reached
+   * the model, billed tokens and did partial work — they are simply cut off part-way
+   * through, so what they show is where the timer landed and not what the agent would
+   * have done. Session 3 lost five turns of thirty-six this way, all of them inside two
+   * cases where the provider was answering at 123–660 seconds PER CALL against a normal
+   * seven to thirty. `reorder-last-first` r2 made three model calls in 1,980 seconds and
+   * was scored 0.7 for a reorder it never got to finish.
+   */
+  readonly harnessTimedOut?: boolean;
   readonly operations: number;
 }
 
@@ -130,7 +157,10 @@ function assistantText(events: readonly AiEvent[]): string {
 }
 
 /** Read what the run did from its events and the operations it applied. */
-export function observeIntent(events: readonly AiEvent[], appliedOperations: number): ObservedIntent {
+export function observeIntent(
+  events: readonly AiEvent[],
+  appliedOperations: number,
+): ObservedIntent {
   const status = lastStatus(events);
   if (status === 'failed') return 'failed';
   if (status === 'cancelled') return 'cancelled';
@@ -147,8 +177,14 @@ export function intentMatches(expected: ExpectedIntent, observed: ObservedIntent
   return expected === observed;
 }
 
-function facet(checks: readonly RubricCheck[], name: NonNullable<RubricCheck['facet']>): FacetVerdict | null {
-  const mine = checks.filter((c) => c.facet === name);
+function facet(
+  checks: readonly RubricCheck[],
+  name: NonNullable<RubricCheck['facet']>,
+): FacetVerdict | null {
+  // A skipped check has no verdict — see `RubricCheck.skipped`. Dropping it here is what
+  // makes a facet whose only check could not measure report `null` (not measured) instead
+  // of a clean pass it never earned.
+  const mine = checks.filter((c) => c.facet === name && c.skipped !== true);
   if (mine.length === 0) return null;
   return { ok: mine.every((c) => c.ok), checks: mine.map((c) => `${c.id}: ${c.detail}`) };
 }
@@ -181,10 +217,21 @@ function firstDifference(a: unknown, b: unknown, path = '$'): string | null {
       if (d) return d;
     }
   }
-  if (a && b && typeof a === 'object' && typeof b === 'object' && !Array.isArray(a) && !Array.isArray(b)) {
+  if (
+    a &&
+    b &&
+    typeof a === 'object' &&
+    typeof b === 'object' &&
+    !Array.isArray(a) &&
+    !Array.isArray(b)
+  ) {
     const keys = new Set([...Object.keys(a), ...Object.keys(b)]);
     for (const k of [...keys].sort()) {
-      const d = firstDifference((a as Record<string, unknown>)[k], (b as Record<string, unknown>)[k], `${path}.${k}`);
+      const d = firstDifference(
+        (a as Record<string, unknown>)[k],
+        (b as Record<string, unknown>)[k],
+        `${path}.${k}`,
+      );
       if (d) return d;
     }
   }
@@ -208,20 +255,29 @@ export function checkReversibility(
       inverses.push(invertProjectPatch(working, patch));
       working = applyProjectPatch(working, patch);
     }
-    for (let i = inverses.length - 1; i >= 0; i--) working = applyProjectPatch(working, inverses[i]!);
+    for (let i = inverses.length - 1; i >= 0; i--)
+      working = applyProjectPatch(working, inverses[i]!);
   } catch (error) {
-    return { ok: false, detail: `undo threw: ${error instanceof Error ? error.message : String(error)}` };
+    return {
+      ok: false,
+      detail: `undo threw: ${error instanceof Error ? error.message : String(error)}`,
+    };
   }
   // `timeline.revision` is a monotonic counter every structural change bumps so derived
   // work (caption cues) can tell it is stale; an undo is a change too, so the counter is
   // allowed to move. Everything else must come back exactly.
   const diff = firstDifference(withoutRevision(before), withoutRevision(working));
   return diff === null
-    ? { ok: true, detail: `identical after ${String(patches.length)} patch(es) undone (timeline.revision excluded — monotonic by design)` }
+    ? {
+        ok: true,
+        detail: `identical after ${String(patches.length)} patch(es) undone (timeline.revision excluded — monotonic by design)`,
+      }
     : { ok: false, detail: `differs after undo at ${diff}` };
 }
 
-function withoutRevision(project: Project): Omit<Project, 'timeline'> & { timeline: Omit<Project['timeline'], 'revision'> } {
+function withoutRevision(
+  project: Project,
+): Omit<Project, 'timeline'> & { timeline: Omit<Project['timeline'], 'revision'> } {
   const { revision: _revision, ...timeline } = project.timeline;
   return { ...project, timeline };
 }
@@ -255,7 +311,10 @@ function diffOperationCount(event: AiEvent & { type: 'diff' }): number {
   return editOf(event).ops?.length ?? 0;
 }
 
-function failureQuality(events: readonly AiEvent[], observed: ObservedIntent): FailureQuality | null {
+function failureQuality(
+  events: readonly AiEvent[],
+  observed: ObservedIntent,
+): FailureQuality | null {
   if (observed !== 'failed' && observed !== 'cancelled' && observed !== 'silent') return null;
   const error = events.filter((e) => e.type === 'error').at(-1);
   const message = error ? [error.message, error.detail].filter(Boolean).join(' — ') : null;
@@ -317,6 +376,7 @@ export function measureGoldenTurn(evidence: GoldenTurnEvidence): GoldenTurnMetri
     failureQuality: failureQuality(events, observed),
     score: rubric.score,
     finalStatus: status,
+    ...(evidence.harnessTimedOut === true ? { harnessTimedOut: true } : {}),
     operations,
   };
 }
@@ -371,17 +431,34 @@ export interface GoldenSummary {
    * `turns` minus this.
    */
   readonly voidTurns: number;
+  /**
+   * Turns the harness cut off on its own timeout (see
+   * {@link GoldenTurnMetrics.harnessTimedOut}). Excluded from every rate for the same
+   * reason void turns are, and counted separately because the cause is different and the
+   * remedy is different: a void turn needs re-running, a timed-out turn needs a provider
+   * that answers.
+   */
+  readonly timedOutTurns: number;
   readonly tokensPerAcceptedEdit: number | null;
   readonly usdPerAcceptedEdit: number | null;
   readonly modelCallsPerTurn: GoldenPercentiles;
   readonly toolCallsPerTurn: GoldenPercentiles;
-  readonly latency: { readonly firstProgressMs: GoldenPercentiles; readonly doneMs: GoldenPercentiles };
-  readonly failureQuality: { readonly failures: number; readonly loud: number; readonly explained: number };
+  readonly latency: {
+    readonly firstProgressMs: GoldenPercentiles;
+    readonly doneMs: GoldenPercentiles;
+  };
+  readonly failureQuality: {
+    readonly failures: number;
+    readonly loud: number;
+    readonly explained: number;
+  };
   readonly perCase: Readonly<Record<string, GoldenCaseSummary>>;
 }
 
 function numbers(xs: readonly (number | null | undefined)[]): number[] {
-  return xs.filter((x): x is number => typeof x === 'number' && Number.isFinite(x)).sort((a, b) => a - b);
+  return xs
+    .filter((x): x is number => typeof x === 'number' && Number.isFinite(x))
+    .sort((a, b) => a - b);
 }
 
 /** Nearest-rank percentile; `null` on an empty sample rather than a made-up 0. */
@@ -415,7 +492,10 @@ export function isVoidTurn(m: GoldenTurnMetrics): boolean {
   return m.tokens.prompt === 0 && m.finalStatus === 'failed' && m.operations === 0;
 }
 
-function share(rows: readonly GoldenRow[], pick: (m: GoldenTurnMetrics) => boolean | null): number | null {
+function share(
+  rows: readonly GoldenRow[],
+  pick: (m: GoldenTurnMetrics) => boolean | null,
+): number | null {
   const applicable = rows.map((r) => pick(r.metrics)).filter((v): v is boolean => v !== null);
   if (applicable.length === 0) return null;
   return applicable.filter(Boolean).length / applicable.length;
@@ -427,7 +507,10 @@ export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary
   // and reported (`voidTurns`) rather than scored. Every rate below is over what actually
   // ran; a run that is mostly void says so in one number instead of looking like collapse.
   const voidTurns = allRows.filter((r) => isVoidTurn(r.metrics)).length;
-  const rows = allRows.filter((r) => !isVoidTurn(r.metrics));
+  const timedOutTurns = allRows.filter(
+    (r) => !isVoidTurn(r.metrics) && r.metrics.harnessTimedOut === true,
+  ).length;
+  const rows = allRows.filter((r) => !isVoidTurn(r.metrics) && r.metrics.harnessTimedOut !== true);
   const accepted = rows.filter((r) => r.metrics.firstPass && r.metrics.operations > 0);
   const totalTokens = rows.reduce((s, r) => s + r.metrics.tokens.total, 0);
   const pricedRows = rows.filter((r) => r.metrics.usd !== null);
@@ -449,15 +532,26 @@ export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary
     perCase[caseId] = {
       category: list[0]!.category,
       runs: runs.size,
-      score: percentile(list.map((r) => r.metrics.score), 0.5),
+      score: percentile(
+        list.map((r) => r.metrics.score),
+        0.5,
+      ),
       intentAccuracy: list.filter((r) => r.metrics.intent.ok).length / list.length,
       firstPass: list.filter((r) => r.metrics.firstPass).length / list.length,
       reversible: share(list, (m) => m.reversibility.ok),
-      modelCalls: percentile(list.map((r) => r.metrics.modelCalls), 0.5),
-      tokens: percentile(list.map((r) => r.metrics.tokens.total), 0.5),
+      modelCalls: percentile(
+        list.map((r) => r.metrics.modelCalls),
+        0.5,
+      ),
+      tokens: percentile(
+        list.map((r) => r.metrics.tokens.total),
+        0.5,
+      ),
       usdPerRun: percentile(
         perRun.map((turns) =>
-          turns.every((t) => t.metrics.usd !== null) ? turns.reduce((s, t) => s + (t.metrics.usd ?? 0), 0) : null,
+          turns.every((t) => t.metrics.usd !== null)
+            ? turns.reduce((s, t) => s + (t.metrics.usd ?? 0), 0)
+            : null,
         ),
         0.5,
       ),
@@ -483,11 +577,14 @@ export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary
     reversibility: share(rows, (m) => m.reversibility.ok),
     acceptedEdits: accepted.length,
     voidTurns,
+    timedOutTurns,
     // Tokens and dollars per ACCEPTED edit — the whole run's spend over the edits that
     // needed no follow-up, so a cheap call that forces a retry is charged, not hidden.
     tokensPerAcceptedEdit: accepted.length === 0 ? null : totalTokens / accepted.length,
     usdPerAcceptedEdit:
-      accepted.length === 0 || pricedRows.length !== rows.length ? null : totalUsd / accepted.length,
+      accepted.length === 0 || pricedRows.length !== rows.length
+        ? null
+        : totalUsd / accepted.length,
     modelCallsPerTurn: percentiles(rows.map((r) => r.metrics.modelCalls)),
     toolCallsPerTurn: percentiles(rows.map((r) => r.metrics.toolCalls)),
     latency: {
@@ -558,14 +655,22 @@ const secs = (ms: number | null): string => (ms === null ? '—' : `${(ms / 1000
 /** The short human summary that sits beside `summary.json`. */
 export function renderGoldenSummary(
   summary: GoldenSummary,
-  meta: { readonly label: string; readonly provider: string; readonly model: string; readonly generatedAt: string; readonly replayed?: boolean },
+  meta: {
+    readonly label: string;
+    readonly provider: string;
+    readonly model: string;
+    readonly generatedAt: string;
+    readonly replayed?: boolean;
+  },
 ): string {
   const lines: string[] = [];
   lines.push(`# Golden run — ${meta.label}`);
   lines.push('');
   lines.push(
     `${meta.generatedAt} · provider \`${meta.provider}\` · model \`${meta.model}\`` +
-      (meta.replayed ? ' · **replayed from recordings (no model calls; latency not meaningful)**' : ''),
+      (meta.replayed
+        ? ' · **replayed from recordings (no model calls; latency not meaningful)**'
+        : ''),
   );
   lines.push('');
   lines.push(`${String(summary.cases)} case(s), ${String(summary.turns)} turn(s).`);
@@ -582,6 +687,11 @@ export function renderGoldenSummary(
   lines.push(`| accepted edits | ${String(summary.acceptedEdits)} |`);
   // Printed only when it happened, and printed loudly: a run with void turns is smaller
   // than its case table suggests, and every rate above is over what actually ran.
+  if (summary.timedOutTurns > 0) {
+    lines.push(
+      `| **turns the harness timed out** | **${String(summary.timedOutTurns)} — excluded from every rate above; they reached the model and were cut off part-way, so they measure the provider's latency, not the agent** |`,
+    );
+  }
   if (summary.voidTurns > 0) {
     lines.push(
       `| **turns the provider never answered** | **${String(summary.voidTurns)} — excluded from every rate above; re-run them** |`,
@@ -596,15 +706,25 @@ export function renderGoldenSummary(
   lines.push(
     `| tier-priced cost / accepted edit (not billed) | ${summary.usdPerAcceptedEdit === null ? '—' : `$${summary.usdPerAcceptedEdit.toFixed(3)}`} |`,
   );
-  lines.push(`| model calls / turn p50 · p95 | ${num(summary.modelCallsPerTurn.p50)} · ${num(summary.modelCallsPerTurn.p95)} |`);
-  lines.push(`| tool calls / turn p50 · p95 | ${num(summary.toolCallsPerTurn.p50)} · ${num(summary.toolCallsPerTurn.p95)} |`);
-  lines.push(`| first progress p50 · p95 | ${secs(summary.latency.firstProgressMs.p50)} · ${secs(summary.latency.firstProgressMs.p95)} |`);
-  lines.push(`| done p50 · p95 | ${secs(summary.latency.doneMs.p50)} · ${secs(summary.latency.doneMs.p95)} |`);
+  lines.push(
+    `| model calls / turn p50 · p95 | ${num(summary.modelCallsPerTurn.p50)} · ${num(summary.modelCallsPerTurn.p95)} |`,
+  );
+  lines.push(
+    `| tool calls / turn p50 · p95 | ${num(summary.toolCallsPerTurn.p50)} · ${num(summary.toolCallsPerTurn.p95)} |`,
+  );
+  lines.push(
+    `| first progress p50 · p95 | ${secs(summary.latency.firstProgressMs.p50)} · ${secs(summary.latency.firstProgressMs.p95)} |`,
+  );
+  lines.push(
+    `| done p50 · p95 | ${secs(summary.latency.doneMs.p50)} · ${secs(summary.latency.doneMs.p95)} |`,
+  );
   lines.push(
     `| failure quality | ${String(summary.failureQuality.failures)} failure(s): ${String(summary.failureQuality.loud)} loud, ${String(summary.failureQuality.explained)} explained |`,
   );
   lines.push('');
-  lines.push('| case | category | runs | score | intent | first-pass | undo ok | calls | tokens | USD/run | wall/run |');
+  lines.push(
+    '| case | category | runs | score | intent | first-pass | undo ok | calls | tokens | USD/run | wall/run |',
+  );
   lines.push('| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |');
   for (const [id, c] of Object.entries(summary.perCase)) {
     lines.push(

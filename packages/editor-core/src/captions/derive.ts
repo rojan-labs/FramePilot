@@ -28,7 +28,7 @@
  *
  * @see docs/adr/0076-canonical-timeline-mapping.md
  */
-import type { TranscriptWord } from '@framepilot/timeline-schema';
+import type { Asset, TranscriptWord } from '@framepilot/timeline-schema';
 import { secondsToFrame } from '../frame-grid.js';
 import {
   TIME_EPSILON,
@@ -144,6 +144,27 @@ function overlapThreshold(span: ClipSpan, word: TranscriptWord): number {
 }
 
 /**
+ * The span groups an UNATTRIBUTED word may be matched against.
+ *
+ * The named speech assets when at least one of them is actually placed on the timeline;
+ * every group otherwise. The "at least one placed" condition is what makes this safe to
+ * turn on: a caller naming an asset that no clip uses would otherwise leave a word with
+ * nowhere to land, and a dropped word is a missing caption.
+ */
+function unattributedGroups(
+  index: SourceSpanIndex,
+  speechAssetIds: ReadonlySet<string> | undefined,
+): Iterable<SourceSpanGroup> {
+  if (speechAssetIds === undefined || speechAssetIds.size === 0) return index.byAsset.values();
+  const named: SourceSpanGroup[] = [];
+  for (const assetId of speechAssetIds) {
+    const group = index.byAsset.get(assetId);
+    if (group !== undefined) named.push(group);
+  }
+  return named.length > 0 ? named : index.byAsset.values();
+}
+
+/**
  * The span that carries `word`, or `undefined` when the word did not survive the
  * edit — the **majority rule**: a word belongs to the clip that retained most of
  * it, among the clips that clear {@link overlapThreshold}.
@@ -162,6 +183,7 @@ function bestSpanFor(
   index: SourceSpanIndex,
   word: TranscriptWord,
   assetId: string | undefined,
+  speechAssetIds: ReadonlySet<string> | undefined,
 ): ClipSpan | undefined {
   let best: ClipSpan | undefined;
   let bestOverlap = 0;
@@ -171,12 +193,41 @@ function bestSpanFor(
     if (overlap > bestOverlap) {
       best = span;
       bestOverlap = overlap;
+      return;
+    }
+    // The tie-break the doc comment above promises, actually applied. `candidatesIn`
+    // walks its group backwards from a binary search, so "whichever arrived first"
+    // is ordered by *source* in-point and by array position — neither of which is the
+    // earliest appearance on the timeline. Two clips reusing one source range then
+    // attributed their words by accident of iteration, and a later word could tip the
+    // other way and split one sentence across two runs.
+    if (overlap === bestOverlap && best !== undefined) {
+      if (span.start < best.start || (span.start === best.start && span.clipId < best.clipId)) {
+        best = span;
+      }
     }
   };
-  // An unattributed word (pre-v12 transcript) matches any asset — the v11 behavior —
-  // while an attributed one is confined to its own footage.
+  // An attributed word is confined to its own footage. An unattributed one (a pre-v12
+  // transcript, which is every mission fixture) matched ANY asset — the v11 behavior —
+  // and on a project that has since gained b-roll or a music bed that means a caption cue
+  // can be attributed to, and timed through, a clip that was never speaking.
+  //
+  // The same fabrication was fixed twice in one week elsewhere: in the Critic (`5d0dbab`,
+  // where `word_severed` judged b-roll against the narration) and in the golden rubric
+  // (`a255687`). This is the third copy, and it takes the same rule those two took: a
+  // transcript with no attribution can only have come from an asset long enough to
+  // contain it, so when the caller can say which assets those are, an unattributed word
+  // is confined to them.
+  //
+  // The caller says so only when it CAN — the agent path holds the whole project, the
+  // web-editor's `generateCaptionsPatch` holds a bare timeline. Absent, and whenever no
+  // named speech asset is actually on the timeline, the v11 reading stands unchanged, so
+  // no project loses captions it had. Captions are the most incident-heavy area in this
+  // repo; a narrowing that can empty a caption track is not worth a correct attribution.
   const groups =
-    assetId === undefined ? index.byAsset.values() : [index.byAsset.get(assetId) ?? EMPTY_GROUP];
+    assetId === undefined
+      ? unattributedGroups(index, speechAssetIds)
+      : [index.byAsset.get(assetId) ?? EMPTY_GROUP];
   for (const group of groups) {
     for (const span of candidatesIn(group, word)) consider(span);
   }
@@ -283,11 +334,15 @@ function mapWord(span: ClipSpan, word: TranscriptWord): MappedWord {
  *
  * @param map - Canonical timing, from `buildTimelineMap`.
  * @param transcript - Source-relative words (schema v12), in any order.
+ * @param speechAssetIds - Assets an UNATTRIBUTED word may belong to; see
+ *   {@link speechAssetIdsFor}. Omit when the caller cannot tell, and the pre-v12
+ *   any-asset reading stands.
  * @returns Surviving words with both timings, grouped into continuous runs.
  */
 export function mapTranscript(
   map: TimelineMap,
   transcript: readonly TranscriptWord[],
+  speechAssetIds?: ReadonlySet<string>,
 ): MappedTranscript {
   const mapped: MappedWord[] = [];
   let droppedCount = 0;
@@ -303,7 +358,7 @@ export function mapTranscript(
     // `?? undefined` because the attribution is nullish across the language
     // boundary (the Python engine serializes "no asset" as null), and null must
     // read as "unattributed", not as an asset literally named null.
-    const span = bestSpanFor(index, word, word.assetId ?? undefined);
+    const span = bestSpanFor(index, word, word.assetId ?? undefined, speechAssetIds);
     if (span === undefined) {
       droppedCount += 1;
       continue;
@@ -365,6 +420,8 @@ export interface DerivedCue extends CaptionCueDraft {
  *   operations: sequence times are quantised to a frame at the patch boundary,
  *   and a cue narrower than that grid is rejected as zero-length. See
  *   `coalesceSubFrameCues`.
+ * @param speechAssetIds - Assets an UNATTRIBUTED word may belong to; see
+ *   {@link speechAssetIdsFor}. Omit when the caller holds no assets.
  * @returns Cues in sequence order, each stamped with its source provenance.
  */
 export function deriveCaptionCues(
@@ -372,77 +429,177 @@ export function deriveCaptionCues(
   transcript: readonly TranscriptWord[],
   config: CaptionSegmentConfig = captionSegmentConfig(),
   fps?: number,
+  speechAssetIds?: ReadonlySet<string>,
 ): readonly DerivedCue[] {
-  const { runs, revision } = mapTranscript(map, transcript);
+  const { runs, revision } = mapTranscript(map, transcript, speechAssetIds);
 
-  return runs.flatMap((run) => {
-    // The segmenter works in whatever timebase its input uses; feed it sequence
-    // time so its pause/reading-speed reasoning matches what the viewer sees.
-    // At a speed != 1 that is deliberately the *played back* pacing, not the
-    // originally spoken pacing — a 2x clip really does need faster cues.
-    // Segment on the same grid the patch boundary will quantise to; without it
-    // a cue can be legal here and zero-length by the time it is validated.
-    const cues = segmentCaptions(
-      run.words.map(({ word, start, end }) => ({ word, start, end })),
-      config,
-      fps,
-    );
+  return resolveCueOverlaps(
+    runs.flatMap((run) => {
+      // The segmenter works in whatever timebase its input uses; feed it sequence
+      // time so its pause/reading-speed reasoning matches what the viewer sees.
+      // At a speed != 1 that is deliberately the *played back* pacing, not the
+      // originally spoken pacing — a 2x clip really does need faster cues.
+      // Segment on the same grid the patch boundary will quantise to; without it
+      // a cue can be legal here and zero-length by the time it is validated.
+      const cues = segmentCaptions(
+        run.words.map(({ word, start, end }) => ({ word, start, end })),
+        config,
+        fps,
+      );
 
-    let consumed = 0;
-    const derived: DerivedCue[] = [];
-    for (const cue of cues) {
-      const start = Math.max(cue.start, run.start);
-      const end = Math.min(cue.end, run.end);
-      // Recover the source range from the words the segmenter grouped. Counting
-      // forward through the run is safe: the segmenter preserves word order and
-      // partitions its input, so cue N's words follow cue N-1's exactly.
-      const sourceWords = run.words.slice(consumed, consumed + cue.words.length);
-      consumed += cue.words.length;
-      const first = sourceWords[0];
-      const last = sourceWords[sourceWords.length - 1];
-      const entry: DerivedCue = {
-        text: cue.text,
+      let consumed = 0;
+      const derived: DerivedCue[] = [];
+      for (const cue of cues) {
+        const start = Math.max(cue.start, run.start);
+        const end = Math.min(cue.end, run.end);
+        // Recover the source range from the words the segmenter grouped. Counting
+        // forward through the run is safe: the segmenter preserves word order and
+        // partitions its input, so cue N's words follow cue N-1's exactly.
+        const sourceWords = run.words.slice(consumed, consumed + cue.words.length);
+        consumed += cue.words.length;
+        const first = sourceWords[0];
+        const last = sourceWords[sourceWords.length - 1];
+        const entry: DerivedCue = {
+          text: cue.text,
+          words: cue.words.map((word) => ({
+            ...word,
+            start: Math.min(Math.max(word.start, start), end),
+            end: Math.min(Math.max(word.end, start), end),
+          })),
+          start,
+          end,
+          clipId: run.clipId,
+          assetId: run.assetId,
+          sourceStart: first?.sourceStart ?? 0,
+          sourceEnd: last?.sourceEnd ?? 0,
+          revision,
+        };
+
+        // The clamp above is the LAST place a cue can be squeezed out of existence, and
+        // segmentation cannot see it coming: `segmentCaptions` works inside the run and is
+        // allowed to extend its final cue past the last word, so a cue sitting within a
+        // frame of `run.end` comes back with nothing left after clamping to it. Only a cut
+        // exposes this — on a single untrimmed clip the run ends where the footage does and
+        // there is always room, which is why it survived a fix and a property test that
+        // both only ever saw one clip.
+        //
+        // Absorbed into the previous cue of the SAME run rather than dropped: the words
+        // were really spoken, and the run is the unit that guarantees no cue crosses a cut,
+        // so merging inside it cannot bridge one. With no predecessor there is nowhere to
+        // put them and the cue is dropped — its footage is under a frame, so there is
+        // genuinely no picture to caption.
+        const previous = derived[derived.length - 1];
+        if (fps !== undefined && secondsToFrame(end, fps) <= secondsToFrame(start, fps)) {
+          if (previous === undefined) continue;
+          derived[derived.length - 1] = {
+            ...previous,
+            text: `${previous.text} ${cue.text}`,
+            words: [...previous.words, ...entry.words],
+            end: Math.max(previous.end, end),
+            sourceEnd: entry.sourceEnd,
+          };
+          continue;
+        }
+        derived.push(entry);
+      }
+      return derived;
+    }),
+    fps,
+  );
+}
+
+/**
+ * Collapse the cue lists of overlapping runs into one non-overlapping cue timeline.
+ *
+ * WHY: runs are per-clip and clips stack. A b-roll cutaway, a second video track, a
+ * multicam angle — any of these puts two clips over the *same sequence instant*, and
+ * because each clip carries its own source range, each contributes its own words. Run
+ * segmentation is deliberately independent (that is what keeps a cue from crossing a
+ * cut), so nothing downstream had noticed that two runs could describe the same moment.
+ *
+ * Two things then went wrong at once, and the second one is fatal. A caption track can
+ * only ever show one cue at a time, so stacked cues are already wrong on screen. And
+ * `caption_the_edit` derives each cue's clip id from its start time — so two cues
+ * starting on the same frame collide, `add_caption_layer` rejects the duplicate id, and
+ * the *entire* captioning patch is thrown away. Observed in run `137d8fd0`: nine
+ * consecutive `caption_the_edit` calls rejected at the same op, ~3,100 proposed changes
+ * discarded, the run's whole caption budget spent on a retry loop that could not
+ * succeed, because one clip's footage had been stacked under another's.
+ *
+ * The rule is the one the renderer already enforces: **at any instant there is exactly
+ * one cue.** Cues are taken in sequence order and each is admitted only for the part of
+ * the timeline no earlier cue already occupies. Ties resolve by end then clip id so the
+ * result is total and stable. On a timeline with no stacked footage every cue is
+ * admitted whole and the output is unchanged — the ordering this imposes is the order
+ * the runs already produced.
+ */
+function resolveCueOverlaps(cues: readonly DerivedCue[], fps?: number): readonly DerivedCue[] {
+  const ordered = [...cues].sort(
+    (a, b) => a.start - b.start || a.end - b.end || a.clipId.localeCompare(b.clipId),
+  );
+  const kept: DerivedCue[] = [];
+  let occupiedUntil = -Infinity;
+  for (const cue of ordered) {
+    const start = Math.max(cue.start, occupiedUntil);
+    // Nothing left of this cue once the earlier one has its share. Dropped rather
+    // than shortened to zero: a zero-length cue is rejected at the patch boundary.
+    if (cue.end - start <= TIME_EPSILON) continue;
+    if (fps !== undefined && secondsToFrame(cue.end, fps) <= secondsToFrame(start, fps)) continue;
+    if (start === cue.start) {
+      kept.push(cue);
+    } else {
+      kept.push({
+        ...cue,
+        start,
         words: cue.words.map((word) => ({
           ...word,
-          start: Math.min(Math.max(word.start, start), end),
-          end: Math.min(Math.max(word.end, start), end),
+          start: Math.max(word.start, start),
+          end: Math.max(word.end, start),
         })),
-        start,
-        end,
-        clipId: run.clipId,
-        assetId: run.assetId,
-        sourceStart: first?.sourceStart ?? 0,
-        sourceEnd: last?.sourceEnd ?? 0,
-        revision,
-      };
-
-      // The clamp above is the LAST place a cue can be squeezed out of existence, and
-      // segmentation cannot see it coming: `segmentCaptions` works inside the run and is
-      // allowed to extend its final cue past the last word, so a cue sitting within a
-      // frame of `run.end` comes back with nothing left after clamping to it. Only a cut
-      // exposes this — on a single untrimmed clip the run ends where the footage does and
-      // there is always room, which is why it survived a fix and a property test that
-      // both only ever saw one clip.
-      //
-      // Absorbed into the previous cue of the SAME run rather than dropped: the words
-      // were really spoken, and the run is the unit that guarantees no cue crosses a cut,
-      // so merging inside it cannot bridge one. With no predecessor there is nowhere to
-      // put them and the cue is dropped — its footage is under a frame, so there is
-      // genuinely no picture to caption.
-      const previous = derived[derived.length - 1];
-      if (fps !== undefined && secondsToFrame(end, fps) <= secondsToFrame(start, fps)) {
-        if (previous === undefined) continue;
-        derived[derived.length - 1] = {
-          ...previous,
-          text: `${previous.text} ${cue.text}`,
-          words: [...previous.words, ...entry.words],
-          end: Math.max(previous.end, end),
-          sourceEnd: entry.sourceEnd,
-        };
-        continue;
-      }
-      derived.push(entry);
+      });
     }
-    return derived;
-  });
+    occupiedUntil = cue.end;
+  }
+  return kept;
+}
+
+/**
+ * Which assets an UNATTRIBUTED transcript could actually have come from.
+ *
+ * Every mission fixture's transcript is schema <= v11 and carries no `assetId`, and the
+ * v11 rule for such a word is "it applies to any clip". On a single-asset project that is
+ * right. On one that has since gained b-roll, stock, or a music bed it is a fabrication:
+ * a caption cue gets attributed to — and timed through — footage that was never speaking.
+ *
+ * The rule is the one the Critic (`5d0dbab`) and the golden rubric (`a255687`) already
+ * apply, stated once here so the three cannot drift: a transcript can only have come from
+ * an asset long enough to contain it. Images are excluded outright; an asset with no
+ * declared duration cannot be ruled out, so it is kept.
+ *
+ * Returns `undefined` — meaning "no constraint, keep the v11 reading" — when nothing
+ * qualifies. That is deliberate: no project may lose captions it had to a heuristic.
+ *
+ * @param assets - The project's assets.
+ * @param transcript - The source-relative words about to be mapped.
+ */
+export function speechAssetIdsFor(
+  assets: readonly Asset[] | undefined,
+  transcript: readonly TranscriptWord[],
+): ReadonlySet<string> | undefined {
+  if (assets === undefined || assets.length === 0 || transcript.length === 0) return undefined;
+  const spokenUntil = transcript.reduce((max, word) => Math.max(max, word.end), 0);
+  if (spokenUntil <= 0) return undefined;
+  const ids = new Set(
+    assets
+      .filter(
+        (asset) =>
+          asset.kind !== 'image' &&
+          (asset.durationSeconds === undefined || asset.durationSeconds >= spokenUntil - 0.5),
+      )
+      .map((asset) => asset.id),
+  );
+  // Everything qualified, so the set says nothing the v11 reading did not. Returning
+  // `undefined` keeps the fast path and makes the "narrowed" case visible in a debugger.
+  if (ids.size === 0 || ids.size === assets.length) return undefined;
+  return ids;
 }

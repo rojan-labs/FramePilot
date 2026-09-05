@@ -67,7 +67,7 @@ magnitude.
 | Project | Shape | Why it exists |
 | --- | --- | --- |
 | `mission-montage` | 5 raw clips end to end on `video_1`, two beat tracks in the bin, 9:16 | Open-ended selection over raw footage |
-| `mission-podcast` | one 9.6-minute dialogue clip + transcript | Transcript-grounded cuts, silence |
+| `mission-podcast` | one 12-minute narration clip with 116 real pauses + transcript | Transcript-grounded cuts, silence |
 | `mission-talk` | one 8.8-minute narration clip, music in the bin, transcript | Captions, music bed, the plain cutaway |
 | `mission-overlay` | the same narration gapless on `video_1`, an **empty** second video track `b_roll` above it, two b-roll clips in the bin, transcript | Run `369e8c82`'s shape: with picture covering the whole sequence, ADR 0140 refuses every placement on `b_roll`, so the empty track is a trap. Reuses `mission-talk`'s narration, so whisper hits its content-hash cache and the pair of b-roll cases differ in one variable only |
 | `mission-photos` | 60 stills + music | Stills pacing (no golden case yet) |

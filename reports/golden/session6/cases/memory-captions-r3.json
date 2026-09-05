@@ -1,0 +1,777 @@
+{
+  "scenario": "memory-captions",
+  "category": "memory",
+  "project": "mission-talk",
+  "run": 3,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Cut this down to the best 45 seconds.",
+      "rubric": "podcast-highlight-60s",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "duration-within",
+          "ok": true,
+          "detail": "44.67s vs 45s ±10s",
+          "weight": 2
+        },
+        {
+          "id": "no-mid-word-cuts",
+          "ok": true,
+          "detail": "0 edge(s) inside a word",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "no-mid-word-cuts: 0 edge(s) inside a word",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 5,
+          "valid": 5,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 9,
+        "toolCalls": 8,
+        "tokens": {
+          "prompt": 356471,
+          "output": 14549,
+          "total": 371020
+        },
+        "usd": 0.9849420000000002,
+        "latency": {
+          "firstProgressMs": 3699,
+          "doneMs": 191347
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 5 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Claude Code returned an error result: You've hit your session limit · resets 4:55pm (Asia/Katmandu)"
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 5
+      },
+      "asked": [],
+      "assistantText": "The current cut hooks with the World Cup's prestige, states the \"frequency\" thesis, and lands the rare-winner stat (471 players, 1-in-2000 odds), then jumps abruptly to a disconnected fragment about the tournament being \"so different\" and \"nothing guarantees success.\" That jump skips the reasoning entirely and reads as broken rather than punchy. Let me check the current timeline state before tightening the ending.",
+      "recording": "reports/golden/session6/recordings/memory-captions-r3-t1.json",
+      "metrics": {
+        "wallMs": 191347,
+        "modelCalls": 9,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 356471,
+          "input": 255569,
+          "output": 14549,
+          "cacheRead": 100902,
+          "cacheCreate": 293414
+        },
+        "perCall": [
+          {
+            "ttftMs": 3695,
+            "wallMs": 14444,
+            "input": 6786,
+            "output": 958,
+            "cacheRead": 23517
+          },
+          {
+            "ttftMs": 4060,
+            "wallMs": 42380,
+            "input": 34779,
+            "output": 3439,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 4017,
+            "wallMs": 34775,
+            "input": 34833,
+            "output": 2955,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3604,
+            "wallMs": 24425,
+            "input": 34865,
+            "output": 1968,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3635,
+            "wallMs": 41515,
+            "input": 34912,
+            "output": 3307,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3138,
+            "wallMs": 8515,
+            "input": 34923,
+            "output": 486,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3803,
+            "wallMs": 6839,
+            "input": 37155,
+            "output": 192,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3294,
+            "wallMs": 16318,
+            "input": 37316,
+            "output": 1244,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 2023,
+            "wallMs": 2023,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 9,
+          "ttftMs": {
+            "p50": 3635,
+            "p95": 4060,
+            "min": 2023,
+            "max": 4060
+          },
+          "wallMs": {
+            "p50": 16318,
+            "p95": 42380,
+            "min": 2023,
+            "max": 42380
+          },
+          "inputTokensPerTurn": {
+            "p50": 34865,
+            "p95": 37316,
+            "min": 0,
+            "max": 37316
+          },
+          "outputTokensPerTurn": {
+            "p50": 1244,
+            "p95": 3439,
+            "min": 0,
+            "max": 3439
+          },
+          "cacheHitRate": 0.283058088876795,
+          "cacheReportingTurns": 8
+        },
+        "usd": 0.9849420000000002,
+        "usageTokens": 270118,
+        "toolCalls": 8,
+        "toolCallsByName": {
+          "get_mapped_transcript": 2,
+          "ripple_delete": 5,
+          "get_timeline": 1
+        },
+        "repeatedToolCalls": 5,
+        "analysisFromCache": 0,
+        "contextRequests": 17,
+        "contextByType": [
+          {
+            "system": 2314,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 2314,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14671,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14671,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14697,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14697,
+            "retrieved_evidence": 2238,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14714,
+            "retrieved_evidence": 2240,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14714,
+            "retrieved_evidence": 2240,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14728,
+            "retrieved_evidence": 2250,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14728,
+            "retrieved_evidence": 2250,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14714,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 14714,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 15693,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 15693,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 15778,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 15778,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 15732,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 6806
+          }
+        ],
+        "contextUsedTokens": [
+          13020,
+          6786,
+          25377,
+          34779,
+          25403,
+          34833,
+          25422,
+          34865,
+          25446,
+          34912,
+          25441,
+          34923,
+          26420,
+          37155,
+          26505,
+          37316,
+          26459
+        ],
+        "contextCachedTokens": [
+          null,
+          23517,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null
+        ],
+        "diffs": 5,
+        "validDiffs": 5,
+        "operations": 5,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    },
+    {
+      "turnIndex": 1,
+      "prompt": "Add captions in a bold, uppercase, centered style.",
+      "rubric": "memory-captions",
+      "expectedIntent": "edit",
+      "score": 0.42857142857142855,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": false,
+          "detail": "unchanged",
+          "weight": 2
+        },
+        {
+          "id": "has-captions",
+          "ok": false,
+          "detail": "0 caption clip(s)",
+          "weight": 2
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0,
+        "latency": {
+          "firstProgressMs": null,
+          "doneMs": 1828
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Claude Code returned an error result: You've hit your session limit · resets 4:55pm (Asia/Katmandu)"
+        },
+        "score": 0.42857142857142855,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/session6/recordings/memory-captions-r3-t2.json",
+      "metrics": {
+        "wallMs": 1828,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [
+          {
+            "ttftMs": 1822,
+            "wallMs": 1822,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 1822,
+            "p95": 1822,
+            "min": 1822,
+            "max": 1822
+          },
+          "wallMs": {
+            "p50": 1822,
+            "p95": 1822,
+            "min": 1822,
+            "max": 1822
+          },
+          "inputTokensPerTurn": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "outputTokensPerTurn": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cacheReportingTurns": 0
+        },
+        "usd": 0,
+        "usageTokens": 0,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 1,
+        "contextByType": [
+          {
+            "system": 2323,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "conversation": 115,
+            "latest_user_message": 16,
+            "tool_schemas": 6806
+          }
+        ],
+        "contextUsedTokens": [
+          13168
+        ],
+        "contextCachedTokens": [
+          null
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    },
+    {
+      "turnIndex": 2,
+      "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+      "rubric": "memory-captions",
+      "expectedIntent": "edit",
+      "score": 0.42857142857142855,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": false,
+          "detail": "unchanged",
+          "weight": 2
+        },
+        {
+          "id": "has-captions",
+          "ok": false,
+          "detail": "0 caption clip(s)",
+          "weight": 2
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0,
+        "latency": {
+          "firstProgressMs": null,
+          "doneMs": 2013
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Claude Code returned an error result: You've hit your session limit · resets 4:55pm (Asia/Katmandu)"
+        },
+        "score": 0.42857142857142855,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/session6/recordings/memory-captions-r3-t3.json",
+      "metrics": {
+        "wallMs": 2013,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [
+          {
+            "ttftMs": 2009,
+            "wallMs": 2009,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 2009,
+            "p95": 2009,
+            "min": 2009,
+            "max": 2009
+          },
+          "wallMs": {
+            "p50": 2009,
+            "p95": 2009,
+            "min": 2009,
+            "max": 2009
+          },
+          "inputTokensPerTurn": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "outputTokensPerTurn": {
+            "p50": 0,
+            "p95": 0,
+            "min": 0,
+            "max": 0
+          },
+          "cacheReportingTurns": 0
+        },
+        "usd": 0,
+        "usageTokens": 0,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 1,
+        "contextByType": [
+          {
+            "system": 2360,
+            "retrieved_evidence": 2259,
+            "skill": 1649,
+            "conversation": 132,
+            "latest_user_message": 22,
+            "tool_schemas": 6806
+          }
+        ],
+        "contextUsedTokens": [
+          13228
+        ],
+        "contextCachedTokens": [
+          null
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

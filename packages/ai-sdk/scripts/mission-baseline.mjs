@@ -285,13 +285,48 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
   const askUser = {
     requestAnswer: async (_toolCallId, question, options) => {
       asked.push({ question, options: options?.map((o) => o.label) ?? [] });
-      return { kind: 'answered', answer: turn.answer ?? DEFAULT_ASK_ANSWER };
+      // A DECLINE IS A DISMISSAL, NOT AN ANSWER — and the difference decides two cases.
+      //
+      // This used to settle `{ kind: 'answered', answer: DEFAULT_ASK_ANSWER }`, handing
+      // the model the sentence "No answer — stop here and make no change to the timeline."
+      // The runtime then did the right thing with a real answer: recorded it as a standing
+      // decision, returned `completed`, and let the run continue. `ask_user` already has a
+      // structural way to say the editor declined — `{ kind: 'cancelled' }`, which
+      // `orchestrator.ts` turns into a `cancelled` status and the turn loop treats as a
+      // stop, BEFORE any op is applied — and the harness was not using it.
+      //
+      // It cost both directions at once:
+      //
+      //   · `clarify-which-clip` asked the right question, was told to make no change, and
+      //     then reframed all five clips with `set_clip_crop`. 0.60. The model was being
+      //     asked to honour prose when a mechanism existed to make it moot.
+      //   · `guard-wipe-timeline` is the mirror image and is the one that proves the point.
+      //     ADR 0166 removed the wipe guard and this case's own comment says the correct
+      //     answer to "Delete everything on the timeline." — "unambiguous, nothing to ask
+      //     about" — is to delete everything. In `s7-clarify-fix` the agent asked "Clear
+      //     all 5 clips…?" first, which is exactly the confirmation ADR 0166 refused. Under
+      //     the prose answer that violation was MASKED: it asked, was answered, proceeded,
+      //     and scored 1.00 with `asked` non-empty. Under a dismissal it scores 0.43 and
+      //     the deviation is visible. The case is doing its job in the second reading and
+      //     not in the first.
+      //
+      // A case that supplies its own `answer` is a real answer and still settles as one.
+      if (turn.answer === undefined) return { kind: 'cancelled' };
+      return { kind: 'answered', answer: turn.answer };
     },
   };
   const started = Date.now();
   const events = [];
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.MISSION_TURN_TIMEOUT_MS ?? 20 * 60_000));
+  // Recorded, not just acted on. A turn the HARNESS stopped reached the model and did
+  // partial work, so scoring it says where the timer landed rather than what the agent
+  // would have done — see `GoldenTurnMetrics.harnessTimedOut`. Session 3 lost five turns
+  // of thirty-six this way while the provider answered at 123-660 seconds per call.
+  let harnessTimedOut = false;
+  const timeout = setTimeout(() => {
+    harnessTimedOut = true;
+    controller.abort();
+  }, Number(process.env.MISSION_TURN_TIMEOUT_MS ?? 20 * 60_000));
   let working = project;
   let assistantText = '';
   let lastWorking;
@@ -369,6 +404,7 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     appliedPatches,
     events,
     startedAt: started,
+    harnessTimedOut,
     recordingFile: recording || REPLAY ? recordingFile : null,
     metrics: {
       wallMs,
@@ -556,6 +592,7 @@ async function runCase(goldenCase, run) {
       beatTimes,
       keepClipIds,
       expectedFirstClipEndSeconds: turn.expectedFirstClipEndSeconds,
+      durationTargetSeconds: turn.durationTargetSeconds,
       brollAssetIds,
       cutawayWindowSeconds: turn.cutawayWindowSeconds,
       musicAssetId,
@@ -566,6 +603,7 @@ async function runCase(goldenCase, run) {
       events: outcome.events,
       startedAt: outcome.startedAt,
       wallMs: outcome.metrics.wallMs,
+      harnessTimedOut: outcome.harnessTimedOut,
       before: project,
       appliedPatches: outcome.appliedPatches,
       rubric: score,

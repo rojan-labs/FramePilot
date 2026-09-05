@@ -8,6 +8,7 @@ import type { PinnedEntity } from '../../ai/composerActions.js';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import { Composer, type ComposerProps } from './Composer.js';
 import type { ContextWindowState } from './ContextWindowIndicator.js';
+import type { JSX } from 'react';
 
 const context: ContextItem[] = [
   { id: 'timeline', kind: 'timeline', label: 'Current Timeline', removable: false },
@@ -52,6 +53,44 @@ function setup(overrides: Partial<ComposerProps> = {}) {
   return props;
 }
 
+/**
+ * `setup` for a test that needs to re-render with a NEW value — the shape flag is
+ * recomputed in a layout effect, so proving it goes back needs a second render of the
+ * same tree rather than a second mount.
+ */
+function renderComposer(overrides: Partial<ComposerProps> = {}): {
+  rerender: (next: Partial<ComposerProps>) => void;
+} {
+  const base: ComposerProps = {
+    value: '',
+    onChange: vi.fn(),
+    onSubmit: vi.fn(),
+    onStop: vi.fn(),
+    running: false,
+    contextWindow,
+    contextPhase: 'idle',
+    contextItems: context,
+    onRemoveContext: vi.fn(),
+    attachments: [],
+    onRemoveAttachment: vi.fn(),
+    atEntities,
+    onPinEntity: vi.fn(),
+    ...overrides,
+  };
+  const tree = (props: ComposerProps): JSX.Element => (
+    <div className="ai-sidebar">
+      <header className="ai-sidebar-header">
+        <div className="ai-sidebar-header-right" />
+      </header>
+      <Composer {...props} />
+    </div>
+  );
+  const view = render(tree(base));
+  return {
+    rerender: (next) => view.rerender(tree({ ...base, ...next })),
+  };
+}
+
 describe('Composer', () => {
   it('surfaces BeautifulUI-style live run activity beside the message box', () => {
     setup({ running: true, runStatus: 'generating' });
@@ -87,11 +126,12 @@ describe('Composer', () => {
     expect(props.onChange).toHaveBeenCalledWith('/add-captions ');
   });
 
-  it('toggles quick actions and prefills a prompt', () => {
-    const props = setup();
-    fireEvent.click(screen.getByLabelText('Quick actions'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Trim Silence' }));
-    expect(props.onChange).toHaveBeenCalledWith(expect.stringContaining('silent gaps'));
+  it('offers no quick-actions control — "/" is the one prompt-discovery surface', () => {
+    setup({ onAttachFiles: vi.fn() });
+    expect(screen.queryByLabelText('Quick actions')).toBeNull();
+    expect(document.querySelector('.ai-quick')).toBeNull();
+    // The paperclip is what is left in the lead cluster, and it must survive the removal.
+    expect(screen.getByLabelText('Attach reference video or image')).toBeDefined();
   });
 
   it('lists context chips and removes them', () => {
@@ -201,6 +241,111 @@ describe('Composer', () => {
   it('renders no pin picker when the value has no active "@" query', () => {
     setup({ value: 'tighten it' });
     expect(screen.queryByLabelText('Pin context')).toBeNull();
+  });
+});
+
+/**
+ * The writing row's shape and order.
+ *
+ * jsdom has no layout, so nothing here can assert pixels. What it CAN hold is the
+ * contract the last regression broke: the DOM order the CSS grid is written against,
+ * and the fact that the message column is the one between the two control clusters.
+ * `aef2824` changed that order in one stylesheet's favour while a later-imported
+ * stylesheet still described the old one, and the composer rendered with a truncated
+ * placeholder for a full commit because nothing asserted the shape at all.
+ */
+describe('the writing row', () => {
+  const row = (): HTMLElement => {
+    const element = document.querySelector('.ai-composer');
+    if (!element) throw new Error('no composer row');
+    return element as HTMLElement;
+  };
+
+  it('puts the lead controls, the message and send in that order', () => {
+    setup({ onAttachFiles: vi.fn() });
+    const children = Array.from(row().children);
+    expect(children).toHaveLength(3);
+    expect(children[0]?.className).toContain('ai-composer-lead');
+    expect(children[1]?.tagName).toBe('TEXTAREA');
+    expect(children[2]?.className).toContain('ai-composer-send');
+  });
+
+  it('keeps the message between the clusters when the host cannot attach files', () => {
+    // The paperclip is absent on a host that cannot import; the lead cluster stays, so
+    // the grid still has exactly three children and the columns still line up.
+    setup();
+    const children = Array.from(row().children);
+    expect(children).toHaveLength(3);
+    expect(children[1]?.tagName).toBe('TEXTAREA');
+  });
+
+  it('swaps send for stop in place while a run is going', () => {
+    setup({ running: true, runStatus: 'generating' });
+    const children = Array.from(row().children);
+    expect(children[2]?.className).toContain('ai-composer-stop');
+    expect(document.querySelector('.ai-composer-send')).toBeNull();
+  });
+
+  it('keeps the lead cluster as the first column even when it is empty', () => {
+    // On a host that cannot attach files it renders nothing — but it still has to
+    // occupy column one, or the message shifts left on one host and not the other.
+    setup();
+    const lead = document.querySelector('.ai-composer-lead');
+    expect(lead).not.toBeNull();
+    expect(lead?.querySelectorAll('button')).toHaveLength(0);
+    expect(Array.from(row().children)).toHaveLength(3);
+  });
+
+  it('labels every icon-only control', () => {
+    setup({ onAttachFiles: vi.fn() });
+    for (const label of ['Attach reference video or image', 'Send']) {
+      expect(screen.getByLabelText(label)).toBeDefined();
+    }
+  });
+});
+
+/**
+ * Pill while it is one line, rounded rectangle once it is not.
+ *
+ * The flag is measured from layout rather than read off the text, because a long
+ * paragraph wraps without ever containing a newline. jsdom reports `scrollHeight` as 0,
+ * so these stub it — what is under test is the THRESHOLD and the fact that the shape
+ * follows measured height, not the browser's layout engine.
+ */
+describe('the shape follows the content', () => {
+  const withScrollHeight = (px: number): void => {
+    Object.defineProperty(HTMLTextAreaElement.prototype, 'scrollHeight', {
+      configurable: true,
+      get: () => px,
+    });
+  };
+
+  const shell = (): HTMLElement => document.querySelector('.ai-composer-shell') as HTMLElement;
+
+  it('is a pill while empty', () => {
+    setup({ value: '' });
+    expect(shell().hasAttribute('data-multiline')).toBe(false);
+  });
+
+  it('stays a pill for a message that fits on one line', () => {
+    // 28px: one 18px line plus the input's 10px of vertical padding.
+    withScrollHeight(28);
+    setup({ value: 'tighten the intro' });
+    expect(shell().hasAttribute('data-multiline')).toBe(false);
+  });
+
+  it('becomes a rectangle once the message wraps, with no newline in the value', () => {
+    withScrollHeight(64);
+    setup({ value: 'a single long paragraph that wraps across several lines on its own' });
+    expect(shell().hasAttribute('data-multiline')).toBe(true);
+  });
+
+  it('returns to a pill when the message is cleared', () => {
+    withScrollHeight(64);
+    const { rerender } = renderComposer({ value: 'wrapped\nmessage' });
+    expect(shell().hasAttribute('data-multiline')).toBe(true);
+    rerender({ value: '' });
+    expect(shell().hasAttribute('data-multiline')).toBe(false);
   });
 });
 

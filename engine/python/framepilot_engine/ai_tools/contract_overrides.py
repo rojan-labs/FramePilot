@@ -33,6 +33,32 @@ _COLOR_RANGES: dict[str, tuple[float, float]] = {
 }
 
 
+def _ordered_range_error(start_field: str, end_field: str, start: float, end: float) -> str:
+    """The refusal for an out-of-order range, with the value the caller probably meant.
+
+    A positive ``end`` below ``start`` is not a typo, it is ``end`` read as a LENGTH — "a
+    six second clip at 44s" sent as ``start: 44, end: 6``. Run ``137d8fd0`` sent exactly
+    that to ``add_clip`` three times and read back a restatement of the rule it had not
+    understood on each attempt. Naming the value that would have worked is what turns the
+    refusal into a correction.
+
+    The length reading is only offered when ``end`` could plausibly be one. A zero or
+    negative ``end`` is a different mistake and gets no guess. Mirrors
+    ``tool-input-contract.ts#durationHint``.
+    """
+    message = (
+        f"{end_field} must be greater than {start_field}; "
+        f"you gave {start_field} {start:g} and {end_field} {end:g}"
+    )
+    if end > 0 and start > 0:
+        message += (
+            f". {end_field} is a position on the same timeline as {start_field}, not a "
+            f"length — for a {end:g}s span starting at {start:g}, pass "
+            f"{end_field}: {start + end:g}"
+        )
+    return message
+
+
 class _AddAssetArgs(BaseModel):
     model_config = _STRICT
     # A captured agent run, having lost its stock `remoteId`s to log compaction, guessed
@@ -66,7 +92,7 @@ class _AddClipArgs(BaseModel):
     @model_validator(mode="after")
     def _ordered(self) -> _AddClipArgs:
         if self.end <= self.start:
-            raise ValueError("end must be greater than start")
+            raise ValueError(_ordered_range_error("start", "end", self.start, self.end))
         return self
 
 
@@ -88,7 +114,7 @@ class _AddClipEntry(BaseModel):
     @model_validator(mode="after")
     def _ordered(self) -> _AddClipEntry:
         if self.end <= self.start:
-            raise ValueError("end must be greater than start")
+            raise ValueError(_ordered_range_error("start", "end", self.start, self.end))
         return self
 
 
@@ -121,7 +147,7 @@ class _WindowArgs(BaseModel):
     @model_validator(mode="after")
     def _ordered(self) -> _WindowArgs:
         if self.start is not None and self.end is not None and self.end <= self.start:
-            raise ValueError("end must be greater than start")
+            raise ValueError(_ordered_range_error("start", "end", self.start, self.end))
         return self
 
 
@@ -188,7 +214,9 @@ class _ApplyEffectArgs(BaseModel):
     @model_validator(mode="after")
     def _ordered(self) -> _ApplyEffectArgs:
         if self.end_time is not None and self.end_time <= self.start_time:
-            raise ValueError("endTime must be greater than startTime")
+            raise ValueError(
+                _ordered_range_error("startTime", "endTime", self.start_time, self.end_time)
+            )
         return self
 
 
@@ -208,7 +236,7 @@ class _ResizeEffectArgs(BaseModel):
     @model_validator(mode="after")
     def _ordered(self) -> _ResizeEffectArgs:
         if self.end <= self.start:
-            raise ValueError("end must be greater than start")
+            raise ValueError(_ordered_range_error("start", "end", self.start, self.end))
         return self
 
 

@@ -64,7 +64,11 @@
       },
       "expect": {
         "trackId": "video_main",
-        "clipIds": ["clip_a", "clip_a__split_2000", "clip_b"],
+        "clipIds": [
+          "clip_a",
+          "clip_a__split_2000",
+          "clip_b"
+        ],
         "boundary": 2
       }
     },
@@ -81,6 +85,25 @@
         "trackId": "overlay_main",
         "start": 1,
         "end": 5
+      }
+    },
+    {
+      "name": "reorder clips",
+      "operation": {
+        "type": "reorder_clips",
+        "trackId": "video_main",
+        "clipIds": [
+          "clip_b",
+          "clip_a"
+        ]
+      },
+      "expect": {
+        "trackId": "video_main",
+        "clipIds": [
+          "clip_b",
+          "clip_a"
+        ],
+        "boundary": 4
       }
     },
     {

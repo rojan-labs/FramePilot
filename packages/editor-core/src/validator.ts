@@ -98,6 +98,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'split_clip',
   'delete_range',
   'move_clip',
+  'reorder_clips',
   'ripple_delete',
   'add_clip',
   'add_text_overlay',
@@ -350,10 +351,25 @@ function overlapChecks(tracks: readonly Track[], index: number): ValidationIssue
       const previous = ordered[i - 1]!;
       const current = ordered[i]!;
       if (current.start < previous.end - EPSILON) {
+        // NAME THE MOVES. The bare sentence stated the conflict and stopped; run
+        // `137d8fd0` lost the wipeout speed ramp the editor had asked for by name to it,
+        // because `set_clip_speed` stretched a clip into its neighbour and "Clips A and B
+        // overlap on track v_main" is not something a caller can act on.
+        //
+        // Deliberately NO magnitude, and no clip endpoints. Both were written, and both
+        // were taken back out: `orchestrator.ts#deterministicFailureKey` keys the
+        // repeated-failure guard on this message body, and its contract is that the values
+        // a validator names ARE the defect's identity. An overlap that shrank from 3s to
+        // 1s across two attempts would then read as two unrelated failures, and the guard
+        // that stops a run nudging arguments at a wall would stop firing on the most
+        // common wall there is. The remedy below is the actionable half and it does not
+        // vary, so it costs the guard nothing.
         issues.push({
           code: 'overlap_error',
           severity: 'error',
-          message: `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}'.`,
+          message:
+            `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}'. ` +
+            `Shorten one, move '${current.id}' later, or place it on another track.`,
           operationIndex: index,
         });
       }

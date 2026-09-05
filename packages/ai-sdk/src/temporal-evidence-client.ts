@@ -99,8 +99,28 @@ export function createTemporalEvidenceAcquirer(
       }
       const parsed = TemporalEvidenceBatchSchema.safeParse(await response.json());
       if (!parsed.success) {
+        // NAME THE FIELDS. This is the only place a TS/Python contract drift on the
+        // review path can be caught, and a bare "did not match its contract" is a dead
+        // end: run `137d8fd0` lost all seven of its reviews to `perceptualHash: null`
+        // and the sentence gave nobody anything to look at. The path list is what turns
+        // that into a one-line diagnosis.
+        const where = parsed.error.issues
+          .slice(0, 5)
+          .map((issue) => `${issue.path.join('.') || '(root)'}: ${issue.message}`)
+          .join('; ');
+        const more =
+          parsed.error.issues.length > 5
+            ? `, and ${String(parsed.error.issues.length - 5)} more`
+            : '';
+        log.error('acquire ← temporal evidence failed its contract', {
+          issues: parsed.error.issues.length,
+          where,
+        });
         throw new TemporalEvidenceClientError(
-          'Temporal evidence response did not match its contract.',
+          `Temporal evidence response did not match its contract — ${where}${more}.`.slice(
+            0,
+            MAX_ERROR_CHARS + 120,
+          ),
         );
       }
       const resultRenderSettings = [

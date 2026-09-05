@@ -129,6 +129,29 @@ describe('word_severed — did I cut through a word?', () => {
     expect(found.detail).toContain('get_mapped_transcript');
   });
 
+  /**
+   * Run `session6` lost three turns to this message and one of them cost $3.19.
+   *
+   * `podcast-highlight-60s` r3 read "Starting" at `startFrame: 808` from
+   * `get_mapped_transcript` — 26.9333s, safely before the word — and then passed
+   * `end: 26.82` in SECONDS. Quantisation rounded that to frame 805, carrying the source
+   * out to 26.9667s, eight tenths of a frame inside the word. The run had the right frame
+   * and the wrong unit, and the message told it to "trim_clip … to that frame" using a
+   * tool whose arguments are seconds. Naming the second, and the division that produces
+   * it, is the difference between a report and an instruction that can be followed.
+   */
+  it('names the SECOND to cut at, because the tools it names take seconds', () => {
+    const found = checkOf(
+      checkProject([clip('a', 0, 1), clip('b', 1, 3, { sourceStart: 1, sourceEnd: 3 })], words),
+      'word_severed',
+    );
+    expect(found.status).toBe('fail');
+    // Frame 30 at 30fps is exactly 1s — the boundary the run actually has to move.
+    expect(found.detail).toContain('frame 30 = 1s');
+    expect(found.detail).toContain('take SECONDS');
+    expect(found.detail).toContain('DIVIDED BY the project frame rate (30)');
+  });
+
   it('passes a cut on a word boundary — before the word is not through it', () => {
     // 1.5s is frame 45, exactly where "lands" begins.
     const found = checkOf(

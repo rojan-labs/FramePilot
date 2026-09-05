@@ -14,8 +14,8 @@
  * `professional-edit.ts`, which compiles it down to these same primitives.
  */
 import { z } from 'zod/v4';
-import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
-import type { CropRect, Timeline, Track } from '@framepilot/timeline-schema';
+import { AudioRoleSchema, BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
+import type { CropRect, Project, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
   coverCropFor,
@@ -23,6 +23,7 @@ import {
   mapSequenceTime,
   mapSourceTime,
   mapTranscript,
+  speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
 import { createLaneAllocator } from '@framepilot/editor-core';
@@ -38,6 +39,7 @@ import type { ToolSpec } from '../tool-registry.js';
 import { clipCandidates } from './clip-candidates.js';
 import { createPicturePlacer, tracksCoveredByPictureInFront } from './picture-layers.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { boolean, filterString, numeric, seconds } from './tool-args.js';
 
 /**
@@ -353,6 +355,45 @@ const placementClipId = (placement: {
  * grid after this runs, so an id derived here from the raw value would not be the one the
  * clip ends up with.
  */
+const roundSeconds = (n: number): string => (Math.round(n * 100) / 100).toString();
+
+/** A clip's file name for a refusal sentence, or its id when the bin does not know it. */
+function assetLabel(ctx: ToolContext, assetId: string): string {
+  const asset = ctx.project.assets?.find((a) => a.id === assetId);
+  const path = asset?.path;
+  const name = typeof path === 'string' ? path.split('/').pop() : undefined;
+  return `"${name && name !== '' ? name : assetId}"`;
+}
+
+/**
+ * The same asset already reading the same source range over the same sequence span.
+ *
+ * Exact on all three, and deliberately so: two different moments of one file stacked at
+ * one instant is a strange edit but a real one, and only the byte-identical placement is
+ * provably invisible. Compared on the frame grid's own slack so a placement recomputed a
+ * float apart still counts as the same one. See {@link addClipOperation}.
+ */
+function existingPlacement(
+  project: Project,
+  clip: {
+    readonly assetId: string;
+    readonly start: number;
+    readonly end: number;
+    readonly sourceStart: number;
+  },
+): { readonly trackId: string; readonly clipId: string } | undefined {
+  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+  for (const track of project.timeline.tracks) {
+    for (const existing of track.clips) {
+      if (existing.assetId !== clip.assetId) continue;
+      if (!near(existing.start, clip.start) || !near(existing.end, clip.end)) continue;
+      if (!near(existing.sourceStart, clip.sourceStart)) continue;
+      return { trackId: track.id, clipId: existing.id };
+    }
+  }
+  return undefined;
+}
+
 function addClipOperation(
   clip: {
     readonly trackId: string;
@@ -364,6 +405,13 @@ function addClipOperation(
   ctx: ToolContext,
   lanes: LaneAllocator,
   picture: PicturePlacer,
+  /**
+   * Placements already handed out by THIS call, so a batch cannot duplicate inside
+   * itself. `existingPlacement` reads the pre-call timeline and therefore cannot see an
+   * entry the same `add_clips` batch booked a moment ago — `add_clips` plans every entry
+   * against one snapshot, which is the whole reason the lane allocators are per-call too.
+   */
+  booked: Set<string>,
 ): Operation[] {
   // Resolve the lane rather than trusting the one that was named — by two
   // different rules, because picture and everything else fail differently.
@@ -390,6 +438,31 @@ function addClipOperation(
   // is geometry, so the cover crop is exactly what lets a landscape source sit over picture
   // in a portrait project; deciding the placement against the bare clip and cropping
   // afterwards refused the very placement the reframe exists to make legal.
+  // THE SAME SHOT AT THE SAME MOMENT, TWICE, IS INVISIBLE WORK.
+  //
+  // The placer's job is to find a lane for a clip that collides with picture, and it does
+  // it well — for a clip that is genuinely NEW. It cannot tell that from the same clip
+  // sent again, and when the collision is with an identical copy of itself the honest
+  // answer is not "open another layer". Run `137d8fd0` placed `Video_6381282` over 0–9s
+  // three times and finished with nineteen video lanes for a sixty-second edit; two of
+  // those copies can never be seen, and every one of them costs a lane, a render pass and
+  // a row in the editor's timeline.
+  //
+  // Nothing else catches it: a second placement really does change the project, so the
+  // run's no-change guard cannot see it, and the copies share no track so the validator
+  // cannot either.
+  const placementKey = `${clip.assetId}@${clip.start}-${clip.end}:${clip.sourceStart}`;
+  const alreadyThere = existingPlacement(ctx.project, clip);
+  if (alreadyThere || booked.has(placementKey)) {
+    throw new ToolRefusalError(
+      `${assetLabel(ctx, clip.assetId)} is already on the timeline from ` +
+        `${roundSeconds(clip.start)}s to ${roundSeconds(clip.end)}s` +
+        `${alreadyThere ? `, on ${alreadyThere.trackId}` : ' — this call placed it already'}. ` +
+        'A second copy of the same shot over the same moment cannot be seen behind the ' +
+        'first. Place it at a different time, use a different shot, or change the one ' +
+        'that is there with trim_clip or move_clip.',
+    );
+  }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
   const crop = autoReframeCrop(ctx, clip);
@@ -413,6 +486,7 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
+  booked.add(placementKey);
   const ops = [...placed.setupOps, add];
   if (!crop || !clipId) return ops;
   return [...ops, { type: 'set_clip_crop', clipId, crop }];
@@ -618,7 +692,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     transcriptWindowSchema,
     (a, ctx) => {
       const map = buildTimelineMap(ctx.project.timeline);
-      const mapped = mapTranscript(map, ctx.project.transcript);
+      // The timings the model cuts on. An unattributed word matching any asset reports
+      // narration as audible inside a silent b-roll clip, and every cut placed from that
+      // reading is wrong before the model does anything.
+      const mapped = mapTranscript(
+        map,
+        ctx.project.transcript,
+        speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
+      );
       const start = a.start ?? Number.NEGATIVE_INFINITY;
       const end = a.end ?? Number.POSITIVE_INFINITY;
       const words = mapped.words.filter((w) => w.end > start && w.start < end);
@@ -647,10 +728,24 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // frame span is what a trim can actually be aimed at — "cut before she says but"
       // means a frame, and the model should not be deriving it from a float.
       const fps = ctx.project.fps;
+      // NEAREST, deliberately — see `frame-round-trip.test.ts`. A floor would place the
+      // cut a frame early; the reported frame is the one closest to where the word
+      // actually begins, and that decision is not what the word-boundary defect was about.
       const timedWords = words.map((w) => ({
         ...w,
         startFrame: secondsToFrame(w.start, fps),
         endFrame: secondsToFrame(w.end, fps),
+        // The SAME instants as the frames, expressed in seconds.
+        //
+        // Every cut tool takes seconds, and `quantizePatch` rounds whatever it is given to
+        // the nearest frame. So a run that read the right frame here and then passed the
+        // word's raw `start` — which is what the tools accept — had its cut rounded back
+        // across the word edge by the quantizer. It was doing everything asked of it. The
+        // fix is not another instruction: it is to stop publishing two answers to "when
+        // does this word begin". `start`/`end` remain in the payload as the measurement;
+        // these two are the edit points, and they are what the digest shows.
+        startSeconds: frameToSeconds(secondsToFrame(w.start, fps), fps),
+        endSeconds: frameToSeconds(secondsToFrame(w.end, fps), fps),
       }));
       return {
         words: timedWords,
@@ -822,8 +917,31 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'reorder_clips',
+      description:
+        'Reorder one track\'s clips — "put the last shot first", "swap these two". ' +
+        'Pass the track and ALL its clip ids in the new order; they are re-laid end to ' +
+        'end keeping each length and media. Nothing is deleted or added, so this cannot ' +
+        'lose footage; deleting and re-adding clips can. move_clip cannot reorder.',
+    },
+    z
+      .object({
+        trackId: z.string(),
+        clipIds: z
+          .array(z.string())
+          .min(1)
+          .max(500)
+          .describe("All the track's clip ids, each once, in play order"),
+      })
+      .strict(),
+    (a) => [{ type: 'reorder_clips', trackId: a.trackId, clipIds: a.clipIds }],
+  ),
+  mutateTool(
+    {
       name: 'move_clip',
-      description: 'Move a clip to a track at a new timeline start time (duration unchanged).',
+      description:
+        'Move ONE clip to a track at a new timeline start time (duration unchanged). ' +
+        'To reorder a track, use reorder_clips.',
     },
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
     (a, ctx) => {
@@ -961,6 +1079,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         ctx,
         createLaneAllocator(ctx.project.timeline),
         createPicturePlacer(ctx.project),
+        // One placement, so nothing can precede it within the call.
+        new Set<string>(),
       ),
   ),
   mutateTool(
@@ -1004,8 +1124,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
       const picture = createPicturePlacer(ctx.project);
+      const booked = new Set<string>();
       return a.clips.flatMap((clip) =>
-        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture),
+        addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture, booked),
       );
     },
   ),
@@ -1013,9 +1134,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'set_track_flags',
       description:
-        'Mute/unmute, lock/unlock, or hide/show a track (schema v4). Muting silences ' +
+        'Mute/unmute, lock/unlock, hide/show, or LABEL a track. Muting silences ' +
         "a track's audio in the render; hiding drops a visual track's picture; locking " +
-        'prevents edits. Only the provided flags change; omit a flag to leave it as-is.',
+        'prevents edits. role labels an audio track as dialogue, music or sfx — the ' +
+        'mix roles professional_audio duck_roles works in ("duck the music under the ' +
+        'dialogue"), which are never guessed from a track\'s name because a lane called ' +
+        '"Music 2" routinely holds a voice-over. Label the track, then duck by role. ' +
+        'Pass role: null to remove a label. Only the fields you provide change.',
     },
     z
       .object({
@@ -1023,20 +1148,41 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         muted: boolean().optional(),
         locked: boolean().optional(),
         hidden: boolean().optional(),
+        role: z.union([AudioRoleSchema, z.null()]).optional(),
       })
       .strict()
-      .refine((a) => a.muted !== undefined || a.locked !== undefined || a.hidden !== undefined, {
-        message: 'Set at least one of muted/locked/hidden.',
-      }),
-    (a) => [
-      {
-        type: 'set_track_flags',
-        trackId: a.trackId,
-        ...(a.muted !== undefined ? { muted: a.muted } : {}),
-        ...(a.locked !== undefined ? { locked: a.locked } : {}),
-        ...(a.hidden !== undefined ? { hidden: a.hidden } : {}),
-      },
-    ],
+      .refine(
+        (a) =>
+          a.muted !== undefined ||
+          a.locked !== undefined ||
+          a.hidden !== undefined ||
+          a.role !== undefined,
+        { message: 'Set at least one of muted/locked/hidden/role.' },
+      ),
+    (a, ctx) => {
+      // A role on a picture track is meaningless — the schema calls it "harmless
+      // elsewhere", which is exactly how a mislabelled project gets built. Refused here,
+      // at the boundary, where the sentence can name the track's actual type.
+      if (a.role !== undefined) {
+        const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
+        if (track !== undefined && track.type !== 'audio') {
+          throw new ToolRefusalError(
+            `role labels an audio track, and "${a.trackId}" is a ${track.type} track. ` +
+              'Mix roles describe sound; name the audio track carrying it.',
+          );
+        }
+      }
+      return [
+        {
+          type: 'set_track_flags',
+          trackId: a.trackId,
+          ...(a.muted !== undefined ? { muted: a.muted } : {}),
+          ...(a.locked !== undefined ? { locked: a.locked } : {}),
+          ...(a.hidden !== undefined ? { hidden: a.hidden } : {}),
+          ...(a.role !== undefined ? { role: a.role } : {}),
+        },
+      ];
+    },
   ),
   mutateTool(
     {
@@ -1050,6 +1196,55 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     },
     z.object({ clipId: z.string(), speed: numeric(z.number().positive().nullable()) }).strict(),
     (a) => [{ type: 'set_clip_speed', clipId: a.clipId, speed: a.speed }],
+  ),
+  mutateTool(
+    {
+      name: 'set_clip_speed_ramp',
+      description:
+        "Ramp a clip's speed over its length — fast in, slow on the moment, back up after. " +
+        "Give points along the clip in SOURCE seconds from its own start (0 = the clip's " +
+        'in point), each with a playback rate: [{sourceTime:0, rate:2}, {sourceTime:1.5, ' +
+        "rate:0.25}, {sourceTime:2.5, rate:1}]. The clip's timeline length is recomputed " +
+        'from the ramp. ramp: null clears it back to a constant speed. Use this for a ' +
+        'slow-motion emphasis on an impact or a landing; use set_clip_speed when one rate ' +
+        'covers the whole clip.',
+      capabilities: ['edit', 'timing'],
+    },
+    z
+      .object({
+        clipId: z.string(),
+        ramp: z
+          .array(
+            z.object({
+              sourceTime: numeric(z.number().nonnegative()),
+              rate: numeric(z.number().positive()),
+              easing: z
+                .enum(['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold', 'bezier'])
+                .optional(),
+            }),
+          )
+          .min(2)
+          .max(24)
+          .nullable(),
+      })
+      .strict(),
+    (a) => [
+      {
+        type: 'set_clip_speed_ramp',
+        clipId: a.clipId,
+        ramp:
+          a.ramp === null
+            ? null
+            : // The id is ours, not the model's: a ramp point is identified by where it
+              // sits, and asking for an id invites collisions the schema then rejects.
+              a.ramp.map((point, index) => ({
+                id: `ramp_${a.clipId}_${String(index)}`,
+                sourceTime: point.sourceTime,
+                rate: point.rate,
+                easing: point.easing ?? 'linear',
+              })),
+      },
+    ],
   ),
   mutateTool(
     {

@@ -736,7 +736,9 @@ describe('add_music — a duck refused after the download is keyed on its senten
     // The remedy has to survive the wrapper, or a closed loop is worse than an open one.
     const seenByModel = modelFacingText(provider);
     expect(seenByModel).toContain('already failed this run for this same reason');
-    expect(seenByModel).toContain('Pass the id of the dialogue track');
+    // The remedy is now the LIST of tracks that would work, not the generic instruction
+    // to find dialogue — this project has none, and naming `video_1` is the whole move.
+    expect(seenByModel).toContain('Tracks with clips to duck under: video_1');
   });
 
   it('lets a DIFFERENT bad track id have its own answer', async () => {
@@ -1227,5 +1229,252 @@ describe('a declared host refusal reaches the run’s durable account of itself'
     expect(briefing).toContain('FAILED — fix the cause, do not retry unchanged');
     expect(briefing).toContain('The first free moment is 10.0s');
     expect(briefing).not.toContain('ALREADY APPLIED');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A tool with no implementation on this surface — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * `render_preview` and `export_video` have no sidecar route: the editor renders through
+ * its own Export dialog, and the executor says exactly that — "Do not call it again".
+ *
+ * Nothing enforced it. Host failures are deliberately never keyed, so the refusal cost
+ * the run nothing per attempt and repeated freely. Run `137d8fd0` called `render_preview`
+ * three separate times and `export_video` once, on a run that ended at its budget ceiling.
+ *
+ * The channel is the one `stock-host.ts` already uses: the executor declares
+ * `surface_unavailable`, which is a verdict about the surface rather than an event on it,
+ * and the run refuses the second call.
+ */
+const renderPreview = (id: string): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'render_preview', arguments: {} }],
+});
+
+const SURFACE_SENTENCE =
+  '"render_preview" cannot be run from here — the editor renders and exports through its ' +
+  'own Export dialog. Do not call it again: finish the edit, then tell the editor it is ' +
+  'ready to export.';
+
+const surfaceRefusingHost = (counter: { calls: number }): HostToolExecutor => ({
+  run: async () => {
+    counter.calls += 1;
+    return { status: 'failed', summary: SURFACE_SENTENCE, refusalCause: 'surface_unavailable' };
+  },
+});
+
+describe('a tool this surface cannot run is refused on the second call', () => {
+  it('answers the repeat as a repeat, and keeps the remedy', async () => {
+    const counter = { calls: 0 };
+    const provider = new RecordingProvider([renderPreview('r1'), renderPreview('r2'), done]);
+    const events = await drain(
+      new Orchestrator(provider, { executor: surfaceRefusingHost(counter) }).streamAgent(
+        stockInput,
+        baseOpts(),
+        {},
+      ),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    expect(results[0]?.summary).toBe(SURFACE_SENTENCE);
+    expect(results[1]?.summary).toBe(
+      'Refused repeat of "render_preview" — it already failed this run',
+    );
+    // The instruction the refusal carries has to outlive the tool result.
+    const seenByModel = modelFacingText(provider);
+    expect(seenByModel).toContain('finish the edit, then tell the editor it is ready to export');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// An edit that changed nothing — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * `adjust_audio` setting a clip to the gain it already has applies cleanly and answers
+ * "Adjusted audio …". Run `137d8fd0` made 65 of those calls, seven of them re-setting one
+ * clip to −18 dB, because nothing in the answer distinguished the fader moving from the
+ * fader already being there.
+ *
+ * The operations are still applied — a re-derivation that comes out identical is the tool
+ * doing its job — but the sentence the model reads now says the project already said
+ * exactly this, and where to check before trying again.
+ */
+const setGain = (id: string, gainDb: number): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb } }],
+});
+
+describe('a tool call that moved nothing says so', () => {
+  /** `clip_a` is already at −18 dB, so setting it to −18 dB is the run's no-op. */
+  const alreadyQuiet: ContextInput = {
+    project: makeProject({
+      timeline: {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_a',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 6,
+                effects: [
+                  {
+                    id: 'clip_a__gain',
+                    type: 'audio_gain',
+                    params: { gainDb: -18 },
+                    keyframes: [],
+                  },
+                ],
+                keyframes: [],
+              },
+            ],
+          },
+          { id: 'audio_1', type: 'audio', clips: [] },
+        ],
+      },
+    } as unknown as Partial<ContextInput['project']>),
+    userPrompt: 'bring the wind down',
+  };
+
+  it('says the fader did not move, and says it only when it did not', async () => {
+    const provider = new RecordingProvider([setGain('g1', -18), setGain('g2', -12), done]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(alreadyQuiet, baseOpts(), {}),
+    );
+
+    const results = toolResults(events);
+    expect(results).toHaveLength(2);
+    // Setting −18 dB on a clip already at −18 dB.
+    expect(results[0]?.summary).toContain('nothing moved');
+    expect(results[0]?.summary).toContain('get_timeline');
+    // −12 dB is a real move, and must not be labelled as one that was not.
+    expect(results[1]?.summary).not.toContain('nothing moved');
+    expect(modelFacingText(provider)).toContain('the project already said exactly this');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A repeat of an applied edit — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * **66 mutating calls in run `137d8fd0` were byte-identical repeats of an edit the run
+ * had already applied** — the same −12 dB on the same clip fifteen times, the same
+ * transition nine times, the same colour grade four times, `add_track "captions"` four
+ * times. Nothing caught them: the turn loop compares PATCHES, and `seenFailureKeys` only
+ * remembers refusals.
+ *
+ * The guard needs BOTH signals. "Changed nothing" alone is legitimate —
+ * `caption_the_edit` re-deriving cues off an unchanged timeline is the tool working, and
+ * two incident regressions pin that its operations still flow. "Byte-identical repeat"
+ * alone is legitimate too — the same call after a cut is how captions are repaired.
+ * Together they are neither, and withholding is provably safe because the apply has just
+ * demonstrated the result is the same project.
+ */
+const gainOn = (id: string, clipId: string, gainDb: number): AiResponse => ({
+  text: '',
+  toolCalls: [{ id, name: 'adjust_audio', arguments: { clipId, gainDb } }],
+});
+
+describe('a mutating call the run has already applied', () => {
+  it('is withheld when making it again moves nothing', async () => {
+    // Turn 2 carries a read alongside the repeat, so the turn's own signature differs and
+    // the no-progress guard does not end the run before the repeat is reached. The
+    // guard under test is the CALL-level one, not the turn-level one.
+    const provider = new RecordingProvider([
+      gainOn('g1', 'clip_a', -12),
+      {
+        text: '',
+        toolCalls: [
+          { id: 'r1', name: 'get_timeline', arguments: {} },
+          { id: 'g2', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } },
+        ],
+      },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summaries = toolResults(events).map((r) => r.summary);
+    expect(summaries.some((s) => s.includes('already done, and doing it again moved nothing'))).toBe(
+      true,
+    );
+    expect(modelFacingText(provider)).toContain('the next part of the request');
+  });
+
+  it('sees through the order the arguments arrived in', async () => {
+    // The captured run sent the same instruction both ways round — 15 times one way and
+    // 10 the other — and a key that stringifies as-received cannot tell them apart.
+    const provider = new RecordingProvider([
+      { text: '', toolCalls: [{ id: 'a', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } }] },
+      {
+        text: '',
+        toolCalls: [
+          { id: 'r1', name: 'get_timeline', arguments: {} },
+          { id: 'b', name: 'adjust_audio', arguments: { gainDb: -12, clipId: 'clip_a' } },
+        ],
+      },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summaries = toolResults(events).map((r) => r.summary);
+    expect(summaries.some((s) => s.includes('already done'))).toBe(true);
+  });
+
+  it('lets a repeat through when it actually changes something', async () => {
+    const provider = new RecordingProvider([
+      gainOn('g1', 'clip_a', -12),
+      gainOn('g2', 'clip_a', -6),
+      gainOn('g3', 'clip_a', -12),
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    // The third call repeats the first, but the second moved the value, so re-setting
+    // −12 dB is a real change and must land.
+    const results = toolResults(events);
+    expect(results.map((r) => r.summary).filter((s) => s.includes('already done'))).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// A check's card carries its verdict — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * Run `137d8fd0` shows fourteen rows reading "Checking caption sync" and "Checking
+ * transitions". One of them found 287 of 287 retained words with no caption over them;
+ * the rest passed. Nothing on any of the rows said which was which.
+ *
+ * Every other read's card is correctly just the action — "Reading the timeline" is the
+ * whole story. A verification is not: the answer is the reason the run called it.
+ */
+describe('a verification read shows what it found', () => {
+  const verify = (name: string): AiResponse => ({
+    text: '',
+    toolCalls: [{ id: `v-${name}`, name, arguments: {} }],
+  });
+
+  it('says how many cues are in sync when captions pass', async () => {
+    const provider = new RecordingProvider([verify('verify_captions'), done]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summary = toolResults(events)[0]?.summary ?? '';
+    expect(summary).toMatch(/in sync|problem/);
+  });
+
+  it('leaves an ordinary read as the action it performed', async () => {
+    const provider = new RecordingProvider([
+      { text: '', toolCalls: [{ id: 'r1', name: 'get_timeline', arguments: {} }] },
+      done,
+    ]);
+    const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
+    const summary = toolResults(events)[0]?.summary ?? '';
+    expect(summary).not.toMatch(/in sync|problem|all good/);
   });
 });

@@ -195,6 +195,15 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
       assertUnlocked(findTrack(timeline, op.trackId), op.type);
       positiveRange(op.start, op.end, op.type);
       return;
+    case 'reorder_clips': {
+      // Structural check only — apply owns "is this a permutation of the track", because
+      // that answer needs the track's clip array and the error must name the omissions.
+      assertUnlocked(findTrack(timeline, op.trackId), op.type);
+      if (op.clipIds.length === 0) {
+        throw new OperationContractError('reorder_clips.clipIds must not be empty.');
+      }
+      return;
+    }
     case 'move_clip':
       assertClipUnlocked(timeline, op.clipId, op.type);
       assertUnlocked(findTrack(timeline, op.toTrackId), op.type);

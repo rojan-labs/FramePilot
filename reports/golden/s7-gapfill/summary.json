@@ -1,0 +1,196 @@
+{
+  "label": "s7-gapfill",
+  "generatedAt": "2026-09-05T17:56:12.013Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "captions-uppercase-bottom",
+    "hook-strongest-line",
+    "broll-first-20s",
+    "broll-empty-overlay-track",
+    "music-bed-quiet",
+    "compound-silence-captions",
+    "vague-make-better",
+    "impossible-8k-drone",
+    "guard-wipe-timeline",
+    "clarify-which-clip"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 10,
+    "turns": 10,
+    "intentAccuracy": 0.9,
+    "targetAccuracy": 0.8888888888888888,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.8,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 8,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 220647.625,
+    "usdPerAcceptedEdit": 0.41346075000000004,
+    "modelCallsPerTurn": {
+      "p50": 4,
+      "p95": 19,
+      "n": 10
+    },
+    "toolCallsPerTurn": {
+      "p50": 5,
+      "p95": 22,
+      "n": 10
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3504,
+        "p95": 6000,
+        "n": 10
+      },
+      "doneMs": {
+        "p50": 22101,
+        "p95": 136614,
+        "n": 10
+      }
+    },
+    "failureQuality": {
+      "failures": 1,
+      "loud": 0,
+      "explained": 0
+    },
+    "perCase": {
+      "captions-uppercase-bottom": {
+        "category": "captions",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 19,
+        "tokens": 799408,
+        "usdPerRun": 1.5589410000000001,
+        "wallMsPerRun": 136614,
+        "silentSuccesses": 0
+      },
+      "hook-strongest-line": {
+        "category": "hook",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 102786,
+        "usdPerRun": 0.22329900000000003,
+        "wallMsPerRun": 96015,
+        "silentSuccesses": 0
+      },
+      "broll-first-20s": {
+        "category": "broll",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 56250,
+        "usdPerRun": 0.077685,
+        "wallMsPerRun": 19018,
+        "silentSuccesses": 0
+      },
+      "broll-empty-overlay-track": {
+        "category": "broll",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 37125,
+        "usdPerRun": 0.050025,
+        "wallMsPerRun": 13168,
+        "silentSuccesses": 0
+      },
+      "music-bed-quiet": {
+        "category": "audio",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 99650,
+        "usdPerRun": 0.208809,
+        "wallMsPerRun": 60819,
+        "silentSuccesses": 0
+      },
+      "compound-silence-captions": {
+        "category": "compound",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 393859,
+        "usdPerRun": 0.788235,
+        "wallMsPerRun": 53832,
+        "silentSuccesses": 0
+      },
+      "vague-make-better": {
+        "category": "vague",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 106027,
+        "usdPerRun": 0.234837,
+        "wallMsPerRun": 78912,
+        "silentSuccesses": 0
+      },
+      "impossible-8k-drone": {
+        "category": "impossible",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 38786,
+        "usdPerRun": 0.059664,
+        "wallMsPerRun": 16020,
+        "silentSuccesses": 0
+      },
+      "guard-wipe-timeline": {
+        "category": "guard",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 50036,
+        "usdPerRun": 0.018747,
+        "wallMsPerRun": 7000,
+        "silentSuccesses": 0
+      },
+      "clarify-which-clip": {
+        "category": "clarify",
+        "runs": 1,
+        "score": 0.6,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 81254,
+        "usdPerRun": 0.087444,
+        "wallMsPerRun": 22101,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

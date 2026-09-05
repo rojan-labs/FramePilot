@@ -13,7 +13,153 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
+**Status snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
+(credits conserved). A second, systematic sweep of the captured transcript `137d8fd0` —
+the full deduplicated inventory of its 44 failed and 42 warning tool calls, which the
+earlier pass did not read — plus the open handoff items, closed **eight more defects**.
+The one that changes how earlier numbers read: `checkNoMidWordCuts` returned `ok: true`
+for a check it could not perform, and the scorer counts that in both the numerator and the
+denominator, so **`podcast-highlight-60s`, `remove-dead-air`, `compound-silence-captions`
+and `hook-first` have each been awarding themselves a free point**. Their recorded scores
+are upper bounds; no recorded number was edited. Two capabilities that could never succeed
+on a real project — ducking a bed under footage that carries the sound, and `duck_roles` on
+any project the agent did not build — now can, at a measured cost of **+130 tokens per
+request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.3 — **eight defects from the second sweep of `137d8fd0`.** A duck refused
+  with no viable track named; an enum rejection that never quoted the value it refused; a
+  split and an overlap that stated the problem and no move; the hook rubric failing a run
+  for obeying its own prompt; a check that could not measure scored as one that passed; the
+  third and last copy of the unattributed-word fabrication, in the caption pipeline and in
+  `get_mapped_transcript`; a safe-area check that had never looked at an overlay; and
+  `Track.role`, readable since v17 with no writer after creation. Commits `cb906ac`,
+  `b738281`, `1f29a5c`, `f4cac2a`, `4c0cc0b`, `d9ac392`, `70b8bfe`, `118e7b1`.
+- `[x]` GOLDEN-0.3 — the four inflated cases were re-run on the replaced fixture.
+  `checkNoMidWordCuts` now reports `skipped: false` and measures; the cases score 1.00
+  anyway. They went UP, not down — the prediction was wrong and the instrument is honest.
+
+**Current snapshot (2026-09-05d, GOLDEN-EVAL — goal.md Phase 0):** **no new run — credits
+conserved.** The four open engine defects (GOLDEN-C.4, C.5, C.6, and the word-boundary
+half of C.3) are **closed with reproducing tests**, and the most expensive one was
+measured shut by `--replay`, which costs nothing: `beat-sync` r1 goes from 121 tool calls
+to 25, $3.93 to $0.571, and `cancelled` to `completed`. `reorder_clips` (ADR 0173) gives
+the agent a route to a reorder that cannot lose footage; a retime now lands on the frame
+grid in both runtimes. Cost on the frozen token surfaces: **+169 tokens per request**,
+measured. **Nothing here is sampled against the model** — `reorder_clips` in particular is
+a capability the agent did not have, so its effect on the reorder cases is unknown until
+someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
+"s7-replay"; what is still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-C.4 — **a reorder no longer loses footage.** `reorder_clips` recomputes a
+  track's starts in ONE patch: no delete, no add, clip set invariant, so a run that stops
+  right after it has lost nothing. The wipe guard stays deleted — it catches two of the
+  five content-loss failures and misses the three 5→1 cases. Commit `a080900`, ADR 0173.
+  **Unmeasured against a run.**
+- `[x]` GOLDEN-C.5 — **a wholesale-rejected turn stops being re-issued.** Two independent
+  holes, found by replay rather than inspection: the rejection SENTENCE varies with its
+  offenders so the guard never matched it (producers now supply a stable `rejectionKey`),
+  and a re-proposed mutation counted as having learned something, handing back the credit
+  the guard had just withheld. Commit `0c9f195`.
+- `[x]` GOLDEN-C.6 — **a retimed clip lands on the frame grid.** `ApplyContext.fps`
+  threaded by `applyProjectPatch`, mirrored in Python, with the same-shape inverse kept
+  only where it is provably exact. Commit `1a49f98`.
+- `[x]` GOLDEN-0.2a — **the ten unmeasured cases now have evidence** (`s7-gapfill`, 10 × 1).
+  Nine score 1.00; `hook-strongest-line` scores 1.00 on real media for the first time.
+  Intent 90% · target 89% · boundary 100% · validity 100% · first-pass 80% · silent
+  successes 0 · reversibility 100%. `BASELINES.md` "s7-gapfill".
+- `[x]` GOLDEN-C.8 — **told to change nothing, the agent reframed every clip** — now
+  mechanically prevented. `clarify-which-clip` asked the right question, was answered
+  "make no change", and applied a 0.49-width centre crop to all five clips. A decline is
+  now a dismissal, so the run stops before any op is applied and the crops cannot land.
+  The model's disposition to over-edit is unchanged and unmeasured.
+- `[x]` GOLDEN-C.9 — **decided: a decline is a dismissal, not an answer.** The measurement
+  that looked like a regression was the instrument working — `guard-wipe-timeline`'s two
+  runs differ in whether the AGENT asked for wipe confirmation (`asked: []` vs
+  `asked: ["Clear all 5 clips…?"]`), and asking is exactly what ADR 0166 refused. Under the
+  prose answer that deviation scored 1.00 with a non-empty `asked`. Correction and evidence
+  in `BASELINES.md`.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. The eleven `session6` cases and the ten
+  `s7-gapfill` cases are disjoint and at different run counts, so neither is a floor and
+  they must not be averaged.
+- `[x]` GOLDEN-C.7 — **a human can reorder shots too.** Right-click a clip → "Move earlier
+  / later in sequence", built on `reorder_clips` so the track re-lays gaplessly and one undo
+  restores the order. Closes the asymmetry ADR 0173 left. The professional `EditorCommand`
+  intent was NOT added: nothing converges on that layer (the web editor builds raw ops), so
+  a `reorder` entry there would be vocabulary with no consumer.
+
+**Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** the fixture that
+invalidated three cases is **replaced** and measured (`speech-9min-c`: real narration with
+116 real pauses), and a run on it gave **eleven cases of clean evidence** before the
+provider dropped and the run was stopped. Nine of the eleven score 1.00 on every clean run;
+`podcast-highlight-60s` selects on meaning for the first time and `remove-dead-air` removes
+116 gaps in 3 calls for $0.13. **§2.2's four "upper bound" scores resolved UPWARD**, not
+down as predicted — `no-mid-word-cuts` is measuring rather than being handed a point, and
+the cases score 1.00 anyway. The run also found that **a reorder loses the editor's
+footage** in four of six clean runs. Full numbers, per-case table and what each is *not*
+evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-C.1 — **`mission-podcast` measures what its cases claim.** Measuring the
+  alternatives is what settled it: `speech-9min-b` has real words and no silent gap at −30,
+  −40 or −50 dB, so the obvious repoint would have broken `remove-dead-air` exactly as
+  `speech-9min` had broken selection. `speech-9min-c` is generated from `-b` with 116
+  pauses cut in at its own sentence boundaries. Commit `1040f2e`.
+- `[x]` GOLDEN-C.2 — **a word too wide to wrap is reported.** Both engines wrap identically
+  and neither breaks a word, so the overflow was invisible to the product and visible only
+  to the editor after export. Reported, not repaired — auto-shrink or mid-word breaking
+  would have to produce the same pixels in PIL and canvas. Commit `6fc28d9`.
+- `[x]` GOLDEN-C.3 — **the severed-word message names the second, not just the frame.**
+  Three turns of the run were lost passing seconds to tools the message described in
+  frames. Commit `5693600`.
+- `[x]` GOLDEN-C.4 — **a reorder must not lose footage.** Closed 2026-09-05d, see above. Four of six clean runs destroyed
+  content; twice the agent deleted the sequence and then asked the editor how to recover
+  from the state it had made. Needs a maintainer decision (ADR 0056 atomicity, ADR 0166
+  wipe guard) and probably an atomic `reorder_clips` operation. `REMAINING.md` §2.1.
+- `[x]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** Closed 2026-09-05d, see above. 29 identical
+  calls, $3.93, an empty track, past a guard that exists and passes its tests. Reproduce
+  with `--replay` before tuning any of the five run-stoppers. `REMAINING.md` §2.2.
+- `[x]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** Closed 2026-09-05d, see above. 16 `set_clip_speed` calls at
+  1.3× produced 16 off-grid edges; both engines agree, so parity holds and both are wrong
+  together. Three routes, all decisions. `REMAINING.md` §2.3.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; re-running
+  them is the one legitimate use of `--force`.
+
+**Prior snapshot (2026-09-05b, GOLDEN-EVAL — goal.md Phase 0):** the first live baseline
+attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten cases in
+(122–660s per model call against a normal 7–30). Eight cases have clean evidence; on those
+31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
+target resolution, operation validity and reversibility all **1.00** and zero silent
+successes. Running it found **five instrument defects**, all fixed. Full numbers, the
+per-case table, and what each is *not* evidence of: `BASELINES.md` "session3". What is
+still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.2 — **five instrument defects, found by running the thing.** A rubric
+  demanding a shorter programme for a prompt asking for a faster one; a case asking for 45
+  seconds scored against 60; the `__text__` sentinel counted as a dangling ref; b-roll
+  judged against the narration; and a turn the harness timed out scored as the agent's
+  behaviour. That last one is why `reorder-last-first`'s 0.6/0.7/0.7 is **not** the
+  regression it looks like — all three runs were cut off mid-reorder. Commits
+  `a255687`, `a8b58f7`.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases attempted, two with no clean run.
+  Resuming is cheap (per-case results are cached); check the provider is answering first.
+
+**Prior snapshot (2026-09-05, GOLDEN-EVAL — goal.md Phase 0):** the baseline exists and
+was **not re-run** this session (credits conserved). Sixteen defects closed on
+`fix/agent-reliability-2026-09-05`, each with a reproducing test — thirteen read out of a
+single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
+session's open leads, and one of those a **retraction**: `broll-first-20s`'s severed word
+was the instrument, not b-roll placement. Every number, every prediction the next run
+should test, and what each is *not* evidence of: `BASELINES.md` "session 3". What is still
+open, with root causes: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.1 — **thirteen defects from one transcript, and three golden leads.**
+  Caption patches discarded on stacked footage; `word_severed` failing runs on hallucinated
+  words and on b-roll it cannot be describing; selection-authored tools dying at the agent's
+  own first edit; the perceptual reviewer unable to parse the engine's own response; a
+  non-reversible `move_clip`; a turn that asks a question and edits anyway; and six
+  refusals the model could not act on. Commits `008cf0c..5deae6d`. Real-media effect on the
+  golden set: **pending the next baseline run** (predictions stated in `BASELINES.md`).
+
+**Prior snapshot (2026-09-02, GOLDEN-EVAL — goal.md Phase 0):** `[~]` **Golden evaluation
 harness on `feat/golden-eval-harness`.** `goal.md` requires a measured baseline before any
 prompt, tool or model change. The mission runner (`mission-baseline.mjs`) becomes the golden
 harness: a golden set covering every request category (`eval/golden-cases.ts`), checkable

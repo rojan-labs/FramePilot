@@ -17,6 +17,7 @@ import {
   buildAddMusicOps,
   pictureEndSeconds,
   localMusicAssetRefusal,
+  musicDuckRefusalKey,
   musicDuckSidechainIssue,
   nextMusicLayerId,
 } from './music-placement.js';
@@ -223,6 +224,82 @@ describe('musicDuckSidechainIssue', () => {
     expect(issue).toContain('not a track in this project');
   });
 
+  /**
+   * The refusal's IDENTITY must not move when the project does (session 7).
+   *
+   * The empty-duck refusal is remembered by its text, and that was a considered choice:
+   * the only thing varying used to be the `duckUnderTrackId` it names, which is the
+   * argument the model is being asked to correct. Appending the candidate track list — a
+   * strictly better refusal — silently broke it. The list grows as the run places clips,
+   * so the SAME rule refusing the SAME id twice produced two different sentences, two
+   * different keys, and no repeat guard: placing a clip on an unrelated track was enough
+   * to make the wall look new. That is precisely the loop `deterministicFailureKey` exists
+   * to stop.
+   */
+  it('keys the same refusal of the same id identically as the project fills up', () => {
+    const withEmpty = (extraClips: boolean): Project => {
+      const base = project();
+      const tracks = base.timeline.tracks as unknown as Array<{
+        id: string;
+        type: string;
+        clips: unknown[];
+      }>;
+      tracks.push({ id: 'empty_audio', type: 'audio', clips: [] });
+      if (extraClips) {
+        tracks.push({
+          id: 'later_audio',
+          type: 'audio',
+          clips: [
+            {
+              id: 'c_later',
+              assetId: 'a',
+              trackId: 'later_audio',
+              start: 0,
+              end: 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        });
+      }
+      return base;
+    };
+
+    // The SENTENCE differs — and it should, because the remedy got better.
+    const first = musicDuckSidechainIssue(withEmpty(false), 'empty_audio');
+    const second = musicDuckSidechainIssue(withEmpty(true), 'empty_audio');
+    expect(first).not.toBe(second);
+
+    // The KEY does not. Same rule, same bad id, same wall.
+    expect(musicDuckRefusalKey(withEmpty(false), 'empty_audio')).toBe(
+      musicDuckRefusalKey(withEmpty(true), 'empty_audio'),
+    );
+    expect(musicDuckRefusalKey(withEmpty(true), 'empty_audio')).toBe(
+      'duck_empty_track:empty_audio',
+    );
+  });
+
+  it('still gives a DIFFERENT bad id its own key — two corrections, two answers', () => {
+    const base = project();
+    const tracks = base.timeline.tracks as unknown as Array<{
+      id: string;
+      type: string;
+      clips: unknown[];
+    }>;
+    tracks.push({ id: 'empty_a', type: 'audio', clips: [] });
+    tracks.push({ id: 'empty_b', type: 'audio', clips: [] });
+    expect(musicDuckRefusalKey(base, 'empty_a')).not.toBe(musicDuckRefusalKey(base, 'empty_b'));
+    // And an unknown id is a different RULE, not just a different id.
+    expect(musicDuckRefusalKey(base, 'nope')).toBe('duck_unknown_track:nope');
+  });
+
+  it('has no key when there is nothing to refuse', () => {
+    expect(musicDuckRefusalKey(project(), 'dialogue_1')).toBeNull();
+    expect(musicDuckRefusalKey(project(), undefined)).toBeNull();
+  });
+
   it('rejects an empty sidechain track, where a duck has nothing to duck under', () => {
     const base = project();
     (base.timeline.tracks as unknown as Array<{ id: string; clips: unknown[] }>).push({
@@ -231,6 +308,85 @@ describe('musicDuckSidechainIssue', () => {
     });
     const issue = musicDuckSidechainIssue(base, 'empty_audio');
     expect(issue).toContain('no clips');
+  });
+
+  /**
+   * Run `137d8fd0`, reduced to its timeline.
+   *
+   * A GoPro edit: one continuous take on `v_main` whose own audio IS the wind, an empty
+   * `layer_audio_5`, and an editor who asked in words for the bed to duck the wind down.
+   * The model picked the only track whose NAME sounded like audio, was refused, was told
+   * "place the dialogue first" — there is no dialogue in a snowboarding video — omitted
+   * the argument, and shipped an unducked bed.
+   *
+   * The refusal is still a refusal: a duck at an empty track compiles to an empty
+   * envelope. What changed is that it now hands over the track that would have worked.
+   */
+  function gopro(): Project {
+    const base = project();
+    const tracks = base.timeline.tracks as unknown as Array<{
+      id: string;
+      type: string;
+      clips: unknown[];
+    }>;
+    tracks.length = 0;
+    tracks.push(
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [
+          {
+            id: 'clip__v_main_asset_raw_skating_0',
+            assetId: 'cam',
+            trackId: 'v_main',
+            start: 0,
+            end: 60,
+            sourceStart: 0,
+            sourceEnd: 60,
+            effects: [],
+            keyframes: [],
+          },
+        ],
+      },
+      { id: 'layer_audio_5', type: 'audio', clips: [] },
+      { id: 'captions', type: 'caption', clips: [] },
+    );
+    return base;
+  }
+
+  it('names the track that would have worked instead of asking for dialogue that does not exist', () => {
+    const issue = musicDuckSidechainIssue(gopro(), 'layer_audio_5');
+    expect(issue).toContain('no clips');
+    // The one fact the old sentence withheld, and the reason the run shipped no duck.
+    expect(issue).toContain('v_main');
+    expect(issue).not.toContain('Place the dialogue first');
+  });
+
+  it('offers a video track as a duck target, because the renderer accepts one', () => {
+    // `_duck_intervals` reads clip intervals and never the track type, so the wind on
+    // `v_main` ducks the bed exactly as a dialogue track would. Refusing to name it here
+    // would be stricter than the engine this guard exists to protect.
+    expect(musicDuckSidechainIssue(gopro(), 'v_main')).toBeNull();
+  });
+
+  it('never offers a caption track, which carries no sound', () => {
+    const issue = musicDuckSidechainIssue(gopro(), 'layer_audio_5');
+    expect(issue).not.toContain('captions');
+  });
+
+  it('refuses a caption track by name rather than letting the contract reject the built op', () => {
+    const issue = musicDuckSidechainIssue(gopro(), 'captions');
+    expect(issue).toContain('caption track');
+    expect(issue).toContain('v_main');
+  });
+
+  it('says so plainly when the project has nothing to duck under at all', () => {
+    const bare = project();
+    (bare.timeline.tracks as unknown as unknown[]).length = 0;
+    const issue = musicDuckSidechainIssue(bare, 'anything');
+    expect(issue).toContain('No track in this project carries sound yet');
+    // No list, no invented candidate — the honest answer is that there is no move.
+    expect(issue).toContain('omit duckUnderTrackId');
   });
 });
 

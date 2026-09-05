@@ -342,6 +342,24 @@ function clip(text: string, limit: number, id: string): string {
 export class EvidenceStore {
   private readonly byKey = new Map<string, EvidenceEntry>();
   private readonly byId = new Map<string, EvidenceEntry>();
+  /**
+   * Handles that existed and went stale, with what they were.
+   *
+   * WHY a tombstone rather than a delete: `invalidate` dropped both maps, so a handle the
+   * run had genuinely been given became indistinguishable from one the model invented —
+   * both answered "no such handle". Run `137d8fd0` made **27** recalls that landed there,
+   * and the list is visibly non-contiguous (`ev_4`, `ev_7`, `ev_8` never appear), with
+   * `ev_25` present at 18:26 and gone by 18:29. The model was not hallucinating; it was
+   * holding a reference to a reading the run had thrown away, and being told the reading
+   * never existed sends it to re-run reconnaissance instead of to the one tool that would
+   * refresh it.
+   *
+   * Two small strings per expired read, bounded by the run's own read count.
+   */
+  private readonly expired = new Map<
+    string,
+    { readonly descriptor: string; readonly source: string }
+  >();
   private counter = 0;
 
   /** Everything currently held, in insertion order. */
@@ -360,6 +378,18 @@ export class EvidenceStore {
 
   public byHandle(id: string): EvidenceEntry | undefined {
     return this.byId.get(id);
+  }
+
+  /**
+   * What a handle USED to be, when the run has since invalidated it.
+   *
+   * `undefined` distinguishes a handle that never existed — which is the model's mistake —
+   * from one that expired, which is the run's own doing and has a specific remedy.
+   */
+  public expiredHandle(
+    id: string,
+  ): { readonly descriptor: string; readonly source: string } | undefined {
+    return this.expired.get(id);
   }
 
   /**
@@ -461,6 +491,7 @@ export class EvidenceStore {
       if (!stale) continue;
       this.byKey.delete(entry.key);
       this.byId.delete(entry.id);
+      this.expired.set(entry.id, { descriptor: entry.descriptor, source: entry.source });
       dropped += 1;
     }
     if (dropped > 0) {

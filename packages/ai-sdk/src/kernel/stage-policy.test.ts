@@ -372,13 +372,17 @@ describe('verification looks in execution stages (plan/system-mission P1.1b)', (
   it('offers get_frame in apply/enhance/repair so a run can check the edit it just made', () => {
     for (const stage of ['apply', 'enhance', 'repair'] as const) {
       expect(stageAllowsTool(stage, 'get_frame', false)).toBe(true);
+      // Same tool with numbers instead of pixels — `tool-contract.ts` gives the two an
+      // identical entry. Run `137d8fd0` asked to "measure what's actually on screen",
+      // called this twice in `apply`, and was refused both times; the grade went in blind.
+      expect(stageAllowsTool(stage, 'measure_color', false)).toBe(true);
       // The rule is narrow: other analysis stays withheld in execution stages.
       expect(stageAllowsTool(stage, 'map_footage', false)).toBe(false);
       expect(stageAllowsTool(stage, 'describe_footage', false)).toBe(false);
     }
   });
 
-  it('keeps the set minimal — one tool, the picture look', () => {
-    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual(['get_frame']);
+  it('keeps the set minimal — the picture look, in pixels and in numbers', () => {
+    expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual(['get_frame', 'measure_color']);
   });
 });
