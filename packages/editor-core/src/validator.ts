@@ -350,21 +350,25 @@ function overlapChecks(tracks: readonly Track[], index: number): ValidationIssue
       const previous = ordered[i - 1]!;
       const current = ordered[i]!;
       if (current.start < previous.end - EPSILON) {
-        // BY HOW MUCH, and where. The bare sentence names the two clips and leaves the
-        // caller to re-read the timeline to learn the size of the problem — which is
-        // usually the whole problem. Run `137d8fd0` lost the wipeout speed ramp the
-        // editor asked for by name to this message: `set_clip_speed` stretched a clip
-        // into its neighbour, and "Clips A and B overlap on track v_main" gave the run
-        // no way to tell whether it needed a hundredth of a second or ten.
-        const by = Number((previous.end - current.start).toFixed(3));
+        // NAME THE MOVES. The bare sentence stated the conflict and stopped; run
+        // `137d8fd0` lost the wipeout speed ramp the editor had asked for by name to it,
+        // because `set_clip_speed` stretched a clip into its neighbour and "Clips A and B
+        // overlap on track v_main" is not something a caller can act on.
+        //
+        // Deliberately NO magnitude, and no clip endpoints. Both were written, and both
+        // were taken back out: `orchestrator.ts#deterministicFailureKey` keys the
+        // repeated-failure guard on this message body, and its contract is that the values
+        // a validator names ARE the defect's identity. An overlap that shrank from 3s to
+        // 1s across two attempts would then read as two unrelated failures, and the guard
+        // that stops a run nudging arguments at a wall would stop firing on the most
+        // common wall there is. The remedy below is the actionable half and it does not
+        // vary, so it costs the guard nothing.
         issues.push({
           code: 'overlap_error',
           severity: 'error',
           message:
-            `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}' ` +
-            `by ${by}s — '${previous.id}' ends at ${previous.end}s and '${current.id}' ` +
-            `starts at ${current.start}s. Shorten one, move '${current.id}' later, or ` +
-            'place it on another track.',
+            `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}'. ` +
+            `Shorten one, move '${current.id}' later, or place it on another track.`,
           operationIndex: index,
         });
       }

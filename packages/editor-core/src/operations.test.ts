@@ -1647,6 +1647,84 @@ describe('set_track_flags', () => {
       applyOperation(baseTimeline(), { type: 'set_track_flags', trackId: 'ghost', locked: true }),
     ).toThrow(/Track not found/);
   });
+
+  /**
+   * `Track.role` shipped readable and unwritable after creation: `AddLayerOp.role` set it
+   * and nothing else could. `duck_roles` — "duck the music under the dialogue" — therefore
+   * asked for a label no tool, no UI and no code path in this product ever applied;
+   * nothing writes `role: 'dialogue'` anywhere. Its refusal, "Label the track you mean",
+   * named a move that did not exist, and run `137d8fd0` was refused that way twice.
+   */
+  describe('the mix label, which nothing could previously write', () => {
+    const roleOf = (timeline: Timeline, id: string): string | undefined =>
+      timeline.tracks.find((t) => t.id === id)?.role;
+
+    it('labels an audio track', () => {
+      const after = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'dialogue',
+      });
+      expect(roleOf(after, 'audio_1')).toBe('dialogue');
+    });
+
+    it('leaves the label alone when role is absent', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      const muted = applyOperation(labelled, {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        muted: true,
+      });
+      expect(roleOf(muted, 'audio_1')).toBe('music');
+    });
+
+    it('clears the label on an explicit null — absent and null are different', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      const cleared = applyOperation(labelled, {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: null,
+      });
+      expect(roleOf(cleared, 'audio_1')).toBeUndefined();
+      // Canonicalised as ABSENT rather than stored as null, which is what lets undo land
+      // on a deep-equal timeline.
+      expect('role' in cleared.tracks.find((t) => t.id === 'audio_1')!).toBe(false);
+    });
+
+    it('round-trips: labelling a track that had no label', () => {
+      expectRoundTrip(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'dialogue',
+      });
+    });
+
+    it('round-trips: relabelling a track that already had one', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      expectRoundTrip(labelled, { type: 'set_track_flags', trackId: 'audio_1', role: 'dialogue' });
+    });
+
+    it('round-trips: clearing a label', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      expectRoundTrip(labelled, { type: 'set_track_flags', trackId: 'audio_1', role: null });
+    });
+  });
 });
 
 // --- set_caption_style (schema v5) -----------------------------------------

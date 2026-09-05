@@ -641,18 +641,29 @@ function resolveDuckRoles(input: ResolveAudioObjectiveInput): AudioControllerRes
   const audioTracks = input.project.timeline.tracks.filter((track) => track.type === 'audio');
   const bedTracks = audioTracks.filter((track) => track.role === bedRole);
   const sidechainTracks = audioTracks.filter((track) => track.role === sidechainRole);
+  // "Label the track you mean" named a move that did not exist. `Track.role` shipped
+  // readable and unwritable: `add_layer` set it at creation and NOTHING else could, so on
+  // any project whose audio tracks already existed this refusal was a dead end. Run
+  // `137d8fd0` hit it twice and gave up on the editor's explicit ducking instruction.
+  // `set_track_flags` can write it now, so the sentence names the call.
+  const labelWith = (role: string): string =>
+    `Label it first: set_track_flags with trackId and role: "${role}". Roles are never ` +
+    `inferred from track names — a lane called "Music 2" routinely holds a voice-over.` +
+    (audioTracks.length > 0
+      ? ` Audio tracks here: ${audioTracks.map((track) => track.id).join(', ')}.`
+      : ' This project has no audio track yet.');
   if (bedTracks.length === 0) {
     return rejected(
       input.objective,
       'bed_role_unlabelled',
-      `No track is labelled ${bedRole}. Label the track you mean; roles are never inferred from track names.`,
+      `No track is labelled ${bedRole}. ${labelWith(bedRole)}`,
     );
   }
   if (sidechainTracks.length === 0) {
     return rejected(
       input.objective,
       'sidechain_role_unlabelled',
-      `No track is labelled ${sidechainRole}. Label the track you mean; roles are never inferred from track names.`,
+      `No track is labelled ${sidechainRole}. ${labelWith(sidechainRole)}`,
     );
   }
   if (sidechainTracks.length > 1) {

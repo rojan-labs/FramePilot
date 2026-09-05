@@ -4234,6 +4234,16 @@
               "boolean"
             ]
           },
+          "role": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dialogue",
+              "music",
+              "sfx"
+            ]
+          },
           "trackId": {
             "type": [
               "string"

@@ -37,7 +37,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
-from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
+from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
 
@@ -579,18 +579,30 @@ class TranscribeArgs(BaseModel):
 
 
 class SetTrackFlagsArgs(BaseModel):
-    """Mute/lock/hide a track (schema v4). Only provided flags change."""
+    """Mute/lock/hide a track, or label an audio track with its mix role.
+
+    ``role`` is the write path for ``Track.role`` (schema v17), which shipped readable
+    and settable only at layer creation — so ``duck_roles`` asked for a label no surface
+    could apply. ``None`` CLEARS it, and absent leaves it alone; the difference is read
+    from ``model_fields_set``, mirroring the TS tool where ``null`` clears.
+    """
 
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     muted: bool | None = None
     locked: bool | None = None
     hidden: bool | None = None
+    role: AudioRole | None = None
 
     @model_validator(mode="after")
     def _at_least_one_flag(self) -> SetTrackFlagsArgs:
-        if self.muted is None and self.locked is None and self.hidden is None:
-            raise ValueError("Set at least one of muted/locked/hidden.")
+        if (
+            self.muted is None
+            and self.locked is None
+            and self.hidden is None
+            and "role" not in self.model_fields_set
+        ):
+            raise ValueError("Set at least one of muted/locked/hidden/role.")
         return self
 
 
@@ -1479,7 +1491,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "set_track_flags": _spec(
         "set_track_flags",
-        "Mute/unmute, lock/unlock, or hide/show a track (schema v4).",
+        "Mute/unmute, lock/unlock, hide/show, or label a track with its mix role.",
         kind="mutate",
         input_model=SetTrackFlagsArgs,
         mutating=True,

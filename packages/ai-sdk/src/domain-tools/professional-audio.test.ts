@@ -420,6 +420,70 @@ describe('professional_audio role-authored ducking', () => {
       code: 'bed_role_unlabelled',
       detail: expect.stringContaining('never inferred from track names'),
     });
+    // "Label the track you mean" named a move that did not exist: `Track.role` was
+    // writable only at layer creation, so on any project whose audio tracks already
+    // existed this was a dead end. Run `137d8fd0` hit it twice and abandoned the
+    // editor's explicit ducking instruction. The refusal must name the call that works
+    // and the tracks it can be pointed at.
+    if (resolution.status !== 'rejected') return;
+    expect(resolution.detail).toContain('set_track_flags');
+    expect(resolution.detail).toContain('role: "music"');
+    expect(resolution.detail).toContain('Audio tracks here:');
+  });
+
+  it('closes the loop: label with the tool the refusal names, then duck by role', () => {
+    // The end-to-end assertion. Without a write path the previous test's remedy is a
+    // sentence pointing at nothing; this drives the actual `set_track_flags` tool and
+    // proves the result satisfies the controller that refused.
+    const base = project();
+    const label = (input: Project, trackId: string, role: string): Project => ({
+      ...input,
+      timeline: applyPatch(input.timeline, {
+        patchId: 'label' as PatchId,
+        createdBy: 'agent',
+        reason: 'label the mix roles',
+        operations: operationsForCall(
+          { id: 'c', name: 'set_track_flags', arguments: { trackId, role } },
+          { project: input } as ToolContext,
+        ),
+      }),
+    });
+
+    const labelled = label(label(base, 'music', 'music'), 'dialogue', 'dialogue');
+    const resolution = resolveAudioObjective({
+      project: labelled,
+      interaction: captureEditorInteractionContext({
+        project: labelled,
+        projectRevision: 3,
+        playheadSeconds: 5,
+        selectedClipIds: [],
+      }),
+      objective: AudioObjectiveSchema.parse({
+        intent: 'duck_roles',
+        bedRole: 'music',
+        sidechainRole: 'dialogue',
+      }),
+    });
+    expect(resolution.status).toBe('resolved');
+  });
+
+  it('refuses to label a picture track, where a mix role means nothing', () => {
+    // The schema calls `role` "harmless elsewhere", which is exactly how a mislabelled
+    // project gets built. Refused at the boundary, where the sentence can name the type.
+    const base = project();
+    const withPicture = {
+      ...base,
+      timeline: {
+        ...base.timeline,
+        tracks: [...base.timeline.tracks, { id: 'v_main', type: 'video', clips: [] }],
+      },
+    } as unknown as Project;
+    expect(() =>
+      operationsForCall(
+        { id: 'c', name: 'set_track_flags', arguments: { trackId: 'v_main', role: 'dialogue' } },
+        { project: withPicture } as ToolContext,
+      ),
+    ).toThrow(/role labels an audio track/);
   });
 
   it('refuses when two tracks claim the trigger role rather than picking one', () => {

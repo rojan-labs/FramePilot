@@ -345,6 +345,17 @@ class SetTrackFlags(_Operation):
     locked: bool | None = None
     hidden: bool | None = None
     muted: bool | None = None
+    #: Mix role for an audio track (schema v17), or ``None`` to CLEAR it.
+    #:
+    #: Absent and explicit-null differ here and the distinction is read from
+    #: ``model_fields_set``, not from the value: an omitted ``role`` leaves the label
+    #: alone, ``"role": null`` removes it. That mirrors the TS ``SetTrackFlagsOp``, where
+    #: ``undefined`` means "leave" and ``null`` means "clear".
+    #:
+    #: Without this field Pydantic would drop it silently (the default is ``ignore``), so
+    #: the same patch would label a track in TypeScript and not label it here — the
+    #: cross-runtime divergence the operation mirror exists to prevent.
+    role: AudioRole | None = None
 
 
 class SetEffectParams(_Operation):
@@ -1145,11 +1156,16 @@ def _apply_track_object(timeline: Timeline, op: TrackObject) -> Timeline:
 def _apply_set_track_flags(timeline: Timeline, op: SetTrackFlags) -> Timeline:
     track, index = _find_track(timeline, op.track_id)
     # Only flags this op targets (value is not None) change; clips are untouched.
-    update = {
+    update: dict[str, Any] = {
         flag: value
         for flag, value in (("locked", op.locked), ("hidden", op.hidden), ("muted", op.muted))
         if value is not None
     }
+    # ``role`` is keyed on PRESENCE, not on truthiness: ``None`` is the clear instruction,
+    # so "was it provided" is the only question, and the flags' ``is not None`` test would
+    # read a clear as "leave alone".
+    if "role" in op.model_fields_set:
+        update["role"] = op.role
     tracks = list(timeline.tracks)
     tracks[index] = track.model_copy(update=update)
     return timeline.model_copy(update={"tracks": tracks})
@@ -1419,6 +1435,10 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
                 **({"locked": track.locked} if operation.locked is not None else {}),
                 **({"hidden": track.hidden} if operation.hidden is not None else {}),
                 **({"muted": track.muted} if operation.muted is not None else {}),
+                # Passing it explicitly — even as ``None`` — is what puts ``role`` in
+                # ``model_fields_set``, so undoing a label removes it rather than leaving
+                # it behind on a track that never had one.
+                **({"role": track.role} if "role" in operation.model_fields_set else {}),
             )
         ]
     # _TRACK_RESTORE_OPS — every remaining op carries a ``track_id``.

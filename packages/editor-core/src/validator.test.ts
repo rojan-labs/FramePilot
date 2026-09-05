@@ -319,11 +319,13 @@ describe('validatePatch — each PRD §8.5 check', () => {
 
   /**
    * Run `137d8fd0` lost the wipeout speed ramp the editor asked for by name to this
-   * message. `set_clip_speed` stretched a clip into its neighbour and the rejection said
-   * only that two clips overlapped — not by how much, so the run could not tell whether
-   * it needed a hundredth of a second or ten, and did not try again.
+   * message: `set_clip_speed` stretched a clip into its neighbour, and a rejection that
+   * only states the conflict is not something a caller can act on.
+   *
+   * The magnitude is deliberately absent — see the comment on the check. It keys the
+   * repeated-failure guard, so a shrinking overlap would read as a new defect every time.
    */
-  it('says by how much two clips overlap, and where each one ends', () => {
+  it('names the moves that resolve an overlap, and keeps the message invariant', () => {
     const overlap = validate([
       {
         type: 'add_clip',
@@ -336,11 +338,13 @@ describe('validatePatch — each PRD §8.5 check', () => {
         clipId: 'new',
       },
     ]).issues.find((issue) => issue.code === 'overlap_error');
-    expect(overlap?.message).toMatch(/overlap on track 'video_1' by 5s/);
-    expect(overlap?.message).toContain("ends at 10s");
-    expect(overlap?.message).toContain('starts at 5s');
-    // A number with no move attached is still a dead end.
+    expect(overlap?.message).toContain("Clips 'a' and 'new' overlap on track 'video_1'");
+    expect(overlap?.message).toContain("move 'new' later");
     expect(overlap?.message).toContain('another track');
+    // No magnitude, no endpoints: the guard in `deterministicFailureKey` keys on this
+    // body, and a number that changes between attempts turns one wall into many keys.
+    expect(overlap?.message).not.toMatch(/\bby [\d.]+s\b/);
+    expect(overlap?.message).not.toMatch(/ends at|starts at/);
   });
 
   it('duplicate_layer (add_layer with an id that already exists)', () => {

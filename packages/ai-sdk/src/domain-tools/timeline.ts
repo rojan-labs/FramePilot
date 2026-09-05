@@ -14,7 +14,7 @@
  * `professional-edit.ts`, which compiles it down to these same primitives.
  */
 import { z } from 'zod/v4';
-import { BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
+import { AudioRoleSchema, BlendModeSchema, CropRectSchema } from '@framepilot/timeline-schema';
 import type { CropRect, Project, Timeline, Track } from '@framepilot/timeline-schema';
 import {
   buildTimelineMap,
@@ -1097,9 +1097,13 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'set_track_flags',
       description:
-        'Mute/unmute, lock/unlock, or hide/show a track (schema v4). Muting silences ' +
+        'Mute/unmute, lock/unlock, hide/show, or LABEL a track. Muting silences ' +
         "a track's audio in the render; hiding drops a visual track's picture; locking " +
-        'prevents edits. Only the provided flags change; omit a flag to leave it as-is.',
+        'prevents edits. role labels an audio track as dialogue, music or sfx — the ' +
+        'mix roles professional_audio duck_roles works in ("duck the music under the ' +
+        'dialogue"), which are never guessed from a track\'s name because a lane called ' +
+        '"Music 2" routinely holds a voice-over. Label the track, then duck by role. ' +
+        'Pass role: null to remove a label. Only the fields you provide change.',
     },
     z
       .object({
@@ -1107,20 +1111,41 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         muted: boolean().optional(),
         locked: boolean().optional(),
         hidden: boolean().optional(),
+        role: z.union([AudioRoleSchema, z.null()]).optional(),
       })
       .strict()
-      .refine((a) => a.muted !== undefined || a.locked !== undefined || a.hidden !== undefined, {
-        message: 'Set at least one of muted/locked/hidden.',
-      }),
-    (a) => [
-      {
-        type: 'set_track_flags',
-        trackId: a.trackId,
-        ...(a.muted !== undefined ? { muted: a.muted } : {}),
-        ...(a.locked !== undefined ? { locked: a.locked } : {}),
-        ...(a.hidden !== undefined ? { hidden: a.hidden } : {}),
-      },
-    ],
+      .refine(
+        (a) =>
+          a.muted !== undefined ||
+          a.locked !== undefined ||
+          a.hidden !== undefined ||
+          a.role !== undefined,
+        { message: 'Set at least one of muted/locked/hidden/role.' },
+      ),
+    (a, ctx) => {
+      // A role on a picture track is meaningless — the schema calls it "harmless
+      // elsewhere", which is exactly how a mislabelled project gets built. Refused here,
+      // at the boundary, where the sentence can name the track's actual type.
+      if (a.role !== undefined) {
+        const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
+        if (track !== undefined && track.type !== 'audio') {
+          throw new ToolRefusalError(
+            `role labels an audio track, and "${a.trackId}" is a ${track.type} track. ` +
+              'Mix roles describe sound; name the audio track carrying it.',
+          );
+        }
+      }
+      return [
+        {
+          type: 'set_track_flags',
+          trackId: a.trackId,
+          ...(a.muted !== undefined ? { muted: a.muted } : {}),
+          ...(a.locked !== undefined ? { locked: a.locked } : {}),
+          ...(a.hidden !== undefined ? { hidden: a.hidden } : {}),
+          ...(a.role !== undefined ? { role: a.role } : {}),
+        },
+      ];
+    },
   ),
   mutateTool(
     {

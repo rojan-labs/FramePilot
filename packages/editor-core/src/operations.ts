@@ -471,6 +471,25 @@ export interface SetTrackFlagsOp {
   readonly locked?: boolean;
   readonly hidden?: boolean;
   readonly muted?: boolean;
+  /**
+   * Mix role for an audio track (schema v17), or `null` to clear it.
+   *
+   * WHY it lives on this op rather than a new one: `Track.role` shipped as a readable
+   * field with no way to write it after creation. `AddLayerOp.role` set it at creation
+   * and nothing else could, so `duck_roles` — "duck the music under the dialogue" —
+   * asked for a label that no tool, no UI and no code path in this product ever applied.
+   * Nothing writes `role: 'dialogue'` anywhere; a search of the repo finds the enum that
+   * declares it and no writer. Its refusal, "No track is labelled dialogue. Label the
+   * track you mean", named a move that did not exist, and run `137d8fd0` was refused that
+   * way twice.
+   *
+   * `set_track_flags` already means "change this track's properties" — it even renders as
+   * "Updated track" — so the label goes here rather than into a new operation.
+   *
+   * `null` clears, matching `SetTrackCaptionStyleOp`: JSON has no `undefined`, so an
+   * omitted field means "leave alone" and an explicit `null` means "remove".
+   */
+  readonly role?: AudioRole | null;
 }
 
 /**
@@ -2049,6 +2068,12 @@ function applySetTrackFlags(timeline: Timeline, op: SetTrackFlagsOp): Timeline {
   setFlag('locked', op.locked);
   setFlag('hidden', op.hidden);
   setFlag('muted', op.muted);
+  // Absent = leave alone; null = clear; a value = set. Deleting rather than storing null
+  // keeps undo landing on a deep-equal timeline, the same reason the flags do it.
+  if (op.role !== undefined) {
+    if (op.role === null) delete next.role;
+    else next.role = op.role;
+  }
   const tracks = timeline.tracks.slice();
   tracks[index] = next;
   return { ...timeline, tracks };
@@ -2429,6 +2454,9 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
           ...(op.locked !== undefined ? { locked: track.locked ?? false } : {}),
           ...(op.hidden !== undefined ? { hidden: track.hidden ?? false } : {}),
           ...(op.muted !== undefined ? { muted: track.muted ?? false } : {}),
+          // `?? null` is the whole inverse: a track that had no role gets an explicit
+          // clear, so undoing a label removes it rather than leaving it behind.
+          ...(op.role !== undefined ? { role: track.role ?? null } : {}),
         },
       ];
     }

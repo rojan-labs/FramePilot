@@ -713,6 +713,51 @@ def test_set_track_flags_only_touches_named_flags() -> None:
     assert audio.locked is False and audio.hidden is False  # untouched flags unchanged
 
 
+def _role_of(timeline: Timeline, track_id: str) -> str | None:
+    return next(t for t in timeline.tracks if t.id == track_id).role
+
+
+def test_set_track_flags_labels_an_audio_track() -> None:
+    """``Track.role`` shipped readable and unwritable after creation.
+
+    ``add_layer`` set it and nothing else could, so ``duck_roles`` asked for a label no
+    surface could apply. This is the write path, and it must behave identically in both
+    runtimes or the same patch labels a track in TypeScript and not here.
+    """
+    result = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="dialogue"))
+    assert _role_of(result, "a") == "dialogue"
+
+
+def test_set_track_flags_leaves_the_label_alone_when_role_is_absent() -> None:
+    labelled = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    after = apply_operation(labelled, SetTrackFlags(track_id="a", muted=True))
+    assert _role_of(after, "a") == "music"
+
+
+def test_set_track_flags_clears_the_label_on_an_explicit_null() -> None:
+    # Absent and explicit-null differ, and the difference is read from the fields that
+    # were SET, not from the value — ``None`` is the clear instruction.
+    labelled = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    cleared = apply_operation(labelled, SetTrackFlags(track_id="a", role=None))
+    assert _role_of(cleared, "a") is None
+
+
+def test_labelling_a_track_is_reversible() -> None:
+    # The inverse of "label it" is an explicit clear, or undo leaves the label behind on
+    # a track that never had one.
+    _roundtrip(SetTrackFlags(track_id="a", role="dialogue"))
+
+
+def test_relabelling_a_track_is_reversible() -> None:
+    before = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    _roundtrip(SetTrackFlags(track_id="a", role="dialogue"), before)
+
+
+def test_clearing_a_label_is_reversible() -> None:
+    before = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    _roundtrip(SetTrackFlags(track_id="a", role=None), before)
+
+
 # --- error paths -------------------------------------------------------------
 
 

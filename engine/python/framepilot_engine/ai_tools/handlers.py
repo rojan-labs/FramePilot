@@ -509,6 +509,10 @@ def set_track_flags(args: SetTrackFlagsArgs, ctx: ToolContext) -> Operations:
         op["locked"] = args.locked
     if args.hidden is not None:
         op["hidden"] = args.hidden
+    # Presence, not truthiness: ``role=None`` is the clear instruction, so the flags'
+    # ``is not None`` test would read a clear as "leave alone".
+    if "role" in args.model_fields_set:
+        op["role"] = args.role
     return [op]
 
 
