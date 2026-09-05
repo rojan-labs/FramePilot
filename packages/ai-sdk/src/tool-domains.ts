@@ -132,6 +132,11 @@ const CORE: readonly string[] = [
   'get_frame',
   'detect_beats',
   'transcribe',
+  // The picture look in numbers — the same exemption as `get_frame`, for the same reason,
+  // and it landed here for the same reason too: run `137d8fd0` was asked to "measure what's
+  // actually on screen", called this twice in `apply`, and was refused both times as an
+  // analysis tool. A colour self-check the model cannot see is an opt-in.
+  'measure_color',
   // Talking to the editor, and to the run's own memory.
   'ask_user',
   'remember_preference',
@@ -154,7 +159,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'discover_caption_styles',
   ],
   audio: ['adjust_audio', 'analyze_silence', 'remove_silences', 'professional_audio'],
-  color: ['apply_color_grade', 'measure_color', 'professional_color'],
+  color: ['apply_color_grade', 'professional_color'],
   motion: [
     'add_keyframes',
     'remove_keyframes',

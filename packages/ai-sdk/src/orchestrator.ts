@@ -6466,6 +6466,15 @@ export class Orchestrator {
      * instead of handing the model the same sentence a second time.
      */
     seenFailureKeys?: ReadonlySet<string>,
+    /**
+     * True when {@link allowedToolNames} is the STAGE rule rather than a recovery-turn
+     * latch. The two withhold the same names and used to earn the same sentence — "it
+     * becomes available again on the next turn" — which is true of a latch and false of a
+     * stage: an analysis tool withheld in `apply` stays withheld until `verify`. Told to
+     * wait a turn, the model waits a turn and calls again (run `137d8fd0`, `measure_color`,
+     * twice). The refusal now says which it is.
+     */
+    stageWithheld?: boolean,
   ): AsyncGenerator<
     AiEvent,
     {
@@ -6680,7 +6689,7 @@ export class Orchestrator {
         if (!inScope) withheldCallCount += 1;
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : withheldCallOutcome(call, evidence, bankedSearches);
+          : withheldCallOutcome(call, evidence, bankedSearches, stageWithheld === true);
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -8756,6 +8765,9 @@ export class Orchestrator {
           // has already had is answered with "that cannot work" instead of the same
           // sentence again (see `ConductorState.seenFailureKeys`).
           effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
+          // A recovery turn is a latch (next turn is different); anything else narrowed here
+          // is the stage rule, and stays narrowed until the stage changes.
+          !effect.actionRecovery,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it
@@ -9246,6 +9258,8 @@ function withheldCallOutcome(
    * stranded a run on an empty project.
    */
   bankedSearches?: number,
+  /** The narrowing is the stage rule, not a one-turn latch — see `executeToolCalls`. */
+  stageWithheld = false,
 ): AgentCallOutcome {
   // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
   //
@@ -9292,16 +9306,28 @@ function withheldCallOutcome(
       status: 'failed',
     };
   }
+  // WHICH kind of withholding this is decides the last sentence, and getting it wrong is
+  // not cosmetic. A recovery-turn latch really does lift next turn. The stage rule does
+  // not: an analysis tool withheld in `apply` stays withheld until the run reaches
+  // `verify`. Run `137d8fd0` was told "available again on the next turn" about a
+  // stage-withheld `measure_color`, did exactly as told — waited a turn, called again —
+  // and was refused identically. A refusal has to name the real way out.
+  const wayOut = stageWithheld
+    ? `It stays held for the rest of this stage. If the run already measured this, ` +
+      `recall_evidence returns it; if it has not, finish the edit and check it in verify.`
+    : 'It becomes available again on the next turn.';
   return {
     ops: [],
     note:
       `"${call.name}" is not available on this turn. This turn is for acting on what ` +
       'the run has already gathered: make the edit, recall_evidence for a detail you ' +
-      'need, or ask_user. It becomes available again on the next turn.',
+      `need, or ask_user. ${wayOut}`,
     // The MODEL gets the paragraph above; the editor gets this row, and "unavailable this
     // turn" told them nothing about why or for how long. Run `137d8fd0` showed five of
     // them in a stack with no reason attached to any.
-    summary: `${call.name} held back — this turn is for acting on what has been gathered`,
+    summary: stageWithheld
+      ? `${call.name} held back for this stage — this stage is for acting on what has been gathered`
+      : `${call.name} held back — this turn is for acting on what has been gathered`,
     status: 'warning',
   };
 }

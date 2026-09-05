@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI can measure colour while it grades.** Asked to "measure what's actually on
+  screen", it could only do so before it started editing; once cutting began the measurement
+  tool was withheld and the AI was told to try again next turn, which never came true, so
+  grades went in blind. Measuring is now allowed throughout the edit — the same rule that
+  already let the AI look at a frame of its own work — and when a tool really is held back
+  for the rest of a stage, the message now says so instead of promising next turn.
+
 - **You can reorder shots too, not just the AI.** Right-click a clip → "Move earlier in
   sequence" / "Move later in sequence". The track re-lays itself end to end, every clip
   keeps its own length and media, and one undo puts the order back. Until now this was an
