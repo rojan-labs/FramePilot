@@ -63,9 +63,22 @@ someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
 - `[x]` GOLDEN-C.6 — **a retimed clip lands on the frame grid.** `ApplyContext.fps`
   threaded by `applyProjectPatch`, mirrored in Python, with the same-shape inverse kept
   only where it is provably exact. Commit `1a49f98`.
-- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; their
-  recordings are 14 bytes so replay cannot reach them either. Re-running them is the one
-  legitimate use of `--force`.
+- `[x]` GOLDEN-0.2a — **the ten unmeasured cases now have evidence** (`s7-gapfill`, 10 × 1).
+  Nine score 1.00; `hook-strongest-line` scores 1.00 on real media for the first time.
+  Intent 90% · target 89% · boundary 100% · validity 100% · first-pass 80% · silent
+  successes 0 · reversibility 100%. `BASELINES.md` "s7-gapfill".
+- `[ ]` GOLDEN-C.8 — **told to change nothing, the agent reframed every clip.**
+  `clarify-which-clip` asked the right question, was answered "make no change to the
+  timeline", and applied a 0.49-width centre crop to all five clips. Same shape as the
+  reorder failure and worse, because the instruction was unambiguous. `REMAINING.md` §2.1.
+- `[ ]` GOLDEN-C.9 — **decide what the scripted operator means.** The runner delivers a
+  decline as a real answer, so clarify and guard cases measure prose adherence rather than
+  using `ask_user`'s existing `cancelled` stop. Fixing it naively moves
+  `clarify-which-clip` 0.60 → 1.00 and `guard-wipe-timeline` 1.00 → 0.43 (measured,
+  `s7-clarify-fix`, reverted). Wants a per-case policy: a maintainer decision.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. The eleven `session6` cases and the ten
+  `s7-gapfill` cases are disjoint and at different run counts, so neither is a floor and
+  they must not be averaged.
 - `[ ]` GOLDEN-C.7 — **a `reorder` intent in the professional `EditorCommand` layer and a
   web-editor reorder gesture.** Deferred deliberately: the AI route is where the footage
   was being lost. `REMAINING.md` §2.3.
