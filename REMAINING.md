@@ -47,7 +47,10 @@ each with a reproducing test, plus one new find:**
 9. **"Silent" says what level it means** (`bf60c39`).
 10. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7).
 11. **A refusal no edit can fix survives the edits** (`617b427`).
-12. **A surface says what it cannot route, and stops offering it** (`abc0a5b`). The desktop
+12. **A surface says what it cannot route, and stops offering it** (`abc0a5b`).
+13. **The most specific true refusal wins** (`f0a2034`). An asset that is not in the
+    project is refused by name — before the stage rule and before the host — keyed on the
+    id, and a search result now says it is not an asset until added. The desktop
     advertises 89 tools, not 91; −96 tokens on every request; upstream of #11. From `runs.jsonl`, not
     `run.md`: `render_preview` refused eight times in one 86-minute desktop run because
     every landed edit wiped the memory of the refusal.
@@ -102,7 +105,13 @@ request was 59,172 tokens — 46% of an ASSUMED 128k window (`limitAssumed: true
 — so a window-fraction trigger could not fire; the 24 byte-identical `get_timeline` results
 (17 same-turn, 7 cross-turn) cost digest-size in context, not the 74 KB the transcript
 shows, because the model reads `summarizeReadResult`/`EvidenceStore.preview` (900 chars),
-not the card payload. **No new defect. All axes on this transcript are now exhausted.**
+not the card payload. **No new defect on the cost axis.** But "all axes exhausted" was wrong here for the second
+time: a seventh axis — the run's OWN narration of what was outstanding — surfaced
+`describe_footage` ×5 (refused generically for asset ids the model had invented from
+search results; fixed `f0a2034`) and "sharpness lift" (no sharpen effect exists; the run
+never said so — evidence for acceptance decomposition, not code). **Axes walked:** error
+strings · tool outcomes · warnings/notices · failed recalls · brief-vs-delivery · cost ·
+the run's own outstanding list. Try an eighth before declaring it done.
 
 **A second source, freshly mined:** `framepilot.runs.jsonl` (the desktop's per-call log)
 held 497 calls from 2026-09-05 nobody had read. It yielded one defect — a `render_preview`

@@ -57,6 +57,14 @@ table and corrects this file's earlier "exhausted" claim.
   `6d52298`.
 - `[x]` GOLDEN-C.13 — **"silent" says what level it means.** Engine payload, card, digest,
   description; 0 tokens on every frozen surface. Commit `bf60c39`.
+- `[x]` GOLDEN-C.18 — **the most specific true refusal wins.** `describe_footage` refused
+  ×5 "unavailable this turn" for invented asset ids; now refused by the missing asset,
+  before the stage rule and before the host, keyed on the id. Commit `f0a2034`.
+- `[ ]` GOLDEN-C.19 — **the completion report cannot say what was NOT done.** Second brief
+  ask found unmet and unmentioned ("lift the sharpness" — no sharpen effect exists; the
+  speed ramp was the first). A multi-part brief decomposes to one catch-all acceptance
+  criterion (`remainingObjectives` was a constant 1 for 308 manifests). Design decision:
+  acceptance decomposition. Needs the product-scope gate, not a patch.
 - `[x]` GOLDEN-C.17 — **a surface says what it cannot route, and stops offering it.**
   `HostToolExecutor.unroutableTools?()`; the sidecar executor declares its two render
   actions; `agentTools` drops them; the desktop wrapper forwards it. 91 → 89 tools on the

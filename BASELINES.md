@@ -46,6 +46,59 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## run.md, seventh axis — 2026-09-06 — **the transcript's own "outstanding" list; one fix, one ask the product cannot meet, and a second overturned "exhausted"**
+
+**No run.** `run.md` (run `137d8fd0`, unchanged: same mtime, 1,064,475 lines, one run id)
+walked on an axis not yet tried — the run's OWN narration of what was still outstanding
+(123 assistant messages; regex over "remaining / outstanding / not yet"). Every noun it
+surfaced had been traced except two.
+
+| | |
+| --- | --- |
+| commit | `f0a2034` on `fix/agent-reliability-2026-09-05` |
+| what the axis surfaced | 20 distinct outstanding nouns; 18 already traced; **`describe_footage` ×5** and **"sharpness lift"** ×3 were not |
+| token cost | 0 — tool results and a refusal, no schema; goldens 17/17 unmoved |
+| suites | orchestrator-stream 216 · ai-sdk 4,660 green |
+
+### The fix: the most specific true refusal wins
+
+`describe_footage` completed **zero** times in 153 steps. Its five refusals were all at
+turn 7, right after `search_stock`, on five `stock_pexels_<id>` asset ids the model had
+built from catalogue rows it had not downloaded — the assets first exist at turn 18. The
+true answer was "no such asset; add it first". The stage refusal came first and said
+"unavailable this turn", so the model never learned its ids were invented and never
+described any stock footage. And the defect was symmetric: an ADMITTED call with the same
+invented id reached the host and came back as an unkeyed 404, free to loop. Asset
+existence is decided before dispatch now, by one function both paths use, keyed on the
+id rather than the growing bin listing. The `search_stock` digest says up front that a
+result is not an asset until added. GOLDEN-C.18.
+
+### The ask the product cannot meet, and the run did not say so
+
+The brief said "Lift the sharpness a little, the source is soft." There is **no sharpen
+effect anywhere** — not in the effect catalog, the engine, or any tool. Ten colour/effect
+operations landed; none carries a sharpen parameter; the completion report claimed 416
+edits and never mentioned it. Not a code fix: it is the second brief ask (after the ramp)
+that shows the completion report cannot say what was NOT done, because a multi-part brief
+decomposes to one catch-all acceptance criterion. Evidence for that decision, recorded
+here so it is counted twice, not derived twice.
+
+### Correction to this file's record, second time
+
+"Every axis on this transcript is now exhausted" (the cost-axis entry) was wrong, as the
+same claim was wrong once before. Six axes had been walked; a seventh yielded. The honest
+statement is the list of axes walked — error strings, tool outcomes, warnings/notices,
+failed recalls, brief-vs-delivery, cost, the run's own outstanding list — and that each
+new axis has yielded something. The next person should try an eighth before believing
+otherwise.
+
+### Not evidence of
+
+- Anything about the model — no sample taken.
+- The ordering fix changing behaviour on a run: unmeasured, like every fix this stretch.
+
+---
+
 ## runs.jsonl, second axis — 2026-09-06 — **the surface stops offering what it cannot run (−96/request); the read memo is confirmed working**
 
 **No run.** Two results from the same 497-call slice, one a fix and one a confirmation.
