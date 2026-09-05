@@ -7,8 +7,10 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject } from '@framepilot/timeline-schema';
+import { z } from 'zod/v4';
 import {
   ToolInvocationError,
+  describeArgValidationError,
   operationsForCall,
   validateSemanticToolArgs,
 } from './tool-dispatch.js';
@@ -233,5 +235,90 @@ describe('arguments sent to the wrong tool', () => {
       intent: 'track',
     });
     expect(reason).not.toMatch(/belong to[^.]*"track_object"/);
+  });
+});
+
+/**
+ * Zod 4 phrases an enum rejection as `Invalid option: expected one of "photo"|"video"` —
+ * every legal value, and never the illegal one that was actually sent. The finalized
+ * issue does not carry the input either, so the value has to be read back out of the
+ * arguments.
+ *
+ * Run `137d8fd0` is what the omission costs: two `search_stock` calls and one
+ * `track_subject_automatically` call rejected on an enum, each told the options, none
+ * told what it had written, none corrected.
+ *
+ * These parse with a REAL `zod/v4` schema rather than a hand-built issue list, so the
+ * test fails if Zod ever changes the issue shape the formatter reads.
+ */
+describe('a rejected value is quoted back', () => {
+  const kindSchema = z.object({ query: z.string(), kind: z.enum(['photo', 'video']) });
+  const subjectSchema = z.object({
+    target: z.literal('this'),
+    subject: z.enum(['point', 'region', 'plane', 'silhouette']),
+  });
+
+  const reasonFor = (schema: z.ZodType, args: Record<string, unknown>, tool = ''): string => {
+    const result = schema.safeParse(args);
+    if (result.success) throw new Error('expected a rejection');
+    return describeArgValidationError(result.error, tool, args);
+  };
+
+  it('names the value the enum refused, not only the ones it accepts', () => {
+    const reason = reasonFor(kindSchema, { query: 'chairlift overhead', kind: 'clip' });
+    expect(reason).toContain('expected one of');
+    expect(reason).toContain('received "clip"');
+  });
+
+  it('points a near-miss at the option it plainly meant', () => {
+    const reason = reasonFor(kindSchema, { query: 'snow texture', kind: 'Videos' });
+    expect(reason).toContain('received "Videos"; use "video"');
+  });
+
+  it('says nothing extra when the value is nowhere near an option', () => {
+    // A different intention, not a typo. Guessing here would send the run somewhere it
+    // never asked to go, so the refusal stops at quoting what arrived.
+    const reason = reasonFor(subjectSchema, { target: 'this', subject: 'object' });
+    expect(reason).toContain('received "object"');
+    expect(reason).not.toContain('; use "');
+  });
+
+  it('quotes the value a literal refused too', () => {
+    // `professional_audio` was refused three times this way in the same run, on
+    // `target: Invalid input: expected "this"` with no mention of what it passed.
+    const reason = reasonFor(subjectSchema, { target: 'selection', subject: 'point' });
+    expect(reason).toContain('received "selection"');
+  });
+
+  it('is silent when the arguments were not passed, rather than inventing a value', () => {
+    const result = kindSchema.safeParse({ query: 'q', kind: 'clip' });
+    expect(result.success).toBe(false);
+    if (result.success) return;
+    expect(describeArgValidationError(result.error, '')).not.toContain('received');
+  });
+
+  it('leaves the wrong-tool routing clause alone when both could apply', () => {
+    // `ownerHint` is the more actionable of the two and wins; the value clause is the
+    // fallback, not an addition, so a refusal never carries two competing remedies.
+    let reason = '';
+    try {
+      operationsForCall(
+        {
+          id: 'c1',
+          name: 'track_object',
+          arguments: {
+            clipId: 'clip_a',
+            target: 'object',
+            region: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
+            subject: 'object',
+            intent: 'track',
+          },
+        },
+        { project: makeProject() } as never,
+      );
+    } catch (error) {
+      reason = error instanceof Error ? error.message : String(error);
+    }
+    expect(reason).toContain('those arguments belong to');
   });
 });

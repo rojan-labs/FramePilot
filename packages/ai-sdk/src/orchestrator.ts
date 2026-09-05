@@ -4153,7 +4153,7 @@ export class Orchestrator {
       try {
         parsed = tool.parse(args) as typeof parsed;
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name)}`;
+        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
         return {
           ops: [],
           note,
@@ -4280,7 +4280,7 @@ export class Orchestrator {
       try {
         tool.parse(args);
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name)}`;
+        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
         return {
           ops: [],
           note,
@@ -4868,7 +4868,7 @@ export class Orchestrator {
           // A refusal from the registered, contracted tool boundary IS the model's to fix —
           // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument
           // wording and stays banked, exactly as it was.
-          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name)}`;
+          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
           return {
             ops: [],
             note,
