@@ -291,7 +291,15 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
   const started = Date.now();
   const events = [];
   const controller = new AbortController();
-  const timeout = setTimeout(() => controller.abort(), Number(process.env.MISSION_TURN_TIMEOUT_MS ?? 20 * 60_000));
+  // Recorded, not just acted on. A turn the HARNESS stopped reached the model and did
+  // partial work, so scoring it says where the timer landed rather than what the agent
+  // would have done — see `GoldenTurnMetrics.harnessTimedOut`. Session 3 lost five turns
+  // of thirty-six this way while the provider answered at 123-660 seconds per call.
+  let harnessTimedOut = false;
+  const timeout = setTimeout(() => {
+    harnessTimedOut = true;
+    controller.abort();
+  }, Number(process.env.MISSION_TURN_TIMEOUT_MS ?? 20 * 60_000));
   let working = project;
   let assistantText = '';
   let lastWorking;
@@ -369,6 +377,7 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     appliedPatches,
     events,
     startedAt: started,
+    harnessTimedOut,
     recordingFile: recording || REPLAY ? recordingFile : null,
     metrics: {
       wallMs,
@@ -567,6 +576,7 @@ async function runCase(goldenCase, run) {
       events: outcome.events,
       startedAt: outcome.startedAt,
       wallMs: outcome.metrics.wallMs,
+      harnessTimedOut: outcome.harnessTimedOut,
       before: project,
       appliedPatches: outcome.appliedPatches,
       rubric: score,
