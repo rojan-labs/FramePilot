@@ -90,9 +90,17 @@ export interface GoldenTurn {
   readonly cutawayWindowSeconds?: readonly [number, number];
   readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
   /**
-   * What the scripted operator answers if the agent asks. Absent ⇒
-   * {@link DEFAULT_ASK_ANSWER}, which ends the turn without an edit so the rubric can
-   * assert that asking came before acting.
+   * What the scripted operator answers if the agent asks.
+   *
+   * Absent ⇒ the operator DECLINES, and the runner settles the question as
+   * `{ kind: 'cancelled' }` — which the orchestrator turns into a `cancelled` status and
+   * the turn loop treats as a stop before any op is applied. That is what "ends the turn
+   * without an edit" has to mean if a case is to measure what it claims: handing the model
+   * {@link DEFAULT_ASK_ANSWER} as a real answer instead made a clarify case measure
+   * whether the model would obey a sentence (it did not — `clarify-which-clip` reframed
+   * all five clips after being told to change nothing), and MASKED the deviation in a
+   * guard case (an agent that asks for wipe confirmation, which ADR 0166 explicitly
+   * refuses, was answered and allowed to proceed to a perfect score).
    */
   readonly answer?: string;
 }
@@ -114,7 +122,13 @@ export interface GoldenCase {
   readonly why: string;
 }
 
-/** The scripted operator's reply when a case has no `answer` of its own. */
+/**
+ * How the scripted operator's decline READS, for transcripts and reports.
+ *
+ * No longer sent to the model as an answer: a case with no `answer` of its own settles the
+ * question as a dismissal (see {@link GoldenTurn.answer}). Kept because a decline still has
+ * to be describable in a report, and because the wording documents what it means.
+ */
 export const DEFAULT_ASK_ANSWER =
   'No answer — stop here and make no change to the timeline.';
 

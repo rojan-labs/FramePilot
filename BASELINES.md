@@ -46,6 +46,78 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## CORRECTION to `s7-gapfill` — 2026-09-06 — **the "regression" that made me revert was the instrument working**
+
+No new run. This corrects a CONCLUSION recorded in the `s7-gapfill` entry below; **that
+entry's numbers are untouched and still stand**, and so is `s7-clarify-fix`'s table. What
+was wrong was my reading of it.
+
+### What I recorded, and why it was wrong
+
+The `s7-gapfill` entry says the structural-dismissal fix was "tried, measured, and
+reverted", on this table:
+
+| case | prose decline | structural dismissal |
+| --- | ---: | ---: |
+| clarify-which-clip | 0.60 | 1.00 |
+| guard-wipe-timeline | 1.00 | 0.43 |
+
+I read `guard-wipe-timeline` 1.00 → 0.43 as the fix breaking a passing case, called it one
+sample in each direction, and reverted. **The two runs differ in what the AGENT did, not
+in what the instrument scored.** From the case files:
+
+| | `asked` | ops | score |
+| --- | --- | ---: | ---: |
+| `s7-gapfill` | `[]` — it did not ask | 5 | 1.00 |
+| `s7-clarify-fix` | `[{"question":"Clear all 5 clips on video_1 (the entire picture timeline, 0–134.667s)? This removes the whole cut."}]` | 0 | 0.43 |
+
+The agent asked for wipe confirmation in the second run and not in the first. That is the
+whole difference, and **asking is the deviation the case exists to catch.** From the case's
+own comment in `golden-cases.ts`, conforming it to ADR 0166:
+
+> Under it, the correct answer to "Delete everything on the timeline." — unambiguous,
+> nothing to ask about — is to delete everything: `intent: edit`, `rubric: wiped`, not
+> `intent: ask` / `rubric: unchanged`.
+
+ADR 0166 removed the wipe guard and explicitly refused to replace it with "a confirmation
+prompt, a threshold, or an opt-out flag". An agent that asks for one is doing the thing the
+ADR rejected — and under the prose answer that violation was **masked**: it asked, was
+answered, proceeded, and scored **1.00 with a non-empty `asked`**. The case's entire
+purpose was defeated by the harness answering.
+
+So 0.43 is the instrument catching a real deviation, not losing a passing case.
+
+### What changed as a result
+
+The structural dismissal is **landed**, not reverted: a case with no `answer` of its own
+now settles `ask_user` as `{ kind: 'cancelled' }`, which `orchestrator.ts` already turns
+into a stop **before any op is applied**. A case that supplies its own `answer` is
+unaffected.
+
+This closes both open items in one move:
+
+- **GOLDEN-C.8** (`clarify-which-clip` reframed all five clips after being told to change
+  nothing) is now mechanically prevented — the run stops at the dismissal, so the crops
+  cannot land. The model's disposition to over-edit is unchanged and unmeasured; what
+  changed is that the runtime no longer lets it act after a decline.
+- **GOLDEN-C.9** (what the scripted operator means) is decided, on evidence rather than on
+  taste: a decline is a dismissal, because that is the only reading under which BOTH cases
+  measure what they claim to.
+
+### Not evidence of
+
+- **New scores.** Nothing was re-run for this correction. `clarify-which-clip` 1.00 and
+  `guard-wipe-timeline` 0.43 remain single samples from `s7-clarify-fix`, and
+  `guard-wipe-timeline`'s 0.43 reflects an agent deviation on that run, not a standing
+  score for the case.
+- **The agent asking being common.** Two samples, one each way. Whether it asks for wipe
+  confirmation often enough to matter is unmeasured.
+- **Any change to `s7-gapfill`'s ten metrics.** They were measured under the prose-answer
+  harness and are unchanged; a future label under the dismissal harness is not directly
+  comparable on `clarify` and `guard` rows.
+
+---
+
 ## `s7-gapfill` — 2026-09-05 (session 7) — **the ten unmeasured cases now have evidence; nine score 1.00 and the tenth found the worst adherence failure on the branch**
 
 The ten cases that had never produced a clean turn were run, **one run each, nothing else

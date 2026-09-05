@@ -67,15 +67,17 @@ someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
   Nine score 1.00; `hook-strongest-line` scores 1.00 on real media for the first time.
   Intent 90% · target 89% · boundary 100% · validity 100% · first-pass 80% · silent
   successes 0 · reversibility 100%. `BASELINES.md` "s7-gapfill".
-- `[ ]` GOLDEN-C.8 — **told to change nothing, the agent reframed every clip.**
-  `clarify-which-clip` asked the right question, was answered "make no change to the
-  timeline", and applied a 0.49-width centre crop to all five clips. Same shape as the
-  reorder failure and worse, because the instruction was unambiguous. `REMAINING.md` §2.1.
-- `[ ]` GOLDEN-C.9 — **decide what the scripted operator means.** The runner delivers a
-  decline as a real answer, so clarify and guard cases measure prose adherence rather than
-  using `ask_user`'s existing `cancelled` stop. Fixing it naively moves
-  `clarify-which-clip` 0.60 → 1.00 and `guard-wipe-timeline` 1.00 → 0.43 (measured,
-  `s7-clarify-fix`, reverted). Wants a per-case policy: a maintainer decision.
+- `[x]` GOLDEN-C.8 — **told to change nothing, the agent reframed every clip** — now
+  mechanically prevented. `clarify-which-clip` asked the right question, was answered
+  "make no change", and applied a 0.49-width centre crop to all five clips. A decline is
+  now a dismissal, so the run stops before any op is applied and the crops cannot land.
+  The model's disposition to over-edit is unchanged and unmeasured.
+- `[x]` GOLDEN-C.9 — **decided: a decline is a dismissal, not an answer.** The measurement
+  that looked like a regression was the instrument working — `guard-wipe-timeline`'s two
+  runs differ in whether the AGENT asked for wipe confirmation (`asked: []` vs
+  `asked: ["Clear all 5 clips…?"]`), and asking is exactly what ADR 0166 refused. Under the
+  prose answer that deviation scored 1.00 with a non-empty `asked`. Correction and evidence
+  in `BASELINES.md`.
 - `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. The eleven `session6` cases and the ten
   `s7-gapfill` cases are disjoint and at different run counts, so neither is a floor and
   they must not be averaged.

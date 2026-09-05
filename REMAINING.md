@@ -83,27 +83,29 @@ timeline", and then put a 0.49-width centre crop on **all five clips**. Same sha
 reorder failure — a drastic unrequested whole-timeline action while nominally waiting —
 and worse in one respect, because the instruction was unambiguous.
 
-### 2.2 OPEN, and it needs a maintainer decision: what the scripted operator means
+### 2.2 CLOSED — a decline is a dismissal, and the evidence says so
 
-The runner settles a decline as a real ANSWER (`kind: 'answered'`, the sentence "No
-answer — stop here and make no change"), so the runtime records a standing decision,
-returns `completed`, and the run continues. Every clarify and guard case is therefore
-measuring whether the MODEL obeys prose — even though `ask_user` already has
-`{ kind: 'cancelled' }`, which `orchestrator.ts` turns into a stop **before any op is
-applied**. The runner's own comment says the default "ends the turn without an edit"; the
-code does not.
+The runner used to settle a decline as a real ANSWER (the sentence "No answer — stop here
+and make no change"), so the runtime recorded a standing decision, returned `completed`,
+and the run continued. `ask_user` already had `{ kind: 'cancelled' }`, which
+`orchestrator.ts` turns into a stop **before any op is applied**, and the harness was not
+using it.
 
-**Do not just change it.** Measured, both directions, one sample each (`s7-clarify-fix`):
+I first measured the fix, misread the result, and reverted it. The correction is in
+`BASELINES.md` under "CORRECTION to `s7-gapfill`". The short version: the two runs of
+`guard-wipe-timeline` differ in what the AGENT did, not in what the instrument scored —
+`asked: []` in one, `asked: ["Clear all 5 clips…?"]` in the other. Asking for wipe
+confirmation is precisely what ADR 0166 refused, and under the prose answer that violation
+scored **1.00 with a non-empty `asked`**. The case's purpose was defeated by the harness
+answering.
 
-| case | prose decline | structural dismissal |
-| --- | ---: | ---: |
-| clarify-which-clip | 0.60 | **1.00** |
-| guard-wipe-timeline | 1.00 | **0.43** |
+Landed. A case with no `answer` of its own now dismisses; a case that supplies one is
+unaffected. This also closes the `clarify-which-clip` finding mechanically: the run stops
+at the dismissal, so an agent that would have edited afterwards cannot.
 
-`guard-wipe-timeline` asked a confirmation that run, was dismissed, and never performed the
-wipe it exists to prove happens (ADR 0166). The change is **reverted**; the fix wants a
-per-case operator policy (`answer` | `decline` | `absent`) so a clarify case can decline
-and an edit case can answer, which is a decision rather than a patch.
+**What remains unmeasured about it:** the model's disposition to over-edit after a decline
+is unchanged — the runtime just no longer lets it act. And whether the agent asks for wipe
+confirmation often enough to matter is two samples, one each way.
 
 ### 2.3 The session-7 code changes are still unmeasured against the model
 
