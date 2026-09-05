@@ -845,18 +845,14 @@ function registerIpcHandlers(): void {
   };
 
   ipcMain.handle(IpcChannels.ping, () => 'pong');
-  ipcMain.handle(
-    IpcChannels.licenseStatus,
-    (): Promise<LicenseStatus> => licenseService.getStatus(),
+  ipcMain.handle(IpcChannels.licenseStatus, (): Promise<LicenseStatus> =>
+    licenseService.getStatus(),
   );
-  ipcMain.handle(
-    IpcChannels.licenseActivate,
-    (_event, req: unknown): Promise<LicenseStatus> =>
-      licenseService.activate((req as LicenseActivateRequest)?.licenseKey ?? ''),
+  ipcMain.handle(IpcChannels.licenseActivate, (_event, req: unknown): Promise<LicenseStatus> =>
+    licenseService.activate((req as LicenseActivateRequest)?.licenseKey ?? ''),
   );
-  ipcMain.handle(
-    IpcChannels.licenseDeactivate,
-    (): Promise<LicenseStatus> => licenseService.deactivate(),
+  ipcMain.handle(IpcChannels.licenseDeactivate, (): Promise<LicenseStatus> =>
+    licenseService.deactivate(),
   );
   ipcMain.handle(IpcChannels.sidecarStatus, () => sidecar.status);
   ipcMain.handle(
@@ -2380,6 +2376,10 @@ function registerIpcHandlers(): void {
       }
       return sidecarToolExecutor.run(call, ctx, signal);
     },
+    // Forwarded, not re-derived: the sidecar executor owns the list of tools this surface
+    // cannot route, and a wrapper that swallowed it would leave the desktop advertising
+    // `render_preview` to a model that then calls it — eight times in one captured run.
+    unroutableTools: () => sidecarToolExecutor.unroutableTools?.() ?? new Set<string>(),
   };
   const temporalEvidence = createTemporalEvidenceAcquirer({
     baseUrl: engineBaseUrl,
@@ -2467,9 +2467,8 @@ function registerIpcHandlers(): void {
     ...aiConfig.toAiConfig().providers,
   ]);
   ipcMain.handle(IpcChannels.aiConfigGet, (): AiConfig => aiConfig.toAiConfig());
-  ipcMain.handle(
-    IpcChannels.aiConfigSet,
-    (_event, update: unknown): AiConfig => aiConfig.applyUpdate((update ?? {}) as AiConfigUpdate),
+  ipcMain.handle(IpcChannels.aiConfigSet, (_event, update: unknown): AiConfig =>
+    aiConfig.applyUpdate((update ?? {}) as AiConfigUpdate),
   );
   const desktopVisualIndex = new VisualIndexClient({
     baseUrl: engineBaseUrl,
@@ -2523,13 +2522,11 @@ function registerIpcHandlers(): void {
 
   // AI-sidebar conversation persistence (Phase 11 M2, ADR 0033). A separate JSON
   // store under user-data; the store sanitizes ids (no path traversal).
-  ipcMain.handle(
-    IpcChannels.conversationsList,
-    (): Promise<ConversationSummary[]> => conversations.list(),
+  ipcMain.handle(IpcChannels.conversationsList, (): Promise<ConversationSummary[]> =>
+    conversations.list(),
   );
-  ipcMain.handle(
-    IpcChannels.conversationsLoad,
-    (_event, id: unknown): Promise<unknown | null> => conversations.load(id),
+  ipcMain.handle(IpcChannels.conversationsLoad, (_event, id: unknown): Promise<unknown | null> =>
+    conversations.load(id),
   );
   /**
    * Reclaim attachment files this project's conversations no longer reference.

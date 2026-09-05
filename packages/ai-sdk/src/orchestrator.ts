@@ -494,6 +494,8 @@ const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 /** How many recent step notes the agent context keeps verbatim before digesting (B4). */
+/** The default when no executor declares anything unroutable: nothing is withheld. */
+const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
 
 /**
@@ -3734,7 +3736,14 @@ export class Orchestrator {
     // description of an image the model never received. Withhold the descriptor entirely
     // rather than let it be called and fail (see `supportsVision`).
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
+    // What this HOST cannot fulfil is not offered. Statically known, declared by the
+    // executor (`HostToolExecutor.unroutableTools`), and the reason is upstream of every
+    // guard: a tool the model can see, it will call. Run 6 of 2026-09-05 called
+    // `render_preview` eight times on a surface with no route for it, and paid the two
+    // render descriptors' schema on every one of its 308 requests besides.
+    const unroutable = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
     return toolDescriptors((tool) => {
+      if (unroutable.has(tool.name)) return false;
       // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
       // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
       // only in `selectTools` — so the ONE surface with a live editor in front of it offered

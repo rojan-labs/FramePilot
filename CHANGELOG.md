@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI no longer offers to render previews or exports from inside the desktop editor.**
+  Those two actions only work through the editor's own Export dialog, yet they were listed
+  among the AI's tools on every surface — so it would try, be refused, and (in one captured
+  session) try eight more times. The desktop now tells the AI up front which tools it cannot
+  run there, and they simply are not offered; the MCP surface, where they do work, is
+  unchanged.
+
 - **A refusal that no edit can fix is now remembered for the whole run.** When the AI was
   told "render_preview can't run from here — don't call it again", that memory was wiped
   every time it made an edit, so one session asked eight times in 86 minutes and was refused

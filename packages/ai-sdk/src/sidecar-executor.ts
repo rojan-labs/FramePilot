@@ -1604,6 +1604,10 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
   // of media through the machine.
   return {
     run: (call, ctx, signal) => chargeAnalysisBudget(dispatch, call, ctx, signal, now),
+    // `planSidecarCall` is a pure function of the tool name and has no route for these, so
+    // the answer is knowable before any call — say it where the descriptors are chosen
+    // rather than after the model has already spent a turn asking.
+    unroutableTools: () => RENDER_ACTIONS,
   };
 }
 
