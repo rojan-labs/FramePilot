@@ -13,7 +13,26 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-05, GOLDEN-EVAL — goal.md Phase 0):** the baseline exists and
+**Status snapshot (2026-09-05b, GOLDEN-EVAL — goal.md Phase 0):** the first live baseline
+attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten cases in
+(122–660s per model call against a normal 7–30). Eight cases have clean evidence; on those
+31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
+target resolution, operation validity and reversibility all **1.00** and zero silent
+successes. Running it found **five instrument defects**, all fixed. Full numbers, the
+per-case table, and what each is *not* evidence of: `BASELINES.md` "session3". What is
+still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.2 — **five instrument defects, found by running the thing.** A rubric
+  demanding a shorter programme for a prompt asking for a faster one; a case asking for 45
+  seconds scored against 60; the `__text__` sentinel counted as a dangling ref; b-roll
+  judged against the narration; and a turn the harness timed out scored as the agent's
+  behaviour. That last one is why `reorder-last-first`'s 0.6/0.7/0.7 is **not** the
+  regression it looks like — all three runs were cut off mid-reorder. Commits
+  `a255687`, `a8b58f7`.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases attempted, two with no clean run.
+  Resuming is cheap (per-case results are cached); check the provider is answering first.
+
+**Prior snapshot (2026-09-05, GOLDEN-EVAL — goal.md Phase 0):** the baseline exists and
 was **not re-run** this session (credits conserved). Sixteen defects closed on
 `fix/agent-reliability-2026-09-05`, each with a reproducing test — thirteen read out of a
 single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
