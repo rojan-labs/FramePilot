@@ -116,6 +116,14 @@ class MoveClipArgs(BaseModel):
     to_start: float = Field(alias="toStart", ge=0.0)
 
 
+class ReorderClipsArgs(BaseModel):
+    """A track and ALL of its clip ids in the order they should play (ADR 0173)."""
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clip_ids: list[str] = Field(alias="clipIds", min_length=1, max_length=500)
+
+
 class AddClipEntry(BaseModel):
     """One placement inside an ``add_clips`` batch — ``add_clip`` minus the track id."""
 
@@ -1238,9 +1246,18 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=RangeOnTrackArgs,
         mutating=True,
     ),
+    "reorder_clips": _spec(
+        "reorder_clips",
+        "Change the ORDER of the clips on one track. Give the track and ALL of its "
+        "clip ids in the order you want them; nothing is deleted and nothing is added.",
+        kind="mutate",
+        input_model=ReorderClipsArgs,
+        mutating=True,
+    ),
     "move_clip": _spec(
         "move_clip",
-        "Move a clip to a track at a new timeline start time (duration unchanged).",
+        "Move ONE clip to a track at a new timeline start time (duration unchanged). "
+        "To change the order of a track's clips, use reorder_clips instead.",
         kind="mutate",
         input_model=MoveClipArgs,
         mutating=True,
@@ -1345,8 +1362,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         # contract. Without this the agent could add animation and never take it
         # off, so "stop zooming on that shot" had no tool to answer it.
         "Take animation OFF a clip: clear one property entirely, or remove a single "
-        "keyframe at a time. `{property: \"scale\"}` clears every scale keyframe, "
-        "`{property: \"scale\", time: 2}` removes just the one two seconds in. Times "
+        'keyframe at a time. `{property: "scale"}` clears every scale keyframe, '
+        '`{property: "scale", time: 2}` removes just the one two seconds in. Times '
         "are seconds from the clip's start. Removing something that is not there "
         "changes nothing rather than failing.",
         kind="mutate",

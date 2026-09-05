@@ -51,6 +51,7 @@ from framepilot_engine.ai_tools.registry import (
     RemoveKeyframesArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
+    ReorderClipsArgs,
     SetCaptionStyleArgs,
     SetClipBlendModeArgs,
     SetClipCropArgs,
@@ -240,6 +241,10 @@ def delete_clips(args: DeleteClipsArgs, ctx: ToolContext) -> Operations:
         # only while nothing before them has moved.
         ops.sort(key=lambda op: -float(op["start"]))
     return ops
+
+
+def reorder_clips(args: ReorderClipsArgs, ctx: ToolContext) -> Operations:
+    return [{"type": "reorder_clips", "trackId": args.track_id, "clipIds": list(args.clip_ids)}]
 
 
 def move_clip(args: MoveClipArgs, ctx: ToolContext) -> Operations:

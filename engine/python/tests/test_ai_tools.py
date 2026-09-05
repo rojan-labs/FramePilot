@@ -73,6 +73,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "delete_clip": (True, True),
     "delete_clips": (True, True),
     "move_clip": (True, True),
+    "reorder_clips": (True, True),
     "add_track": (True, True),
     "remove_track": (True, True),
     "move_track": (True, True),
@@ -648,6 +649,14 @@ def test_move_clip(ctx: ToolContext, project: Project) -> None:
     _assert_patch_ok(result, project)
 
 
+def test_reorder_clips(ctx: ToolContext, project: Project) -> None:
+    """The atomic route that cannot lose footage (ADR 0173) — no delete, no add."""
+    result = run_tool("reorder_clips", {"trackId": "v", "clipIds": ["B", "A"]}, ctx)
+    _assert_patch_ok(result, project)
+    assert result.operations is not None
+    assert [op["type"] for op in result.operations] == ["reorder_clips"]
+
+
 def test_add_clip(ctx: ToolContext, project: Project) -> None:
     result = run_tool(
         "add_clip",
@@ -883,9 +892,7 @@ def test_add_keyframes_requires_at_least_one(ctx: ToolContext) -> None:
         run_tool("add_keyframes", {"clipId": "A", "keyframes": []}, ctx)
 
 
-def test_remove_keyframes_clears_a_property_or_one_time(
-    ctx: ToolContext, project: Project
-) -> None:
+def test_remove_keyframes_clears_a_property_or_one_time(ctx: ToolContext, project: Project) -> None:
     """Animation has to be reversible: `add_keyframes` can only ever add more."""
     whole = run_tool("remove_keyframes", {"clipId": "A", "targets": [{"property": "scale"}]}, ctx)
     assert whole.operations is not None

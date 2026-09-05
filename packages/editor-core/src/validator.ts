@@ -98,6 +98,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'split_clip',
   'delete_range',
   'move_clip',
+  'reorder_clips',
   'ripple_delete',
   'add_clip',
   'add_text_overlay',

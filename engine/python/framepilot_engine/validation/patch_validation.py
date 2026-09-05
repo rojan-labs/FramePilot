@@ -48,6 +48,9 @@ ValidationCode = Literal[
     "duplicate_layer",
     "invalid_speed",
     "speed_duration_mismatch",
+    # An apply path rejected the operation's SHAPE rather than its times. Mirrors the
+    # TS validator's `invalid_operation` arm.
+    "invalid_operation",
 ]
 ValidationSeverity = Literal["error", "warning"]
 
@@ -60,6 +63,7 @@ SUPPORTED_OPERATIONS = frozenset(
         "split_clip",
         "delete_range",
         "move_clip",
+        "reorder_clips",
         "ripple_delete",
         "add_clip",
         "add_text_overlay",
@@ -319,6 +323,8 @@ def _from_operation_error(error: OperationError, index: int) -> ValidationIssue:
         code = "transition_overlap"
     elif error.code == "broken_audio_link":
         code = "broken_audio_link"
+    elif error.code == "invalid_order":
+        code = "invalid_operation"
     else:  # duplicate_clip
         code = "overlap_error"
     return ValidationIssue(code=code, severity="error", message=str(error), operation_index=index)

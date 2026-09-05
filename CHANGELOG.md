@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Reordering shots no longer risks losing them.** Asking the AI to put the last shot
+  first, swap two clips, or reverse a sequence now runs as a single `reorder_clips`
+  operation that re-lays the track and keeps every clip's length, media and look. Before
+  this there was no way to express a reorder, so the AI had to delete the sequence and
+  rebuild it — and if the run stopped in between, the footage was gone. Four of six
+  reorder runs in the last evaluation lost content this way. Undo restores the previous
+  order exactly. ADR 0173.
+
 - **A new framepilot.app.** The marketing site was rebuilt end to end around one idea: the
   editors you already use are ripple-deleted into a bin in the corner and FramePilot takes
   the logo slot. Every route (landing, pricing, download, blog, docs, changelog, legal, 404)
@@ -16,6 +24,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   JavaScript. `apps/website` gains `framer-motion` (already in the monorepo). ADR 0172.
 
 ### Fixed
+
+- **A speed change now lands on a whole frame.** Retiming a clip used to leave its out
+  point between two frames, so the preview and the export could disagree about where the
+  cut was. One evaluation turn made 16 speed changes and produced 16 off-grid edges. The
+  new duration is resolved against the project's frame rate, and undo still restores the
+  original timing exactly.
 
 - **A word too wide for its text box no longer runs off the screen quietly.** Text
   overlays and captions never break a word, so a long one in a narrow box overflowed the

@@ -216,6 +216,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   delete_range: { role: 'mutation', scope: 'timeline_dependent' },
   manage_assets: { role: 'mutation', scope: 'timeline_dependent' },
   move_clip: { role: 'mutation', scope: 'timeline_dependent' },
+  reorder_clips: { role: 'mutation', scope: 'timeline_dependent' },
   move_track: { role: 'mutation', scope: 'timeline_dependent' },
   punch_in: { role: 'mutation', scope: 'timeline_dependent' },
   remove_marker: { role: 'mutation', scope: 'timeline_dependent' },

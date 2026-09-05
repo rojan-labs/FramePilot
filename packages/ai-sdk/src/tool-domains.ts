@@ -111,6 +111,7 @@ const CORE: readonly string[] = [
   'delete_range',
   'ripple_delete',
   'move_clip',
+  'reorder_clips',
   'add_track',
   'remove_track',
   'move_track',

@@ -61,6 +61,7 @@ const TIMELINE_MUTATION_BUILDERS: ReadonlySet<string> = new Set([
   'delete_clips',
   'ripple_delete',
   'move_clip',
+  'reorder_clips',
   'add_track',
   'remove_track',
   'move_track',

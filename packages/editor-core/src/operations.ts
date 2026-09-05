@@ -129,6 +129,45 @@ export interface MoveClipOp {
   readonly toStart: Seconds;
 }
 
+/**
+ * Re-lay a track's clips in a given order, in ONE patch (ADR 0173).
+ *
+ * WHY this operation exists, when `move_clip` already moves a clip: it does not
+ * compose into a reorder. `move_clip` moves ONE clip to a start time, clips may not
+ * overlap, so "put the last clip first" has no expressible route through it except
+ * destroy-and-rebuild — delete the sequence, then add it back in the new order. Four of
+ * six clean reorder runs in the session-6 baseline did exactly that and lost the
+ * editor's footage: every individual operation was legal, so nothing caught it, and any
+ * run that then stopped — asked a question, hit a wall, timed out — left the destruction
+ * applied and the repair unwritten. One of them described the damage it had just done as
+ * the project's own state.
+ *
+ * The fix is not a guard on deletes (a guard on "a delete that empties a track" catches
+ * two of the five content-loss failures and misses the three 5→1 cases). It is a route
+ * that does not delete anything: given a track and an ordering, recompute the starts.
+ *
+ * Semantics, chosen so the result is the one an editor means by "reorder":
+ *
+ * - `clipIds` must be exactly the track's clip ids, each once. A partial list would
+ *   leave "where do the others go?" unanswerable, and answering it by guessing is how
+ *   the destroy-and-rebuild route lost footage in the first place.
+ * - Clips are butted end to end from the earliest current start, keeping each clip's own
+ *   duration and source range. **This closes gaps** — that is the ripple-reorder every
+ *   NLE performs, and a reorder that preserved gaps would have to decide which gap
+ *   belongs to which clip.
+ * - Nothing is added or removed, so the clip count is invariant and the operation cannot
+ *   lose content even if the run stops immediately after it.
+ *
+ * Inverse: `restore_clips` — exact, and cheap, since a reorder rewrites the whole array
+ * anyway.
+ */
+export interface ReorderClipsOp {
+  readonly type: 'reorder_clips';
+  readonly trackId: string;
+  /** The track's clip ids in their new left-to-right order. A permutation, not a subset. */
+  readonly clipIds: readonly string[];
+}
+
 export interface RippleDeleteOp {
   readonly type: 'ripple_delete';
   readonly trackId: string;
@@ -679,6 +718,7 @@ export type Operation =
   | SplitClipOp
   | DeleteRangeOp
   | MoveClipOp
+  | ReorderClipsOp
   | RippleDeleteOp
   | AddClipOp
   | AddTextOverlayOp
@@ -863,6 +903,7 @@ export class OperationError extends Error {
       | 'missing_track'
       | 'invalid_range'
       | 'invalid_split'
+      | 'invalid_order'
       | 'duplicate_clip'
       | 'duplicate_layer'
       | 'missing_effect'
@@ -1030,6 +1071,8 @@ function applyOperationInner(
       return applyRippleDelete(timeline, op);
     case 'move_clip':
       return applyMove(timeline, op);
+    case 'reorder_clips':
+      return applyReorderClips(timeline, op, context);
     case 'add_clip':
       return applyAddClip(timeline, op);
     case 'add_text_overlay':
@@ -1546,6 +1589,81 @@ function applyMove(timeline: Timeline, op: MoveClipOp): Timeline {
   );
   const destClips = afterRemoval.tracks[destIndex]!.clips;
   return withTrackClips(afterRemoval, destIndex, sortByStart([...destClips, moved]));
+}
+
+/**
+ * Lay `op.clipIds` out gaplessly on their track, preserving every clip's duration.
+ *
+ * Frame-domain arithmetic when the caller knows the fps, seconds otherwise. The frame
+ * path matters for more than tidiness: laying five clips end to end in seconds
+ * accumulates float error into every boundary after the first, so the fourth cut drifts
+ * off the grid even when all five source durations were on it.
+ */
+function applyReorderClips(
+  timeline: Timeline,
+  op: ReorderClipsOp,
+  context?: ApplyContext,
+): Timeline {
+  const { track, index: trackIndex } = findTrack(timeline, op.trackId);
+  const byId = new Map(track.clips.map((c) => [c.id, c]));
+
+  const seen = new Set<string>();
+  for (const id of op.clipIds) {
+    if (!byId.has(id)) {
+      throw new OperationError(
+        'missing_clip',
+        `reorder_clips: clip '${id}' is not on track '${op.trackId}'. ` +
+          `List exactly that track's clips, each once, in the order you want them.`,
+      );
+    }
+    if (seen.has(id)) {
+      throw new OperationError(
+        'invalid_order',
+        `reorder_clips: clip '${id}' is listed twice. Each clip appears exactly once.`,
+      );
+    }
+    seen.add(id);
+  }
+  if (seen.size !== track.clips.length) {
+    // Naming the omissions is what lets the model fix its own call instead of retrying
+    // the same partial list. Cap the list so a 200-clip track cannot flood the turn.
+    const missing = track.clips.filter((c) => !seen.has(c.id)).map((c) => c.id);
+    const shown = missing.slice(0, 8).join(', ');
+    const rest = missing.length > 8 ? `, and ${missing.length - 8} more` : '';
+    throw new OperationError(
+      'invalid_order',
+      `reorder_clips lists ${op.clipIds.length} of track '${op.trackId}''s ` +
+        `${track.clips.length} clips; it must list them all. Missing: ${shown}${rest}.`,
+    );
+  }
+
+  const anchor = Math.min(...track.clips.map((c) => c.start));
+  const fps = gridFps(context);
+  const reordered: Clip[] = [];
+  if (fps === null) {
+    let cursor = anchor;
+    for (const id of op.clipIds) {
+      const clip = byId.get(id)!;
+      const duration = clip.end - clip.start;
+      reordered.push({ ...clone(clip), start: cursor, end: cursor + duration });
+      cursor += duration;
+    }
+  } else {
+    let frame = secondsToFrame(anchor, fps);
+    for (const id of op.clipIds) {
+      const clip = byId.get(id)!;
+      // At least one frame: a sub-frame clip must still occupy a boundary, or the next
+      // clip starts where this one does and the track acquires an overlap.
+      const frames = Math.max(1, secondsToFrame(clip.end, fps) - secondsToFrame(clip.start, fps));
+      reordered.push({
+        ...clone(clip),
+        start: frameToSeconds(frame, fps),
+        end: frameToSeconds(frame + frames, fps),
+      });
+      frame += frames;
+    }
+  }
+  return withTrackClips(timeline, trackIndex, reordered);
 }
 
 function applyAddClip(timeline: Timeline, op: AddClipOp): Timeline {
@@ -2537,6 +2655,11 @@ export function invertOperation(
       }
       if (track.id === op.toTrackId) return [restoreFor(track)];
       return [restoreFor(findTrack(timelineBefore, op.toTrackId).track), restoreFor(track)];
+    }
+    case 'reorder_clips': {
+      // The whole clip array is rewritten, so the array itself is the only honest
+      // inverse — and it is cheap for exactly the same reason.
+      return [restoreFor(findTrack(timelineBefore, op.trackId).track)];
     }
     case 'set_track_flags': {
       // Same-shape inverse: restore the prior value of exactly the flags this op

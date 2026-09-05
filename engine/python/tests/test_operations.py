@@ -38,6 +38,7 @@ from framepilot_engine.timeline.operations import (
     RemoveKeyframes,
     RemoveKeyframeTarget,
     RemoveLayer,
+    ReorderClips,
     RestoreClips,
     RippleDelete,
     SetCaptionStyle,
@@ -965,6 +966,89 @@ def test_set_clip_speed_source_end_none_treated_as_1to1() -> None:
     )
     slowed = apply_operation(timeline, SetClipSpeed(clip_id="A", speed=0.5))
     assert _clips(slowed, "v")[0].end == 8.0
+
+
+def _reorder_timeline() -> Timeline:
+    """Five clips of unequal length butted end to end — the montage shape of the run."""
+    return Timeline(
+        tracks=[
+            Track(
+                id="v",
+                type=TrackType.VIDEO,
+                clips=[
+                    _clip("c1", "v", 0, 2),
+                    _clip("c2", "v", 2, 5),
+                    _clip("c3", "v", 5, 6),
+                    _clip("c4", "v", 6, 10),
+                    _clip("c5", "v", 10, 11),
+                ],
+            )
+        ]
+    )
+
+
+def test_reorder_clips_moves_the_last_clip_first_without_losing_any() -> None:
+    before = _reorder_timeline()
+    after = apply_operation(
+        before, ReorderClips(track_id="v", clip_ids=["c5", "c1", "c2", "c3", "c4"]), fps=30
+    )
+    assert [c.id for c in _clips(after, "v")] == ["c5", "c1", "c2", "c3", "c4"]
+    assert len(_clips(after, "v")) == len(_clips(before, "v"))
+
+
+def test_reorder_clips_is_gapless_on_the_grid_and_matches_ts() -> None:
+    after = apply_operation(
+        _reorder_timeline(),
+        ReorderClips(track_id="v", clip_ids=["c5", "c1", "c2", "c3", "c4"]),
+        fps=30,
+    )
+    assert [(c.start, c.end) for c in _clips(after, "v")] == [
+        (0.0, 1.0),
+        (1.0, 3.0),
+        (3.0, 6.0),
+        (6.0, 7.0),
+        (7.0, 11.0),
+    ]
+
+
+def test_reorder_clips_anchors_at_the_earliest_start_not_at_zero() -> None:
+    timeline = Timeline(
+        tracks=[
+            Track(
+                id="v", type=TrackType.VIDEO, clips=[_clip("a", "v", 4, 6), _clip("b", "v", 6, 7)]
+            )
+        ]
+    )
+    after = apply_operation(timeline, ReorderClips(track_id="v", clip_ids=["b", "a"]), fps=30)
+    assert [(c.start, c.end) for c in _clips(after, "v")] == [(4.0, 5.0), (5.0, 7.0)]
+
+
+def test_reorder_clips_refuses_a_partial_list_and_names_the_omissions() -> None:
+    with pytest.raises(OperationError) as exc:
+        apply_operation(_reorder_timeline(), ReorderClips(track_id="v", clip_ids=["c5", "c1"]))
+    assert exc.value.code == "invalid_order"
+    assert "Missing: c2, c3, c4" in str(exc.value)
+
+
+def test_reorder_clips_refuses_a_duplicate_and_an_unknown_clip() -> None:
+    with pytest.raises(OperationError) as dup:
+        apply_operation(
+            _reorder_timeline(),
+            ReorderClips(track_id="v", clip_ids=["c1", "c1", "c2", "c3", "c4"]),
+        )
+    assert dup.value.code == "invalid_order"
+    with pytest.raises(OperationError) as unknown:
+        apply_operation(
+            _reorder_timeline(),
+            ReorderClips(track_id="v", clip_ids=["c9", "c1", "c2", "c3", "c4"]),
+        )
+    assert unknown.value.code == "missing_clip"
+
+
+def test_reorder_clips_round_trips() -> None:
+    _roundtrip(
+        ReorderClips(track_id="v", clip_ids=["c5", "c4", "c3", "c2", "c1"]), _reorder_timeline()
+    )
 
 
 def test_set_clip_speed_off_grid_without_fps_matches_the_ts_default() -> None:

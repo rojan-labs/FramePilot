@@ -46,6 +46,7 @@ export function postValidationScope(
     case 'set_clip_speed':
     case 'set_clip_speed_ramp':
       return scope([clipTrackById.get(op.clipId)], TIMING_CHECKS);
+    case 'reorder_clips':
     case 'delete_range':
     case 'ripple_delete':
     case 'add_clip':

@@ -109,6 +109,20 @@ class MoveClip(_Operation):
     to_start: float = Field(alias="toStart")
 
 
+class ReorderClips(_Operation):
+    """Re-lay a track's clips in a given order, in ONE operation (ADR 0173).
+
+    Mirrors ``packages/editor-core/src/operations.ts#ReorderClipsOp``; see that
+    docstring for the runs this exists because of. ``clip_ids`` is a permutation of
+    the track's clips, never a subset, and nothing is added or removed — which is
+    what makes a reorder unable to lose footage even if the run stops right after it.
+    """
+
+    type: Literal["reorder_clips"] = "reorder_clips"
+    track_id: str = Field(alias="trackId")
+    clip_ids: list[str] = Field(alias="clipIds")
+
+
 class RippleDelete(_Operation):
     """Delete a range and pull later clips left to close the gap."""
 
@@ -465,6 +479,7 @@ Operation = Annotated[
     | SplitClip
     | DeleteRange
     | MoveClip
+    | ReorderClips
     | RippleDelete
     | AddClip
     | AddTextOverlay
@@ -495,6 +510,7 @@ _OperationCode = Literal[
     "missing_effect",
     "invalid_range",
     "invalid_split",
+    "invalid_order",
     "invalid_transition",
     "duplicate_clip",
     "duplicate_layer",
@@ -644,18 +660,22 @@ def apply_operation(
 
     :param timeline: The timeline to transform.
     :param operation: The operation to apply.
-    :param fps: Project frame rate, when the caller knows it. Only ``set_clip_speed``
-        reads it: that op carries no time field, so the frame grid cannot reach it
-        through ``normalize_operation_time`` and the duration it INVENTS
-        (``source_duration / speed``) is almost never a whole number of frames.
+    :param fps: Project frame rate, when the caller knows it. Read by the two ops that
+        carry no time field and therefore cannot be reached by ``normalize_operation_time``:
+        ``set_clip_speed``, whose invented duration (``source_duration / speed``) is
+        almost never a whole number of frames, and ``reorder_clips``, which derives every
+        start by accumulation.
         ``None`` means "behave exactly as before" — mirrors
         ``packages/editor-core/src/operations.ts#ApplyContext``.
     :returns: A new :class:`Timeline`.
     :raises OperationError: If the op references missing entities or would
         produce an invalid timeline.
     """
-    if fps is not None and isinstance(operation, SetClipSpeed):
-        return _apply_set_clip_speed(timeline, operation, fps=fps)
+    if fps is not None:
+        if isinstance(operation, SetClipSpeed):
+            return _apply_set_clip_speed(timeline, operation, fps=fps)
+        if isinstance(operation, ReorderClips):
+            return _apply_reorder_clips(timeline, operation, fps=fps)
     handler = _APPLY[operation.type]
     return handler(timeline, operation)
 
@@ -850,6 +870,73 @@ def _apply_move(timeline: Timeline, op: MoveClip) -> Timeline:
     )
     dest_clips = after_removal.tracks[dest_index].clips
     return _with_track_clips(after_removal, dest_index, _sort_by_start([*dest_clips, moved]))
+
+
+def _apply_reorder_clips(
+    timeline: Timeline, op: ReorderClips, *, fps: float | None = None
+) -> Timeline:
+    """Lay ``op.clip_ids`` out gaplessly on their track, preserving every duration.
+
+    Frame-domain arithmetic when the caller knows the fps, seconds otherwise — laying
+    five clips end to end in seconds accumulates float error into every boundary after
+    the first. Mirrors ``operations.ts#applyReorderClips`` number for number.
+    """
+    track, track_index = _find_track(timeline, op.track_id)
+    by_id = {c.id: c for c in track.clips}
+
+    seen: set[str] = set()
+    for clip_id in op.clip_ids:
+        if clip_id not in by_id:
+            raise OperationError(
+                "missing_clip",
+                f"reorder_clips: clip '{clip_id}' is not on track '{op.track_id}'. "
+                f"List exactly that track's clips, each once, in the order you want them.",
+            )
+        if clip_id in seen:
+            raise OperationError(
+                "invalid_order",
+                f"reorder_clips: clip '{clip_id}' is listed twice. "
+                f"Each clip appears exactly once.",
+            )
+        seen.add(clip_id)
+    if len(seen) != len(track.clips):
+        missing = [c.id for c in track.clips if c.id not in seen]
+        shown = ", ".join(missing[:8])
+        rest = f", and {len(missing) - 8} more" if len(missing) > 8 else ""
+        raise OperationError(
+            "invalid_order",
+            f"reorder_clips lists {len(op.clip_ids)} of track '{op.track_id}''s "
+            f"{len(track.clips)} clips; it must list them all. Missing: {shown}{rest}.",
+        )
+
+    anchor = min(c.start for c in track.clips)
+    reordered: list[Clip] = []
+    if fps is None:
+        cursor = anchor
+        for clip_id in op.clip_ids:
+            clip = by_id[clip_id]
+            duration = clip.end - clip.start
+            reordered.append(
+                _clone_clip(clip).model_copy(update={"start": cursor, "end": cursor + duration})
+            )
+            cursor += duration
+    else:
+        frame = seconds_to_frame(anchor, fps)
+        for clip_id in op.clip_ids:
+            clip = by_id[clip_id]
+            # At least one frame: a sub-frame clip must still occupy a boundary, or the
+            # next clip starts where this one does and the track acquires an overlap.
+            frames = max(1, seconds_to_frame(clip.end, fps) - seconds_to_frame(clip.start, fps))
+            reordered.append(
+                _clone_clip(clip).model_copy(
+                    update={
+                        "start": frame_to_seconds(frame, fps),
+                        "end": frame_to_seconds(frame + frames, fps),
+                    }
+                )
+            )
+            frame += frames
+    return _with_track_clips(timeline, track_index, reordered)
 
 
 def _apply_add_clip(timeline: Timeline, op: AddClip) -> Timeline:
@@ -1318,6 +1405,7 @@ _APPLY: dict[str, Callable[[Timeline, Any], Timeline]] = {
     "delete_range": _apply_delete_range,
     "ripple_delete": _apply_ripple_delete,
     "move_clip": _apply_move,
+    "reorder_clips": _apply_reorder_clips,
     "add_clip": _apply_add_clip,
     "add_text_overlay": _apply_add_text_overlay,
     "add_caption_layer": _apply_add_caption_layer,
@@ -1409,6 +1497,10 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
     if isinstance(operation, MoveClip):
         clip = _find_clip(timeline_before, operation.clip_id).clip
         return [MoveClip(clip_id=operation.clip_id, to_track_id=clip.track_id, to_start=clip.start)]
+    if isinstance(operation, ReorderClips):
+        # The whole clip array is rewritten, so the array itself is the only honest
+        # inverse — and it is cheap for exactly the same reason. Mirrors TS.
+        return [_restore_for(_find_track(timeline_before, operation.track_id)[0])]
     if operation.type in _CLIP_RESTORE_OPS:
         clip_id = cast(str, operation.clip_id)  # type: ignore[union-attr]
         return [_restore_for(_find_clip(timeline_before, clip_id).track)]

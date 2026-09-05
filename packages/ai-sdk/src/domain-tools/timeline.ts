@@ -903,8 +903,31 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'reorder_clips',
+      description:
+        'Reorder one track\'s clips — "put the last shot first", "swap these two". ' +
+        'Pass the track and ALL its clip ids in the new order; they are re-laid end to ' +
+        'end keeping each length and media. Nothing is deleted or added, so this cannot ' +
+        'lose footage; deleting and re-adding clips can. move_clip cannot reorder.',
+    },
+    z
+      .object({
+        trackId: z.string(),
+        clipIds: z
+          .array(z.string())
+          .min(1)
+          .max(500)
+          .describe("All the track's clip ids, each once, in play order"),
+      })
+      .strict(),
+    (a) => [{ type: 'reorder_clips', trackId: a.trackId, clipIds: a.clipIds }],
+  ),
+  mutateTool(
+    {
       name: 'move_clip',
-      description: 'Move a clip to a track at a new timeline start time (duration unchanged).',
+      description:
+        'Move ONE clip to a track at a new timeline start time (duration unchanged). ' +
+        'To reorder a track, use reorder_clips.',
     },
     z.object({ clipId: z.string(), toTrackId: z.string(), toStart: seconds }).strict(),
     (a, ctx) => {
