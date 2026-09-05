@@ -67,8 +67,7 @@ export function nextMusicLayerId(timeline: Timeline): string {
 function duckCandidateTrackIds(project: Project): string[] {
   return project.timeline.tracks
     .filter(
-      (track) =>
-        track.type !== 'caption' && track.type !== 'effect' && track.clips.length > 0,
+      (track) => track.type !== 'caption' && track.type !== 'effect' && track.clips.length > 0,
     )
     .map((track) => track.id);
 }
@@ -110,6 +109,38 @@ function duckCandidateSentence(project: Project): string {
  *
  * Every refusal names the tracks that would have worked ({@link duckCandidateSentence}).
  */
+/**
+ * The STABLE identity of a duck refusal — the rule and the id being corrected, and
+ * nothing that varies with unrelated project state.
+ *
+ * WHY this is separate from the sentence. The refusal is remembered by its text
+ * (`orchestrator.ts#deterministicFailureKey`), and that was a considered choice: the only
+ * thing varying in the sentence used to be the `duckUnderTrackId` it names, which is the
+ * argument the model is being asked to CORRECT, so two attempts with the same bad id
+ * shared a key and two with different bad ids each got their own answer.
+ *
+ * {@link duckCandidateSentence} then appended the tracks that DO have clips, which is a
+ * much better refusal and quietly broke that reasoning: the list grows as the run places
+ * clips, so the same rule refusing the same id twice now produces two different sentences,
+ * two different keys, and no repeat guard. Placing a clip on an unrelated track is enough.
+ *
+ * So the sentence keeps the remedy and this keeps the identity. Same separation as
+ * `conductor.ts`'s `rejectionKey` beside its `rejection`.
+ */
+export function musicDuckRefusalKey(
+  project: Project,
+  duckUnderTrackId: string | undefined,
+): string | null {
+  if (duckUnderTrackId === undefined || duckUnderTrackId.trim() === '') return null;
+  const track = project.timeline.tracks.find((candidate) => candidate.id === duckUnderTrackId);
+  if (!track) return `duck_unknown_track:${duckUnderTrackId}`;
+  if (track.type === 'caption' || track.type === 'effect') {
+    return `duck_wrong_track_kind:${track.type}:${duckUnderTrackId}`;
+  }
+  if (track.clips.length === 0) return `duck_empty_track:${duckUnderTrackId}`;
+  return null;
+}
+
 export function musicDuckSidechainIssue(
   project: Project,
   duckUnderTrackId: string | undefined,

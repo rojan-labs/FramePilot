@@ -28,6 +28,7 @@ import {
   DEFAULT_DUCK_DB,
   MusicAssetPayloadSchema,
   buildAddMusicOps,
+  musicDuckRefusalKey,
   musicDuckSidechainIssue,
 } from './music-placement.js';
 import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
@@ -1810,6 +1811,22 @@ interface AgentCallOutcome {
    * rule refused before a download and the same rule refused after it are one key.
    */
   refusalCause?: RefusalCause;
+  /**
+   * The text {@link deterministicFailureKey} should key on, when it must differ from the
+   * sentence the model reads.
+   *
+   * A refusal's sentence carries the REMEDY, and a good remedy names things that vary
+   * with the project — the tracks that would have worked, the ids that do exist. Keying on
+   * it then makes the same refusal of the same argument look new every time the project
+   * moves. `add_music`'s empty-duck refusal is the captured case: appending the candidate
+   * track list (a strictly better refusal) meant placing a clip on an UNRELATED track gave
+   * the identical rule a fresh key, so the repeat guard could not fire.
+   *
+   * Absent ⇒ `data` is the identity, exactly as before. Same separation as
+   * `conductor.ts`'s `rejectionKey` beside its `rejection`: guards key on this, humans
+   * read the sentence.
+   */
+  failureKeyText?: string;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
   /**
@@ -4479,6 +4496,7 @@ export class Orchestrator {
         // model reports it dropped under the voice. Fail with the specific
         // sentence instead of letting that through.
         const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
+        const duckKey = musicDuckRefusalKey(ctx.project, duckUnderTrackId);
         if (duckIssue !== null) {
           const note = `Rejected "add_music" — ${duckIssue}`;
           // IN-PROCESS, despite arriving after a completed paid download — the same reading
@@ -4518,6 +4536,9 @@ export class Orchestrator {
             status: 'failed',
             data: duckIssue,
             deterministicFailure: true,
+            // The sentence names the tracks that WOULD work, and that list grows as the
+            // run places clips — so the sentence cannot be the identity any more.
+            ...(duckKey === null ? {} : { failureKeyText: duckKey }),
             rejectedOpCount: 1,
           };
         }
@@ -9377,7 +9398,10 @@ function hostBackedValidatorRejection(
  */
 function deterministicFailureKey(
   callName: string,
-  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure' | 'refusalCause'>,
+  outcome: Pick<
+    AgentCallOutcome,
+    'status' | 'data' | 'deterministicFailure' | 'refusalCause' | 'failureKeyText'
+  >,
 ): string | undefined {
   if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
   // The error text is the key's whole discriminating power; without it every failure of a
@@ -9392,6 +9416,11 @@ function deterministicFailureKey(
   // the same "no" three more times. Prose-stripping cannot rescue that the way it rescues
   // a validator locator: here the varying parts are the whole body of the sentence.
   if (outcome.refusalCause !== undefined) return `${callName}:${outcome.refusalCause}`;
+  // An explicit key beats the sentence, for refusals whose remedy names things that move
+  // with the project (see `AgentCallOutcome.failureKeyText`).
+  if (typeof outcome.failureKeyText === 'string' && outcome.failureKeyText.trim() !== '') {
+    return `${callName}:${outcome.failureKeyText}`;
+  }
   return `${callName}:${failureCause(outcome.data)}`;
 }
 

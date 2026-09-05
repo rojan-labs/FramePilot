@@ -25,6 +25,7 @@ export {
   DEFAULT_DUCK_DB,
   DEFAULT_MUSIC_SECONDS,
   buildAddMusicOps,
+  musicDuckRefusalKey,
   musicDuckSidechainIssue,
   nextMusicLayerId,
   pictureEndSeconds,

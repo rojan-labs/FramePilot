@@ -25,6 +25,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A refusal the AI has already hit stops repeating once the project moves.** When adding
+  music was refused because the track to duck under was empty, the refusal helpfully listed
+  the tracks that would have worked — and that list grew as the edit filled in, so the same
+  refusal for the same reason looked new every time and the AI could keep retrying it. The
+  advice still adapts; the "you already tried this" check no longer loses track of it.
+
 - **Analysing a track you just added works with the id you already had.** Music and stock
   media arrive with a catalogue id, and the bin then stores them under a longer id derived
   from it — so asking for the beats of a track the AI had just placed, using the id it had

@@ -17,6 +17,7 @@ import {
   buildAddMusicOps,
   pictureEndSeconds,
   localMusicAssetRefusal,
+  musicDuckRefusalKey,
   musicDuckSidechainIssue,
   nextMusicLayerId,
 } from './music-placement.js';
@@ -221,6 +222,82 @@ describe('musicDuckSidechainIssue', () => {
   it('rejects a track id that is not in the project — validation would silently no-op the duck', () => {
     const issue = musicDuckSidechainIssue(project(), 'voiceover_missing');
     expect(issue).toContain('not a track in this project');
+  });
+
+  /**
+   * The refusal's IDENTITY must not move when the project does (session 7).
+   *
+   * The empty-duck refusal is remembered by its text, and that was a considered choice:
+   * the only thing varying used to be the `duckUnderTrackId` it names, which is the
+   * argument the model is being asked to correct. Appending the candidate track list — a
+   * strictly better refusal — silently broke it. The list grows as the run places clips,
+   * so the SAME rule refusing the SAME id twice produced two different sentences, two
+   * different keys, and no repeat guard: placing a clip on an unrelated track was enough
+   * to make the wall look new. That is precisely the loop `deterministicFailureKey` exists
+   * to stop.
+   */
+  it('keys the same refusal of the same id identically as the project fills up', () => {
+    const withEmpty = (extraClips: boolean): Project => {
+      const base = project();
+      const tracks = base.timeline.tracks as unknown as Array<{
+        id: string;
+        type: string;
+        clips: unknown[];
+      }>;
+      tracks.push({ id: 'empty_audio', type: 'audio', clips: [] });
+      if (extraClips) {
+        tracks.push({
+          id: 'later_audio',
+          type: 'audio',
+          clips: [
+            {
+              id: 'c_later',
+              assetId: 'a',
+              trackId: 'later_audio',
+              start: 0,
+              end: 1,
+              sourceStart: 0,
+              sourceEnd: 1,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        });
+      }
+      return base;
+    };
+
+    // The SENTENCE differs — and it should, because the remedy got better.
+    const first = musicDuckSidechainIssue(withEmpty(false), 'empty_audio');
+    const second = musicDuckSidechainIssue(withEmpty(true), 'empty_audio');
+    expect(first).not.toBe(second);
+
+    // The KEY does not. Same rule, same bad id, same wall.
+    expect(musicDuckRefusalKey(withEmpty(false), 'empty_audio')).toBe(
+      musicDuckRefusalKey(withEmpty(true), 'empty_audio'),
+    );
+    expect(musicDuckRefusalKey(withEmpty(true), 'empty_audio')).toBe(
+      'duck_empty_track:empty_audio',
+    );
+  });
+
+  it('still gives a DIFFERENT bad id its own key — two corrections, two answers', () => {
+    const base = project();
+    const tracks = base.timeline.tracks as unknown as Array<{
+      id: string;
+      type: string;
+      clips: unknown[];
+    }>;
+    tracks.push({ id: 'empty_a', type: 'audio', clips: [] });
+    tracks.push({ id: 'empty_b', type: 'audio', clips: [] });
+    expect(musicDuckRefusalKey(base, 'empty_a')).not.toBe(musicDuckRefusalKey(base, 'empty_b'));
+    // And an unknown id is a different RULE, not just a different id.
+    expect(musicDuckRefusalKey(base, 'nope')).toBe('duck_unknown_track:nope');
+  });
+
+  it('has no key when there is nothing to refuse', () => {
+    expect(musicDuckRefusalKey(project(), 'dialogue_1')).toBeNull();
+    expect(musicDuckRefusalKey(project(), undefined)).toBeNull();
   });
 
   it('rejects an empty sidechain track, where a duck has nothing to duck under', () => {

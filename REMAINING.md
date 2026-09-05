@@ -207,15 +207,15 @@ was `toolMeta.ts` — only the full `pnpm test` catches it.
 - **A repo-wide `sed` on an ADR number is a bad idea.** Session 7 renumbered eleven files'
   pre-existing ADR 0170 references before catching it. Match on the sentence, not the
   number.
-- **The desktop export matrix skips on this machine, and always has.** `UC-13 export
-  matrix` needs `mission-export-30s.fp.json` and `mission-export-60s.fp.json`, and neither
-  exists in `tests/fixtures/mission/projects` in ANY checkout here — only the five
-  `mission-*` projects do. So the full desktop e2e reports **13 passed, 0 failed, 19
-  skipped**, and the nineteen include every real-render assertion. Session 7's frame-grid
-  and `reorder_clips` claims are therefore backed by **deterministic cross-runtime
-  evidence** (the shared `cross-runtime-operation-behavior` fixture plus 2,843 engine
-  tests), not by a render. If you want a rendered check of the retime grid, those two
-  fixture projects have to exist first.
+- **The desktop export matrix was skipping, and the fix is one command.** `UC-13 export
+  matrix` needs `mission-export-30s.fp.json` and `mission-export-60s.fp.json`, which no
+  checkout here had — so the full desktop e2e reported 13 passed / 19 skipped and every
+  real-render assertion was among the skips. **`node packages/ai-sdk/scripts/mission-export-projects.mjs`
+  generates both from the existing fixtures** (they are derived timelines over the same
+  media, not new footage). With them present, `export-matrix.spec.ts` runs **8 passed, 0
+  failed**, ffprobe asserting on the real exported files — which is how session 7's
+  frame-grid change got render-backed rather than only deterministic evidence. Run that
+  script before concluding the matrix "cannot" run.
 - **A cold Electron launch in a fresh worktree can exceed the 180s e2e timeout.** Session
   7 lost an hour to reading that as a regression; it passes in ~31s on the second launch.
   Warm the binary with one spec before trusting a desktop e2e failure.
