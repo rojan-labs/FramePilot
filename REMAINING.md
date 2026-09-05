@@ -47,6 +47,27 @@ this session moved a golden.
 
 ---
 
+## 1b. `run.md` IS EXHAUSTED — stop mining it
+
+Session 7 swept it on four axes (distinct error strings, non-completed tool outcomes by
+name, warnings, and failed recalls). **Every promising lead was already closed, each by a
+fix whose docstring cites run `137d8fd0` by name.** Recording them so a fifth sweep does
+not spend a session re-deriving them:
+
+| looks like a defect | actually | where it is closed |
+| --- | --- | --- |
+| `add_music` refused on an empty duck target, telling a no-dialogue snowboarding edit to "place the dialogue first" | closed — the refusal now names the tracks that DO carry sound and says a video track counts | `editor-core/src/music-placement.ts#duckCandidateSentence` |
+| 27 recalls answered "no such handle" for ids the run had genuinely been issued (`ev_14` is in the evidence index AND cited by `fact_28.evidenceIds`) | closed — invalidated handles leave a tombstone, so an expired read is distinguishable from an invented one | `ai-sdk/src/kernel/evidence-store.ts#expired` |
+| 11 `caption_the_edit` failures, 10 `professional_audio`, 3 `render_preview`, 2 `add_clip`, 2 `track_subject_automatically` | closed in sessions 3–5 | `BASELINES.md` "session 3" |
+| `load_tools` failed once | not a defect — one refusal, remedy stated, self-corrected next call | — |
+| 144 `add_music` failure lines | ONE failure re-serialised; count distinct `op_N` ids before quoting a volume | — |
+
+The single new defect this sweep produced is the catalogue-id one (`3d2364f`). The other
+session-7 find (`d91b321`, a refusal's key moving with the project) came from reading
+CURRENT code, not the transcript — `run.md` predates the change that caused it.
+
+---
+
 ## 2. WHAT'S STILL OPEN
 
 ### 2.1 Ten of twenty-one cases still have no clean run — THE ONLY THING A RUN CAN FIX
