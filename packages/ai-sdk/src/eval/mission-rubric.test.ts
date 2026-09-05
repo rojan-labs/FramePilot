@@ -17,6 +17,7 @@ import {
   checkNoGaps,
   checkNotDestructive,
   checkOnlyClipsTouched,
+  checkNotLonger,
   checkOpensLaterInSource,
   checkUnchanged,
   checkCutsOnBeats,
@@ -351,6 +352,50 @@ describe('golden-set checks', () => {
     expect(checkOpensLaterInSource({ before, after: hooked }).ok).toBe(true);
     expect(checkOpensLaterInSource({ before, after: before }).ok).toBe(false);
     expect(checkOpensLaterInSource({ before: withClips([]), after: before }).ok).toBe(false);
+  });
+
+  /**
+   * The `hook-strongest-line` prompt says "then continue from the beginning as before".
+   * A run that does precisely that is longer by one hook, and `checkNotLonger` used to
+   * fail it for that — the same shape as the case above, which the suite has always
+   * called a correct hook.
+   */
+  describe('checkNotLonger allows the hook, and nothing else', () => {
+    const before = withClips([clip('c1', 0, 100)]);
+
+    it('passes a faithful prepend: hook in front, programme unchanged behind it', () => {
+      const hooked = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 105),
+      ]);
+      const check = checkNotLonger({ before, after: hooked });
+      expect(check.ok).toBe(true);
+      expect(check.detail).toContain('+5.00s hook allowed');
+    });
+
+    it('passes a restructure, which grows by nothing at all', () => {
+      const moved = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 100),
+      ]);
+      expect(checkNotLonger({ before, after: moved }).ok).toBe(true);
+    });
+
+    it('still fails padding — growth the opening does not account for', () => {
+      const padded = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 105),
+        clip('pad', 105, 130, { sourceStart: 0, sourceEnd: 25 }),
+      ]);
+      expect(checkNotLonger({ before, after: padded }).ok).toBe(false);
+    });
+
+    it('allows nothing when the opening did not move: growth there is padding', () => {
+      const longer = withClips([clip('c1', 0, 100), clip('pad', 100, 110)]);
+      const check = checkNotLonger({ before, after: longer });
+      expect(check.ok).toBe(false);
+      expect(check.detail).not.toContain('hook allowed');
+    });
   });
 
   it('checkCutawayInWindow + checkDurationKept describe a b-roll cutaway', () => {

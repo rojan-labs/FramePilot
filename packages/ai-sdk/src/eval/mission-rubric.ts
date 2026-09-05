@@ -566,11 +566,42 @@ export function checkOpensLaterInSource(ctx: RubricContext): RubricCheck {
   };
 }
 
-/** Not longer than before — a hook restructures, it does not pad. */
+/**
+ * A hook does not PAD — but a faithful prepend is not padding.
+ *
+ * `hook-strongest-line` asks, in the editor's own words: "Start the video with the
+ * strongest line from the recording, **then continue from the beginning as before**."
+ * Doing exactly that puts the hook in front of an unchanged programme, and the result is
+ * longer by the length of the hook. The check used to be `a <= b`, so the committed
+ * baseline's `575.87s → 577.80s` was a run being marked down for obeying its instruction
+ * to the letter. An instrument that punishes obedience does not measure intent accuracy;
+ * it measures the opposite.
+ *
+ * The allowance is the length of the OPENING THE RUN ADDED — exactly what a faithful
+ * prepend costs, and not a frame more. A run that restructures instead (moves the line,
+ * duplicates nothing) keeps its duration and passes as it always did. A run that pads the
+ * body still fails, because padding is growth the opening does not account for.
+ *
+ * The allowance is zero when the run did not change where the programme opens: growth
+ * with the same opening is padding by definition.
+ */
 export function checkNotLonger(ctx: RubricContext): RubricCheck {
   const b = projectDuration(ctx.before);
   const a = projectDuration(ctx.after);
-  return { id: 'not-longer', ok: a <= b + FRAME_EPSILON, detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s` };
+  const beforeFirst = pictureClips(ctx.before)[0];
+  const afterFirst = pictureClips(ctx.after)[0];
+  const prepended =
+    beforeFirst !== undefined &&
+    afterFirst !== undefined &&
+    afterFirst.sourceStart > beforeFirst.sourceStart + 1;
+  const allowance = prepended && afterFirst ? afterFirst.end - afterFirst.start : 0;
+  const ok = a <= b + allowance + FRAME_EPSILON;
+  const allowed = allowance > 0 ? ` (+${allowance.toFixed(2)}s hook allowed)` : '';
+  return {
+    id: 'not-longer',
+    ok,
+    detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s${allowed}`,
+  };
 }
 
 /** A b-roll clip sits inside the requested window (ADR 0140: a non-overlapping cutaway). */
