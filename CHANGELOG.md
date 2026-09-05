@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A word too wide for its text box no longer runs off the screen quietly.** Text
+  overlays and captions never break a word, so a long one in a narrow box overflowed the
+  sides — and because the preview and the export do it identically, nothing looked wrong
+  until you watched the finished file. Review now says which word does not fit and how wide
+  the box would have to be to hold it, or that the text size is what has to come down. The
+  drawing is unchanged: it is reported, not silently reflowed, so what you approve in the
+  preview is still exactly what exports.
 - **Attaching a photo works.** Every image reference failed analysis and showed a wall of
   raw error data on the chip, because the app choked on a "video" field that images
   correctly don't have. Images now analyze, and when something genuinely does go wrong the
