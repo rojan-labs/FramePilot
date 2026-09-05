@@ -980,6 +980,99 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(second.state.stallStreak).toBe(1);
   });
 
+  /**
+   * `beat-sync` r1, session 6: 29 consecutive turns refused by the beat grid, 977
+   * operations rejected, 20 minutes, $3.93, and a picture track left empty. The guard
+   * above existed and passed its tests. Two things let this past it, and both are here.
+   *
+   * ONE: the refusal SENTENCE names the offending cuts, so it differed every attempt even
+   * though the rule was identical. Comparing sentences read 29 refusals at one wall as 29
+   * different refusals. Producers now supply a stable `rejectionKey`.
+   */
+  it('recognises the same wall when the rejection message names different offenders', () => {
+    const key = 'beat-grid:off-grid';
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        rejection: 'rejected by the beat grid. Off-grid: 3.967 (nearest onset 4.180)',
+        rejectionKey: key,
+        note: 'r1',
+      }),
+    );
+    expect(first.state.stallStreak).toBe(0);
+    expect(first.state.lastRejectionReason).toBe(key);
+
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        // A different sentence for the same wall — this is what defeated the old guard.
+        rejection: 'rejected by the beat grid. Off-grid: 10.000 (nearest onset 10.194)',
+        rejectionKey: key,
+        note: 'r2',
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
+  it('still treats a DIFFERENT wall as a fresh attempt', () => {
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: 'off the grid',
+        rejectionKey: 'beat-grid:off-grid',
+        note: 'r1',
+      }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: 'nothing to check against',
+        rejectionKey: 'beat-grid:ungrounded',
+        note: 'r2',
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(0);
+  });
+
+  /**
+   * TWO: each refused turn called `add_clips` with slightly different arguments, so every
+   * turn produced a first-seen novelty key and `turnLearnedSomethingNew` handed back the
+   * credit `repeatedRejection` had just withheld. A proposal is an ATTEMPT, and the attempt
+   * clause is where it earns progress; it must not also be able to earn it as a LESSON.
+   */
+  it('does not let a re-proposed mutation count as having learned something', () => {
+    const key = 'beat-grid:off-grid';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 33, rejection: 'a', rejectionKey: key, note: 'r1' }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        rejection: 'b',
+        rejectionKey: key,
+        note: 'r2',
+        signature: 'sig-2',
+        // Novel key, completed, not from cache — everything the old test for "learned
+        // something" wanted, except that it is the rejected proposal itself.
+        callFacts: [{ key: 'add_clips:attempt-2', status: 'completed', role: 'mutation' }],
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
   it('still credits a repeated refusal when the turn learned something new', () => {
     const refusal = 'rejected by the beat grid: ungrounded';
     const first = onEffectResult(

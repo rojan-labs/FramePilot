@@ -291,6 +291,22 @@ export function turnLearnedSomethingNew(
  */
 function callAnswered(fact: TurnCallFact): boolean {
   if (fact.status !== 'completed' && fact.status !== 'warning') return false;
+  // A MUTATION is an attempt, not an answer, and it is already credited as one.
+  //
+  // `progressed` reads `(attemptedEdit && !repeatedRejection) || turnLearnedSomethingNew`.
+  // The first clause is where a proposed edit earns its progress, and it deliberately
+  // withholds that credit from a turn refused at the same wall as the last one. Letting
+  // the same proposal ALSO earn credit through the second clause hands it back — and it
+  // did: in `beat-sync` r1 each of twenty-nine refused turns called `add_clips` with
+  // slightly different arguments, so each produced a first-seen novelty key, `callAnswered`
+  // said the turn had learned something, and the stall streak reset every time. Five facts
+  // were derived across thirty-two model calls; the run's own working memory knew it had
+  // stopped learning eight minutes before it stopped spending.
+  //
+  // Nothing legitimate loses credit here. A mutation that LANDS resets every streak
+  // explicitly in the applied branch, and a mutation that is refused for a NEW reason
+  // still passes the attempt clause.
+  if (fact.role === 'mutation') return false;
   return fact.role === 'recall' || !fact.fromCache;
 }
 
@@ -867,6 +883,20 @@ export interface AgentTurnResult {
    */
   readonly rejection?: string;
   /**
+   * The refusal's STABLE identity, free of the values that vary between attempts —
+   * `beat-grid:off-grid`, `validator:overlap_error`, `over-cap`. Absent for a refusal
+   * whose producer states no key, in which case {@link rejection} is the identity, as
+   * before.
+   *
+   * WHY the two are separate: `rejection` is what the editor and the model read, so it
+   * names the exact off-grid times or the exact op count — and that is what broke
+   * {@link ConductorState.lastRejectionReason} as a guard. In `beat-sync` r1 the beat grid
+   * refused twenty-nine consecutive turns for one reason, listing different offending cuts
+   * each time; no two sentences matched, so `repeatedRejection` never fired and the run
+   * re-issued the same rejected edit for twenty minutes and $3.93.
+   */
+  readonly rejectionKey?: string;
+  /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
    * `unknown`, which never contributes to a loop — silence is not evidence of repetition.
@@ -939,11 +969,7 @@ export type RepairOutcome =
 
 /** What the runtime folds back into the Conductor. */
 export type ConductorResult =
-  | DraftPlanResult
-  | ResumeResult
-  | ApprovalResult
-  | AgentTurnResult
-  | VerifyResult;
+  DraftPlanResult | ResumeResult | ApprovalResult | AgentTurnResult | VerifyResult;
 
 /** One reducer step: the next state, the effects to run, and the events to stream. */
 export interface ConductorStep {
@@ -2028,8 +2054,15 @@ export function onTurnResult(
   // the attempt's progress credit — it must learn something new to count. Compared on the
   // rejection alone, never on the turn note, which carries every read result in the turn
   // and would almost never repeat byte for byte.
+  // Compared on the refusal's stable IDENTITY, not on its sentence. A rejection message
+  // names the values that need fixing, so it varies between attempts at the same wall —
+  // and comparing sentences meant a run refused twenty-nine times for one reason read as
+  // twenty-nine different refusals. `rejectionKey` is the producer's own answer to "is
+  // this the same wall?"; a producer that states none still falls back to the sentence,
+  // which is the previous behaviour exactly.
+  const rejectionIdentity = r.rejectionKey ?? r.rejection;
   const repeatedRejection =
-    rejected && r.rejection !== undefined && r.rejection === state.lastRejectionReason;
+    rejected && rejectionIdentity !== undefined && rejectionIdentity === state.lastRejectionReason;
 
   const progressed =
     (attemptedEdit && !repeatedRejection) ||
@@ -2218,7 +2251,7 @@ export function onTurnResult(
     // Only a real rejection is remembered; a turn that landed nothing for any other reason
     // (a pure read, an already-satisfied edit) must not make the NEXT rejection look like a
     // repeat of it.
-    lastRejectionReason: rejected ? (r.rejection ?? '') : state.lastRejectionReason,
+    lastRejectionReason: rejected ? (rejectionIdentity ?? '') : state.lastRejectionReason,
     seenCallKeys,
     seenFailureKeys,
   };

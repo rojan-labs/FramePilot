@@ -133,7 +133,10 @@ import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
-import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
+import {
+  alignBeatBackedBoundaries,
+  type BeatRejectionKey,
+} from './kernel/beat-grid/beat-alignment.js';
 import {
   BEAT_ANALYSIS_TOOL,
   type BeatEvidence,
@@ -1198,7 +1201,7 @@ function alignTurnToBeatGrid(
   evidence: BeatEvidence | undefined,
 ):
   | { ok: true; operations: AnyOperation[]; offGrid?: string; ungrounded?: string }
-  | { ok: false; error: string } {
+  | { ok: false; error: string; reasonKey: BeatRejectionKey } {
   if (!hasBeatEvidence(evidence) || !evidence) return { ok: true, operations: turnOps };
 
   const resolved = resolveBeatGrid(working, evidence, turnOps);
@@ -4071,7 +4074,10 @@ export class Orchestrator {
       assembled: {
         // The stable head is not assembled by `assembleContext`, so it has to be added
         // here or `withRemainder` buckets it — see `agentStableInstructionSections`.
-        sections: [...assembled.sections, ...this.agentStableInstructionSections(loadedSkills, plan)],
+        sections: [
+          ...assembled.sections,
+          ...this.agentStableInstructionSections(loadedSkills, plan),
+        ],
         droppedTokenEstimate: assembled.droppedTokenEstimate,
       },
     };
@@ -5848,6 +5854,19 @@ export class Orchestrator {
      */
     rejection?: string;
     /**
+     * The refusal's STABLE identity — the same refusal twice produces the same key,
+     * however much of the message varies with the offending values.
+     *
+     * `rejection` is the sentence the editor and the model both read, so it names the
+     * exact times, counts and ids that need fixing. That is right for the message and
+     * fatal for a guard: `conductor.ts#repeatedRejection` compared whole sentences, so
+     * `beat-sync` r1's twenty-nine consecutive beat-grid refusals — identical rule,
+     * different off-grid times — never matched each other, and the run spent twenty
+     * minutes and $3.93 re-issuing the same rejected edit. Guards key on this; humans
+     * read `rejection`.
+     */
+    rejectionKey?: string;
+    /**
      * Interior cuts left deliberately off the beat grid, or cuts checked against nothing
      * because none of the analyzed music is placed — a measurement to report. Only set when
      * the run did NOT declare hard sync; see `kernel/beat-grid/beat-alignment.ts`.
@@ -5932,6 +5951,7 @@ export class Orchestrator {
         },
         applied: false,
         rejection: `rejected by the beat grid: ${beatAligned.error}`,
+        rejectionKey: `beat-grid:${beatAligned.reasonKey}`,
         working,
       };
     }
@@ -5949,10 +5969,11 @@ export class Orchestrator {
      * `edit.validation` can only fail here if that invariant is broken by future code
      * (e.g. a new call site that pushes into `turnOps` without probing first). */
     if (!edit.validation.valid) {
-      const problems = edit.validation.issues
-        .filter((i) => i.severity === 'error')
-        .map((i) => i.message)
-        .join('; ');
+      const errors = edit.validation.issues.filter((i) => i.severity === 'error');
+      const problems = errors.map((i) => i.message).join('; ');
+      // Codes, not messages: an overlap shrinking from 3s to 1s is the SAME refusal, and
+      // keying it on the sentence made the guard read two unrelated failures.
+      const problemKey = [...new Set(errors.map((i) => i.code))].sort().join(',');
       return {
         record: {
           index,
@@ -5964,6 +5985,7 @@ export class Orchestrator {
         },
         applied: false,
         rejection: `rejected by the validator: ${problems}`,
+        rejectionKey: `validator:${problemKey}`,
         working,
       };
     }
@@ -8768,6 +8790,8 @@ export class Orchestrator {
             anyToolFailed,
             note: overCap,
             rejection: overCap,
+            // The cap message names the op count, which changes every attempt.
+            rejectionKey: 'over-cap',
             turnOpCount: turnOps.length,
             turnPlacementCount: placementCount(turnOps),
           });
@@ -8852,6 +8876,7 @@ export class Orchestrator {
           note: applied.record.note,
           ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),
           ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
+          ...(applied.rejectionKey === undefined ? {} : { rejectionKey: applied.rejectionKey }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },

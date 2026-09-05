@@ -25,6 +25,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A run that hits the same wall twice now stops instead of paying for it.** When the AI
+  proposed an edit the beat grid or the validator refused, it could re-propose a slightly
+  different version of the same edit indefinitely: the refusal named the exact times that
+  were wrong, so no two refusals read alike and the stop-when-stuck check never matched
+  them. One evaluation run spent twenty minutes and $3.93 doing this and left the picture
+  track empty. Replaying that same run against the fix: 121 tool calls became 25, 825,000
+  tokens became 93,000, and it finishes and reports honestly instead of being cancelled.
+
 - **A speed change now lands on a whole frame.** Retiming a clip used to leave its out
   point between two frames, so the preview and the export could disagree about where the
   cut was. One evaluation turn made 16 speed changes and produced 16 off-grid edges. The
