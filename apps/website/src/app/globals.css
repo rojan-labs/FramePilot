@@ -146,6 +146,32 @@ html[data-intro='pending'] .nav-logo-mark { visibility: hidden; }
       repeating-linear-gradient(to right, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px var(--tick-gap));
   }
 
+  /*
+   * Legacy eyebrow, still used by the reading routes (blog, docs, changelog,
+   * legal, pricing, download). Mapped onto the new timecode look so those
+   * pages stay coherent until their own redesign pass.
+   */
+  .eyebrow-tc {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    width: fit-content;
+    font-family: var(--font-mono);
+    font-size: 9.5px;
+    font-weight: 600;
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    color: var(--color-fg-tertiary);
+  }
+  .eyebrow-tc::before {
+    content: '';
+    width: 0;
+    height: 0;
+    border-top: 5px solid transparent;
+    border-bottom: 5px solid transparent;
+    border-left: 7px solid var(--color-accent);
+  }
+
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* Track lane: the surface a clip bar sits on. */

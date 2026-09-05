@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { ClipReveal } from './motion/ClipReveal';
 import { Eyebrow, Ruler } from './timeline/Ruler';
 
 const TONES = {
@@ -64,7 +65,7 @@ export function SectionHeading({
   const centered = align === 'center';
 
   return (
-    <div className={`${centered ? 'mx-auto max-w-3xl text-center' : 'max-w-3xl'} ${className}`}>
+    <ClipReveal className={`${centered ? 'mx-auto max-w-3xl text-center' : 'max-w-3xl'} ${className}`}>
       <Eyebrow tc={tc} tone={tone} className={centered ? 'justify-center' : ''}>
         {eyebrow}
       </Eyebrow>
@@ -80,6 +81,6 @@ export function SectionHeading({
           {description}
         </p>
       )}
-    </div>
+    </ClipReveal>
   );
 }

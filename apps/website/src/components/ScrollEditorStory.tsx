@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { AppMockup, type EditorStoryPhase } from './AppMockup';
+import { InPoint, Ruler } from './timeline/Ruler';
 
 const STEPS: ReadonlyArray<{ phase: EditorStoryPhase; label: string }> = [
   { phase: 'idle', label: 'Footage imported. Timeline untouched.' },
@@ -106,6 +107,12 @@ export function ScrollEditorStory() {
       >
         <div className={reducedMotion ? 'w-full' : 'container-x w-full'}>
           <div className="mx-auto max-w-[1180px]">
+            <div className="mb-4 flex items-center gap-2.5">
+              <InPoint />
+              <span className="tc text-accent">00:01</span>
+              <span className="tc">The product · one run, start to finish</span>
+            </div>
+
             <div ref={editorRef} className="will-change-transform" style={{ transformOrigin: '50% 50%' }}>
               <div className="max-md:h-[540px]">
                 <div className="max-md:w-[128.205%] max-md:origin-top-left max-md:scale-[0.78]">
@@ -114,11 +121,27 @@ export function ScrollEditorStory() {
               </div>
             </div>
 
-            <div className="mt-5 flex items-center justify-between gap-4">
-              <p key={active.phase} className="animate-fade-up text-[12px] text-fg-secondary sm:text-[13px]">
+            <Ruler className="mt-4" />
+            <div className="flex items-center gap-4 pt-2.5">
+              <span className="tc tabular shrink-0 text-accent">{`00:0${phaseIndex + 1}`}</span>
+              <p
+                key={active.phase}
+                className="animate-fade-up min-w-0 flex-1 truncate text-[12px] text-fg-secondary sm:text-[13px]"
+              >
                 {active.label}
               </p>
-              <p className="font-mono text-[9px] tabular text-fg-muted">0{phaseIndex + 1} / 04</p>
+              {/* Four clips on a lane: how far through the run you have scrubbed. */}
+              <span className="hidden w-[150px] shrink-0 items-center gap-1 sm:flex" aria-hidden>
+                {STEPS.map((step, index) => (
+                  <span
+                    key={step.phase}
+                    className={`h-[3px] flex-1 rounded-[1px] transition-colors duration-300 ${
+                      index <= phaseIndex ? 'bg-accent' : 'bg-line'
+                    }`}
+                  />
+                ))}
+              </span>
+              <span className="tc tabular shrink-0 text-fg-muted">0{phaseIndex + 1} / 04</span>
             </div>
           </div>
         </div>
