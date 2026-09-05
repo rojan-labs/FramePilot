@@ -74,7 +74,14 @@ export function Nav() {
   }, [open]);
 
   return (
-    <header className="sticky top-0 z-50 bg-canvas/92 backdrop-blur-xl">
+    /*
+     * Solid paper, no backdrop-filter. A `backdrop-filter` makes its element
+     * the containing block for `position: fixed` descendants, which collapsed
+     * the mobile menu panel below to the header's own 64px height and left its
+     * links painting straight onto the page with no panel behind them. The
+     * design rules ban glassmorphism anyway, so the header is simply opaque.
+     */
+    <header className="sticky top-0 z-50 bg-canvas">
       <nav
         className="container-x flex h-[var(--nav-h)] items-center justify-between gap-6"
         aria-label="Primary"
@@ -160,7 +167,7 @@ export function Nav() {
         id={panelId}
         ref={panelRef}
         hidden={!open}
-        className="fixed inset-x-0 bottom-0 top-[var(--nav-h)] z-40 bg-canvas px-5 py-6 md:hidden"
+        className="fixed inset-x-0 bottom-0 top-[var(--nav-h)] z-40 overflow-y-auto bg-canvas px-5 py-6 md:hidden"
       >
         <ul>
           {NAV_LINKS.map((link, index) => (
