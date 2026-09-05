@@ -1128,13 +1128,45 @@ function applySetClipMedia(timeline: Timeline, op: SetClipMediaOp): Timeline {
   return withTrackClips(timeline, loc.trackIndex, clips);
 }
 
+/**
+ * Why a split point is not usable, in words the caller can act on.
+ *
+ * The old sentence — "split point 48 is not strictly inside clip X" — is true and
+ * unactionable: it names neither the range that would work nor the far more common
+ * reason the number is wrong. Run `137d8fd0` asked to split
+ * `clip__v_main_asset_raw_skating_48000` at 48, which is that clip's own start. There
+ * was already a cut there. Told only that the point was "not strictly inside", the run
+ * dropped the split instead of moving it or reaching for the neighbouring clip.
+ *
+ * A point ON a boundary and a point OUTSIDE the clip are different mistakes with
+ * different remedies, so they get different sentences.
+ */
+function splitPointIssue(clip: Clip, clipId: string, at: number): string | null {
+  const span = `${clipId} runs ${clip.start}s–${clip.end}s`;
+  if (Math.abs(at - clip.start) <= EPSILON || Math.abs(at - clip.end) <= EPSILON) {
+    return (
+      `split point ${at} is a boundary of ${clipId}, not a point inside it — there is ` +
+      `already a cut there. ${span}; split strictly between those, or name the ` +
+      'neighbouring clip if that is the one you meant to divide.'
+    );
+  }
+  if (at < clip.start || at > clip.end) {
+    return (
+      `split point ${at} is outside ${clipId}. ${span}; get_clips names the clip that ` +
+      'covers that time.'
+    );
+  }
+  return null;
+}
+
 function applySplit(timeline: Timeline, op: SplitClipOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const { clip } = loc;
   if (op.at <= clip.start + EPSILON || op.at >= clip.end - EPSILON) {
     throw new OperationError(
       'invalid_split',
-      `split point ${op.at} is not strictly inside clip ${op.clipId}`,
+      splitPointIssue(clip, op.clipId, op.at) ??
+        `split point ${op.at} is not strictly inside clip ${op.clipId}`,
     );
   }
   const offset = op.at - clip.start;

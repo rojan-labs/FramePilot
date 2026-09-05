@@ -317,6 +317,32 @@ describe('validatePatch — each PRD §8.5 check', () => {
     ).toContain('overlap_error');
   });
 
+  /**
+   * Run `137d8fd0` lost the wipeout speed ramp the editor asked for by name to this
+   * message. `set_clip_speed` stretched a clip into its neighbour and the rejection said
+   * only that two clips overlapped — not by how much, so the run could not tell whether
+   * it needed a hundredth of a second or ten, and did not try again.
+   */
+  it('says by how much two clips overlap, and where each one ends', () => {
+    const overlap = validate([
+      {
+        type: 'add_clip',
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 5,
+        end: 12,
+        sourceStart: 0,
+        sourceEnd: 7,
+        clipId: 'new',
+      },
+    ]).issues.find((issue) => issue.code === 'overlap_error');
+    expect(overlap?.message).toMatch(/overlap on track 'video_1' by 5s/);
+    expect(overlap?.message).toContain("ends at 10s");
+    expect(overlap?.message).toContain('starts at 5s');
+    // A number with no move attached is still a dead end.
+    expect(overlap?.message).toContain('another track');
+  });
+
   it('duplicate_layer (add_layer with an id that already exists)', () => {
     expect(
       codes([{ type: 'add_layer', layerId: 'video_1', layerType: 'video', atIndex: 0 }]),

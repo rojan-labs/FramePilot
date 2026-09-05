@@ -524,6 +524,35 @@ describe('split_clip', () => {
       applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 10 }),
     ).toThrow(/inside/);
   });
+
+  /**
+   * Run `137d8fd0` asked to split `clip__v_main_asset_raw_skating_48000` at 48 — that
+   * clip's own start, where a cut already was. "split point 48 is not strictly inside
+   * clip X" told it neither fact, and the run abandoned the split rather than moving it
+   * or naming the neighbour it actually meant to divide.
+   */
+  it('tells a split ON a boundary that the cut is already there, and names the span', () => {
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/already a cut there/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/runs 0s–10s/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/neighbouring clip/);
+  });
+
+  it('tells a split OUTSIDE the clip where to find the one that covers that time', () => {
+    // A different mistake with a different remedy: the number is not near this clip at
+    // all, so pointing at its boundaries would be useless.
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 42 }),
+    ).toThrow(/outside/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 42 }),
+    ).toThrow(/get_clips/);
+  });
 });
 
 // --- delete_range ----------------------------------------------------------

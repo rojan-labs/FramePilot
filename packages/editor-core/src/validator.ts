@@ -350,10 +350,21 @@ function overlapChecks(tracks: readonly Track[], index: number): ValidationIssue
       const previous = ordered[i - 1]!;
       const current = ordered[i]!;
       if (current.start < previous.end - EPSILON) {
+        // BY HOW MUCH, and where. The bare sentence names the two clips and leaves the
+        // caller to re-read the timeline to learn the size of the problem — which is
+        // usually the whole problem. Run `137d8fd0` lost the wipeout speed ramp the
+        // editor asked for by name to this message: `set_clip_speed` stretched a clip
+        // into its neighbour, and "Clips A and B overlap on track v_main" gave the run
+        // no way to tell whether it needed a hundredth of a second or ten.
+        const by = Number((previous.end - current.start).toFixed(3));
         issues.push({
           code: 'overlap_error',
           severity: 'error',
-          message: `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}'.`,
+          message:
+            `Clips '${previous.id}' and '${current.id}' overlap on track '${track.id}' ` +
+            `by ${by}s — '${previous.id}' ends at ${previous.end}s and '${current.id}' ` +
+            `starts at ${current.start}s. Shorten one, move '${current.id}' later, or ` +
+            'place it on another track.',
           operationIndex: index,
         });
       }
