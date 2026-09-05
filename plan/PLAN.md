@@ -38,7 +38,39 @@ request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
   `checkNoMidWordCuts` now reports `skipped: false` and measures; the cases score 1.00
   anyway. They went UP, not down — the prediction was wrong and the instrument is honest.
 
-**Current snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** the fixture that
+**Current snapshot (2026-09-05d, GOLDEN-EVAL — goal.md Phase 0):** **no new run — credits
+conserved.** The four open engine defects (GOLDEN-C.4, C.5, C.6, and the word-boundary
+half of C.3) are **closed with reproducing tests**, and the most expensive one was
+measured shut by `--replay`, which costs nothing: `beat-sync` r1 goes from 121 tool calls
+to 25, $3.93 to $0.571, and `cancelled` to `completed`. `reorder_clips` (ADR 0173) gives
+the agent a route to a reorder that cannot lose footage; a retime now lands on the frame
+grid in both runtimes. Cost on the frozen token surfaces: **+169 tokens per request**,
+measured. **Nothing here is sampled against the model** — `reorder_clips` in particular is
+a capability the agent did not have, so its effect on the reorder cases is unknown until
+someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
+"s7-replay"; what is still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-C.4 — **a reorder no longer loses footage.** `reorder_clips` recomputes a
+  track's starts in ONE patch: no delete, no add, clip set invariant, so a run that stops
+  right after it has lost nothing. The wipe guard stays deleted — it catches two of the
+  five content-loss failures and misses the three 5→1 cases. Commit `a080900`, ADR 0173.
+  **Unmeasured against a run.**
+- `[x]` GOLDEN-C.5 — **a wholesale-rejected turn stops being re-issued.** Two independent
+  holes, found by replay rather than inspection: the rejection SENTENCE varies with its
+  offenders so the guard never matched it (producers now supply a stable `rejectionKey`),
+  and a re-proposed mutation counted as having learned something, handing back the credit
+  the guard had just withheld. Commit `0c9f195`.
+- `[x]` GOLDEN-C.6 — **a retimed clip lands on the frame grid.** `ApplyContext.fps`
+  threaded by `applyProjectPatch`, mirrored in Python, with the same-shape inverse kept
+  only where it is provably exact. Commit `1a49f98`.
+- `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; their
+  recordings are 14 bytes so replay cannot reach them either. Re-running them is the one
+  legitimate use of `--force`.
+- `[ ]` GOLDEN-C.7 — **a `reorder` intent in the professional `EditorCommand` layer and a
+  web-editor reorder gesture.** Deferred deliberately: the AI route is where the footage
+  was being lost. `REMAINING.md` §2.3.
+
+**Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** the fixture that
 invalidated three cases is **replaced** and measured (`speech-9min-c`: real narration with
 116 real pauses), and a run on it gave **eleven cases of clean evidence** before the
 provider dropped and the run was stopped. Nine of the eleven score 1.00 on every clean run;
@@ -61,14 +93,14 @@ evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
 - `[x]` GOLDEN-C.3 — **the severed-word message names the second, not just the frame.**
   Three turns of the run were lost passing seconds to tools the message described in
   frames. Commit `5693600`.
-- `[ ]` GOLDEN-C.4 — **a reorder must not lose footage.** Four of six clean runs destroyed
+- `[x]` GOLDEN-C.4 — **a reorder must not lose footage.** Closed 2026-09-05d, see above. Four of six clean runs destroyed
   content; twice the agent deleted the sequence and then asked the editor how to recover
   from the state it had made. Needs a maintainer decision (ADR 0056 atomicity, ADR 0166
   wipe guard) and probably an atomic `reorder_clips` operation. `REMAINING.md` §2.1.
-- `[ ]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** 29 identical
+- `[x]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** Closed 2026-09-05d, see above. 29 identical
   calls, $3.93, an empty track, past a guard that exists and passes its tests. Reproduce
   with `--replay` before tuning any of the five run-stoppers. `REMAINING.md` §2.2.
-- `[ ]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** 16 `set_clip_speed` calls at
+- `[x]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** Closed 2026-09-05d, see above. 16 `set_clip_speed` calls at
   1.3× produced 16 off-grid edges; both engines agree, so parity holds and both are wrong
   together. Three routes, all decisions. `REMAINING.md` §2.3.
 - `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; re-running
