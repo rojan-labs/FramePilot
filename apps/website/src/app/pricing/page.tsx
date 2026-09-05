@@ -3,6 +3,8 @@ import { pageMetadata, faqJsonLd } from '@/lib/seo';
 import { JsonLd } from '@/components/JsonLd';
 import { getPlans } from '@/lib/pricing';
 import { PricingCards } from '@/components/PricingCards';
+import { PageHeader } from '@/components/PageHeader';
+import { Ruler } from '@/components/timeline/Ruler';
 import { Faq } from '@/components/sections/Faq';
 import { FAQ } from '@/content/faq';
 
@@ -14,42 +16,48 @@ export const metadata: Metadata = pageMetadata({
   keywords: ['FramePilot pricing', 'AI video editor pricing', 'desktop video editor subscription'],
 });
 
+const TERMS = [
+  ['Local-first', 'Editing and rendering happen on your machine. Hosted AI runs only if you set it up.'],
+  ['Freemius checkout', 'Freemius handles the payment and sends your license key.'],
+  ['14-day guarantee', 'Use it on real work. Want your money back inside 14 days, just ask.'],
+] as const;
+
 export default function PricingPage() {
   const plans = getPlans();
 
   return (
     <>
       <JsonLd data={faqJsonLd(FAQ)} />
-      <section className="bg-white pb-20 pt-20 sm:pb-28 sm:pt-28">
+      <section className="bg-canvas pb-20 pt-12 sm:pb-24 sm:pt-16">
         <div className="container-x">
-          <header className="max-w-4xl">
-            <p className="eyebrow-tc mb-6">Pricing</p>
-            <h1 className="font-display text-[length:var(--text-h1)] leading-[var(--text-h1--line-height)] tracking-[var(--text-h1--letter-spacing)]">
-              Pay for the editor. That&rsquo;s the whole model.
-            </h1>
-            <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-              One desktop app, one subscription, monthly or annual. Nothing meters your exports. FramePilot is pre-release software and still changing quickly, which is worth knowing before you subscribe.
-            </p>
-          </header>
+          <PageHeader
+            tc="P 00:00"
+            eyebrow="Pricing"
+            title={
+              <>
+                Pay for the editor.
+                <br />
+                That&rsquo;s the whole model.
+              </>
+            }
+            description="One desktop app, one subscription, monthly or annual. Nothing meters your exports. FramePilot is pre-release software and still changing quickly, which is worth knowing before you subscribe."
+          />
 
-          <div className="mt-14 sm:mt-20">
+          <div className="mt-10 sm:mt-12">
             <PricingCards plans={plans} />
           </div>
 
-          <div className="mt-12 grid gap-6 border-t border-line pt-7 sm:grid-cols-3">
-            <div>
-              <p className="text-[13px] font-medium">Local-first</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Editing and rendering happen on your machine. Hosted AI runs only if you set it up.</p>
-            </div>
-            <div>
-              <p className="text-[13px] font-medium">Freemius checkout</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Freemius handles the payment and sends your license key.</p>
-            </div>
-            <div>
-              <p className="text-[13px] font-medium">14-day guarantee</p>
-              <p className="mt-1 text-[12px] leading-5 text-fg-tertiary">Use it on real work. Want your money back inside 14 days, just ask.</p>
-            </div>
-          </div>
+          <dl className="mt-12 grid gap-x-10 sm:grid-cols-3">
+            {TERMS.map(([term, value]) => (
+              <div key={term}>
+                <Ruler />
+                <div className="pt-3">
+                  <dt className="tc text-fg-muted">{term}</dt>
+                  <dd className="mt-2 text-[12.5px] leading-5 text-fg-secondary">{value}</dd>
+                </div>
+              </div>
+            ))}
+          </dl>
         </div>
       </section>
       <Faq />

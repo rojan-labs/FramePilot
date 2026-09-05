@@ -1,7 +1,9 @@
 import type { Metadata } from 'next';
-import { Check, Download, KeyRound, Mail } from 'lucide-react';
+import { Download, KeyRound, Mail } from 'lucide-react';
 import { pageMetadata } from '@/lib/seo';
 import { DownloadButton } from '@/components/DownloadButton';
+import { PageHeader } from '@/components/PageHeader';
+import { Ruler } from '@/components/timeline/Ruler';
 
 export const metadata: Metadata = {
   ...pageMetadata({
@@ -15,16 +17,19 @@ export const metadata: Metadata = {
 const STEPS = [
   {
     icon: Mail,
+    slot: '01',
     title: 'Check your inbox',
     desc: 'Your license key is on its way from Freemius. It also appears on the receipt page.',
   },
   {
     icon: Download,
+    slot: '02',
     title: 'Download FramePilot',
-    desc: 'Grab the app for your platform below: macOS, Windows, or Linux.',
+    desc: 'Grab the app for your platform: macOS, Windows, or Linux.',
   },
   {
     icon: KeyRound,
+    slot: '03',
     title: 'Activate on launch',
     desc: 'Open FramePilot, paste your license key when prompted, and start editing.',
   },
@@ -32,40 +37,46 @@ const STEPS = [
 
 export default function ThankYouPage() {
   return (
-    <section className="relative overflow-hidden py-24 sm:py-32">
-      <div className="container-x max-w-2xl text-center">
-        <span className="mx-auto grid size-14 place-items-center rounded-full bg-success/15 text-success ring-1 ring-inset ring-success/25">
-          <Check size={28} />
-        </span>
-        <h1 className="mt-6 text-[length:var(--text-h1)] font-semibold leading-tight tracking-tight max-sm:text-[2.25rem]">
-          You&rsquo;re in. Welcome to FramePilot.
-        </h1>
-        <p className="mx-auto mt-4 max-w-md text-[17px] leading-relaxed text-fg-secondary">
-          Thanks for subscribing. Here&rsquo;s how to get editing in under a minute.
-        </p>
+    <section className="container-x max-w-[820px] py-14 sm:py-20">
+      <PageHeader
+        tc="00:00"
+        eyebrow="In point"
+        size="md"
+        title={
+          <>
+            You&rsquo;re in.
+            <br />
+            Welcome to FramePilot.
+          </>
+        }
+        description="Thanks for subscribing. Here's how to get editing in under a minute."
+      />
 
-        <ol className="mx-auto mt-12 max-w-md space-y-3 text-left">
-          {STEPS.map((s, i) => (
-            <li
-              key={s.title}
-              className="flex items-start gap-4 rounded-xl border border-line bg-surface/50 p-5"
-            >
-              <span className="grid size-9 shrink-0 place-items-center rounded-lg bg-accent/12 text-accent ring-1 ring-inset ring-accent/20">
-                <s.icon size={18} />
-              </span>
-              <div>
-                <h2 className="text-[15px] font-semibold">
-                  {i + 1}. {s.title}
-                </h2>
-                <p className="mt-1 text-[13.5px] leading-relaxed text-fg-secondary">{s.desc}</p>
+      {/* Three clips on one track: the whole setup, end to end. */}
+      <ol className="mt-10">
+        {STEPS.map((step) => (
+          <li key={step.title}>
+            <div className="lane p-1.5">
+              <div className="flex items-start gap-4 rounded-[3px] px-4 py-4">
+                <span className="mt-0.5 grid size-8 shrink-0 place-items-center rounded-[3px] bg-fg text-canvas">
+                  <step.icon size={15} aria-hidden />
+                </span>
+                <div>
+                  <h2 className="flex items-center gap-2.5 text-[15px] font-semibold text-fg">
+                    <span className="tc tabular text-fg-muted">{step.slot}</span>
+                    {step.title}
+                  </h2>
+                  <p className="mt-1.5 text-[13.5px] leading-6 text-fg-secondary">{step.desc}</p>
+                </div>
               </div>
-            </li>
-          ))}
-        </ol>
+            </div>
+            <Ruler />
+          </li>
+        ))}
+      </ol>
 
-        <div className="mt-10 flex justify-center">
-          <DownloadButton size="lg" />
-        </div>
+      <div className="mt-8">
+        <DownloadButton size="lg" />
       </div>
     </section>
   );

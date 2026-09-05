@@ -1,6 +1,7 @@
 import type { Metadata } from 'next';
 import { pageMetadata } from '@/lib/seo';
 import { site } from '@/lib/site';
+import { PageHeader } from '@/components/PageHeader';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Terms of Service',
@@ -10,14 +11,16 @@ export const metadata: Metadata = pageMetadata({
 
 export default function TermsPage() {
   return (
-    <article className="container-x max-w-[820px] py-20 sm:py-28">
-      <header>
-        <p className="eyebrow-tc mb-5">Legal</p>
-        <h1 className="font-display text-[clamp(3rem,6vw,5.6rem)] font-semibold leading-[0.92] tracking-[-0.055em]">Terms of Service</h1>
-        <p className="mt-4 text-[12px] text-fg-muted">Last updated: {new Date().getFullYear()}</p>
-      </header>
+    <article className="container-x max-w-[820px] py-14 sm:py-20">
+      <PageHeader
+        tc="LGL 00:02"
+        eyebrow="Legal"
+        size="md"
+        title="Terms of Service"
+        meta={<span className="tc tabular text-fg-muted">Updated {new Date().getFullYear()}</span>}
+      />
 
-      <div className="prose-fp mt-10 border-t border-line pt-9">
+      <div className="prose-fp mt-9">
         <p>These terms govern your use of FramePilot (the &ldquo;Software&rdquo;) and this website. By purchasing, downloading, or using FramePilot, you agree to them.</p>
 
         <h2>License</h2>

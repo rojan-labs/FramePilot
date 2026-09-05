@@ -1,54 +1,82 @@
-import { Section } from '@/components/Section';
+import type { CSSProperties } from 'react';
+import { Section, SectionHeading } from '@/components/Section';
+import { ClipRow, ClipTrack } from '@/components/motion/ClipReveal';
+import { Ruler } from '@/components/timeline/Ruler';
+import { FEATURES, FEATURE_TRACKS, type FeatureTrack } from '@/content/features';
 
-const CAPABILITIES = [
-  {
-    title: 'Agent editing',
-    description: 'Ask for the cut you want. FramePilot turns it into real operations on the open project, the same ones your toolbar produces.',
-    meta: 'Cuts · reframes · captions · timeline operations',
-  },
-  {
-    title: 'A real timeline',
-    description: 'Whatever the agent does, you can still trim it, split it, move it, or keyframe it. Nothing it touches becomes read-only.',
-    meta: 'Multitrack · snapping · undo · keyboard workflows',
-  },
-  {
-    title: 'Media intelligence',
-    description: 'The agent reads your transcript, looks at frames, and finds scene cuts and beats before it decides where to cut.',
-    meta: 'Transcripts · scene analysis · beat analysis · frame inspection',
-  },
-  {
-    title: 'Local project authority',
-    description: 'Your originals are never overwritten. Exports run the same way every time, and the engine checks its own output before handing it over.',
-    meta: 'Local-first · non-destructive · validated export',
-  },
-] as const;
+/*
+ * Three tracks, not eight cards. A capability's clip sits on the track that
+ * actually performs it — the agent, your hands, or the machine underneath —
+ * and its position and length place it in the sequence rather than in a grid.
+ */
+const CLIP_STYLES: Record<FeatureTrack, string> = {
+  agent: 'bg-accent text-accent-ink',
+  editor: 'bg-fg text-canvas',
+  engine: 'border border-line-strong bg-elevated text-fg',
+};
+
+const CLIP_TEXT: Record<FeatureTrack, string> = {
+  agent: 'text-accent-ink',
+  editor: 'text-canvas',
+  engine: 'text-fg',
+};
 
 export function Features() {
   return (
-    <Section id="features" className="bg-white">
-      <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
-        <div className="max-w-xl">
-          <p className="eyebrow-tc mb-5">The product</p>
-          <h2 className="text-[length:var(--text-h2)] leading-[var(--text-h2--line-height)] tracking-[var(--text-h2--letter-spacing)]">
-            AI where it saves time. An editor everywhere else.
-          </h2>
-          <p className="mt-6 max-w-lg text-[15px] leading-7 text-fg-secondary sm:text-[16px]">
-            Asking for an edit is just another way to reach the timeline. The project, the media, and the render behave exactly as they would if you&rsquo;d done all of it by hand.
-          </p>
-        </div>
+    <Section id="features" tone="shade">
+      <SectionHeading
+        tc="00:02"
+        eyebrow="The product"
+        title="AI where it saves time. An editor everywhere else."
+        description="Asking for an edit is just another way to reach the timeline. The project, the media, and the render behave exactly as they would if you'd done all of it by hand."
+      />
 
-        <ol className="border-t border-line">
-          {CAPABILITIES.map((capability, index) => (
-            <li key={capability.title} className="grid gap-3 border-b border-line py-6 sm:grid-cols-[44px_180px_minmax(0,1fr)] sm:gap-6 sm:py-7">
-              <span className="font-mono text-[9px] text-fg-muted">0{index + 1}</span>
-              <h3 className="text-[15px] font-semibold tracking-[-0.02em] text-fg">{capability.title}</h3>
-              <div>
-                <p className="max-w-xl text-[13.5px] leading-6 text-fg-secondary">{capability.description}</p>
-                <p className="mt-2 font-mono text-[8.5px] leading-5 text-fg-muted">{capability.meta}</p>
+      <div className="mt-14 space-y-12 sm:mt-16 sm:space-y-14">
+        {FEATURE_TRACKS.map((track) => {
+          const clips = FEATURES.filter((feature) => feature.track === track.id);
+
+          return (
+            <div key={track.id}>
+              <div className="flex items-baseline gap-3">
+                <span className="tc tabular text-fg-muted">{track.slot}</span>
+                <h3 className="font-display text-[19px] font-semibold tracking-[-0.03em] text-fg">
+                  {track.label}
+                </h3>
+                <span className="tc text-fg-tertiary">{track.caption}</span>
               </div>
-            </li>
-          ))}
-        </ol>
+
+              <Ruler className="mt-3" />
+
+              <ClipTrack as="ol" className="mt-4 space-y-6">
+                {clips.map((feature) => (
+                  <ClipRow key={feature.title} as="li">
+                    <div className="lane group px-1.5 py-1.5">
+                      {/*
+                        The clip's offset and length place it in the sequence.
+                        Narrow viewports have no room for a sequence, so the
+                        clip falls back to the full width of its lane.
+                      */}
+                      <div
+                        className={`flex min-h-[32px] items-center truncate rounded-[3px] px-3 text-[12.5px] font-medium leading-4 transition-transform duration-200 ease-[var(--ease-snap)] group-hover:-translate-y-px sm:ml-[var(--start)] sm:w-[var(--span)] sm:min-w-[210px] ${CLIP_STYLES[track.id]}`}
+                        style={
+                          {
+                            '--start': `${feature.start}%`,
+                            '--span': `${feature.span}%`,
+                          } as CSSProperties
+                        }
+                      >
+                        <span className={`truncate ${CLIP_TEXT[track.id]}`}>{feature.title}</span>
+                      </div>
+                    </div>
+                    <p className="mt-2.5 max-w-2xl text-[13.5px] leading-6 text-fg-secondary">
+                      {feature.description}
+                    </p>
+                  </ClipRow>
+                ))}
+              </ClipTrack>
+            </div>
+          );
+        })}
       </div>
     </Section>
   );
