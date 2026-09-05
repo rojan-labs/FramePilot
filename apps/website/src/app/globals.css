@@ -100,6 +100,27 @@
  */
 html[data-intro='pending'] .nav-logo-mark { visibility: hidden; }
 
+/*
+ * The intro stage's height. Collapsed to the hero's ruler hairline by default,
+ * so a replay visit, a reduced-motion visit, and a no-JavaScript visit all get
+ * the ruler and nothing else. The attribute above opens it before React exists;
+ * `data-stage` takes over the moment React hydrates, and its transition is the
+ * track collapsing back into the ruler when the intro ends.
+ */
+.intro-stage {
+  height: 1px;
+  transition: height 340ms var(--ease-snap);
+}
+html[data-intro='pending'] .intro-stage,
+.intro-stage[data-stage='open'] { height: 78px; }
+@media (min-width: 640px) {
+  html[data-intro='pending'] .intro-stage,
+  .intro-stage[data-stage='open'] { height: 104px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .intro-stage { transition: none; }
+}
+
 @layer components {
   .container-x {
     width: 100%;

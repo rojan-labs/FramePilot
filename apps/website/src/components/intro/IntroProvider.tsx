@@ -9,9 +9,10 @@ import {
   useRef,
   useState,
   type ReactNode,
-  type RefObject,
+  type MutableRefObject,
 } from 'react';
 import { usePathname } from 'next/navigation';
+import { LayoutGroup } from 'framer-motion';
 import { COMPETITOR_TOOLS, type ToolTile } from './ToolTiles';
 import { useIntroMachine } from './use-intro-machine';
 import { Dustbin } from './Dustbin';
@@ -26,7 +27,7 @@ interface IntroContextValue {
   /** End the intro immediately, from any state. */
   skip: () => void;
   /** The bin element, so the track knows where to throw a cut tile. */
-  binRef: RefObject<HTMLButtonElement | null>;
+  binRef: MutableRefObject<HTMLButtonElement | null>;
   lidOpen: boolean;
   setLidOpen: (open: boolean) => void;
   /** Everything that has landed in the bin so far. */
@@ -95,8 +96,11 @@ export function IntroProvider({ children }: { children: ReactNode }) {
 
   return (
     <IntroContext.Provider value={value}>
-      {children}
-      {isLanding && mounted && <Dustbin />}
+      {/* The track's FramePilot tile and the navbar mark are one shared element. */}
+      <LayoutGroup>
+        {children}
+        {isLanding && mounted && <Dustbin />}
+      </LayoutGroup>
     </IntroContext.Provider>
   );
 }

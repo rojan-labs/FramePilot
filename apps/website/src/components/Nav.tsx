@@ -107,7 +107,7 @@ export function Nav() {
                 layoutId="fp-logo-mark"
                 className="block overflow-hidden rounded-[6px]"
                 style={{ width: LOGO_MARK_SIZE, height: LOGO_MARK_SIZE }}
-                transition={{ duration: INTRO_TIMING.logoFlightMs / 1000, ease: [0.16, 1, 0.3, 1] }}
+                transition={{ duration: INTRO_TIMING.logoFlightMs / 1000, ease: [0.22, 1, 0.36, 1] }}
               >
                 <LogoMark size={LOGO_MARK_SIZE} />
               </motion.span>

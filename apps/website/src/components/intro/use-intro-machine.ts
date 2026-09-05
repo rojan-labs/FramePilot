@@ -1,11 +1,12 @@
 'use client';
 
-import { useCallback, useEffect, useReducer, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useReducer, useState } from 'react';
 import {
   STAGE_DURATION_MS,
   hasSeenIntro,
   introReducer,
   markIntroSeen,
+  shouldPersistIntroSeen,
   type IntroState,
 } from '@/lib/intro-machine';
 
@@ -17,6 +18,9 @@ function safeSessionStorage(): Storage | null {
     return null;
   }
 }
+
+/* The boot script's attribute must be gone before the first client paint. */
+const useIsomorphicLayoutEffect = typeof window !== 'undefined' ? useLayoutEffect : useEffect;
 
 /**
  * Drives the intro reducer: the stage timers, the escape hatches, and the
@@ -32,12 +36,20 @@ export function useIntroMachine(isLanding: boolean): {
 
   const skip = useCallback(() => dispatch({ type: 'skip' }), []);
 
-  useEffect(() => {
+  /*
+   * Start before the first client paint, in one commit.
+   *
+   * `data-intro` exists only to cover the gap between first paint and
+   * hydration; from here React owns both the navbar mark's visibility and the
+   * stage's height, so the attribute is removed immediately rather than at
+   * `settled`. Doing this in a layout effect keeps it out of a painted frame,
+   * and dispatching `start` here means the first client paint already shows the
+   * right stage height — no reflow of the hero underneath it.
+   */
+  useIsomorphicLayoutEffect(() => {
     setMounted(true);
-  }, []);
+    delete document.documentElement.dataset.intro;
 
-  // Kick off (or immediately settle) once we know the visitor's preferences.
-  useEffect(() => {
     if (!isLanding) {
       dispatch({ type: 'skip' });
       return;
@@ -92,12 +104,11 @@ export function useIntroMachine(isLanding: boolean): {
     };
   }, [state]);
 
-  // Hand the page back: the navbar owns the logo and the intro will not replay.
+  // Only the landing route may burn the session's one showing.
   useEffect(() => {
-    if (state !== 'settled') return;
+    if (!shouldPersistIntroSeen(state, isLanding)) return;
     markIntroSeen(safeSessionStorage());
-    delete document.documentElement.dataset.intro;
-  }, [state]);
+  }, [state, isLanding]);
 
   return { state, mounted, skip };
 }

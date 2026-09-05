@@ -55,7 +55,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
   const pro = getPlans().find((plan) => plan.id === 'pro');
 
   return (
-    <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} ${bricolage.variable}`}>
+    <html
+      lang="en"
+      /* The boot script stamps `data-intro` before React hydrates. */
+      suppressHydrationWarning
+      className={`${GeistSans.variable} ${GeistMono.variable} ${bricolage.variable}`}
+    >
       <head>
         {/*
           Runs before first paint. It marks the document only when the intro is

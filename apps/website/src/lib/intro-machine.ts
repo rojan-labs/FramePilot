@@ -82,6 +82,17 @@ export function isIntroDone(state: IntroState): boolean {
   return state === 'settled';
 }
 
+/**
+ * Whether this render should write the once-per-session flag.
+ *
+ * Only the landing route may set it. Every other route settles the machine on
+ * mount so the navbar owns its logo, and writing the flag there would burn the
+ * intro for a visitor who arrived on /blog and then clicked through to home.
+ */
+export function shouldPersistIntroSeen(state: IntroState, isLanding: boolean): boolean {
+  return isLanding && state === 'settled';
+}
+
 export const INTRO_SEEN_KEY = 'fp:intro-seen';
 
 type MaybeStorage = Pick<Storage, 'getItem' | 'setItem'> | null | undefined;

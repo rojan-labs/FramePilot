@@ -8,6 +8,7 @@ import {
   introReducer,
   isIntroDone,
   markIntroSeen,
+  shouldPersistIntroSeen,
   type IntroState,
 } from './intro-machine';
 
@@ -90,6 +91,27 @@ describe('intro timing', () => {
   it('gives every animated stage a positive duration', () => {
     for (const duration of Object.values(STAGE_DURATION_MS)) {
       expect(duration).toBeGreaterThan(0);
+    }
+  });
+});
+
+describe('shouldPersistIntroSeen', () => {
+  it('records the flag once the landing intro has settled', () => {
+    expect(shouldPersistIntroSeen('settled', true)).toBe(true);
+  });
+
+  it('never records the flag from another route', () => {
+    // A visitor who arrives on /blog settles the machine so the navbar owns its
+    // logo; burning the session flag there would rob them of the intro when
+    // they click through to the landing page.
+    for (const state of ALL_STATES) {
+      expect(shouldPersistIntroSeen(state, false)).toBe(false);
+    }
+  });
+
+  it('never records the flag while the landing intro is still running', () => {
+    for (const state of ALL_STATES.filter((value) => value !== 'settled')) {
+      expect(shouldPersistIntroSeen(state, true)).toBe(false);
     }
   });
 });

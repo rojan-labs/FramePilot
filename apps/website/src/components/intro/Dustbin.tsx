@@ -14,7 +14,7 @@ const BIN_H = 58;
  * are still in it, tops sticking out, and it says which ones on hover or focus.
  */
 export function Dustbin() {
-  const { discarded, lidOpen } = useIntro();
+  const { binRef, discarded, lidOpen } = useIntro();
   const reduce = useReducedMotion();
   const controls = useAnimationControls();
   const [open, setOpen] = useState(false);
@@ -61,6 +61,10 @@ export function Dustbin() {
         )}
 
         <motion.button
+          /* The track measures this element to aim each cut tile at it. */
+          ref={(node) => {
+            binRef.current = node;
+          }}
           type="button"
           data-intro-bin
           aria-label={`The bin. Retired from this timeline: ${RETIRED_NAMES.join(', ')}.`}

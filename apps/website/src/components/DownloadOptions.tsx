@@ -3,17 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Apple, ArrowDownToLine, Monitor, Terminal, type LucideIcon } from 'lucide-react';
 import { site } from '@/lib/site';
-
-type OS = 'mac' | 'windows' | 'linux' | 'other';
-
-function detectOS(): OS {
-  if (typeof navigator === 'undefined') return 'other';
-  const platform = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
-  if (platform.includes('mac')) return 'mac';
-  if (platform.includes('win')) return 'windows';
-  if (platform.includes('linux') || platform.includes('x11')) return 'linux';
-  return 'other';
-}
+import { detectCurrentPlatform, type DesktopPlatform } from '@/lib/platform';
 
 const PLATFORMS = [
   { id: 'mac', name: 'macOS', icon: Apple, note: 'Apple Silicon & Intel', file: '.dmg' },
@@ -22,8 +12,8 @@ const PLATFORMS = [
 ] as const;
 
 export function DownloadOptions() {
-  const [os, setOs] = useState<OS>('other');
-  useEffect(() => setOs(detectOS()), []);
+  const [os, setOs] = useState<DesktopPlatform>('other');
+  useEffect(() => setOs(detectCurrentPlatform()), []);
 
   return (
     <div className="border-t border-line">

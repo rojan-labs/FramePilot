@@ -13,6 +13,8 @@ export interface ToolTile {
   name: string;
   /** Two letters, in the same shorthand editors already use for these apps. */
   initials: string;
+  /** Label printed under the tile. Short enough not to wrap at any width. */
+  short: string;
   /** Tile fill. */
   ground: string;
   /** Initials colour. */
@@ -22,17 +24,18 @@ export interface ToolTile {
 }
 
 export const COMPETITOR_TOOLS: ToolTile[] = [
-  { id: 'premiere', name: 'Premiere Pro', initials: 'Pr', ground: '#2a0a4a', ink: '#c7a4ff' },
-  { id: 'after-effects', name: 'After Effects', initials: 'Ae', ground: '#1c0733', ink: '#cfa6ff' },
-  { id: 'resolve', name: 'DaVinci Resolve', initials: 'Dv', ground: '#23272c', ink: '#f2a03c' },
-  { id: 'final-cut', name: 'Final Cut Pro', initials: 'Fc', ground: '#1c1c1e', ink: '#8fd0ff' },
-  { id: 'capcut', name: 'CapCut', initials: 'Cc', ground: '#101014', ink: '#4fdae8' },
-  { id: 'imovie', name: 'iMovie', initials: 'iM', ground: '#e9e9ee', ink: '#2f72d8' },
+  { id: 'premiere', name: 'Premiere Pro', short: 'Premiere', initials: 'Pr', ground: '#2a0a4a', ink: '#c7a4ff' },
+  { id: 'after-effects', name: 'After Effects', short: 'After FX', initials: 'Ae', ground: '#1c0733', ink: '#cfa6ff' },
+  { id: 'resolve', name: 'DaVinci Resolve', short: 'Resolve', initials: 'Dv', ground: '#23272c', ink: '#f2a03c' },
+  { id: 'final-cut', name: 'Final Cut Pro', short: 'Final Cut', initials: 'Fc', ground: '#1c1c1e', ink: '#8fd0ff' },
+  { id: 'capcut', name: 'CapCut', short: 'CapCut', initials: 'Cc', ground: '#101014', ink: '#4fdae8' },
+  { id: 'imovie', name: 'iMovie', short: 'iMovie', initials: 'iM', ground: '#e9e9ee', ink: '#2f72d8' },
 ];
 
 export const FRAMEPILOT_TILE: ToolTile = {
   id: 'framepilot',
   name: 'FramePilot',
+  short: 'FramePilot',
   initials: 'Fp',
   ground: '#17140f',
   ink: '#f26522',

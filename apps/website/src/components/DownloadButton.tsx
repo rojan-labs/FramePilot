@@ -3,20 +3,10 @@
 import { useEffect, useState } from 'react';
 import { Apple, Download, Monitor } from 'lucide-react';
 import { site } from '@/lib/site';
+import { detectCurrentPlatform, type DesktopPlatform } from '@/lib/platform';
 import { Button } from './Button';
 
-type OS = 'mac' | 'windows' | 'linux' | 'other';
-
-function detectOS(): OS {
-  if (typeof navigator === 'undefined') return 'other';
-  const p = `${navigator.platform} ${navigator.userAgent}`.toLowerCase();
-  if (p.includes('mac')) return 'mac';
-  if (p.includes('win')) return 'windows';
-  if (p.includes('linux') || p.includes('x11')) return 'linux';
-  return 'other';
-}
-
-const LABELS: Record<OS, string> = {
+const LABELS: Record<DesktopPlatform, string> = {
   mac: 'Download for macOS',
   windows: 'Download for Windows',
   linux: 'Download for Linux',
@@ -34,8 +24,8 @@ export function DownloadButton({
   variant?: 'primary' | 'secondary';
   className?: string;
 }) {
-  const [os, setOs] = useState<OS>('other');
-  useEffect(() => setOs(detectOS()), []);
+  const [os, setOs] = useState<DesktopPlatform>('other');
+  useEffect(() => setOs(detectCurrentPlatform()), []);
   const Icon = os === 'mac' ? Apple : os === 'other' ? Download : Monitor;
 
   return (
