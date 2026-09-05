@@ -16,6 +16,7 @@ import { LayoutGroup } from 'framer-motion';
 import { COMPETITOR_TOOLS, type ToolTile } from './ToolTiles';
 import { useIntroMachine } from './use-intro-machine';
 import { Dustbin } from './Dustbin';
+import { IntroSplash } from './IntroSplash';
 import type { IntroState } from '@/lib/intro-machine';
 
 interface IntroContextValue {
@@ -96,9 +97,10 @@ export function IntroProvider({ children }: { children: ReactNode }) {
 
   return (
     <IntroContext.Provider value={value}>
-      {/* The track's FramePilot tile and the navbar mark are one shared element. */}
+      {/* The splash's FramePilot logo and the navbar mark are one shared element. */}
       <LayoutGroup>
         {children}
+        {isLanding && mounted && <IntroSplash />}
         {isLanding && mounted && <Dustbin />}
       </LayoutGroup>
     </IntroContext.Provider>

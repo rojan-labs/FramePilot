@@ -21,20 +21,20 @@ export type IntroEvent =
 
 /** The one place the choreography's clock is defined, in milliseconds. */
 export const INTRO_TIMING = {
-  /** `assembling`: the track and its tiles appear. */
-  assembleMs: 520,
-  /** How long the playhead takes to travel from one slot to the next. */
-  slotStepMs: 170,
-  /** The razor flash on a tile the playhead has just cut. */
-  cutFlashMs: 120,
-  /** A cut tile's arc into the bin. */
-  flightMs: 400,
+  /** `assembling`: the splash ground, the FramePilot logo, and the orbit appear. */
+  assembleMs: 500,
+  /** How long the icons revolve before the first one is thrown out. */
+  orbitLeadMs: 300,
+  /** Gap between one icon being flung off the orbit and the next. */
+  launchStepMs: 180,
+  /** A flung icon's arc into the bin. */
+  flightMs: 420,
   /** End of `discarding`, measured from the start of the intro. */
   discardEndMs: 2100,
-  /** `landing`: the playhead settles on the FramePilot tile and it pops. */
-  landingMs: 300,
-  /** The shared-layout flight from the track into the navbar's logo slot. */
-  logoFlightMs: 430,
+  /** `landing`: the splash ground fades and the logo shrinks towards the navbar. */
+  landingMs: 400,
+  /** The shared-layout flight from the splash into the navbar's logo slot. */
+  logoFlightMs: 400,
 } as const;
 
 /** Time from the first frame to the logo sitting still in the navbar. */

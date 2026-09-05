@@ -57,7 +57,7 @@ public/           Generated OG assets, icons, manifest, and public brand assets
 
 ### The landing intro
 
-- The intro is a ripple delete of the other editors, ending with FramePilot promoted to the navbar logo. Its **states** are a pure reducer in `src/lib/intro-machine.ts` with unit tests; its **timers, listeners, and measurement** are in `src/components/intro/`. Change the choreography's clock in `INTRO_TIMING`, not in scattered literals.
+- The intro is a full-viewport splash: the other editors revolve around the FramePilot logo and are flung one by one into the bin in the corner, then the logo flies into the navbar. The bin keeps them visible for the whole visit. Its **states** are a pure reducer in `src/lib/intro-machine.ts` with unit tests; its **timers, listeners, and measurement** are in `src/components/intro/`. Change the choreography's clock in `INTRO_TIMING`, not in scattered literals.
 - The navbar always reserves a fixed box for the logo mark and mounts the `layoutId` target only once the intro settles: never zero logos, never two, never a layout shift.
 - The stage renders only on the client. The hero's headline and download CTA are the page's real first paint and stay usable throughout.
 - Competitor tiles are drawn stand-ins — a coloured tile, two-letter shorthand, and the tool's printed name. The repository has no licence to ship those marks (ADR 0172).

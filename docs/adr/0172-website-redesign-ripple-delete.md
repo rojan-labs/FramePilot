@@ -75,3 +75,27 @@ carry the idea through the whole site rather than only the hero.
   "landing scroll demo owns the product story" rule survives.
 - Old components (`SpotlightCard`, `Reveal`, the section files they replaced)
   are deleted rather than kept alongside the new system.
+
+## Revision 2026-09-05 — splash instead of a hero track; a bin you can read
+
+After reviewing PR #78 the maintainer asked for three changes, all made on the
+same branch:
+
+1. **The intro is a splash, not a track in the hero.** The first version laid
+   the seven editors on a track above the headline and cut them off one by
+   one. It now opens on a full-viewport paper ground: the FramePilot logo sits
+   at the centre, the other editors revolve around it on an ellipse (depth from
+   scale and dimming), and one by one they are flung off the orbit into the bin
+   in the corner. The last one in, the ground fades and the logo flies into the
+   navbar slot. Same state machine, same shared `layoutId`, same skip and
+   reduced-motion rules. First paint is covered by a CSS-only paper layer under
+   `html[data-intro="pending"]`, so the page never flashes before the splash.
+2. **The bin shows what is in it.** Four icons at 26–32 px pile above the rim
+   and two lie on the floor beside it, for the whole visit; the lid leans back
+   once the bin is full. Icons stay stand-ins: `simple-icons` was tried and
+   dropped because it carries none of Adobe's, Apple's, or ByteDance's marks,
+   so the stand-in glyphs were made more legible instead (Adobe-style letter
+   squares, Resolve's coloured orbit, a clapper, a bracket cut, a star).
+3. **One line under the nav.** The hero's collapsed-track hairline sat under
+   the nav ruler with an empty band between them. The track is gone, and with
+   it the second line.

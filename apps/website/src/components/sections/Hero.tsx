@@ -2,7 +2,6 @@ import { ArrowDown } from 'lucide-react';
 import { Button } from '@/components/Button';
 import { DownloadButton } from '@/components/DownloadButton';
 import { ScrollEditorStory } from '@/components/ScrollEditorStory';
-import { IntroTrack } from '@/components/intro/IntroTrack';
 import { InPoint, Ruler } from '@/components/timeline/Ruler';
 import { MAKES } from '@/content/features';
 
@@ -17,10 +16,7 @@ export function Hero() {
     <>
       <section className="bg-canvas pb-14 pt-10 sm:pb-18 sm:pt-14">
         <div className="container-x">
-          {/* The intro plays here, then leaves this line behind as the ruler. */}
-          <IntroTrack />
-
-          <div className="mt-9 grid gap-12 lg:mt-12 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-16">
+          <div className="grid gap-12 lg:grid-cols-[minmax(0,1fr)_260px] lg:gap-16">
             <div>
               <p className="flex items-center gap-2.5">
                 <InPoint />
