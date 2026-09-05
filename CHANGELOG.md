@@ -8,6 +8,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI stops making the same edit over and over.** It would set a clip to the same
+  volume fifteen times, add the same transition nine times, and place the same shot on
+  three different layers — leaving a sixty-second edit with nineteen video tracks, the
+  music bed laid twice and the title card composited on top of itself. It now recognises
+  work it has already done and moves on.
+- **The same title can't be put on screen twice.** Asking for a headline you already have
+  used to quietly open a second layer for it, and the two copies rendered on top of each
+  other.
+- **Edit cards say what they did.** "Added marker" with no time and no label, "Added asset"
+  with no file name, "Add layer" with no lane — one in eight of the AI's own rows told you
+  nothing. Markers now read "Red jacket rider · 120s".
+- **A check tells you what it found.** "Checking caption sync" looked identical whether the
+  captions were perfect or every single word was missing one.
+- **A tool that's held back says why.** It used to read "unavailable this turn", with no
+  reason and no idea when it would come back.
+
 - **Captions work when b-roll is stacked over your footage.** If the same clip appeared on
   two video layers at once — a cutaway, a second angle, a picture-in-picture — asking for
   captions produced none at all, and asking again produced none again. Two layers meant two
@@ -79,6 +95,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **"Brewed for 1m 14s"** at the end of a run, so you can see what it cost you in time —
+  measured from your message, and still right if you reload or come back to the
+  conversation later.
+- **A roomier message box.** The text now spans the full width with the controls on their
+  own line beneath it, instead of being squeezed between them — which used to cut the
+  placeholder off mid-sentence and strand the buttons at the bottom of a long message.
 - **If you already pay for Claude, you can now use it in FramePilot without an API key.**
   Settings → AI has a new provider, **Claude (your Claude Code login)**. It signs in with
   the login the Claude CLI already stored on your machine, so there is no key to find and
