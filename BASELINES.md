@@ -46,6 +46,131 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `session3` — 2026-09-05 (session 4) — **a partial run, five instrument defects, and one number that is not what it looks like**
+
+The first live 21×3 attempt since 2026-09-04. **It did not finish.** Ten cases in, the
+provider's latency went from 7–10 seconds per model call to 122–660 and stayed there for
+four consecutive turns; the run was stopped rather than spend hours producing turns that
+are excluded from every rate by construction. Eight cases have clean evidence.
+
+Run under a NEW label so the committed `baseline` label's per-case evidence is untouched.
+The only thing this session changed under `reports/golden/baseline/` was a regenerated
+`generatedAt` timestamp from a fully-cached invocation, and that was reverted.
+
+| | |
+| --- | --- |
+| commit | code as of `372c998` (session 3's fixes), built before the run started |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, live |
+| media | `tests/fixtures/mission/projects`, unchanged |
+| cases attempted | 10 of 21 · **8 with clean evidence** |
+| turns | 37 · **31 clean, 6 provider-stalled** |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 4h 17m · **$13.75** |
+
+### The ten metrics — clean turns only
+
+`isVoidTurn` has always excluded turns the provider never answered. This run needed the
+same treatment for turns the HARNESS cut off, which is a different cause and was not
+excluded — see "Instrument defect 5". Both readings are given so nothing is hidden.
+
+| metric | `baseline` | `session3`, all 37 turns | `session3`, 31 clean turns |
+| --- | --- | --- | --- |
+| intent accuracy | 0.72 | 0.84 | **0.935** |
+| target resolution | 0.82 | 1.00 | **1.00** |
+| boundary precision | — | 0.94 | 0.94 |
+| operation validity | — | 1.00 | **1.00** |
+| first-pass acceptance | 0.49 | 0.73 | **0.839** |
+| silent successes | — | 0 | **0** |
+| reversibility | — | 1.00 | **1.00** |
+| rubric score p50 | — | 1.00 | **1.00** |
+| tokens / accepted edit | — | 212,534 | — |
+| tier-priced USD / accepted edit (not billed) | — | $0.51 | — |
+| model calls / turn p50 · p95 | — | 6 · 12 | — |
+| tool calls / turn p50 · p95 | — | 7 · 22 | — |
+| first progress p50 · p95 | — | 3.04s · 4.25s | — |
+| done p50 · p95 | — | 85.4s · 1951.9s | — |
+
+`done p95` is a stalled turn and measures the provider's queue, not the product.
+
+### Per scenario
+
+| case | `baseline` p50 | `session3` p50 | note |
+| --- | --- | --- | --- |
+| beat-sync | 0.556 | **1.00** | |
+| memory-captions | 0.857 | **1.00** | 1 of 3 runs provider-stalled |
+| montage-30s | 1.00 | 1.00 | |
+| podcast-highlight-60s | 0.75 | 1.00 | rubric passes; the case still measures nothing (§3) |
+| refine-tighten | 0.875 | 0.875 | **both are the rubric's fault** — see defect 2 |
+| remove-dead-air | 1.00 | 1.00 | |
+| trim-first-clip-10s | 1.00 | 1.00 | |
+| trim-opening-10s | 1.00 | 1.00 | |
+| reorder-last-first | 1.00 | *no clean run* | 3 of 3 provider-stalled |
+| reorder-swap-first-two | 0.50 | *no clean run* | 1 of 1 provider-stalled |
+
+**`reorder-last-first` is the entry's cautionary tale.** Its three runs scored 0.6, 0.7 and
+0.7 against a baseline of 1.00, which reads as a clear regression. It is not one. Those
+runs made 12, 3 and 3 model calls in 1474s, 1980s and 1693s — up to **660 seconds per
+call** — and all three were cut off by the harness's 20-minute timer. r2's timeline at the
+moment it was judged is `[asset_001…005]`: the untouched original, because the reorder
+never got to happen. Had this entry been written from the score alone it would have
+recorded an agent regression that did not occur.
+
+What that case *did* establish, because latency cannot fake it: **`reversibility: ok —
+identical after 7 patch(es) undone` on all three runs.** That is `bb8fb69`'s `move_clip`
+ULP fix confirmed on real media, on the exact case that failed reversibility in the
+committed `baseline`.
+
+### Five instrument defects the run exposed — all fixed
+
+1. **`checkValidRefs` excluded `__caption__` and not `__text__`**, the two synthetic ids
+   for clips with no media source, declared on consecutive lines of `operations.ts`. Any
+   run that put a title on screen scored as having produced a broken timeline. (`a255687`)
+2. **`refine-tighten` demanded a shorter programme for a prompt asking for a faster one.**
+   "Tighten the middle section so it moves faster, but keep the first and last clips
+   exactly as they are" does not ask for less running time. Run 1 turned 13 picture clips
+   into 15 at 29.4s; run 2 turned 18 into **29** at 30.0s; both kept first and last
+   untouched. Both were marked down. Run 3 chose the other faithful answer and shortened
+   29.4s to 21.0s. `checkCutsFasterThanBefore` passes all three. The same failure is in the
+   committed `baseline` twice, read there as the agent falling short. (`a255687`)
+3. **`memory-captions` turn 1 asks for 45 seconds and was scored against 60**, because its
+   rubric is `podcast-highlight-60s` and the number came from the rubric's NAME. Three of
+   three baseline runs produced 44.67, 44.67 and 45.43 and were all failed. (`a255687`)
+4. **`checkNoMidWordCuts` judged b-roll against the narration** — the rubric twin of the
+   Critic's `word_severed` bug retracted in the session-3 entry. (`a255687`)
+5. **A turn the harness timed out was scored as the agent's behaviour.** `isVoidTurn`
+   already separates "the provider never answered"; a harness timeout is the same mistake
+   with a different cause. Five of this run's turns, and the whole `reorder-last-first`
+   result. Now excluded from every rate and counted separately, because the remedies
+   differ: a void turn needs re-running, a timed-out turn needs a provider that answers.
+   (`a8b58f7`)
+
+A sixth was found and deliberately **not** fixed: `hook-strongest-line`'s prompt says
+"start with the strongest line… **then continue from the beginning as before**", which is
+by arithmetic longer than the original, and its rubric requires `not-longer`. The
+baseline's `575.87s → 577.80s` is the agent obeying the prompt. That case runs on
+`mission-podcast` and measures nothing until the media is replaced (§3), so a rubric change
+could not be validated. Two faithful fixes are recorded in REMAINING.md §2.
+
+### Not evidence of
+
+- **A finished baseline.** Ten cases of twenty-one were attempted and eight have clean
+  evidence. `reports/golden/floor.json` is unchanged and the committed `baseline` remains
+  the floor. Re-invoking the same command resumes from the per-case files on disk.
+- **Any of this session's own fixes.** The runner imports `dist/`, built before the run
+  started, so `session3` measures the code as of `372c998` — session 3's fixes, not
+  session 4's. Nothing in the 2026-09-05 commits is in these numbers.
+- **A regression on `reorder-last-first` or `reorder-swap-first-two`.** Neither has a
+  clean run. See above.
+- **`refine-tighten` improving.** Its 0.875 is unchanged because the rubric fix landed
+  after the run scored it; on the recorded clip counts all three runs pass the corrected
+  check.
+- **`podcast-highlight-60s` measuring anything.** It scores 1.00 here and still reads a
+  transcript that is 92% one fabricated sentence.
+- **Comparable cost figures.** `usdPerAcceptedEdit` and `tokensPerAcceptedEdit` include the
+  stalled turns' spend, and the `baseline` label has no figure to compare against.
+
+---
+
 ## session 3 — 2026-09-05 — **no run; nine defects closed from one desktop transcript**
 
 **This entry records no measurement.** No baseline was run: credits were explicitly to be
