@@ -205,6 +205,8 @@ html[data-intro='pending'] .intro-stage,
   .prose-fp p, .prose-fp li { color: var(--color-fg-secondary); }
   .prose-fp strong { color: var(--color-fg); font-weight: 620; }
   .prose-fp a { color: var(--color-fg); text-decoration: underline; text-decoration-color: var(--color-accent); text-underline-offset: 4px; }
+  /* rehype-autolink wraps every heading in an anchor; a heading is not a link. */
+  .prose-fp h2 a, .prose-fp h3 a { color: inherit; text-decoration: none; }
   .prose-fp ul, .prose-fp ol { padding-left: 1.4em; }
   .prose-fp ul { list-style: disc; }
   .prose-fp ol { list-style: decimal; }

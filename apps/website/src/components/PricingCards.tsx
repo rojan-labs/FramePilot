@@ -58,7 +58,11 @@ function Plan({ plan, cycle, slot }: { plan: PricingPlan; cycle: BillingCycle; s
           <div>
             <div className="flex items-center gap-3">
               <span className={`tc ${isContact ? 'text-fg-muted' : 'text-canvas/45'}`}>{slot}</span>
-              <h2 className="font-display text-[22px] font-semibold tracking-[-0.035em]">
+              <h2
+                className={`font-display text-[22px] font-semibold tracking-[-0.035em] ${
+                  isContact ? 'text-fg' : 'text-canvas'
+                }`}
+              >
                 {plan.name}
               </h2>
               {plan.badge && <span className="tc text-accent">{plan.badge}</span>}
