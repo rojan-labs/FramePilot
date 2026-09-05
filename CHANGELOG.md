@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **A refusal that no edit can fix is now remembered for the whole run.** When the AI was
+  told "render_preview can't run from here — don't call it again", that memory was wiped
+  every time it made an edit, so one session asked eight times in 86 minutes and was refused
+  identically each time. Refusals about the runtime itself now survive edits; refusals about
+  the timeline still clear when the timeline changes, as before.
+
 - **"Silent" now says what level it means.** Asked whether wind-only footage had any real
   silence, the AI reported "203 silent ranges" — true at the −30 dB detector default, where
   quiet wind counts, and useless as an answer. The silence check now reports the level it

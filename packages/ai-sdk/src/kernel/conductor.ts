@@ -47,6 +47,7 @@ import {
   createTurnEmitter,
 } from '../events.js';
 import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
+import { survivesAppliedEdit } from '../tool-refusal.js';
 import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
@@ -2006,7 +2007,12 @@ export function onTurnResult(
       // Same reason as `lastRejectionReason`: a deterministic refusal describes the
       // arrangement the validator was shown, and this patch has just replaced it. Holding
       // the keys across an applied edit would refuse a retry whose cause the edit fixed.
-      seenFailureKeys: [],
+      //
+      // EXCEPT the refusals no edit can fix. `render_preview: surface_unavailable` is a
+      // verdict about the runtime, not the timeline, and clearing it here is why one
+      // desktop run was refused it eight times in 86 minutes with every mutation in
+      // between wiping the memory (`tool-refusal.ts#ARRANGEMENT_INDEPENDENT_CAUSES`).
+      seenFailureKeys: state.seenFailureKeys.filter(survivesAppliedEdit),
     };
     if (cumulativeOps.length - derivedOpTotal >= state.config.maxOpsPerRun) {
       const note = `Reached the per-run cap of ${state.config.maxOpsPerRun} operations — stopping.`;

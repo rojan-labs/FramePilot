@@ -1109,6 +1109,68 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(state.noProgressStreak).toBe(0);
   });
 
+  /**
+   * Run 6 of 2026-09-05 (`framepilot.runs.jsonl`): `render_preview` refused eight times in
+   * 86 minutes with the identical sentence, never once as a repeat. Between every pair there
+   * were 3–69 completed mutations, and the applied branch cleared `seenFailureKeys` on each.
+   * A surface verdict is not about the arrangement, so no edit can make it stale.
+   */
+  it('keeps a surface-verdict failure key across an applied edit', () => {
+    const refused = onEffectResult(
+      started(),
+      turn({
+        turnOpCount: 0,
+        anyToolFailed: true,
+        callFacts: [
+          {
+            key: 'render_preview:{}',
+            status: 'failed',
+            role: 'other',
+            failureKey: 'render_preview:surface_unavailable',
+          },
+        ],
+      }),
+    );
+    expect(refused.state.seenFailureKeys).toContain('render_preview:surface_unavailable');
+    const landed = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({ applied: true, turnOpCount: 2, appliedOps: ops(2), signature: 'sig-2' }),
+    );
+    expect(landed.state.seenFailureKeys).toContain('render_preview:surface_unavailable');
+  });
+
+  it('still clears arrangement-dependent failure keys when an edit lands', () => {
+    const refused = onEffectResult(
+      started(),
+      turn({
+        turnOpCount: 0,
+        anyToolFailed: true,
+        callFacts: [
+          // A validator refusal keyed on its text, and a policy refusal about placement:
+          // the next patch can fix either, so both must be forgotten.
+          {
+            key: 'add_clip:a',
+            status: 'failed',
+            role: 'mutation',
+            failureKey: "add_clip:Clips 'x' and 'y' overlap on track 'v1'.",
+          },
+          {
+            key: 'add_clip:b',
+            status: 'failed',
+            role: 'mutation',
+            failureKey: 'add_clip:picture_over_picture',
+          },
+        ],
+      }),
+    );
+    expect(refused.state.seenFailureKeys).toHaveLength(2);
+    const landed = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), signature: 'sig-2' }),
+    );
+    expect(landed.state.seenFailureKeys).toEqual([]);
+  });
+
   it('still credits a repeated refusal when the turn learned something new', () => {
     const refusal = 'rejected by the beat grid: ungrounded';
     const first = onEffectResult(
