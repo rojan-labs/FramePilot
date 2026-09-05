@@ -2064,8 +2064,17 @@ export function onTurnResult(
   const repeatedRejection =
     rejected && rejectionIdentity !== undefined && rejectionIdentity === state.lastRejectionReason;
 
+  // A SATISFIED turn is not an attempt at the cut. By its own definition it "landed nothing
+  // because the timeline ALREADY matched it" — nothing moved, there is nothing to retry. It
+  // is right that it is not filed as a rejection (above). It is wrong that it earned the
+  // attempt's progress credit: run `137d8fd0` re-set `music_1_clip` to the −18 dB it was
+  // already at TEN times across turns 15→149, and each identical no-op reset every
+  // run-stopper as if a fader had moved. Same principle as `callAnswered` for mutations —
+  // a re-derivation can still count as progress, but only by LEARNING something, not by
+  // proposing again what is already there.
+  const attemptedChange = attemptedEdit && r.satisfied !== true;
   const progressed =
-    (attemptedEdit && !repeatedRejection) ||
+    (attemptedChange && !repeatedRejection) ||
     turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   const seenCallKeys = mergeSeenKeys(state.seenCallKeys, r.callFacts);
   const seenFailureKeys = mergeFailureKeys(state.seenFailureKeys, r.callFacts);
@@ -2095,8 +2104,14 @@ export function onTurnResult(
   //
   // `turnPlacementCount` is absent for callers that do not report it, which keeps the old
   // behaviour for the legacy loop and every fixture rather than silently tightening them.
+  // …and a satisfied turn has not left reconnaissance either: its placements re-derived
+  // what was already placed, so they refund no research budget.
   const changedTheCut =
-    r.turnPlacementCount === undefined ? attemptedEdit : r.turnPlacementCount > 0;
+    r.satisfied === true
+      ? false
+      : r.turnPlacementCount === undefined
+        ? attemptedEdit
+        : r.turnPlacementCount > 0;
   const researchStreak = changedTheCut ? 0 : state.researchStreak + 1;
   // Recalls are excluded from this question, and the exclusion is load-bearing.
   //
@@ -2178,7 +2193,8 @@ export function onTurnResult(
   // restated summaries and memo hits are a run describing itself, not progressing.
   const progressedMeaningfully = madeMeaningfulProgress({
     learnedSomethingNew,
-    attemptedEdit,
+    // The stricter question gets the same answer: an identical re-set is not an attempt.
+    attemptedEdit: attemptedChange,
     appliedEdit: false,
     recordedVerification: false,
     advancedStage: stageAdvanced,

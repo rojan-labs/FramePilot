@@ -1073,6 +1073,42 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(second.state.stallStreak).toBe(1);
   });
 
+  /**
+   * Run `137d8fd0` re-set `music_1_clip` to the −18 dB it already held TEN times across
+   * turns 15→149. Session 3 made the tool note honest ("the project already said exactly
+   * this") and plumbed `satisfied` so the turn is not filed as a rejection. It left the
+   * attempt's progress credit in place, so each identical no-op still reset every
+   * run-stopper as if a fader had moved. A turn that by definition changed nothing has not
+   * progressed; it may still count by learning something, like any other non-edit turn.
+   */
+  it('does not credit a turn whose edit the timeline already matched', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({ applied: false, satisfied: true, turnOpCount: 1, turnPlacementCount: 1 }),
+    );
+    expect(state.stallStreak).toBe(1);
+    expect(state.noProgressStreak).toBe(1);
+    // Nothing left reconnaissance, so the research budget is not refunded either.
+    expect(state.researchStreak).toBe(1);
+    // …and it is still not a rejection: nothing failed, nothing to retry.
+    expect(state.rejectedOpCount).toBe(0);
+    expect(state.rejectionReasons).toEqual([]);
+  });
+
+  it('still credits a satisfied turn that learned something new', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        satisfied: true,
+        turnOpCount: 1,
+        callFacts: [{ key: 'get_clips:v_main', status: 'completed', role: 'inspection' }],
+      }),
+    );
+    expect(state.stallStreak).toBe(0);
+    expect(state.noProgressStreak).toBe(0);
+  });
+
   it('still credits a repeated refusal when the turn learned something new', () => {
     const refusal = 'rejected by the beat grid: ungrounded';
     const first = onEffectResult(

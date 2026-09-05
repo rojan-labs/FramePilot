@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Re-applying a setting the timeline already has no longer counts as progress.** One
+  run set the music bed to the −18 dB it was already at ten separate times, and each one
+  reset the checks that stop a run going in circles, as if a fader had moved. A change that
+  changes nothing now counts only if the AI also learned something on that turn — the same
+  rule reads already follow.
+
 - **The AI can measure colour while it grades.** Asked to "measure what's actually on
   screen", it could only do so before it started editing; once cutting began the measurement
   tool was withheld and the AI was told to try again next turn, which never came true, so
