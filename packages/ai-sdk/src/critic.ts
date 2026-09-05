@@ -35,6 +35,7 @@ import {
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
 import { secondsToFrame } from './frame-time.js';
+import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
 
 /** Outcome of a single Critic check. */
@@ -1313,18 +1314,38 @@ function overlayOffFrame(clip: Clip, effect: Effect): string | undefined {
 }
 
 /**
- * Overlays/captions must stay inside the safe-area inset, and must not leave the frame.
- * Clips with no explicit position are assumed centered (safe).
+ * Overlays/captions must stay inside the safe-area inset, must not leave the frame, and
+ * must not carry a word too wide to wrap. Clips with no explicit position are assumed
+ * centered (safe) — but their text is still checked for fit, which position does not
+ * affect and which is the one thing here that neither renderer will report on its own.
  */
-function checkSafeArea(timeline: Timeline): CriticCheck {
+function checkSafeArea(
+  timeline: Timeline,
+  resolution: { readonly width: number; readonly height: number },
+): CriticCheck {
   const overlayClips = overlayOrCaptionClips(timeline);
   const lo = SAFE_AREA_INSET;
   const hi = 1 - SAFE_AREA_INSET;
   const outside: string[] = [];
   const clipped: string[] = [];
+  const unwrappable: string[] = [];
   let positioned = 0;
   for (const clip of overlayClips) {
     for (const effect of clip.effects) {
+      // Fit is independent of position, so it is judged before the centre test bails out
+      // on a default-placed overlay. `overflowingWords` has no opinion unless the size and
+      // the box width were both authored.
+      const over = overflowingWords(effect.params, resolution)[0];
+      if (over !== undefined) {
+        unwrappable.push(
+          `${clip.id} — "${over.word}" needs about ${String(over.requiredBoxWidthPercent)}% of ` +
+            `the frame width at this text size and boxWidthPercent is ` +
+            `${round(over.boxWidthPercent)}` +
+            (over.requiredBoxWidthPercent > 100
+              ? '; no box is wide enough, so the text size has to come down'
+              : '; no line break can shorten one word'),
+        );
+      }
       const centre = overlayCentre(effect);
       if (centre === undefined) continue;
       positioned += 1;
@@ -1338,7 +1359,7 @@ function checkSafeArea(timeline: Timeline): CriticCheck {
       if (off !== undefined) clipped.push(off);
     }
   }
-  if (positioned === 0) {
+  if (positioned === 0 && unwrappable.length === 0) {
     return check(
       'safe_area',
       'Overlays in safe area',
@@ -1348,9 +1369,14 @@ function checkSafeArea(timeline: Timeline): CriticCheck {
   }
   // Leaving the frame outranks being near its edge: one is clipped picture, the other is
   // a house style. Reported together when both are true, worst first.
-  if (clipped.length > 0 || outside.length > 0) {
+  if (clipped.length > 0 || outside.length > 0 || unwrappable.length > 0) {
     const parts: string[] = [];
     if (clipped.length > 0) parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
+    if (unwrappable.length > 0)
+      parts.push(
+        `Too wide for its box — this runs out the sides in the preview and the export ` +
+          `alike: ${unwrappable.join('; ')}. Widen boxWidthPercent or reduce sizePercent.`,
+      );
     if (outside.length > 0)
       parts.push(`Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`);
     return check('safe_area', 'Overlays in safe area', 'warn', parts.join(' '));
@@ -2370,7 +2396,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkPicturePresent(project, options),
     ...wholeCutChecks(project, options),
     checkCaptionAlignment(timeline),
-    checkSafeArea(timeline),
+    checkSafeArea(timeline, project.resolution),
     checkAudioClipping(options),
     checkBlackFrames(options),
     ...(options.temporal === undefined ? [] : [checkTemporalEvidence(options)]),

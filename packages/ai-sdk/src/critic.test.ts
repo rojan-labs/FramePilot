@@ -983,6 +983,71 @@ describe('safe_area', () => {
     );
   });
 
+  /**
+   * The defect this closes: neither renderer breaks a word, so one wider than its box runs
+   * out the sides — `wrap_lines` in `captions.py` and `wrapLines` in `overlay-painter.ts`
+   * both put it on a line of its own and draw it. They AGREE, so preview and export match
+   * and nothing looked wrong to either of them; the editor was the only one who could see
+   * it, after the export. Reported, not repaired: auto-shrinking or breaking mid-word would
+   * have to produce the same pixels in PIL and in canvas.
+   */
+  it('warns when a word cannot be wrapped into its box, and names the box that holds it', () => {
+    const check = idOf(
+      critique(
+        overlayWith({
+          text: 'Breck, opening weekend',
+          fontSizePercent: 18,
+          boxWidthPercent: 30,
+          xPercent: 50,
+          yPercent: 50,
+        }),
+      ),
+      'safe_area',
+    );
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('"weekend"');
+    expect(check?.detail).toContain('43%');
+    expect(check?.detail).toContain('boxWidthPercent is 30');
+  });
+
+  it('checks fit even when the overlay is centred by default', () => {
+    // Fit does not depend on position, and an overlay with no xPercent/yPercent used to
+    // leave this check reporting "nothing positioned to check" — which is true of the safe
+    // area and says nothing about whether the words fit.
+    const check = idOf(
+      critique(overlayWith({ text: 'championship', fontSizePercent: 20, boxWidthPercent: 25 })),
+      'safe_area',
+    );
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('championship');
+  });
+
+  it('says the size is the problem when no box is wide enough', () => {
+    const check = idOf(
+      critique(
+        overlayWith({ text: 'Unterhaltungselektronik', fontSizePercent: 20, boxWidthPercent: 80 }),
+      ),
+      'safe_area',
+    );
+    expect(check?.detail).toContain('the text size has to come down');
+  });
+
+  it('passes a caption whose words fit', () => {
+    const check = idOf(
+      critique(
+        overlayWith({
+          text: 'the world cup is the hardest trophy to win',
+          fontSizePercent: 8,
+          boxWidthPercent: 80,
+          xPercent: 50,
+          yPercent: 80,
+        }),
+      ),
+      'safe_area',
+    );
+    expect(check?.status).toBe('pass');
+  });
+
   it('warns on a percent-positioned overlay outside the safe area', () => {
     const check = idOf(critique(overlayWith({ xPercent: 50, yPercent: 3 })), 'safe_area');
     expect(check?.status).toBe('warn');
