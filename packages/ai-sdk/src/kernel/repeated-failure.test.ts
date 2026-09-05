@@ -736,7 +736,9 @@ describe('add_music — a duck refused after the download is keyed on its senten
     // The remedy has to survive the wrapper, or a closed loop is worse than an open one.
     const seenByModel = modelFacingText(provider);
     expect(seenByModel).toContain('already failed this run for this same reason');
-    expect(seenByModel).toContain('Pass the id of the dialogue track');
+    // The remedy is now the LIST of tracks that would work, not the generic instruction
+    // to find dialogue — this project has none, and naming `video_1` is the whole move.
+    expect(seenByModel).toContain('Tracks with clips to duck under: video_1');
   });
 
   it('lets a DIFFERENT bad track id have its own answer', async () => {

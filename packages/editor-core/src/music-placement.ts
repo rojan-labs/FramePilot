@@ -53,12 +53,62 @@ export function nextMusicLayerId(timeline: Timeline): string {
 }
 
 /**
+ * Track ids this project could actually duck a bed under, in timeline order.
+ *
+ * "Audio-capable" is the renderer's own rule, not a narrower one. `_duck_intervals`
+ * (`render/compiler.py`) reads the sidechain track's CLIP INTERVALS and never looks at its
+ * type, so a video track whose clips carry sound ducks the bed exactly as a dedicated
+ * dialogue track does. `operation-contract.ts` and `audio-commands.ts` agree: both refuse
+ * only `caption` and `effect`.
+ *
+ * A track with no clips is excluded because it has no intervals — the duck would compile
+ * to an empty envelope and the bed would play at full level.
+ */
+function duckCandidateTrackIds(project: Project): string[] {
+  return project.timeline.tracks
+    .filter(
+      (track) =>
+        track.type !== 'caption' && track.type !== 'effect' && track.clips.length > 0,
+    )
+    .map((track) => track.id);
+}
+
+/**
+ * The half of a refusal that tells the caller what WOULD work.
+ *
+ * A refusal with no legal move named is a dead end, and run `137d8fd0` is what one costs:
+ * `add_music` was called with `duckUnderTrackId: "layer_audio_5"`, an audio track that
+ * existed and held nothing. The refusal said "Place the dialogue first, or omit
+ * duckUnderTrackId" — so the model omitted it, laid the bed at full level, and the
+ * editor's explicit instruction ("duck the wind right down") was never carried out. The
+ * timeline it was refused against had `v_main` on it, full of clips, carrying the very
+ * wind the bed was meant to drop under. The one fact that would have rescued the call was
+ * the one fact the sentence withheld.
+ */
+function duckCandidateSentence(project: Project): string {
+  const candidates = duckCandidateTrackIds(project);
+  if (candidates.length === 0) {
+    return (
+      'No track in this project carries sound yet, so nothing can be ducked under. ' +
+      'Place that audio first, or omit duckUnderTrackId to lay the bed at full level.'
+    );
+  }
+  return (
+    `Tracks with clips to duck under: ${candidates.join(', ')} — a video track counts ` +
+    'when its clips carry the sound you mean. Or omit duckUnderTrackId to lay the bed ' +
+    'at full level.'
+  );
+}
+
+/**
  * Why a requested `duckUnderTrackId` cannot be honored, or `null` when it can.
  *
  * The validator would accept a duck at an unknown sidechain track and the render
  * would then apply no duck at all — a bed the model believes is under the voice
  * but that plays at full level. So the sidechain is resolved HERE, where a
  * specific sentence can fail the call before any edit exists.
+ *
+ * Every refusal names the tracks that would have worked ({@link duckCandidateSentence}).
  */
 export function musicDuckSidechainIssue(
   project: Project,
@@ -69,13 +119,22 @@ export function musicDuckSidechainIssue(
   if (!track) {
     return (
       `duckUnderTrackId "${duckUnderTrackId}" is not a track in this project. ` +
-      'Pass the id of the dialogue track the bed should drop under.'
+      duckCandidateSentence(project)
+    );
+  }
+  // Caught here rather than deeper: `operation-contract.ts` refuses these too, but it does
+  // so after the placement ops are built, so the message the caller sees names an
+  // `adjust_audio` op it never wrote instead of the argument it passed.
+  if (track.type === 'caption' || track.type === 'effect') {
+    return (
+      `duckUnderTrackId "${duckUnderTrackId}" is a ${track.type} track, which carries no ` +
+      `sound to duck under. ${duckCandidateSentence(project)}`
     );
   }
   if (track.clips.length === 0) {
     return (
       `duckUnderTrackId "${duckUnderTrackId}" names a track with no clips, so there is ` +
-      'nothing to duck under. Place the dialogue first, or omit duckUnderTrackId.'
+      `nothing to duck under. ${duckCandidateSentence(project)}`
     );
   }
   return null;
