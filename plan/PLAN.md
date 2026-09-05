@@ -57,6 +57,10 @@ table and corrects this file's earlier "exhausted" claim.
   `6d52298`.
 - `[x]` GOLDEN-C.13 — **"silent" says what level it means.** Engine payload, card, digest,
   description; 0 tokens on every frozen surface. Commit `bf60c39`.
+- `[x]` GOLDEN-C.17 — **a surface says what it cannot route, and stops offering it.**
+  `HostToolExecutor.unroutableTools?()`; the sidecar executor declares its two render
+  actions; `agentTools` drops them; the desktop wrapper forwards it. 91 → 89 tools on the
+  desktop, **−96 tokens/request**, goldens unmoved. Commit `abc0a5b`.
 - `[x]` GOLDEN-C.15 — **a refusal no edit can fix survives the edits.** From
   `framepilot.runs.jsonl`'s unmined 2026-09-05 slice: `render_preview` refused 8× in one
   run, the `surface_unavailable` key wiped by every landed edit in between.

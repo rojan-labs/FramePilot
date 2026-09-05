@@ -46,7 +46,9 @@ each with a reproducing test, plus one new find:**
 8. **A turn the timeline already matched is not progress** (`6d52298`).
 9. **"Silent" says what level it means** (`bf60c39`).
 10. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7).
-11. **A refusal no edit can fix survives the edits** (`617b427`). From `runs.jsonl`, not
+11. **A refusal no edit can fix survives the edits** (`617b427`).
+12. **A surface says what it cannot route, and stops offering it** (`abc0a5b`). The desktop
+    advertises 89 tools, not 91; −96 tokens on every request; upstream of #11. From `runs.jsonl`, not
     `run.md`: `render_preview` refused eight times in one 86-minute desktop run because
     every landed edit wiped the memory of the refusal.
 
@@ -105,8 +107,13 @@ not the card payload. **No new defect. All axes on this transcript are now exhau
 **A second source, freshly mined:** `framepilot.runs.jsonl` (the desktop's per-call log)
 held 497 calls from 2026-09-05 nobody had read. It yielded one defect — a `render_preview`
 refusal that no edit can fix, forgotten on every edit (`617b427`) — and one open lead
-(GOLDEN-C.16, the 13× caption-style loop). `BASELINES.md` "runs.jsonl" has the table. Its
-≥ 2026-09-05 slice is now exhausted; older entries were covered by the earlier pass.
+(GOLDEN-C.16, the 13× caption-style loop). `BASELINES.md` "runs.jsonl" has the table. A second
+axis on the same slice (per-run redundancy, using the log's `fromCache` and `argsSummary`)
+yielded one more fix — the desktop no longer advertises `render_preview`/`export_video`,
+which it cannot run (`abc0a5b`, −96 tokens/request) — and one confirmation: run 7's 16
+`get_timeline` reads had **0 memo misses**, so the "reads are 42%" pattern is re-reading
+after edits, as §2.5 already says. Its ≥ 2026-09-05 slice is now exhausted on both axes;
+older entries were covered by the earlier pass.
 
 **Operational loss to know about:** the `s7-*` golden RECORDINGS are gone — gitignored,
 they lived only in the worktree that was removed after the merge. Case files are intact;

@@ -46,6 +46,43 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## runs.jsonl, second axis — 2026-09-06 — **the surface stops offering what it cannot run (−96/request); the read memo is confirmed working**
+
+**No run.** Two results from the same 497-call slice, one a fix and one a confirmation.
+
+| | |
+| --- | --- |
+| commit | `abc0a5b` on `fix/agent-reliability-2026-09-05` |
+| measured | desktop surface advertises **91 → 89** tools; **−96 tokens per request** (`JSON.stringify(descriptors).length / 4`, the manifest's heuristic) |
+| goldens | 17/17 unmoved — none constructs a sidecar executor, so the saving is real on desktop/browser and invisible to the frozen surfaces |
+| suites | ai-sdk 4,657 · desktop typecheck clean |
+
+### The fix: `render_preview` and `export_video` are no longer offered where they cannot run
+
+Both are fulfilled on exactly one surface (MCP) and unroutable on the desktop and browser
+agent surfaces — yet advertised everywhere. `617b427` made the repeated refusal stick; this
+removes its cause: `HostToolExecutor.unroutableTools?()` lets the executor declare, statically,
+what it cannot route, and `agentTools` drops those descriptors. The desktop wrapper
+(`main.ts#toolExecutor`) forwards the declaration explicitly — the one line without which
+the primary surface would have been left exactly as it was. GOLDEN-C.17.
+
+### The confirmation: identical re-reads are served from memo exactly when they should be
+
+Run 7 (11:34–12:07, 173 calls) called `get_timeline` 16 times. Checked pairwise: the one
+re-read with **no** completed mutation between was served `fromCache: true`; every other
+re-read followed ≥ 1 completed mutation, which correctly invalidates a `timeline_dependent`
+memo. **0 memo misses.** The 42%-reads pattern is re-reading after every edit, which §2.5
+declined deliberately, and the machinery beneath it is doing what it says.
+
+### Not evidence of
+
+- Anything about the model. No sample taken.
+- Run 6's "174 exact-duplicate completed calls" — `argsSummary` is truncated, so 44
+  `add_clips` with different clip lists collapse to one key. Not a finding; noted so it is
+  not re-derived as one.
+
+---
+
 ## runs.jsonl — 2026-09-06 — **a new source; one defect closed; the s7 recordings are gone**
 
 **No run.** `framepilot.runs.jsonl` — the desktop's own per-call log — held 497 calls from
