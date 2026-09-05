@@ -111,7 +111,7 @@ time: a seventh axis — the run's OWN narration of what was outstanding — sur
 search results; fixed `f0a2034`) and "sharpness lift" (no sharpen effect exists; the run
 never said so — evidence for acceptance decomposition, not code). **Axes walked:** error
 strings · tool outcomes · warnings/notices · failed recalls · brief-vs-delivery · cost ·
-the run's own outstanding list. Try an eighth before declaring it done.
+the run's own outstanding list. An eighth — tool wall clock (54 s of 49 min), thinking (2,905 s, flat over the run, not longer after refusals), proposals invalid whole (0), announce-vs-act (a narration habit, C.19) — yielded **nothing**. The first to. Near done; not declared done.
 
 **A second source, freshly mined:** `framepilot.runs.jsonl` (the desktop's per-call log)
 held 497 calls from 2026-09-05 nobody had read. It yielded one defect — a `render_preview`

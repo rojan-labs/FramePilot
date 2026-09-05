@@ -46,6 +46,30 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## run.md, eighth axis — 2026-09-06 — **time, thinking and announce-vs-act: three null results, the first axis to yield nothing**
+
+**No run, no code.** Recorded because a null result that was measured is worth more than
+one that was assumed, and because it is the first axis on this transcript that produced no
+defect — which is a signal, not a verdict.
+
+| measure | figure | reading |
+| --- | --- | --- |
+| tool wall clock, 561 calls | **54 s** total; slowest single call 16.6 s (`add_music`) | the tools are not where the 49 minutes went |
+| thinking, 154 blocks | **2,905 s** (≈48 min); p50 15.1 s; max 83.9 s | the run's clock is model reasoning, ~98% |
+| think length after a refusal vs a success | warning 17.7 s · failed 15.6 s · completed 19.4 s (mean) | refusal quality has **no measurable time price** here |
+| think length over the run, p50 by 25-turn bucket | 22.4 → 16.7 → 18.3 → 14.0 → 12.3 → 12.5 s | thinking did **not** grow with the 32k context remainder |
+| proposals invalid whole | **0 of 49** | every wholesale rejection was at call level, already counted |
+| announced-in-prose vs called-that-step (validated on ground truth) | ramp 10 → 1 hit (executed 0×); punch 11 → 2 (executed 3×); grade: 22 announcing steps, 3 calling steps, **none coinciding** | a narration habit — plans restated, acted on rarely — already filed as GOLDEN-C.19; noisy measure, directionally right |
+
+### Not evidence of
+
+- A lever. The one product-shaped hypothesis on this axis — that poor refusals cost
+  thinking time — is falsified by the numbers above.
+- Exhaustion. Seven axes yielded; the eighth did not. The transcript is *near* done, and
+  this file has been wrong about "done" twice.
+
+---
+
 ## run.md, seventh axis — 2026-09-06 — **the transcript's own "outstanding" list; one fix, one ask the product cannot meet, and a second overturned "exhausted"**
 
 **No run.** `run.md` (run `137d8fd0`, unchanged: same mtime, 1,064,475 lines, one run id)
