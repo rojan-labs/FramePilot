@@ -56,6 +56,7 @@ from framepilot_engine.ai_tools.registry import (
     SetClipBlendModeArgs,
     SetClipCropArgs,
     SetClipSpeedArgs,
+    SetClipSpeedRampArgs,
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
@@ -241,6 +242,32 @@ def delete_clips(args: DeleteClipsArgs, ctx: ToolContext) -> Operations:
         # only while nothing before them has moved.
         ops.sort(key=lambda op: -float(op["start"]))
     return ops
+
+
+def set_clip_speed_ramp(args: SetClipSpeedRampArgs, ctx: ToolContext) -> Operations:
+    """Mirror of ``domain-tools/timeline.ts#set_clip_speed_ramp``.
+
+    The point ids are DERIVED here, not taken from the caller: a ramp point is identified
+    by where it sits, and asking an untrusted caller for an id invites the collisions the
+    schema then rejects.
+    """
+    if args.ramp is None:
+        return [{"type": "set_clip_speed_ramp", "clipId": args.clip_id, "ramp": None}]
+    return [
+        {
+            "type": "set_clip_speed_ramp",
+            "clipId": args.clip_id,
+            "ramp": [
+                {
+                    "id": f"ramp_{args.clip_id}_{index}",
+                    "sourceTime": point.source_time,
+                    "rate": point.rate,
+                    "easing": point.easing or "linear",
+                }
+                for index, point in enumerate(args.ramp)
+            ],
+        }
+    ]
 
 
 def reorder_clips(args: ReorderClipsArgs, ctx: ToolContext) -> Operations:

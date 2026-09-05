@@ -116,6 +116,23 @@ class MoveClipArgs(BaseModel):
     to_start: float = Field(alias="toStart", ge=0.0)
 
 
+class SpeedRampPointArgs(BaseModel):
+    """One point on a clip's speed curve (schema v15, ADR 0090)."""
+
+    model_config = _STRICT
+    source_time: float = Field(alias="sourceTime", ge=0.0)
+    rate: float = Field(alias="rate", gt=0.0)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out", "hold", "bezier"] | None = None
+
+
+class SetClipSpeedRampArgs(BaseModel):
+    """Ramp a clip's speed over its length; ``ramp: None`` clears it."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId")
+    ramp: list[SpeedRampPointArgs] | None = Field(alias="ramp")
+
+
 class ReorderClipsArgs(BaseModel):
     """A track and ALL of its clip ids in the order they should play (ADR 0173)."""
 
@@ -1252,6 +1269,14 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "clip ids in the order you want them; nothing is deleted and nothing is added.",
         kind="mutate",
         input_model=ReorderClipsArgs,
+        mutating=True,
+    ),
+    "set_clip_speed_ramp": _spec(
+        "set_clip_speed_ramp",
+        "Ramp a clip's speed over its length — fast in, slow on the moment, back up "
+        "after. ramp: null clears it back to a constant speed.",
+        kind="mutate",
+        input_model=SetClipSpeedRampArgs,
         mutating=True,
     ),
     "move_clip": _spec(

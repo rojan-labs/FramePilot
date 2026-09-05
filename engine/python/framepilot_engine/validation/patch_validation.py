@@ -19,6 +19,7 @@ from typing import Literal
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.effects.speed_curve import clip_timeline_duration, has_speed_ramp
 from framepilot_engine.timeline.models import Timeline, Track
 from framepilot_engine.timeline.operations import (
     SUPPORTED_COLOR_GRADE_EFFECTS,
@@ -79,6 +80,7 @@ SUPPORTED_OPERATIONS = frozenset(
         "set_effect_params",
         "set_caption_style",
         "set_clip_speed",
+        "set_clip_speed_ramp",
         "set_clip_crop",
         "set_clip_blend_mode",
         "add_layer",
@@ -288,8 +290,16 @@ def _speed_consistency_checks(timeline: Timeline, index: int) -> list[Validation
         for clip in track.clips:
             if clip.source_end is None:
                 continue
+            # A RAMPED clip's duration is the integral of its curve, not a division. Read
+            # it from the one function the render and every edge-changing operation use
+            # (`effects/speed_curve.clip_timeline_duration`), or a ramp is reported invalid
+            # the moment it is applied — which is what made `set_clip_speed_ramp`
+            # unusable before it had a tool. `None` is a freeze frame: no duration is
+            # derivable and none is wrong, so it is skipped like an unset `source_end`.
+            expected = clip_timeline_duration(clip)
+            if expected is None:
+                continue
             speed = clip.speed if clip.speed is not None else 1.0
-            expected = (clip.source_end - clip.source_start) / speed
             actual = clip.end - clip.start
             if abs(actual - expected) > _SPEED_EPSILON:
                 issues.append(
@@ -299,9 +309,15 @@ def _speed_consistency_checks(timeline: Timeline, index: int) -> list[Validation
                         message=(
                             f"Clip '{clip.id}' on track '{track.id}' has timeline duration "
                             f"{actual}s but its source range "
-                            f"({clip.source_end - clip.source_start}s) at speed {speed}x "
-                            f"implies {expected}s. "
-                            f"(end - start must equal (sourceEnd - sourceStart) / speed.)"
+                            f"({clip.source_end - clip.source_start}s) "
+                            + (
+                                "under its speed ramp "
+                                if has_speed_ramp(clip)
+                                else f"at speed {speed}x "
+                            )
+                            + f"implies {expected}s. "
+                            f"(end - start must equal the duration the source range and "
+                            f"speed settings imply.)"
                         ),
                         operation_index=index,
                     )

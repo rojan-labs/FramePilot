@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI can finally build a speed ramp.** "Ramp into the crash — fast in, slow on the
+  impact, back up after" is a normal thing to ask for, the timeline has stored speed curves
+  since v15, and the renderer has always played them — but the AI had no tool to make one,
+  so it would say it was going to and then quietly not. `set_clip_speed_ramp` takes points
+  along the clip with a rate at each; undo restores the previous timing exactly.
+
 - **Reordering shots no longer risks losing them.** Asking the AI to put the last shot
   first, swap two clips, or reverse a sequence now runs as a single `reorder_clips`
   operation that re-lays the track and keeps every clip's length, media and look. Before

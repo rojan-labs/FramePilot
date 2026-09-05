@@ -74,6 +74,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "delete_clips": (True, True),
     "move_clip": (True, True),
     "reorder_clips": (True, True),
+    "set_clip_speed_ramp": (True, True),
     "add_track": (True, True),
     "remove_track": (True, True),
     "move_track": (True, True),
@@ -655,6 +656,35 @@ def test_reorder_clips(ctx: ToolContext, project: Project) -> None:
     _assert_patch_ok(result, project)
     assert result.operations is not None
     assert [op["type"] for op in result.operations] == ["reorder_clips"]
+
+
+def test_set_clip_speed_ramp(ctx: ToolContext, project: Project) -> None:
+    """The motion domain advertised speed ramps and shipped no tool for them (run 137d8fd0)."""
+    result = run_tool(
+        "set_clip_speed_ramp",
+        {
+            "clipId": "A",
+            "ramp": [
+                {"sourceTime": 0.0, "rate": 4.0},
+                {"sourceTime": 1.5, "rate": 2.0, "easing": "ease-out"},
+                {"sourceTime": 3.0, "rate": 4.0},
+            ],
+        },
+        ctx,
+    )
+    _assert_patch_ok(result, project)
+    assert result.operations is not None
+    op = result.operations[0]
+    assert op["type"] == "set_clip_speed_ramp"
+    # Ids are derived, never taken from the caller.
+    assert [p["id"] for p in op["ramp"]] == ["ramp_A_0", "ramp_A_1", "ramp_A_2"]
+    assert [p["easing"] for p in op["ramp"]] == ["linear", "ease-out", "linear"]
+
+
+def test_set_clip_speed_ramp_null_clears_it(ctx: ToolContext, project: Project) -> None:
+    result = run_tool("set_clip_speed_ramp", {"clipId": "A", "ramp": None}, ctx)
+    assert result.operations is not None
+    assert result.operations[0]["ramp"] is None
 
 
 def test_add_clip(ctx: ToolContext, project: Project) -> None:

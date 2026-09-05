@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.effects.speed_curve import clip_timeline_duration
 from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
 from framepilot_engine.timeline.models import (
     AudioRole,
@@ -32,6 +33,7 @@ from framepilot_engine.timeline.models import (
     CropRect,
     Effect,
     Keyframe,
+    SpeedPoint,
     Timeline,
     Track,
     TrackType,
@@ -107,6 +109,23 @@ class MoveClip(_Operation):
     clip_id: str = Field(alias="clipId")
     to_track_id: str = Field(alias="toTrackId")
     to_start: float = Field(alias="toStart")
+
+
+class SetClipSpeedRamp(_Operation):
+    """Replace a clip's speed CURVE and re-derive its timeline duration (schema v15, ADR 0090).
+
+    Mirrors ``packages/editor-core/src/operations.ts#SetClipSpeedRampOp``. The renderer
+    has understood ``Clip.speed_ramp`` since v15 (``render/compiler.py``,
+    ``effects/speed_curve.py``); what was missing was the operation that puts one there,
+    and the AI tool that reaches it — which is why run ``137d8fd0`` named "the speed ramp
+    at the wipeout" as outstanding six times over 48 minutes and never produced one.
+
+    ``ramp: None`` (or empty) clears the curve back to a constant speed.
+    """
+
+    type: Literal["set_clip_speed_ramp"] = "set_clip_speed_ramp"
+    clip_id: str = Field(alias="clipId")
+    ramp: list[SpeedPoint] | None = None
 
 
 class ReorderClips(_Operation):
@@ -480,6 +499,7 @@ Operation = Annotated[
     | DeleteRange
     | MoveClip
     | ReorderClips
+    | SetClipSpeedRamp
     | RippleDelete
     | AddClip
     | AddTextOverlay
@@ -676,6 +696,8 @@ def apply_operation(
             return _apply_set_clip_speed(timeline, operation, fps=fps)
         if isinstance(operation, ReorderClips):
             return _apply_reorder_clips(timeline, operation, fps=fps)
+        if isinstance(operation, SetClipSpeedRamp):
+            return _apply_set_clip_speed_ramp(timeline, operation, fps=fps)
     handler = _APPLY[operation.type]
     return handler(timeline, operation)
 
@@ -1346,6 +1368,43 @@ def _apply_set_clip_speed(
     return _replace_clip_at(timeline, loc, next_clip)
 
 
+def _apply_set_clip_speed_ramp(
+    timeline: Timeline, op: SetClipSpeedRamp, *, fps: float | None = None
+) -> Timeline:
+    """Mirror of ``operations.ts#applySetClipSpeedRamp``, frame snap included."""
+    loc = _find_clip(timeline, op.clip_id)
+    clip = loc.clip
+    points = list(op.ramp or [])
+    for point in points:
+        # A non-positive rate makes the integral divergent and the mapping
+        # non-invertible, so it must never reach the render. Mirrors TS's defensive
+        # re-validation; the typed model is the primary gate.
+        if not (point.rate > 0.0) or point.rate != point.rate:
+            raise OperationError(
+                "invalid_speed",
+                f"set_clip_speed_ramp received an invalid rate for clip '{op.clip_id}': "
+                f"{point.rate}.",
+            )
+    update: dict[str, Any] = {}
+    if not points:
+        update["speed_ramp"] = None
+    else:
+        update["speed_ramp"] = [p.model_copy(deep=True) for p in points]
+        # A ramp overrides the constant rate entirely; a stale ``speed`` would make the
+        # clip's stored data claim two different rates.
+        update["speed"] = None
+    next_clip = _clone_clip(clip).model_copy(update=update)
+    duration = clip_timeline_duration(next_clip)
+    if duration is not None:
+        exact_end = clip.start + duration
+        next_clip = next_clip.model_copy(
+            update={
+                "end": exact_end if fps is None else _snap_retimed_end(clip.start, exact_end, fps)
+            }
+        )
+    return _replace_clip_at(timeline, loc, next_clip)
+
+
 def _apply_set_clip_crop(timeline: Timeline, op: SetClipCrop) -> Timeline:
     # The typed ``CropRect`` field enforces bounds at parse time (Pydantic mirror
     # of TS's defensive ``CropRectSchema`` re-validation).
@@ -1420,6 +1479,7 @@ _APPLY: dict[str, Callable[[Timeline, Any], Timeline]] = {
     "set_effect_params": _apply_set_effect_params,
     "set_caption_style": _apply_set_caption_style,
     "set_clip_speed": _apply_set_clip_speed,
+    "set_clip_speed_ramp": _apply_set_clip_speed_ramp,
     "set_clip_crop": _apply_set_clip_crop,
     "set_clip_blend_mode": _apply_set_clip_blend_mode,
     "add_layer": _apply_add_layer,
@@ -1497,6 +1557,12 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
     if isinstance(operation, MoveClip):
         clip = _find_clip(timeline_before, operation.clip_id).clip
         return [MoveClip(clip_id=operation.clip_id, to_track_id=clip.track_id, to_start=clip.start)]
+    if isinstance(operation, SetClipSpeedRamp):
+        # Same axis as ``set_clip_speed``: each clears the other, so the inverse has to
+        # restore whichever the clip actually had. The track snapshot is the established
+        # answer where a same-shape inverse cannot be exact (mirrors TS's
+        # ``invertSpeedChange`` falling back to ``restore_clips``).
+        return [_restore_for(_find_clip(timeline_before, operation.clip_id).track)]
     if isinstance(operation, ReorderClips):
         # The whole clip array is rewritten, so the array itself is the only honest
         # inverse — and it is cheap for exactly the same reason. Mirrors TS.

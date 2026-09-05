@@ -111,6 +111,7 @@ _HANDLERS: dict[str, Callable[[Any, ToolContext], Any]] = {
     "delete_clips": handlers.delete_clips,
     "move_clip": handlers.move_clip,
     "reorder_clips": handlers.reorder_clips,
+    "set_clip_speed_ramp": handlers.set_clip_speed_ramp,
     "add_track": handlers.add_track,
     "remove_track": handlers.remove_track,
     "move_track": handlers.move_track,

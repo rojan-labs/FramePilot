@@ -160,6 +160,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'remove_keyframes',
     'punch_in',
     'set_clip_speed',
+    'set_clip_speed_ramp',
     'set_clip_crop',
     'professional_motion',
   ],

@@ -248,6 +248,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   remove_effect: { role: 'mutation', scope: 'timeline_dependent' },
   set_clip_crop: { role: 'mutation', scope: 'timeline_dependent' },
   set_clip_speed: { role: 'mutation', scope: 'timeline_dependent' },
+  set_clip_speed_ramp: { role: 'mutation', scope: 'timeline_dependent' },
   set_track_flags: { role: 'mutation', scope: 'timeline_dependent' },
   split_clip: { role: 'mutation', scope: 'timeline_dependent' },
   track_object: { role: 'mutation', scope: 'timeline_dependent' },

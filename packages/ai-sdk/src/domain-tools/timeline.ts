@@ -1199,6 +1199,55 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'set_clip_speed_ramp',
+      description:
+        "Ramp a clip's speed over its length — fast in, slow on the moment, back up after. " +
+        "Give points along the clip in SOURCE seconds from its own start (0 = the clip's " +
+        'in point), each with a playback rate: [{sourceTime:0, rate:2}, {sourceTime:1.5, ' +
+        "rate:0.25}, {sourceTime:2.5, rate:1}]. The clip's timeline length is recomputed " +
+        'from the ramp. ramp: null clears it back to a constant speed. Use this for a ' +
+        'slow-motion emphasis on an impact or a landing; use set_clip_speed when one rate ' +
+        'covers the whole clip.',
+      capabilities: ['edit', 'timing'],
+    },
+    z
+      .object({
+        clipId: z.string(),
+        ramp: z
+          .array(
+            z.object({
+              sourceTime: numeric(z.number().nonnegative()),
+              rate: numeric(z.number().positive()),
+              easing: z
+                .enum(['linear', 'ease-in', 'ease-out', 'ease-in-out', 'hold', 'bezier'])
+                .optional(),
+            }),
+          )
+          .min(2)
+          .max(24)
+          .nullable(),
+      })
+      .strict(),
+    (a) => [
+      {
+        type: 'set_clip_speed_ramp',
+        clipId: a.clipId,
+        ramp:
+          a.ramp === null
+            ? null
+            : // The id is ours, not the model's: a ramp point is identified by where it
+              // sits, and asking for an id invites collisions the schema then rejects.
+              a.ramp.map((point, index) => ({
+                id: `ramp_${a.clipId}_${String(index)}`,
+                sourceTime: point.sourceTime,
+                rate: point.rate,
+                easing: point.easing ?? 'linear',
+              })),
+      },
+    ],
+  ),
+  mutateTool(
+    {
       name: 'set_clip_crop',
       description:
         'Crop/reframe a clip to a rectangle of its source frame (schema v7), given as ' +
