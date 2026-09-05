@@ -34,7 +34,7 @@ import {
 } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
-import { secondsToFrame } from './frame-time.js';
+import { frameToSeconds, secondsToFrame } from './frame-time.js';
 import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
 
@@ -1848,7 +1848,8 @@ function checkWordSevered(
     return undefined;
   };
 
-  const severed: { readonly frame: number; readonly word: string }[] = [];
+  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] =
+    [];
   for (const boundary of boundaries) {
     const from = byId.get(boundary.fromClipId);
     const to = byId.get(boundary.toClipId);
@@ -1856,7 +1857,10 @@ function checkWordSevered(
     // the incoming clip may begin mid-word, independently.
     const word =
       severedWordAt(from, from?.sourceEnd ?? 0) ?? severedWordAt(to, to?.sourceStart ?? 0);
-    if (word !== undefined) severed.push({ frame: secondsToFrame(boundary.at, fps), word });
+    if (word !== undefined) {
+      const frame = secondsToFrame(boundary.at, fps);
+      severed.push({ frame, word, seconds: frameToSeconds(frame, fps) });
+    }
   }
   const aside =
     excluded === 0
@@ -1872,15 +1876,18 @@ function checkWordSevered(
   }
   const where = severed
     .slice(0, 4)
-    .map((s) => `frame ${s.frame} ("${s.word}")`)
+    .map((s) => `frame ${s.frame} = ${round(s.seconds)}s ("${s.word}")`)
     .join(', ');
   return check(
     'word_severed',
     'No words cut through',
     'fail',
     `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
-      'Move each boundary to the nearest word edge — read startFrame/endFrame from ' +
-      `get_mapped_transcript and trim_clip (or split_clip) to that frame.${aside}`,
+      'Move each boundary to the nearest word edge: read the word\'s startFrame/endFrame ' +
+      'from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate ' +
+      `(${String(fps)}) to trim_clip or split_clip — those take SECONDS, and a second ` +
+      'between two frames is rounded to the nearest one, which is how a cut aimed at a ' +
+      `word's edge lands inside it.${aside}`,
   );
 }
 
