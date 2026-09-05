@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Attaching a photo works.** Every image reference failed analysis and showed a wall of
+  raw error data on the chip, because the app choked on a "video" field that images
+  correctly don't have. Images now analyze, and when something genuinely does go wrong the
+  chip says what happened in a sentence — and tells you whether re-analyzing will help.
 - **The message box is usable again.** The AI input had collapsed to a sliver — the
   placeholder cut off mid-word with the "+" and paperclip squeezed against it. It's a
   proper field again: full width, growing as you type up to about eight lines and then
