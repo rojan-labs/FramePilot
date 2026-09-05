@@ -1,0 +1,1013 @@
+{
+  "scenario": "beat-sync",
+  "category": "beat",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Put the 100 BPM music track (beat-100bpm) under the footage and cut the picture to the beat. Aim for about 30 seconds.",
+      "rubric": "beat-sync",
+      "expectedIntent": "edit",
+      "score": 0.5555555555555556,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "has-music",
+          "ok": false,
+          "detail": "0 music clip(s)"
+        },
+        {
+          "id": "cuts-on-beats",
+          "ok": false,
+          "detail": "no music placed",
+          "weight": 2
+        },
+        {
+          "id": "min-clips",
+          "ok": false,
+          "detail": "0 picture clip(s), need ≥ 6"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "cancelled",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 33,
+        "toolCalls": 121,
+        "tokens": {
+          "prompt": 1254905,
+          "output": 121566,
+          "total": 1376471
+        },
+        "usd": 3.9328380000000003,
+        "latency": {
+          "firstProgressMs": 2779,
+          "doneMs": 1202045
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": false,
+          "message": null
+        },
+        "score": 0.5555555555555556,
+        "finalStatus": "cancelled",
+        "harnessTimedOut": true,
+        "operations": 5
+      },
+      "asked": [],
+      "assistantText": "**Applied 5 edits** in 1 step before you stopped the run — they are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–39.8s\n- Deleted range Video 1 · 39.8s–61.433s\n- Deleted range Video 1 · 61.433s–70.2s\n- Deleted range Video 1 · 70.2s–84.9s\n- Deleted range Video 1 · 84.9s–134.667s\n\n**Skipped:** 977 proposed changes did not validate (rejected by the beat grid: you declared hard sync, so every interior picture cut must land on a detected onset. Off-grid: 3.967 (nearest detected onset 4.180); 3.967 (nearest detected onset 4.180); 10.000 (nearest detected onset 10.194); 10.000 (ne",
+      "recording": "reports/golden/session6/recordings/beat-sync-r1-t1.json",
+      "metrics": {
+        "wallMs": 1202045,
+        "modelCalls": 33,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 1254905,
+          "input": 703116,
+          "output": 121566,
+          "cacheRead": 551789,
+          "cacheCreate": 1042536
+        },
+        "perCall": [
+          {
+            "ttftMs": 2774,
+            "wallMs": 20576,
+            "input": 5490,
+            "output": 1704,
+            "cacheRead": 11055
+          },
+          {
+            "ttftMs": 3311,
+            "wallMs": 50241,
+            "input": 7137,
+            "output": 4496,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 4146,
+            "wallMs": 35082,
+            "input": 7128,
+            "output": 3504,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 3813,
+            "wallMs": 9966,
+            "input": 8273,
+            "output": 574,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3913,
+            "wallMs": 34980,
+            "input": 8370,
+            "output": 3657,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3715,
+            "wallMs": 31905,
+            "input": 9450,
+            "output": 3369,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3223,
+            "wallMs": 34659,
+            "input": 10581,
+            "output": 4143,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4250,
+            "wallMs": 27251,
+            "input": 11932,
+            "output": 2963,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3493,
+            "wallMs": 60305,
+            "input": 13062,
+            "output": 6545,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3555,
+            "wallMs": 41236,
+            "input": 14328,
+            "output": 4776,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4561,
+            "wallMs": 37060,
+            "input": 15690,
+            "output": 4080,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3708,
+            "wallMs": 34739,
+            "input": 16920,
+            "output": 3913,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4279,
+            "wallMs": 55678,
+            "input": 18006,
+            "output": 6114,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4109,
+            "wallMs": 35521,
+            "input": 19195,
+            "output": 3726,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 8877,
+            "wallMs": 39415,
+            "input": 20282,
+            "output": 3988,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4427,
+            "wallMs": 30548,
+            "input": 21369,
+            "output": 3271,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3096,
+            "wallMs": 49118,
+            "input": 22580,
+            "output": 5197,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4792,
+            "wallMs": 36513,
+            "input": 23946,
+            "output": 3407,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 17505,
+            "wallMs": 36077,
+            "input": 24911,
+            "output": 2772,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 13919,
+            "wallMs": 47143,
+            "input": 25848,
+            "output": 4108,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 6453,
+            "wallMs": 29934,
+            "input": 27062,
+            "output": 2921,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 6204,
+            "wallMs": 37077,
+            "input": 28147,
+            "output": 3847,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 10794,
+            "wallMs": 36797,
+            "input": 29234,
+            "output": 3200,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3400,
+            "wallMs": 42484,
+            "input": 30225,
+            "output": 4906,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3972,
+            "wallMs": 40437,
+            "input": 31543,
+            "output": 4224,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 5207,
+            "wallMs": 34893,
+            "input": 32786,
+            "output": 3751,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 5162,
+            "wallMs": 38576,
+            "input": 33966,
+            "output": 4178,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 6625,
+            "wallMs": 43188,
+            "input": 35050,
+            "output": 4188,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3632,
+            "wallMs": 27514,
+            "input": 36135,
+            "output": 3031,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3264,
+            "wallMs": 41703,
+            "input": 37042,
+            "output": 4354,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 4325,
+            "wallMs": 25156,
+            "input": 38126,
+            "output": 2846,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 3311,
+            "wallMs": 36553,
+            "input": 39302,
+            "output": 3813,
+            "cacheRead": 18646
+          },
+          {
+            "ttftMs": 10370,
+            "wallMs": 19166,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 33,
+          "ttftMs": {
+            "p50": 4146,
+            "p95": 13919,
+            "min": 2774,
+            "max": 17505
+          },
+          "wallMs": {
+            "p50": 36513,
+            "p95": 55678,
+            "min": 9966,
+            "max": 60305
+          },
+          "inputTokensPerTurn": {
+            "p50": 21369,
+            "p95": 38126,
+            "min": 0,
+            "max": 39302
+          },
+          "outputTokensPerTurn": {
+            "p50": 3813,
+            "p95": 6114,
+            "min": 0,
+            "max": 6545
+          },
+          "cacheHitRate": 0.44476157467113747,
+          "cacheReportingTurns": 30
+        },
+        "usd": 3.9328380000000003,
+        "usageTokens": 824682,
+        "toolCalls": 121,
+        "toolCallsByName": {
+          "load_skill": 1,
+          "load_tools": 1,
+          "detect_beats": 1,
+          "delete_clips": 1,
+          "add_clip": 58,
+          "add_clips": 58,
+          "get_timeline_summary": 1
+        },
+        "repeatedToolCalls": 114,
+        "analysisFromCache": 0,
+        "contextRequests": 65,
+        "contextByType": [
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 33,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 33,
+            "tool_schemas": 6806
+          },
+          {
+            "system": 2741,
+            "retrieved_evidence": 487,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 12147
+          },
+          {
+            "system": 2741,
+            "retrieved_evidence": 487,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 12147
+          },
+          {
+            "system": 2769,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 2769,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 3560,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 3560,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 3616,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 3616,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 4367,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 4367,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 5142,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 5142,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 6048,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 6048,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 6829,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 6829,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 7686,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 7686,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 8595,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 8595,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 9426,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 9426,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 10180,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 10180,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 10987,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 10987,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 11739,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 11739,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 12491,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 12491,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 13311,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 13311,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 14220,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 14220,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 14899,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 14899,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 15563,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 15563,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 16386,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 16386,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 17135,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 17135,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 17889,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 17889,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 18584,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 18584,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 19470,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 19470,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 20307,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 20307,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 21115,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 21115,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 21862,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 21862,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 22612,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 22612,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 23260,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 23260,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 24011,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 24011,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 24813,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 24813,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          },
+          {
+            "system": 25530,
+            "retrieved_evidence": 442,
+            "skill": 2818,
+            "latest_user_message": 33,
+            "tool_schemas": 11154
+          }
+        ],
+        "contextUsedTokens": [
+          11313,
+          5490,
+          18226,
+          7137,
+          17216,
+          7128,
+          18007,
+          8273,
+          18063,
+          8370,
+          18814,
+          9450,
+          19589,
+          10581,
+          20495,
+          11932,
+          21276,
+          13062,
+          22133,
+          14328,
+          23042,
+          15690,
+          23873,
+          16920,
+          24627,
+          18006,
+          25434,
+          19195,
+          26186,
+          20282,
+          26938,
+          21369,
+          27758,
+          22580,
+          28667,
+          23946,
+          29346,
+          24911,
+          30010,
+          25848,
+          30833,
+          27062,
+          31582,
+          28147,
+          32336,
+          29234,
+          33031,
+          30225,
+          33917,
+          31543,
+          34754,
+          32786,
+          35562,
+          33966,
+          36309,
+          35050,
+          37059,
+          36135,
+          37707,
+          37042,
+          38458,
+          38126,
+          39260,
+          39302,
+          39977
+        ],
+        "contextCachedTokens": [
+          null,
+          11055,
+          null,
+          null,
+          null,
+          null,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null,
+          18646,
+          null
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 5,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 0,
+        "pictureClips": 0,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 0
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}
