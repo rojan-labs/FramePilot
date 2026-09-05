@@ -1,7 +1,8 @@
-import Link from 'next/link';
-import { site } from '@/lib/site';
+/** The logo mark's fixed footprint. The navbar always reserves this box, even
+ *  while the intro still owns the mark, so nothing shifts when it lands. */
+export const LOGO_MARK_SIZE = 26;
 
-export function LogoMark({ size = 24 }: { size?: number }) {
+export function LogoMark({ size = LOGO_MARK_SIZE, className = '' }: { size?: number; className?: string }) {
   return (
     <img
       src="/logo.png"
@@ -9,23 +10,8 @@ export function LogoMark({ size = 24 }: { size?: number }) {
       aria-hidden
       width={size}
       height={size}
-      className="shrink-0 rounded-[7px]"
+      className={`shrink-0 rounded-[6px] ${className}`}
       style={{ width: size, height: size }}
     />
-  );
-}
-
-export function Logo({ className = '' }: { className?: string }) {
-  return (
-    <Link
-      href="/"
-      className={`group inline-flex items-center gap-2.5 text-fg ${className}`}
-      aria-label={`${site.name} home`}
-    >
-      <LogoMark />
-      <span className="font-display text-[17px] font-semibold tracking-tight text-current">
-        {site.name}
-      </span>
-    </Link>
   );
 }

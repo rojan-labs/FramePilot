@@ -29,7 +29,12 @@ export function pageMetadata({
   const fullTitle = path === '/' ? `${site.name} — ${site.tagline}` : `${title} · ${site.name}`;
 
   return {
-    title: fullTitle,
+    /*
+     * Absolute, so the root layout's `%s · FramePilot` template does not apply
+     * on top of a title that already ends in the brand name — which is how
+     * every route came to be served as "Pricing · FramePilot · FramePilot".
+     */
+    title: { absolute: fullTitle },
     description,
     keywords,
     alternates: { canonical: url },

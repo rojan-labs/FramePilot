@@ -7,9 +7,11 @@
  *   - icon.svg          scalable favicon
  *   - favicon.ico       32×32 (PNG-embedded ICO)
  *
- * FramePilot brand: cool navy field, cool paper-white type, warm orange accent
- * from the logo. The mark itself is the real logo (public/logo.png, sourced from
- * ui_revamp/logo/framepilot logo-clean.png), embedded.
+ * FramePilot brand: warm paper field, ink type, and orange as the single action
+ * colour, matching the site's "ripple delete" direction (ADR 0172, ADR 0054).
+ * The card is laid out as a strip of timeline: an in point opens it and a ruler
+ * with a playhead closes it. The mark itself is the real logo (public/logo.png),
+ * embedded.
  * Uses @resvg/resvg-js with system fonts (works offline).
  * Run manually with `pnpm generate:og` whenever the brand changes.
  */
@@ -21,10 +23,15 @@ import { dirname, resolve } from 'node:path';
 const PUBLIC = resolve(dirname(fileURLToPath(import.meta.url)), '../public');
 mkdirSync(PUBLIC, { recursive: true });
 
-const BG = '#0d0e15';
-const PAPER = '#eceef6';
-const ACCENT = '#e5670a';
+const PAPER = '#fbfaf7';
+const INK = '#17140f';
+const INK_SOFT = '#5c574c';
+const INK_FAINT = '#a9a294';
+const RULE = '#d9d5cc';
+const RULE_STRONG = '#b4afa3';
+const ACCENT = '#f26522';
 const FONT = 'Helvetica, Arial, sans-serif';
+const MONO = 'Courier, monospace';
 
 /** The real logo PNG, embedded as a data URI so the mark is pixel-identical to
  *  the app icon and the nav logo everywhere. */
@@ -41,59 +48,59 @@ function markSvg(size: number, radius: number): string {
     <image href="${LOGO_DATA_URI}" x="0" y="0" width="${s}" height="${s}" clip-path="url(#clip${s})" preserveAspectRatio="xMidYMid slice"/>`;
 }
 
-/** A row of timeline ruler ticks. */
-function ticksSvg(width: number, step = 26, height = 14): string {
+/** A row of timeline ruler ticks: the same rule that divides every section. */
+function ticksSvg(width: number, step = 22, height = 16): string {
   let out = '';
   for (let x = 0; x <= width; x += step) {
-    const tall = x % (step * 5) === 0;
-    out += `<rect x="${x}" y="${tall ? 0 : 5}" width="1.5" height="${tall ? height : height - 5}" fill="${PAPER}" opacity="${tall ? 0.28 : 0.14}"/>`;
+    const major = x % (step * 5) === 0;
+    out += `<rect x="${x}" y="0" width="1.5" height="${major ? height : height - 7}" fill="${
+      major ? RULE_STRONG : RULE
+    }"/>`;
   }
   return out;
 }
 
+/** The in-point wedge that opens every page header on the site. */
+function inPointSvg(): string {
+  return `<path d="M0 0 L11 7 L0 14 Z" fill="${ACCENT}"/>`;
+}
+
 function ogSvg(title: string, subtitle: string): string {
   return `<svg width="1200" height="630" viewBox="0 0 1200 630" xmlns="http://www.w3.org/2000/svg">
-    <defs>
-      <radialGradient id="glow" cx="50%" cy="0%" r="75%">
-        <stop offset="0%" stop-color="${ACCENT}" stop-opacity="0.2"/>
-        <stop offset="70%" stop-color="${ACCENT}" stop-opacity="0"/>
-      </radialGradient>
-      <linearGradient id="ink" x1="0" y1="0" x2="0" y2="1">
-        <stop offset="0%" stop-color="${PAPER}"/>
-        <stop offset="100%" stop-color="${PAPER}" stop-opacity="0.78"/>
-      </linearGradient>
-    </defs>
-    <rect width="1200" height="630" fill="${BG}"/>
-    <rect width="1200" height="630" fill="url(#glow)"/>
+    <rect width="1200" height="630" fill="${PAPER}"/>
 
     <!-- brand row -->
-    <g transform="translate(80, 72)">
-      ${markSvg(64, 14)}
-      <text x="84" y="43" font-family="${FONT}" font-size="34" font-weight="700" fill="${PAPER}">FramePilot</text>
+    <g transform="translate(80, 68)">
+      ${markSvg(56, 13)}
+      <text x="74" y="38" font-family="${FONT}" font-size="30" font-weight="700" fill="${INK}" letter-spacing="-0.8">FramePilot</text>
     </g>
 
-    <!-- timecode eyebrow -->
-    <g transform="translate(80, 208)">
-      <circle cx="6" cy="-6" r="6" fill="${ACCENT}"/>
-      <text x="24" y="0" font-family="Courier, monospace" font-size="20" letter-spacing="4" fill="${PAPER}" fill-opacity="0.5">REC · AI VIDEO EDITOR FOR CREATORS</text>
+    <!-- in point + timecode eyebrow -->
+    <g transform="translate(80, 206)">
+      ${inPointSvg()}
+      <text x="26" y="12" font-family="${MONO}" font-size="17" letter-spacing="3.4" fill="${ACCENT}">00:00</text>
+      <text x="120" y="12" font-family="${MONO}" font-size="17" letter-spacing="3.4" fill="${INK_FAINT}">AI-NATIVE DESKTOP EDITOR</text>
     </g>
 
-    <text x="80" y="324" font-family="${FONT}" font-size="55" font-weight="700" fill="url(#ink)" letter-spacing="-1.5">${escapeXml(title)}</text>
-    <text x="82" y="390" font-family="${FONT}" font-size="28" font-weight="400" fill="${PAPER}" fill-opacity="0.62">${escapeXml(subtitle)}</text>
+    <text x="78" y="322" font-family="${FONT}" font-size="76" font-weight="700" fill="${INK}" letter-spacing="-3.4">${escapeXml(title)}</text>
+    <text x="80" y="392" font-family="${FONT}" font-size="26" font-weight="400" fill="${INK_SOFT}">${escapeXml(subtitle)}</text>
 
-    <!-- CTA -->
-    <g transform="translate(80, 484)">
-      <rect width="380" height="58" rx="12" fill="${ACCENT}"/>
-      <text x="190" y="37" text-anchor="middle" font-family="${FONT}" font-size="22" font-weight="600" fill="#ffffff">Download for macOS · Win · Linux</text>
-      <text x="412" y="37" font-family="${FONT}" font-size="22" fill="${PAPER}" fill-opacity="0.45">framepilot.app</text>
+    <!-- one clip on a track: the download -->
+    <g transform="translate(80, 452)">
+      <rect x="-6" y="-6" width="452" height="64" rx="4" fill="${RULE}" fill-opacity="0.45"/>
+      <rect width="440" height="52" rx="5" fill="${ACCENT}"/>
+      <text x="220" y="34" text-anchor="middle" font-family="${FONT}" font-size="21" font-weight="600" fill="#ffffff">Download for macOS · Windows · Linux</text>
+      <text x="474" y="34" font-family="${MONO}" font-size="19" letter-spacing="2" fill="${INK_FAINT}">framepilot.app</text>
     </g>
 
-    <!-- timeline ruler with ember playhead running out the bottom -->
-    <g transform="translate(0, 588)">${ticksSvg(1200)}</g>
-    <rect x="0" y="628" width="1200" height="2" fill="${ACCENT}" opacity="0.6"/>
+    <!-- the ruler runs out the bottom, with the playhead parked on it -->
+    <g transform="translate(0, 574)">
+      <rect x="0" y="0" width="1200" height="1" fill="${RULE}"/>
+      <g transform="translate(0, 1)">${ticksSvg(1200)}</g>
+    </g>
     <g>
-      <rect x="838" y="580" width="3" height="50" fill="${ACCENT}"/>
-      <path d="M828 574h23l-11.5 12Z" fill="${ACCENT}"/>
+      <rect x="838" y="562" width="2" height="68" fill="${ACCENT}"/>
+      <rect x="832" y="562" width="14" height="14" rx="2" fill="${ACCENT}"/>
     </g>
   </svg>`;
 }
@@ -140,8 +147,8 @@ writeFileSync(
   resolve(PUBLIC, 'og.png'),
   render(
     ogSvg(
-      'Edit like a pro. Without being one.',
-      'Drop in raw footage — get a finished cut. You control every frame.',
+      'Your timeline. With an agent.',
+      'A desktop video editor where the agent works on the same timeline you do.',
     ),
     1200,
   ),

@@ -3,6 +3,11 @@
 How to run the marketing site (`apps/website`), configure Freemius, and how the
 100%-paid license gate works in the desktop app. See ADR 0036 for the rationale.
 
+The visual system described in ADR 0036 (dark tokens ported from the editor) was replaced on
+2026-09-05 by the light, timeline-shaped "ripple delete" system in **ADR 0172**: paper canvas,
+orange as the only action colour, ruler/timecode furniture on every route, and a once-per-session
+landing intro built on `framer-motion`. The design rules live in `apps/website/README.md`.
+
 ## Overview
 
 ```

@@ -2,6 +2,8 @@ import type { Metadata } from 'next';
 import Link from 'next/link';
 import { pageMetadata } from '@/lib/seo';
 import { DownloadOptions } from '@/components/DownloadOptions';
+import { PageHeader } from '@/components/PageHeader';
+import { OutPoint, Ruler } from '@/components/timeline/Ruler';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Download',
@@ -13,27 +15,34 @@ export const metadata: Metadata = pageMetadata({
 
 export default function DownloadPage() {
   return (
-    <section className="bg-white pb-24 pt-20 sm:pb-32 sm:pt-28">
+    <section className="bg-canvas pb-24 pt-12 sm:pb-28 sm:pt-16">
       <div className="container-x">
-        <header className="max-w-4xl">
-          <p className="eyebrow-tc mb-6">Download</p>
-          <h1 className="font-display text-[length:var(--text-h1)] leading-[var(--text-h1--line-height)] tracking-[var(--text-h1--letter-spacing)]">
-            FramePilot on your desktop.
-          </h1>
-          <p className="mt-7 max-w-2xl text-[16px] leading-7 text-fg-secondary sm:text-[17px]">
-            Grab the latest pre-release build for your platform. It runs locally, and your footage stays where it already is.
-          </p>
-        </header>
+        <PageHeader
+          tc="D 00:00"
+          eyebrow="Download"
+          title="FramePilot on your desktop."
+          description="Grab the latest pre-release build for your platform. It runs locally, and your footage stays where it already is."
+        />
 
-        <div className="mt-14 sm:mt-20">
+        <div className="mt-10 sm:mt-12">
           <DownloadOptions />
         </div>
 
-        <div className="mt-10 flex flex-col gap-4 border-t border-line pt-6 text-[12px] text-fg-tertiary sm:flex-row sm:items-center sm:justify-between">
-          <p>You&rsquo;ll need your license key to activate.</p>
-          <div className="flex gap-5">
-            <Link href="/pricing" className="font-medium text-fg hover:text-accent">Pricing</Link>
-            <Link href="/changelog" className="font-medium text-fg hover:text-accent">Changelog</Link>
+        <Ruler className="mt-10" />
+        <div className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
+          <p className="flex items-center gap-2.5">
+            <OutPoint />
+            <span className="tc text-fg-tertiary">
+              You&rsquo;ll need your license key to activate
+            </span>
+          </p>
+          <div className="flex gap-6">
+            <Link href="/pricing" className="text-[12.5px] font-medium text-fg hover:text-accent">
+              Pricing
+            </Link>
+            <Link href="/changelog" className="text-[12.5px] font-medium text-fg hover:text-accent">
+              Changelog
+            </Link>
           </div>
         </div>
       </div>

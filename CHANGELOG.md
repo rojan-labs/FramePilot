@@ -6,6 +6,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **A new framepilot.app.** The marketing site was rebuilt end to end around one idea: the
+  editors you already use are ripple-deleted into a bin in the corner and FramePilot takes
+  the logo slot. Every route (landing, pricing, download, blog, docs, changelog, legal, 404)
+  now shares one light, timeline-shaped visual system; the intro plays once per session,
+  is skippable, and renders its settled state directly under reduced motion or without
+  JavaScript. `apps/website` gains `framer-motion` (already in the monorepo). ADR 0172.
+
 ### Fixed
 
 - **A word too wide for its text box no longer runs off the screen quietly.** Text

@@ -66,7 +66,7 @@ export function AppMockup({ phase = 'complete' }: AppMockupProps) {
     <div
       role="img"
       aria-label={label}
-      className="overflow-hidden rounded-[14px] border border-[#34363b] bg-[#08090b] text-[#efeff1] shadow-[0_30px_90px_rgba(0,0,0,.34)]"
+      className="overflow-hidden rounded-[14px] border border-[#34363b] bg-[#08090b] text-[#efeff1] shadow-[0_24px_60px_-18px_rgba(23,20,15,0.32)]"
     >
       <div aria-hidden>
         <WindowBar />
