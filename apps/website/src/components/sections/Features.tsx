@@ -25,7 +25,7 @@ const CAPABILITIES = [
 
 export function Features() {
   return (
-    <Section id="features" className="bg-white">
+    <Section id="features" className="bg-canvas">
       <div className="grid gap-10 lg:grid-cols-[0.8fr_1.2fr] lg:gap-20">
         <div className="max-w-xl">
           <p className="eyebrow-tc mb-5">The product</p>

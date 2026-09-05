@@ -3,7 +3,7 @@ import { Button } from '@/components/Button';
 
 export function FinalCta() {
   return (
-    <section className="bg-white py-20 sm:py-28 lg:py-32">
+    <section className="bg-canvas py-20 sm:py-28 lg:py-32">
       <div className="container-x">
         <div className="max-w-4xl">
           <p className="eyebrow-tc mb-5">FramePilot · pre-release</p>

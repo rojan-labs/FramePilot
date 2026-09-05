@@ -6,7 +6,7 @@ import { ScrollEditorStory } from '@/components/ScrollEditorStory';
 export function Hero() {
   return (
     <>
-      <section className="bg-white pb-14 pt-20 sm:pb-20 sm:pt-28 lg:pt-32">
+      <section className="bg-canvas pb-14 pt-20 sm:pb-20 sm:pt-28 lg:pt-32">
         <div className="container-x">
           <div className="mx-auto max-w-[1050px] text-center">
             <p className="eyebrow-tc mx-auto mb-7">AI-native desktop video editor</p>

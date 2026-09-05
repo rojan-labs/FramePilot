@@ -35,7 +35,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
   const html = await renderMarkdown(post.content);
 
   return (
-    <article className="bg-white pb-24 pt-16 sm:pb-32 sm:pt-24">
+    <article className="bg-canvas pb-24 pt-16 sm:pb-32 sm:pt-24">
       <JsonLd
         data={articleJsonLd({
           title: post.title,

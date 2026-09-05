@@ -95,7 +95,7 @@ export function ScrollEditorStory() {
     <section
       ref={sectionRef}
       aria-label="FramePilot editor workflow"
-      className={reducedMotion ? 'bg-white pb-20' : 'relative h-[300svh] bg-white md:h-[320svh]'}
+      className={reducedMotion ? 'bg-canvas pb-20' : 'relative h-[300svh] bg-canvas md:h-[320svh]'}
     >
       <div
         className={

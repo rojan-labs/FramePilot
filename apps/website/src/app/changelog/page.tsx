@@ -15,7 +15,7 @@ export default async function ChangelogPage() {
   const rendered = await Promise.all(entries.map(async (entry) => ({ entry, html: await renderMarkdown(entry.content) })));
 
   return (
-    <section className="bg-white pb-24 pt-20 sm:pb-32 sm:pt-28">
+    <section className="bg-canvas pb-24 pt-20 sm:pb-32 sm:pt-28">
       <div className="container-x">
         <header className="max-w-4xl">
           <p className="eyebrow-tc mb-6">Changelog</p>

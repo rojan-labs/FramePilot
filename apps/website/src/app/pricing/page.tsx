@@ -20,7 +20,7 @@ export default function PricingPage() {
   return (
     <>
       <JsonLd data={faqJsonLd(FAQ)} />
-      <section className="bg-white pb-20 pt-20 sm:pb-28 sm:pt-28">
+      <section className="bg-canvas pb-20 pt-20 sm:pb-28 sm:pt-28">
         <div className="container-x">
           <header className="max-w-4xl">
             <p className="eyebrow-tc mb-6">Pricing</p>

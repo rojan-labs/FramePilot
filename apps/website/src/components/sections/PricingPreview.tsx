@@ -16,7 +16,7 @@ export function PricingPreview({ plan }: { plan: PricingPlan | null }) {
   const perMonth = cycle === 'annual' ? effectiveMonthly(plan.price) : plan.price.monthly;
 
   return (
-    <Section id="pricing-preview" className="bg-white">
+    <Section id="pricing-preview" className="bg-canvas">
       <div className="grid gap-12 lg:grid-cols-[0.82fr_1.18fr] lg:gap-20">
         <div className="max-w-lg">
           <p className="eyebrow-tc mb-5">Pricing</p>
