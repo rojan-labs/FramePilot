@@ -25,6 +25,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Analysing a track you just added works with the id you already had.** Music and stock
+  media arrive with a catalogue id, and the bin then stores them under a longer id derived
+  from it — so asking for the beats of a track the AI had just placed, using the id it had
+  just used, failed with "not found". It now resolves to the right file, and still refuses
+  rather than guess when the id could mean more than one thing.
+
 - **A cut aimed at a word no longer lands one frame inside it.** The transcript tool
   reported which frame a word starts on, but every cut tool takes seconds — so a run that
   read the right frame and then passed the word's measured time had its cut rounded back

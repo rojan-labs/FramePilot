@@ -133,6 +133,7 @@ import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
+import { withResolvedAssetId } from './catalogue-asset-id.js';
 import {
   alignBeatBackedBoundaries,
   type BeatRejectionKey,
@@ -4289,7 +4290,15 @@ export class Orchestrator {
       // sidecar via the injected executor, and the loop AWAITS the real result.
       // Args are schema-validated here first so a malformed call fails fast
       // without a host round-trip.
-      const args = sanitizeToolArgs(tool, call.arguments);
+      // A catalogue id the run was handed is resolved to the bin asset our own code
+      // derived from it, BEFORE the host is asked. See `catalogue-asset-id.ts`: the
+      // transformation is ours, so reversing it is exact, and an ambiguous id falls
+      // through untouched to the existing "known asset ids" error.
+      const args = withResolvedAssetId(
+        call.name,
+        sanitizeToolArgs(tool, call.arguments) as Record<string, unknown>,
+        ctx.project.assets,
+      );
       try {
         tool.parse(args);
       } catch (cause) {
