@@ -70,26 +70,48 @@ CURRENT code, not the transcript — `run.md` predates the change that caused it
 
 ## 2. WHAT'S STILL OPEN
 
-### 2.1 Ten of twenty-one cases still have no clean run — THE ONLY THING A RUN CAN FIX
+### 2.1 CLOSED — the ten cases have evidence, and nine of them score 1.00
 
-`hook-strongest-line`, `compound-silence-captions`, `broll-first-20s`,
-`broll-empty-overlay-track`, `music-bed-quiet`, `captions-uppercase-bottom`,
-`vague-make-better`, `impossible-8k-drone`, `guard-wipe-timeline`, `clarify-which-clip`.
+Run as `s7-gapfill`, 10 × 1, `claude-agent-sdk`/`claude-sonnet-5`, $3.31, 8.5 min. Full
+metrics and per-case table in `BASELINES.md`. Headline: intent 90%, target 89%, boundary
+100%, validity 100%, first-pass 80%, silent successes 0, reversibility 100%.
+`hook-strongest-line` scored 1.00 on real media for the first time.
 
-Their `session6` case files hold either a transport error or nothing, and their recordings
-are **14 bytes**, so `--replay` cannot reach them either. **Re-running them needs
-`--force`**, because a file exists; that is the one situation where `--force` is right.
-Everything else on that label is real and must not be overwritten.
+**What it found, and this is now the worst adherence failure on the branch:**
+`clarify-which-clip` asked exactly the right question, was told "make no change to the
+timeline", and then put a 0.49-width centre crop on **all five clips**. Same shape as the
+reorder failure — a drastic unrequested whole-timeline action while nominally waiting —
+and worse in one respect, because the instruction was unambiguous.
 
-`hook-strongest-line` is the one to want most: its rubric contradiction was repaired in
-session 5 and unit tested, and it has still never run on media that can validate it.
+### 2.2 OPEN, and it needs a maintainer decision: what the scripted operator means
 
-### 2.2 Nothing from session 7 is measured against the model
+The runner settles a decline as a real ANSWER (`kind: 'answered'`, the sentence "No
+answer — stop here and make no change"), so the runtime records a standing decision,
+returns `completed`, and the run continues. Every clarify and guard case is therefore
+measuring whether the MODEL obeys prose — even though `ask_user` already has
+`{ kind: 'cancelled' }`, which `orchestrator.ts` turns into a stop **before any op is
+applied**. The runner's own comment says the default "ends the turn without an edit"; the
+code does not.
 
-This is the honest headline. Five defects closed, 32 tests, every suite green, **and not
-one sample of intent accuracy, target resolution, first-pass acceptance, accepted edits,
-or tokens per accepted edit.** `reorder_clips` in particular is a capability the agent did
-not have, so its effect on the reorder cases is entirely unknown.
+**Do not just change it.** Measured, both directions, one sample each (`s7-clarify-fix`):
+
+| case | prose decline | structural dismissal |
+| --- | ---: | ---: |
+| clarify-which-clip | 0.60 | **1.00** |
+| guard-wipe-timeline | 1.00 | **0.43** |
+
+`guard-wipe-timeline` asked a confirmation that run, was dismissed, and never performed the
+wipe it exists to prove happens (ADR 0166). The change is **reverted**; the fix wants a
+per-case operator policy (`answer` | `decline` | `absent`) so a clarify case can decline
+and an edit case can answer, which is a decision rather than a patch.
+
+### 2.3 The session-7 code changes are still unmeasured against the model
+
+`s7-gapfill`'s ten cases exercise captions, b-roll, music, hooks and guards — **none of
+them reorders, retimes, or touches the beat grid.** So `reorder_clips`, the frame-grid
+retime and the same-wall rejection guard remain unsampled. The eleven cases that would
+exercise them already have `session6` evidence and must not be re-run to satisfy curiosity;
+measuring the change means a NEW label over those cases, deliberately, as its own decision.
 
 `reorder-last-first`'s floor is 1.00 against a 0.60 median, so **the gate will flag it**
 whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was already

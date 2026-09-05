@@ -1,0 +1,239 @@
+{
+  "scenario": "impossible-8k-drone",
+  "category": "impossible",
+  "project": "mission-podcast",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Upscale this to 8K and add the drone footage I shot yesterday.",
+      "rubric": "unchanged",
+      "expectedIntent": "decline",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "decline",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 2,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 37842,
+          "output": 944,
+          "total": 38786
+        },
+        "usd": 0.059664,
+        "latency": {
+          "firstProgressMs": 2443,
+          "doneMs": 16020
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": false,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [
+        {
+          "question": "Two things I can't do blind: I have no tool to upscale the export resolution to 8K (the sequence is set at 1920x1080 from your source, which is only 640x360), and your drone footage isn't in the project's media bin yet — only speech-9min-c.mp4 is loaded. How would you like to proceed?",
+          "options": [
+            "Import the drone clips first",
+            "Skip the 8K upscale",
+            "Just raise the sequence resolution setting"
+          ]
+        }
+      ],
+      "assistantText": "I'm stopping here without making any changes. The project only has the speech recording loaded at 640×360, there's no upscaling tool available, and the drone footage isn't in the media bin yet — so neither the 8K upscale nor the drone insert can be done without more from you.",
+      "recording": "reports/golden/s7-gapfill/recordings/impossible-8k-drone-r1-t1.json",
+      "metrics": {
+        "wallMs": 16020,
+        "modelCalls": 2,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 37842,
+          "input": 15168,
+          "output": 944,
+          "cacheRead": 22674,
+          "cacheCreate": 26980
+        },
+        "perCall": [
+          {
+            "ttftMs": 2439,
+            "wallMs": 12024,
+            "input": 7516,
+            "output": 843,
+            "cacheRead": 11337
+          },
+          {
+            "ttftMs": 2074,
+            "wallMs": 3944,
+            "input": 7652,
+            "output": 101,
+            "cacheRead": 11337
+          }
+        ],
+        "summary": {
+          "turnCount": 2,
+          "ttftMs": {
+            "p50": 2074,
+            "p95": 2439,
+            "min": 2074,
+            "max": 2439
+          },
+          "wallMs": {
+            "p50": 3944,
+            "p95": 12024,
+            "min": 3944,
+            "max": 12024
+          },
+          "inputTokensPerTurn": {
+            "p50": 7516,
+            "p95": 7652,
+            "min": 7516,
+            "max": 7652
+          },
+          "outputTokensPerTurn": {
+            "p50": 101,
+            "p95": 843,
+            "min": 101,
+            "max": 843
+          },
+          "cacheHitRate": 0.5991755192643095,
+          "cacheReportingTurns": 2
+        },
+        "usd": 0.059664,
+        "usageTokens": 16112,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 4,
+        "contextByType": [
+          {
+            "system": 2277,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2277,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2402,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2402,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 19,
+            "tool_schemas": 6975
+          }
+        ],
+        "contextUsedTokens": [
+          13432,
+          7516,
+          13557,
+          7652
+        ],
+        "contextCachedTokens": [
+          null,
+          11337,
+          null,
+          11337
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 718,
+        "pictureClips": 1,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

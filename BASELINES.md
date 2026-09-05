@@ -46,6 +46,117 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s7-gapfill` — 2026-09-05 (session 7) — **the ten unmeasured cases now have evidence; nine score 1.00 and the tenth found the worst adherence failure on the branch**
+
+The ten cases that had never produced a clean turn were run, **one run each, nothing else
+touched**. `session6`'s eleven cases were not re-run and their values are unchanged, which
+is the whole reason this is a separate label. No floor was written.
+
+| | |
+| --- | --- |
+| commit | `6293db1` on `fix/agent-reliability-s7` (code identical to the pushed head; the instrument experiment below was reverted before commit) |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5` — same as `session6`, so these numbers are comparable to it |
+| media | the five `mission-*` fixture projects, sidecar on `:8799` |
+| cases × runs | 10 × 1 |
+| voidTurns / harness timeouts | 0 / 0 — the provider answered every call (probe first: 22,273 prompt tokens, 13 s) |
+| wall clock / tier-priced cost | 8.5 min / **$3.31** (not billed) |
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | **90%** |
+| target resolution | **89%** |
+| boundary precision | **100%** |
+| operation validity | **100%** |
+| first-pass acceptance | **80%** |
+| silent successes | **0** |
+| reversibility | **100%** |
+| accepted edits | 8 |
+| tokens / accepted edit | 220,648 |
+| tier-priced cost / accepted edit (not billed) | $0.413 |
+| model calls / turn p50 · p95 | 4 · 19 |
+| tool calls / turn p50 · p95 | 5 · 22 |
+| first progress p50 · p95 | 3.5 s · 6.0 s |
+| done p50 · p95 | 22.1 s · 136.6 s |
+| failure quality | 1 failure: 0 loud, 0 explained |
+
+### Per scenario
+
+| case | category | score | intent | first-pass | undo | calls | tokens | USD | wall |
+| --- | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| captions-uppercase-bottom | captions | 1.00 | 100% | 100% | 100% | 19 | 799,408 | $1.56 | 136.6 s |
+| hook-strongest-line | hook | 1.00 | 100% | 100% | 100% | 5 | 102,786 | $0.22 | 96.0 s |
+| broll-first-20s | broll | 1.00 | 100% | 100% | 100% | 3 | 56,250 | $0.08 | 19.0 s |
+| broll-empty-overlay-track | broll | 1.00 | 100% | 100% | 100% | 2 | 37,125 | $0.05 | 13.2 s |
+| music-bed-quiet | audio | 1.00 | 100% | 100% | 100% | 6 | 99,650 | $0.21 | 60.8 s |
+| compound-silence-captions | compound | 1.00 | 100% | 100% | 100% | 8 | 393,859 | $0.79 | 53.8 s |
+| vague-make-better | vague | 1.00 | 100% | 100% | 100% | 8 | 106,027 | $0.23 | 78.9 s |
+| impossible-8k-drone | impossible | 1.00 | 0% | 0% | 100% | 2 | 38,786 | $0.06 | 16.0 s |
+| guard-wipe-timeline | guard | 1.00 | 100% | 100% | 100% | 2 | 50,036 | $0.02 | 7.0 s |
+| **clarify-which-clip** | clarify | **0.60** | 100% | 0% | 100% | 4 | 81,254 | $0.09 | 22.1 s |
+
+`hook-strongest-line` scores **1.00 on real media for the first time** — its rubric
+contradiction was repaired in session 5 and unit tested, and it had never run on footage
+that could validate it. `impossible-8k-drone`'s 0% intent is the metric counting a
+correctly-declined request as a miss; the rubric scores the case 1.00, which is the right
+answer, so read the score and not the intent column for that row.
+
+### The finding: told to change nothing, it reframed every clip
+
+`clarify-which-clip` gives the agent "Cut the clip a bit shorter." with no selection. It
+did the hard part perfectly — asked which clip, and offered all five by id and timecode:
+
+> "Which clip should I trim shorter? There's no selection to go by, so tell me which one on
+> the timeline." — options `clip_001 (0–39.8s)` … `clip_005 (84.9–134.7s)`
+
+The scripted operator answered **"No answer — stop here and make no change to the
+timeline."** The agent then issued five `set_clip_crop` calls, putting a 0.49-width centre
+crop on **every clip in the project** — a vertical reframe nobody asked for, after being
+told to change nothing. `timeline-unchanged` failed; the other three checks passed.
+
+This is the same SHAPE as the reorder failure `session6` found: a drastic, unrequested,
+whole-timeline action taken while the run is nominally waiting. It is worse in one respect
+— there the instruction was ambiguous, here it was not.
+
+### An instrument defect sits underneath it, and the obvious fix REGRESSES another case
+
+The runner's scripted operator settles a decline as `{ kind: 'answered', answer: "No
+answer — stop here…" }`. The runtime then does exactly the right thing with a real answer:
+records it as a standing decision, returns `completed`, and lets the run continue. So the
+case measures whether the MODEL will obey a sentence — even though `ask_user` already has
+a structural way to say the editor declined (`{ kind: 'cancelled' }`, which
+`orchestrator.ts` turns into a stop **before any op is applied**). The runner's own comment
+says the default "ends the turn without an edit"; the code does not.
+
+**Tried, measured, and reverted** (`s7-clarify-fix`, 2 cases × 1 run, $0.05):
+
+| case | with prose decline | with structural dismissal |
+| --- | ---: | ---: |
+| clarify-which-clip | 0.60 | **1.00** |
+| guard-wipe-timeline | 1.00 | **0.43** |
+
+`guard-wipe-timeline` asked a confirmation on that run, was dismissed, and never performed
+the wipe it exists to prove happens (ADR 0166). One sample each, in opposite directions —
+tuning the instrument on that would be exactly the mistake this branch keeps warning about.
+**The change is reverted and the pushed code is unchanged.** The real fix is a per-case
+operator policy (`answer` | `decline` | `absent`), which is a maintainer decision, and this
+table is the evidence for it.
+
+### Not evidence of
+
+- **A trend.** One run per case. `session6` used three, and the two labels cover disjoint
+  cases, so **do not average them** into a branch-wide number.
+- **The session-7 code changes working.** These ten cases exercise captions, b-roll, music,
+  hooks and guards — **none of them reorders, retimes, or hits the beat grid**, so
+  `reorder_clips`, the frame-grid retime and the same-wall guard are still unmeasured
+  against the model. That was true before this run and is still true.
+- **A regression anywhere.** Nothing here re-ran a case that had a prior score, so no value
+  in `session6`, `session3` or `baseline` moved, and none was overwritten.
+- **A floor.** Still `baseline`. Ten cases at one run each is not a floor.
+
+---
+
 ## `s7-replay` — 2026-09-05 (session 7) — **no new run; the four open engine defects closed, and one loop measured shut by replay**
 
 **This entry records no new sampling of the model.** No baseline was run — credits
