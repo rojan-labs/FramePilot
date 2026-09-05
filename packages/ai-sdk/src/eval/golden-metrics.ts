@@ -181,7 +181,10 @@ function facet(
   checks: readonly RubricCheck[],
   name: NonNullable<RubricCheck['facet']>,
 ): FacetVerdict | null {
-  const mine = checks.filter((c) => c.facet === name);
+  // A skipped check has no verdict — see `RubricCheck.skipped`. Dropping it here is what
+  // makes a facet whose only check could not measure report `null` (not measured) instead
+  // of a clean pass it never earned.
+  const mine = checks.filter((c) => c.facet === name && c.skipped !== true);
   if (mine.length === 0) return null;
   return { ok: mine.every((c) => c.ok), checks: mine.map((c) => `${c.id}: ${c.detail}`) };
 }

@@ -32,6 +32,21 @@ export interface RubricCheck {
    * against expectation". Unfaceted checks count only toward the score.
    */
   readonly facet?: 'target' | 'boundary';
+  /**
+   * This check could not judge the run, so it is scored as neither pass nor fail.
+   *
+   * NOT the same as `ok: false`, and not the same as `ok: true`. A check with nothing to
+   * measure against — a project with no transcript, or one whose transcript is an ASR
+   * loop rather than speech — has no verdict to give, and both booleans are a lie about
+   * the run. {@link scored} removes these from the numerator AND the denominator, and
+   * `golden-metrics.ts#facet` drops them before computing target/boundary, so a facet
+   * whose only check was skipped reports `null` — not measured — rather than a clean pass.
+   *
+   * This is the check-level form of the exclusion the harness already applies to void and
+   * timed-out turns: a thing that was not measured must not be counted as a thing that
+   * went well.
+   */
+  readonly skipped?: boolean;
 }
 
 export interface RubricScore {
@@ -246,7 +261,9 @@ export function checkMinClips(project: Project, min: number): RubricCheck {
  */
 export function checkNoMidWordCuts(project: Project, before?: Project): RubricCheck {
   const words: readonly TranscriptWord[] = project.transcript;
-  if (words.length === 0) return { id: 'no-mid-word-cuts', ok: true, detail: 'no transcript' };
+  if (words.length === 0) {
+    return { id: 'no-mid-word-cuts', ok: true, skipped: true, detail: 'no transcript' };
+  }
   // A hallucinated transcript has no word boundaries to respect. `mission-podcast`'s is 92%
   // one sentence whisper looped over quiet audio, so "this cut lands inside a word" is a
   // statement about a fabrication — and `remove-dead-air`, which never reads the transcript
@@ -256,6 +273,12 @@ export function checkNoMidWordCuts(project: Project, before?: Project): RubricCh
     return {
       id: 'no-mid-word-cuts',
       ok: true,
+      // "Unmeasurable, so it is not scored" is what the comment above has always said.
+      // Until this flag existed the code did the opposite: `ok: true` counted as a pass
+      // in both sums, so four rubrics on `mission-podcast` — `podcast-highlight-60s`,
+      // `remove-dead-air`, `compound-silence-captions` and `hook-first` — were each
+      // awarded a point for a check that had looked at nothing.
+      skipped: true,
       detail:
         `not measurable: the transcript repeats "${loop.phrase}" ${String(loop.repeats)} times ` +
         `over ${String(Math.round(loop.share * 100))}% of its span (ASR loop, not speech)`,
@@ -840,8 +863,13 @@ const COMMON = (ctx: RubricContext): RubricCheck[] => [
 ];
 
 function scored(scenario: MissionScenarioId, checks: readonly RubricCheck[]): RubricScore {
-  const total = checks.reduce((s, c) => s + (c.weight ?? 1), 0);
-  const passed = checks.reduce((s, c) => s + (c.ok ? (c.weight ?? 1) : 0), 0);
+  // A skipped check leaves BOTH sums. Counting it in the denominator alone would fail a
+  // run for an instrument that could not look; counting it in both — which is what
+  // `ok: true` did — hands out a free point on every case that reads `mission-podcast`'s
+  // fabricated transcript. The checks list still carries it, so the report says why.
+  const judged = checks.filter((c) => c.skipped !== true);
+  const total = judged.reduce((s, c) => s + (c.weight ?? 1), 0);
+  const passed = judged.reduce((s, c) => s + (c.ok ? (c.weight ?? 1) : 0), 0);
   return { scenario, score: total === 0 ? 0 : passed / total, checks };
 }
 

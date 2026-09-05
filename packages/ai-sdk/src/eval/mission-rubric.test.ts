@@ -355,6 +355,73 @@ describe('golden-set checks', () => {
   });
 
   /**
+   * `checkNoMidWordCuts` has said "unmeasurable, so it is not scored" in its own comment
+   * since the loop guard landed, while returning `ok: true` — which `scored` counted in
+   * BOTH sums, so every rubric that carries it on `mission-podcast` was handed a free
+   * point for a check that had looked at nothing. Four of them do:
+   * `podcast-highlight-60s`, `remove-dead-air`, `compound-silence-captions`, `hook-first`.
+   */
+  describe('a check that could not measure is not a check that passed', () => {
+    const looped = (): Project => {
+      const project = withClips([clip('c1', 0, 100)]);
+      // The `mission-podcast` shape: one sentence, back to back, over the whole span.
+      // 12 repeats of a six-word phrase — the detector needs 8 and half the span.
+      const words = Array.from({ length: 72 }, (_, i) => ({
+        word: ["I'll", 'try', 'to', 'follow', 'you', 'later.'][i % 6]!,
+        start: i * 1.3,
+        end: i * 1.3 + 1,
+      }));
+      return { ...project, transcript: words } as Project;
+    };
+
+    it('marks a mid-word check on a looped transcript skipped, not passed', () => {
+      const check = checkNoMidWordCuts(looped());
+      expect(check.skipped).toBe(true);
+      expect(check.detail).toContain('not measurable');
+    });
+
+    it('marks it skipped when there is no transcript at all', () => {
+      const bare = { ...withClips([clip('c1', 0, 100)]), transcript: [] } as Project;
+      expect(checkNoMidWordCuts(bare).skipped).toBe(true);
+    });
+
+    it('still judges a real transcript', () => {
+      const project = withClips([clip('c1', 0, 100)]);
+      const real = {
+        ...project,
+        transcript: [
+          { word: 'the', start: 0, end: 0.4 },
+          { word: 'quick', start: 0.5, end: 0.9 },
+          { word: 'brown', start: 1.0, end: 1.4 },
+        ],
+      } as Project;
+      expect(checkNoMidWordCuts(real).skipped).toBeUndefined();
+    });
+
+    it('leaves the score to the checks that could judge, denominator included', () => {
+      // `remove-dead-air` on the looped transcript: the run did NOT get shorter, so
+      // `shorter-than-before` fails. Scoring the skipped mid-word check as a pass moved
+      // the whole scenario up by its weight; excluding it leaves the failure visible.
+      const before = looped();
+      const after = looped();
+      const scenario = scoreMissionScenario('remove-dead-air', { before, after });
+      const midWord = scenario.checks.find((c) => c.id === 'no-mid-word-cuts');
+      expect(midWord?.skipped).toBe(true);
+
+      const judged = scenario.checks.filter((c) => c.skipped !== true);
+      const total = judged.reduce((sum, c) => sum + (c.weight ?? 1), 0);
+      const passed = judged.reduce((sum, c) => sum + (c.ok ? (c.weight ?? 1) : 0), 0);
+      expect(scenario.score).toBeCloseTo(passed / total, 10);
+
+      // And it is strictly below what the old arithmetic produced, which is the free
+      // point this fix removes.
+      const withFreePoint =
+        (passed + (midWord?.weight ?? 1)) / (total + (midWord?.weight ?? 1));
+      expect(scenario.score).toBeLessThan(withFreePoint);
+    });
+  });
+
+  /**
    * The `hook-strongest-line` prompt says "then continue from the beginning as before".
    * A run that does precisely that is longer by one hook, and `checkNotLonger` used to
    * fail it for that — the same shape as the case above, which the suite has always
