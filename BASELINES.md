@@ -46,6 +46,106 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## session 5 — 2026-09-05 — **no run; eight defects closed, and one recorded score is now known to be inflated**
+
+**This entry records no measurement.** No baseline was run: credits were explicitly to be
+conserved. Everything below came from re-reading the same captured transcript session 3
+mined (`run.md` — conversation `33f7e787`, run `137d8fd0`, 1,064,475 lines) plus the open
+items §2.2–§2.4 in the handoff, and each fix is proved by a reproducing test named in its
+commit.
+
+**`run.md` is not new.** It was presented as a fresh run; its ids say otherwise — same
+conversation, same run id, same 1,064,475 lines as session 3 read. So this pass
+deliberately swept what session 3 did NOT read: the full deduplicated inventory of the 44
+failed and 42 warning tool calls, rather than the rejection causes by volume.
+
+The `baseline` label's numbers are **unchanged and still the current floor** — with one
+correction below that says how to read four of its cases.
+
+| | |
+| --- | --- |
+| commit range | `cb906ac..118e7b1` on `fix/agent-reliability-2026-09-05` |
+| the transcript re-read | 5,257 events · 561 tool calls · 156 model calls · 5,538,888 tokens · $27.76 · 49 minutes · final status **failed** |
+| new tests | 47 across `editor-core`, `ai-sdk` and the Python operation + tool-schema mirrors |
+| suites | ai-sdk 4,603 · editor-core 1,053 · engine 2,831 — all green |
+| measured prompt cost | **+130 tokens per request** on the tool-schema section (13,358 → 13,488), identical across all three frozen surfaces |
+
+### The correction: four cases have been scoring themselves a free point
+
+`checkNoMidWordCuts` has said "unmeasurable, so it is not scored" in its own comment since
+the loop guard landed. The code did the opposite — it returned `ok: true`, and `scored`
+sums every check into BOTH the numerator and the denominator, so a check that had looked
+at nothing awarded a point.
+
+Four rubrics carry it on `mission-podcast`, whose transcript is 397 back-to-back repeats of
+one sentence: `podcast-highlight-60s`, `remove-dead-air`, `compound-silence-captions` and
+`hook-first`. **Every score those four have recorded in this file is an upper bound.** The
+same free point went to any project with no transcript at all.
+
+`RubricCheck.skipped` now removes such a check from both sums, and `golden-metrics#facet`
+drops it before computing target/boundary — so a facet whose only check could not measure
+reports `null` (not measured) rather than a pass it never earned. This is the check-level
+form of the exclusion the harness already applies to void and timed-out turns (`a8b58f7`).
+
+No recorded number in this file has been edited. The next run is the first that can say
+what those four cases actually score.
+
+### The eight, and what proves each
+
+| # | defect | cost in the transcript | commit |
+| --- | --- | --- | --- |
+| 1 | **A refused duck named no track that would have worked** — `add_music` was given `layer_audio_5`, an audio track with no clips, and told "Place the dialogue first". There is no dialogue in a snowboarding video. `v_main` was on the same timeline, full of clips, carrying the very wind the bed was meant to duck. The guard was also stricter than the engine it protects: `_duck_intervals` reads clip intervals and never the track type. | the editor's explicit "duck the wind right down" never happened | `cb906ac` |
+| 2 | **A rejected argument never said which value it rejected** — Zod 4 phrases an enum failure as "expected one of "photo"|"video"" and the finalized issue carries no input. | 6 calls: `search_stock.kind` ×2, `track_subject_automatically.subject` ×1, `professional_audio.target` ×3 — none corrected | `b738281` |
+| 3 | **A refused boundary said where it was not, not where it was** — `split_clip` at 48 on the clip that STARTS at 48, where a cut already existed; `set_clip_speed` refused for an overlap with no remedy named. | the wipeout speed ramp, asked for by name, and one split abandoned | `1f29a5c`, amended in `118e7b1` |
+| 4 | **The hook rubric punished the prompt it grades** — the prompt says "then continue from the beginning as before"; obeying it is longer by one hook, and `checkNotLonger` asserted `after <= before`. | the committed baseline's `575.87s → 577.80s` is a run marked down for obedience | `f4cac2a` |
+| 5 | **A check that could not measure was scored as a check that passed** (the correction above) | four cases, every recorded score | `4c0cc0b` |
+| 6 | **An unattributed transcript spoke through b-roll** — the third and last copy of the fabrication fixed in the Critic (`5d0dbab`) and the rubric (`a255687`). A word the edit DELETED came back, attributed to and timed through footage that was never speaking. Wired into `get_mapped_transcript` too — the timings the model cuts on. | not exercised by this transcript; the two earlier copies each cost a false defect | `d9ac392` |
+| 7 | **The safe-area check had never looked at an overlay** — it read `x`/`y` on a 0–1 scale; the schema, the tool, the preview painter and the renderer all speak `xPercent`/`yPercent` on 0–100. It answered "nothing positioned to check" on every project, forever. | the run's title at `xPercent: 50, yPercent: 50` was never checked | `70b8bfe` |
+| 8 | **`duck_roles` could never succeed on any project this product builds** — `Track.role` shipped readable with one writer, `add_layer`, at creation. Nothing writes `role: 'dialogue'` anywhere. Its refusal, "Label the track you mean", named a move that did not exist. | 2 calls, and the ducking instruction abandoned for the second time | `118e7b1` |
+
+### What the sweep found that was already closed — so nobody re-opens it
+
+Checked against current code before writing anything: the "unavailable this turn" and
+"skipped redundant" wordings (already rewritten, citing this run by name), the
+unrecognized-keys → owner routing (`8bc0328`), the 13 blank **Added asset** cards
+(`6c13939` covered `add_asset` explicitly), the caption duplicate-id collapse (`008cf0c`),
+the `professional_audio` target/stale-context refusals (`506e55a`), `add_clip`'s `end`
+(`f51f4ee`), and the CSS caption spelling (`6099516`).
+
+Also confirmed against the ledger rather than the surface: the 144 `add_music` failure
+records in the run state are **one** failed op (`op_31`) re-serialised into every
+subsequent state dump, not 144 failures. The distinct-op count is 421.
+
+### One trade that was made, reversed, and is worth remembering
+
+The overlap rejection first carried the magnitude — "overlap by 3s, 'a' ends at 9s". The
+suite caught what that costs: `deterministicFailureKey` keys the repeated-failure guard on
+the message body, and its contract is that the values a validator names ARE the defect's
+identity. An overlap shrinking from 3s to 1s across two attempts then reads as two
+unrelated failures, and the guard against nudging arguments at a wall stops firing on the
+commonest wall there is. The numbers came back out; the remedy naming the three moves
+stayed, because it does not vary.
+
+**A more specific message is not free.** Any future message change on a validator path has
+to be read against that guard.
+
+### Not evidence of
+
+- **Any change in the ten metrics.** Nothing was scored. Eight behaviour changes and one
+  scoring change are in the tree, and not one of them has been measured against a run.
+- **The four `mission-podcast` cases being fixed.** They still run on a transcript that is
+  397 repeats of one sentence. Defect 5 stops them inflating their own scores; it does not
+  give them anything real to measure. §3 of `REMAINING.md` is unchanged and still needs the
+  maintainer.
+- **`hook-strongest-line` being validated.** Its rubric contradiction is repaired and unit
+  tested; the case itself still cannot validate anything on that media.
+- **The text-overflow question being fully answered.** The geometric half is closed and
+  warned on; a single word too wide to wrap still overflows silently, and that is now the
+  only part of it still open.
+- **This transcript being a new run.** It is the one session 3 read.
+
+---
+
 ## `session3` — 2026-09-05 (session 4) — **a partial run, five instrument defects, and one number that is not what it looks like**
 
 The first live 21×3 attempt since 2026-09-04. **It did not finish.** Ten cases in, the
