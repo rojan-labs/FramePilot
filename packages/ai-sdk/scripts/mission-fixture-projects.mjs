@@ -52,12 +52,23 @@ const DEFS = [
     ],
   },
   {
+    // `speech-9min-c`, NOT `speech-9min`. The original media's transcript is 2,384 of
+    // 2,431 words of one sentence whisper looped over quiet audio, so every case here that
+    // reads words — `podcast-highlight-60s` asks for the best 60 seconds,
+    // `hook-strongest-line` for the strongest line — was selecting from a fabrication, and
+    // a run that refused on those grounds was scored as failing. Swapping to
+    // `speech-9min-b`, the one fetched fixture with real narration, would have traded that
+    // for the mirror defect: it has no silent gap at any threshold, so `remove-dead-air`
+    // and the first half of `compound-silence-captions` would have asked for the removal of
+    // dead air that is not there. `speech-9min-c` is `-b`'s narration with 116 real pauses
+    // cut in at its own sentence boundaries (`fetch-fixtures.sh`), which is the one shape
+    // that measures both: real words, real dead air, ~11.9 minutes.
     id: 'mission-podcast',
-    name: 'Mission podcast (9-minute dialogue)',
+    name: 'Mission podcast (12-minute narration with pauses)',
     fps: 30,
     resolution: { width: 1920, height: 1080 },
-    media: [{ file: 'speech-9min.mp4', onTimeline: true }],
-    transcribe: 'speech-9min.mp4',
+    media: [{ file: 'speech-9min-c.mp4', onTimeline: true }],
+    transcribe: 'speech-9min-c.mp4',
   },
   {
     id: 'mission-talk',
@@ -248,7 +259,16 @@ async function buildProject(def) {
   return { out, assets: assets.length, clips: clips.length, words: transcript.length, durationSeconds: cursor };
 }
 
-for (const def of DEFS) {
+// `--only <id>` rebuilds one project. Whisper is content-hash cached and the derived media
+// is idempotent, so a full rebuild is safe — but it rewrites four fixtures nobody asked
+// about, and a fixture rewrite is the kind of change that has to be reviewable on its own.
+const onlyIndex = process.argv.indexOf('--only');
+const only = onlyIndex === -1 ? null : process.argv[onlyIndex + 1];
+if (only && !DEFS.some((d) => d.id === only)) {
+  throw new Error(`--only ${only}: no such project. Known: ${DEFS.map((d) => d.id).join(', ')}`);
+}
+
+for (const def of DEFS.filter((d) => !only || d.id === only)) {
   process.stdout.write(`${def.id}\n`);
   const r = await buildProject(def);
   process.stdout.write(`  → ${basename(r.out)}: ${r.assets} assets, ${r.clips} clips (${r.durationSeconds.toFixed(1)}s), ${r.words} words\n`);

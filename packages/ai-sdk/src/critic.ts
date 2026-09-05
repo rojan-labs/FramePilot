@@ -2258,9 +2258,12 @@ const LOOP_MIN_SHARE = 0.5;
  *
  * Whisper's best-known failure mode is a loop: over quiet or music-only audio it emits one
  * sentence again and again, with plausible timings, and nothing downstream can tell those
- * words from spoken ones. `mission-podcast` is 2431 words of which 2384 — 92%, from 21.7s
- * to 575.5s — are "I'll try to follow you later." repeated 397 times over a clip whose real
- * speech stops around 30s.
+ * words from spoken ones. This function was written against `mission-podcast`, whose media
+ * was then 2431 words of which 2384 — 92%, from 21.7s to 575.5s — were "I'll try to follow
+ * you later." repeated 397 times over a clip whose real speech stopped around 30s. That
+ * fixture has since been replaced (`speech-9min-c`), so the detector no longer fires on any
+ * project in the repo; it stays because the failure it catches is whisper's, not that
+ * fixture's, and the next quiet recording a user imports reproduces it exactly.
  *
  * That matters well beyond one fixture. The transcript is what grounds a highlight
  * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts

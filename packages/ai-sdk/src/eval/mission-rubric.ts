@@ -255,19 +255,23 @@ export function checkMinClips(project: Project, min: number): RubricCheck {
  * No cut the run MADE lands inside a spoken word.
  *
  * Judges the delta, for the same reason {@link checkCutsOnFrameGrid} does. `mission-podcast`
- * arrives with one: whisper ends the final word at 576.000s while the media is 575.855s
- * long, so the clip's natural end — an edge nobody chose — sits inside it. Charging that to
- * the run failed the `boundary` facet on every podcast case no matter where the agent cut.
+ * used to arrive with one: whisper ended the final word at 576.000s while the media was
+ * 575.855s long, so the clip's natural end — an edge nobody chose — sat inside it. Charging
+ * that to the run failed the `boundary` facet on every podcast case no matter where the
+ * agent cut. The replacement media (`speech-9min-c`) has no such overhang, but a user's
+ * recording can have one at any time, so the delta rule is the rule.
  */
 export function checkNoMidWordCuts(project: Project, before?: Project): RubricCheck {
   const words: readonly TranscriptWord[] = project.transcript;
   if (words.length === 0) {
     return { id: 'no-mid-word-cuts', ok: true, skipped: true, detail: 'no transcript' };
   }
-  // A hallucinated transcript has no word boundaries to respect. `mission-podcast`'s is 92%
-  // one sentence whisper looped over quiet audio, so "this cut lands inside a word" is a
-  // statement about a fabrication — and `remove-dead-air`, which never reads the transcript
-  // to decide where to cut, was being failed by it. Unmeasurable, so it is not scored.
+  // A hallucinated transcript has no word boundaries to respect, so "this cut lands inside
+  // a word" is a statement about a fabrication. `mission-podcast`'s transcript was 92% one
+  // sentence whisper looped over quiet audio until its media was replaced on 2026-09-05,
+  // and `remove-dead-air`, which never reads the transcript to decide where to cut, was
+  // being failed by it. Unmeasurable, so it is not scored. The branch is no longer reached
+  // by any fixture in the repo and is kept for the user recording it will be reached by.
   const loop = detectTranscriptLoop(words);
   if (loop !== undefined) {
     return {

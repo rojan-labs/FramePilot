@@ -17,7 +17,11 @@
  * prompts below rely on:
  *   - `mission-montage`  — 5 raw clips on `video_1` (camera 40 s, b-roll 22/9/15/50 s),
  *                          two beat tracks in the bin, no transcript, 9:16.
- *   - `mission-podcast`  — one 9.6-minute 360p dialogue clip, transcript (2,431 words).
+ *   - `mission-podcast`  — one 12-minute 360p narration clip with 116 real pauses cut
+ *                          into it, transcript (1,464 words). Not the 9.6-minute dialogue
+ *                          clip it was until 2026-09-05: that one's transcript was 92% ASR
+ *                          loop, so every case here that reads words was selecting from a
+ *                          fabrication (`fetch-fixtures.sh`, `speech-9min-c`).
  *   - `mission-talk`     — one 8.8-minute narration clip, `beat-100bpm.wav` in the bin,
  *                          transcript (1,465 words).
  *   - `mission-overlay`  — the same narration, gapless on `video_1`, plus an EMPTY second
