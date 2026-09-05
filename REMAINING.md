@@ -207,6 +207,18 @@ was `toolMeta.ts` — only the full `pnpm test` catches it.
 - **A repo-wide `sed` on an ADR number is a bad idea.** Session 7 renumbered eleven files'
   pre-existing ADR 0170 references before catching it. Match on the sentence, not the
   number.
+- **The desktop export matrix skips on this machine, and always has.** `UC-13 export
+  matrix` needs `mission-export-30s.fp.json` and `mission-export-60s.fp.json`, and neither
+  exists in `tests/fixtures/mission/projects` in ANY checkout here — only the five
+  `mission-*` projects do. So the full desktop e2e reports **13 passed, 0 failed, 19
+  skipped**, and the nineteen include every real-render assertion. Session 7's frame-grid
+  and `reorder_clips` claims are therefore backed by **deterministic cross-runtime
+  evidence** (the shared `cross-runtime-operation-behavior` fixture plus 2,843 engine
+  tests), not by a render. If you want a rendered check of the retime grid, those two
+  fixture projects have to exist first.
+- **A cold Electron launch in a fresh worktree can exceed the 180s e2e timeout.** Session
+  7 lost an hour to reading that as a regression; it passes in ~31s on the second launch.
+  Warm the binary with one spec before trusting a desktop e2e failure.
 - Nothing is running. No sidecar, no runner.
 - Session 7 worked in a worktree (`../FramePilot-reliability-s7`, branch
   `fix/agent-reliability-s7`), leaving the main checkout on its own branch.
