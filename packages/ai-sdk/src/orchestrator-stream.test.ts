@@ -41,6 +41,27 @@ import { getTool } from './tool-registry.js';
 import type { Project } from '@framepilot/timeline-schema';
 
 const input: ContextInput = { project: makeProject(), userPrompt: 'tighten the intro' };
+/**
+ * The same project holding the extra assets a test dispatches analyses on. Asset existence
+ * is now decided BEFORE a host call (`unknownAssetRefusal`), so a stub executor is never
+ * reached for an id the project does not hold — which is the product behaviour, and not
+ * what these concurrency/compaction tests are about.
+ */
+const withAssets = (base: ContextInput, ...ids: string[]): ContextInput => ({
+  ...base,
+  project: {
+    ...base.project,
+    assets: [
+      ...base.project.assets,
+      ...ids.map((id) => ({
+        id,
+        path: `media/${id}.mp4`,
+        kind: 'video' as const,
+        durationSeconds: 30,
+      })),
+    ],
+  },
+});
 const opts = (signal?: AbortSignal): StreamOptions => ({
   conversationId: 'conv_1',
   turnId: 'turn_1',
@@ -849,8 +870,7 @@ describe('streamEdit variations (H1.5/P13.1 — opt-in "A/B compare")', () => {
       new Orchestrator(new UsageProvider()).streamEdit(input, opts(), { variations: true }),
     );
     const usage = events.find((e) => e.type === 'usage') as
-      | { tokens: number; usd: number }
-      | undefined;
+      { tokens: number; usd: number } | undefined;
     expect(usage).toBeDefined();
     // Two candidates × (100 + 50) tokens = 300 — the SUM, not just one candidate's usage.
     expect(usage?.tokens).toBe(300);
@@ -897,8 +917,7 @@ describe('streamEdit variations (H1.5/P13.1 — opt-in "A/B compare")', () => {
       new Orchestrator(new MockProvider()).streamEdit(input, opts(), { variations: true }),
     );
     const usage = events.find((e) => e.type === 'usage') as
-      | { tokens: number; usd: number }
-      | undefined;
+      { tokens: number; usd: number } | undefined;
     expect(usage).toEqual(expect.objectContaining({ type: 'usage', tokens: 0, usd: 0 }));
   });
 
@@ -2825,10 +2844,10 @@ describe('streamAgent robustness (parity with agent())', () => {
       // call that keeps producing can never reach an interval — see the re-arm count.
       const timers = handFiredTimers();
       const longStream: readonly ProviderChunk[] = [
-        ...Array.from(
-          { length: 200 },
-          (_, i): ProviderChunk => ({ type: 'text-delta', text: `word${String(i)} ` }),
-        ),
+        ...Array.from({ length: 200 }, (_, i): ProviderChunk => ({
+          type: 'text-delta',
+          text: `word${String(i)} `,
+        })),
         { type: 'tool-call', call: deleteRange('a', 0, 1) },
         { type: 'done' },
       ];
@@ -4282,7 +4301,9 @@ describe('streamAgent concurrent read batches (E1)', () => {
         return { status: 'completed' as const, summary: 'ok', data: {} };
       },
     };
-    const events = await drain(new Orchestrator(provider, { executor }).streamAgent(input, opts()));
+    const events = await drain(
+      new Orchestrator(provider, { executor }).streamAgent(withAssets(input, 'asset_2'), opts()),
+    );
     // Both engine round-trips were in flight at once — the latency win exists…
     expect(maxActive).toBe(2);
     // …while the observable order stayed serial.
@@ -4916,7 +4937,7 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
     // so the budget falls to its floor and micro-compaction engages. That also makes this
     // an end-to-end test of the degradation path the budget promises for small models.
     const cramped: ContextInput = {
-      ...input,
+      ...withAssets(input, 'asset_2', 'asset_3', 'asset_4'),
       budget: { contextWindow: 24_000, maxOutputTokens: 8_192 },
     };
     const provider = new ScriptedProvider([
@@ -5069,6 +5090,78 @@ describe('streamAgent cached-read action recovery', () => {
   // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
   // "redundant — its result is already in this run"; nothing had been downloaded, and the
   // model believed it and moved on without footage.
+  /**
+   * Run `137d8fd0`, turn 7: fresh from `search_stock`, the model asked to `describe_footage`
+   * five `stock_pexels_<id>` asset ids it had built from catalogue rows not yet downloaded.
+   * The stage refusal came first and said "unavailable this turn"; the true answer — no such
+   * asset, add it first — was never given, and the run described no stock footage at all.
+   */
+  it('refuses a withheld call for a missing asset by the asset, not by the stage', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      {
+        text: 'describe',
+        toolCalls: [
+          { id: 'd1', name: 'describe_footage', arguments: { assetId: 'stock_pexels_30597982' } },
+        ],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('no asset "stock_pexels_30597982"');
+    expect(summary).not.toContain('held back');
+    const note = JSON.stringify(provider.requests[3]?.messages ?? []);
+    expect(note).toMatch(/Known asset ids: asset_1/);
+    expect(note).toMatch(/add_stock/);
+  });
+
+  it('still refuses by the stage when the asset exists — the rule itself is unchanged', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      {
+        text: 'describe',
+        toolCalls: [{ id: 'd1', name: 'describe_footage', arguments: { assetId: 'asset_1' } }],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('held back');
+  });
+
+  it('refuses the same invented asset a second time as a repeat, not a fresh refusal', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const bad = (id: string) => ({
+      id,
+      name: 'describe_footage',
+      arguments: { assetId: 'stock_pexels_nope' },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      { text: 'describe', toolCalls: [bad('d1')] },
+      { text: 'describe again', toolCalls: [bad('d2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 8 }),
+    );
+    const second = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd2');
+    const summary = second?.type === 'tool_result' ? second.summary : '';
+    expect(summary).toMatch(/Refused repeat|already failed/i);
+  });
+
   it('says a withheld tool is unavailable, not redundant, when it holds no such result', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([

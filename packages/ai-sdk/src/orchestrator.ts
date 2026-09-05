@@ -2516,7 +2516,12 @@ export function summarizeReadResult(
         typeof obj.requestsLeftThisMonth === 'number'
           ? `\n(${obj.requestsLeftThisMonth} provider requests left this month)`
           : '';
-      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}`;
+      // Said here because run `137d8fd0` did not know it: it built `stock_pexels_<id>`
+      // asset ids from these rows and asked to describe them before downloading anything.
+      const notYetAssets =
+        '\nThese are catalogue entries, not project assets: add_stock one and use the asset ' +
+        'id it returns before describe_footage or detect_beats can read it.';
+      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}${notYetAssets}`;
     }
     case 'add_stock': {
       // What the run needs on its next turn: the file is down, where it went,
@@ -4335,6 +4340,17 @@ export class Orchestrator {
         sanitizeToolArgs(tool, call.arguments) as Record<string, unknown>,
         ctx.project.assets,
       );
+      // Asset existence is decided HERE, not by the host's 404: it is a function of the
+      // project and the argument alone, so it can be keyed and remembered, and it gives the
+      // same answer the withheld path gives — see `unknownAssetRefusal`.
+      const namedAsset = (args as { assetId?: unknown }).assetId;
+      if (
+        typeof namedAsset === 'string' &&
+        namedAsset.trim() !== '' &&
+        !ctx.project.assets.some((asset) => asset.id === namedAsset)
+      ) {
+        return unknownAssetRefusal(call.name, namedAsset, ctx.project);
+      }
       try {
         tool.parse(args);
       } catch (cause) {
@@ -6708,7 +6724,13 @@ export class Orchestrator {
         if (!inScope) withheldCallCount += 1;
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : withheldCallOutcome(call, evidence, bankedSearches, stageWithheld === true);
+          : withheldCallOutcome(
+              call,
+              evidence,
+              bankedSearches,
+              stageWithheld === true,
+              turnCtx.project,
+            );
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -9252,6 +9274,44 @@ function* settleProposalCards(
 }
 
 /**
+ * The refusal for a call that names an asset this project does not hold.
+ *
+ * ONE function for two paths, because they used to disagree. A withheld call (stage rule,
+ * recovery turn) is refused here in process; an ADMITTED call went to the host and came
+ * back "Analysis failed (404): Asset 'X' not found" — a host failure, unkeyed by the rule
+ * that host work is never keyed. Same invented id, keyed on one path and not the other, so
+ * a run could be refused it forever on the admitted path. Asset existence is a pure
+ * function of the project and the argument — the verdict the rule DOES allow to be keyed —
+ * so it is decided before dispatch, identically, and remembered.
+ *
+ * Keyed on the ID, not the sentence: the sentence lists the bin, and the bin grows every
+ * time the run downloads something, which is exactly what makes the same wrong id look like
+ * a new wall (see `music-placement.ts#musicDuckRefusalKey` for the same trap, closed).
+ */
+function unknownAssetRefusal(
+  callName: string,
+  assetId: string,
+  project: Project,
+): AgentCallOutcome {
+  const known = project.assets.map((asset) => asset.id);
+  const shown = known.slice(0, 12).join(', ');
+  const more = known.length > 12 ? `, and ${String(known.length - 12)} more` : '';
+  const note =
+    `No asset "${assetId}" is in this project. Known asset ids: ${shown}${more}. ` +
+    'A search_stock / search_music result is a catalogue entry, not an asset, until ' +
+    'add_stock / add_music downloads it — do that first, then use the asset id it returns.';
+  return {
+    ops: [],
+    note,
+    summary: `Refused "${callName}" — no asset "${assetId}" in this project`,
+    status: 'failed',
+    data: note,
+    deterministicFailure: true,
+    failureKeyText: `unknown_asset:${assetId}`,
+  };
+}
+
+/**
  * The outcome for a call this turn does not offer.
  *
  * Two different things used to share one sentence, and the wrong one was said far more
@@ -9279,6 +9339,12 @@ function withheldCallOutcome(
   bankedSearches?: number,
   /** The narrowing is the stage rule, not a one-turn latch — see `executeToolCalls`. */
   stageWithheld = false,
+  /**
+   * The working copy at the moment of refusal, so a call that names an asset the project
+   * does not hold is refused for THAT reason rather than for the stage. Optional only so
+   * the question route, which never withholds by stage, can keep passing nothing.
+   */
+  project?: Project,
 ): AgentCallOutcome {
   // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
   //
@@ -9305,6 +9371,24 @@ function withheldCallOutcome(
       data: note,
       deterministicFailure: true,
     };
+  }
+  // THE MOST SPECIFIC TRUE REASON WINS. The stage refusal below is generic by design —
+  // "this turn is for acting on what has been gathered" — and it used to be reached before
+  // the call's arguments were looked at. Run `137d8fd0`, turn 7: fresh from `search_stock`,
+  // the model called `describe_footage` on five `stock_pexels_<id>` asset ids it had
+  // CONSTRUCTED from catalogue results not yet downloaded (the first `add_stock` came at
+  // turn 17). The true answer was "no such asset — add it first". It was told "unavailable
+  // this turn" five times, never learned its ids were invented, and described no stock
+  // footage at all in a 153-step run. A refusal that hides the fixable cause behind a
+  // generic one costs exactly what a missing refusal does.
+  const namedAsset = (call.arguments as { assetId?: unknown } | undefined)?.assetId;
+  if (
+    project &&
+    typeof namedAsset === 'string' &&
+    namedAsset.trim() !== '' &&
+    !project.assets.some((asset) => asset.id === namedAsset)
+  ) {
+    return unknownAssetRefusal(call.name, namedAsset, project);
   }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {

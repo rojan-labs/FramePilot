@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Asking about footage that isn't in the project yet gets a straight answer.** After a
+  stock search, the AI would sometimes ask to describe a result it hadn't downloaded — and
+  was told only "not this turn", so it never learned the real reason and never described any
+  stock footage at all in one captured run. It's now told there is no such asset, which ids
+  do exist, and that a search result becomes an asset only once it's added — and the same
+  answer is given whether the request was held for the stage or sent to the engine, so it is
+  remembered rather than repeated. Search results now say this up front too.
+
 - **The AI no longer offers to render previews or exports from inside the desktop editor.**
   Those two actions only work through the editor's own Export dialog, yet they were listed
   among the AI's tools on every surface — so it would try, be refused, and (in one captured
