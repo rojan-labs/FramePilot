@@ -82,8 +82,22 @@ Markers-before-cuts, the music bed and the punch-in were honoured; the second de
 (a horizontal 60 s beside the vertical) is a single-project aspect limit, not an agent
 fault. `BASELINES.md` "continued sweep" has the table.
 
-**Not yet walked:** the cost axis — which of the 153 steps spent the $27.76, and on what.
-That is the one remaining axis with a plausible yield.
+**Walked, and it confirms §2.6 rather than adding to it (the cost axis):** attribute the
+12.36M estimated context tokens across the 309 requests by manifest section. The answer:
+`system`-tier "additional request content" is **8.22M — 67%** — p50 28,190/request, growing
+385 → 34,742. That row is the manifest's REMAINDER (`manifest.ts#withRemainder`), not the
+action log and not the state briefing — I misread it as each in turn before measuring — and
+`orchestrator.ts#agentStableInstructionSections` already names this exact run and number:
+"32,338 tokens: 57% of every request … it is eight pinned playbooks." The attribution fix
+(`ed7839a`) landed the day after the run, which is why the run's manifests show only the
+fifteen generic labels and the remainder. Everything else the axis surfaced is bounded by a
+considered design: the action log is capped at ≤ 24k tokens (`FINDINGS_BUDGET_CEILING_TOKENS`,
+window-as-floor per `compactAgentLog`); compaction fired 0 of 309 times because the peak
+request was 59,172 tokens — 46% of an ASSUMED 128k window (`limitAssumed: true` on all 309)
+— so a window-fraction trigger could not fire; the 24 byte-identical `get_timeline` results
+(17 same-turn, 7 cross-turn) cost digest-size in context, not the 74 KB the transcript
+shows, because the model reads `summarizeReadResult`/`EvidenceStore.preview` (900 chars),
+not the card payload. **No new defect. All axes on this transcript are now exhausted.**
 
 ---
 

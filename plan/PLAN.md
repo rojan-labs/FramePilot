@@ -57,8 +57,11 @@ table and corrects this file's earlier "exhausted" claim.
   `6d52298`.
 - `[x]` GOLDEN-C.13 — **"silent" says what level it means.** Engine payload, card, digest,
   description; 0 tokens on every frozen surface. Commit `bf60c39`.
-- `[ ]` GOLDEN-C.14 — **walk the cost axis of `run.md`.** Which of the 153 steps spent the
-  $27.76, and on what. The one axis with a plausible remaining yield.
+- `[x]` GOLDEN-C.14 — **the cost axis of `run.md`, walked: no new defect.** 67% of context
+  tokens were the manifest's remainder row — eight pinned playbooks, attributed by `ed7839a`
+  the day after the run. Log bounded at 24k by design; compaction could not fire under half
+  an assumed window; duplicate reads cost digest-size. `BASELINES.md` "cost axis". Every axis
+  on this transcript is now exhausted.
 
 **Prior snapshot (2026-09-05d, GOLDEN-EVAL — goal.md Phase 0):** **no new run — credits
 conserved.** The four open engine defects (GOLDEN-C.4, C.5, C.6, and the word-boundary

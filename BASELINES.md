@@ -46,6 +46,55 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## cost axis — 2026-09-06 — **walked; no new defect; confirms the pinned-playbook conclusion**
+
+**No run, no code change.** This entry exists so the next person does not re-derive it: the
+last unwalked axis on `run.md` was walked and produced a confirmation, not a finding.
+
+| what was attributed | figure |
+| --- | --- |
+| estimated context tokens, 309 requests | 12.36M |
+| `system`-tier "additional request content" | **8.22M — 67%**; p50 28,190/request; 385 → 34,742 |
+| `tool_schemas` | 4.71M; 6,710 → 15,921/request |
+| `retrieved_evidence` | 1.58M; max 3,088/request |
+| pinned `skill` | 0.51M; **flat 1,649** |
+| compaction fired | **0 of 309** |
+| peak `estimatedInputTokensBeforeSend` | 59,172 — 46% of an ASSUMED 128k window (`limitAssumed: true`, all 309) |
+| `get_timeline` calls / byte-identical results | 58 / 24 (17 same-turn, 7 cross-turn) |
+
+### What the 67% is, and why it looked like a defect twice
+
+"additional request content" is the manifest's **remainder row** — whatever the request held
+that no named section accounted for. I read it first as the rolling action log (bounded at
+24k by `compactAgentLog`, so it could not be), then as the state briefing (12.6 KB of facts
+— could not be either), before measuring. `orchestrator.ts#agentStableInstructionSections`
+names this run and this number: **"32,338 tokens: 57% of every request … eight pinned
+playbooks."** The attribution landed in `ed7839a` on 2026-09-05, the day after the run —
+which is why this transcript's manifests carry only the fifteen generic labels plus the
+remainder. `REMAINING.md` §2.6 already recorded the conclusion; this entry adds the
+per-section arithmetic behind it.
+
+### Ruled out on this axis, with the reason
+
+- **The action log is not runaway.** `FINDINGS_BUDGET_CEILING_TOKENS = 24_000`; the window
+  is a floor and the budget is the bound (a considered change, `plan/PLAN.md` "The action
+  log discarded what the run had just learned").
+- **Compaction "never firing" is not a defect here.** The trigger is a window fraction and
+  the peak request was under half an assumed window. Whether an assumed limit should ever
+  gate compaction is a fair question; this run does not show a cost it would have saved.
+- **Duplicate reads are not a payload cost.** Same-turn duplicates are already split into
+  later batches and memo-served (present since the initial commit); the model reads a
+  900-char preview or a digest, not the 74 KB card payload. The 7 cross-turn repeats remain
+  under §2.5's deliberate "reads are 42%" decision.
+
+### Not evidence of
+
+- Anything about the model. No sample was taken.
+- The +141 (`measure_color` → core) being offset: the pinned-playbook mass is a property of a
+  153-step run, and that trade is unchanged.
+
+---
+
 ## continued sweep — 2026-09-06 — **no run; four more defects out of `run.md` on an axis the "exhausted" verdict had not tried**
 
 **No new sampling of the model.** Every value below and in every earlier entry is unchanged.
