@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from framepilot_engine.render.frame_grid import is_on_frame_grid
 from framepilot_engine.timeline.models import (
     BlendMode,
     CaptionStyle,
@@ -964,6 +965,27 @@ def test_set_clip_speed_source_end_none_treated_as_1to1() -> None:
     )
     slowed = apply_operation(timeline, SetClipSpeed(clip_id="A", speed=0.5))
     assert _clips(slowed, "v")[0].end == 8.0
+
+
+def test_set_clip_speed_off_grid_without_fps_matches_the_ts_default() -> None:
+    """No fps means the pre-grid arithmetic, unchanged — the TS default too."""
+    fast = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=1.3))
+    assert _clips(fast, "v")[0].end == pytest.approx(4 / 1.3, abs=1e-12)
+
+
+def test_set_clip_speed_snaps_the_retimed_end_to_the_project_grid() -> None:
+    """Mirror of ``retime-frame-grid.test.ts``: 4s of source at 1.3x on a 30fps grid."""
+    fast = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=1.3), fps=30)
+    end = _clips(fast, "v")[0].end
+    assert end == pytest.approx(92 / 30, abs=1e-12)
+    assert is_on_frame_grid(end, 30)
+
+
+def test_set_clip_speed_never_collapses_the_clip_at_an_extreme_rate() -> None:
+    frozen = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=600), fps=30)
+    clip = _clips(frozen, "v")[0]
+    assert clip.end > clip.start
+    assert clip.end - clip.start == pytest.approx(1 / 30, abs=1e-12)
 
 
 @pytest.mark.parametrize("bad", [0, -1, float("inf"), float("nan")])

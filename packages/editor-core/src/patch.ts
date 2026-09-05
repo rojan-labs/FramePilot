@@ -16,7 +16,12 @@ import type {
   TranscriptWord,
 } from '@framepilot/timeline-schema';
 import { assertOperationContract } from './operation-contract.js';
-import { applyOperation, invertOperation, type Operation } from './operations.js';
+import {
+  applyOperation,
+  invertOperation,
+  type ApplyContext,
+  type Operation,
+} from './operations.js';
 import {
   applyProjectOperation,
   invertProjectOperation,
@@ -34,12 +39,7 @@ export type PatchAuthor = 'user' | 'agent';
 
 /** Patch lifecycle states (PRD §8.4). */
 export type PatchStatus =
-  | 'proposed'
-  | 'validated'
-  | 'previewed'
-  | 'applied'
-  | 'reverted'
-  | 'failed';
+  'proposed' | 'validated' | 'previewed' | 'applied' | 'reverted' | 'failed';
 
 export interface Patch {
   readonly patchId: PatchId;
@@ -86,7 +86,7 @@ export class PatchError extends Error {
  * That makes lock/range/keyframe/effect/audio safety a property of the canonical
  * patch authority for every caller.
  */
-export function applyPatch(timeline: Timeline, patch: Patch): Timeline {
+export function applyPatch(timeline: Timeline, patch: Patch, context?: ApplyContext): Timeline {
   let working = timeline;
   for (let i = 0; i < patch.operations.length; i += 1) {
     const op = patch.operations[i]!;
@@ -99,7 +99,7 @@ export function applyPatch(timeline: Timeline, patch: Patch): Timeline {
     }
     try {
       assertOperationContract(working, op);
-      working = applyOperation(working, op);
+      working = applyOperation(working, op, context);
     } catch (cause) {
       throw new PatchError(patch.patchId, i, cause);
     }
@@ -121,7 +121,10 @@ export function applyProjectPatch(project: Project, patch: Patch): Project {
         working = applyProjectOperation(working, op);
       } else {
         assertOperationContract(working.timeline, op);
-        working = { ...working, timeline: applyOperation(working.timeline, op) };
+        working = {
+          ...working,
+          timeline: applyOperation(working.timeline, op, { fps: working.fps }),
+        };
       }
     } catch (cause) {
       log.error('applyProjectPatch failed', {
@@ -230,7 +233,7 @@ export function collapseClipSnapshots<T extends AnyOperation>(
   return kept.length < inverseOps.length ? kept : null;
 }
 
-export function invertPatch(timelineBefore: Timeline, patch: Patch): Patch {
+export function invertPatch(timelineBefore: Timeline, patch: Patch, context?: ApplyContext): Patch {
   let working = timelineBefore;
   const inverseOps: Operation[] = [];
   for (const op of patch.operations) {
@@ -238,8 +241,8 @@ export function invertPatch(timelineBefore: Timeline, patch: Patch): Patch {
       throw new Error(`Operation "${op.type}" is project-scoped; use invertProjectPatch.`);
     }
     assertOperationContract(working, op);
-    inverseOps.unshift(...invertOperation(working, op));
-    working = applyOperation(working, op);
+    inverseOps.unshift(...invertOperation(working, op, context));
+    working = applyOperation(working, op, context);
   }
   return {
     patchId: `${patch.patchId}__inverse` as PatchId,
@@ -258,8 +261,9 @@ export function invertProjectPatch(projectBefore: Project, patch: Patch): Patch 
       working = applyProjectOperation(working, op);
     } else {
       assertOperationContract(working.timeline, op);
-      inverseOps.unshift(...invertOperation(working.timeline, op));
-      working = { ...working, timeline: applyOperation(working.timeline, op) };
+      const context: ApplyContext = { fps: working.fps };
+      inverseOps.unshift(...invertOperation(working.timeline, op, context));
+      working = { ...working, timeline: applyOperation(working.timeline, op, context) };
     }
   }
   return {
@@ -271,8 +275,12 @@ export function invertProjectPatch(projectBefore: Project, patch: Patch): Patch 
   };
 }
 
-export function revertPatch(timeline: Timeline, inversePatch: Patch): Timeline {
-  return applyPatch(timeline, inversePatch);
+export function revertPatch(
+  timeline: Timeline,
+  inversePatch: Patch,
+  context?: ApplyContext,
+): Timeline {
+  return applyPatch(timeline, inversePatch, context);
 }
 
 // ---------------------------------------------------------------------------

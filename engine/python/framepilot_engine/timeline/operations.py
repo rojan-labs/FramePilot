@@ -23,6 +23,7 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
 from framepilot_engine.timeline.models import (
     AudioRole,
     BlendMode,
@@ -634,19 +635,40 @@ def _insert_clip(timeline: Timeline, track_id: str, clip: Clip) -> Timeline:
 # ---------------------------------------------------------------------------
 
 
-def apply_operation(timeline: Timeline, operation: Operation) -> Timeline:
+def apply_operation(
+    timeline: Timeline, operation: Operation, *, fps: float | None = None
+) -> Timeline:
     """Apply ``operation`` to ``timeline``, returning a new immutable timeline.
 
     The input timeline is never mutated.
 
     :param timeline: The timeline to transform.
     :param operation: The operation to apply.
+    :param fps: Project frame rate, when the caller knows it. Only ``set_clip_speed``
+        reads it: that op carries no time field, so the frame grid cannot reach it
+        through ``normalize_operation_time`` and the duration it INVENTS
+        (``source_duration / speed``) is almost never a whole number of frames.
+        ``None`` means "behave exactly as before" — mirrors
+        ``packages/editor-core/src/operations.ts#ApplyContext``.
     :returns: A new :class:`Timeline`.
     :raises OperationError: If the op references missing entities or would
         produce an invalid timeline.
     """
+    if fps is not None and isinstance(operation, SetClipSpeed):
+        return _apply_set_clip_speed(timeline, operation, fps=fps)
     handler = _APPLY[operation.type]
     return handler(timeline, operation)
+
+
+def _snap_retimed_end(start: float, end: float, fps: float) -> float:
+    """Resolve a retimed clip's ``end`` onto the project frame grid.
+
+    Frame arithmetic rather than a bare snap, so an extreme rate can never collapse
+    the clip onto its own start frame. Mirrors ``operations.ts#snapRetimedEnd``.
+    """
+    start_frame = seconds_to_frame(start, fps)
+    end_frame = max(start_frame + 1, seconds_to_frame(end, fps))
+    return frame_to_seconds(end_frame, fps)
 
 
 def _source_range_rejection(label: str, clip: Clip, source_start: float, source_end: float) -> str:
@@ -1210,7 +1232,9 @@ def _apply_set_caption_style(timeline: Timeline, op: SetCaptionStyle) -> Timelin
     )
 
 
-def _apply_set_clip_speed(timeline: Timeline, op: SetClipSpeed) -> Timeline:
+def _apply_set_clip_speed(
+    timeline: Timeline, op: SetClipSpeed, *, fps: float | None = None
+) -> Timeline:
     loc = _find_clip(timeline, op.clip_id)
     speed = op.speed if op.speed is not None else 1.0
     if not (speed == speed and abs(speed) != float("inf")) or speed <= 0:
@@ -1224,9 +1248,11 @@ def _apply_set_clip_speed(timeline: Timeline, op: SetClipSpeed) -> Timeline:
     source_duration = source_end - clip.source_start
     # Canonicalize 1x as *absent* (``None``): a reset lands on a timeline deep-equal
     # to a clip that never had a speed set (mirrors the TS canonical form).
+    exact_end = clip.start + source_duration / speed
+    end = exact_end if fps is None else _snap_retimed_end(clip.start, exact_end, fps)
     next_clip = _clone_clip(clip).model_copy(
         update={
-            "end": clip.start + source_duration / speed,
+            "end": end,
             "speed": None if abs(speed - 1.0) <= _EPSILON else speed,
         }
     )

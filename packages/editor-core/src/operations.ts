@@ -40,6 +40,7 @@ import type {
   AudioEqBand,
 } from './edit-value-contracts.js';
 import { transitionEligibility } from './edit-boundaries.js';
+import { frameToSeconds, secondsToFrame } from './frame-grid.js';
 import { evaluateKeyframes } from './keyframes.js';
 import {
   DEFAULT_TRANSITION_ALIGNMENT,
@@ -944,6 +945,46 @@ function mappingChanged(before: Timeline, after: Timeline): boolean {
 }
 
 /**
+ * Optional project facts an operation needs but a {@link Timeline} does not carry.
+ *
+ * WHY this exists at all: `set_clip_speed` does not carry a time field, so
+ * `normalizeOperationTime` correctly leaves it alone — and then `apply` INVENTS one,
+ * `end = start + sourceDuration / speed`, which is almost never a whole number of
+ * frames. `refine-tighten` r1 turn 2 made 16 retimes at 1.3x and produced exactly 16
+ * off-grid edges. The grid rule exists so preview and export agree about where a cut
+ * is; a retime is a cut like any other, so the rate has to be resolved against the
+ * project's frame grid at the moment the duration is computed.
+ *
+ * Optional, and absent means "behave exactly as before": every existing caller that
+ * holds only a `Timeline` keeps compiling and keeps its current numbers. The product
+ * paths that matter — {@link applyProjectPatch} and {@link invertProjectPatch} — hold a
+ * `Project` and therefore always pass `fps`, so the invariant holds where edits are
+ * actually committed.
+ */
+export interface ApplyContext {
+  /** Project frame rate. Positive and finite, or the context is ignored. */
+  readonly fps?: number;
+}
+
+function gridFps(context: ApplyContext | undefined): number | null {
+  const fps = context?.fps;
+  return typeof fps === 'number' && Number.isFinite(fps) && fps > 0 ? fps : null;
+}
+
+/**
+ * Resolve a retimed clip's `end` onto the project frame grid.
+ *
+ * Frame arithmetic rather than a `snapSecondsToFrame(end)` alone, because a retime must
+ * never collapse the clip: at 60x on a 12-frame source the exact end rounds onto the
+ * start's own frame, and a zero-length clip is a worse answer than a one-frame one.
+ */
+function snapRetimedEnd(start: Seconds, end: Seconds, fps: number): Seconds {
+  const startFrame = secondsToFrame(start, fps);
+  const endFrame = Math.max(startFrame + 1, secondsToFrame(end, fps));
+  return frameToSeconds(endFrame, fps);
+}
+
+/**
  * Apply a single operation to a timeline, returning a new immutable timeline.
  * The input timeline is never mutated.
  *
@@ -958,14 +999,22 @@ function mappingChanged(before: Timeline, after: Timeline): boolean {
  * @throws {OperationError} when the operation references missing entities or
  *   would produce an invalid timeline.
  */
-export function applyOperation(timeline: Timeline, op: Operation): Timeline {
-  const next = applyOperationInner(timeline, op);
+export function applyOperation(
+  timeline: Timeline,
+  op: Operation,
+  context?: ApplyContext,
+): Timeline {
+  const next = applyOperationInner(timeline, op, context);
   if (!mappingChanged(timeline, next)) return next;
   return { ...next, revision: (timeline.revision ?? 0) + 1 };
 }
 
 /** The operation dispatch itself; {@link applyOperation} adds revision tracking. */
-function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
+function applyOperationInner(
+  timeline: Timeline,
+  op: Operation,
+  context: ApplyContext | undefined,
+): Timeline {
   switch (op.type) {
     case 'trim_clip':
       return applyTrim(timeline, op);
@@ -1012,9 +1061,9 @@ function applyOperationInner(timeline: Timeline, op: Operation): Timeline {
     case 'set_caption_cue':
       return applySetCaptionCue(timeline, op);
     case 'set_clip_speed':
-      return applySetClipSpeed(timeline, op);
+      return applySetClipSpeed(timeline, op, context);
     case 'set_clip_speed_ramp':
-      return applySetClipSpeedRamp(timeline, op);
+      return applySetClipSpeedRamp(timeline, op, context);
     case 'set_clip_crop':
       return applySetClipCrop(timeline, op);
     case 'set_clip_blend_mode':
@@ -2188,7 +2237,11 @@ function scaleKeyframesToDuration(clip: Clip, newDuration: Seconds): Keyframe[] 
   return clip.keyframes.map((keyframe) => ({ ...clone(keyframe), time: keyframe.time * ratio }));
 }
 
-function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
+function applySetClipSpeed(
+  timeline: Timeline,
+  op: SetClipSpeedOp,
+  context?: ApplyContext,
+): Timeline {
   const loc = findClip(timeline, op.clipId);
   const speed = op.speed ?? 1;
   if (!Number.isFinite(speed)) {
@@ -2209,7 +2262,9 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
   // holding a frame for the length it already occupied is the only answer that
   // does not invent a number, and the UI sets the span explicitly afterwards.
   if (speed !== 0) {
-    next.end = clip.start + sourceDuration / Math.abs(speed);
+    const fps = gridFps(context);
+    const exact = clip.start + sourceDuration / Math.abs(speed);
+    next.end = fps === null ? exact : snapRetimedEnd(clip.start, exact, fps);
     // The clip's span changed, so its animation stretches with it.
     next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
   }
@@ -2233,6 +2288,21 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
  * `ramp: null` (or an empty array) clears the curve back to constant speed.
  */
 /**
+ * Would re-applying this clip's OWN speed land back on its own `end`?
+ *
+ * Mirrors `applySetClipSpeed`/`applySetClipSpeedRamp`'s duration arithmetic exactly,
+ * frame snap included, so the answer is the real one rather than an approximation of it.
+ */
+function speedInverseIsExact(clip: Clip, fps: number): boolean {
+  const sourceDuration = clip.sourceEnd - clip.sourceStart;
+  const duration = hasSpeedRamp(clip)
+    ? clipTimelineDuration(clip)
+    : sourceDuration / Math.abs(clip.speed ?? 1);
+  if (duration === null || !Number.isFinite(duration)) return false;
+  return snapRetimedEnd(clip.start, clip.start + duration, fps) === clip.end;
+}
+
+/**
  * The exact inverse of any speed change — constant or curve (ADR 0090).
  *
  * Shared by `set_clip_speed` and `set_clip_speed_ramp` because the two are one
@@ -2249,11 +2319,26 @@ function applySetClipSpeed(timeline: Timeline, op: SetClipSpeedOp): Timeline {
  * The track snapshot is the established answer for a lossy op here
  * (`delete_range`, `ripple_delete`, `remove_keyframes` all use it).
  */
-function invertSpeedChange(timelineBefore: Timeline, clipId: string): Operation[] {
+function invertSpeedChange(
+  timelineBefore: Timeline,
+  clipId: string,
+  context?: ApplyContext,
+): Operation[] {
   const { clip, track } = findClip(timelineBefore, clipId);
   if (clip.speed === 0) {
     return [{ type: 'restore_clips', trackId: track.id, clips: track.clips.map(clone) }];
   }
+  // The same-shape inverse is only honest while re-applying the prior rate REPRODUCES
+  // the prior `end`. Snapping the retime to the frame grid can break that: a clip whose
+  // `end` predates the grid (an old project, a hand-built literal) would come back on a
+  // frame boundary it never sat on. Undo is a promise about the FILE, so where the
+  // arithmetic cannot prove itself, fall back to the file's own answer — the same rule
+  // `move_clip` above applies to its ULP.
+  // Only where the grid is actually in play: with no fps the arithmetic is unchanged
+  // from before this rule existed, and re-deciding those inverses would be a silent
+  // behaviour change on every timeline-only caller.
+  const fps = gridFps(context);
+  if (fps !== null && !speedInverseIsExact(clip, fps)) return [restoreFor(track)];
   if (hasSpeedRamp(clip)) {
     // `hasSpeedRamp` above already guarantees a non-empty array.
     return [{ type: 'set_clip_speed_ramp', clipId, ramp: clip.speedRamp!.map(clone) }];
@@ -2264,7 +2349,11 @@ function invertSpeedChange(timelineBefore: Timeline, clipId: string): Operation[
   ];
 }
 
-function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Timeline {
+function applySetClipSpeedRamp(
+  timeline: Timeline,
+  op: SetClipSpeedRampOp,
+  context?: ApplyContext,
+): Timeline {
   const loc = findClip(timeline, op.clipId);
   const { clip } = loc;
   const points = op.ramp ?? [];
@@ -2293,7 +2382,9 @@ function applySetClipSpeedRamp(timeline: Timeline, op: SetClipSpeedRampOp): Time
   }
   const duration = clipTimelineDuration(next);
   if (duration !== null) {
-    next.end = clip.start + duration;
+    const fps = gridFps(context);
+    const exact = clip.start + duration;
+    next.end = fps === null ? exact : snapRetimedEnd(clip.start, exact, fps);
     // Same rule as a constant speed: a ramp is a time stretch too.
     next.keyframes = scaleKeyframesToDuration(clip, next.end - next.start);
   }
@@ -2376,7 +2467,11 @@ function assertPositiveRange(start: Seconds, end: Seconds, label: string): void 
  * @returns Operations that, applied in order, restore `timelineBefore`.
  * @throws {OperationError} when `op` references entities missing from `timelineBefore`.
  */
-export function invertOperation(timelineBefore: Timeline, op: Operation): Operation[] {
+export function invertOperation(
+  timelineBefore: Timeline,
+  op: Operation,
+  context?: ApplyContext,
+): Operation[] {
   switch (op.type) {
     case 'trim_clip': {
       const { clip, track } = findClip(timelineBefore, op.clipId);
@@ -2496,13 +2591,11 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
           // track back unlabelled, and `duck_roles` quietly stopped finding it.
           ...(track.role === undefined ? {} : { role: track.role }),
         },
-        ...effectLayersOf(track).map(
-          (layer): AddEffectLayerOp => ({
-            type: 'add_effect_layer',
-            trackId: track.id,
-            layer: clone(layer),
-          }),
-        ),
+        ...effectLayersOf(track).map((layer): AddEffectLayerOp => ({
+          type: 'add_effect_layer',
+          trackId: track.id,
+          layer: clone(layer),
+        })),
       ];
     }
     case 'add_effect_layer':
@@ -2591,7 +2684,7 @@ export function invertOperation(timelineBefore: Timeline, op: Operation): Operat
       // drift accumulates over repeated speed edits. Restoring the track is exact.
       const { clip, track } = findClip(timelineBefore, op.clipId);
       if (clip.keyframes.length > 0) return [restoreFor(track)];
-      return invertSpeedChange(timelineBefore, op.clipId);
+      return invertSpeedChange(timelineBefore, op.clipId, context);
     }
     case 'set_clip_crop': {
       // Same-shape inverse: restore the clip's prior crop wholesale (`null`
