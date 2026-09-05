@@ -39,6 +39,13 @@ each with a reproducing test, plus one new find:**
    `get_mapped_transcript` reports the edit point in seconds AND frames naming the same
    instant, so the quantizer cannot round a cut across the boundary it was aimed at.
 5. **A catalogue id finds its own bin asset** (`3d2364f`). New, from the `run.md` sweep.
+6. **The motion domain can build the speed ramp it advertised** (`7853985`). Zero
+   `set_clip_speed_ramp` in 1,064,476 lines against a brief that asked for one, six times.
+7. **`measure_color` is a look at the edit, and a stage refusal says which kind it is**
+   (`6b41ff4`). +141 tokens/request, measured.
+8. **A turn the timeline already matched is not progress** (`6d52298`).
+9. **"Silent" says what level it means** (`bf60c39`).
+10. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7).
 
 Cost of all of it on the frozen token surfaces: **+169 tokens per request**
 (`tool_schemas` 7,027 → 7,196), entirely from the `reorder_clips` tool. A first draft of
@@ -47,24 +54,36 @@ this session moved a golden.
 
 ---
 
-## 1b. `run.md` IS EXHAUSTED — stop mining it
+## 1b. `run.md` — which axes are exhausted, and which was not
 
-Session 7 swept it on four axes (distinct error strings, non-completed tool outcomes by
-name, warnings, and failed recalls). **Every promising lead was already closed, each by a
-fix whose docstring cites run `137d8fd0` by name.** Recording them so a fifth sweep does
-not spend a session re-deriving them:
+Session 7 first declared this transcript exhausted after four sweeps and recorded a table
+of leads that look open and are closed. **That verdict was wrong, and the reason is worth
+more than the table.** All four axes were FAILURE-shaped — distinct error strings,
+non-completed tool outcomes, warnings and notices, failed recalls — and each re-derived
+defects already closed by fixes whose docstrings cite this run by name. Then a fifth axis,
+PROMISE-shaped — walk the brief's seven explicit asks against the 416 applied operations —
+found four defects in one pass, none of which had failed: the run simply never did the
+thing, or did it and reported it in words that meant something else.
+
+**Exhausted (do not re-mine):** error strings · tool outcomes by name · warnings/notices ·
+failed recalls. The leads they produce and where each is closed:
 
 | looks like a defect | actually | where it is closed |
 | --- | --- | --- |
-| `add_music` refused on an empty duck target, telling a no-dialogue snowboarding edit to "place the dialogue first" | closed — the refusal now names the tracks that DO carry sound and says a video track counts | `editor-core/src/music-placement.ts#duckCandidateSentence` |
-| 27 recalls answered "no such handle" for ids the run had genuinely been issued (`ev_14` is in the evidence index AND cited by `fact_28.evidenceIds`) | closed — invalidated handles leave a tombstone, so an expired read is distinguishable from an invented one | `ai-sdk/src/kernel/evidence-store.ts#expired` |
-| 11 `caption_the_edit` failures, 10 `professional_audio`, 3 `render_preview`, 2 `add_clip`, 2 `track_subject_automatically` | closed in sessions 3–5 | `BASELINES.md` "session 3" |
-| `load_tools` failed once | not a defect — one refusal, remedy stated, self-corrected next call | — |
-| 144 `add_music` failure lines | ONE failure re-serialised; count distinct `op_N` ids before quoting a volume | — |
+| `add_music` refused on an empty duck target | closed — names the tracks that DO carry sound | `music-placement.ts#duckCandidateSentence` |
+| 27 recalls answered "no such handle" for issued ids | closed — invalidated handles leave a tombstone | `evidence-store.ts#expired` |
+| caption / audio / render failure clusters | closed in sessions 3–5 | `BASELINES.md` "session 3" |
+| `load_tools` failed once | one refusal, remedy stated, obeyed next call | — |
+| 144 `add_music` failure lines | ONE failure re-serialised | — |
 
-The single new defect this sweep produced is the catalogue-id one (`3d2364f`). The other
-session-7 find (`d91b321`, a refusal's key moving with the project) came from reading
-CURRENT code, not the transcript — `run.md` predates the change that caused it.
+**Walked once, and it yielded (brief-vs-delivery):** the ramp (`7853985`), the colour
+measurement (`6b41ff4`), the level re-sets (`6d52298`), the silence answer (`bf60c39`).
+Markers-before-cuts, the music bed and the punch-in were honoured; the second deliverable
+(a horizontal 60 s beside the vertical) is a single-project aspect limit, not an agent
+fault. `BASELINES.md` "continued sweep" has the table.
+
+**Not yet walked:** the cost axis — which of the 153 steps spent the $27.76, and on what.
+That is the one remaining axis with a plausible yield.
 
 ---
 
@@ -119,7 +138,7 @@ measuring the change means a NEW label over those cases, deliberately, as its ow
 whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was already
 0.50.
 
-### 2.3 Deferred, and stated rather than done
+### 2.4 Deferred, and stated rather than done
 
 - **The web-editor reorder gesture is DONE** — right-click a clip → "Move earlier / later
   in sequence", built on `reorder_clips` so the track re-lays gaplessly and one undo
@@ -134,13 +153,13 @@ whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was 
 - **ADR 0166 (the deleted wipe guard)** stays deleted. ADR 0173 records why: the guard
   catches two of the five content-loss failures and misses the three 5→1 cases.
 
-### 2.4 Reads are 42% of tool calls — still deliberately not fixed
+### 2.5 Reads are 42% of tool calls — still deliberately not fixed
 
 Unchanged, and the reasoning is unchanged: the memo cannot serve when every turn applies a
 patch that invalidates timeline-dependent evidence. The lever is `arrangementLine` carrying
 clip ids, a context-budget trade needing a measured before/after.
 
-### 2.5 Things ruled OUT, so nobody re-investigates them
+### 2.6 Things ruled OUT, so nobody re-investigates them
 
 Everything the previous handoff listed here still holds — compaction never fires, stop is
 not broken, the 144 `add_music` failures are one failure, the void-turn and

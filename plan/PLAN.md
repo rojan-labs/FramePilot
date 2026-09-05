@@ -38,7 +38,29 @@ request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
   `checkNoMidWordCuts` now reports `skipped: false` and measures; the cases score 1.00
   anyway. They went UP, not down — the prediction was wrong and the instrument is honest.
 
-**Current snapshot (2026-09-05d, GOLDEN-EVAL — goal.md Phase 0):** **no new run — credits
+**Current snapshot (2026-09-06, GOLDEN-EVAL — goal.md Phase 0):** **no run.** A fifth
+sweep of `run.md` on a promise-shaped axis (the brief's seven asks against the 416 applied
+operations) found four defects the failure-shaped axes had missed, all closed with
+reproducing tests: the motion domain advertised speed ramps and had no tool (C.10);
+`measure_color` was withheld in `apply` as if it were plan-time analysis (C.11, +141
+tokens/request measured); an identical no-op re-set counted as progress (C.12); and
+"silent" carried no level (C.13). `BASELINES.md` "continued sweep" has the brief-vs-delivery
+table and corrects this file's earlier "exhausted" claim.
+
+- `[x]` GOLDEN-C.10 — **the motion domain can build the speed ramp it advertised.**
+  `set_clip_speed_ramp` tool + Python mirror + validator fix; +262 tokens only when the
+  motion domain is loaded. Commit `7853985`.
+- `[x]` GOLDEN-C.11 — **`measure_color` is a look at the edit.** Joins the look set; moved
+  to core per the core-membership invariant; the stage refusal now says whether it is a
+  latch or the stage rule. +141 tokens/request, measured. Commit `6b41ff4`.
+- `[x]` GOLDEN-C.12 — **a turn the timeline already matched is not progress.** Commit
+  `6d52298`.
+- `[x]` GOLDEN-C.13 — **"silent" says what level it means.** Engine payload, card, digest,
+  description; 0 tokens on every frozen surface. Commit `bf60c39`.
+- `[ ]` GOLDEN-C.14 — **walk the cost axis of `run.md`.** Which of the 153 steps spent the
+  $27.76, and on what. The one axis with a plausible remaining yield.
+
+**Prior snapshot (2026-09-05d, GOLDEN-EVAL — goal.md Phase 0):** **no new run — credits
 conserved.** The four open engine defects (GOLDEN-C.4, C.5, C.6, and the word-boundary
 half of C.3) are **closed with reproducing tests**, and the most expensive one was
 measured shut by `--replay`, which costs nothing: `beat-sync` r1 goes from 121 tool calls

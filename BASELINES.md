@@ -46,6 +46,72 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## continued sweep — 2026-09-06 — **no run; four more defects out of `run.md` on an axis the "exhausted" verdict had not tried**
+
+**No new sampling of the model.** Every value below and in every earlier entry is unchanged.
+This entry records four fixes and one correction to this file's own record.
+
+| | |
+| --- | --- |
+| commits | `e56cf01` (C.7), `6b41ff4`, `6d52298`, `bf60c39` on `fix/agent-reliability-2026-09-05` |
+| what was mined | `run.md` — run `137d8fd0`, the same transcript as sessions 3–7, on a FIFTH axis: brief-vs-delivery |
+| measured token cost | **+141 per request** (`measure_color` into core, `tool_schemas` 7,196 → 7,337); **0** for the silence description (no frozen scenario loads `audio`); **0** for the satisfied-turn change (reducer only) |
+| suites | ai-sdk 4,651 · engine 2,847 · web-editor 2,989 — all green |
+
+### The correction first: "`run.md` is exhausted" was wrong
+
+`REMAINING.md` §1b said so after four sweeps — distinct error strings, non-completed tool
+outcomes, warnings/notices, failed recalls — each of which re-derived closed defects. All
+four are FAILURE-shaped: they find what the run said went wrong. The brief is PROMISE-shaped:
+seven explicit asks, each checkable against the 416 applied operations. Walking the brief
+found four defects the failure axes could not see, because nothing failed — the run simply
+never did the thing, or did it and reported it in words that meant something else.
+
+| brief ask | what the transcript shows | verdict |
+| --- | --- | --- |
+| "ramp into the 7:40 wipeout — fast in, slow on impact, back up" | ramp named as outstanding 6×; `set_clip_speed_ramp` 0 occurrences in 1,064,476 lines; motion domain advertised "speed ramps" and had no tool | fixed `7853985` (earlier) |
+| "Colour: measure what's actually on screen" | `measure_color` called 2×, refused both as an analysis tool in `apply`, told "available next turn" (false for a stage rule); zero measurements | fixed `6b41ff4` |
+| "fix the levels" | 62 `adjust_audio` ops, 37 distinct; `music_1_clip −18 dB` re-set 10× across turns 15→149, each credited as progress | fixed `6d52298` |
+| "check whether there's any real silence… tell me straight; I don't think there is" | 728 stretches / 131.8 s under the −30 dB default on wind-only audio; payload carried no floor; editor told "silences catalogued" | fixed `bf60c39` |
+| "drop markers before you cut anything" | first `add_marker` turn 0, first `add_clip` turn 12 | honoured |
+| "find a driving track, lay it underneath" | 2 music clips on a music-role track in the final timeline | landed (the duck failed; the bed did not) |
+| "punch in on the rider in the red jacket ~2:00" | 3 `punch_in` calls, all completed | landed |
+| "a 60-second highlight, plus a vertical cut" | project is 1080×1920; 0 mentions of 1920×1080 | one deliverable — a single project holds one aspect; product limit, not agent fault |
+
+### The four, and what proves each
+
+1. **`measure_color` is a look at the edit** (`6b41ff4`). `tool-contract.ts` already gave
+   it and `get_frame` an identical entry under a docstring calling both "PICTURE
+   measurements"; the stage policy withheld one and not the other. It joins
+   `VERIFICATION_LOOK_TOOL_NAMES`. The core-membership invariant then correctly refused
+   ("a self-check the model cannot see is an opt-in"), so it moved into core: **+141
+   tokens/request, measured before regenerating.** Separately, the stage refusal lied
+   about the way out — "available again on the next turn" is true of a recovery latch and
+   false of the stage rule — and now says which.
+2. **A turn the timeline already matched is not progress** (`6d52298`). Session 3 made the
+   note honest and plumbed `satisfied` so such a turn is not a rejection, but left the
+   attempt's progress credit, so every identical no-op reset the stall streak, the
+   no-progress streak and the research budget. Three lines; two tests; the rejection tally
+   untouched.
+3. **"Silent" says what level it means** (`bf60c39`). The response now carries the applied
+   `noiseFloorDb` and `minSilenceSeconds`; the card says "under −30 dB"; the digest says it
+   is a level and not a judgement; the description defines the word before the call.
+4. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7). Right-click → move earlier /
+   later, on `reorder_clips`.
+
+### Not evidence of
+
+- **Any model-facing metric moving.** No sample was taken. All four are runtime or
+  instrument changes whose effect on intent accuracy, first-pass acceptance or tokens per
+  accepted edit is unmeasured.
+- **`run.md` being exhausted, on any axis not yet tried.** Two failure-shaped axes and one
+  promise-shaped axis are now done. A cost-shaped axis (which turns spent the $27.76, and on
+  what) has not been walked.
+- **The +141 being a net cost.** It is a per-request cost on every run; whether a colour
+  check that can actually run pays for it is a run's question.
+
+---
+
 ## CORRECTION to `s7-gapfill` — 2026-09-06 — **the "regression" that made me revert was the instrument working**
 
 No new run. This corrects a CONCLUSION recorded in the `s7-gapfill` entry below; **that
