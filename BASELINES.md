@@ -46,6 +46,73 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## runs.jsonl — 2026-09-06 — **a new source; one defect closed; the s7 recordings are gone**
+
+**No run.** `framepilot.runs.jsonl` — the desktop's own per-call log — held 497 calls from
+2026-09-05 that no sweep had mined (the prior pass, `plan/PLAN.md` "Second pass", covered
+2,783 calls to 2026-09-04). Clustered by a 10-minute timestamp gap they are 8 runs. Every
+earlier entry in this file is unchanged.
+
+| | |
+| --- | --- |
+| commit | `617b427` on `fix/agent-reliability-2026-09-05` |
+| fresh calls / failed / warning | 497 / 10 / 3 |
+| by kind | mutate 314 · read 155 · analysis 13 · action 9 · ask 6 |
+| token cost of the fix | 0 — reducer only; no golden moved |
+| suites | ai-sdk 4,653 green |
+
+### The defect: a refusal no edit can fix was forgotten on every edit
+
+Nine of the ten failures are `render_preview`, refused with the identical sentence the
+sidecar executor produces for a tool with no route on the surface — and **eight of them
+are one run** (06:43–08:09, 308 calls). Not one carried the "already failed this run"
+wrapper. The cause WAS declared (`refusalCause: 'surface_unavailable'`, from `1bd2f87`,
+built for exactly this); the key WAS banked. The conductor's applied branch then cleared
+`seenFailureKeys` on every landed edit — correct for a validator refusal, which describes
+an arrangement the patch just replaced — and between every consecutive pair of the eight
+there were **3–69 completed mutations**. The memory was wiped before every retry.
+
+Fixed by naming the class rather than special-casing the tool:
+`tool-refusal.ts#ARRANGEMENT_INDEPENDENT_CAUSES` (`surface_unavailable`; deliberately not
+`picture_over_picture`, which the next patch can moot) and `survivesAppliedEdit`. The
+applied branch now keeps those keys and clears the rest.
+
+### Also in the fresh slice, and why each is not new
+
+- 44 `move_clip` and one overlap rejection at 11:55 — the reorder-by-move pattern
+  `reorder_clips` replaces; all before `a080900` (21:42 the same day).
+- `get_mapped_transcript held back — this turn is for acting …` at 08:05 — the stage-rule
+  refusal whose wording `6b41ff4` corrected later that evening.
+- Four `Refused repeat` rows exist elsewhere in the file (`transcribe`, `move_clip` ×2,
+  `caption_the_edit`), which is what proves the guard works for arrangement-dependent keys
+  and isolates the defect to the surface class.
+
+### Housekeeping that matters for the next person: the `s7` recordings are gone
+
+`reports/golden/*/recordings/` is gitignored. The `s7-gapfill`, `s7-clarify-fix` and
+`s7-replay` recordings existed only in the `../FramePilot-reliability-s7` worktree, which
+was removed with `--force` on the maintainer's instruction after the merge; the merge could
+not carry ignored files. **Every committed `cases/*.json` is intact** — scores, checks,
+metrics, `asked`, assistant text — so the evidence stands. What is lost is `--replay` for
+those runs. Copy `recordings/` out before removing a worktree that produced a run.
+
+### Left open, with the numbers, because the recording is what would settle it
+
+`captions-uppercase-bottom` scored 1.00 and cost $1.56 — 2× the next case — on 19 model
+calls, with `set_track_caption_style` called **13 times** on one track
+(`repeatedToolCalls: 13`). One style was asked for. `orchestrator.ts:5205` already detects a
+byte-identical re-apply that changed nothing, so the thirteen were almost certainly
+DISTINCT styles — iteration toward "uppercase, bottom", or churn — and telling which needs
+the call arguments, which lived in the recording. Filed as GOLDEN-C.16; needs a run.
+
+### Not evidence of
+
+- Anything about the model — no sample taken.
+- `runs.jsonl` being exhausted: only the ≥ 2026-09-05 slice was walked; entries from
+  2026-08-28 to 09-04 were covered by the prior pass.
+
+---
+
 ## cost axis — 2026-09-06 — **walked; no new defect; confirms the pinned-playbook conclusion**
 
 **No run, no code change.** This entry exists so the next person does not re-derive it: the

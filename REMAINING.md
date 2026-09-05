@@ -46,6 +46,9 @@ each with a reproducing test, plus one new find:**
 8. **A turn the timeline already matched is not progress** (`6d52298`).
 9. **"Silent" says what level it means** (`bf60c39`).
 10. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7).
+11. **A refusal no edit can fix survives the edits** (`617b427`). From `runs.jsonl`, not
+    `run.md`: `render_preview` refused eight times in one 86-minute desktop run because
+    every landed edit wiped the memory of the refusal.
 
 Cost of all of it on the frozen token surfaces: **+169 tokens per request**
 (`tool_schemas` 7,027 → 7,196), entirely from the `reorder_clips` tool. A first draft of
@@ -98,6 +101,17 @@ request was 59,172 tokens — 46% of an ASSUMED 128k window (`limitAssumed: true
 (17 same-turn, 7 cross-turn) cost digest-size in context, not the 74 KB the transcript
 shows, because the model reads `summarizeReadResult`/`EvidenceStore.preview` (900 chars),
 not the card payload. **No new defect. All axes on this transcript are now exhausted.**
+
+**A second source, freshly mined:** `framepilot.runs.jsonl` (the desktop's per-call log)
+held 497 calls from 2026-09-05 nobody had read. It yielded one defect — a `render_preview`
+refusal that no edit can fix, forgotten on every edit (`617b427`) — and one open lead
+(GOLDEN-C.16, the 13× caption-style loop). `BASELINES.md` "runs.jsonl" has the table. Its
+≥ 2026-09-05 slice is now exhausted; older entries were covered by the earlier pass.
+
+**Operational loss to know about:** the `s7-*` golden RECORDINGS are gone — gitignored,
+they lived only in the worktree that was removed after the merge. Case files are intact;
+`--replay` of those runs is not possible. Copy `recordings/` out before removing a
+worktree.
 
 ---
 

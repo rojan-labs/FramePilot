@@ -57,6 +57,14 @@ table and corrects this file's earlier "exhausted" claim.
   `6d52298`.
 - `[x]` GOLDEN-C.13 — **"silent" says what level it means.** Engine payload, card, digest,
   description; 0 tokens on every frozen surface. Commit `bf60c39`.
+- `[x]` GOLDEN-C.15 — **a refusal no edit can fix survives the edits.** From
+  `framepilot.runs.jsonl`'s unmined 2026-09-05 slice: `render_preview` refused 8× in one
+  run, the `surface_unavailable` key wiped by every landed edit in between.
+  `ARRANGEMENT_INDEPENDENT_CAUSES` in `tool-refusal.ts`. Commit `617b427`.
+- `[ ]` GOLDEN-C.16 — **`set_track_caption_style` called 13× for one style.**
+  `captions-uppercase-bottom` (s7-gapfill) scored 1.00 at $1.56 and 19 model calls. The
+  byte-identical no-op detector exists, so these were likely distinct styles; iteration or
+  churn needs the call arguments, and that recording is gone. Needs a run.
 - `[x]` GOLDEN-C.14 — **the cost axis of `run.md`, walked: no new defect.** 67% of context
   tokens were the manifest's remainder row — eight pinned playbooks, attributed by `ed7839a`
   the day after the run. Log bounded at 24k by design; compaction could not fire under half
