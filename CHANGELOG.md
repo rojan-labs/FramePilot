@@ -8,6 +8,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Music can duck the sound it's actually playing under.** Asking for a bed that ducks
+  the wind down on a video with no dialogue used to fail: the AI was told to "place the
+  dialogue first", so it laid the track at full level instead and the instruction was
+  quietly dropped. A refusal now names the tracks it can duck under — including the
+  picture track, when the sound you mean is on the footage itself.
+- **Audio tracks can be labelled dialogue, music or sfx.** The AI could read those labels
+  but nothing could write them, so "duck the music under the dialogue" was impossible on
+  any project it hadn't built from scratch. It can label a track now, then duck by role.
+- **A title that runs off the frame gets flagged.** The self-check that was meant to catch
+  an overlay drifting outside the safe area had never actually looked at one. It does now,
+  and it also says when a headline's size or box puts part of it off the picture entirely.
+- **Captions stop putting words in b-roll's mouth.** On a project with stock footage or a
+  music bed, a caption could be attached to — and timed through — a clip that was never
+  speaking, including words the edit had already cut out. Captions and the transcript the
+  AI reads timings from now stay with the footage that carries the speech.
+- **Rejected edits say what to do next.** A refused split now says whether the cut is
+  already there and gives the clip's range; a rejected argument quotes the value it turned
+  down and names the one you probably meant; a clash between two clips names the moves that
+  resolve it.
 - **The AI stops making the same edit over and over.** It would set a clip to the same
   volume fifteen times, add the same transition nine times, and place the same shot on
   three different layers — leaving a sixty-second edit with nineteen video tracks, the

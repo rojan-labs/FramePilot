@@ -13,7 +13,32 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-05b, GOLDEN-EVAL — goal.md Phase 0):** the first live baseline
+**Status snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
+(credits conserved). A second, systematic sweep of the captured transcript `137d8fd0` —
+the full deduplicated inventory of its 44 failed and 42 warning tool calls, which the
+earlier pass did not read — plus the open handoff items, closed **eight more defects**.
+The one that changes how earlier numbers read: `checkNoMidWordCuts` returned `ok: true`
+for a check it could not perform, and the scorer counts that in both the numerator and the
+denominator, so **`podcast-highlight-60s`, `remove-dead-air`, `compound-silence-captions`
+and `hook-first` have each been awarding themselves a free point**. Their recorded scores
+are upper bounds; no recorded number was edited. Two capabilities that could never succeed
+on a real project — ducking a bed under footage that carries the sound, and `duck_roles` on
+any project the agent did not build — now can, at a measured cost of **+130 tokens per
+request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
+
+- `[x]` GOLDEN-B.3 — **eight defects from the second sweep of `137d8fd0`.** A duck refused
+  with no viable track named; an enum rejection that never quoted the value it refused; a
+  split and an overlap that stated the problem and no move; the hook rubric failing a run
+  for obeying its own prompt; a check that could not measure scored as one that passed; the
+  third and last copy of the unattributed-word fabrication, in the caption pipeline and in
+  `get_mapped_transcript`; a safe-area check that had never looked at an overlay; and
+  `Track.role`, readable since v17 with no writer after creation. Commits `cb906ac`,
+  `b738281`, `1f29a5c`, `f4cac2a`, `4c0cc0b`, `d9ac392`, `70b8bfe`, `118e7b1`.
+- `[ ]` GOLDEN-0.3 — re-run the four cases in `BASELINES.md` §"session 5" whose scores are
+  now known to be inflated. Expect them to come DOWN; that is the instrument getting
+  honest, not a regression.
+
+**Prior snapshot (2026-09-05b, GOLDEN-EVAL — goal.md Phase 0):** the first live baseline
 attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten cases in
 (122–660s per model call against a normal 7–30). Eight cases have clean evidence; on those
 31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
