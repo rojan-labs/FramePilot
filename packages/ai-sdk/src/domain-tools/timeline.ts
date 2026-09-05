@@ -728,10 +728,24 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // frame span is what a trim can actually be aimed at — "cut before she says but"
       // means a frame, and the model should not be deriving it from a float.
       const fps = ctx.project.fps;
+      // NEAREST, deliberately — see `frame-round-trip.test.ts`. A floor would place the
+      // cut a frame early; the reported frame is the one closest to where the word
+      // actually begins, and that decision is not what the word-boundary defect was about.
       const timedWords = words.map((w) => ({
         ...w,
         startFrame: secondsToFrame(w.start, fps),
         endFrame: secondsToFrame(w.end, fps),
+        // The SAME instants as the frames, expressed in seconds.
+        //
+        // Every cut tool takes seconds, and `quantizePatch` rounds whatever it is given to
+        // the nearest frame. So a run that read the right frame here and then passed the
+        // word's raw `start` — which is what the tools accept — had its cut rounded back
+        // across the word edge by the quantizer. It was doing everything asked of it. The
+        // fix is not another instruction: it is to stop publishing two answers to "when
+        // does this word begin". `start`/`end` remain in the payload as the measurement;
+        // these two are the edit points, and they are what the digest shows.
+        startSeconds: frameToSeconds(secondsToFrame(w.start, fps), fps),
+        endSeconds: frameToSeconds(secondsToFrame(w.end, fps), fps),
       }));
       return {
         words: timedWords,

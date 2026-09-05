@@ -2736,11 +2736,18 @@ export function summarizeReadResult(
       // P3.2: frames alongside seconds. A trim aimed at a word boundary has to be aimed
       // at a FRAME, and asking the model to derive one from a float is asking it to do the
       // arithmetic this tool exists to do for it.
+      // The seconds shown are the EDIT POINTS (`startSeconds`/`endSeconds`), which are the
+      // frames above expressed in seconds — not the raw measured word times. Publishing
+      // both invited the run to read the frame and then pass the float, which
+      // `quantizePatch` rounded back across the word edge; three turns of the session-6
+      // run went that way. Whichever number the model copies now, it names the same frame.
+      // The measurement is still in the payload for a recall.
       return `${head}:\n${boundedRecords(
         words,
         (w) =>
           `f${String(w.startFrame ?? '?')}–${String(w.endFrame ?? '?')} ` +
-          `(${round3(Number(w.start))}–${round3(Number(w.end))}s) ${String(w.word)}`,
+          `(${round3(Number(w.startSeconds ?? w.start))}–${round3(Number(w.endSeconds ?? w.end))}s) ` +
+          `${String(w.word)}`,
         'words',
         'narrow get_mapped_transcript to a window',
         WORD_DIGEST_MAX_ITEMS,

@@ -25,6 +25,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A cut aimed at a word no longer lands one frame inside it.** The transcript tool
+  reported which frame a word starts on, but every cut tool takes seconds — so a run that
+  read the right frame and then passed the word's measured time had its cut rounded back
+  across the word edge, clipping the first syllable. The tool now reports the edit point in
+  both units naming the same instant, so either one lands on the same frame.
+
 - **A run that hits the same wall twice now stops instead of paying for it.** When the AI
   proposed an edit the beat grid or the validator refused, it could re-propose a slightly
   different version of the same edit indefinitely: the refusal named the exact times that
