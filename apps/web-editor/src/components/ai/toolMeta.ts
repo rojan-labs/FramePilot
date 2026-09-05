@@ -162,6 +162,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   discover_caption_styles: { label: 'Browse caption styles', Icon: Search },
   auto_emphasize_captions: { label: 'Auto-emphasize captions', Icon: Sparkles },
   set_clip_speed: { label: 'Set clip speed', Icon: Gauge },
+  set_clip_speed_ramp: { label: 'Speed ramp', Icon: Gauge },
   set_clip_crop: { label: 'Crop/reframe clip', Icon: Crop },
   set_clip_blend_mode: { label: 'Set blend mode', Icon: Layers },
   discover_effects: { label: 'Browse effects', Icon: Search },

@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **You can reorder shots too, not just the AI.** Right-click a clip → "Move earlier in
+  sequence" / "Move later in sequence". The track re-lays itself end to end, every clip
+  keeps its own length and media, and one undo puts the order back. Until now this was an
+  AI-only capability: by hand it meant dragging each clip and hoping the gaps worked out.
+
 - **The AI can finally build a speed ramp.** "Ramp into the crash — fast in, slow on the
   impact, back up after" is a normal thing to ask for, the timeline has stored speed curves
   since v15, and the renderer has always played them — but the AI had no tool to make one,

@@ -81,9 +81,11 @@ someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
 - `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. The eleven `session6` cases and the ten
   `s7-gapfill` cases are disjoint and at different run counts, so neither is a floor and
   they must not be averaged.
-- `[ ]` GOLDEN-C.7 — **a `reorder` intent in the professional `EditorCommand` layer and a
-  web-editor reorder gesture.** Deferred deliberately: the AI route is where the footage
-  was being lost. `REMAINING.md` §2.3.
+- `[x]` GOLDEN-C.7 — **a human can reorder shots too.** Right-click a clip → "Move earlier
+  / later in sequence", built on `reorder_clips` so the track re-lays gaplessly and one undo
+  restores the order. Closes the asymmetry ADR 0173 left. The professional `EditorCommand`
+  intent was NOT added: nothing converges on that layer (the web editor builds raw ops), so
+  a `reorder` entry there would be vocabulary with no consumer.
 
 **Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** the fixture that
 invalidated three cases is **replaced** and measured (`speech-9min-c`: real narration with

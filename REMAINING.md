@@ -121,10 +121,12 @@ whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was 
 
 ### 2.3 Deferred, and stated rather than done
 
-- **No `reorder` intent in the professional `EditorCommand` layer**, and no web-editor
-  reorder gesture. `editor-capabilities.ts` maps intents to `commandType`s that must
-  exist; adding one is a second slice. The AI route is where the footage was being lost,
-  which is why it went first.
+- **The web-editor reorder gesture is DONE** — right-click a clip → "Move earlier / later
+  in sequence", built on `reorder_clips` so the track re-lays gaplessly and one undo
+  restores the order. The professional `EditorCommand` `reorder` intent was deliberately
+  NOT added: the web editor builds raw ops and nothing converges on that layer, so an entry
+  there would be vocabulary with no consumer. Revisit only if a resolver-gated caller
+  appears.
 - **ADR 0056 (compound-request atomicity vs instant-apply)** is still open on its own
   merits. `reorder_clips` removes the reason the reorder cases reached for
   destroy-and-rebuild; it does not make instant-apply transactional for every other
