@@ -1,5 +1,6 @@
 /** Typed temporal evidence protocol and deterministic professional edit reviewer. */
 import { z } from 'zod/v4';
+import { fromEngine } from './engine-optional.js';
 import type { EditorCommand, EditorCommandFact } from '@framepilot/editor-core';
 import { effectLayersOf } from '@framepilot/timeline-schema';
 import type { EditResult } from './assemble.js';
@@ -184,31 +185,15 @@ const MotionResultBaseSchema = ResultBaseSchema.extend({
 });
 
 /**
- * An engine-optional field: **`null` means absent**, and so does a missing key.
+ * `fromEngine` — an engine-optional field, where **`null` means absent**.
  *
- * ## WHY this exists
- *
- * The engine declares these as `X | None = None` and FastAPI serialises the route with
- * `response_model=TemporalEvidenceBatch`, which emits every unset optional as an explicit
- * `null` — `"perceptualHash": null`, `"value": null`, `"point": null`. Zod's `.optional()`
- * accepts `undefined` and refuses `null`, and because a batch is an array of a `.strict()`
- * discriminated union, **one null rejects the entire batch**.
- *
- * The whole reviewer then fails closed, exactly as designed, and reports "your edits are
- * applied and validated, but were not perceptually checked". Run `137d8fd0` lost all seven
- * of its reviews to this, and the error it printed —"Temporal evidence response did not
- * match its contract" — named no field, so there was nothing to chase.
- *
- * It survived because every fixture in the TS tests is written in TypeScript, with
- * `undefined` where the engine sends `null`. `boundaryJumpDb` had already been patched
- * `.nullable()` on its own; this makes the rule general instead of per-incident, and
- * `temporal-review.engine-shape.test.ts` now parses a real serialised batch.
- *
- * The parsed type is unchanged (`T | undefined`) — null is normalised away, so no consumer
- * has to learn a third state.
+ * Lifted to `engine-optional.ts` when `/references/analyze` was found to have the same
+ * defect: an image has no `video`, FastAPI sent `video: null`, and `.optional()` rejected
+ * the whole profile. The rule is not specific to this route, and neither is the reason it
+ * survives a test suite — every fixture written in TypeScript says `undefined` where the
+ * engine says `null`, which is what `temporal-review.engine-shape.test.ts` exists to
+ * catch. The full account is on the helper.
  */
-const fromEngine = <T extends z.ZodType>(schema: T) =>
-  z.preprocess((value) => (value === null ? undefined : value), schema.optional());
 
 const FrameSampleSchema = z
   .object({
