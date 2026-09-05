@@ -952,6 +952,89 @@ describe('safe_area', () => {
     expect(check?.detail).toContain('(—,');
     expect(check?.detail).toContain(', —)');
   });
+
+  /**
+   * The vocabulary this product actually writes.
+   *
+   * The schema declares `xPercent`/`yPercent` on a 0–100 scale, `add_text_layer` writes
+   * them, and both the preview painter and `text_overlay.py` read them. This check read
+   * `x`/`y` on a 0–1 scale, which nothing writes — so it never saw an overlay at all.
+   * Run `137d8fd0` placed its title at `xPercent: 50, yPercent: 50` and was told there
+   * was nothing positioned to check.
+   */
+  const overlayWith = (params: Record<string, unknown>): Project =>
+    withTracks([
+      {
+        id: 'overlay_1',
+        type: 'overlay',
+        clips: [
+          clip({
+            id: 'title',
+            assetId: TEXT_OVERLAY_ASSET_ID,
+            effects: [{ id: 'e', type: 'text', params, keyframes: [] }],
+          }),
+        ],
+      },
+    ]);
+
+  it('sees an overlay positioned the way the product writes positions', () => {
+    expect(idOf(critique(overlayWith({ xPercent: 50, yPercent: 50 })), 'safe_area')?.status).toBe(
+      'pass',
+    );
+  });
+
+  it('warns on a percent-positioned overlay outside the safe area', () => {
+    const check = idOf(critique(overlayWith({ xPercent: 50, yPercent: 3 })), 'safe_area');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('safe area');
+  });
+
+  it('still reads the legacy 0–1 keys, so old projects keep their coverage', () => {
+    expect(idOf(critique(overlayWith({ x: 0.02, y: 0.5 })), 'safe_area')?.status).toBe('warn');
+  });
+
+  describe('an overlay that leaves the frame is not merely unsafe', () => {
+    it('flags a headline whose glyph height runs off the top', () => {
+      // `add_text_layer`'s own description invites this: "18+ is a headline that
+      // dominates the frame". Centred at 5% of frame height, 18% of glyph height puts
+      // most of the letters above the picture.
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 5, fontSizePercent: 18 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('warn');
+      expect(check?.detail).toContain('will not be seen');
+      expect(check?.detail).toContain('glyph height');
+    });
+
+    it('flags a box wider than the room its centre leaves', () => {
+      const check = idOf(
+        critique(overlayWith({ xPercent: 80, yPercent: 50, boxWidthPercent: 60 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('warn');
+      expect(check?.detail).toContain('runs off the side');
+    });
+
+    it('leaves a headline that fits alone, however large', () => {
+      // 18% centred in the middle fits: this must not become a size police.
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 50, fontSizePercent: 18 })),
+        'safe_area',
+      );
+      expect(check?.status).toBe('pass');
+    });
+
+    it('reports the clipping first when an overlay is both off-frame and unsafe', () => {
+      const check = idOf(
+        critique(overlayWith({ xPercent: 50, yPercent: 2, fontSizePercent: 20 })),
+        'safe_area',
+      );
+      expect(check?.detail?.indexOf('will not be seen')).toBeLessThan(
+        check?.detail?.indexOf('safe area') ?? -1,
+      );
+    });
+  });
 });
 
 describe('audio_clipping / black_frames (render-derived)', () => {

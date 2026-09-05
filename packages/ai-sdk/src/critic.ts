@@ -1245,24 +1245,97 @@ const numParam = (effect: Effect, key: string): number | undefined => {
 };
 
 /**
- * Overlays/captions positioned by a normalized (0–1) x/y must stay inside the
- * safe-area inset. Clips with no explicit position are assumed centered (safe).
+ * An overlay's centre as a fraction of the frame (0–1), or `undefined` when unpositioned.
+ *
+ * The whole product speaks `xPercent`/`yPercent` on a 0–100 scale: the schema declares
+ * them (`index.ts`), `add_text_layer` writes them, the preview painter reads them
+ * (`overlay-painter.ts`) and so does the renderer (`text_overlay.py`). This check read
+ * `x` and `y` on a 0–1 scale — a vocabulary nothing in this product writes.
+ *
+ * So it never saw an overlay. `positioned` stayed 0 for every project and the answer was
+ * always "No explicitly-positioned overlays/captions to check". Run `137d8fd0` placed its
+ * title at `xPercent: 50, yPercent: 50` and was told there was nothing positioned to look
+ * at; a title at `yPercent: 3` would have been told the same.
+ *
+ * The 0–1 keys are still read, after the percent ones, so a project written before the
+ * vocabulary settled keeps whatever coverage it had.
+ */
+function overlayCentre(effect: Effect): { x?: number; y?: number } | undefined {
+  const xPercent = numParam(effect, 'xPercent');
+  const yPercent = numParam(effect, 'yPercent');
+  if (xPercent !== undefined || yPercent !== undefined) {
+    return {
+      ...(xPercent === undefined ? {} : { x: xPercent / 100 }),
+      ...(yPercent === undefined ? {} : { y: yPercent / 100 }),
+    };
+  }
+  const x = numParam(effect, 'x');
+  const y = numParam(effect, 'y');
+  if (x === undefined && y === undefined) return undefined;
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) };
+}
+
+/**
+ * An overlay whose BOX leaves the frame, described, or `undefined`.
+ *
+ * Different from being outside the safe inset, and worse: this is not "close to the
+ * edge", it is "part of this is not on screen". Both dimensions are plain arithmetic on
+ * values the project already carries, so there is no glyph measurement here and no way
+ * for it to produce a false alarm.
+ *
+ * `add_text_layer`'s own description invites the vertical case — "18+ is a headline that
+ * dominates the frame" — and 18% of frame height centred at `yPercent: 5` puts nearly
+ * half the glyph height above the top of the picture.
+ *
+ * NOT caught: a single word too wide to wrap. `wrap_lines` (and its preview twin) never
+ * split mid-word by design, so an over-long word overruns its box, and knowing that needs
+ * font metrics neither engine exposes here. This reports the geometry it can prove.
+ */
+function overlayOffFrame(clip: Clip, effect: Effect): string | undefined {
+  const centre = overlayCentre(effect);
+  if (centre === undefined) return undefined;
+  const problems: string[] = [];
+  const boxWidth = numParam(effect, 'boxWidthPercent');
+  if (centre.x !== undefined && boxWidth !== undefined) {
+    const half = boxWidth / 200;
+    if (centre.x - half < -1e-9 || centre.x + half > 1 + 1e-9) {
+      problems.push(`its ${boxWidth}%-wide box runs off the side`);
+    }
+  }
+  const fontHeight = numParam(effect, 'fontSizePercent');
+  if (centre.y !== undefined && fontHeight !== undefined) {
+    const half = fontHeight / 200;
+    if (centre.y - half < -1e-9 || centre.y + half > 1 + 1e-9) {
+      problems.push(`its ${fontHeight}% glyph height runs off the top or bottom`);
+    }
+  }
+  return problems.length > 0 ? `${clip.id} — ${problems.join(', ')}` : undefined;
+}
+
+/**
+ * Overlays/captions must stay inside the safe-area inset, and must not leave the frame.
+ * Clips with no explicit position are assumed centered (safe).
  */
 function checkSafeArea(timeline: Timeline): CriticCheck {
   const overlayClips = overlayOrCaptionClips(timeline);
   const lo = SAFE_AREA_INSET;
   const hi = 1 - SAFE_AREA_INSET;
   const outside: string[] = [];
+  const clipped: string[] = [];
   let positioned = 0;
   for (const clip of overlayClips) {
     for (const effect of clip.effects) {
-      const x = numParam(effect, 'x');
-      const y = numParam(effect, 'y');
-      if (x === undefined && y === undefined) continue;
+      const centre = overlayCentre(effect);
+      if (centre === undefined) continue;
       positioned += 1;
+      const { x, y } = centre;
       if ((x !== undefined && (x < lo || x > hi)) || (y !== undefined && (y < lo || y > hi))) {
-        outside.push(`${clip.id} at (${x ?? '—'}, ${y ?? '—'})`);
+        outside.push(
+          `${clip.id} at (${x === undefined ? '—' : round(x)}, ${y === undefined ? '—' : round(y)})`,
+        );
       }
+      const off = overlayOffFrame(clip, effect);
+      if (off !== undefined) clipped.push(off);
     }
   }
   if (positioned === 0) {
@@ -1273,13 +1346,14 @@ function checkSafeArea(timeline: Timeline): CriticCheck {
       'No explicitly-positioned overlays/captions to check (centered layouts are safe).',
     );
   }
-  if (outside.length > 0) {
-    return check(
-      'safe_area',
-      'Overlays in safe area',
-      'warn',
-      `Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`,
-    );
+  // Leaving the frame outranks being near its edge: one is clipped picture, the other is
+  // a house style. Reported together when both are true, worst first.
+  if (clipped.length > 0 || outside.length > 0) {
+    const parts: string[] = [];
+    if (clipped.length > 0) parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
+    if (outside.length > 0)
+      parts.push(`Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`);
+    return check('safe_area', 'Overlays in safe area', 'warn', parts.join(' '));
   }
   return check(
     'safe_area',
