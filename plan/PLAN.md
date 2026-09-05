@@ -2870,6 +2870,14 @@ to the tools + `stateView` no longer leaks the absolute project path (returns
 no-sandbox-gate limitations). **Totals:** web-editor 613, mcp-server 80, ai-sdk 185 — all
 green (typecheck+lint); no schema change, no new dependency. **Last updated:** 2026-07-03
 
+**Website redesign — ripple delete (2026-09-05; ADR 0172; PR #78).** `[x]` `apps/website`
+rebuilt end to end on one light, timeline-shaped system: a once-per-session landing intro
+(competitor editor tiles cut off a track into a fixed bin, FramePilot promoted to the navbar via
+shared layout; skippable, reduced-motion and no-JS safe, state machine unit-tested), every
+route re-composed (landing, pricing, download, blog, docs, changelog, legal, thank-you, 404),
+regenerated OG card, README design rules rewritten. Adds `framer-motion` to the website (MIT,
+already in web-editor). Website typecheck/lint/test (40)/static build green.
+
 **Marketing website + Freemius licensing (Phase 14, 2026-07-03; ADR 0036).** Made
 FramePilot a sellable, downloadable, **100%-paid** product. (1) **`apps/website`** —
 a statically-exported Next.js App Router marketing site reusing the app's dark design
