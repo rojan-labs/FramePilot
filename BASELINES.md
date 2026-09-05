@@ -46,6 +46,103 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s7-replay` — 2026-09-05 (session 7) — **no new run; the four open engine defects closed, and one loop measured shut by replay**
+
+**This entry records no new sampling of the model.** No baseline was run — credits
+were explicitly to be conserved — so **every number under `session6`, `session3` and
+`baseline` is unchanged, and `reports/golden/floor.json` is still the `baseline` one.**
+What is new here is a *replay*: `--replay` re-executes the ORCHESTRATOR against
+recorded model output with zero model or host calls, so the deltas below are the
+reducer's behaviour changing, not the model's.
+
+| | |
+| --- | --- |
+| commit range | `3ec8a54..3d2364f` on `fix/agent-reliability-s7` (branched from `fix/agent-reliability-2026-09-05`) |
+| what was replayed | `beat-sync` r1 from `session6`'s recordings, under the new label `s7-replay` |
+| provider / model | replay — none called |
+| new tests | 32 (editor-core 17, ai-sdk 14, engine 10 — see below) |
+| suites | ai-sdk 4,637 · editor-core 1,071 · desktop 606 · web-editor 2,983 · mcp-server 151 · engine 2,843 — all green |
+| measured token cost | **+169 tokens per request** (`tool_schemas` 7,027 → 7,196) — the `reorder_clips` tool. Nothing else moved a golden. |
+
+### The one measurement: `beat-sync` r1, replayed
+
+REMAINING §2.2's most expensive single failure, re-executed against the fixed reducer.
+Recording identical; only the code differs.
+
+| | session6 r1 | s7-replay | |
+| --- | ---: | ---: | --- |
+| tool calls | 121 | **25** | −79% |
+| `add_clip` / `add_clips` | 58 / 58 | **10 / 10** | |
+| repeated tool calls | 114 | **18** | −84% |
+| model requests | 65 | **16** | −75% |
+| usage tokens | 824,682 | **92,771** | −89% |
+| tier-priced cost (not billed) | $3.93 | **$0.571** | −85% |
+| final status | `cancelled` | **`completed`** | |
+| rubric score | 0.56 | 0.56 | unchanged, and correctly so |
+
+**The score is unchanged on purpose.** The recorded model output was never going to
+produce a valid beat-synced cut; the defect was that the run spent twenty minutes and
+$3.93 discovering that, and reported `cancelled`. It now stops when it is provably stuck
+and reports honestly. A guard cannot make a bad turn good — it can stop the run paying
+for the same bad turn twenty-nine times.
+
+Evidence: `reports/golden/s7-replay/`. `session6` was not touched: the replay ran under
+its own label against a *copy* of the recordings, and `--force` was used only on
+`s7-replay`, never on a file holding real evidence.
+
+### The four open engine defects, all closed with a reproducing test
+
+| REMAINING § | what it cost | closed by |
+| --- | --- | --- |
+| §2.1 a reorder loses footage | 4 of 6 clean reorder runs destroyed content | `a080900` — `reorder_clips`, ADR 0173 |
+| §2.2 a rejected turn re-issued forever | 29 identical calls, $3.93, an empty track | `0c9f195` — two independent holes |
+| §2.3 a retimed clip leaves the frame grid | 16 retimes → 16 off-grid edges | `1a49f98` — `ApplyContext.fps` |
+| §2.4 the word-boundary trap | 3 turns lost to cuts one frame inside a word | `eb50cbc` — one answer, two units |
+
+Plus one found in a fresh sweep of `run.md` and not previously recorded: a catalogue
+`remoteId` the run had just used successfully was refused by `detect_beats`, whose bin
+asset id is that same id with a prefix and its hyphens underscored (`3d2364f`). The
+beat-synced cut the brief asked for never happened.
+
+### §2.2 had TWO holes, and the replay is what proved it
+
+Worth recording because the handoff named one and the diagnosis found another; either
+alone would have let the run happen again.
+
+1. **The rejection sentence is not the refusal's identity.** `repeatedRejection` compared
+   whole sentences, and the beat grid names its offenders: 29 refusals for one rule, no
+   two alike. Producers now supply a stable `rejectionKey`. This is the same trap already
+   documented next to `deterministicFailureKey` — **it applies to the turn-level guard
+   too, which nobody had written down.**
+2. **A re-proposed mutation counted as having LEARNED something.** Each refused turn
+   varied its `add_clips` arguments, so every turn produced a first-seen novelty key and
+   `callAnswered` reset the stall streak. The run's own working memory knew better: 5
+   facts derived across 32 model calls, none after the fourth. A mutation is an attempt,
+   credited by the attempt clause; it is no longer also creditable as a lesson.
+
+### Not evidence of
+
+- **Any change in intent accuracy, target resolution, first-pass acceptance, or accepted
+  edits.** Nothing here was sampled against the model. `reorder_clips` in particular is a
+  capability the agent did not previously have, so its effect on the reorder cases is
+  **entirely unmeasured** and needs a run.
+- **A new floor.** No floor was written. `reports/golden/floor.json` is still `baseline`.
+- **Progress on §2.5.** The ten cases with no clean run still have none —
+  `hook-strongest-line`, `compound-silence-captions`, `broll-first-20s`,
+  `broll-empty-overlay-track`, `music-bed-quiet`, `captions-uppercase-bottom`,
+  `vague-make-better`, `impossible-8k-drone`, `guard-wipe-timeline`,
+  `clarify-which-clip`. Their recordings are 14 bytes, so replay cannot reach them
+  either; only a run can.
+- **`run.md` being a new transcript.** It was offered as one for the fourth time. Its ids
+  still say conversation `33f7e787`, run `137d8fd0`, 1,064,475 lines. The sweep this
+  session re-derived several already-closed defects before finding the one above —
+  including the `add_music` empty-duck refusal, whose fix in `music-placement.ts` cites
+  this very run in its docstring.
+- **The +169 tokens being a net cost.** It is a per-request cost on every run, measured;
+  whether it pays for itself depends on reorder cases the branch has not run.
+
+---
+
 ## `session6` — 2026-09-05 (session 6) — **the fixture was replaced, and a reorder was found to lose footage**
 
 The first run on media that measures what its cases claim to measure. It ran in two passes

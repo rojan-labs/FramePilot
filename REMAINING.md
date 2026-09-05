@@ -1,197 +1,111 @@
 # REMAINING — golden eval + AI precision work
 
-Handoff from the 2026-09-05 sessions on `fix/agent-reliability-2026-09-05`. Six sessions
-have now happened on this branch; **`BASELINES.md` has an entry for each**, newest first,
-and the numbers below mean nothing without them.
+Handoff from the 2026-09-05 sessions. Seven sessions have now happened; **`BASELINES.md`
+has an entry for each**, newest first, and the numbers below mean nothing without them.
 
-- **sessions 3–5** — twenty-three defects read out of `run.md` (a captured desktop
-  transcript, run `137d8fd0`) plus eight more from a second sweep of it. Two of those
-  sessions ran nothing.
+- **sessions 3–5** — thirty-one defects read out of `run.md` (a captured desktop
+  transcript, run `137d8fd0`). Two of those sessions ran nothing.
 - **session 6** — the fixture that invalidated three cases was **replaced**, and a run on
-  it produced eleven cases of clean evidence before the provider dropped and the maintainer
-  stopped it. It found a defect that loses the editor's footage.
+  it produced eleven cases of clean evidence before the provider dropped. It found a
+  defect that loses the editor's footage.
+- **session 7** (this one) — **no new run.** The four open engine defects were closed with
+  reproducing tests, and the most expensive one was measured shut by `--replay` (free).
+  Branch `fix/agent-reliability-s7`, `3ec8a54..3d2364f`.
 
-> **`run.md` is not a new run.** It has been offered as one three times now. Its ids say
-> otherwise: conversation `33f7e787`, run `137d8fd0`, 1,064,475 lines. Check the run id
-> before mining it as fresh evidence.
+> **`run.md` is not a new run.** It has been offered as one FOUR times now. Its ids say
+> otherwise: conversation `33f7e787`, run `137d8fd0`, 1,064,475 lines, created
+> 2026-09-04T18:12. Only its mtime is recent. Check the run id before mining it — session
+> 7's sweep re-derived several already-closed defects before finding a new one, including
+> the `add_music` empty-duck refusal whose fix cites this exact run in its docstring.
 
 ---
 
 ## 1. WHAT'S CLOSED
 
-Sessions 3–5 closed twenty-three defects; the list lives in `BASELINES.md` under those
-entries and is not repeated here. Session 6 closed four more, each with a reproducing test:
+Sessions 3–6 closed thirty-five defects; those lists live in `BASELINES.md` under their
+entries and are not repeated here. **Session 7 closed all four remaining engine defects,
+each with a reproducing test, plus one new find:**
 
-1. **`mission-podcast` measures real words and real dead air** (`1040f2e`). §3 of every
-   previous handoff. See §2.1 below for why the obvious repair would have moved the defect
-   rather than fixed it.
-2. **A word too wide to wrap is no longer drawn in silence** (`6fc28d9`). The last open
-   half of the old §2.3.
-3. **The severed-word message names the second, not just the frame** (`5693600`). Cost
-   three turns of the session-6 run, one of them $3.19.
-4. **The changelog says what the editor gets** (`b7c2839`).
+1. **A reorder no longer destroys footage** (`a080900`, ADR 0173). The old §2.1 — the most
+   serious thing on the branch. `reorder_clips` recomputes a track's starts in ONE patch:
+   no delete, no add, clip set invariant. See §3.1 below for what is still unproven.
+2. **A turn refused at the same wall twice is not progress** (`0c9f195`). The old §2.2.
+   Two independent holes, both closed; **measured by replay**: 121 tool calls → 25, $3.93
+   → $0.571, `cancelled` → `completed`.
+3. **A retime lands on the frame grid** (`1a49f98`). The old §2.3. Route (1) of the three
+   the last handoff named — `ApplyContext.fps` threaded by `applyProjectPatch`, mirrored
+   in Python, with the same-shape inverse kept only where it is provably exact.
+4. **One answer to "when does this word begin"** (`eb50cbc`). The old §2.4.
+   `get_mapped_transcript` reports the edit point in seconds AND frames naming the same
+   instant, so the quantizer cannot round a cut across the boundary it was aimed at.
+5. **A catalogue id finds its own bin asset** (`3d2364f`). New, from the `run.md` sweep.
+
+Cost of all of it on the frozen token surfaces: **+169 tokens per request**
+(`tool_schemas` 7,027 → 7,196), entirely from the `reorder_clips` tool. A first draft of
+its description cost +250 and was tightened for the same discovery signal. Nothing else
+this session moved a golden.
 
 ---
 
 ## 2. WHAT'S STILL OPEN
 
-Ordered by what it costs the editor, not by how hard it is.
-
-### 2.1 A REORDER LOSES FOOTAGE — the most serious thing on this branch
-
-**Four of six clean reorder runs destroyed content.** Full table, quotes and run ids in
-`BASELINES.md` under `session6`. The short version: asked to move the last clip to the
-front, the agent deleted the sequence and then asked the editor how to proceed —
-describing the damage it had just done as the project's own state.
-
-**Every individual operation was legal**, which is why nothing caught it. The cause is
-structural and has two halves:
-
-- **There is no reorder primitive.** `move_clip` moves one clip to a start time; clips
-  cannot overlap; so "put the last clip first" has no expressible route except
-  destroy-and-rebuild.
-- **Instant-apply commits the destroy before the rebuild is composed.** Any run that then
-  stops — asks a question, hits a wall, times out — leaves the destruction applied and the
-  repair unwritten.
-
-This is evidence for two decisions already on the maintainer's list:
-
-- **ADR 0056 (compound-request atomicity vs instant-apply).** All five content-loss
-  failures in the run, `beat-sync` r1 included, are this shape.
-- **ADR 0166 (the deleted wipe guard).** A guard on "a delete that empties a track" catches
-  two of the five and **misses the three 5→1 cases**, so reinstating it is not sufficient.
-
-**The fix I would propose, and did not start:** an atomic `reorder_clips` operation — given
-a track and an ordering, recompute the starts in ONE patch, gaplessly, no delete. That is a
-new operation (schema + apply + invert + validate + Python mirror + tests + three golden
-regens) and a real slice, so it wants a maintainer's yes before anyone writes it. It also
-cannot be shown to change the agent's behaviour without a run.
-
-`reorder-last-first`'s floor is 1.00 against a 0.60 median here, so **the gate will flag
-it.** That is not this branch: `reorder-swap-first-two`'s floor was already 0.50.
-
-### 2.2 A turn rejected wholesale can be re-issued forever
-
-`beat-sync` r1: 29 byte-identical `add_clip`/`add_clips` pairs, 977 operations rejected
-every time by the beat grid, 20 minutes, **$3.93**, and a picture track left empty.
-
-The guard for exactly this exists and passes its tests — `repeatedRejection` in
-`conductor.ts`, written for run `ea8e46ec` (six turns, one byte-identical beat-grid
-rejection, thirty minutes). Something let this past it, and the test sitting next to it
-names what can: **one novel call fact per turn resets the streak.**
-
-**Do not tune this by inspection.** There are five interacting run-stoppers and the last
-person to touch one left a note saying so. The way in is free:
-
-```bash
-node packages/ai-sdk/scripts/mission-baseline.mjs --replay --label session6 --case beat-sync
-```
-
-`--replay` re-runs the ORCHESTRATOR against recorded model output — no model calls, no
-cost — so the reducer can be watched deciding. Fix what the repro shows, not what the code
-reads like.
-
-r2 and r3 scored 1.00 having declared `hardSync: true` identically, so the wall is
-reachable but not deterministic. The missing guard is the amplifier, not the cause.
-
-### 2.3 A retimed clip leaves the frame grid
-
-`refine-tighten` r1 turn 2 made 16 `set_clip_speed` calls at 1.3× and produced exactly 16
-off-grid edges. It is arithmetic, not model error: `end = start + sourceDuration / speed`
-is almost never a whole number of frames.
-
-Both engines use that formula (`applySetClipSpeed`, `_apply_set_clip_speed`), so they
-**agree** — preview/export parity is intact and the output is consistently off-grid rather
-than divergently so. `frame-grid.ts:266` lists `set_clip_speed` among the operations
-`normalizeOperationTime` returns unchanged, correctly, because the op carries no time
-field. The time is invented inside apply, which receives only a `Timeline` and therefore
-has no fps.
-
-Three routes, all decisions:
-
-1. **Thread fps into apply** for the two speed ops. The only route where the invariant
-   actually holds afterwards, and invertible — the snap is a pure function of
-   `(start, sourceDuration, speed, fps)`. But it changes `applyOperation`'s signature and
-   every caller, and must land identically in Python.
-2. **Snap at the tool boundary.** `set_clip_speed` knows `project.fps`, so it could emit
-   `set_clip_source_range` (trimming ≤1 frame of source so the duration is whole) plus the
-   speed op. No signature change; silently drops a frame of the editor's source.
-3. **Decide the grid rule does not bind a retime** and change `cuts-on-frame-grid` instead.
-
-I would take (1). The grid rule exists so preview and export agree about where a cut is.
-
-### 2.4 The word-boundary trap is narrowed, not closed
-
-Three turns of the run were lost to a cut landing one frame inside a word. In every case
-the run had read the correct frame from `get_mapped_transcript` and then passed **seconds**,
-which `quantizePatch` rounded across the word edge.
-
-`5693600` fixes the message that was telling it to do this — it now names the second, the
-division, and why the rounding is the trap. **Whether that changes behaviour is unmeasured**
-and needs a run.
-
-If it does not, the next step is the tool surface: let the cut tools take frames, or have
-`get_mapped_transcript` report grid-aligned seconds beside the frames. Both cost
-tool-schema tokens and move all three goldens, which is a trade to state out loud rather
-than make quietly.
-
-### 2.5 Ten of twenty-one cases still have no clean run
+### 2.1 Ten of twenty-one cases still have no clean run — THE ONLY THING A RUN CAN FIX
 
 `hook-strongest-line`, `compound-silence-captions`, `broll-first-20s`,
 `broll-empty-overlay-track`, `music-bed-quiet`, `captions-uppercase-bottom`,
 `vague-make-better`, `impossible-8k-drone`, `guard-wipe-timeline`, `clarify-which-clip`.
 
-Their `session6` case files hold either a transport error or nothing. **Re-running them
-needs `--force`**, because a file exists; that is the one situation where `--force` is
-right, since those files hold no evidence. Everything else on that label is real and must
-not be overwritten.
+Their `session6` case files hold either a transport error or nothing, and their recordings
+are **14 bytes**, so `--replay` cannot reach them either. **Re-running them needs
+`--force`**, because a file exists; that is the one situation where `--force` is right.
+Everything else on that label is real and must not be overwritten.
 
 `hook-strongest-line` is the one to want most: its rubric contradiction was repaired in
-session 5 and unit tested, and it has still never run on media that can validate it —
-now for want of a run rather than for want of a fixture.
+session 5 and unit tested, and it has still never run on media that can validate it.
 
-### 2.6 The pinned-playbook budget — ANSWERED, and the answer is "leave it"
+### 2.2 Nothing from session 7 is measured against the model
 
-Previously carried as an open product decision at "32,338 tokens per request, 57% of every
-agent request". **Measured live in the session-6 run, that is not what a request costs:**
+This is the honest headline. Five defects closed, 32 tests, every suite green, **and not
+one sample of intent accuracy, target resolution, first-pass acceptance, accepted edits,
+or tokens per accepted edit.** `reorder_clips` in particular is a capability the agent did
+not have, so its effect on the reorder cases is entirely unknown.
 
-- the pinned-skill section is **1,649–2,626 tokens per request**, not 32,338;
-- `tool_schemas` is **6,806–9,417**, not the frozen surfaces' 13,488, because progressive
-  disclosure means a run loads the domains it asks for;
-- **51–63% of each request is a cache read** on this provider (e.g. 55,275 of 107,810;
-  74,054 of 116,633).
+`reorder-last-first`'s floor is 1.00 against a 0.60 median, so **the gate will flag it**
+whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was already
+0.50.
 
-The 32,338 figure was a 153-step desktop run that had loaded eight playbooks — a property
-of run length, not of the pin. Unpinning would break the cached prefix and cost more.
-**Close this unless a long-run measurement reopens it.**
+### 2.3 Deferred, and stated rather than done
 
-### 2.7 Reads are 42% of tool calls — still deliberately not fixed
+- **No `reorder` intent in the professional `EditorCommand` layer**, and no web-editor
+  reorder gesture. `editor-capabilities.ts` maps intents to `commandType`s that must
+  exist; adding one is a second slice. The AI route is where the footage was being lost,
+  which is why it went first.
+- **ADR 0056 (compound-request atomicity vs instant-apply)** is still open on its own
+  merits. `reorder_clips` removes the reason the reorder cases reached for
+  destroy-and-rebuild; it does not make instant-apply transactional for every other
+  compound request.
+- **ADR 0166 (the deleted wipe guard)** stays deleted. ADR 0173 records why: the guard
+  catches two of the five content-loss failures and misses the three 5→1 cases.
+
+### 2.4 Reads are 42% of tool calls — still deliberately not fixed
 
 Unchanged, and the reasoning is unchanged: the memo cannot serve when every turn applies a
 patch that invalidates timeline-dependent evidence. The lever is `arrangementLine` carrying
-clip ids, which is a context-budget trade needing a measured before/after — and §2.6 now
-says the budget has more room than was thought.
+clip ids, a context-budget trade needing a measured before/after.
 
-### 2.8 Things ruled OUT, so nobody re-investigates them
+### 2.5 Things ruled OUT, so nobody re-investigates them
 
-- **Compaction never fires.** Across all 309 manifests in `run.md`,
-  `compaction.removedSections` is empty and no section is `included: false`.
-- **Stop is not broken.** The long settles in the captured run were the provider answering
-  at 217–660s per call. The only real residue is that the abort is checked at turn
-  boundaries.
-- **The 144 `add_music` failures are one failure** — `op_31`, re-serialised into every
-  later state dump. Count distinct `op_N` ids before quoting a failure volume.
-- **A more specific error message is not free.** `deterministicFailureKey` keys the
-  repeated-failure guard on the message body: an overlap shrinking from 3s to 1s reads as
-  two unrelated failures and the guard stops firing. Any message change on a validator path
-  must be read against that guard.
-- **The void-turn and harness-timeout exclusions work.** Session 6 lost 32 turns to a
-  provider outage and 1 to the timer; all 33 were excluded from the rates and reported
-  separately, exactly as designed.
-- **`speech-9min-b` is not a drop-in replacement for `speech-9min`.** It has real narration
-  and **no silent gap at −30, −40 or −50 dB**. Pointing `mission-podcast` at it would have
-  broken `remove-dead-air` the way `speech-9min` broke selection. This is why
-  `speech-9min-c` is generated.
+Everything the previous handoff listed here still holds — compaction never fires, stop is
+not broken, the 144 `add_music` failures are one failure, the void-turn and
+harness-timeout exclusions work, `speech-9min-b` is not a drop-in. Two updates:
+
+- **"A more specific error message is not free" is now half-solved.** It remains true of
+  `deterministicFailureKey` (the per-CALL guard, keyed on the message body). It is no
+  longer true of the per-TURN guard: producers supply a stable `rejectionKey` and the
+  message is free to name whatever the model needs. Extending the same separation to
+  `deterministicFailureKey` is the obvious next step and was not taken this session.
+- **The pinned-playbook budget stays closed.** Session 6 answered it; nothing since
+  reopens it.
 
 ---
 
@@ -218,14 +132,25 @@ nohup env -u FRAMEPILOT_AI_PROVIDER FRAMEPILOT_AI_PROVIDER=claude-agent-sdk \
   > /tmp/<new>.log 2>&1 &
 ```
 
-**Rebuilding the fixture projects** (only if the media changes):
+### `--replay` is free, and session 7 is the argument for reaching for it first
+
+`--replay` re-executes the ORCHESTRATOR against recorded model output — zero model calls,
+zero host calls, zero cost — so it measures a reducer change directly. It is how §2.2 was
+diagnosed and how its fix was proved.
 
 ```bash
-node packages/ai-sdk/scripts/mission-fixture-projects.mjs --only mission-podcast
+# Copy the recordings under a NEW label so the real evidence cannot be overwritten.
+mkdir -p reports/golden/<new>/ && cp -R reports/golden/<label>/recordings reports/golden/<new>/
+env -u FRAMEPILOT_AI_PROVIDER node packages/ai-sdk/scripts/mission-baseline.mjs \
+  --replay --label <new> --case beat-sync --yes
 ```
 
-`--only` was added in session 6 so one project can be rebuilt without rewriting four
-nobody asked about.
+Two things that cost time in session 7:
+
+- **`recordings/` is gitignored.** A worktree checkout has the committed `cases/` and no
+  recordings; copy them from the checkout that ran the baseline.
+- **The mission fixture projects and media are gitignored too.** Replay still needs the
+  `.fp.json` — symlink `tests/fixtures/mission/projects` and `.../media` into the worktree.
 
 ### Traps that have each cost real time
 
@@ -236,15 +161,12 @@ nobody asked about.
    `vitest run <paths> --no-file-parallelism --maxWorkers=1` at `nice -n 19` are fine;
    never sweep. **Never rebuild `dist/` mid-run** — the runner imports it.
 3. **`--force` overwrites per-case evidence in place.** The one exception is a case whose
-   file holds only a transport error (§2.5).
-4. **`--replay` is NOT a re-score.** Recordings hold `model_stream` and `host_tool` effects
-   only, so replay re-executes the ORCHESTRATOR with current code. That is what makes it
-   the right tool for §2.2.
-5. **A provider outage looks like a fast, complete run.** Session 6's last eleven cases
-   finished in two seconds each with `prompt=0`. Void turns and harness timeouts are both
-   excluded from the rates and reported separately — **read those two rows first**.
-6. **A killed run writes no merged summary.** Compute from
+   file holds only a transport error (§2.1).
+4. **A provider outage looks like a fast, complete run.** Read the void-turn and
+   harness-timeout rows first.
+5. **A killed run writes no merged summary.** Compute from
    `reports/golden/<label>/cases/*.json` and say so.
+6. **`eslint` on `packages/ai-sdk` OOMs locally.** Push and read CI instead.
 
 ### Three frozen token surfaces, three regen commands
 
@@ -257,28 +179,41 @@ pnpm --filter @framepilot/ai-sdk test src/kernel/streamAgent-golden.test.ts -- -
 FRAMEPILOT_GOLDEN_UPDATE=1 pnpm --filter @framepilot/ai-sdk test langchain-session-parity
 ```
 
-The diff those produce **is the measured token delta** — read it before committing, and put
-the number in the commit message. Session 6's changes moved none of them: the critic,
-the fit check and the fixture are not token surfaces.
+**Read the diff before regenerating — it IS the measured token delta**, and put the number
+in the commit message. Session 7 read +250, tightened the copy, and committed +169.
+
+### Adding an operation touches more places than it looks
+
+`reorder_clips` needed, in one change: the `Operation` union, apply, invert, the operation
+contract, `validation-scope.ts`, the validator's `SUPPORTED_OPERATIONS`,
+`normalizeOperationTime`'s pass-through list, the tool registry, `tool-domains.ts`,
+`tool-classification.ts`, `autonomous-patch-proposal.ts`, the web editor's `toolMeta.ts`,
+and the whole Python mirror (model, union, apply, invert, dispatch table, handler, args
+model, registry spec, validator's supported set and error-code map). The last one to bite
+was `toolMeta.ts` — only the full `pnpm test` catches it.
 
 ---
 
 ## 4. HOUSEKEEPING
 
-- **No floor was written from `session6`.** Eleven of 21 cases is not a floor.
-  `reports/golden/floor.json` is still the `baseline` one.
-- `tests/fixtures/mission/manifest.json` is modified in the working tree. **That is the
-  maintainer's**, from a `fetch-fixtures.sh` run. `speech-9min-c.mp4` is NOT in it yet —
-  it appears on the next `fetch-fixtures.sh`, which regenerates the whole file.
-  **Never `git add -A`, `git add .`, or `git add -u` in this repo** — stage by explicit path.
-- **Never `git stash` here**, including `--keep-index`. The user keeps long-lived stashes
-  and a stray stash silently empties the working tree.
-- Nothing is running. The sidecar and the runner were both stopped at the end of session 6.
-- `speech-9min.mp4` is still on disk and no fixture project uses it any more.
-- Memory files worth reading first: `golden-eval-harness`, `verification-judges-the-delta`,
-  `agent-progress-guards-layered`, `never-git-add-all-framepilot`,
-  `never-git-stash-framepilot`, `golden-manifests-track-prompt-text`,
-  `baseline-run-operational-traps`.
+- **No floor was written from `session6` or session 7.** `reports/golden/floor.json` is
+  still the `baseline` one.
+- **Never `git add -A`, `git add .`, or `git add -u` in this repo** — mission fixture media
+  is un-ignored and a blanket add put 3.8 GB in history. Stage by explicit path.
+- **Never `git stash` here**, including `--keep-index`.
+- **`ruff format` will reformat GENERATED Python** (`skills_generated.py`,
+  `autonomous_contract.py`) into churn the next build undoes. Format only the files you
+  wrote, or `git checkout` the generated ones afterwards.
+- **A repo-wide `sed` on an ADR number is a bad idea.** Session 7 renumbered eleven files'
+  pre-existing ADR 0170 references before catching it. Match on the sentence, not the
+  number.
+- Nothing is running. No sidecar, no runner.
+- Session 7 worked in a worktree (`../FramePilot-reliability-s7`, branch
+  `fix/agent-reliability-s7`), leaving the main checkout on its own branch.
 - Formatting: only files prettier-clean at the branch point should be formatted. The rest
   are the repo's existing red `format:check` baseline. `BASELINES.md` and `REMAINING.md`
   are both in it — do not reformat them.
+- Memory files worth reading first: `golden-eval-harness`, `verification-judges-the-delta`,
+  `agent-progress-guards-layered`, `never-git-add-all-framepilot`,
+  `never-git-stash-framepilot`, `golden-manifests-track-prompt-text`,
+  `baseline-run-operational-traps`, `error-message-text-is-a-guard-key`.
