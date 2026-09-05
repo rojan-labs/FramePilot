@@ -167,32 +167,6 @@ html[data-intro='pending'] .intro-stage,
       repeating-linear-gradient(to right, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px var(--tick-gap));
   }
 
-  /*
-   * Legacy eyebrow, still used by the reading routes (blog, docs, changelog,
-   * legal, pricing, download). Mapped onto the new timecode look so those
-   * pages stay coherent until their own redesign pass.
-   */
-  .eyebrow-tc {
-    display: inline-flex;
-    align-items: center;
-    gap: 9px;
-    width: fit-content;
-    font-family: var(--font-mono);
-    font-size: 9.5px;
-    font-weight: 600;
-    letter-spacing: 0.13em;
-    text-transform: uppercase;
-    color: var(--color-fg-tertiary);
-  }
-  .eyebrow-tc::before {
-    content: '';
-    width: 0;
-    height: 0;
-    border-top: 5px solid transparent;
-    border-bottom: 5px solid transparent;
-    border-left: 7px solid var(--color-accent);
-  }
-
   .tabular { font-variant-numeric: tabular-nums; }
 
   /* Track lane: the surface a clip bar sits on. */
@@ -236,11 +210,21 @@ html[data-intro='pending'] .intro-stage,
   .prose-fp ol { list-style: decimal; }
   .prose-fp li::marker { color: var(--color-accent); }
   .prose-fp blockquote { border-left: 2px solid var(--color-accent); padding-left: 1.1em; color: var(--color-fg-secondary); }
-  .prose-fp code { border-radius: 4px; background: var(--color-panel); padding: 0.12em 0.36em; font-family: var(--font-mono); font-size: 0.875em; }
-  .prose-fp pre { overflow-x: auto; border-radius: 10px; background: #111214; padding: 1.1rem 1.2rem; color: #f3f3f1; font-size: 13.5px; line-height: 1.65; }
+  .prose-fp code { border-radius: 3px; background: var(--color-panel); padding: 0.12em 0.36em; font-family: var(--font-mono); font-size: 0.875em; color: var(--color-fg); }
+  .prose-fp pre { overflow-x: auto; border-radius: 6px; background: #17140f; padding: 1.1rem 1.2rem; color: #f2efe8; font-size: 13.5px; line-height: 1.65; }
   .prose-fp pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
-  .prose-fp img { border-radius: 10px; }
-  .prose-fp hr { margin-block: 2.3em; border-color: var(--color-line); }
+  .prose-fp img { border-radius: 6px; }
+    .prose-fp hr {
+    margin-block: 2.3em;
+    height: 9px;
+    border: 0;
+    border-top: 1px solid var(--color-line);
+    background-image:
+      repeating-linear-gradient(to right, var(--color-line-strong) 0 1px, transparent 1px var(--tick-major)),
+      repeating-linear-gradient(to right, var(--color-line) 0 1px, transparent 1px var(--tick-gap));
+    background-size: 100% 8px, 100% 4px;
+    background-repeat: no-repeat, no-repeat;
+  }
   .prose-fp table { display: block; width: 100%; margin-block: 1.5em; overflow-x: auto; border-collapse: collapse; font-size: 14px; }
   .prose-fp th, .prose-fp td { border-bottom: 1px solid var(--color-line); padding: 0.65em 0.75em; text-align: left; }
   .prose-fp thead th { font-weight: 620; color: var(--color-fg); }

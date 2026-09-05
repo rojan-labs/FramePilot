@@ -35,7 +35,7 @@ export function TocRail({ items }: { items: TocEntry[] }) {
 
   return (
     <nav aria-label="On this page" className="text-[12.5px]">
-      <p className="mb-3 font-semibold uppercase tracking-wider text-fg-muted">On this page</p>
+      <p className="tc mb-3 text-fg-muted">On this page</p>
       <ul className="space-y-1.5 border-l border-line">
         {items.map((item) => (
           <li key={item.id} style={{ paddingLeft: item.depth === 3 ? 20 : 12 }}>

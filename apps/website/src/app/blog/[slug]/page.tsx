@@ -7,12 +7,18 @@ import { renderMarkdown } from '@/lib/markdown';
 import { pageMetadata, articleJsonLd } from '@/lib/seo';
 import { JsonLd } from '@/components/JsonLd';
 import { DownloadButton } from '@/components/DownloadButton';
+import { PageHeader } from '@/components/PageHeader';
+import { OutPoint, Ruler } from '@/components/timeline/Ruler';
 
 export function generateStaticParams() {
   return getPostSlugs().map((slug) => ({ slug }));
 }
 
-export async function generateMetadata({ params }: { params: Promise<{ slug: string }> }): Promise<Metadata> {
+export async function generateMetadata({
+  params,
+}: {
+  params: Promise<{ slug: string }>;
+}): Promise<Metadata> {
   const { slug } = await params;
   const post = getPost(slug);
   if (!post) return {};
@@ -35,7 +41,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
   const html = await renderMarkdown(post.content);
 
   return (
-    <article className="bg-canvas pb-24 pt-16 sm:pb-32 sm:pt-24">
+    <article className="bg-canvas pb-24 pt-10 sm:pb-28 sm:pt-14">
       <JsonLd
         data={articleJsonLd({
           title: post.title,
@@ -48,34 +54,53 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
       />
 
       <div className="container-x">
-        <Link href="/blog" className="inline-flex items-center gap-1.5 text-[12px] text-fg-tertiary hover:text-fg">
-          <ArrowLeft size={13} /> All notes
+        <Link
+          href="/blog"
+          className="inline-flex items-center gap-1.5 text-[12.5px] text-fg-tertiary transition-colors hover:text-fg"
+        >
+          <ArrowLeft size={13} aria-hidden /> All notes
         </Link>
 
-        <header className="mt-10 max-w-4xl">
-          <p className="font-mono text-[9px] uppercase tracking-[0.13em] text-fg-muted">
-            {formatDate(post.date)} · {post.readingMinutes} min read
-          </p>
-          <h1 className="mt-5 font-display text-[clamp(3rem,7vw,6.6rem)] font-semibold leading-[0.92] tracking-[-0.055em]">
-            {post.title}
-          </h1>
-          <p className="mt-6 max-w-2xl text-[17px] leading-8 text-fg-secondary">{post.description}</p>
-        </header>
-
-        <div className="mt-14 grid gap-12 border-t border-line pt-10 lg:grid-cols-[170px_minmax(0,700px)] lg:gap-14">
-          <aside className="text-[11px] leading-5 text-fg-muted lg:sticky lg:top-24 lg:self-start">
-            <p>Written by</p>
-            <p className="mt-1 font-medium text-fg-secondary">{post.author}</p>
-          </aside>
-          <div className="prose-fp" dangerouslySetInnerHTML={{ __html: html }} />
+        <div className="mt-8">
+          <PageHeader
+            tc={formatDate(post.date)}
+            eyebrow="Note"
+            size="md"
+            title={post.title}
+            description={post.description}
+            meta={
+              /* Reading time as a duration, because that is what it is. */
+              <span className="tc tabular text-fg-muted">
+                {String(post.readingMinutes).padStart(2, '0')}:00 read
+              </span>
+            }
+          />
         </div>
 
-        <div className="mt-20 max-w-[880px] border-t border-line pt-8 lg:ml-[224px]">
-          <p className="font-display text-[28px] font-semibold tracking-[-0.035em]">Try it on a real timeline.</p>
-          <p className="mt-2 max-w-xl text-[13.5px] leading-6 text-fg-secondary">
-            Download FramePilot and use the workflow described in this article inside the desktop editor.
+        <div className="mt-10 grid gap-12 lg:grid-cols-[170px_minmax(0,700px)] lg:gap-14">
+          <aside className="lg:sticky lg:top-24 lg:self-start">
+            <p className="tc text-fg-muted">Written by</p>
+            <p className="mt-2 text-[13px] font-medium text-fg-secondary">{post.author}</p>
+          </aside>
+          <div className="prose-fp min-w-0" dangerouslySetInnerHTML={{ __html: html }} />
+        </div>
+
+        <div className="mt-20 max-w-[880px] lg:ml-[224px]">
+          <Ruler />
+          <p className="mt-4 flex items-center gap-2.5">
+            <OutPoint />
+            <span className="tc text-accent">Out</span>
           </p>
-          <div className="mt-5"><DownloadButton size="md" /></div>
+          <p className="mt-4 font-display text-[27px] font-semibold tracking-[-0.035em]">
+            Try it on a real timeline.
+          </p>
+          <p className="mt-2.5 max-w-xl text-[13.5px] leading-6 text-fg-secondary">
+            Download FramePilot and use the workflow described in this article inside the desktop
+            editor.
+          </p>
+          <div className="mt-5">
+            <DownloadButton size="md" />
+          </div>
         </div>
       </div>
     </article>
