@@ -175,7 +175,12 @@ def test_summarize_silence_serializes_camel_case_for_the_orchestrator() -> None:
         "longestSeconds",
         "belowThresholdSeconds",
         "probeFloorSeconds",
+        "noiseFloorDb",
+        "minSilenceSeconds",
     }
+    # The count is meaningless without the level it was judged against (run 137d8fd0).
+    assert payload["noiseFloorDb"] == -30.0
+    assert payload["minSilenceSeconds"] == 0.5
 
 
 # --- Silence: decode failures are classified, not forwarded raw --------------

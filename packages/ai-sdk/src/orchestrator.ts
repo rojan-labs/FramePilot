@@ -2870,7 +2870,17 @@ export function summarizeReadResult(
           : 'no silent gaps found in the audio';
       }
       const total = ranges.reduce((sum, r) => sum + Number(r.duration ?? 0), 0);
-      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}, ${round2(
+      // The level is the whole meaning of the count. Without it a run on wind-only audio
+      // reported "silences catalogued" to an editor who had asked whether there was any
+      // REAL silence and said they doubted it (run `137d8fd0`, 728 measured under the
+      // default floor). Say what was measured, and that it is a level and not a verdict.
+      const level =
+        typeof obj.noiseFloorDb === 'number'
+          ? ` under ${String(obj.noiseFloorDb)} dB — a level, not a judgement: on audio with ` +
+            `no speech, quiet ambience reads as silence; listen, or lower noiseFloorDb, before ` +
+            `calling it dead air —`
+          : '';
+      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}${level || ','} ${round2(
         total,
       )}s total, in ${String(obj.assetId ?? '?')}:\n${boundedRecords(
         ranges,

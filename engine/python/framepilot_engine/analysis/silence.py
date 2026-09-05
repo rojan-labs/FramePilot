@@ -108,6 +108,23 @@ class SilenceMeasurement(BaseModel):
         alias="probeFloorSeconds",
         description="Shortest gap the measurement could see at all.",
     )
+    #: THE LEVEL THAT DEFINED "SILENT" — carried because the count means nothing without it.
+    #: Run ``137d8fd0``: wind-only GoPro audio, no speech, and an editor who asked "check
+    #: whether there's any real silence and tell me straight; I don't think there is". The
+    #: probe found 728 stretches under the default floor and the run said "silences
+    #: catalogued". Quiet wind IS below -30 dB. Whether that is silence is a judgement the
+    #: reader can only make if the payload says what level it was judged against.
+    noise_floor_db: float = Field(
+        default=DEFAULT_NOISE_FLOOR_DB,
+        alias="noiseFloorDb",
+        description="Level (dBFS) below which audio counted as silent for this measurement.",
+    )
+    min_silence_seconds: float = Field(
+        default=DEFAULT_MIN_SILENCE_SECONDS,
+        ge=0.0,
+        alias="minSilenceSeconds",
+        description="Shortest gap reported in `ranges`; shorter ones are summed below.",
+    )
 
     model_config = {"populate_by_name": True}
 
@@ -117,6 +134,7 @@ def summarize_silence(
     *,
     min_silence_seconds: float,
     probe_floor_seconds: float = SILENCE_PROBE_FLOOR_SECONDS,
+    noise_floor_db: float = DEFAULT_NOISE_FLOOR_DB,
 ) -> SilenceMeasurement:
     """Split a probe-floor measurement into the reportable ranges plus what sat below (pure).
 
@@ -128,6 +146,8 @@ def summarize_silence(
     :param measured: Every silence the probe found, at ``probe_floor_seconds``.
     :param min_silence_seconds: The threshold the caller actually asked to act on.
     :param probe_floor_seconds: The floor the measurement ran at (reported back).
+    :param noise_floor_db: The level the decode treated as silent (reported back, so a
+        count of "silences" can be read as the level it actually is).
     :returns: The filtered ranges plus the sub-threshold measurement.
     """
     kept: list[SilentRange] = []
@@ -155,6 +175,8 @@ def summarize_silence(
         longest_seconds=longest,
         below_threshold_seconds=below_seconds,
         probe_floor_seconds=probe_floor_seconds,
+        noise_floor_db=noise_floor_db,
+        min_silence_seconds=min_silence_seconds,
     )
 
 

@@ -1539,6 +1539,13 @@ class SilenceAnalysisResponse(BaseModel):
     probe_floor_seconds: float = Field(
         default=SILENCE_PROBE_FLOOR_SECONDS, ge=0.0, alias="probeFloorSeconds"
     )
+    #: The level that counted as silent, and the shortest gap reported — the two numbers a
+    #: reader needs to know what "N silent ranges" is a count OF (see
+    #: ``analysis/silence.py#SilenceMeasurement.noise_floor_db``).
+    noise_floor_db: float = Field(default=DEFAULT_NOISE_FLOOR_DB, alias="noiseFloorDb")
+    min_silence_seconds: float = Field(
+        default=DEFAULT_MIN_SILENCE_SECONDS, ge=0.0, alias="minSilenceSeconds"
+    )
     #: Why the result is empty, when the media itself has nothing to detect (no
     #: audio track). ``None`` on a real detection — an empty ``ranges`` with no
     #: reason means silencedetect ran over real audio and found no gaps.
@@ -5348,7 +5355,10 @@ def create_app(
         except (FFmpegError, FileNotFoundError) as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         summary = summarize_silence(
-            measured, min_silence_seconds=min_gap, probe_floor_seconds=probe_floor
+            measured,
+            min_silence_seconds=min_gap,
+            probe_floor_seconds=probe_floor,
+            noise_floor_db=noise,
         )
         _log.info(
             "ACT analyze-silence: asset=%s → %d of %d measured silences at >=%.2fs "

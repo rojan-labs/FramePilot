@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **"Silent" now says what level it means.** Asked whether wind-only footage had any real
+  silence, the AI reported "203 silent ranges" — true at the −30 dB detector default, where
+  quiet wind counts, and useless as an answer. The silence check now reports the level it
+  measured against alongside the count, the AI is told that is a level and not a verdict,
+  and the tool explains what "silent" means before it is called.
+
 - **Re-applying a setting the timeline already has no longer counts as progress.** One
   run set the music bed to the −18 dB it was already at ten separate times, and each one
   reset the checks that stop a run going in circles, as if a fader had moved. A change that

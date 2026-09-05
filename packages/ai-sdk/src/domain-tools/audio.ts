@@ -73,9 +73,11 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
     {
       name: 'analyze_silence',
       description:
-        "Detect silent ranges in an asset's audio (ffmpeg silencedetect). Seconds of " +
-        'ffmpeg, free, cached per file at default settings. Returns ' +
-        'start/end/duration for each gap; does not edit the timeline.',
+        'Detect silent ranges in an asset\'s audio (ffmpeg silencedetect). "Silent" means ' +
+        'below noiseFloorDb (default -30 dB) for at least minSilenceSeconds (default 0.5): ' +
+        'on audio with no speech, quiet ambience counts, so answer "is there real silence" ' +
+        'from the level, not the count. Seconds of ffmpeg, free, cached per file at default ' +
+        'settings. Returns start/end/duration for each gap; does not edit the timeline.',
     },
     analyzeSilenceSchema,
   ),

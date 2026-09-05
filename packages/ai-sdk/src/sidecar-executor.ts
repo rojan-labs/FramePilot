@@ -334,6 +334,14 @@ export function summarizeAnalysis(name: string, data: unknown): string {
         typeof record.longestSeconds === 'number' ? Number(record.longestSeconds.toFixed(3)) : 0;
       return `No gap that long — ${record.measuredCount} shorter silence(s) measured, longest ${String(longest)}s`;
     }
+    // "Found N silent ranges" is the confident POSITIVE. Run `137d8fd0`: wind-only GoPro
+    // audio, an editor who asked "is there any real silence — tell me straight; I don't
+    // think there is", and a card that said 203 silences. Quiet wind is under -30 dB. The
+    // number is honest only with its level attached, so the reader can tell a measurement
+    // from a verdict. Older payloads carry no level and keep the old sentence.
+    if (typeof record.noiseFloorDb === 'number') {
+      return `Found ${n} stretch${n === 1 ? '' : 'es'} under ${String(record.noiseFloorDb)} dB`;
+    }
     return `Found ${n} silent range${n === 1 ? '' : 's'}`;
   }
   if (name === 'detect_scenes' && Array.isArray(record.cuts)) {
