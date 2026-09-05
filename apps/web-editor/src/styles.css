@@ -12409,28 +12409,6 @@ a.export-credits-license {
   opacity: 1;
   background: var(--bg-active);
 }
-.ai-quick {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
-  padding: var(--space-2) var(--space-2) 0;
-}
-.ai-quick-item {
-  border: 1px solid var(--border-subtle);
-  background: var(--bg-elevated);
-  color: var(--text-secondary);
-  border-radius: var(--radius-lg);
-  padding: 4px 10px;
-  font-size: var(--font-size-sm);
-  cursor: pointer;
-  transition:
-    background var(--dur-fast) var(--ease),
-    color var(--dur-fast) var(--ease);
-}
-.ai-quick-item:hover {
-  background: var(--bg-active);
-  color: var(--text-primary);
-}
 .ai-slash {
   list-style: none;
   margin: 0;

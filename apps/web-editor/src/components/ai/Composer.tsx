@@ -1,8 +1,8 @@
 /**
  * The AI composer (Phase 11 M8, ADR 0033): a workspace input, not a chat box.
  *
- * Adds a **slash-command palette** (FramePilot task commands), **quick actions**
- * (one-tap prompt prefills), an **included-context panel** (removable chips derived
+ * Adds a **slash-command palette** (FramePilot task commands), an
+ * **included-context panel** (removable chips derived
  * from the project + selection + pinned entities), an **"@" pin-context picker**
  * (H1.5, P8.7 narrow slice — search timeline clips/`project.assets` and pin one as
  * extra context), and **reference tiles** (`ReferenceTile`) fed by a paste handler, a
@@ -14,7 +14,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 
 import type { ReferenceRole, RunStatus } from '@framepilot/ai-sdk';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import {
-  QUICK_ACTIONS,
   type PinnedEntity,
   filterAtEntities,
   filterSlashCommands,
@@ -116,7 +115,6 @@ export interface ComposerProps {
 
 export function Composer(props: ComposerProps): JSX.Element {
   const { value, onChange, onSubmit, onStop, running } = props;
-  const [showQuick, setShowQuick] = useState(false);
   /**
    * Has the message wrapped past its first line?
    *
@@ -359,25 +357,6 @@ export function Composer(props: ComposerProps): JSX.Element {
         </div>
       )}
 
-      {showQuick && (
-        <div className="ai-quick" role="menu" aria-label="Quick actions">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              role="menuitem"
-              className="ai-quick-item"
-              onClick={() => {
-                onChange(action.prompt);
-                setShowQuick(false);
-              }}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       {slashMatches.length > 0 && (
         <ul className="ai-slash" role="listbox" aria-label="Slash commands">
           {slashMatches.map((command) => (
@@ -436,18 +415,14 @@ export function Composer(props: ComposerProps): JSX.Element {
           own content — the truncated "Message FramePilot…" with the icons crammed against
           it. A track that cannot grow past its content is not a text field. */}
       <div className="ai-composer">
+        {/* One control now, and the wrapper stays anyway: it is the grid's first
+            column, and it is what keeps the message's left edge in the same place on a
+            host that cannot attach files (where this renders empty) as on one that can.
+            The "+" that used to sit here opened seven canned prompts — four of which
+            restated a slash command, and all seven of which were plain English the
+            model classifies exactly as if they had been typed. A second discovery
+            surface for prompts, in the narrowest part of the UI. */}
         <div className="ai-composer-lead">
-          <button
-            type="button"
-            className="ai-icon-button"
-            aria-label="Quick actions"
-            title="Quick actions"
-            data-active={showQuick}
-            aria-expanded={showQuick}
-            onClick={() => setShowQuick((v) => !v)}
-          >
-            <span aria-hidden="true">+</span>
-          </button>
           {props.onAttachFiles ? (
             <>
               <input

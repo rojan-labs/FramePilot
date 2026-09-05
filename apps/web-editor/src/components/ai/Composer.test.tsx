@@ -126,11 +126,12 @@ describe('Composer', () => {
     expect(props.onChange).toHaveBeenCalledWith('/add-captions ');
   });
 
-  it('toggles quick actions and prefills a prompt', () => {
-    const props = setup();
-    fireEvent.click(screen.getByLabelText('Quick actions'));
-    fireEvent.click(screen.getByRole('menuitem', { name: 'Trim Silence' }));
-    expect(props.onChange).toHaveBeenCalledWith(expect.stringContaining('silent gaps'));
+  it('offers no quick-actions control — "/" is the one prompt-discovery surface', () => {
+    setup({ onAttachFiles: vi.fn() });
+    expect(screen.queryByLabelText('Quick actions')).toBeNull();
+    expect(document.querySelector('.ai-quick')).toBeNull();
+    // The paperclip is what is left in the lead cluster, and it must survive the removal.
+    expect(screen.getByLabelText('Attach reference video or image')).toBeDefined();
   });
 
   it('lists context chips and removes them', () => {
@@ -285,29 +286,21 @@ describe('the writing row', () => {
     expect(document.querySelector('.ai-composer-send')).toBeNull();
   });
 
-  it('groups the two lead controls together, not one per column', () => {
-    setup({ onAttachFiles: vi.fn() });
+  it('keeps the lead cluster as the first column even when it is empty', () => {
+    // On a host that cannot attach files it renders nothing — but it still has to
+    // occupy column one, or the message shifts left on one host and not the other.
+    setup();
     const lead = document.querySelector('.ai-composer-lead');
-    expect(lead?.querySelectorAll('button')).toHaveLength(2);
+    expect(lead).not.toBeNull();
+    expect(lead?.querySelectorAll('button')).toHaveLength(0);
+    expect(Array.from(row().children)).toHaveLength(3);
   });
 
   it('labels every icon-only control', () => {
     setup({ onAttachFiles: vi.fn() });
-    for (const label of ['Quick actions', 'Attach reference video or image', 'Send']) {
+    for (const label of ['Attach reference video or image', 'Send']) {
       expect(screen.getByLabelText(label)).toBeDefined();
     }
-    // The "+" is a glyph, not a word the screen reader should read twice.
-    expect(screen.getByLabelText('Quick actions').querySelector('[aria-hidden="true"]')).not.toBe(
-      null,
-    );
-  });
-
-  it('says whether the quick-actions menu is open', () => {
-    setup();
-    const button = screen.getByLabelText('Quick actions');
-    expect(button.getAttribute('aria-expanded')).toBe('false');
-    fireEvent.click(button);
-    expect(button.getAttribute('aria-expanded')).toBe('true');
   });
 });
 

@@ -1593,7 +1593,6 @@
 }
 
 /* Dropdowns rise from the composer like the reference PromptBar menus. */
-.ai-quick,
 .ai-slash {
   position: absolute;
   right: 0;
@@ -1613,7 +1612,6 @@
   transform-origin: bottom center;
 }
 
-.ai-quick-item,
 .ai-slash button {
   width: 100%;
   min-height: 34px;
@@ -1628,7 +1626,6 @@
   text-align: left;
 }
 
-.ai-quick-item:hover,
 .ai-slash button:hover,
 .ai-slash button:focus-visible {
   background: var(--ai-hover);

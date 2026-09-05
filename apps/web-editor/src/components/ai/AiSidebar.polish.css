@@ -384,7 +384,6 @@
 
 /* Composer palettes are popup surfaces too. The first pass supplied the shell, but these
    rules restore clipping, separation and selected-row clarity visible in the reference. */
-.ai-composer-shell .ai-quick,
 .ai-composer-shell .ai-slash {
   right: -1px;
   left: -1px;
@@ -396,7 +395,6 @@
     0 4px 14px rgba(0, 0, 0, 0.22);
 }
 
-.ai-composer-shell .ai-quick-item,
 .ai-composer-shell .ai-slash button {
   border-radius: 7px;
 }
