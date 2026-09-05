@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The message box is usable again.** The AI input had collapsed to a sliver — the
+  placeholder cut off mid-word with the "+" and paperclip squeezed against it. It's a
+  proper field again: full width, growing as you type up to about eight lines and then
+  scrolling, with the controls staying put on the bottom edge instead of sliding down the
+  box. It's a pill when you've typed one line and a rounded box once your message wraps.
 - **Music can duck the sound it's actually playing under.** Asking for a bed that ducks
   the wind down on a video with no dialogue used to fail: the AI was told to "place the
   dialogue first", so it laid the track at full level instead and the instruction was
