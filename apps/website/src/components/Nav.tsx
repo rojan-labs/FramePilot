@@ -4,21 +4,29 @@ import { useCallback, useEffect, useId, useRef, useState } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { Menu, X } from 'lucide-react';
+import { motion } from 'framer-motion';
 import { NAV_LINKS, site } from '@/lib/site';
 import { LOGO_MARK_SIZE, LogoMark } from './Logo';
 import { Button } from './Button';
+import { useIntro } from './intro/IntroProvider';
+import { INTRO_TIMING } from '@/lib/intro-machine';
 
 const FOCUSABLE =
   'a[href], button:not([disabled]), input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function Nav() {
   const pathname = usePathname();
+  const { state, isLanding, mounted } = useIntro();
   const [open, setOpen] = useState(false);
   const panelRef = useRef<HTMLDivElement>(null);
   const toggleRef = useRef<HTMLButtonElement>(null);
   const panelId = useId();
 
   const close = useCallback(() => setOpen(false), []);
+
+  /* The intro owns the mark until it settles; then the navbar receives it. */
+  const markHidden = isLanding && state !== 'settled';
+  const handedOver = mounted && state === 'settled';
 
   // The menu is a route-level overlay: leaving the route must close it.
   useEffect(() => {
@@ -76,12 +84,36 @@ export function Nav() {
           className="inline-flex items-center gap-2.5 text-fg"
           aria-label={`${site.name} home`}
         >
-          {/* Fixed reserved box: the mark can arrive late without moving anything. */}
+          {/*
+            The slot is always rendered at a fixed size, so the mark can arrive
+            late from the intro without moving a pixel of the navbar.
+
+            Before hydration the inline head script and its CSS rule own the
+            mark's visibility; after hydration this inline style does, which
+            keeps the hand-off free of any ordering dependency between React
+            and the attribute being removed. With JavaScript off neither
+            applies and the mark is simply visible.
+          */}
           <span
             className="nav-logo-mark grid shrink-0 place-items-center"
-            style={{ width: LOGO_MARK_SIZE, height: LOGO_MARK_SIZE }}
+            style={{
+              width: LOGO_MARK_SIZE,
+              height: LOGO_MARK_SIZE,
+              visibility: !mounted ? undefined : markHidden ? 'hidden' : 'visible',
+            }}
           >
-            <LogoMark />
+            {handedOver ? (
+              <motion.span
+                layoutId="fp-logo-mark"
+                className="block overflow-hidden rounded-[6px]"
+                style={{ width: LOGO_MARK_SIZE, height: LOGO_MARK_SIZE }}
+                transition={{ duration: INTRO_TIMING.logoFlightMs / 1000, ease: [0.16, 1, 0.3, 1] }}
+              >
+                <LogoMark size={LOGO_MARK_SIZE} />
+              </motion.span>
+            ) : (
+              <LogoMark />
+            )}
           </span>
           <span className="font-display text-[16.5px] font-semibold tracking-[-0.025em]">
             {site.name}

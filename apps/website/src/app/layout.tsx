@@ -9,6 +9,8 @@ import { getPlans } from '@/lib/pricing';
 import { JsonLd } from '@/components/JsonLd';
 import { Nav } from '@/components/Nav';
 import { Footer } from '@/components/Footer';
+import { IntroProvider } from '@/components/intro/IntroProvider';
+import { INTRO_BOOT_SCRIPT } from '@/lib/intro-machine';
 
 const bricolage = localFont({
   src: '../fonts/BricolageGrotesque-Variable.woff2',
@@ -56,6 +58,12 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
     <html lang="en" className={`${GeistSans.variable} ${GeistMono.variable} ${bricolage.variable}`}>
       <head>
         {/*
+          Runs before first paint. It marks the document only when the intro is
+          really about to play, so CSS can hide the navbar's logo mark for
+          exactly that case and nothing flashes into position.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: INTRO_BOOT_SCRIPT }} />
+        {/*
           Without JavaScript, framer-motion's server-rendered `initial` styles
           would leave section content hidden forever. Force every reveal open.
         */}
@@ -73,9 +81,11 @@ export default function RootLayout({ children }: { children: React.ReactNode }) 
         >
           Skip to content
         </a>
-        <Nav />
-        <main id="main">{children}</main>
-        <Footer />
+        <IntroProvider>
+          <Nav />
+          <main id="main">{children}</main>
+          <Footer />
+        </IntroProvider>
       </body>
     </html>
   );
