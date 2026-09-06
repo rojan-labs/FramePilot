@@ -29,6 +29,7 @@ import {
   summarizeEditorInteraction,
   type EditorInteractionContext,
 } from './editor-context/interaction-context.js';
+import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 
 const log = createLogger('ai-sdk:context-builder');
 
@@ -384,6 +385,13 @@ export function summarizeTranscript(
   retrieval?: RetrievalQuery,
 ): string {
   if (project.transcript.length === 0) return 'Transcript: (none)';
+  // A transcript that loops is the recogniser's answer to quiet audio, not dialogue, and
+  // handing the model 3,000 tokens of "I'll try to follow you later" on every call — run
+  // `cc907070` did, 290 times, for a GoPro take whose brief said "no dialogue anywhere" —
+  // is both the single largest fixed cost in the request and a standing invitation to cut
+  // on words nobody said. One sentence says what the Critic will say at the end anyway.
+  const loop = detectTranscriptLoop(project.transcript);
+  if (loop) return loopedTranscriptStatement(project, loop);
   if (retrieval) return rankedTranscriptBlock(project, retrieval, maxWords);
   if (!focus) {
     const words = project.transcript.slice(0, maxWords).map((w) => w.word);
@@ -396,6 +404,26 @@ export function summarizeTranscript(
   const label = `Transcript (focused on ${round(focus.start)}–${round(focus.end)}s):`;
   if (inWindow.length === 0) return `${label} (no dialogue in range)`;
   return `${label}\n${inWindow.map((w) => w.word).join(' ')}`;
+}
+
+/**
+ * The one-line stand-in for a transcript the loop detector has judged fabricated.
+ *
+ * Names the phrase, the count and the share so the model can tell the editor exactly what
+ * happened, and says what to do instead of reading it: treat the recording as having no
+ * usable dialogue, and re-transcribe before trusting any word timing. The words are still on
+ * the project and `get_transcript` still serves them; nothing is hidden, only not volunteered.
+ */
+function loopedTranscriptStatement(project: Project, loop: TranscriptLoop): string {
+  const words = project.transcript.length;
+  return (
+    `Transcript: NOT USABLE — speech recognition looped over quiet audio. ${String(words)} ` +
+    `transcribed words, of which "${loop.phrase}" repeats ${String(loop.repeats)} times back ` +
+    `to back over ${round(loop.startSeconds)}–${round(loop.endSeconds)}s ` +
+    `(${String(Math.round(loop.share * 100))}% of the recording). Treat this as a recording ` +
+    'with no reliable dialogue: do not select, caption or cut on these words, and say so if ' +
+    'the editor expected speech. Re-transcribe before trusting word timings.'
+  );
 }
 
 /**

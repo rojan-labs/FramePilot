@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A looping transcript is no longer fed to the AI as dialogue.** On a wind-only take the
+  transcript slice — 3,000 tokens of one phrase repeated — rode along on all 290 model
+  calls, the single largest fixed cost in the request and an invitation to cut on words
+  nobody said. When the loop signature is detected the slice becomes one sentence saying
+  the transcript is not usable and why; the words stay on the project for `get_transcript`.
+- **The AI's private run memory no longer repeats one rejection eleven times.** Refused
+  calls that share a reason are grouped into one row naming the calls, so a new reason
+  stands out instead of being buried under copies of the old one.
 - **A speed ramp no longer runs the clip into its neighbour.** "Fast in, slow on the
   impact, back up after" on a clip inside a timed 60-second cut was refused five times
   because the ramp recomputed the clip's length and overlapped the next shot. The AI's

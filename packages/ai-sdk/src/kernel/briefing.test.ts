@@ -318,6 +318,30 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('overlaps clip_b');
   });
 
+  it('groups failures that share one reason instead of printing the reason per call', () => {
+    // Run `cc907070`: eleven ledger rows refused for one sentence, printed eleven times per
+    // turn. One row per reason, naming the calls; a different reason is still its own row.
+    let state = base();
+    for (let i = 0; i < 5; i++) {
+      state = recordOperation(state, {
+        intent: `add_clips batch ${String(i)}`,
+        status: 'failed',
+        failureReason: 'refused by the same rule',
+      });
+    }
+    state = recordOperation(state, {
+      intent: 'set_track_flags v_main',
+      status: 'failed',
+      failureReason: 'a different reason',
+    });
+    const text = buildStateBriefing(state);
+    expect(text.split('refused by the same rule')).toHaveLength(2);
+    expect(text).toContain(
+      '- 5 calls (add_clips batch 0; add_clips batch 1; add_clips batch 2; and 2 more): refused by the same rule',
+    );
+    expect(text).toContain('- set_track_flags v_main: a different reason');
+  });
+
   describe('ALREADY APPLIED collapses repetition without losing work', () => {
     /** The ledger's fan-out: one record per timeline operation, distinct idempotency keys. */
     const fanOut = (

@@ -37,6 +37,9 @@ import { type ToolRole } from './stage-policy.js';
 /** Characters of a distilled statement — one line, never a payload. */
 const STATEMENT_CHARS = 180;
 
+/** How many distinct failed intents one FAILED row names before counting the rest. */
+const FAILED_INTENTS_SHOWN = 3;
+
 /** What a distilled conclusion carries back to the reducer. */
 export interface Distillation {
   readonly statement: string;
@@ -172,6 +175,35 @@ function renderFact(fact: Fact): string {
  * empty scaffold of headings — the contract and the request are enough there, and an
  * empty briefing would only teach the model that the section is noise.
  */
+/**
+ * The FAILED section's rows: one per distinct reason, naming the intents it refused.
+ *
+ * The ledger records one failed operation per refused call, and a run being refused by
+ * one rule refuses many calls for the same sentence. Run `cc907070` had eleven rows that
+ * differed only in a number inside a 600-character rejection, and the briefing printed all
+ * eleven on every turn — 7,800 characters telling the model one thing. Grouped, the run
+ * reads "this reason, these calls" once, and a NEW reason still stands out as a new row.
+ *
+ * Intents are the ledger's own strings (a tool name and its arguments), kept whole because
+ * the model needs them to tell which of its calls a reason applies to.
+ */
+function groupFailures(failed: readonly RunWorkingState['operations'][number][]): string[] {
+  const byReason = new Map<string, string[]>();
+  for (const operation of failed) {
+    const reason = operation.failureReason ?? 'no reason recorded';
+    const intents = byReason.get(reason);
+    if (intents) intents.push(operation.intent);
+    else byReason.set(reason, [operation.intent]);
+  }
+  return [...byReason.entries()].map(([reason, intents]) => {
+    if (intents.length === 1) return `- ${intents[0]}: ${reason}`;
+    const shown = intents.slice(0, FAILED_INTENTS_SHOWN).join('; ');
+    const rest = intents.length - FAILED_INTENTS_SHOWN;
+    const names = rest > 0 ? `${shown}; and ${String(rest)} more` : shown;
+    return `- ${String(intents.length)} calls (${names}): ${reason}`;
+  });
+}
+
 export function buildStateBriefing(
   state: RunWorkingState,
   /**
@@ -290,9 +322,7 @@ export function buildStateBriefing(
   }
   if (failed.length > 0) {
     sections.push(
-      `FAILED — fix the cause, do not retry unchanged\n${failed
-        .map((o) => `- ${o.intent}: ${o.failureReason ?? 'no reason recorded'}`)
-        .join('\n')}`,
+      `FAILED — fix the cause, do not retry unchanged\n${groupFailures(failed).join('\n')}`,
     );
   }
 
