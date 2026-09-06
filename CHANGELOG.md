@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A new session no longer inherits false facts about the last one's context.** The
+  second turn of a run opened with twelve "playbook loaded — its instructions are pinned in
+  your context" facts carried from the first, for playbooks that session had not loaded.
+  What a run knows about its own context is scoped to that run: it survives every edit
+  within it and is never carried forward.
 - **The AI can see which tracks carry a mix role.** After labelling its music track the AI
   re-labelled it on twenty-two consecutive turns and finally reported that no track
   carried a role, because none of the timeline views it reads showed one. The role now

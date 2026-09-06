@@ -345,7 +345,7 @@
             "evidenceIds": [
               "ev_1"
             ],
-            "scope": "revision_independent",
+            "scope": "run_local",
             "observedAtRevision": 0,
             "stage": "analyze"
           }
@@ -765,7 +765,7 @@
             "evidenceIds": [
               "ev_1"
             ],
-            "scope": "revision_independent",
+            "scope": "run_local",
             "observedAtRevision": 0,
             "stage": "analyze"
           },
@@ -1060,7 +1060,7 @@
             "evidenceIds": [
               "ev_1"
             ],
-            "scope": "revision_independent",
+            "scope": "run_local",
             "observedAtRevision": 0,
             "stage": "analyze"
           },
@@ -1211,7 +1211,7 @@
             "evidenceIds": [
               "ev_1"
             ],
-            "scope": "revision_independent",
+            "scope": "run_local",
             "observedAtRevision": 0,
             "stage": "analyze"
           },

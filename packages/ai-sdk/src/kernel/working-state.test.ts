@@ -88,6 +88,23 @@ describe('record ids survive revision-scoped pruning', () => {
     expect(new Set(seen).size, `reused ids: ${seen.join(', ')}`).toBe(seen.length);
   });
 
+  it('keeps a run-local fact across an edit, and drops the arrangement fact beside it', () => {
+    let state = recordFact(base(), {
+      kind: 'derived',
+      statement: 'Reading the pacing playbook → pacing playbook loaded — pinned',
+      scope: 'run_local',
+    });
+    state = recordFact(state, {
+      kind: 'project',
+      statement: '46 clips, sequence duration 21.87s.',
+      scope: 'timeline_dependent',
+    });
+    state = onProjectRevisionChanged(state, state.currentProjectRevision + 1);
+    expect(state.facts.map((f) => f.statement)).toEqual([
+      'Reading the pacing playbook → pacing playbook loaded — pinned',
+    ]);
+  });
+
   it('never reuses an objective, decision, operation or verification id', () => {
     let state = base();
     for (let i = 0; i < 3; i += 1) {

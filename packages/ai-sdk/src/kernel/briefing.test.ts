@@ -113,6 +113,19 @@ describe('distil', () => {
     expect(distil({ ...settled, toolName: 'load_skill', role: 'guidance' })!.kind).toBe('derived');
   });
 
+  it('scopes a guidance finding to this run, so it is neither dropped by a cut nor carried', () => {
+    // "playbook loaded — its instructions are pinned in your context" was carried into the
+    // next session of run `cc907070` twelve times over, for playbooks that session had not
+    // pinned. A fact about the run's own context is true for exactly one run.
+    const loaded = distil({ ...settled, toolName: 'load_skill', role: 'guidance' })!;
+    expect(loaded.scope).toBe('run_local');
+    expect(distil({ ...settled, toolName: 'load_tools', role: 'guidance' })!.scope).toBe(
+      'run_local',
+    );
+    // A footage fact keeps the scope the tool declares.
+    expect(distil({ ...settled, toolName: 'map_footage' })!.scope).toBe(settled.scope);
+  });
+
   it('accepts a warning as a finding — a partial result is still something learned', () => {
     expect(distil({ ...settled, status: 'warning' })).toBeDefined();
   });

@@ -111,7 +111,10 @@ export function distil(args: {
   // noise; omitting it lets the caller see the gap instead of a restatement.
   if (finding === '' || finding === args.descriptor.trim()) return undefined;
   const statement = `${args.descriptor} → ${finding}`.slice(0, STATEMENT_CHARS);
-  const scope = args.scope;
+  // What a GUIDANCE call establishes is a fact about this run's own context — a pinned
+  // playbook, a loaded tool domain, a catalogue browsed — not about the footage. It must
+  // survive every edit of this run and never reach the next one (`FactScopeSchema`).
+  const scope: FactScope = args.role === 'guidance' ? 'run_local' : args.scope;
   return {
     statement,
     kind: kindFor(args.role, args.toolName),
@@ -123,7 +126,9 @@ export function distil(args: {
             id: args.evidenceId,
             source: args.toolName,
             descriptor: args.descriptor,
-            scope,
+            // The EVIDENCE handle keeps the tool's own scope: the store it points into is
+            // per-run anyway, and its validity is the tool's business.
+            scope: args.scope,
           },
         }
       : {}),
