@@ -46,6 +46,73 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-reorder` — 2026-09-07 (session 9) — **`reorder_clips` sampled live for the first time: right on the first call in 6 of 6 runs, then 3 runs rotated the order again until it was wrong and 5 cropped or asked to crop every clip nobody mentioned**
+
+| | |
+| --- | --- |
+| commit | `03a2e31` (`main`) — code; evidence in this entry's commit on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` (5 landscape clips on `video_1`, 9:16 sequence) |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 6 min; $0.499 per accepted edit (list price, not billed) |
+
+The one run every session since 7 said was "worth credits": does the model reach for
+`reorder_clips` (ADR 0173) when it exists? **Yes, first call, every run** — the recorded
+session6 model deleted the track and asked; this one reorders in one operation. What it does
+NEXT is the finding.
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 83% (5/6 — r1 of last-first ended `cancelled` on an unasked question) |
+| target resolution | 50% |
+| boundary precision | 100% |
+| operation validity | 100% |
+| first-pass acceptance | 33% (2/6) |
+| silent successes | 0 |
+| reversibility | 100% |
+| accepted edits | 2 |
+| tokens / accepted edit | 387,363 |
+| model calls / turn p50 · p95 | 5 · 11 |
+| tool calls / turn p50 · p95 | 6 · 12 |
+| first progress p50 · p95 | 3.4s · 4.3s |
+| done p50 · p95 | 48.8s · 107.1s |
+
+### Per run — what each actually did
+
+| run | first call | then | final order | score | first-pass |
+| --- | --- | --- | --- | --- | --- |
+| last-first r1 | `reorder_clips` ✓ | asked "crop all 5 to a centred fill?" — operator declined, run cancelled | ✓ | 1.00 | no |
+| last-first r2 | `reorder_clips` ✓ | `get_timeline`, **`reorder_clips` again** (the NEW last clip to the front), then `vertical-reframe` skill + `set_clip_crop` ×5 | 004,005,001,002,003 ✗ | 0.80 | no |
+| last-first r3 | `reorder_clips` ✓ | `get_timeline` → `reorder_clips` → … **five rotations** | back to 001…005 ✗ | 0.80 | no |
+| swap r1 | `reorder_clips` ✓ | `vertical-reframe` skill, `load_tools motion`, `set_clip_crop` ×5 | ✓ | 1.00 | yes |
+| swap r2 | `reorder_clips` ✓ | **`reorder_clips` again** — swapped back | 001…005 ✗ | 0.80 | no |
+| swap r3 | `reorder_clips` ✓ | `set_clip_crop` ×5 | ✓ | 1.00 | yes |
+
+### Root causes, read off the replayed prompts (`kernel/replay`, zero model calls)
+
+1. **A run that edits straight from inspection is left at stage `inspect`.**
+   `stageAdvanceFor('inspect', ['mutation'], applied=true)` returns `null` — a test pinned it
+   ("a mutation alone earns nothing here"). So after the reorder LANDED, turn 2's briefing
+   read `STAGE: You are at "inspect"` and `DO THIS NOW: Continue inspect: read only what the
+   objective still needs.` — directly under `ALREADY APPLIED — do not repeat: Reorder clips`.
+   The model obeyed the instruction, read the timeline, found a different clip last, and
+   moved "the last clip" to the front again. Three of six runs.
+2. **`WHERE YOU STAND` carries an imperative the request never made.** Every turn's briefing
+   said "5 of 5 picture clips use a landscape source in a 1080x1920 portrait frame with no
+   crop, so they render with black bars: … **Crop each to fill the frame.**" That line is the
+   `reframe_coverage` health check's own detail — true of the fixture BEFORE the run — and
+   `standingAgainstAcceptance` never asked whether the run caused it. Five of six runs
+   treated it as part of the job. The rubric does not see the crops (`content-preserved`
+   checks source ranges, not crop), which is why two of those runs still score 1.00.
+
+### Not evidence of
+- The other nineteen cases under this code — unsampled this session.
+- Cost after the fix: the 387k tokens per accepted edit are mostly the re-reads and
+  re-reorders the two defects caused.
+
 ## `s9-baseline-replay` — 2026-09-07 (session 9) — **the session-9 floor: every session6 recording replayed under `main` at `03a2e31`; the beat-grid deletion (ADR 0174) took `beat-sync` r1 from 0.56 to 1.00**
 
 | | |

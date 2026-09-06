@@ -1,0 +1,487 @@
+{
+  "scenario": "reorder-last-first",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 2,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Move the last clip to the very beginning of the timeline.",
+      "rubric": "reorder-last-first",
+      "expectedIntent": "edit",
+      "score": 0.8,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "last-moved-first",
+          "ok": false,
+          "detail": "order is [asset_004, asset_005, asset_001, asset_002, asset_003]",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "last-moved-first: order is [asset_004, asset_005, asset_001, asset_002, asset_003]",
+            "content-preserved: same clips, same source ranges"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 3,
+          "valid": 3,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 9,
+        "toolCalls": 12,
+        "tokens": {
+          "prompt": 182810,
+          "output": 3936,
+          "total": 186746
+        },
+        "usd": 0.22441799999999998,
+        "latency": {
+          "firstProgressMs": 3350,
+          "doneMs": 64931
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 3 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 0.8,
+        "finalStatus": "completed",
+        "operations": 7
+      },
+      "asked": [],
+      "assistantText": "**Applied 7 edits** in 3 steps — review the proposed change below.\n\n- Reorder clips Video 1 (×2)\n- Reframed clip b3-1080p60-15s.mov\n- Reframed clip b4-1080p-50s.mp4\n- Reframed clip camera-4k60-40s.mov\n- Reframed clip b1-4k30-22s.mov\n- Reframed clip b2-4k60-9s.mov",
+      "recording": "reports/golden/s9-live-reorder/recordings/reorder-last-first-r2-t1.json",
+      "calls": [
+        {
+          "tool": "reorder_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "reorder_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clipIds: [\"clip_004\",\"clip_005\",\"…"
+        },
+        {
+          "tool": "load_skill",
+          "status": "completed",
+          "args": "name: \"vertical-reframe\""
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "load_tools",
+          "status": "completed",
+          "args": "domains: [\"motion\"]"
+        },
+        {
+          "tool": "set_clip_crop",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", crop: {\"x\":0.34179688,\"y\":0,\"w…"
+        },
+        {
+          "tool": "set_clip_crop",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", crop: {\"x\":0.34179688,\"y\":0,\"w…"
+        },
+        {
+          "tool": "set_clip_crop",
+          "status": "completed",
+          "args": "clipId: \"clip_001\", crop: {\"x\":0.34179688,\"y\":0,\"w…"
+        },
+        {
+          "tool": "set_clip_crop",
+          "status": "completed",
+          "args": "clipId: \"clip_002\", crop: {\"x\":0.34179688,\"y\":0,\"w…"
+        },
+        {
+          "tool": "set_clip_crop",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", crop: {\"x\":0.34179688,\"y\":0,\"w…"
+        },
+        {
+          "tool": "get_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\""
+        }
+      ],
+      "metrics": {
+        "wallMs": 64931,
+        "modelCalls": 9,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 182810,
+          "input": 55126,
+          "output": 3936,
+          "cacheRead": 127684,
+          "cacheCreate": 101586
+        },
+        "perCall": [
+          {
+            "ttftMs": 3344,
+            "wallMs": 6182,
+            "input": 5465,
+            "output": 366,
+            "cacheRead": 22403
+          },
+          {
+            "ttftMs": 2972,
+            "wallMs": 4097,
+            "input": 5569,
+            "output": 120,
+            "cacheRead": 22553
+          },
+          {
+            "ttftMs": 2025,
+            "wallMs": 3832,
+            "input": 5753,
+            "output": 71,
+            "cacheRead": 22776
+          },
+          {
+            "ttftMs": 3566,
+            "wallMs": 7515,
+            "input": 6012,
+            "output": 513,
+            "cacheRead": 24809
+          },
+          {
+            "ttftMs": 3873,
+            "wallMs": 10636,
+            "input": 5834,
+            "output": 700,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 2641,
+            "wallMs": 8568,
+            "input": 6517,
+            "output": 578,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 4152,
+            "wallMs": 15016,
+            "input": 6585,
+            "output": 1335,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 3016,
+            "wallMs": 4995,
+            "input": 6581,
+            "output": 154,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 2004,
+            "wallMs": 4019,
+            "input": 6810,
+            "output": 99,
+            "cacheRead": 12837
+          }
+        ],
+        "summary": {
+          "turnCount": 9,
+          "ttftMs": {
+            "p50": 3016,
+            "p95": 4152,
+            "min": 2004,
+            "max": 4152
+          },
+          "wallMs": {
+            "p50": 6182,
+            "p95": 15016,
+            "min": 3832,
+            "max": 15016
+          },
+          "inputTokensPerTurn": {
+            "p50": 6012,
+            "p95": 6810,
+            "min": 5465,
+            "max": 6810
+          },
+          "outputTokensPerTurn": {
+            "p50": 366,
+            "p95": 1335,
+            "min": 71,
+            "max": 1335
+          },
+          "cacheHitRate": 0.7526585084058381,
+          "cacheReportingTurns": 7
+        },
+        "usd": 0.22441799999999998,
+        "usageTokens": 59062,
+        "toolCalls": 12,
+        "toolCallsByName": {
+          "reorder_clips": 2,
+          "get_timeline": 2,
+          "load_skill": 1,
+          "load_tools": 1,
+          "set_clip_crop": 5,
+          "get_clips": 1
+        },
+        "repeatedToolCalls": 6,
+        "analysisFromCache": 0,
+        "contextRequests": 18,
+        "contextByType": [
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2416,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2416,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2515,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2515,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2771,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 14584
+          },
+          {
+            "system": 2771,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 14584
+          },
+          {
+            "system": 2588,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2588,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2748,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2748,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2807,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 8375
+          },
+          {
+            "system": 2807,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 8375
+          },
+          {
+            "system": 2779,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 7754
+          },
+          {
+            "system": 2779,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 7754
+          },
+          {
+            "system": 2893,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 7754
+          },
+          {
+            "system": 2893,
+            "retrieved_evidence": 489,
+            "skill": 2113,
+            "latest_user_message": 18,
+            "tool_schemas": 7754
+          }
+        ],
+        "contextUsedTokens": [
+          11376,
+          5465,
+          11457,
+          5569,
+          11556,
+          5753,
+          19512,
+          6012,
+          11628,
+          5834,
+          12252,
+          6517,
+          13802,
+          6585,
+          13153,
+          6581,
+          13267,
+          6810
+        ],
+        "contextCachedTokens": [
+          null,
+          22403,
+          null,
+          22553,
+          null,
+          22776,
+          null,
+          24809,
+          null,
+          11153,
+          null,
+          11153,
+          null,
+          null,
+          null,
+          null,
+          null,
+          12837
+        ],
+        "diffs": 3,
+        "validDiffs": 3,
+        "operations": 7,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}
