@@ -484,6 +484,23 @@ export interface ConductorState {
    * every state literal carries it and none can silently forget to.
    */
   readonly lastRejectionReason: string;
+  /**
+   * The SMALLEST refusal scale seen so far at the wall named by {@link lastRejectionReason}
+   * — the run's best attempt at getting through it. Absent when no rejection stands, or
+   * when the standing one reports no scale.
+   *
+   * Why a floor and not simply the last turn's scale: `beat-sync` r3 of `session6` went
+   * 12 → 10 → 10 → 18 → 24 → 4 → 8 → 8 → 2 off-grid cuts. Comparing against the previous
+   * turn alone would credit 8 → 2 and 24 → 4 but also 18 → … every oscillation back down to
+   * a number the run had already beaten, which is not new ground. A new LOW is.
+   *
+   * Reset (not merely lowered) when the wall changes, and cleared by any applied edit,
+   * for the same reason {@link lastRejectionReason} is: a refusal describes the arrangement
+   * the validator was shown, and the patch that changes it retires the measurement too.
+   */
+  // `| undefined` explicitly: `exactOptionalPropertyTypes` is on, and this field is
+  // ASSIGNED undefined (an applied edit retires the measurement), not merely omitted.
+  readonly lastRejectionScale?: number | undefined;
   readonly cancelled: boolean;
   /** Integrity failure is terminal and distinct from creator cancellation. */
   readonly integrityFailed: boolean;
@@ -908,6 +925,16 @@ export interface AgentTurnResult {
    * re-issued the same rejected edit for twenty minutes and $3.93.
    */
   readonly rejectionKey?: string;
+  /**
+   * HOW MUCH of the proposal the refusal is still refusing — offending boundaries,
+   * validator errors, operations over the cap. A count, never a severity, and absent for a
+   * refusal that has no size (`beat-grid:ungrounded` is true or false, never partly fixed).
+   *
+   * {@link rejectionKey} says the turn hit the same wall as the last one. This says whether
+   * it is getting through it, and the two together are what separate a run repeating itself
+   * from a run converging — see {@link ConductorState.lastRejectionScale}.
+   */
+  readonly rejectionScale?: number;
   /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
@@ -2016,6 +2043,7 @@ export function onTurnResult(
       actionRecoveryPending: false,
       // An edit landed, so whatever was refused before is behind the run.
       lastRejectionReason: '',
+      lastRejectionScale: undefined,
       seenCallKeys: mergeSeenKeys(state.seenCallKeys, r.callFacts),
       // Same reason as `lastRejectionReason`: a deterministic refusal describes the
       // arrangement the validator was shown, and this patch has just replaced it. Holding
@@ -2083,6 +2111,36 @@ export function onTurnResult(
   const repeatedRejection =
     rejected && rejectionIdentity !== undefined && rejectionIdentity === state.lastRejectionReason;
 
+  // …and the same wall is not the same ATTEMPT at it. A refusal that names fewer offenders
+  // than the run's best so far is the run getting through the wall, one course correction at
+  // a time, and it earns the attempt's progress credit even though the wall has not moved.
+  //
+  // Measured, not assumed. `beat-sync` r3 of `session6` was refused eleven consecutive times
+  // by `beat-grid:off-grid` with 12, 10, 10, 18, (a different wall), 24, 4, 8, 8, 2 cuts off
+  // the grid, and its NEXT proposal — the first with every interior cut on a detected onset
+  // — landed 35 operations for a score of 1.00. Replaying that recording against the
+  // key-only guard stopped the run at the eleventh refusal (`stallStreak` reaching
+  // {@link STALL_CONFIRM_TURNS}), one model call short of the edit: 5 operations, 0.56.
+  //
+  // A new LOW, not merely a lower number than last turn — see
+  // {@link ConductorState.lastRejectionScale}. `beat-sync` r1, which re-proposed cuts that
+  // stayed 18, 16, 16, 32, 16 wrong, never reaches a new low after its second attempt and
+  // still stops exactly where it does today.
+  const convergingRejection =
+    repeatedRejection &&
+    r.rejectionScale !== undefined &&
+    state.lastRejectionScale !== undefined &&
+    r.rejectionScale < state.lastRejectionScale;
+  // The wall the run stands at now, and its best attempt at it. A new wall replaces the
+  // floor outright rather than lowering it: fewer overlaps is no evidence about the beat
+  // grid, and carrying one wall's number to another would credit an unrelated refusal as
+  // progress.
+  const lastRejectionScale = !rejected
+    ? state.lastRejectionScale
+    : repeatedRejection && state.lastRejectionScale !== undefined
+      ? Math.min(state.lastRejectionScale, r.rejectionScale ?? state.lastRejectionScale)
+      : r.rejectionScale;
+
   // A SATISFIED turn is not an attempt at the cut. By its own definition it "landed nothing
   // because the timeline ALREADY matched it" — nothing moved, there is nothing to retry. It
   // is right that it is not filed as a rejection (above). It is wrong that it earned the
@@ -2093,7 +2151,7 @@ export function onTurnResult(
   // proposing again what is already there.
   const attemptedChange = attemptedEdit && r.satisfied !== true;
   const progressed =
-    (attemptedChange && !repeatedRejection) ||
+    (attemptedChange && (!repeatedRejection || convergingRejection)) ||
     turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   const seenCallKeys = mergeSeenKeys(state.seenCallKeys, r.callFacts);
   const seenFailureKeys = mergeFailureKeys(state.seenFailureKeys, r.callFacts);
@@ -2287,6 +2345,7 @@ export function onTurnResult(
     // (a pure read, an already-satisfied edit) must not make the NEXT rejection look like a
     // repeat of it.
     lastRejectionReason: rejected ? (rejectionIdentity ?? '') : state.lastRejectionReason,
+    lastRejectionScale,
     seenCallKeys,
     seenFailureKeys,
   };

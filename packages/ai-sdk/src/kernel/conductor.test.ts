@@ -1178,6 +1178,154 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(landed.state.seenFailureKeys).toEqual([]);
   });
 
+  /**
+   * `beat-sync` r3, session 6 — the other half of the same wall, and the cost of closing it
+   * with the key alone.
+   *
+   * Eleven consecutive turns were refused by `beat-grid:off-grid` while the run FIXED its
+   * cuts: 12 off-grid boundaries, then 10, 10, 18, (one turn at a different wall), 24, 4, 8,
+   * 8, 2 — and the twelfth proposal, with every interior cut on a detected onset, landed 35
+   * operations for a score of 1.00. Replaying that recording against a guard that reads
+   * "same key, therefore no progress" stopped the run at the eleventh refusal, one model
+   * call short of the edit: 5 operations, 0.56.
+   *
+   * A run getting through a wall two cuts at a time is not a run repeating itself. The
+   * measurement — {@link AgentTurnResult.rejectionScale}, a new LOW — is what separates them,
+   * and the run must still be executing when the turn that validates arrives.
+   */
+  it('credits a repeated refusal that names fewer offenders — the run converging on the wall', () => {
+    const key = 'beat-grid:off-grid';
+    // The measured `beat-sync` r3 sequence, from its first refusal to its last.
+    const offGridCounts = [12, 10, 10, 18, 24, 4, 8, 8, 2];
+    let s = started();
+    offGridCounts.forEach((scale, i) => {
+      const step = onEffectResult(
+        { ...s, noProgress: [] },
+        turn({
+          applied: false,
+          turnOpCount: 30,
+          rejection: `Off-grid: ${String(scale)} cut(s)`,
+          rejectionKey: key,
+          rejectionScale: scale,
+          signature: `sig-${String(i)}`,
+          note: `attempt ${String(i)}`,
+        }),
+      );
+      // Still executing: a converging run is never finalized out from under its next turn.
+      expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
+      expect(step.state.stallStreak).toBeLessThan(STALL_CONFIRM_TURNS);
+      s = step.state;
+    });
+    // The floor is the run's BEST attempt at this wall, not its last one.
+    expect(s.lastRejectionScale).toBe(2);
+
+    // The turn the run was converging on: on-grid, not rejected, 35 operations.
+    const landed = onEffectResult(
+      { ...s, noProgress: [] },
+      turn({
+        applied: true,
+        appliedOps: ops(35),
+        turnOpCount: 35,
+        signature: 'sig-landed',
+        note: 'every interior cut on a detected onset',
+      }),
+    );
+    expect(landed.state.cumulativeOps).toHaveLength(35);
+    expect(landed.state.stallStreak).toBe(0);
+    // The applied edit retires the measurement with the refusal it belonged to.
+    expect(landed.state.lastRejectionReason).toBe('');
+    expect(landed.state.lastRejectionScale).toBeUndefined();
+    expect(landed.effects[0]).toMatchObject({ kind: 'run_turn' });
+  });
+
+  /**
+   * The complement, and the reason the credit is a new LOW rather than "smaller than last
+   * turn": `beat-sync` r1 stayed 18, 16, 16, 32, 16 boundaries wrong across the same wall.
+   * One real improvement (18 → 16), then oscillation around a number it had already beaten —
+   * which is exactly the twenty-minute, $3.93 spin this guard exists to stop.
+   */
+  it("does not credit a refusal that fails to beat the run's best attempt at the same wall", () => {
+    const key = 'beat-grid:off-grid';
+    let s = started();
+    [18, 16, 16, 32, 16].forEach((scale, i) => {
+      s = onEffectResult(
+        { ...s, noProgress: [] },
+        turn({
+          applied: false,
+          turnOpCount: 30,
+          rejection: `Off-grid: ${String(scale)} cut(s)`,
+          rejectionKey: key,
+          rejectionScale: scale,
+          signature: `sig-${String(i)}`,
+          note: `attempt ${String(i)}`,
+        }),
+      ).state;
+    });
+    // 18 → first attempt (0), 16 → a new low (0), then 16, 32, 16 → three provable repeats.
+    expect(s.stallStreak).toBe(STALL_CONFIRM_TURNS - 1);
+    expect(s.lastRejectionScale).toBe(16);
+  });
+
+  it("does not carry one wall's measurement to another", () => {
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'eight overlaps',
+        rejectionKey: 'validator:overlap_error',
+        rejectionScale: 8,
+      }),
+    );
+    // Two off-grid cuts is a smaller NUMBER than eight overlaps and says nothing about
+    // them — a new wall resets the floor rather than lowering it.
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'two off-grid cuts',
+        rejectionKey: 'beat-grid:off-grid',
+        rejectionScale: 2,
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.lastRejectionScale).toBe(2);
+    // A different wall was already a fresh attempt; the point is the floor that follows it.
+    const third = onEffectResult(
+      { ...second.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'three off-grid cuts',
+        rejectionKey: 'beat-grid:off-grid',
+        rejectionScale: 3,
+        signature: 'sig-3',
+      }),
+    );
+    expect(third.state.stallStreak).toBe(1);
+    expect(third.state.lastRejectionScale).toBe(2);
+  });
+
+  it('leaves a refusal that reports no scale exactly as it was — the same wall twice is a stall', () => {
+    const key = 'beat-grid:ungrounded';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 4, rejection: 'no music placed', rejectionKey: key }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 4,
+        rejection: 'still no music placed',
+        rejectionKey: key,
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
   it('still credits a repeated refusal when the turn learned something new', () => {
     const refusal = 'rejected by the beat grid: ungrounded';
     const first = onEffectResult(

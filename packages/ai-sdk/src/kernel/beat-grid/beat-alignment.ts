@@ -161,6 +161,22 @@ export type BeatAlignmentResult =
        * specifics belong in the message; the identity belongs here.
        */
       readonly reasonKey: BeatRejectionKey;
+      /**
+       * HOW MUCH of the proposal this refusal is still refusing — the number of boundaries
+       * that failed the rule, not a severity. Shrinks as the run fixes cuts.
+       *
+       * {@link reasonKey} says the run hit the same wall again; this says whether it is
+       * getting through it. `beat-sync` r3 of `session6` was refused eleven times running
+       * by `off-grid` while its off-grid count fell 12 → 10 → … → 4 → 2, and its twelfth
+       * proposal was the one that landed 35 operations. Under `rejectionKey` alone every
+       * one of those turns read as the same non-progress, the stall streak reached
+       * `conductor.ts#STALL_CONFIRM_TURNS` at the eleventh, and the run stopped one turn before
+       * the edit it was converging on (5 ops, score 0.56, against 40 ops and 1.00).
+       *
+       * Absent where the refusal has no size — `ungrounded` is "the analysed music is not
+       * on the timeline", which is true or false and never partly fixed.
+       */
+      readonly reasonScale?: number;
     };
 
 /** A time value belonging to one operation, and how to write a new value back. */
@@ -411,6 +427,7 @@ export function alignBeatBackedBoundaries(
       return {
         ok: false,
         reasonKey: 'off-grid',
+        reasonScale: misses.length,
         error:
           'you declared hard sync, so every interior picture cut must land on a detected ' +
           `onset. Off-grid: ${list}. Replace each with the detected onset time exactly as ` +
@@ -447,6 +464,7 @@ export function alignBeatBackedBoundaries(
     return {
       ok: false,
       reasonKey: 'sub-frame',
+      reasonScale: collapsed.length,
       error:
         `${String(collapsed.length)} picture clip(s) are shorter than one frame once their ` +
         'boundaries sit on real onsets. Use a wider pair of onsets for those cuts — ' +

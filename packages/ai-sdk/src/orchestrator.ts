@@ -1207,7 +1207,7 @@ function alignTurnToBeatGrid(
   evidence: BeatEvidence | undefined,
 ):
   | { ok: true; operations: AnyOperation[]; offGrid?: string; ungrounded?: string }
-  | { ok: false; error: string; reasonKey: BeatRejectionKey } {
+  | { ok: false; error: string; reasonKey: BeatRejectionKey; reasonScale?: number } {
   if (!hasBeatEvidence(evidence) || !evidence) return { ok: true, operations: turnOps };
 
   const resolved = resolveBeatGrid(working, evidence, turnOps);
@@ -5941,6 +5941,15 @@ export class Orchestrator {
      */
     rejectionKey?: string;
     /**
+     * HOW MUCH of the proposal the refusal is still refusing — the count of offending
+     * boundaries, validator errors, or operations over the cap. Never a severity.
+     *
+     * {@link rejectionKey} answers "the same wall again?"; this answers "is the run getting
+     * through it?". See `conductor.ts#onTurnResult`, where a repeated refusal whose scale
+     * has fallen to a new low is credited as progress instead of stall.
+     */
+    rejectionScale?: number;
+    /**
      * Interior cuts left deliberately off the beat grid, or cuts checked against nothing
      * because none of the analyzed music is placed — a measurement to report. Only set when
      * the run did NOT declare hard sync; see `kernel/beat-grid/beat-alignment.ts`.
@@ -6026,6 +6035,11 @@ export class Orchestrator {
         applied: false,
         rejection: `rejected by the beat grid: ${beatAligned.error}`,
         rejectionKey: `beat-grid:${beatAligned.reasonKey}`,
+        // How many boundaries are still off the grid — the measurement that tells a run
+        // fixing its cuts one at a time apart from one re-proposing the same wrong ones.
+        ...(beatAligned.reasonScale === undefined
+          ? {}
+          : { rejectionScale: beatAligned.reasonScale }),
         working,
       };
     }
@@ -6060,6 +6074,10 @@ export class Orchestrator {
         applied: false,
         rejection: `rejected by the validator: ${problems}`,
         rejectionKey: `validator:${problemKey}`,
+        // The number of errors left to fix: a turn that took eight overlaps down to one is
+        // converging, and must not be filed as the same nothing as one that took eight to
+        // eight (`conductor.ts#onTurnResult`).
+        rejectionScale: errors.length,
         working,
       };
     }
@@ -8914,6 +8932,9 @@ export class Orchestrator {
             rejection: overCap,
             // The cap message names the op count, which changes every attempt.
             rejectionKey: 'over-cap',
+            // …and the overage IS the measurement of how far over it still is, so a turn
+            // that halves its batch is credited as converging rather than as a repeat.
+            rejectionScale: turnOps.length - derivedOpCount - maxOpsPerTurn,
             turnOpCount: turnOps.length,
             turnPlacementCount: placementCount(turnOps),
           });
@@ -8999,6 +9020,9 @@ export class Orchestrator {
           ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),
           ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
           ...(applied.rejectionKey === undefined ? {} : { rejectionKey: applied.rejectionKey }),
+          ...(applied.rejectionScale === undefined
+            ? {}
+            : { rejectionScale: applied.rejectionScale }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },

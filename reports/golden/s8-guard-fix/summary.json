@@ -1,0 +1,70 @@
+{
+  "label": "s8-guard-fix",
+  "generatedAt": "2026-09-06T14:16:33.017Z",
+  "provider": "replay",
+  "model": "replay",
+  "runsPerScenario": 3,
+  "replayed": true,
+  "cases": [
+    "beat-sync"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 1,
+    "turns": 3,
+    "intentAccuracy": 1,
+    "targetAccuracy": null,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.6666666666666666,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 2,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 0,
+    "usdPerAcceptedEdit": 1.1622135,
+    "modelCallsPerTurn": {
+      "p50": 16,
+      "p95": 32,
+      "n": 3
+    },
+    "toolCallsPerTurn": {
+      "p50": 29,
+      "p95": 46,
+      "n": 3
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 4,
+        "p95": 26,
+        "n": 3
+      },
+      "doneMs": {
+        "p50": 56,
+        "p95": 75,
+        "n": 3
+      }
+    },
+    "failureQuality": {
+      "failures": 0,
+      "loud": 0,
+      "explained": 0
+    },
+    "perCase": {
+      "beat-sync": {
+        "category": "beat",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 0.6666666666666666,
+        "reversible": 1,
+        "modelCalls": 16,
+        "tokens": 0,
+        "usdPerRun": 0.708594,
+        "wallMsPerRun": 56,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}
