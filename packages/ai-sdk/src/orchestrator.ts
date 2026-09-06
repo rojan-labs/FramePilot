@@ -1390,6 +1390,13 @@ export function callMemoKey(call: ToolCall): string {
     const { maxDimension: _size, ...rest } = call.arguments as Record<string, unknown>;
     return `${call.name}:${JSON.stringify(rest)}`;
   }
+  // `hardSync` is stripped before `detect_beats` parses (ADR 0174); a call that still
+  // carries it asks the same question as one that does not, and re-running the engine
+  // for it (6–10s of ffmpeg in run `cc907070`) buys nothing.
+  if (call.name === 'detect_beats' && call.arguments && typeof call.arguments === 'object') {
+    const { hardSync: _retired, ...rest } = call.arguments as Record<string, unknown>;
+    return `${call.name}:${JSON.stringify(rest)}`;
+  }
   return `${call.name}:${JSON.stringify(call.arguments)}`;
 }
 
