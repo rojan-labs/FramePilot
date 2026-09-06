@@ -1732,6 +1732,14 @@ interface AgentCallOutcome {
    */
   deterministicFailure?: boolean;
   /**
+   * The call was WITHHELD — by the stage, the recovery turn, the candidate bank, or the
+   * pin cap — rather than answered. Its note is a policy sentence, not a finding, and
+   * `distil` must not file it under "ESTABLISHED — do not gather again": run `cc907070`
+   * carried "search_stock withheld — place what this run already found" and "detect_beats
+   * held back — this turn is for acting" into its next session as facts about the footage.
+   */
+  withheld?: boolean;
+  /**
    * The call landed nothing because the timeline **already said what it asked for** —
    * distinct from landing nothing because something went wrong. See the no-change branch
    * in `runAgentCall`, and {@link applyAgentTurn}'s use of it: a turn that is satisfied
@@ -2063,7 +2071,25 @@ function catalogDigest(
 ): string | undefined {
   if (!Array.isArray(obj[key])) return undefined;
   const entries = obj[key] as Record<string, unknown>[];
-  if (entries.length === 0) return `no ${noun} match (${String(obj.matched ?? 0)} in catalog)`;
+  if (entries.length === 0) {
+    // With a query, say what was asked, how big the catalogue is, and that another word
+    // will not conjure the effect — the run in `cc907070` tried seven for "sharpen".
+    if (typeof obj.query === 'string' && typeof obj.total === 'number') {
+      const categories = Array.isArray(obj.categories)
+        ? (obj.categories as Record<string, unknown>[])
+            .map((c) => String(c.id ?? ''))
+            .filter((id) => id !== '')
+        : [];
+      return (
+        `no ${noun} match "${obj.query}" — none of the ${String(obj.total)} ${noun} in this ` +
+        `build is one, and another wording will not find it${
+          categories.length > 0 ? ` (categories: ${categories.join(', ')})` : ''
+        }. Browse a category or the whole catalogue if a different effect would do; ` +
+        'otherwise tell the editor this build has no such effect.'
+      );
+    }
+    return `no ${noun} match (${String(obj.matched ?? 0)} in catalog)`;
+  }
   const head = `${String(obj.returned ?? entries.length)} of ${String(
     obj.matched ?? entries.length,
   )} matching ${noun}`;
@@ -4939,7 +4965,7 @@ export class Orchestrator {
           // turn's prompt without limit. Never a silent truncation of the body.
           if (!alreadyLoaded && host.loadedSkills.size >= MAX_PINNED_SKILLS) {
             const note = `${desc} → not loaded: you already have ${host.loadedSkills.size} playbooks in the Skills section of your context, which is the limit. Work with those and make the edit now.`;
-            return { ops: [], note, summary: note, status: 'warning', data: value };
+            return { ops: [], note, summary: note, status: 'warning', data: value, withheld: true };
           }
           if (!alreadyLoaded) {
             host.loadedSkills.set(skill.name, summarizeReadResult(call.name, value));
@@ -6761,7 +6787,9 @@ export class Orchestrator {
             descriptor: describeToolCall(call, turnNames),
             summary: outcome.finding ?? outcome.summary,
             scope: evidenceScopeFor(call.name),
-            status: outcome.status,
+            // A withheld call learned nothing; filing its policy sentence as a fact is
+            // how "search_stock withheld" reached the next session's ESTABLISHED list.
+            status: outcome.withheld === true ? 'withheld' : outcome.status,
             fromCache: outcome.fromCache === true,
             ...(evidence.lookup(callMemoKey(call))
               ? { evidenceId: evidence.lookup(callMemoKey(call))!.id }
@@ -9340,6 +9368,7 @@ function withheldCallOutcome(
       note: catalogueSearchRefusal(bankedSearches),
       summary: `${call.name} withheld — place what this run already found`,
       status: 'warning',
+      withheld: true,
     };
   }
   const stored = evidence.lookup(callMemoKey(call));
@@ -9376,6 +9405,7 @@ function withheldCallOutcome(
       ? `${call.name} held back for this stage — this stage is for acting on what has been gathered`
       : `${call.name} held back — this turn is for acting on what has been gathered`,
     status: 'warning',
+    withheld: true,
   };
 }
 

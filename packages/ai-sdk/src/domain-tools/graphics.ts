@@ -130,6 +130,13 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       return {
         matched: results.length,
         returned: limited.length,
+        // Echoed so an empty result can say what was asked and how big the catalogue is:
+        // run `cc907070` searched "sharpness", "unsharp mask", "sharpen clarity unsharp",
+        // "sharpen focus clarity", "clarity", "sharpen" — seven ways of asking for an
+        // effect this build does not have — and each answer read "no effects match
+        // (0 in catalog)", which says neither.
+        ...(a.query !== undefined ? { query: a.query } : {}),
+        total: EFFECT_CATALOG.length,
         categories: EFFECT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         effects: limited.map((effect) => ({
           effectId: effect.id,
@@ -190,6 +197,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       return {
         matched: results.length,
         returned: limited.length,
+        ...(a.query !== undefined ? { query: a.query } : {}),
+        total: TRANSITION_CATALOG.length,
         categories: TRANSITION_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         transitions: limited.map((transition) => ({
           kind: transition.id,

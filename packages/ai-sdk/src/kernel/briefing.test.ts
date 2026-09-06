@@ -126,6 +126,13 @@ describe('distil', () => {
     expect(distil({ ...settled, toolName: 'map_footage' })!.scope).toBe(settled.scope);
   });
 
+  it('files nothing for a WITHHELD call — a policy sentence is not a finding', () => {
+    // "search_stock withheld — place what this run already found" and "detect_beats held
+    // back — this turn is for acting" were carried into run `cc907070`'s next session as
+    // facts about the footage. The orchestrator marks those outcomes and distil declines.
+    expect(distil({ ...settled, status: 'withheld' })).toBeUndefined();
+  });
+
   it('accepts a warning as a finding — a partial result is still something learned', () => {
     expect(distil({ ...settled, status: 'warning' })).toBeDefined();
   });

@@ -1891,6 +1891,22 @@ describe('summarizeReadResult carries a verification report the run can act on',
     expect(summarizeReadResult('discover_effects', { matched: 0, effects: [] })).toBe(
       'no effects match (0 in catalog)',
     );
+    // With the query echoed, the digest says what was asked, how big the catalogue is,
+    // and that another wording will not help — run `cc907070` tried seven for "sharpen".
+    const noSharpen = summarizeReadResult('discover_effects', {
+      matched: 0,
+      effects: [],
+      query: 'sharpen',
+      total: 72,
+      categories: [{ id: 'blur-focus' }, { id: 'glow' }],
+    });
+    expect(noSharpen).toContain('no effects match "sharpen"');
+    expect(noSharpen).toContain('none of the 72 effects in this build is one');
+    expect(noSharpen).toContain('categories: blur-focus, glow');
+    expect(noSharpen).toContain('tell the editor this build has no such effect');
+    expect(summarizeReadResult('discover_effects', { matched: 0, effects: [] })).toBe(
+      'no effects match (0 in catalog)',
+    );
     expect(
       summarizeReadResult('verify_transitions', { ok: true, transitionCount: 1, issues: [] }),
     ).toBe('verified clean, 1 transition checked');

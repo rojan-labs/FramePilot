@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An effect that does not exist is said so, once.** Asked to "lift the sharpness", the
+  AI searched the effect catalogue seven different ways and was told "no effects match (0
+  in catalog)" each time. An empty search now names the query, the catalogue's real size
+  and categories, and says another wording will not help — so the AI tells you instead.
+- **Withheld calls are no longer filed as knowledge.** "search_stock withheld" and
+  "detect_beats held back" were recorded as established facts and carried into the next
+  session. A withheld call learns nothing and records nothing.
 - **A new session no longer inherits false facts about the last one's context.** The
   second turn of a run opened with twelve "playbook loaded — its instructions are pinned in
   your context" facts carried from the first, for playbooks that session had not loaded.
