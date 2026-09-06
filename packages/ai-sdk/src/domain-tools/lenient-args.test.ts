@@ -76,6 +76,17 @@ describe('trim_clip fills in the edge that was left out', () => {
   });
 });
 
+describe('detect_beats tolerates the retired hardSync argument', () => {
+  it('drops hardSync instead of refusing the call over an unrecognized key', () => {
+    const parsed = getTool('detect_beats')!.parse({ assetId: 'a', hardSync: true }) as Record<
+      string,
+      unknown
+    >;
+    expect(parsed).toEqual({ assetId: 'a' });
+    expect(() => getTool('detect_beats')!.parse({ assetId: 'a', wobble: 1 })).toThrow();
+  });
+});
+
 describe('stock kind accepts the words a model reaches for', () => {
   const parse = (name: string, args: unknown) => getTool(name)!.parse(args) as { kind: string };
 

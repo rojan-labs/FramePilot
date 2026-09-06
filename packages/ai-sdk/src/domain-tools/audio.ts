@@ -27,12 +27,23 @@ const analyzeSilenceSchema = z
     minSilenceSeconds: seconds.optional(),
   })
   .strict();
-const detectBeatsSchema = z
-  .object({
-    assetId: filterString(),
-    sensitivity: numeric(z.number().min(0.5).max(4)).optional(),
-  })
-  .strict();
+// `hardSync` was the beat-grid validator's declaration (ADR 0174 retired it). A model that
+// learned it — from an older skill text, or its own earlier turns in a resumed session —
+// still sends it, and a strict schema would spend a turn on "unrecognized key". Dropped
+// silently: it never reached the engine, and nothing acts on it any more.
+const detectBeatsSchema = z.preprocess(
+  (value) => {
+    if (typeof value !== 'object' || value === null || !('hardSync' in value)) return value;
+    const { hardSync: _retired, ...rest } = value as Record<string, unknown>;
+    return rest;
+  },
+  z
+    .object({
+      assetId: filterString(),
+      sensitivity: numeric(z.number().min(0.5).max(4)).optional(),
+    })
+    .strict(),
+);
 
 // `add_music` downloads ONE track found by `search_music` and puts it on its own
 // music track. The download is a host side effect; the timeline change is the same
