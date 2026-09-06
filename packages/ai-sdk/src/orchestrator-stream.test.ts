@@ -1932,6 +1932,7 @@ describe('streamAgent', () => {
       cancelled: true,
       deliverableFileRequested: true,
       previewRequested: true,
+      preferenceRequested: true,
     });
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
@@ -1940,6 +1941,8 @@ describe('streamAgent', () => {
     // …and the things the panel cannot do are still said, because they are still true.
     expect(report).toMatch(/use the Export dialog/);
     expect(report).toMatch(/asks to see a preview first/);
+    // The preference the brief asked to keep was never written (no set_ai_memory op).
+    expect(report).toMatch(/nothing was saved to project memory/);
   });
 
   it('collapses edits that read identically instead of repeating the line', () => {

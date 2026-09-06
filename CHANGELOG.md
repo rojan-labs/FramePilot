@@ -8,6 +8,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **"Remember this for future edits" can no longer be silently dropped.** A brief that
+  stated a lasting preference ended with nothing saved and no mention of it. The request
+  now carries a criterion the AI is held to, and the completion report says plainly when
+  nothing was written to project memory.
 - **"Export both" and "show me a preview first" are now acknowledged, not skipped.** Neither
   can run from the AI panel, and a brief that asked for both was answered with a report
   that mentioned neither, because the export detector only matched file nouns ("an mp4",

@@ -77,6 +77,13 @@ export interface CheckableAcceptance {
    * silently shipping without them.
    */
   readonly unmeetable?: readonly UnmeetableDeliverable[];
+  /**
+   * True when the request states something to remember for FUTURE edits — "one thing to
+   * remember for future edits: no fade to black mid-action" — which `remember_preference`
+   * exists for and run `cc907070` never called. An instruction about memory that is not
+   * a criterion is an instruction the run can drop without anyone noticing.
+   */
+  readonly rememberPreference?: boolean;
 }
 
 /** A deliverable no registered tool can produce. */
@@ -541,6 +548,19 @@ export function asksForPreview(prompt: string): boolean {
   return PREVIEW_REQUEST.test(prompt.toLowerCase());
 }
 
+/**
+ * A lasting preference stated for later sessions, as editors phrase it: "remember for
+ * future edits", "from now on", "going forward", "always … in my videos", "note for next
+ * time". Deliberately not "remember to …" alone, which is an instruction about this edit.
+ */
+const LASTING_PREFERENCE =
+  /\b(?:remember|note|keep in mind|bear in mind)\b[^.\n]{0,40}\b(?:future|next time|from now on|going forward|always|every (?:edit|video|project)|in general|for later)\b|\b(?:from now on|going forward)\b|\bfor (?:all )?future (?:edits|videos|projects|sessions)\b/;
+
+/** Does this request state a preference the editor wants remembered for future edits? */
+export function asksToRememberPreference(prompt: string): boolean {
+  return LASTING_PREFERENCE.test(prompt.toLowerCase());
+}
+
 /** The narration nouns editors use, in both spellings. */
 const VOICEOVER_NOUN = 'voice[- ]?over|narration|narrator|tts|text[- ]to[- ]speech|ai voice';
 
@@ -617,6 +637,7 @@ export function checkableAcceptance(
     ...(coverage.length === 0 ? {} : { coverage }),
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
     ...(unmeetable.length === 0 ? {} : { unmeetable }),
+    ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
   };
 }
 
@@ -669,6 +690,12 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
   for (const deliverable of acceptance.unmeetable ?? []) {
     criteria.push(UNMEETABLE_LABEL[deliverable]);
   }
+  if (acceptance.rememberPreference === true) {
+    criteria.push(
+      'The preference the editor stated for future edits is saved with remember_preference ' +
+        '(preferredPacing, brandStyle, captionStyle or targetAudience), not only applied here.',
+    );
+  }
   criteria.push(JUDGEMENT_CRITERION);
   return criteria;
 }
@@ -689,6 +716,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     acceptance.medianShotSeconds !== undefined ||
     (acceptance.coverage?.length ?? 0) > 0 ||
     acceptance.deliverableFile === true ||
-    (acceptance.unmeetable?.length ?? 0) > 0
+    (acceptance.unmeetable?.length ?? 0) > 0 ||
+    acceptance.rememberPreference === true
   );
 }

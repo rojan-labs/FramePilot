@@ -12,6 +12,7 @@ import {
   acceptanceCriteria,
   asksForPreview,
   asksForRenderedFile,
+  asksToRememberPreference,
   checkableAcceptance,
   explicitCoverage,
   explicitMinShotCount,
@@ -320,6 +321,23 @@ describe('asksForPreview', () => {
     expect(asksForPreview('preview it, then export')).toBe(true);
     expect(asksForPreview('the preview thumbnails look soft')).toBe(false);
     expect(unmeetableDeliverables('show me a preview before you render')).toEqual(['preview']);
+  });
+});
+
+describe('asksToRememberPreference', () => {
+  it('recognises a preference stated for future edits, not an instruction about this one', () => {
+    expect(
+      asksToRememberPreference(
+        'One thing to remember for future edits: no fade to black in the middle of an action sequence, ever.',
+      ),
+    ).toBe(true);
+    expect(asksToRememberPreference('From now on, always big yellow captions')).toBe(true);
+    expect(asksToRememberPreference('note for next time: I like cuts on the impact')).toBe(true);
+    expect(asksToRememberPreference('remember to trim the head of the last clip')).toBe(false);
+    expect(asksToRememberPreference('remember, this one is for founders')).toBe(false);
+    const acceptance = checkableAcceptance('remember for future edits: punchier cuts', undefined);
+    expect(acceptance.rememberPreference).toBe(true);
+    expect(acceptanceCriteria(acceptance).join('\n')).toContain('remember_preference');
   });
 });
 

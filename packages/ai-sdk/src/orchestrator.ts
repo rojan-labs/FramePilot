@@ -49,7 +49,12 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
-import { asksForPreview, asksForRenderedFile, checkableAcceptance } from './acceptance.js';
+import {
+  asksForPreview,
+  asksForRenderedFile,
+  asksToRememberPreference,
+  checkableAcceptance,
+} from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
 import {
@@ -8097,6 +8102,8 @@ export class Orchestrator {
     const asksForFile = asksForRenderedFile(input.userPrompt);
     /** …and did it ask to SEE a preview first? Same answer: no route from the panel. */
     const asksToPreview = asksForPreview(input.userPrompt);
+    /** …and did it state something to remember for future edits? */
+    const asksToRemember = asksToRememberPreference(input.userPrompt);
     /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
@@ -9054,6 +9061,7 @@ export class Orchestrator {
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
               ...(asksToPreview ? { previewRequested: true } : {}),
+              ...(asksToRemember ? { preferenceRequested: true } : {}),
             }),
           );
         }
@@ -9610,6 +9618,12 @@ export function agentCompletionReport(args: {
    */
   previewRequested?: boolean;
   /**
+   * True when the request stated a preference to remember for future edits. Checked against
+   * the applied ops: a run that never wrote memory is told so, in the report, instead of the
+   * instruction vanishing (run `cc907070` never called `remember_preference`).
+   */
+  preferenceRequested?: boolean;
+  /**
    * True when the editor stopped the run. The edits still landed and still need
    * accounting for; only the claim that the work is finished changes.
    */
@@ -9682,7 +9696,16 @@ export function agentCompletionReport(args: {
       ? '\n\nThis also asks to see a preview first. The panel cannot render one — the ' +
         'timeline monitor plays the current cut, and the Export dialog renders it.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}`;
+  // "Remember this for future edits" is an instruction the run can drop without anyone
+  // noticing; the memory write is an ordinary op, so its absence is checkable here.
+  const remembered = args.ops.some((op) => op.type === 'set_ai_memory');
+  const memory =
+    args.preferenceRequested === true && !remembered
+      ? '\n\nYou asked for something to be remembered for future edits, and nothing was saved ' +
+        'to project memory this run. Tell the AI the preference again on its own, or set it ' +
+        'in the AI settings.'
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */
