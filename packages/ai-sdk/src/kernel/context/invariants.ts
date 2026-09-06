@@ -171,7 +171,15 @@ function defaultActionFor(working: RunWorkingState): string {
     case 'apply':
     case 'enhance':
     case 'repair':
-      return `Continue ${working.stage}: apply the committed plan.`;
+      // An execution stage is only ever reached by a landed edit, and the "committed
+      // plan" here is the request itself — so "apply the committed plan" told a run whose
+      // edit had just landed to make it again (`s9-live-reorder`: the same rotation, five
+      // times). Say what the stage actually owes: the rest of the request, or the end.
+      return (
+        `Continue ${working.stage}: an edit has landed. Make the next edit the request ` +
+        'still needs; if the request is now met, finish — reply with a short summary and ' +
+        'no tool call.'
+      );
     case 'verify':
       return 'Continue verify: check the applied edit against the acceptance criteria.';
     /* v8 ignore next 3 -- `interpret` and `complete` never reach here (guarded above) */

@@ -67,6 +67,15 @@ export function stageAdvanceFor(
       // Any tool call at all means the run has read the request and started work.
       return roles.length > 0 ? 'inspect' : null;
     case 'inspect':
+      // A mutation from inspection is the shortest correct path there is — read the
+      // timeline, make the cut — and it used to earn nothing: the run stayed at `inspect`,
+      // its next briefing said "Continue inspect: read only what the objective still
+      // needs" directly under "ALREADY APPLIED — do not repeat", and the model did as told.
+      // `s9-live-reorder` r3 read the timeline after each landed `reorder_clips`, found a
+      // different clip last, and rotated "the last clip to the front" five times, ending on
+      // the order it started with. `inspect → plan` is a declared successor; a reach for a
+      // mutation is the same commitment here as it is from `analyze`.
+      if (roles.includes('mutation') || applied) return 'plan';
       // Content work has begun; the arrangement is understood well enough. Sourcing
       // counts: a run searching a stock library has plainly stopped reading the project.
       return roles.some((r) => r === 'analysis' || r === 'guidance' || r === 'sourcing')

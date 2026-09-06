@@ -297,8 +297,18 @@ describe('stageAdvanceFor — evidence, not narration', () => {
     // From `analyze`, a landed patch still only earns `plan` in one step — reaching
     // `apply` needs the second edge, which `settledStageFor` supplies below.
     expect(stageAdvanceFor('analyze', ['mutation'], true)).toBe('plan');
-    // Inspection has seen no content work, so a mutation alone earns nothing here.
-    expect(stageAdvanceFor('inspect', ['mutation'], true)).toBeNull();
+    // From `inspect` too: a mutation is a commitment wherever it is made.
+    expect(stageAdvanceFor('inspect', ['mutation'], true)).toBe('plan');
+    expect(stageAdvanceFor('inspect', ['mutation'], false)).toBe('plan');
+  });
+
+  it('a run that cuts straight from inspection is executing, not still inspecting', () => {
+    // `s9-live-reorder`: read the timeline, `reorder_clips`, landed — and the run was left
+    // at `inspect`, told to keep reading, and rotated the order again on every turn.
+    expect(settledStageFor('inspect', ['inspection', 'mutation'], true)).toBe('apply');
+    expect(settledStageFor('interpret', ['mutation'], true)).toBe('apply');
+    // A rejected first attempt is a plan, not an execution.
+    expect(settledStageFor('interpret', ['mutation'], false)).toBe('plan');
   });
 
   it("never proposes a move once the run is executing — that is the reducer's job", () => {
