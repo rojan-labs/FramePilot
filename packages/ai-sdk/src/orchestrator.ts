@@ -28,6 +28,7 @@ import {
   DEFAULT_DUCK_DB,
   MusicAssetPayloadSchema,
   buildAddMusicOps,
+  musicDuckEmptyTrackNote,
   musicDuckRefusalKey,
   musicDuckSidechainIssue,
 } from './music-placement.js';
@@ -4553,10 +4554,12 @@ export class Orchestrator {
           : ' This track needs no credit.';
         // Say what was actually authored, so the model never narrates a duck that
         // did not happen.
+        const emptyTarget = musicDuckEmptyTrackNote(ctx.project, duckUnderTrackId);
         const duckNote =
           duckUnderTrackId === undefined
             ? ''
-            : ` The bed ducks ${String(DEFAULT_DUCK_DB)} dB under "${duckUnderTrackId}".`;
+            : ` The bed ducks ${String(DEFAULT_DUCK_DB)} dB under "${duckUnderTrackId}".` +
+              (emptyTarget === null ? '' : ` ${emptyTarget}`);
         return {
           ops,
           note: `${outcome.summary}${creditNote}${duckNote}`,

@@ -867,7 +867,9 @@ describe('a lift that would bury a cutaway is refused', () => {
     );
     expect(note).toMatch(/^Refused "add_clip": /);
     expect(note).toContain('"b-roll.mp4" on video_cutaway_1 (0–5s)');
-    expect(note).toContain('remove_clip clip_cut');
+    // The remedy names a tool that exists: it said `remove_clip` once, and there is none.
+    expect(note).toContain('delete_clip clip_cut');
+    expect(note).not.toContain('remove_clip');
     expect(note).toContain('trim_clip');
     expect(note).toContain('photo.jpg');
   });

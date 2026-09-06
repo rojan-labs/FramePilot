@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Music first is allowed.** Laying a bed with a duck target before any picture is on the
+  timeline was refused ("names a track with no clips"), which sent the AI back with an
+  unducked bed. When nothing on the timeline carries sound yet, the duck is accepted and
+  noted as idle until the picture lands; naming an empty lane while another lane already
+  carries sound is still refused, with the right lane named.
+- **A refusal named a tool that does not exist.** The "you would bury another cutaway"
+  refusal told the AI to use `remove_clip`; the tool is `delete_clip`, and it says so now.
 - **"Remember this for future edits" can no longer be silently dropped.** A brief that
   stated a lasting preference ended with nothing saved and no mention of it. The request
   now carries a criterion the AI is held to, and the completion report says plainly when

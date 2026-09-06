@@ -767,12 +767,14 @@ function hidesCutawayRefusal(
   const first = buried[0];
   /* v8 ignore next -- the list is non-empty */
   const firstId = first ? first.clipId : '';
-  // A clip this same call placed has no id yet, so `remove_clip` cannot name it; the move
-  // there is to send the batch without that entry.
+  // A clip this same call placed has no id yet, so `delete_clip` cannot name it; the move
+  // there is to send the batch without that entry. (`delete_clip` is the tool's real
+  // name — this sentence used to say `remove_clip`, which exists nowhere, so the one
+  // remedy it offered by name was one the model could not make.)
   const drop =
     firstId === ''
       ? 'drop one of the two from this call'
-      : `take the cutaway out first with remove_clip ${firstId}`;
+      : `take the cutaway out first with delete_clip ${firstId}`;
   return (
     `Refused: put "${assetLabel(project, candidate.assetId)}" somewhere ` +
     `${buried.length > 1 ? 'those cutaways are' : 'that cutaway is'} not, or ${drop}, ` +

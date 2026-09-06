@@ -29,6 +29,7 @@ export {
   musicDuckSidechainIssue,
   nextMusicLayerId,
   pictureEndSeconds,
+  musicDuckEmptyTrackNote,
 } from '@framepilot/editor-core';
 
 /**
