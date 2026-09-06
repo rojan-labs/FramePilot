@@ -377,6 +377,12 @@ Handle AI actions safely, recover from failure, and finish the job.
       mix role is visible in every timeline view and in the `set_track_flags` note;
       music-first ducking is accepted with an idle-duck note; the buried-cutaway remedy
       names `delete_clip`; `detect_beats` drops a stray `hardSync`.
+      Third pass (2026-09-07): guidance findings get a `run_local` fact scope (kept across
+      edits, never carried to the next session); withheld calls distil to no fact; an
+      empty catalogue search names the query and the catalogue size and says another
+      wording will not help; an invented tool name is not "unfinished work" in the
+      receipt; an automatic reframe is announced as a centred guess; video-track ducking
+      is proven end to end.
 - [ ] **C5 — Preview render into the loop** (**§7 approval — needs the
       renderer→engine preview IPC**, the ADR 0016 export-channel pattern). Wire an
       auto preview render so the Critic sees real frames mid/post-run. Until the
