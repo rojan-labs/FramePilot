@@ -61,7 +61,6 @@ const {
   summarizeRunMetrics,
   pictureClips,
   GOLDEN_CASES,
-  DEFAULT_ASK_ANSWER,
   measureGoldenTurn,
   summarizeGoldenRun,
   renderGoldenSummary,
