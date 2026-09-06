@@ -194,6 +194,30 @@ const positive = (value: unknown): number | undefined =>
  * @returns The overflowing words, widest first. Empty when everything fits or the check
  *   cannot form an opinion.
  */
+/**
+ * The largest `fontSizePercent` at which every word of `text` fits a box of
+ * `boxWidthPercent`, by the same measurement {@link overflowingWords} judges with.
+ *
+ * `undefined` when nothing constrains it (no text, no box, no frame). Floored to one decimal
+ * so the number reads back as something an editor would type.
+ */
+export function largestFittingSizePercent(
+  text: string,
+  boxWidthPercent: number,
+  resolution: { readonly width: number; readonly height: number },
+): number | undefined {
+  const width = positive(resolution.width);
+  const height = positive(resolution.height);
+  const box = positive(boxWidthPercent);
+  if (width === undefined || height === undefined || box === undefined) return undefined;
+  let widest = 0;
+  for (const word of text.split(/\s+/)) widest = Math.max(widest, wordWidthEm(word));
+  if (widest === 0) return undefined;
+  // fits ⇔ widest·allowance ≤ box·W / (size·H)  ⇒  size ≤ box·W / (widest·allowance·H)
+  const size = (box * width) / (widest * NARROW_FONT_ALLOWANCE * height);
+  return Math.floor(size * 10) / 10;
+}
+
 export function overflowingWords(
   input: OverlayFitInput,
   resolution: { readonly width: number; readonly height: number },

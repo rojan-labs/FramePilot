@@ -13,6 +13,7 @@ import {
   asksForPreview,
   asksForRenderedFile,
   asksToRememberPreference,
+  explicitCutawayCount,
   checkableAcceptance,
   explicitCoverage,
   explicitMinShotCount,
@@ -341,7 +342,36 @@ describe('asksToRememberPreference', () => {
   });
 });
 
+describe('explicitCutawayCount', () => {
+  it('reads the number of cutaways a brief asks for, in words or digits, taking the largest', () => {
+    expect(
+      explicitCutawayCount("I'm missing two cutaways I never shot: a chairlift, and snow."),
+    ).toBe(2);
+    expect(explicitCutawayCount('drop in 3 stock cutaways and one more cutaway at the end')).toBe(
+      3,
+    );
+    expect(explicitCutawayCount('a cutaway of the crowd would help')).toBe(1);
+    expect(explicitCutawayCount('cutaways: 4')).toBe(4);
+    expect(explicitCutawayCount('use plenty of b-roll')).toBeUndefined();
+    expect(explicitCutawayCount('at least 20 clips')).toBeUndefined();
+    const acceptance = checkableAcceptance('two cutaways please', undefined);
+    expect(acceptance.maxStockCutaways).toBe(2);
+    expect(acceptanceCriteria(acceptance).join('\n')).toContain('At most 2 stock cutaways');
+  });
+});
+
 describe('unmeetableDeliverables', () => {
+  it('records subject tracking as unmeetable without the editor’s mask, never an audio track', () => {
+    expect(
+      unmeetableDeliverables(
+        'find them, track them through that section, and keep a soft highlight on them',
+      ),
+    ).toEqual(['subjectTracking']);
+    expect(unmeetableDeliverables('follow the rider down the run')).toEqual(['subjectTracking']);
+    expect(unmeetableDeliverables('put the music on its own track')).toEqual([]);
+    expect(unmeetableDeliverables('follow the music with the cuts')).toEqual([]);
+  });
+
   it('spots a request to generate narration', () => {
     expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);
     expect(unmeetableDeliverables('I need AI narration over the b-roll')).toEqual(['voiceover']);

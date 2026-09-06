@@ -55,6 +55,7 @@ import {
   asksForRenderedFile,
   asksToRememberPreference,
   checkableAcceptance,
+  explicitCutawayCount,
 } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
@@ -244,6 +245,7 @@ import { BUNDLED_SKILLS, skillsByName } from './skills.js';
 import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
+import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
 import {
   ToolInvocationError,
   describeArgValidationError,
@@ -3470,8 +3472,12 @@ export class Orchestrator {
   }
 
   private toolContext(input: ContextInput): ToolContext {
+    // The cutaway cap the brief states, so the placement tools can hold the run to it
+    // (`domain-tools/timeline.ts`). Read here, once, from the same reader the Critic uses.
+    const cap = explicitCutawayCount(deriveObjectiveText(input.userPrompt, input.history));
     return {
       project: input.project,
+      ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
       // plus the one being answered. Derived rather than plumbed, so every caller
@@ -3560,7 +3566,10 @@ export class Orchestrator {
     // The conditions the request stated in checkable terms (see `acceptance.ts`). The same
     // reading is recorded on the run's objective, so the criterion the ledger reports against
     // and the check that settles it can never be two different things.
-    const { minShotCount, coverage } = checkableAcceptance(objectiveText, durationTargetSeconds);
+    const { minShotCount, coverage, maxStockCutaways } = checkableAcceptance(
+      objectiveText,
+      durationTargetSeconds,
+    );
     // The measured half of "make it feel like this" (P3.4). The reference's numbers reach
     // the Critic WITHOUT passing through the model: a run cannot forget, round or re-derive
     // a target it never had to restate, and the check the run is graded by and the target
@@ -3578,6 +3587,7 @@ export class Orchestrator {
       ...(durationTargetSeconds !== undefined ? { durationTargetSeconds } : {}),
       ...(durationToleranceSeconds !== undefined ? { durationToleranceSeconds } : {}),
       ...(minShotCount !== undefined ? { minShotCount } : {}),
+      ...(maxStockCutaways !== undefined ? { maxStockCutaways } : {}),
       ...(medianShotTargetSeconds !== undefined ? { medianShotTargetSeconds } : {}),
       ...(medianShotToleranceSeconds !== undefined ? { medianShotToleranceSeconds } : {}),
       ...(medianShotSource !== undefined
@@ -4665,6 +4675,22 @@ export class Orchestrator {
             `not downloaded again. Place it with add_clip (assetId "${stockAsset.id}"), ` +
             `or search for a different one.`;
           return { ops: [], note, summary: note, status: 'warning', data: note };
+        }
+        // The brief's cutaway cap, before a download becomes a placement (the download
+        // itself is fine: it lands in the bin, where the editor can still choose it).
+        const capNote =
+          parsed.data.atSeconds === undefined ? null : stockCutawayCapRefusal(ctx, stockAsset.id);
+        if (capNote !== null) {
+          const note = `Refused "add_stock": ${capNote}`;
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: capNote,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
         }
         const placement = stockOpsFromPayload(ctx.project, parsed.data);
         if (!placement.ok) {

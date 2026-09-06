@@ -40,6 +40,44 @@ function trackCarriesSound(track: Track): boolean {
   return track.type === undefined || track.type === 'audio' || track.type === 'video';
 }
 
+/**
+ * The refusal for one more stock cutaway than the brief asked for, or `null` when the
+ * placement is within the cap (or no cap was stated).
+ *
+ * Counted off the timeline, not off the bin: a downloaded clip in the bin costs nothing the
+ * editor sees. Run `4a8e` asked for "two cutaways I never shot" and placed eight stock clips
+ * over 50 of its 60 seconds; every placement passed every other rule.
+ *
+ * @param ctx - The tool context; `stockCutawayCap` is the brief's number.
+ * @param assetId - The asset about to be placed; a non-stock asset is never refused here.
+ */
+export function stockCutawayCapRefusal(ctx: ToolContext, assetId: string): string | null {
+  const cap = ctx.stockCutawayCap;
+  if (cap === undefined) return null;
+  const asset = ctx.project.assets.find((candidate) => candidate.id === assetId);
+  if (!asset || asset.kind === 'audio' || asset.source?.provider === undefined) return null;
+  const stockIds = new Set(
+    ctx.project.assets
+      .filter((candidate) => candidate.kind !== 'audio' && candidate.source?.provider !== undefined)
+      .map((candidate) => candidate.id),
+  );
+  const placed = ctx.project.timeline.tracks.flatMap((track) =>
+    track.clips.filter((clip) => stockIds.has(clip.assetId)),
+  );
+  if (placed.length < cap) return null;
+  const named = placed
+    .slice(0, 4)
+    .map((clip) => `${clip.id} (${roundSeconds(clip.start)}–${roundSeconds(clip.end)}s)`)
+    .join(', ');
+  return (
+    `the request asked for ${String(cap)} stock cutaway${cap === 1 ? '' : 's'} and ` +
+    `${String(placed.length)} ${placed.length === 1 ? 'is' : 'are'} already on the timeline: ` +
+    `${named}${placed.length > 4 ? ', …' : ''}. The editor's own footage is the picture. To ` +
+    'use this clip instead of one of those, delete_clip that one first; otherwise leave it ' +
+    'in the bin and move on.'
+  );
+}
+
 /** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
 type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
@@ -587,6 +625,9 @@ function addClipOperation(
   // cannot either.
   const alreadyThere = existingPlacement(ctx.project, clip);
   if (alreadyThere) throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
+  // One more stock cutaway than the brief asked for is refused before any lane is chosen.
+  const overCap = stockCutawayCapRefusal(ctx, clip.assetId);
+  if (overCap !== null) throw new ToolRefusalError(overCap);
   const alreadyBooked = bookedPlacement(ctx.project, booked, clip);
   if (alreadyBooked) {
     // Named by the SHARED frames, not by this entry's own span: what the model has to

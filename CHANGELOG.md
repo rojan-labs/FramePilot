@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
+  never shot" came back with eight stock clips covering fifty of its sixty seconds and six
+  whole shots of the editor's own footage buried beneath them. When the request names a
+  count, a placement past it is refused with the clips that are already there, and the
+  self-check reports the count against the request.
+- **"Track them" no longer reports a subject as tracked.** The tracker tool attaches an
+  effect with no motion in it; the measured track needs a mask drawn in the editor and the
+  automatic tracking tool. The tool now says so, its note reads "Attached tracker (no motion
+  yet)", the self-check warns on a tracker with no motion, and the request's criteria state
+  the limit up front instead of the review discovering it at the end.
+- **A title that cannot fit its box is refused with the size that would.** "Breck, opening
+  weekend" was placed at a size where "weekend" needed 119% of the frame width; the safe-area
+  check could only say so afterwards. The fit is decided when the title is added, naming the
+  largest size that fits the box or the box width the word needs.
 - **An automatic reframe says it is a centred guess.** Placing landscape footage in a
   vertical sequence crops it to the frame for you; the note read only "Reframed clip", and
   a brief that asked for the action kept inside the crop "not just centre-cut" got thirteen

@@ -55,6 +55,8 @@ export type CheckId =
   | 'hidden_picture'
   | 'duration_target'
   | 'shot_count'
+  | 'cutaway_count'
+  | 'tracker_motion'
   | 'shot_length_target'
   | 'reframe_coverage'
   | 'treatment_coverage'
@@ -119,6 +121,12 @@ export interface CritiqueOptions {
    * number. Read deterministically from the prompt by `acceptance.ts`.
    */
   readonly minShotCount?: number;
+  /**
+   * The most stock cutaways the request asked for, when it named a number — see
+   * `acceptance.ts#explicitCutawayCount`. The tool surface refuses the placement past this
+   * (`domain-tools/timeline.ts`); this check is the same rule read back off the timeline.
+   */
+  readonly maxStockCutaways?: number;
   /**
    * The editor's request, verbatim, when the caller has it.
    *
@@ -992,6 +1000,97 @@ function checkShotCount(project: Project, options: CritiqueOptions): CriticCheck
     'Shot count on target',
     'fail',
     `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/**
+ * Picture clips whose asset came from a stock library — the cutaways a run sourced.
+ *
+ * Stock is what `Asset.source` records (schema v20, the credit); the editor's own footage
+ * has none. Music is sourced the same way and is not picture, so it is not counted.
+ */
+export function stockPictureClips(project: Project): readonly Clip[] {
+  const stock = new Set(
+    project.assets.filter((asset) => asset.source?.provider !== undefined).map((a) => a.id),
+  );
+  return pictureClips(project).filter((clip) => stock.has(clip.assetId));
+}
+
+/**
+ * Did the run place more stock cutaways than the brief asked for?
+ *
+ * Run `4a8e` asked for "two cutaways I never shot" and delivered eight stock clips over 50
+ * of 60 seconds, burying six whole shots of the editor's own footage. Every placement was
+ * legal on its own; the count was the defect, and the count was in the brief.
+ */
+function checkCutawayCount(project: Project, options: CritiqueOptions): CriticCheck {
+  const cap = options.maxStockCutaways;
+  if (cap === undefined) {
+    return check('cutaway_count', 'Cutaways as asked', 'skipped', 'No cutaway count was asked for.');
+  }
+  const placed = stockPictureClips(project);
+  if (placed.length <= cap) {
+    return check(
+      'cutaway_count',
+      'Cutaways as asked',
+      'pass',
+      `${String(placed.length)} stock cutaway(s) on the timeline (at most ${String(cap)} asked for).`,
+    );
+  }
+  const named = placed
+    .slice(0, 4)
+    .map((clip) => `${clip.id} (${round(clip.start)}–${round(clip.end)}s)`)
+    .join(', ');
+  return check(
+    'cutaway_count',
+    'Cutaways as asked',
+    'fail',
+    `${String(placed.length)} stock cutaways are on the timeline but the request asked for ` +
+      `${String(cap)}: ${named}${placed.length > 4 ? ', …' : ''}. The editor's own footage is ` +
+      'the picture; delete_clip the extra stock so only the shots they named remain.',
+  );
+}
+
+/**
+ * Does every tracker actually carry motion?
+ *
+ * `track_object` attaches an `object_track` effect; unless keyframes were supplied it holds
+ * none, and nothing computes them afterwards — the measured track comes from the automatic
+ * tracking tool, which needs a mask the editor draws. Run `4a8e` attached ten empty
+ * trackers to the same clip, each reported "Tracked object", and the perceptual review was
+ * the first thing to say the tracker had no points. A warning, because the tracker itself
+ * is legal and the fix needs the editor's hand.
+ */
+function checkTrackerMotion(project: Project): CriticCheck {
+  const empty: string[] = [];
+  let trackers = 0;
+  for (const clip of pictureClips(project)) {
+    // A hand-built fixture may omit `effects`; a review must not crash on it.
+    for (const effect of clip.effects ?? []) {
+      if (effect.type !== 'object_track') continue;
+      trackers += 1;
+      if ((effect.keyframes ?? []).length === 0) empty.push(clip.id);
+    }
+  }
+  if (trackers === 0) {
+    return check('tracker_motion', 'Trackers carry motion', 'skipped', 'No trackers on the timeline.');
+  }
+  if (empty.length === 0) {
+    return check(
+      'tracker_motion',
+      'Trackers carry motion',
+      'pass',
+      `${String(trackers)} tracker(s), each with measured motion.`,
+    );
+  }
+  return check(
+    'tracker_motion',
+    'Trackers carry motion',
+    'warn',
+    `${String(empty.length)} of ${String(trackers)} tracker(s) hold no motion at all — a ` +
+      `highlight on them will not follow anything: ${[...new Set(empty)].slice(0, 4).join(', ')}. ` +
+      'The AI cannot compute the track by itself: draw a mask around the subject on that clip ' +
+      'in the editor and run automatic tracking, or remove the tracker.',
   );
 }
 
@@ -2243,6 +2342,8 @@ function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck
     checkPictureCoverage(project, options),
     checkDurationTarget(project.timeline, options),
     checkShotCount(project, options),
+    checkCutawayCount(project, options),
+    checkTrackerMotion(project),
     checkShotLengthTarget(project, options),
     checkReframeCoverage(project),
     checkTreatmentCoverage(project, options),

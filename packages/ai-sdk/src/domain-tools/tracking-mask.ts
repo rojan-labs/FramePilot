@@ -25,8 +25,13 @@ export const TRACKING_MASK_TOOLS: readonly ToolSpec[] = [
     {
       name: 'track_object',
       description:
-        'Attach an object tracker to a clip. target="object" tracks an arbitrary ' +
-        'picked region (frame fractions); a track is computed by the tracking engine.',
+        'Attach an object tracker EFFECT to a clip, with NO motion in it: it marks the region ' +
+        '(frame fractions) a highlight or mask should follow, and nothing here computes the ' +
+        'path. The measured track comes from track_subject_automatically, which needs a mask ' +
+        'the editor draws around the subject in the editor and an installed CV pack. So: ' +
+        'attach the tracker, tell the editor to draw the mask and run the automatic tracking, ' +
+        'and never describe the subject as tracked. Attaching a second tracker to the same ' +
+        'clip replaces the first — repeating the call does not compute anything.',
     },
     z
       .object({

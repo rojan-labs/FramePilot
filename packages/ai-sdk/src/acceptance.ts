@@ -84,10 +84,20 @@ export interface CheckableAcceptance {
    * a criterion is an instruction the run can drop without anyone noticing.
    */
   readonly rememberPreference?: boolean;
+  /**
+   * The most stock cutaways the request asked for ("I'm missing two cutaways I never
+   * shot"), when it named a number. Read deterministically; absent when it did not.
+   *
+   * Run `4a8e` (2026-09-06, GoPro highlight) asked for two and received eight stock clips
+   * covering 50 of its 60 seconds, six whole shots of the editor's own footage buried under
+   * them. Nothing bounded the count: every placement was legal, every download was a
+   * success. The number is in the brief, so the runtime can hold the run to it.
+   */
+  readonly maxStockCutaways?: number;
 }
 
 /** A deliverable no registered tool can produce. */
-export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview';
+export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview' | 'subjectTracking';
 
 /** What each unmeetable deliverable reads as in a criterion an editor will see. */
 export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
@@ -100,6 +110,11 @@ export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
   preview:
     'A rendered preview cannot be produced from this panel — the timeline monitor plays ' +
     'the current cut, and the Export dialog renders it. Say so rather than promising one.',
+  subjectTracking:
+    'Subject motion cannot be computed by the AI on its own: track_object only ATTACHES a ' +
+    'tracker with no motion in it, and the measured track comes from the automatic tracking ' +
+    'tool, which needs a mask the editor draws around the subject in the editor. Attach the ' +
+    'tracker, tell the editor to draw the mask, and never report the subject as tracked.',
 };
 
 /**
@@ -566,6 +581,53 @@ export function asksToRememberPreference(prompt: string): boolean {
   return LASTING_PREFERENCE.test(prompt.toLowerCase());
 }
 
+const COUNT_WORDS: Readonly<Record<string, number>> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+/**
+ * "two cutaways", "3 stock cutaways", "a cutaway of the crowd", "cutaways: 2". The noun is
+ * the anchor; a bare number near "clips" is the shot-count reader's business, not this one's.
+ * When the brief states several counts the LARGEST is the cap — a brief that says "two
+ * cutaways … one more cutaway" is asking for three, and the smaller number must not fail
+ * a run that did what was asked.
+ */
+const CUTAWAY_COUNT =
+  /\b(\d{1,2}|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:more\s+|extra\s+|new\s+)?(?:stock\s+|b-?roll\s+)?cutaways?\b|\bcutaways?\s*[:—-]\s*(\d{1,2})\b/g;
+
+/** How many stock cutaways the request asked for, when it said. */
+export function explicitCutawayCount(prompt: string): number | undefined {
+  const normalized = prompt.toLowerCase();
+  let max: number | undefined;
+  for (const match of normalized.matchAll(CUTAWAY_COUNT)) {
+    const raw = match[1] ?? match[2];
+    if (raw === undefined) continue;
+    const value = COUNT_WORDS[raw] ?? Number(raw);
+    if (!Number.isFinite(value) || value < 1) continue;
+    max = max === undefined ? value : Math.max(max, value);
+  }
+  return max;
+}
+
+/**
+ * Tracking a PERSON or object through the picture: the verb next to a subject noun. "The
+ * audio track" and "the music track" are nouns and never match; "follow the music" has no
+ * subject. "track them through that section" is the captured brief.
+ */
+const SUBJECT_TRACKING =
+  /\b(?:track|follow|tracking|following)\b[^.\n]{0,40}\b(?:him|her|them|the rider|rider|subject|the person|person|face|faces|skier|snowboarder|the (?:guy|girl|man|woman|player|speaker|presenter|dog|cat|car))\b/;
+
 /** The narration nouns editors use, in both spellings. */
 const VOICEOVER_NOUN = 'voice[- ]?over|narration|narrator|tts|text[- ]to[- ]speech|ai voice';
 
@@ -612,6 +674,7 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
   if (GENERATED_VOICEOVER.test(normalized)) missing.push('voiceover');
   if (SOURCED_SOUND_EFFECTS.test(normalized)) missing.push('soundEffects');
   if (PREVIEW_REQUEST.test(normalized)) missing.push('preview');
+  if (SUBJECT_TRACKING.test(normalized)) missing.push('subjectTracking');
   return missing;
 }
 
@@ -631,6 +694,7 @@ export function checkableAcceptance(
   const minShotCount = explicitMinShotCount(prompt);
   const coverage = explicitCoverage(prompt);
   const unmeetable = unmeetableDeliverables(prompt);
+  const cutaways = explicitCutawayCount(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
@@ -643,6 +707,7 @@ export function checkableAcceptance(
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
     ...(unmeetable.length === 0 ? {} : { unmeetable }),
     ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
+    ...(cutaways === undefined ? {} : { maxStockCutaways: cutaways }),
   };
 }
 
@@ -695,6 +760,14 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
   for (const deliverable of acceptance.unmeetable ?? []) {
     criteria.push(UNMEETABLE_LABEL[deliverable]);
   }
+  if (acceptance.maxStockCutaways !== undefined) {
+    criteria.push(
+      `At most ${String(acceptance.maxStockCutaways)} stock cutaway${
+        acceptance.maxStockCutaways === 1 ? '' : 's'
+      } on the timeline — the editor's own footage is the picture; stock fills the shots ` +
+        'they named and nothing else.',
+    );
+  }
   if (acceptance.rememberPreference === true) {
     criteria.push(
       'The preference the editor stated for future edits is saved with remember_preference ' +
@@ -722,6 +795,7 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     (acceptance.coverage?.length ?? 0) > 0 ||
     acceptance.deliverableFile === true ||
     (acceptance.unmeetable?.length ?? 0) > 0 ||
-    acceptance.rememberPreference === true
+    acceptance.rememberPreference === true ||
+    acceptance.maxStockCutaways !== undefined
   );
 }
