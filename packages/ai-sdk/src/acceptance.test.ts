@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import {
   JUDGEMENT_CRITERION,
   acceptanceCriteria,
+  asksForPreview,
   asksForRenderedFile,
   checkableAcceptance,
   explicitCoverage,
@@ -200,6 +201,16 @@ describe('asksForRenderedFile', () => {
     expect(asksForRenderedFile('render out a mov file')).toBe(true);
   });
 
+  it('recognises an imperative export whose object is the cut, with no file noun', () => {
+    // Run `cc907070`'s brief, verbatim: no mp4, file or video within reach of the verb.
+    expect(asksForRenderedFile('Export both — the 16:9 at 1080p and the vertical.')).toBe(true);
+    expect(asksForRenderedFile('When you are done, export it.')).toBe(true);
+    expect(asksForRenderedFile('Then export the cut at 4K.')).toBe(true);
+    // The noun, not the verb: dialogs and settings are not a request for a file.
+    expect(asksForRenderedFile('use the export dialog defaults')).toBe(false);
+    expect(asksForRenderedFile('leave the export settings alone')).toBe(false);
+  });
+
   // GAP-021 (run `fc10301a`). A long brief states its deliverable as a SECTION, not a
   // sentence — and the inline reader bounds its gap with `[^.\n]{0,60}`, which cannot
   // cross the newline between the heading and the noun under it. That run asked for a
@@ -302,6 +313,16 @@ describe('checkableAcceptance', () => {
  * The precedent is `deliverableFile`, which exists for exactly this reason and covered
  * exactly one case. This is disclosure, not capability.
  */
+describe('asksForPreview', () => {
+  it('recognises a request to be shown the cut before the render', () => {
+    expect(asksForPreview('Show me a preview before you render.')).toBe(true);
+    expect(asksForPreview('I want to see a preview first')).toBe(true);
+    expect(asksForPreview('preview it, then export')).toBe(true);
+    expect(asksForPreview('the preview thumbnails look soft')).toBe(false);
+    expect(unmeetableDeliverables('show me a preview before you render')).toEqual(['preview']);
+  });
+});
+
 describe('unmeetableDeliverables', () => {
   it('spots a request to generate narration', () => {
     expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);

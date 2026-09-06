@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **"Export both" and "show me a preview first" are now acknowledged, not skipped.** Neither
+  can run from the AI panel, and a brief that asked for both was answered with a report
+  that mentioned neither, because the export detector only matched file nouns ("an mp4",
+  "the video"). An imperative export of the cut itself now counts, a preview request is
+  recorded as a deliverable the panel cannot make, and the completion report says where
+  both actually happen — the timeline monitor and the Export dialog.
 - **A "stop reading, act" turn no longer blocks the AI from looking at its own edit.** The
   run was asked to show a preview before rendering, called `render_preview` on exactly such
   a turn, and was told the turn was for acting; the self-check's own fix instruction named

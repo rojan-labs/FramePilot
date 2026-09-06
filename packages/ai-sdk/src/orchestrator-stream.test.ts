@@ -1931,6 +1931,7 @@ describe('streamAgent', () => {
       rejectionReasons: [],
       cancelled: true,
       deliverableFileRequested: true,
+      previewRequested: true,
     });
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
@@ -1938,6 +1939,7 @@ describe('streamAgent', () => {
     expect(report).not.toMatch(/review the proposed change below/);
     // …and the things the panel cannot do are still said, because they are still true.
     expect(report).toMatch(/use the Export dialog/);
+    expect(report).toMatch(/asks to see a preview first/);
   });
 
   it('collapses edits that read identically instead of repeating the line', () => {

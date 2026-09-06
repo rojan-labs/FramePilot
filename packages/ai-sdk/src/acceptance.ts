@@ -80,7 +80,7 @@ export interface CheckableAcceptance {
 }
 
 /** A deliverable no registered tool can produce. */
-export type UnmeetableDeliverable = 'voiceover' | 'soundEffects';
+export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview';
 
 /** What each unmeetable deliverable reads as in a criterion an editor will see. */
 export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
@@ -90,6 +90,9 @@ export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
   soundEffects:
     'Sound effects cannot be sourced here — the stock libraries cover music and picture, ' +
     'not SFX. Import the effects you want and they can be placed on the timeline.',
+  preview:
+    'A rendered preview cannot be produced from this panel — the timeline monitor plays ' +
+    'the current cut, and the Export dialog renders it. Say so rather than promising one.',
 };
 
 /**
@@ -474,6 +477,28 @@ const DELIVERABLE_FILE =
   /\b(render(?:ed|ing)?|export(?:ed|ing)?|deliver(?:ed|able)?)\b[^.\n]{0,60}\b(mp4|mov|webm|file|video|deliverable)\b|\b(mp4|mov|webm|file|deliverable)\b[^.\n]{0,40}\b(render(?:ed|ing)?|export(?:ed|ing)?)\b/;
 
 /**
+ * "Export" as the sentence's own verb, with the cut as its object — no file noun anywhere.
+ *
+ * Run `cc907070`'s brief closed with "Export both — the 16:9 at 1080p and the vertical."
+ * There is no mp4, file or video within reach of the verb, so {@link DELIVERABLE_FILE} read
+ * it as asking for no file, the run never mentioned the export, and the completion account
+ * said nothing about the one thing the panel cannot do. An imperative export whose object
+ * is the edit itself — both, it, them, the cut, a resolution — is the same request in
+ * fewer words. "Export settings" and "the export dialog" are nouns, not the verb, and are
+ * not matched: the verb must be followed by its object.
+ */
+const DELIVERABLE_EXPORT_VERB =
+  /(?:^|[.,\n;:—-]\s*|\bthen\s+|\band\s+)export\s+(?:both|it|them|this|that|everything|the\s+(?:cut|edit|sequence|timeline|result|final|finished|16:9|9:16|vertical|horizontal|square|reel|short|montage|version)|a\s|an\s|at\s+\d|in\s+\d|as\s|to\s)/;
+
+/**
+ * A request to SEE the cut before it is rendered, which the panel cannot fulfil either:
+ * `render_preview` has no route from the editor (`sidecar-executor.ts#RENDER_ACTIONS`).
+ * The timeline monitor plays the current cut; that is the preview the product has.
+ */
+const PREVIEW_REQUEST =
+  /\b(?:show|see|give|send|watch|check|review|look at|want|need|render)\b[^.\n]{0,40}\bpreview\b|\bpreview\b[^.\n]{0,30}\b(?:before|first|then|prior)\b/;
+
+/**
  * The same request, written as a SECTION rather than a sentence.
  *
  * A long brief does not say "produce a rendered MP4" mid-paragraph; it ends with a heading
@@ -504,7 +529,16 @@ const DELIVERABLE_HEADING =
 /** Does this request ask for a rendered or exported file as its deliverable? */
 export function asksForRenderedFile(prompt: string): boolean {
   const normalized = prompt.toLowerCase();
-  return DELIVERABLE_FILE.test(normalized) || DELIVERABLE_HEADING.test(normalized);
+  return (
+    DELIVERABLE_FILE.test(normalized) ||
+    DELIVERABLE_EXPORT_VERB.test(normalized) ||
+    DELIVERABLE_HEADING.test(normalized)
+  );
+}
+
+/** Does this request ask to be shown a preview before the render? */
+export function asksForPreview(prompt: string): boolean {
+  return PREVIEW_REQUEST.test(prompt.toLowerCase());
 }
 
 /** The narration nouns editors use, in both spellings. */
@@ -552,6 +586,7 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
   const missing: UnmeetableDeliverable[] = [];
   if (GENERATED_VOICEOVER.test(normalized)) missing.push('voiceover');
   if (SOURCED_SOUND_EFFECTS.test(normalized)) missing.push('soundEffects');
+  if (PREVIEW_REQUEST.test(normalized)) missing.push('preview');
   return missing;
 }
 

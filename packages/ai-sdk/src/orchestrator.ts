@@ -49,7 +49,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import type { AgentOptions, AgentRun, AgentStep, ReviewResult } from './agent.js';
-import { asksForRenderedFile, checkableAcceptance } from './acceptance.js';
+import { asksForPreview, asksForRenderedFile, checkableAcceptance } from './acceptance.js';
 import { referenceDirectives, shotLengthTolerance } from './references/directives.js';
 import { type EditResult, assembleEdit, describeValidationIssue } from './assemble.js';
 import {
@@ -8095,6 +8095,8 @@ export class Orchestrator {
      * reporting a finished job over a deliverable that was never produced.
      */
     const asksForFile = asksForRenderedFile(input.userPrompt);
+    /** …and did it ask to SEE a preview first? Same answer: no route from the panel. */
+    const asksToPreview = asksForPreview(input.userPrompt);
     /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
@@ -9051,6 +9053,7 @@ export class Orchestrator {
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
+              ...(asksToPreview ? { previewRequested: true } : {}),
             }),
           );
         }
@@ -9602,6 +9605,11 @@ export function agentCompletionReport(args: {
    */
   deliverableFileRequested?: boolean;
   /**
+   * True when the request asked to be shown a preview before rendering. `render_preview`
+   * has no route from the panel, so the report says where the preview actually is.
+   */
+  previewRequested?: boolean;
+  /**
    * True when the editor stopped the run. The edits still landed and still need
    * accounting for; only the claim that the work is finished changes.
    */
@@ -9667,7 +9675,14 @@ export function agentCompletionReport(args: {
       ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
         'on your timeline; use the Export dialog to render them out.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}`;
+  // The preview the brief asked to see. Run `cc907070` asked for one before the render,
+  // the one `render_preview` call was withheld, and the report never mentioned it.
+  const preview =
+    args.previewRequested === true
+      ? '\n\nThis also asks to see a preview first. The panel cannot render one — the ' +
+        'timeline monitor plays the current cut, and the Export dialog renders it.'
+      : '';
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */
