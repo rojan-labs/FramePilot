@@ -1,7 +1,7 @@
 ---
 name: story-structure
 description: Build a coherent long-form sequence from promise, setup, escalation, payoff, and ending while preserving causality and performance continuity.
-tools: [get_mapped_transcript, map_footage, get_timeline, add_marker, remove_marker, move_clip, split_clip, ripple_delete, trim_clip]
+tools: [get_mapped_transcript, map_footage, get_timeline, add_marker, remove_marker, reorder_clips, move_clip, split_clip, ripple_delete, trim_clip]
 ---
 
 # Story structure
@@ -33,7 +33,7 @@ Structure is selection under a promise: each segment must advance stakes, unders
 ## Professional heuristics
 
 - Use a truthful cold open when appropriate; compress setup.
-- Reorder whole ideas, not isolated sentences.
+- Reorder whole ideas, not isolated sentences. Move shots with `reorder_clips` (every clip id of the track, in the new order): it re-lays the track without deleting, so nothing is lost if the run stops; `move_clip` cannot reorder.
 - Ask whether removing a segment weakens the payoff; if not, cut it.
 - Re-hook at genuine section changes, not on a timer.
 

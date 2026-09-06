@@ -1,7 +1,7 @@
 ---
 name: hook-crafting
 description: Select a truthful high-value opening, restructure the timeline around its promise, and reinforce it with restrained text or framing.
-tools: [get_mapped_transcript, map_footage, search_visual, get_timeline, split_clip, move_clip, ripple_delete, add_text_layer, punch_in]
+tools: [get_mapped_transcript, map_footage, search_visual, get_timeline, split_clip, reorder_clips, move_clip, ripple_delete, add_text_layer, punch_in]
 ---
 
 # Hook crafting
@@ -36,6 +36,7 @@ Lead with the highest-value truthful moment, then spend the body earning it.
 - Start on the meaningful syllable or action; remove throat-clearing.
 - Text should add tension or context, not transcribe the spoken line.
 - Keep the hook understandable without exhausting the full payoff.
+- To bring a whole shot forward, `split_clip` around it if needed, then `reorder_clips` with every clip id of the track in the new order — it re-lays the track gaplessly and deletes nothing. `move_clip` cannot reorder.
 
 ## Decision framework
 
