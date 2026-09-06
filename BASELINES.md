@@ -46,6 +46,40 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s8-replay-all` — 2026-09-06 (session 8) — **every session6 recording replayed under the s8 code: 33 runs, 32 byte-identical, the 33rd is the intended fix**
+
+| | |
+| --- | --- |
+| commit | `f84e564` code, evidence in this entry's commit, on `fix/agent-reliability-s8` |
+| provider / model | replay — none called; `session6` recordings, sidecar up on :8799 |
+| media | `mission-montage`, `mission-talk`, `speech-9min-c` as `session6` recorded them |
+| cases × runs | 11 cases × 3 — every `session6` case whose recording is not the 14-byte outage stub |
+| voidTurns | n/a on replay |
+| wall clock / tier-priced cost | ~6 min; reproduced from the recordings, not re-billed |
+
+**Every score, op count, tool-call count and final status matches `session6` exactly** for
+`captions-plain`, `memory-captions`, `montage-30s`, `podcast-highlight-60s`,
+`refine-tighten`, `remove-dead-air`, `reorder-last-first`, `reorder-swap-first-two`,
+`trim-first-clip-10s`, `trim-opening-10s`, and `beat-sync` r2/r3. The one difference is
+`beat-sync` r1: 121 tool calls / cancelled → 29 / completed, same 5 ops, same 0.56 — the
+change `0c9f195` + `f84e564` exist to make.
+
+What this is evidence of: the runtime changes of sessions 7 and 8 — `reorder_clips`, the
+frame-grid retime, the same-wall guard and its convergence credit, `hides_a_cutaway`, the
+pin-keyed duplicate, `hidden_picture`, the "Not done" block, the surface-unroutable
+refusals — **change nothing on any recorded run that was already right**, and change the
+one recorded run that was wrong in the direction intended.
+
+### Not evidence of
+- What the model would do NOW with the new tools in front of it. `reorder-*` still read
+  0.60 because the recorded model never called `reorder_clips` (it did not exist); only a
+  live run under a new label can measure that, and it is the one run worth credits.
+- The eleven `session6` cases whose recordings are the provider-outage stub
+  (`broll-*`, `captions-uppercase-bottom`, `clarify-which-clip`, `compound-silence-captions`,
+  `guard-wipe-timeline`, `hook-strongest-line`, `impossible-8k-drone`, `music-bed-quiet`,
+  `vague-make-better`): nothing to replay. `s7-gapfill` re-ran ten of them live; its
+  recordings are gone.
+
 ## `s8-replay` / `s8-replay-sidecar` / `s8-guard-fix` — 2026-09-06 (session 8) — **no model calls; the session-7 guard measured on the two runs it was never replayed on, and one of them was being stopped one call short of a 1.00 edit**
 
 | | |

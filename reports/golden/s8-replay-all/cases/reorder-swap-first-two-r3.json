@@ -1,0 +1,1299 @@
+{
+  "scenario": "reorder-swap-first-two",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 3,
+  "replayed": true,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Swap the first two clips.",
+      "rubric": "reorder-swap-first-two",
+      "expectedIntent": "edit",
+      "score": 0.6,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "first-two-swapped",
+          "ok": false,
+          "detail": "order is []",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": false,
+          "detail": "5 clip(s) before, 0 after, content differs",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "ask",
+          "ok": false
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "first-two-swapped: order is []",
+            "content-preserved: 5 clip(s) before, 0 after, content differs"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 33,
+          "valid": 33,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 49,
+        "toolCalls": 49,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 1.9409789999999998,
+        "latency": {
+          "firstProgressMs": 3,
+          "doneMs": 75
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 33 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 0.6,
+        "finalStatus": "completed",
+        "operations": 37
+      },
+      "asked": [],
+      "assistantText": "**Applied 37 edits** in 33 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–39.8s\n- Deleted range Video 1 · 39.8s–61.433s\n- Moved clip clip_003 (×12)\n- Moved clip clip_004 (×13)\n- Moved clip clip_005 (×7)\n- Deleted range Video 1 · 100s–149.767s\n- Deleted range Video 1 · 9000s–9014.7s\n- Deleted range Video 1 · 20000s–20008.767s\n\n**Skipped:** 1 proposed change did not validate (Rejected \"move_clip\" — op 1 of 1 (move_clip): Clips 'clip_004' and 'clip_003' overlap on track 'video_1'. Shorten one, move 'clip_003' later, or place it on another track.).",
+      "recording": "reports/golden/s8-replay-all/recordings/reorder-swap-first-two-r3-t1.json",
+      "calls": [
+        {
+          "tool": "delete_clips",
+          "status": "completed",
+          "args": "clipIds: [\"clip_001\",\"clip_002\"]"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 200"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 140"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 999"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 1013.7"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1200"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1150"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1063.467"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1300"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1314.7"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 1028.4"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1349.767"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 1500"
+        },
+        {
+          "tool": "move_clip",
+          "status": "failed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1300"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1360"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1600"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1358.533"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1408.3"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1620"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": "start: 1490, end: 1630"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 1700"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1660"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1634.7"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 1800"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 1780"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 5000"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 3000"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 4000"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 10"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 100"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_004\", toTrackId: \"video_1\", toStart: 9000"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 4049.767"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_003\", toTrackId: \"video_1\", toStart: 20000"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 6000"
+        },
+        {
+          "tool": "move_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_005\", toTrackId: \"video_1\", toStart: 100"
+        },
+        {
+          "tool": "delete_clips",
+          "status": "completed",
+          "args": "clipIds: [\"clip_005\",\"clip_004\",\"…"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "get_timeline_summary",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "ask_user",
+          "status": "completed",
+          "args": "question: \"The video track is curr…, options: [{\"label\":\"Rebuild in or…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 75,
+        "modelCalls": 49,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 1.9409789999999998,
+        "usageTokens": 389445,
+        "toolCalls": 49,
+        "toolCallsByName": {
+          "delete_clips": 2,
+          "move_clip": 33,
+          "get_timeline": 12,
+          "get_timeline_summary": 1,
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 44,
+        "analysisFromCache": 0,
+        "contextRequests": 98,
+        "contextByType": [
+          {
+            "system": 2536,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2536,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2689,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2689,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2704,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2704,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2718,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2718,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2728,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2728,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2734,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2734,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2743,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2743,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2758,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2758,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2764,
+            "retrieved_evidence": 403,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2764,
+            "retrieved_evidence": 403,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2776,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2776,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2782,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2782,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2792,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2792,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2811,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2811,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2929,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2929,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2940,
+            "retrieved_evidence": 403,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2940,
+            "retrieved_evidence": 403,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2949,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2949,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2957,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2957,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2966,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2966,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2974,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2974,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3055,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3055,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3046,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3046,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3127,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3127,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3118,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3118,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3199,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3199,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3190,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3190,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3272,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3272,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3261,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3261,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3271,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3271,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3352,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3352,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3342,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3342,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3423,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3423,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3415,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3415,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3496,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3496,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3486,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3486,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3567,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3567,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3557,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3557,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3637,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3637,
+            "retrieved_evidence": 399,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3629,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3629,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3639,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3639,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3720,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3720,
+            "retrieved_evidence": 400,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3712,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3712,
+            "retrieved_evidence": 402,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3722,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3722,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3804,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3804,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3794,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3794,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3802,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3802,
+            "retrieved_evidence": 401,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3706,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3706,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3760,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3760,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3817,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3817,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3908,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3908,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 7337
+          }
+        ],
+        "contextUsedTokens": [
+          11946,
+          5460,
+          12085,
+          5633,
+          12099,
+          5664,
+          12113,
+          5695,
+          12123,
+          5721,
+          12130,
+          5728,
+          12140,
+          5752,
+          12156,
+          5793,
+          12163,
+          5804,
+          12173,
+          5833,
+          12180,
+          5843,
+          12190,
+          5863,
+          12209,
+          5903,
+          12327,
+          6081,
+          12339,
+          6105,
+          12347,
+          6125,
+          12355,
+          6144,
+          12363,
+          6163,
+          12371,
+          6174,
+          12452,
+          6318,
+          12443,
+          6305,
+          12524,
+          6449,
+          12515,
+          6436,
+          12596,
+          6580,
+          12588,
+          6574,
+          12670,
+          6720,
+          12658,
+          6698,
+          12668,
+          6718,
+          12749,
+          6862,
+          12739,
+          6849,
+          12820,
+          6993,
+          12812,
+          6980,
+          12893,
+          7124,
+          12883,
+          7110,
+          12964,
+          7254,
+          12952,
+          7235,
+          13032,
+          7377,
+          13025,
+          7364,
+          13035,
+          7390,
+          13116,
+          7534,
+          13110,
+          7528,
+          13119,
+          7539,
+          13201,
+          7683,
+          13191,
+          7670,
+          13199,
+          7684,
+          13071,
+          7515,
+          13125,
+          7602,
+          13182,
+          7699,
+          13273,
+          7784
+        ],
+        "contextCachedTokens": [
+          null,
+          21686,
+          null,
+          21918,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055
+        ],
+        "diffs": 33,
+        "validDiffs": 33,
+        "operations": 37,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 0,
+        "pictureClips": 0,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 0
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "replay",
+  "model": "replay"
+}
