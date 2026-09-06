@@ -1368,7 +1368,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         "Ramp a clip's speed over its length — fast in, slow on the moment, back up after. " +
         "Give points along the clip in SOURCE seconds from its own start (0 = the clip's " +
         'in point), each with a playback rate: [{sourceTime:0, rate:2}, {sourceTime:1.5, ' +
-        "rate:0.25}, {sourceTime:2.5, rate:1}]. By default the clip KEEPS its timeline " +
+        'rate:0.25}, {sourceTime:2.5, rate:1}]. By default the clip KEEPS its timeline ' +
         'length and the curve is fitted into it by changing how much source it consumes ' +
         '(keepDuration: true) — the cut around it does not move, and neighbours are never ' +
         'overlapped. Pass keepDuration: false to keep the source range instead and let the ' +

@@ -533,10 +533,7 @@ describe('professional_audio role-authored ducking', () => {
         patchId: 'label_pov' as PatchId,
         createdBy: 'agent',
         reason: 'the wind is the sidechain',
-        operations: [
-          ...labelOps,
-          { type: 'set_track_flags', trackId: 'music', role: 'music' },
-        ],
+        operations: [...labelOps, { type: 'set_track_flags', trackId: 'music', role: 'music' }],
       }),
     });
     const resolution = resolveAudioObjective({

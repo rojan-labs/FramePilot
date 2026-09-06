@@ -26,7 +26,17 @@ function project(): Project {
           id: 'v1',
           type: 'video',
           clips: [
-            { id: 'clip_a', assetId: 'a', trackId: 'v1', start: 2, end: 6, sourceStart: 0, sourceEnd: 4, effects: [], keyframes: [] },
+            {
+              id: 'clip_a',
+              assetId: 'a',
+              trackId: 'v1',
+              start: 2,
+              end: 6,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+            },
           ],
         },
       ],

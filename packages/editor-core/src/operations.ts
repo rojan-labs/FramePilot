@@ -1400,7 +1400,8 @@ function rebaseSpeedRamp(
   if (!ramp || ramp.length === 0) return clip.speedRamp;
   const headTrimmed = Math.abs(consumed) >= EPSILON;
   const inside = (p: SpeedPoint): boolean =>
-    p.sourceTime > consumed + EPSILON && (span === undefined || p.sourceTime < consumed + span - EPSILON);
+    p.sourceTime > consumed + EPSILON &&
+    (span === undefined || p.sourceTime < consumed + span - EPSILON);
   const later = ramp
     .filter(inside)
     .map((p) => (headTrimmed ? { ...clone(p), sourceTime: p.sourceTime - consumed } : clone(p)));
@@ -2554,7 +2555,9 @@ function applySetClipSpeedRamp(
     const span = clip.sourceEnd - clip.sourceStart;
     const whole = integrateRate(points, 0, span);
     const consumed =
-      whole >= slot ? sourceTimeAt(points, 0, slot, span) : span + (slot - whole) * rateAt(points, span);
+      whole >= slot
+        ? sourceTimeAt(points, 0, slot, span)
+        : span + (slot - whole) * rateAt(points, span);
     next.sourceEnd = clip.sourceStart + consumed;
     return replaceClipAt(timeline, loc, next);
   }

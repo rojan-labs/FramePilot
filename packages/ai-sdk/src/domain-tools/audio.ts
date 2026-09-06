@@ -86,7 +86,7 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'ffmpeg, free, cached per file at default settings. Returns ' +
         'beat times in seconds; does not edit the timeline. Needs an asset that has an ' +
         "audio track — silent footage has no beats, so pass the music asset's id. " +
-        'The onsets come back in the music\'s own seconds; once the bed is on the ' +
+        "The onsets come back in the music's own seconds; once the bed is on the " +
         'timeline, map_time converts them to timeline time. Where a cut lands against ' +
         'them is your editorial call — nothing snaps or refuses a cut for you, so when ' +
         'the editor asked for cuts on the beat, place each boundary on an onset time ' +
