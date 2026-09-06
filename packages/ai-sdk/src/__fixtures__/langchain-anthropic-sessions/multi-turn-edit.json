@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11569,
+      "usedTokens": 11590,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11569,
+          "estimatedInputTokensBeforeSend": 11590,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860431,
+          "estimatedRemainingCapacity": 860410,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -299,7 +299,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -335,7 +335,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11569,
+          "estimatedInputTokensBeforeSend": 11590,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -540,7 +540,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 6,
+        "version": 9,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -552,9 +552,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -565,7 +568,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -659,7 +662,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11715,
+      "usedTokens": 11146,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -713,7 +716,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -734,14 +737,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 301,
+            "tokenEstimate": 332,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -749,10 +752,10 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11715,
+          "estimatedInputTokensBeforeSend": 11146,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860285,
-          "toolSchemaTokensRebilled": 0,
+          "estimatedRemainingCapacity": 860854,
+          "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -762,14 +765,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -842,7 +845,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -863,14 +866,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 301,
+            "tokenEstimate": 332,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -878,10 +881,10 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11715,
+          "estimatedInputTokensBeforeSend": 11146,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
-          "toolSchemaTokensRebilled": 0,
+          "toolSchemaTokensRebilled": 6721,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
@@ -894,14 +897,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -1099,7 +1102,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 9,
+        "version": 12,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -1111,9 +1114,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -1124,7 +1130,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1232,7 +1238,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11732,
+      "usedTokens": 11164,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1286,7 +1292,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -1307,14 +1313,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 313,
+            "tokenEstimate": 345,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1322,9 +1328,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11732,
+          "estimatedInputTokensBeforeSend": 11164,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860268,
+          "estimatedRemainingCapacity": 860836,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1335,14 +1341,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 2,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -1424,7 +1430,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -1445,14 +1451,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 313,
+            "tokenEstimate": 345,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1460,7 +1466,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11732,
+          "estimatedInputTokensBeforeSend": 11164,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1476,14 +1482,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 2,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -1509,7 +1515,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 9,
+        "version": 12,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -1521,9 +1527,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -1534,7 +1543,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1680,7 +1689,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [

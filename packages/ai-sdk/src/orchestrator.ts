@@ -5505,10 +5505,12 @@ export class Orchestrator {
     ];
     const response = await this.completeModel(
       // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set
-      // that run's turns did. Advertising the full registry here would both hand the
-      // repair a surface no earlier turn had and break the prompt-prefix stability the
-      // tool block's cache key depends on (E3.3).
-      { messages, tools: this.agentTools('agent', undefined, args.loadedToolDomains) },
+      // that run's execution turns did — the `repair` stage's, which withholds fresh
+      // analysis of the footage exactly as `apply` does. Advertising the full registry
+      // here would both hand the repair a surface no earlier turn had (a run that edited
+      // on its first turn is at `apply` from then on) and break the prompt-prefix
+      // stability the tool block's cache key depends on (E3.3).
+      { messages, tools: this.agentTools('agent', 'repair', args.loadedToolDomains) },
       args.signal,
       args.effectRuntime,
       'large',
