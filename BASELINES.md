@@ -46,6 +46,40 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## run.md, tenth axis — 2026-09-06 (session 8) — **the brief against the delivered cut, clip by clip: a null result on the runtime, and the first proof the run understood the timecodes**
+
+**No run, no code.** The ninth axis read the final timeline for what was HIDDEN; this one
+reads the main track for what was DELIVERED, source range by source range, against the
+brief's own words. Recorded because it is the last unwalked seam on `137d8fd0`, and because
+the result changes how the earlier numbers read: the intent side of this run was largely
+right, and the failures were in what happened around it.
+
+| the brief said | the final `v_main` holds | verdict |
+| --- | --- | --- |
+| "open on the strongest three seconds" | 0–3 s ← source 18–21 s, no transition | placed; whether 0:18 is the strongest 3 s is taste, unmeasurable here |
+| "punch in on the rider in the red jacket around 2:00" | 15–22 s ← source 120–127 s; `object_track` + `mask`; scale 1 → 1.3 over 7 s | **honoured**, all three parts |
+| "tree section around 3:40 … slip it later rather than recut" | 22–32 s ← source 220–230 s | placed at 3:40; no slip was needed, none made |
+| "hard cuts throughout except one transition into the base-area shot at 5:20" | eight `cut` (2-frame) transitions and **one** `cross-dissolve` 1.5 s, on the 32 s clip ← source 320 s | **honoured exactly** |
+| "the bit around 7:40 where I go down" | 40–48 s ← source 460–468 s; scale 1 → 1.7 keyframes | placed; the punch-in stood in for the ramp (no ramp tool existed — C.10) |
+| "ramp into the wipeout … everything else stays at normal speed" | no `speedRamp` anywhere; **48–53 s ← source 499–509 s at `speed: 2`** | the one speed change is on a clip nobody asked to speed up; model choice under a missing tool, not a runtime defect |
+| "title over the opening reading Breck, opening weekend" | `v_titles` text 0–5 s | **honoured** |
+| "duck the wind right down" under a driving track | wind clips at −3 / −12 dB gain; bed at −18 dB (and a second copy at −6 dB — the doubled bed, C.20) | gain only, no duck params; `professional_audio` was dead from the first edit (fixed, `rebaseEditorInteractionContext`) |
+| "drop markers on your candidates before you cut" | 9 markers, all before the first cut | **honoured** |
+| the vertical Reel "1080×1920" | `v_vertical_reframe`: two 6 s stock clips cover-cropped to 0.75 width | not a vertical cut of the highlight; a single-project aspect limit, already recorded |
+| captions | none asked for; 96 added at 18:25 from the fixture's transcript, track empty at the end | unrequested, self-corrected; the fixture carries a transcript the brief says does not exist |
+
+**Verdict on the axis: no new runtime defect.** Every ask the tools could express was
+expressed at the right source time. The run's failures were the buried layers (C.20), the
+missing tools (C.10, C.11), the dead `professional_audio` and the report that could not say
+what was left (C.19) — all closed. Axes walked on this transcript: **ten**. What remains is
+model taste (which three seconds; a 2× clip nobody asked for) and two product limits (no
+sharpen effect; one aspect per project), and none of those is reachable from this file.
+
+### Not evidence of
+- The `contentEvidence` caveat: `map_footage` completed once, so the run's report was right
+  not to say the shots were chosen blind — and the source ranges above are the proof.
+- Anything about the model NOW. This is the run as recorded on 2026-09-04.
+
 ## `s8-replay-all` — 2026-09-06 (session 8) — **every session6 recording replayed under the s8 code: 33 runs, 32 byte-identical, the 33rd is the intended fix**
 
 | | |

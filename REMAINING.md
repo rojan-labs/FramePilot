@@ -83,10 +83,12 @@ lanes (coverage passes honestly); three empty tracks (`captions`, `cutaways_stoc
 `v_vertical_reframe` holds landscape stock cover-cropped to 0.75 width for a vertical
 deliverable that was never built as its own project. **Nothing else on this axis.**
 
-**A tenth axis nobody has walked:** the model's `💬` narration against the timeline it
-was narrating (154 thinking blocks, 123 messages). Session 7's C.19 note found one case by
-hand (the sharpness lift). A systematic pass — every "I will now X" against the next
-turn's ops — is the only unwalked seam. Expect narration habits, not runtime defects.
+**The tenth axis (brief vs the delivered cut, clip by clip) — walked; null result on the
+runtime.** Every timecode the brief named is in `v_main` at the right source time, the one
+dissolve is on the 5:20 shot, the punch-in and tracker are on the 2:00 section, the title is
+over the opening, the markers preceded the first cut. What is not there is model taste and
+two product limits. `BASELINES.md` "tenth axis" has the table. **`run.md` is done: ten axes,
+every one recorded.** Do not mine it again without a NEW question written down first.
 
 **Operational loss to know about:** the `s7-*` golden RECORDINGS are gone — gitignored,
 they lived only in the worktree that was removed after the merge. Case files are intact;
