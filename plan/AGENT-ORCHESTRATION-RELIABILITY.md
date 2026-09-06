@@ -383,6 +383,14 @@ Handle AI actions safely, recover from failure, and finish the job.
       wording will not help; an invented tool name is not "unfinished work" in the
       receipt; an automatic reframe is announced as a centred guess; video-track ducking
       is proven end to end.
+      Second captured run of the same brief (2026-09-06 19:43, on this branch): one turn,
+      completed, 100 edits, every disclosure present. Three new gaps closed: stock cutaways
+      held to the brief's count (`explicitCutawayCount` → `ToolContext.stockCutawayCap`,
+      placement refusal, `cutaway_count` check); `track_object` honest about holding no
+      motion (`tracker_motion` check, `subjectTracking` unmeetable); `add_text_layer` refuses
+      a title whose widest word cannot fit its box. Open: the temporal review timed out at
+      300s over 12 requests on a 60s timeline carrying eight 4K stock layers — the cap cuts
+      the layers, the decode cost per composite frame is the engine's.
 - [ ] **C5 — Preview render into the loop** (**§7 approval — needs the
       renderer→engine preview IPC**, the ADR 0016 export-channel pattern). Wire an
       auto preview render so the Critic sees real frames mid/post-run. Until the
