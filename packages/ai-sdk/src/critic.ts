@@ -34,6 +34,7 @@ import {
 } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
+import { hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
 import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
@@ -46,6 +47,7 @@ export type CheckId =
   | 'request_match'
   | 'picture_present'
   | 'picture_coverage'
+  | 'hidden_picture'
   | 'duration_target'
   | 'shot_count'
   | 'shot_length_target'
@@ -771,6 +773,59 @@ function checkPictureCoverage(project: Project, options: CritiqueOptions): Criti
     'Picture covers the programme',
     requestWantsPicture(options) ? 'fail' : 'warn',
     detail,
+  );
+}
+
+/**
+ * Is any picture on this timeline buried where nobody will ever see it?
+ *
+ * ## Why this exists
+ *
+ * `picture_coverage` asks whether every moment of the programme has SOMETHING under it.
+ * It cannot see the opposite defect: too much picture, stacked, with most of it behind
+ * the rest. Run `137d8fd0` finished a sixty-second highlight with 25 tracks and 48
+ * picture clips, of which 37 — including every clip of the main riding track — were
+ * covered end to end by the layers in front of them. Every check in this battery passed.
+ * Every one of the thirteen lifts that produced it was reported as `completed`.
+ *
+ * ADR 0169 lifts a legal full-frame placement in front of the picture it covers, which is
+ * what a cutaway IS; `createPicturePlacer` now refuses the lift that buries another
+ * cutaway whole. This is the same question asked of a project that already has the
+ * defect, wherever it came from.
+ *
+ * ## Why it warns and never fails
+ *
+ * Buried picture can be inherited from the project the run was handed, and an inherited
+ * defect is an advisory — failing the run for it would judge a delta the run did not make.
+ * The remedy is an editorial decision (which copy survives), so the detail names the
+ * clips and leaves the choice.
+ */
+function checkHiddenPicture(project: Project): CriticCheck {
+  const label = 'No picture is buried';
+  if (pictureClips(project).length === 0) {
+    return check('hidden_picture', label, 'skipped', 'No picture clips, so nothing can be buried.');
+  }
+  const hidden = hiddenPictureClips(project);
+  if (hidden.length === 0) {
+    return check('hidden_picture', label, 'pass', 'Every picture clip is visible somewhere.');
+  }
+  const assetPath = new Map(project.assets.map((asset) => [asset.id, asset.path]));
+  const named = hidden
+    .slice(0, 3)
+    .map((clip) => {
+      const path = assetPath.get(clip.assetId);
+      const file = path === undefined ? clip.assetId : (path.split('/').pop() ?? path);
+      return `"${file}" on ${clip.trackId} (${round(clip.start)}s–${round(clip.end)}s)`;
+    })
+    .join(', ');
+  return check(
+    'hidden_picture',
+    label,
+    'warn',
+    `${String(hidden.length)} picture clip${hidden.length === 1 ? ' is' : 's are'} completely ` +
+      `covered by the layers in front of ${hidden.length === 1 ? 'it' : 'them'} and ` +
+      `${hidden.length === 1 ? 'is' : 'are'} never seen: ${named}` +
+      `${hidden.length > 3 ? ', …' : ''}. Remove them, or move them where they show.`,
   );
 }
 
@@ -2402,6 +2457,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkRequestMatch(options),
     checkPicturePresent(project, options),
     ...wholeCutChecks(project, options),
+    checkHiddenPicture(project),
     checkCaptionAlignment(timeline),
     checkSafeArea(timeline, project.resolution),
     checkAudioClipping(options),

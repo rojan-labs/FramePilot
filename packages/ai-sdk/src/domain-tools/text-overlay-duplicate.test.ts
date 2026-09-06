@@ -119,7 +119,7 @@ describe('add_clip refuses the same shot over the same moment', () => {
 
   it('refuses an identical second copy instead of opening a lane for it', () => {
     const once = place(project());
-    expect(() => place(once)).toThrow(/already on the timeline/);
+    expect(() => place(once)).toThrow(/already shows these same frames/);
     expect(() => place(once)).toThrow(/a\.mp4/);
   });
 
@@ -187,5 +187,117 @@ describe('add_clips cannot duplicate inside one batch', () => {
         { assetId: 'asset_1', start: 0, end: 5, sourceStart: 0 },
       ]),
     ).toThrow(/this call placed it already/);
+  });
+});
+
+/**
+ * The same frames at the same moment, over a DIFFERENT span.
+ *
+ * The exact-span guard above missed the shape run `137d8fd0` actually produced: asset
+ * 6381282 at 0–9.9s from source 0, and then again at 0–28.3s from source 0. The spans
+ * differ, so nothing matched — but the first 9.9 seconds are the identical frames at the
+ * identical moment, one of them behind the other. What makes two placements the same is
+ * the PIN (`sourceStart - start`), not the span.
+ *
+ * The same run finished with one music file playing 0–60s on two lanes, which is why the
+ * sentence has to work for sound too.
+ */
+describe('add_clip refuses a partial same-frames duplicate', () => {
+  const twoLanes = (assets: readonly Record<string, unknown>[]): Project =>
+    makeProject({
+      assets,
+      timeline: {
+        tracks: [
+          { id: 'video_1', type: 'video', clips: [] },
+          { id: 'video_2', type: 'video', clips: [] },
+          { id: 'audio_1', type: 'audio', clips: [] },
+          { id: 'audio_2', type: 'audio', clips: [] },
+        ],
+      },
+    } as never);
+
+  const PICTURE = [
+    { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
+  ] as const;
+  const SOUND = [{ id: 'bed', path: 'media/bed.mp3', kind: 'audio', durationSeconds: 60 }] as const;
+
+  const add = (p: Project, args: Record<string, unknown>): Project => {
+    const tool = getTool('add_clip');
+    if (!tool || tool.kind !== 'mutate') throw new Error('add_clip is not a mutate tool');
+    const ops = tool.buildOps(args, { project: p }) as AnyOperation[];
+    return applyProjectPatch(p, assembleEdit(p, ops, 'place', 'agent').patch);
+  };
+
+  it('refuses a longer second placement that starts on the same frame', () => {
+    const once = add(twoLanes(PICTURE), {
+      trackId: 'video_1',
+      assetId: 'asset_1',
+      start: 0,
+      end: 9.9,
+      sourceStart: 0,
+    });
+    expect(() =>
+      add(once, {
+        trackId: 'video_2',
+        assetId: 'asset_1',
+        start: 0,
+        end: 28.3,
+        sourceStart: 0,
+      }),
+    ).toThrow(/already shows these same frames from 0s to 9\.9s, on video_1/);
+  });
+
+  it('says "plays" for a music bed, and names the doubling', () => {
+    const once = add(twoLanes(SOUND), {
+      trackId: 'audio_1',
+      assetId: 'bed',
+      start: 0,
+      end: 60,
+      sourceStart: 0,
+    });
+    let message = '';
+    try {
+      add(once, { trackId: 'audio_2', assetId: 'bed', start: 10, end: 60, sourceStart: 10 });
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('already plays these same seconds from 10s to 60s, on audio_1');
+    expect(message).toContain('twice as loud');
+  });
+
+  it('allows the same file from a DIFFERENT point — that is a real, if strange, edit', () => {
+    const once = add(twoLanes(PICTURE), {
+      trackId: 'video_1',
+      assetId: 'asset_1',
+      start: 0,
+      end: 10,
+      sourceStart: 0,
+    });
+    const twice = add(once, {
+      trackId: 'video_2',
+      assetId: 'asset_1',
+      start: 2,
+      end: 8,
+      sourceStart: 30,
+    });
+    expect(twice.timeline.tracks.flatMap((t) => t.clips)).toHaveLength(2);
+  });
+
+  it('does not refuse two placements that merely touch', () => {
+    const once = add(twoLanes(SOUND), {
+      trackId: 'audio_1',
+      assetId: 'bed',
+      start: 0,
+      end: 10,
+      sourceStart: 0,
+    });
+    const twice = add(once, {
+      trackId: 'audio_2',
+      assetId: 'bed',
+      start: 10,
+      end: 20,
+      sourceStart: 10,
+    });
+    expect(twice.timeline.tracks.flatMap((t) => t.clips)).toHaveLength(2);
   });
 });

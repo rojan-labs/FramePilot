@@ -57,6 +57,21 @@
 export type RefusalCause =
   | 'picture_over_picture'
   /**
+   * The placement is a legal full-frame cutaway, and it would swallow another cutaway
+   * whole — every frame of a clip that is on the timeline to be seen.
+   *
+   * ADR 0169 lifts a full-frame placement onto a layer in FRONT of the picture it covers,
+   * which is exactly right when what it covers is the base A-roll: that is what a cutaway
+   * IS. It is not right when the thing underneath is itself a cutaway with nothing behind
+   * it left showing. Run `137d8fd0` lifted thirteen times at t=0 for a sixty-second
+   * highlight and finished with 37 of its 48 picture clips never visible, every one of
+   * those lifts reported as `completed`.
+   *
+   * Deliberately NOT in {@link ARRANGEMENT_INDEPENDENT_CAUSES}: removing or moving the
+   * buried clip changes the answer, so a landed edit must clear the memory of it.
+   */
+  | 'hides_a_cutaway'
+  /**
    * The tool has no implementation on this surface — `planSidecarCall` routes it
    * nowhere and no host override claims it. `render_preview` and `export_video` on the
    * sidecar executor are the standing cases: the editor renders through its own Export

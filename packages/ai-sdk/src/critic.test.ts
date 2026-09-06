@@ -670,6 +670,7 @@ describe('critique — shape', () => {
       'shot_length_target',
       'reframe_coverage',
       'treatment_coverage',
+      'hidden_picture',
       'caption_alignment',
       'safe_area',
       'audio_clipping',
@@ -2094,5 +2095,91 @@ describe('word_severed on footage the transcript cannot be describing', () => {
       },
     } as never);
     expect(idOf(critique(single, {}), 'word_severed')).toMatchObject({ status: 'fail' });
+  });
+});
+
+/**
+ * Run `137d8fd0` finished a sixty-second highlight with 48 picture clips, 37 of them
+ * never visible, and every check in this battery passed. `picture_coverage` asks whether
+ * every moment has something under it; this asks whether anything under it is wasted.
+ */
+describe('hidden_picture', () => {
+  const stack = (tracks: unknown[]): Project =>
+    withTracks(tracks, {
+      assets: [
+        { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_2', path: 'media/stock.mp4', kind: 'video', durationSeconds: 60 },
+      ] as Project['assets'],
+    });
+
+  it('warns and names the buried clip', () => {
+    const report = critique(
+      stack([
+        {
+          id: 'video_cutaway_1',
+          type: 'video',
+          clips: [clip({ id: 'front', assetId: 'asset_2', trackId: 'video_cutaway_1', end: 10 })],
+        },
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'buried', assetId: 'asset_1', trackId: 'v_main', end: 8 })],
+        },
+      ]),
+    );
+    const check = idOf(report, 'hidden_picture');
+    expect(check?.status).toBe('warn');
+    expect(check?.detail).toContain('"a.mp4" on v_main (0s–8s)');
+    expect(check?.detail).toContain('never seen');
+    expect(check?.detail).toContain('move them where they show');
+  });
+
+  it('never fails, because buried picture can be inherited', () => {
+    const report = critique(
+      stack([
+        {
+          id: 'video_cutaway_1',
+          type: 'video',
+          clips: [clip({ id: 'front', assetId: 'asset_2', trackId: 'video_cutaway_1', end: 10 })],
+        },
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'buried', assetId: 'asset_1', trackId: 'v_main', end: 8 })],
+        },
+      ]),
+    );
+    expect(report.checks.some((c) => c.id === 'hidden_picture' && c.status === 'fail')).toBe(false);
+  });
+
+  it('passes on a stack where every clip has a moment of its own', () => {
+    const report = critique(
+      stack([
+        {
+          id: 'video_cutaway_1',
+          type: 'video',
+          clips: [
+            clip({ id: 'front', assetId: 'asset_2', trackId: 'video_cutaway_1', start: 2, end: 5 }),
+          ],
+        },
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'base', assetId: 'asset_1', trackId: 'v_main', end: 8 })],
+        },
+      ]),
+    );
+    expect(idOf(report, 'hidden_picture')?.status).toBe('pass');
+  });
+
+  it('is skipped when the timeline has no picture at all', () => {
+    const report = critique(
+      withTracks([{ id: 'audio_1', type: 'audio', clips: [] }], {
+        assets: [
+          { id: 'asset_1', path: 'media/bed.mp3', kind: 'audio', durationSeconds: 60 },
+        ] as Project['assets'],
+      }),
+    );
+    expect(idOf(report, 'hidden_picture')?.status).toBe('skipped');
   });
 });

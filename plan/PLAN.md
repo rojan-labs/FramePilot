@@ -87,6 +87,19 @@ table and corrects this file's earlier "exhausted" claim.
   and a `hidden_picture` Critic check — `warn`, never `fail`, because buried picture can
   be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Awaiting
   maintainer review.
+- `[~]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
+  for two stock cutaways and finished with 25 tracks, 19 of them video, and 37 of its 48
+  picture clips never visible — including every clip of `v_main` — because ADR 0169's
+  placer opened a new front lane 13 times at t=0 and each lift completely buried the stock
+  cutaway placed just before it, reporting `completed` every time. Three parts, all with
+  reproducing tests: a `hides_a_cutaway` refusal in `createPicturePlacer` (covering the
+  A-roll base stays legal; swallowing a still-visible cutaway whole does not, and a batch
+  now sees its own entries); `existingPlacement` keys on the source PIN rather than the
+  exact span, so the same frames at the same moment over a longer span is refused (the run
+  also ended with one music file playing 0–60s twice, so the sentence works for sound);
+  and a `hidden_picture` Critic check — `warn`, never `fail`, because buried picture can
+  be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Awaiting
+  maintainer review.
 - `[x]` GOLDEN-C.17 — **a surface says what it cannot route, and stops offering it.**
   `HostToolExecutor.unroutableTools?()`; the sidecar executor declares its two render
   actions; `agentTools` drops them; the desktop wrapper forwards it. 91 → 89 tools on the

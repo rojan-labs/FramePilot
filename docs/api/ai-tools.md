@@ -237,6 +237,33 @@ validator.
 
 ---
 
+## When a placement is refused
+
+Two refusals guard `add_clip` / `add_clips` / `move_clip` beyond schema validation, both
+from run `137d8fd0` (a 60s highlight that finished with 37 of its 48 picture clips never
+visible):
+
+- **`hides_a_cutaway`.** ADR 0169 lifts a legal full-frame placement onto a layer in FRONT
+  of the picture it covers. That is right when what it covers is the base A-roll — a
+  cutaway covers the A-roll by definition. It is wrong when the thing underneath is itself
+  a cutaway whose whole span the new placement would swallow: nothing of it would ever be
+  seen. The refusal names the buried clip, its lane and its span, and the three moves
+  (`remove_clip`, place it elsewhere, `trim_clip`). A clip that was ALREADY fully hidden
+  before the call does not trigger it — an inherited defect is an advisory, not a reason to
+  refuse the next edit. The cause is arrangement-DEPENDENT, so a landed patch clears the
+  run's memory of it.
+- **The same frames at the same moment.** Two placements of one asset are the same
+  placement when their PIN (`sourceStart - start`) matches within a frame and their spans
+  overlap by more than a frame — the span itself need not match. A different pin is a
+  different moment of the file and is allowed. Audio goes through the same path, where the
+  defect is audible rather than invisible: the same bed on two lanes plays over itself.
+
+The Critic's `hidden_picture` check reports the same condition on a finished project. It
+`warn`s and never `fail`s, because buried picture can be inherited from the project the run
+was handed.
+
+---
+
 ## Tool authoring requirements
 
 When adding or changing a tool (see also the `ai-safety` skill,

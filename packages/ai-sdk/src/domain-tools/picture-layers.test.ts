@@ -24,7 +24,12 @@ import { applyPatch, invertPatch, type AnyOperation } from '@framepilot/editor-c
 import { getTool } from '../tool-registry.js';
 import { ToolInvocationError, operationsForCall } from '../tool-dispatch.js';
 import { assembleEdit } from '../assemble.js';
-import { pictureOverlapAcross, tracksCoveredByPictureInFront } from './picture-layers.js';
+import {
+  hiddenPictureClips,
+  pictureOverlapAcross,
+  tracksCoveredByPictureInFront,
+  visiblePictureSeconds,
+} from './picture-layers.js';
 
 /** The project frame, and every picture asset's measured shape. */
 const FRAME = { width: 1920, height: 1080 };
@@ -785,5 +790,194 @@ describe('tracksCoveredByPictureInFront', () => {
     expect([
       ...tracksCoveredByPictureInFront(projectWith([{ id: 'video_1', type: 'video', clips: [] }])),
     ]).toEqual([]);
+  });
+});
+
+/**
+ * ADR 0169 lifts a full-frame placement in FRONT of the picture it covers. Run `137d8fd0`
+ * did that thirteen times at t=0 for a sixty-second highlight and finished with 25 tracks,
+ * 48 picture clips, and 37 of them never visible — every lift reported `completed`, with a
+ * summary that said only which layer had been opened.
+ *
+ * The rule the lift was missing: covering the BASE is what a cutaway is for; swallowing
+ * another cutaway whole is not an edit, it is a clip nobody will ever see.
+ */
+describe('a lift that would bury a cutaway is refused', () => {
+  /** A cutaway 0–5s in front of the A-roll, and an empty lane behind everything. */
+  const stacked = (): Project =>
+    projectWith([
+      {
+        id: 'video_cutaway_1',
+        type: 'video',
+        clips: [{ id: 'clip_cut', assetId: 'asset_v2', start: 0, end: 5 }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'video_back', type: 'video', clips: [] },
+    ]);
+
+  it('refuses, names the buried clip, and gives the moves', () => {
+    const note = modelNote(
+      'add_clip',
+      { trackId: 'video_back', assetId: 'asset_img', start: 0, end: 8, sourceStart: 0 },
+      stacked(),
+    );
+    expect(note).toMatch(/^Refused "add_clip": /);
+    expect(note).toContain('"b-roll.mp4" on video_cutaway_1 (0–5s)');
+    expect(note).toContain('remove_clip clip_cut');
+    expect(note).toContain('trim_clip');
+    expect(note).toContain('photo.jpg');
+  });
+
+  it('carries hides_a_cutaway, so run memory knows which rule said no', () => {
+    let cause: unknown;
+    try {
+      operationsForCall(
+        {
+          id: 'c1',
+          name: 'add_clip',
+          arguments: {
+            trackId: 'video_back',
+            assetId: 'asset_img',
+            start: 0,
+            end: 8,
+            sourceStart: 0,
+          },
+        },
+        { project: stacked() },
+      );
+    } catch (error) {
+      cause = (error as { refusalCause?: unknown }).refusalCause;
+    }
+    expect(cause).toBe('hides_a_cutaway');
+  });
+
+  it('still lifts a placement that covers the A-roll base entirely (ADR 0169 unchanged)', () => {
+    const project = projectWith([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'video_back', type: 'video', clips: [] },
+    ]);
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'video_back', assetId: 'asset_v2', start: 0, end: 12, sourceStart: 0 },
+      project,
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+  });
+
+  it('still lifts a placement that only PARTLY covers a cutaway', () => {
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'video_back', assetId: 'asset_img', start: 0, end: 3, sourceStart: 0 },
+      stacked(),
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+  });
+
+  it('does not refuse for a cutaway that was ALREADY buried — an inherited defect is an advisory', () => {
+    const project = projectWith([
+      {
+        id: 'video_cutaway_2',
+        type: 'video',
+        clips: [{ id: 'clip_top', assetId: 'asset_img', start: 0, end: 6 }],
+      },
+      {
+        id: 'video_cutaway_1',
+        type: 'video',
+        clips: [{ id: 'clip_cut', assetId: 'asset_v2', start: 1, end: 5 }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'video_back', type: 'video', clips: [] },
+    ]);
+    // 0–5.5s swallows clip_cut, which clip_top already hides end to end; a different
+    // source point, so the same-frames guard is not what is under test here.
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'video_back', assetId: 'asset_v', start: 0, end: 5.5, sourceStart: 20 },
+      project,
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip']);
+  });
+
+  it('sees itself: entry 2 of one add_clips cannot bury entry 1', () => {
+    const project = projectWith([
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 10 }],
+      },
+      { id: 'video_back', type: 'video', clips: [] },
+    ]);
+    const note = modelNote(
+      'add_clips',
+      {
+        trackId: 'video_back',
+        clips: [
+          { assetId: 'asset_v2', start: 0, end: 5, sourceStart: 0 },
+          { assetId: 'asset_img', start: 0, end: 8, sourceStart: 0 },
+        ],
+      },
+      project,
+    );
+    expect(note).toMatch(/^Refused "add_clips": /);
+    expect(note).toContain('drop one of the two from this call');
+    expect(note).toContain('"b-roll.mp4" on video_cutaway_1 (0–5s)');
+  });
+});
+
+/**
+ * What run `137d8fd0` produced, in miniature: the A-roll and one stock cutaway both
+ * completely under a second stock cutaway placed at the same instant.
+ */
+describe('hiddenPictureClips', () => {
+  const buriedStack = (): Project =>
+    projectWith([
+      {
+        id: 'video_cutaway_2',
+        type: 'video',
+        clips: [{ id: 'clip_top', assetId: 'asset_img', start: 0, end: 17.3 }],
+      },
+      {
+        id: 'video_cutaway_1',
+        type: 'video',
+        clips: [{ id: 'clip_mid', assetId: 'asset_v2', start: 0, end: 9.9 }],
+      },
+      {
+        id: 'v_main',
+        type: 'video',
+        clips: [{ id: 'clip_a', assetId: 'asset_v', start: 0, end: 17.3 }],
+      },
+    ]);
+
+  it('names every clip nothing ever shows, and not the one in front', () => {
+    expect(hiddenPictureClips(buriedStack()).map((clip) => clip.clipId)).toEqual([
+      'clip_mid',
+      'clip_a',
+    ]);
+  });
+
+  it('is empty when every clip has a moment of its own', () => {
+    expect(hiddenPictureClips(baseProject())).toEqual([]);
+  });
+
+  it('measures the visible seconds a lift leaves behind', () => {
+    const project = buriedStack();
+    const front = project.timeline.tracks[0]?.clips[0];
+    const mid = project.timeline.tracks[1]?.clips[0];
+    /* v8 ignore next -- the fixture has both */
+    if (!front || !mid) throw new Error('fixture');
+    expect(visiblePictureSeconds(project, 0, front)).toBeCloseTo(17.3);
+    expect(visiblePictureSeconds(project, 1, mid)).toBe(0);
   });
 });

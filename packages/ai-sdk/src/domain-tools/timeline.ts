@@ -366,12 +366,46 @@ function assetLabel(ctx: ToolContext, assetId: string): string {
 }
 
 /**
- * The same asset already reading the same source range over the same sequence span.
+ * One frame of slack, in seconds, for comparing placements.
  *
- * Exact on all three, and deliberately so: two different moments of one file stacked at
- * one instant is a strange edit but a real one, and only the byte-identical placement is
- * provably invisible. Compared on the frame grid's own slack so a placement recomputed a
- * float apart still counts as the same one. See {@link addClipOperation}.
+ * Everything on the timeline is quantized to the frame grid, so two placements that differ
+ * by less than a frame are the same placement said twice — and an overlap narrower than a
+ * frame is not an overlap, it is two clips butted together with float noise between them.
+ */
+function frameSlack(project: Project): number {
+  const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  return 1 / fps;
+}
+
+/** The same asset, already reading the same source frames over the same sequence moment. */
+interface SameFramesPlacement {
+  readonly trackId: string;
+  readonly clipId: string;
+  /** The stretch of sequence time both placements read the identical source frames over. */
+  readonly overlapStart: number;
+  readonly overlapEnd: number;
+}
+
+/**
+ * The same asset already reading the same source frames over the same sequence moment.
+ *
+ * ## Why an exact match is not enough
+ *
+ * This started as an exact match on span AND source point, on the reasoning that only the
+ * byte-identical placement is provably invisible. Run `137d8fd0` showed the hole: asset
+ * 6381282 was placed at 0–9.9s from source 0, and then again at 0–28.3s from source 0. The
+ * spans differ, so nothing matched — but the first 9.9 seconds of the second placement are
+ * the identical frames at the identical moment, and one of them is behind the other for
+ * every one of them.
+ *
+ * So the test is the OFFSET, not the span: `sourceStart - start` is where the file is
+ * pinned to the sequence, and two placements of one asset with the same pin show the same
+ * frames wherever they overlap. A different pin is a different moment of the file at that
+ * instant — a strange edit, but a real one, and not this function's to refuse.
+ *
+ * Compared on the frame grid's own slack ({@link frameSlack}) so a placement recomputed a
+ * float apart still counts as the same one, and so two clips that merely touch do not.
+ * See {@link addClipOperation}.
  */
 function existingPlacement(
   project: Project,
@@ -381,17 +415,61 @@ function existingPlacement(
     readonly end: number;
     readonly sourceStart: number;
   },
-): { readonly trackId: string; readonly clipId: string } | undefined {
-  const near = (a: number, b: number): boolean => Math.abs(a - b) < 1e-6;
+): SameFramesPlacement | undefined {
+  const frame = frameSlack(project);
+  const pin = clip.sourceStart - clip.start;
   for (const track of project.timeline.tracks) {
     for (const existing of track.clips) {
       if (existing.assetId !== clip.assetId) continue;
-      if (!near(existing.start, clip.start) || !near(existing.end, clip.end)) continue;
-      if (!near(existing.sourceStart, clip.sourceStart)) continue;
-      return { trackId: track.id, clipId: existing.id };
+      if (Math.abs(existing.sourceStart - existing.start - pin) >= frame) continue;
+      const overlapStart = Math.max(existing.start, clip.start);
+      const overlapEnd = Math.min(existing.end, clip.end);
+      // The whole-span duplicate is the special case of an overlap: a clip shorter than one
+      // frame would fail the width test, so keep it explicit rather than losing it.
+      const identical =
+        Math.abs(existing.start - clip.start) < frame && Math.abs(existing.end - clip.end) < frame;
+      if (!identical && overlapEnd - overlapStart <= frame) continue;
+      return { trackId: track.id, clipId: existing.id, overlapStart, overlapEnd };
     }
   }
   return undefined;
+}
+
+/**
+ * "You already put these frames here", worded once for picture and for sound.
+ *
+ * The asset's KIND decides the verb, because the two defects are not the same defect. A
+ * second copy of a shot is invisible — it sits behind the first and renders nothing. A
+ * second copy of a music bed is audible, twice: run `137d8fd0` finished with the same
+ * track playing 0–60s on two lanes, which is not a mix, it is the same file 6dB louder
+ * with any drift between the two decodes phasing against itself.
+ *
+ * @param ctx - For the asset's name and kind.
+ * @param clip - The refused placement.
+ * @param existing - What is already there, or `undefined` when this same call placed it.
+ */
+function sameFramesRefusal(
+  ctx: ToolContext,
+  clip: { readonly assetId: string; readonly start: number; readonly end: number },
+  existing: SameFramesPlacement | undefined,
+): string {
+  const isSound = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind === 'audio';
+  const from = roundSeconds(existing ? existing.overlapStart : clip.start);
+  const to = roundSeconds(existing ? existing.overlapEnd : clip.end);
+  const where = existing ? `, on ${existing.trackId}` : ' — this call placed it already';
+  const lengthen = existing
+    ? `to make the one that is there longer use trim_clip on ${existing.clipId}`
+    : 'make that entry longer rather than adding a second one';
+  const doubles = isSound
+    ? 'A second copy of the same sound over the same moment does not mix — it plays the ' +
+      'same file over itself, twice as loud.'
+    : 'A second copy of the same shot over the same moment cannot be seen behind the first.';
+  return (
+    `${assetLabel(ctx, clip.assetId)} already ${isSound ? 'plays' : 'shows'} these same ` +
+    `${isSound ? 'seconds' : 'frames'} from ${from}s to ${to}s${where}. ${doubles} ` +
+    `Place it at a different time, use ${isSound ? 'different media' : 'a different shot'}, ` +
+    `or ${lengthen}.`
+  );
 }
 
 function addClipOperation(
@@ -454,14 +532,7 @@ function addClipOperation(
   const placementKey = `${clip.assetId}@${clip.start}-${clip.end}:${clip.sourceStart}`;
   const alreadyThere = existingPlacement(ctx.project, clip);
   if (alreadyThere || booked.has(placementKey)) {
-    throw new ToolRefusalError(
-      `${assetLabel(ctx, clip.assetId)} is already on the timeline from ` +
-        `${roundSeconds(clip.start)}s to ${roundSeconds(clip.end)}s` +
-        `${alreadyThere ? `, on ${alreadyThere.trackId}` : ' — this call placed it already'}. ` +
-        'A second copy of the same shot over the same moment cannot be seen behind the ' +
-        'first. Place it at a different time, use a different shot, or change the one ' +
-        'that is there with trim_clip or move_clip.',
-    );
+    throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
   }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
