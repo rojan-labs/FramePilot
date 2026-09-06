@@ -385,6 +385,26 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
   const seen = new Map();
   for (const t of toolCalls) seen.set(toolKey(t), (seen.get(toolKey(t)) ?? 0) + 1);
   const repeatedToolCalls = [...seen.values()].filter((n) => n > 1).reduce((s, n) => s + n - 1, 0);
+  // The per-call ledger the CASE FILE keeps, so a question like "were those thirteen
+  // set_track_caption_style calls thirteen styles or one style thirteen times?" can be
+  // answered from committed evidence. GOLDEN-C.16 could not be: the recording that held
+  // the arguments was gitignored and gone with its worktree, and the case file held only
+  // the count. Settled calls only (one row per call, its final status), input trimmed to
+  // the same 300 characters `compactEvents` keeps.
+  // `argsSummary` rides the `running` event; the settled event (and a validation flip
+  // from completed to failed) may carry neither it nor the input, so gather from every
+  // event the call produced and prefer the real input when a tool_result reported one.
+  const argsById = new Map();
+  for (const e of events) {
+    if (e.type === 'tool_call' && e.argsSummary && !argsById.has(e.id)) argsById.set(e.id, e.argsSummary);
+    if (e.type === 'tool_result' && e.input !== undefined) argsById.set(e.toolCallId, JSON.stringify(e.input));
+  }
+  const lastStatusById = new Map(toolCalls.map((e) => [e.id, e]));
+  const calls = [...lastStatusById.values()].map((e) => ({
+    tool: e.toolName,
+    status: e.status,
+    args: String(argsById.get(e.id) ?? '').slice(0, 300),
+  }));
   const manifests = events.filter((e) => e.type === 'context_usage' && e.manifest).map((e) => e.manifest);
   const usage = events.filter((e) => e.type === 'usage').at(-1);
   const diffs = events.filter((e) => e.type === 'diff');
@@ -406,6 +426,7 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
     startedAt: started,
     harnessTimedOut,
     recordingFile: recording || REPLAY ? recordingFile : null,
+    calls,
     metrics: {
       wallMs,
       modelCalls: replayedModelCalls ?? turns.length,
@@ -624,6 +645,7 @@ async function runCase(goldenCase, run) {
       asked: outcome.asked,
       assistantText: outcome.assistantText.slice(0, 600),
       recording: outcome.recordingFile ? outcome.recordingFile.slice(REPO.length + 1) : null,
+      calls: outcome.calls,
       metrics: outcome.metrics,
       timelineAfter: {
         durationSeconds: sdk.projectDuration(outcome.working),
