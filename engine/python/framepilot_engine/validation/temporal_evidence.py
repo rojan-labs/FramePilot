@@ -500,10 +500,11 @@ def _role_isolated_project(project: Project, role: str) -> Project:
     isolated = project.model_copy(deep=True)
     labelled = 0
     for track in isolated.timeline.tracks:
-        if track.type is not TrackType.AUDIO:
-            track.muted = True
-            continue
-        if track.role is not None and track.role.value == role:
+        # A video track carries its clips' own sound and may be labelled like an audio
+        # track (mirrors `set_track_flags` / `resolveDuckRoles` in ai-sdk): the GoPro's
+        # wind IS the "sfx" bed when the brief says "duck the wind under the music".
+        carries_sound = track.type in (TrackType.AUDIO, TrackType.VIDEO)
+        if carries_sound and track.role is not None and track.role.value == role:
             labelled += 1
         else:
             track.muted = True

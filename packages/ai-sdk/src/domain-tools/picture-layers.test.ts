@@ -554,6 +554,46 @@ describe('a stacked placement that is not full-frame opaque is still refused', (
     ]);
   });
 
+  it('a FRESH add whose only problem is its shape gets the cover crop, not a refusal', () => {
+    // Run `cc907070`: a 1080x2048 stock clip over a 1080x1920 sequence, refused nine times
+    // with "add it, then set_clip_crop with crop {…}" — the add being the refused thing.
+    // The crop is fully determined by the two measured shapes, so the placer applies it,
+    // lifts the clip in front, and the `set_clip_crop` rides the same patch.
+    const portrait = parseProject({
+      id: 'proj_tall',
+      name: 'Tall stock',
+      version: 1,
+      fps: 30,
+      resolution: { width: 1080, height: 1920 },
+      assets: [
+        { id: 'asset_p', path: 'media/pov.mp4', kind: 'video', durationSeconds: 60, media: { width: 1080, height: 1920 } },
+        { id: 'asset_tall', path: 'media/chairlift.mp4', kind: 'video', durationSeconds: 30, media: { width: 1080, height: 2048 } },
+      ],
+      timeline: {
+        tracks: [
+          { id: 'video_1', type: 'video', clips: [clip('video_1', { id: 'clip_a', assetId: 'asset_p', start: 0, end: 10 })] },
+          { id: 'video_2', type: 'video', clips: [] },
+        ],
+        markers: [],
+      },
+    });
+    const ops = buildOps(
+      'add_clip',
+      { trackId: 'video_2', assetId: 'asset_tall', start: 2, end: 6, sourceStart: 0 },
+      portrait,
+    );
+    expect(ops.map((op) => op.type)).toEqual(['add_layer', 'add_clip', 'set_clip_crop']);
+    expect(ops[0]).toMatchObject({ type: 'add_layer', layerId: 'video_cutaway_1', atIndex: 0 });
+    const clipId = (ops[1] as { clipId: string }).clipId;
+    expect(ops[1]).toMatchObject({ type: 'add_clip', trackId: 'video_cutaway_1', start: 2, end: 6 });
+    // 1080x2048 in a 1080x1920 frame: keep the full width, trim (1 - 1920/2048)/2 top and bottom.
+    expect(ops[2]).toEqual({
+      type: 'set_clip_crop',
+      clipId,
+      crop: { x: 0, y: 0.03125, width: 1, height: 0.9375 },
+    });
+  });
+
   it('a measured 1:1 front over 16:9 picture leaks, and the refusal carries the JSON crop', () => {
     const square = parseProject({
       ...withCompositing({}),

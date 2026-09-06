@@ -30,6 +30,14 @@ import { createLaneAllocator } from '@framepilot/editor-core';
 
 /** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
 type LaneAllocator = ReturnType<typeof createLaneAllocator>;
+/**
+ * Does a track carry sound the mix can address — an audio track, or a video track whose
+ * clips play their own audio? Overlay, caption and effect lanes never do.
+ */
+function trackCarriesSound(track: Track): boolean {
+  return track.type === 'audio' || track.type === 'video';
+}
+
 /** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
 type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
@@ -584,16 +592,20 @@ function addClipOperation(
   }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
-  const crop = autoReframeCrop(ctx, clip);
-  const placed = isPicture
+  const reframe = autoReframeCrop(ctx, clip);
+  const placed: { trackId: string; setupOps: readonly Operation[]; crop?: CropRect } = isPicture
     ? picture.place({
         trackId: clip.trackId,
         assetId: clip.assetId,
         start: clip.start,
         end: clip.end,
-        compositing: crop ? { crop } : {},
+        compositing: reframe ? { crop: reframe } : {},
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
+  // The placer's own cover crop wins when it applied one: it is the crop the lane was
+  // chosen on (`PicturePlacement.crop`), and the placer only applies it to an uncropped
+  // candidate, so the two never both exist.
+  const crop = placed.crop ?? reframe;
   const clipId = crop ? placementClipId({ ...clip, trackId: placed.trackId }) : undefined;
   const add: Operation = {
     type: 'add_clip',
@@ -1255,11 +1267,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Mute/unmute, lock/unlock, hide/show, or LABEL a track. Muting silences ' +
         "a track's audio in the render; hiding drops a visual track's picture; locking " +
-        'prevents edits. role labels an audio track as dialogue, music or sfx — the ' +
-        'mix roles professional_audio duck_roles works in ("duck the music under the ' +
-        'dialogue"), which are never guessed from a track\'s name because a lane called ' +
-        '"Music 2" routinely holds a voice-over. Label the track, then duck by role. ' +
-        'Pass role: null to remove a label. Only the fields you provide change.',
+        'prevents edits. role labels a track that carries sound as dialogue, music or ' +
+        'sfx — the mix roles professional_audio duck_roles works in ("duck the music ' +
+        'under the dialogue"), which are never guessed from a track\'s name because a ' +
+        'lane called "Music 2" routinely holds a voice-over. A video track counts when ' +
+        'its clips carry the sound you mean (camera audio, wind, a recorded voice), so ' +
+        'label THAT track when the sound lives in the picture. Label the track, then ' +
+        'duck by role. Pass role: null to remove a label. Only the fields you provide ' +
+        'change.',
     },
     z
       .object({
@@ -1279,15 +1294,23 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         { message: 'Set at least one of muted/locked/hidden/role.' },
       ),
     (a, ctx) => {
-      // A role on a picture track is meaningless — the schema calls it "harmless
-      // elsewhere", which is exactly how a mislabelled project gets built. Refused here,
-      // at the boundary, where the sentence can name the track's actual type.
+      // A role on a track that carries no sound is meaningless — the schema calls it
+      // "harmless elsewhere", which is exactly how a mislabelled project gets built.
+      // Refused here, at the boundary, where the sentence can name the track's type.
+      // A VIDEO track carries sound — its clips' own audio — and is the only place a
+      // camera's wind or a recorded voice can live, so it takes a role like an audio
+      // track does. Run `cc907070` was asked to "duck the wind right down" under music;
+      // the wind was the GoPro's own track, this refusal said "name the audio track
+      // carrying it", and there was none. `add_music`'s duckUnderTrackId already accepts
+      // a video track for the same reason.
       if (a.role !== undefined) {
         const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
-        if (track !== undefined && track.type !== 'audio') {
+        if (track !== undefined && !trackCarriesSound(track)) {
           throw new ToolRefusalError(
-            `role labels an audio track, and "${a.trackId}" is a ${track.type} track. ` +
-              'Mix roles describe sound; name the audio track carrying it.',
+            `role labels a track that carries sound, and "${a.trackId}" is ${
+              track.type === undefined ? 'not one' : `a ${track.type} track`
+            }. Mix roles describe sound; name the audio track — or the video track whose ` +
+              'clips carry it.',
           );
         }
       }

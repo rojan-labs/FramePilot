@@ -8,6 +8,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A wind-only recording no longer fails the AI's self-check.** Speech recognition over a
+  GoPro take with no dialogue produced one phrase repeated 397 times plus a handful of
+  other invented words, and a cut landing inside one of those words was reported as a
+  failed edit — over 65 changes that had applied cleanly. When the transcript shows that
+  looping signature, cuts through its words are now reported as a warning with the reason,
+  never as a failure.
+- **Stock footage of the wrong shape now lands over the picture instead of being refused.**
+  A taller-than-frame chairlift clip placed over the sequence was refused nine times with
+  an instruction to add it and then crop it — while the add was the thing being refused.
+  A placement whose only problem is its shape now gets the cover crop applied for it, on
+  its own front layer, with the crop visible in the diff and undone in one step.
+- **The AI can duck sound that lives on the picture track.** "Duck the wind under the
+  music" was impossible because only audio tracks could carry a mix role and the wind was
+  the camera's own audio. A video track now takes a role (dialogue, music or sfx) like an
+  audio track does, `professional_audio` ducks under it, and the perceptual review measures
+  it; the duck intents also accept the same `target` values every other intent does
+  instead of refusing "playhead".
 - **The AI is no longer refused for cutting off the beat.** A 60-second GoPro highlight
   that asked for cuts on the music's beat lost its entire first assembly — 126 changes,
   including the title and the cutaways — because the AI had declared "hard sync" on the
