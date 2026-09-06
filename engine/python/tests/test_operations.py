@@ -1190,8 +1190,11 @@ def test_speed_ramp_keep_duration_fits_the_curve_into_the_slot() -> None:
     b = next(c for c in _clips(after, "v") if c.id == "B")
     assert (b.start, b.end) == (5.0, 9.0)
     # Without the flag the length follows the curve, exactly as before.
-    grown = apply_operation(_timeline(), SetClipSpeedRamp.model_validate(
-        {"type": "set_clip_speed_ramp", "clipId": "A", "ramp": ramp}
-    ))
+    grown = apply_operation(
+        _timeline(),
+        SetClipSpeedRamp.model_validate(
+            {"type": "set_clip_speed_ramp", "clipId": "A", "ramp": ramp}
+        ),
+    )
     grown_a = next(c for c in _clips(grown, "v") if c.id == "A")
     assert grown_a.end == pytest.approx(8.0, abs=1e-6)

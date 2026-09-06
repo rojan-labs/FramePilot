@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import subprocess
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -144,7 +145,7 @@ def test_ramped_time_map_takes_scalars_and_sample_arrays() -> None:
     assert mapped.shape == times.shape
     # Element-wise, and monotonic: the integral of a positive rate is invertible.
     assert mapped[1] == pytest.approx(remap(float(times[1])))
-    assert all(a <= b for a, b in zip(mapped, mapped[1:], strict=False))
+    assert all(a <= b for a, b in pairwise(mapped))
     assert mapped[0] == pytest.approx(0.0)
     assert mapped[-1] <= 4.0
 
