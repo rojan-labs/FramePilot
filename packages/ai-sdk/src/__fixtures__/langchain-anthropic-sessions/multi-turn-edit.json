@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11590,
+      "usedTokens": 11605,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11590,
+          "estimatedInputTokensBeforeSend": 11605,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860410,
+          "estimatedRemainingCapacity": 860395,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -257,7 +257,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -335,7 +335,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11590,
+          "estimatedInputTokensBeforeSend": 11605,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -662,7 +662,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11146,
+      "usedTokens": 11161,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -674,7 +674,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -752,9 +752,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11146,
+          "estimatedInputTokensBeforeSend": 11161,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860854,
+          "estimatedRemainingCapacity": 860839,
           "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
@@ -803,7 +803,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -881,7 +881,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11146,
+          "estimatedInputTokensBeforeSend": 11161,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 6721,
@@ -1238,7 +1238,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11164,
+      "usedTokens": 11179,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1250,7 +1250,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -1328,9 +1328,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11164,
+          "estimatedInputTokensBeforeSend": 11179,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860836,
+          "estimatedRemainingCapacity": 860821,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1388,7 +1388,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -1466,7 +1466,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11164,
+          "estimatedInputTokensBeforeSend": 11179,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
@@ -1798,7 +1798,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
+      "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_parity:status:17",

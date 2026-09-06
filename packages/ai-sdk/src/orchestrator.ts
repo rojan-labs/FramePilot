@@ -9803,7 +9803,9 @@ export function agentCompletionReport(args: {
     ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
     : args.failed
       ? `${applied}, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.`
-      : `${applied} — review the proposed change below.`;
+      : // Present tense, no "proposed": the edits are on the timeline by the time this
+        // renders (edits apply as they land; the receipt card already says "Edited").
+        `${applied} — on your timeline now; each one can be undone.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`

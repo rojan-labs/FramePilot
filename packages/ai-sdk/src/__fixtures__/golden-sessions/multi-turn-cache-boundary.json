@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11590,
+      "usedTokens": 11605,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11590,
+          "estimatedInputTokensBeforeSend": 11605,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180218,
+          "estimatedRemainingCapacity": 180203,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -541,7 +541,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11146,
+      "usedTokens": 11161,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -553,7 +553,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -631,9 +631,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11146,
+          "estimatedInputTokensBeforeSend": 11161,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180662,
+          "estimatedRemainingCapacity": 180647,
           "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
@@ -994,7 +994,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11164,
+      "usedTokens": 11179,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1006,7 +1006,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -1084,9 +1084,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11164,
+          "estimatedInputTokensBeforeSend": 11179,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180644,
+          "estimatedRemainingCapacity": 180629,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1431,7 +1431,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
+      "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_golden:status:17",

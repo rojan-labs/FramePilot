@@ -20,7 +20,11 @@ describe('SYSTEM_PROMPT', () => {
     expect(SYSTEM_PROMPT).toContain('ONLY through registered, schema-validated tools');
     expect(SYSTEM_PROMPT).toContain('reversible');
     expect(SYSTEM_PROMPT).toContain('never raw project JSON');
-    expect(SYSTEM_PROMPT).toContain('human reviews every patch');
+    // Edits apply as they land — there is no review gate (AiSidebar: "there is no review
+    // mode to fall back to"). The contract must not promise one, or the model plans as
+    // though a human will catch a bad patch before it reaches the timeline.
+    expect(SYSTEM_PROMPT).not.toContain('reviews every patch');
+    expect(SYSTEM_PROMPT).toContain('can undo');
   });
 
   it('owns authority only, leaving craft and workflow to lower layers', () => {

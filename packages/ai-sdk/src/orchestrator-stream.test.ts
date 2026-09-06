@@ -1937,7 +1937,7 @@ describe('streamAgent', () => {
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
     // It must not claim the work is finished…
-    expect(report).not.toMatch(/review the proposed change below/);
+    expect(report).not.toMatch(/on your timeline now; each one can be undone/);
     // …and the things the panel cannot do are still said, because they are still true.
     expect(report).toMatch(/use the Export dialog/);
     expect(report).toMatch(/asks to see a preview first/);
