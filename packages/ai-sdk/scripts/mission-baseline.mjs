@@ -79,6 +79,7 @@ if (args.list) {
 const RUNS = Number(args.runs ?? 1);
 const LABEL = String(args.label ?? 'baseline');
 const REPLAY = args.replay === true;
+const PLAN_FIRST = args['plan-first'] === true;
 const FORCE = args.force === true;
 const RECORD = args['no-record'] !== true;
 const GOLDEN_DIR = resolve(REPO, 'reports', 'golden');
@@ -117,7 +118,7 @@ if (!REPLAY) {
 
 function usage() {
   return `usage: mission-baseline.mjs [--case id[,id]] [--category c[,c]] [--runs N] [--label L]
-       [--out file] [--force] [--yes] [--estimate] [--replay] [--dump-events [dir]] [--no-record] [--list]
+       [--out file] [--force] [--yes] [--estimate] [--replay] [--plan-first] [--dump-events [dir]] [--no-record] [--list]
   --case        one or more golden case ids (alias: --only)
   --category    one or more categories from eval/golden-cases.ts
   --runs        runs per case (default 1; use 3 to write a floor)
@@ -126,6 +127,7 @@ function usage() {
   --yes         skip the cost confirmation
   --estimate    print the cost/duration estimate and exit
   --replay      re-score from reports/golden/<label>/recordings with no model/host calls
+  --plan-first  draft an up-front plan first, as the desktop does by default
   --list        list the golden cases
 `;
 }
@@ -344,7 +346,14 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
       // The desktop hands the previous run's working state to the next request
       // (`AgentOptions.carriedForward`, context-management P5.1); mirrored here so a
       // second turn does not re-learn the footage in the harness either.
-      carriedForward === undefined ? {} : { carriedForward },
+      {
+        ...(carriedForward === undefined ? {} : { carriedForward }),
+        // The desktop's default ("Plan first" is on unless the editor turned it off —
+        // `AiSidebar.tsx#loadPlanFirst`): an up-front plan-draft model call, threaded back
+        // into every turn. Off by default here so the recorded floors keep their meaning;
+        // pass --plan-first to measure the path the desktop actually takes.
+        ...(PLAN_FIRST ? { planFirst: true } : {}),
+      },
       { rememberDecision, askUser },
     )) {
       events.push(event);
