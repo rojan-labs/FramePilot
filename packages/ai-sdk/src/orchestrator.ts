@@ -4139,12 +4139,17 @@ export class Orchestrator {
     // the briefing, which is bounded by construction rather than by truncation.
     // WHERE YOU STAND (GAP-014): the whole-cut conditions measured against the working
     // copy as it is now. Pure and render-free — the same checks the final self-check runs,
-    // consulted while the run can still act on them. Skipped when the request stated no
-    // checkable condition, in which case the list is empty anyway.
+    // consulted while the run can still act on them. A health finding the starting project
+    // already had is left out (`input.project` is the "before"): it is not the run's to fix,
+    // and stated in flight it read as an order — see `standingAgainstAcceptance`.
     const briefing = taskMemory
       ? buildStateBriefing(
           taskMemory,
-          standingAgainstAcceptance(working, this.critiqueOptions(input, agentOptions, true)),
+          standingAgainstAcceptance(
+            working,
+            this.critiqueOptions(input, agentOptions, true),
+            input.project,
+          ),
         )
       : '';
     const turnMessage: AiMessage = {
@@ -8295,11 +8300,20 @@ export class Orchestrator {
      *
      * Cheap by construction: pure, render-free, and computed once, on the single turn where
      * the model says it is done.
+     *
+     * Judged as a DELTA, exactly as the verify pass judges it (`reconcileInheritedFailures`):
+     * a health finding the starting project already had is not a shortfall of this run.
+     * Unreconciled, every `s9-live-reorder` run that finished correctly after one
+     * `reorder_clips` was told "The request is not met yet — continuing. 5 of 5 picture
+     * clips use a landscape source … Crop each to fill the frame." and cropped all five on
+     * a request that named none of them. A request-derived check is never excused.
      */
-    const acceptanceShortfall = (producedChanges: boolean): string[] =>
-      critique(working, self.critiqueOptions(input, agentOptions, producedChanges, evidence))
+    const acceptanceShortfall = (producedChanges: boolean): string[] => {
+      const options = self.critiqueOptions(input, agentOptions, producedChanges, evidence);
+      return reconcileInheritedFailures(critique(input.project, options), critique(working, options))
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
+    };
 
     const stepHandlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
