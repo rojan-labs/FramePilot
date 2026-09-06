@@ -13,7 +13,38 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
+**Status snapshot (2026-09-07, session 9, GOLDEN-EVAL — goal.md Phase 0):** the session-9
+floor is `s9-baseline-replay` (session6 recordings under `main`, 11 × 3: first-pass 80%,
+$0.627/accepted edit). `reorder_clips` was then **sampled live for the first time**
+(`s9-live-reorder`): right on the first call in 6 of 6 runs, then 3 runs rotated the order
+again and 5 cropped every clip nobody mentioned — first-pass 33%. Two runtime defects read
+off the replayed prompts and closed with tests, each measured live: **first-pass 33% → 100%,
+one operation per run, $0.499 → $0.049 per accepted edit, done p95 107s → 23s**
+(`s9-live-reorder-fix2`). `BASELINES.md` has the three tables. Branch
+`fix/ai-editing-audit-2026-09-07`.
+
+- `[x]` GOLDEN-C.22 — **a run that edits straight from inspection is executing.**
+  `stageAdvanceFor('inspect', [mutation])` returned `null`; the briefing then said
+  "Continue inspect" under "ALREADY APPLIED — do not repeat", and the model re-applied the
+  relative request against the new timeline (r3: five rotations, back to the start).
+  `inspect → plan` on a mutation; the apply-stage default action says to finish when the
+  request is met. Commit `5c36f92`.
+- `[x]` GOLDEN-C.23 — **a finding the footage already had is not the run's to fix.**
+  WHERE YOU STAND and the done-turn shortfall both carried `reframe_coverage`'s "Crop each
+  to fill the frame" on a fixture that was letterboxed before the run; the shortfall guard
+  forced a recovery turn that cropped all five clips in every fix1 run. Both now judge the
+  delta (ids blanked so a reorder does not make an old finding new); request-derived
+  checks never excused. Commit `ee6b713`.
+- `[x]` GOLDEN-C.24 — **the recovery turn keeps progressive disclosure.** It advertised
+  every mutation in the registry (62 vs 39) — a full prefix re-bill plus tools the run
+  never loaded. `load_tools` rides along. Commit `ab06c68`. Unmeasured live (no recovery
+  turn fired after C.23).
+- `[x]` GOLDEN-C.25 — **the reorder rubrics see an unasked crop.** `no-collateral-changes`:
+  a moved clip keeps its crop, speed, effects and keyframes. Commit `5084805`.
+- `[ ]` GOLDEN-0.4 — the full 21-case live run under the session-9 code, to measure C.22/C.23
+  beyond the two reorder cases (label `s9-live-all`).
+
+**Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
 (credits conserved). A second, systematic sweep of the captured transcript `137d8fd0` —
 the full deduplicated inventory of its 44 failed and 42 warning tool calls, which the
 earlier pass did not read — plus the open handoff items, closed **eight more defects**.

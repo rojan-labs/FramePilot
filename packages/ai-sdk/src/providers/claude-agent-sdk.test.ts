@@ -152,6 +152,23 @@ describe('renderMessages', () => {
     expect(prompt).toBe('[user]\ntrim the intro');
   });
 
+  it('renders everything up to the cache boundary as system prompt, the rest as transcript', () => {
+    // The SDK caches its system prompt and never the inside of the one user message this
+    // adapter sends, so the run-stable prefix (skills manifest, request, agent contract)
+    // was re-billed on every call — ~4k of the ~5.5k uncached tokens per call measured on
+    // `s9-live-reorder-fix2`.
+    const { systemPrompt, prompt } = renderMessages([
+      { role: 'system', content: 'You are FramePilot.' },
+      { role: 'user', content: 'Skills…\n\nUser request:\ntrim the intro' },
+      { role: 'user', content: 'AGENT mode contract', cacheBoundary: true },
+      { role: 'user', content: 'STATE … RUN STATE … Actions so far' },
+    ]);
+    expect(systemPrompt).toBe(
+      'You are FramePilot.\n\nSkills…\n\nUser request:\ntrim the intro\n\nAGENT mode contract',
+    );
+    expect(prompt).toBe('[user]\nSTATE … RUN STATE … Actions so far');
+  });
+
   it('labels assistant and tool turns so the model can tell them apart', () => {
     const { prompt } = renderMessages([
       { role: 'user', content: 'cut it' },

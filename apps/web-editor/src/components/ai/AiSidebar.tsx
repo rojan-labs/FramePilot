@@ -2229,7 +2229,8 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
                 </span>
                 <p className="ai-empty-title">Edit your video with AI</p>
                 <p className="ai-empty-sub">
-                  Describe a change and FramePilot proposes a reviewable, reversible edit.
+                  Describe a change. FramePilot makes it on your timeline, and one undo takes it
+                  back.
                 </p>
                 <div className="ai-empty-prompts">
                   {examplePrompts.map((prompt) => (

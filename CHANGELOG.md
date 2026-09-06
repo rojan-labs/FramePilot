@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The agent stops when the request is met.** A run that read the timeline and made its
+  edit in one step was treated as still "inspecting", told to keep reading, and re-applied
+  a position-relative request ("move the last clip to the front") against the timeline it
+  had just changed — three of six live runs ended with the wrong order. The run now
+  recognises a landed edit as execution and finishes after it.
+- **The agent no longer fixes things you did not ask about.** A project whose footage was
+  already letterboxed before the run had "Crop each to fill the frame" put in front of the
+  model every turn, and again when it declared the request done — so "swap the first two
+  clips" came back with every clip cropped. Findings the footage already had are advisories
+  for the review, never orders during the edit. Measured on the two reorder cases:
+  first-pass 33% → 100%, one operation per run, a tenth of the cost.
+- **A recovery turn offers only the tools the run has loaded**, not every mutation in the
+  registry.
+
 - **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
   never shot" came back with eight stock clips covering fifty of its sixty seconds and six
   whole shots of the editor's own footage buried beneath them. When the request names a

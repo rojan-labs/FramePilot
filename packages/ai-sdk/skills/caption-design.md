@@ -1,7 +1,7 @@
 ---
 name: caption-design
 description: Create synchronized, readable, consistent captions from mapped transcript evidence, then choose an appropriate template and verify committed cue timing.
-tools: [get_mapped_transcript, get_timeline, discover_caption_styles, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, get_frame]
+tools: [get_mapped_transcript, get_timeline, discover_caption_styles, caption_the_edit, add_caption_layer, auto_emphasize_captions, set_track_caption_style, set_caption_style, verify_captions, get_frame]
 ---
 
 # Caption design
@@ -33,7 +33,7 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
 ## Professional heuristics
 
 - Use the mapped transcript after structural edits; regenerate if cuts or speed change.
-- Keep phrases semantically complete and short enough to scan at playback speed. `add_caption_layer` creates ONE cue: for a full recording or song, create separate mapped phrase cues (normally 3–7 words, never more than 12), never one full-duration block.
+- `caption_the_edit` captions the whole edit in one call: it reads the mapped transcript, segments the retained speech into readable phrase cues (3–7 words, never more than 12) at linguistic breaks, and replaces whatever cues are there — use it for a recording and to repair after any cut. `add_caption_layer` creates ONE cue and is only for patching a specific gap by hand; never build a whole track from it, and never one full-duration block.
 - Call `discover_caption_styles`, start from a returned template/font, and override only the fields the format or brand requires.
 - For automatic emphasis, reason over the mapped transcript and pass sparse exact spoken anchors to `auto_emphasize_captions`; never invent or rewrite words.
 - Put the shared composition—including font, x/y placement, scale, width, rotation, alignment, spacing, background and safe area—on the track. Use per-cue style only for deliberate exceptions.
@@ -45,7 +45,7 @@ Synchronization and legibility outrank novelty. Style supports comprehension; it
 
 ## Decision framework
 
-Confirm current mapping → choose segmentation density → create cues → discover the design catalog → select semantic anchors and compose the track → add intentional cue overrides → `verify_captions` for timing → `get_frame` for legibility → fix what the frame shows.
+Confirm current mapping → choose the `caption_the_edit` preset (short-form, subtitle, one-word) → write the cues → discover the design catalog → select semantic anchors and compose the track → add intentional cue overrides → `verify_captions` for timing → `get_frame` for legibility → fix what the frame shows.
 
 ## Common mistakes
 
@@ -69,7 +69,7 @@ that they are unreadable, off the bottom of the frame, or sitting on someone's f
 
 ## Recovery advice
 
-If verification fails, regenerate from the current mapped transcript rather than nudging stale cues. If no transcript exists, stop caption work and route to `edit-prep`.
+If verification fails, re-run `caption_the_edit` — it re-derives every cue from the current timeline — rather than nudging stale cues. If no transcript exists, stop caption work and route to `edit-prep`.
 
 ## Related skills
 

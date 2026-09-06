@@ -1,0 +1,326 @@
+{
+  "scenario": "reorder-last-first",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Move the last clip to the very beginning of the timeline.",
+      "rubric": "reorder-last-first",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "last-moved-first",
+          "ok": true,
+          "detail": "order rotated as asked",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "cancelled",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "last-moved-first: order rotated as asked",
+            "content-preserved: same clips, same source ranges"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 4,
+        "toolCalls": 3,
+        "tokens": {
+          "prompt": 45123,
+          "output": 1924,
+          "total": 47047
+        },
+        "usd": 0.09731100000000001,
+        "latency": {
+          "firstProgressMs": 4262,
+          "doneMs": 34455
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "cancelled",
+        "operations": 1
+      },
+      "asked": [
+        {
+          "question": "All 5 picture clips are landscape footage letterboxed in this portrait (9:16) sequence. Should I crop them all to a centered fill (fastest, works well if subjects stay roughly centered), or do you want to review/adjust framing per clip afterward?",
+          "options": [
+            "Center-crop all 5 now",
+            "Hold off on cropping"
+          ]
+        }
+      ],
+      "assistantText": "**Applied 1 edit** in 1 step before you stopped the run — they are on your timeline and can be undone.\n\n- Reorder clips Video 1",
+      "recording": "reports/golden/s9-live-reorder/recordings/reorder-last-first-r1-t1.json",
+      "calls": [
+        {
+          "tool": "reorder_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "ask_user",
+          "status": "cancelled",
+          "args": "question: \"All 5 picture clips are…, options: [{\"label\":\"Center-crop a…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 34455,
+        "modelCalls": 4,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 45123,
+          "input": 22817,
+          "output": 1924,
+          "cacheRead": 22306,
+          "cacheCreate": 82226
+        },
+        "perCall": [
+          {
+            "ttftMs": 4234,
+            "wallMs": 9130,
+            "input": 5465,
+            "output": 523,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 3936,
+            "wallMs": 4991,
+            "input": 5569,
+            "output": 141,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 3735,
+            "wallMs": 11958,
+            "input": 5753,
+            "output": 835,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 3321,
+            "wallMs": 8310,
+            "input": 6030,
+            "output": 425,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 4,
+          "ttftMs": {
+            "p50": 3735,
+            "p95": 4234,
+            "min": 3321,
+            "max": 4234
+          },
+          "wallMs": {
+            "p50": 8310,
+            "p95": 11958,
+            "min": 4991,
+            "max": 11958
+          },
+          "inputTokensPerTurn": {
+            "p50": 5569,
+            "p95": 6030,
+            "min": 5465,
+            "max": 6030
+          },
+          "outputTokensPerTurn": {
+            "p50": 425,
+            "p95": 835,
+            "min": 141,
+            "max": 835
+          },
+          "cacheHitRate": 0.6633162840490068,
+          "cacheReportingTurns": 2
+        },
+        "usd": 0.09731100000000001,
+        "usageTokens": 24741,
+        "toolCalls": 3,
+        "toolCallsByName": {
+          "reorder_clips": 1,
+          "get_timeline": 1,
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 8,
+        "contextByType": [
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2416,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2416,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2515,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2515,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2794,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 14584
+          },
+          {
+            "system": 2794,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 14584
+          }
+        ],
+        "contextUsedTokens": [
+          11376,
+          5465,
+          11457,
+          5569,
+          11556,
+          5753,
+          19535,
+          6030
+        ],
+        "contextCachedTokens": [
+          null,
+          null,
+          null,
+          11153,
+          null,
+          11153,
+          null,
+          null
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 1,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

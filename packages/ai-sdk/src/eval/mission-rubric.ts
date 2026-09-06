@@ -563,6 +563,34 @@ export function checkContentPreserved(ctx: RubricContext): RubricCheck {
   };
 }
 
+/**
+ * A reorder moves clips; it does not restyle them. Every picture clip keeps the crop,
+ * speed, effects and keyframes it had — matched by content, since a reorder changes ids'
+ * positions but never what the clip is. `s9-live-reorder`: five of six runs also cropped
+ * all five clips on a request that named none of them, and `content-preserved` (source
+ * ranges only) could not see it — two of those runs scored 1.00.
+ */
+export function checkNoCollateralChanges(ctx: RubricContext): RubricCheck {
+  const styleKey = (c: Clip): string =>
+    JSON.stringify({
+      crop: c.crop ?? null,
+      speed: c.speed ?? null,
+      effects: c.effects ?? [],
+      keyframes: c.keyframes ?? [],
+    });
+  const before = new Map(pictureClips(ctx.before).map((c) => [contentKey(c), styleKey(c)]));
+  const restyled = pictureClips(ctx.after)
+    .filter((c) => before.has(contentKey(c)) && before.get(contentKey(c)) !== styleKey(c))
+    .map((c) => c.id);
+  return {
+    id: 'no-collateral-changes',
+    ok: restyled.length === 0,
+    detail: restyled.length === 0 ? 'no clip restyled' : `also restyled (crop/speed/effects/keyframes): ${restyled.join(', ')}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
 /** The last picture clip (by content) is now first, and the rest keep their order. */
 export function checkLastClipMovedFirst(ctx: RubricContext): RubricCheck {
   const before = pictureClips(ctx.before).map(contentKey);
@@ -944,6 +972,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkChanged(ctx),
         checkLastClipMovedFirst(ctx),
         checkContentPreserved(ctx),
+        checkNoCollateralChanges(ctx),
         checkNoGaps(p),
         ...COMMON(ctx),
       ]);
@@ -1023,6 +1052,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkChanged(ctx),
         checkFirstTwoSwapped(ctx),
         checkContentPreserved(ctx),
+        checkNoCollateralChanges(ctx),
         checkNoGaps(p),
         ...COMMON(ctx),
       ]);

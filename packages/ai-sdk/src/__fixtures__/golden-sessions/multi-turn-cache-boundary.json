@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11569,
+      "usedTokens": 11605,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11569,
+          "estimatedInputTokensBeforeSend": 11605,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180239,
+          "estimatedRemainingCapacity": 180203,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -419,7 +419,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 6,
+        "version": 9,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -431,9 +431,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -444,7 +447,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -538,7 +541,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11715,
+      "usedTokens": 11161,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -550,7 +553,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -592,7 +595,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -613,14 +616,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 301,
+            "tokenEstimate": 332,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -628,10 +631,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11715,
+          "estimatedInputTokensBeforeSend": 11161,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180093,
-          "toolSchemaTokensRebilled": 0,
+          "estimatedRemainingCapacity": 180647,
+          "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -641,14 +644,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -855,7 +858,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 9,
+        "version": 12,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -867,9 +870,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -880,7 +886,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -988,7 +994,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11732,
+      "usedTokens": 11179,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1000,7 +1006,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -1042,7 +1048,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -1063,14 +1069,14 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 313,
+            "tokenEstimate": 345,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1078,9 +1084,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11732,
+          "estimatedInputTokensBeforeSend": 11179,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180076,
+          "estimatedRemainingCapacity": 180629,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1091,14 +1097,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 2,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -1142,7 +1148,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 9,
+        "version": 12,
         "objective": {
           "request": "tighten the intro and the outro",
           "outcome": "tighten the intro and the outro",
@@ -1154,9 +1160,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -1167,7 +1176,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1313,7 +1322,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 2,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1422,7 +1431,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 2 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
+      "text": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–2s\n- Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_golden:status:17",

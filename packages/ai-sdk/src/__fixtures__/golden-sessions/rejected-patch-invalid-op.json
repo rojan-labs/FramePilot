@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11566,
+      "usedTokens": 11603,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -193,7 +193,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 155,
+            "tokenEstimate": 156,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11566,
+          "estimatedInputTokensBeforeSend": 11603,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180242,
+          "estimatedRemainingCapacity": 180205,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -294,7 +294,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 4,
+        "version": 6,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -306,9 +306,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -402,7 +404,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11694,
+      "usedTokens": 11737,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -414,7 +416,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -456,7 +458,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1670,
             "included": true
           },
           {
@@ -477,7 +479,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 283,
+            "tokenEstimate": 290,
             "included": true
           },
           {
@@ -492,9 +494,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11694,
+          "estimatedInputTokensBeforeSend": 11737,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180114,
+          "estimatedRemainingCapacity": 180071,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -505,14 +507,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "plan",
           "projectRevision": 0,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue plan: commit the edit plan for the recorded objective."
         }
       }
     },
@@ -556,7 +558,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 4,
+        "version": 6,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -568,9 +570,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -663,7 +667,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 6,
+        "version": 8,
         "objective": {
           "request": "trim the missing clip",
           "outcome": "trim the missing clip",
@@ -675,9 +679,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -743,7 +749,7 @@
         "blockedOn": {
           "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "atStage": "inspect"
+          "atStage": "plan"
         },
         "integrity": {
           "status": "needs_review",
@@ -753,7 +759,7 @@
               "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 5
+              "atVersion": 7
             }
           ]
         },

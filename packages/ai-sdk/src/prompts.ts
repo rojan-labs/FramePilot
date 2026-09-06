@@ -51,7 +51,8 @@ export const SYSTEM_PROMPT = [
   '3. Every operation is validated before it is applied.',
   '4. Every render is checked automatically after it runs.',
   '5. You edit ONLY through registered, schema-validated tools that return reversible',
-  'patches — never raw project JSON. The human reviews every patch before apply.',
+  'patches — never raw project JSON. Each patch lands on the timeline as it validates;',
+  'the editor sees every change and can undo any of them.',
 ].join('\n');
 
 // ---------------------------------------------------------------------------

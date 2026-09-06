@@ -1295,6 +1295,70 @@ describe('standingAgainstAcceptance', () => {
     );
   });
 
+  // `s9-live-reorder`: every turn read "5 of 5 picture clips use a landscape source … Crop
+  // each to fill the frame." on a request to move one clip, and five of six runs did.
+  it('leaves out a health finding the run inherited, and keeps one it caused', () => {
+    const landscape = { width: 3840, height: 2160 };
+    const before = withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [
+            clip({ id: 'p_1', assetId: 'asset_1', trackId: 'v_main', start: 0, end: 2 }),
+            clip({ id: 'p_2', assetId: 'asset_2', trackId: 'v_main', start: 2, end: 4 }),
+          ],
+        },
+      ],
+      {
+        resolution: { width: 1080, height: 1920 },
+        assets: [
+          { id: 'asset_1', path: 'media/a.mov', kind: 'video', durationSeconds: 5, media: landscape },
+          { id: 'asset_2', path: 'media/b.mov', kind: 'video', durationSeconds: 5, media: landscape },
+        ] as Project['assets'],
+      },
+    );
+    // The run reordered the two clips: the same uncropped landscape picture, verbatim.
+    const after = {
+      ...before,
+      timeline: {
+        ...before.timeline,
+        tracks: [
+          {
+            ...before.timeline.tracks[0]!,
+            clips: [
+              clip({ id: 'p_2', assetId: 'asset_2', trackId: 'v_main', start: 0, end: 2 }),
+              clip({ id: 'p_1', assetId: 'asset_1', trackId: 'v_main', start: 2, end: 4 }),
+            ],
+          },
+        ],
+      },
+    } as Project;
+    expect(standingAgainstAcceptance(after, {}).join('\n')).toMatch(/Crop each to fill the frame/);
+    expect(standingAgainstAcceptance(after, {}, before)).toEqual([]);
+    // A request-derived shortfall is never inherited: the run was asked for 1s and left 4s.
+    expect(
+      standingAgainstAcceptance(after, { durationTargetSeconds: 1 }, before).join('\n'),
+    ).toMatch(/target is 1s/);
+    // A health finding the run CHANGED is its own: cropping one clip leaves the other odd.
+    const half = {
+      ...after,
+      timeline: {
+        ...after.timeline,
+        tracks: [
+          {
+            ...after.timeline.tracks[0]!,
+            clips: [
+              { ...after.timeline.tracks[0]!.clips[0]!, crop: { x: 0.28, y: 0, width: 0.44, height: 1 } },
+              after.timeline.tracks[0]!.clips[1]!,
+            ],
+          },
+        ],
+      },
+    } as Project;
+    expect(standingAgainstAcceptance(half, {}, before).join('\n')).toMatch(/need a crop/);
+  });
+
   it('leaves local defects to the seam that shows them, not to a standing count', () => {
     // A jump cut is something the model finds by looking at the edit point. These five
     // checks are properties of the finished thing that no single edit reveals.
@@ -1859,6 +1923,17 @@ describe('reconcileInheritedFailures', () => {
     const out = reconcileInheritedFailures(before, after);
     expect(out).toBe(after);
     expect(out.ok).toBe(false);
+  });
+
+  it('the same finding naming the same clips in a new order is still inherited', () => {
+    // A reorder permutes the list a finding names without changing the finding.
+    const before = report([
+      check('reframe_coverage', 'fail', '5 of 5 landscape: clip_001, clip_002, clip_003, plus 2 more'),
+    ]);
+    const after = report([
+      check('reframe_coverage', 'fail', '5 of 5 landscape: clip_005, clip_001, clip_002, plus 2 more'),
+    ]);
+    expect(reconcileInheritedFailures(before, after).ok).toBe(true);
   });
 
   it("a health check whose reading changed is the edit's finding, not the footage's", () => {

@@ -28,8 +28,23 @@ interface StarterCandidate {
 const hasPictureClips = (project: Project): boolean =>
   project.timeline.tracks.some((track) => track.type !== 'audio' && track.clips.length > 0);
 
-const hasAudioClips = (project: Project): boolean =>
-  project.timeline.tracks.some((track) => track.type === 'audio' && track.clips.length > 0);
+/**
+ * A track that is actually music: labelled with the music mix role, or carrying an audio
+ * asset whose file name says so. A voice-over on an audio track is not one — the demo
+ * project's `voiceover.wav` was offered "Mute the music track" for exactly that reason.
+ */
+const hasMusicTrack = (project: Project): boolean => {
+  const musicAssets = new Set(
+    project.assets
+      .filter((asset) => asset.kind === 'audio' && /music|bed|beat|song|track|bgm/i.test(asset.path))
+      .map((asset) => asset.id),
+  );
+  return project.timeline.tracks.some(
+    (track) =>
+      track.clips.length > 0 &&
+      (track.role === 'music' || track.clips.some((clip) => musicAssets.has(clip.assetId))),
+  );
+};
 
 const hasCaptions = (project: Project): boolean =>
   project.timeline.tracks.some((track) => track.type === 'caption' && track.clips.length > 0);
@@ -47,7 +62,7 @@ const CANDIDATES: readonly StarterCandidate[] = [
     applies: hasCaptions,
   },
   { prompt: 'Punch in on the intro', applies: hasPictureClips },
-  { prompt: 'Mute the music track', applies: hasAudioClips },
+  { prompt: 'Mute the music track', applies: hasMusicTrack },
   {
     prompt: 'Find the strongest moment for a hook',
     applies: (project) => project.transcript.length > 0,
