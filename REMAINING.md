@@ -1,221 +1,157 @@
 # REMAINING — golden eval + AI precision work
 
-Handoff from the 2026-09-05 sessions. Seven sessions have now happened; **`BASELINES.md`
+Handoff from the 2026-09-05/06 sessions. Eight sessions have now happened; **`BASELINES.md`
 has an entry for each**, newest first, and the numbers below mean nothing without them.
 
 - **sessions 3–5** — thirty-one defects read out of `run.md` (a captured desktop
   transcript, run `137d8fd0`). Two of those sessions ran nothing.
 - **session 6** — the fixture that invalidated three cases was **replaced**, and a run on
-  it produced eleven cases of clean evidence before the provider dropped. It found a
-  defect that loses the editor's footage.
-- **session 7** (this one) — **no new run.** The four open engine defects were closed with
-  reproducing tests, and the most expensive one was measured shut by `--replay` (free).
-  Branch `fix/agent-reliability-s7`, `3ec8a54..3d2364f`.
+  it produced eleven cases of clean evidence before the provider dropped.
+- **session 7** — **no new run.** The four open engine defects closed with reproducing
+  tests; one measured shut by `--replay` (free). Then eight more sweeps of `run.md`.
+- **session 8** (this one) — **no new run.** A ninth axis on `run.md` — the timeline's
+  FINAL STATE — found the worst thing on the transcript (37 of 48 picture clips never
+  visible, every riding clip among them; one music file playing twice). Closed with tests:
+  `23cddd2` (GOLDEN-C.20) and `afd2671` (GOLDEN-C.19, deterministic half). Branch
+  `fix/agent-reliability-s8`, worktree `../FramePilot-reliability-s8`.
 
-> **`run.md` is not a new run.** It has been offered as one FOUR times now. Its ids say
+> **`run.md` is not a new run.** It has been offered as one FIVE times now. Its ids say
 > otherwise: conversation `33f7e787`, run `137d8fd0`, 1,064,475 lines, created
-> 2026-09-04T18:12. Only its mtime is recent. Check the run id before mining it — session
-> 7's sweep re-derived several already-closed defects before finding a new one, including
-> the `add_music` empty-duck refusal whose fix cites this exact run in its docstring.
+> 2026-09-04T18:12; mtime 2026-09-05 02:11. `framepilot.runs.jsonl` has nothing after
+> 2026-09-05T12. Check both before mining. Session 8 spent its first hour re-deriving five
+> closed defects from the failure-shaped axes before the final-state axis paid — the list is
+> in §1b so the next session does not.
 
 ---
 
 ## 1. WHAT'S CLOSED
 
-Sessions 3–6 closed thirty-five defects; those lists live in `BASELINES.md` under their
-entries and are not repeated here. **Session 7 closed all four remaining engine defects,
-each with a reproducing test, plus one new find:**
+Sessions 3–7 closed forty-eight defects; those lists live in `BASELINES.md` under their
+entries and are not repeated here. **Session 8 closed two, both from the final-state axis:**
 
-1. **A reorder no longer destroys footage** (`a080900`, ADR 0173). The old §2.1 — the most
-   serious thing on the branch. `reorder_clips` recomputes a track's starts in ONE patch:
-   no delete, no add, clip set invariant. See §3.1 below for what is still unproven.
-2. **A turn refused at the same wall twice is not progress** (`0c9f195`). The old §2.2.
-   Two independent holes, both closed; **measured by replay**: 121 tool calls → 25, $3.93
-   → $0.571, `cancelled` → `completed`.
-3. **A retime lands on the frame grid** (`1a49f98`). The old §2.3. Route (1) of the three
-   the last handoff named — `ApplyContext.fps` threaded by `applyProjectPatch`, mirrored
-   in Python, with the same-shape inverse kept only where it is provably exact.
-4. **One answer to "when does this word begin"** (`eb50cbc`). The old §2.4.
-   `get_mapped_transcript` reports the edit point in seconds AND frames naming the same
-   instant, so the quantizer cannot round a cut across the boundary it was aimed at.
-5. **A catalogue id finds its own bin asset** (`3d2364f`). New, from the `run.md` sweep.
-6. **The motion domain can build the speed ramp it advertised** (`7853985`). Zero
-   `set_clip_speed_ramp` in 1,064,476 lines against a brief that asked for one, six times.
-7. **`measure_color` is a look at the edit, and a stage refusal says which kind it is**
-   (`6b41ff4`). +141 tokens/request, measured.
-8. **A turn the timeline already matched is not progress** (`6d52298`).
-9. **"Silent" says what level it means** (`bf60c39`).
-10. **A human can reorder shots too** (`e56cf01`, GOLDEN-C.7).
-11. **A refusal no edit can fix survives the edits** (`617b427`).
-12. **A surface says what it cannot route, and stops offering it** (`abc0a5b`).
-13. **The most specific true refusal wins** (`f0a2034`). An asset that is not in the
-    project is refused by name — before the stage rule and before the host — keyed on the
-    id, and a search result now says it is not an asset until added. The desktop
-    advertises 89 tools, not 91; −96 tokens on every request; upstream of #11. From `runs.jsonl`, not
-    `run.md`: `render_preview` refused eight times in one 86-minute desktop run because
-    every landed edit wiped the memory of the refusal.
-
-Cost of all of it on the frozen token surfaces: **+169 tokens per request**
-(`tool_schemas` 7,027 → 7,196), entirely from the `reorder_clips` tool. A first draft of
-its description cost +250 and was tightened for the same discovery signal. Nothing else
-this session moved a golden.
+1. **A lift that buries a cutaway is refused; a same-frames duplicate is refused; the
+   Critic reports hidden picture** (`23cddd2`, GOLDEN-C.20). ADR 0169's placer lifted every
+   occupied placement onto a fresh `video_cutaway_N` front lane — thirteen times at t=0 —
+   and each lift buried the cutaway placed just before it, reporting `completed`. Now:
+   `hides_a_cutaway` refuses a lift that would leave a still-visible cutaway with nothing of
+   it ever seen (covering the A-roll stays legal — that is what a cutaway is); the
+   duplicate rule keys on the source PIN rather than the exact span, for picture and sound
+   (the doubled music bed); `hidden_picture` warns with the first three buried clips. No
+   tool description changed: **0 tokens on every frozen surface.** First-order accounting
+   on the run's sixteen stacked placements: 3 were already exact duplicates, 1 is now a
+   same-frames duplicate, 5 now bury a cutaway, 7 partial covers are still lifted.
+2. **The completion report says what was NOT done** (`afd2671`, GOLDEN-C.19, half). A
+   `**Not done:**` block after "Skipped": drafted plan steps left uncompleted, and tools
+   called at least once, failed every time, never afterwards successful, with the LAST
+   reason. Zero prompt tokens. Two goldens moved by exactly that block on a planned run that
+   failed with a step pending — an OUTPUT change, regenerated deliberately.
 
 ---
 
-## 1b. `run.md` — which axes are exhausted, and which was not
+## 1b. `run.md` — nine axes walked; what each re-derives if you walk it again
 
-Session 7 first declared this transcript exhausted after four sweeps and recorded a table
-of leads that look open and are closed. **That verdict was wrong, and the reason is worth
-more than the table.** All four axes were FAILURE-shaped — distinct error strings,
-non-completed tool outcomes, warnings and notices, failed recalls — and each re-derived
-defects already closed by fixes whose docstrings cite this run by name. Then a fifth axis,
-PROMISE-shaped — walk the brief's seven explicit asks against the 416 applied operations —
-found four defects in one pass, none of which had failed: the run simply never did the
-thing, or did it and reported it in words that meant something else.
-
-**Exhausted (do not re-mine):** error strings · tool outcomes by name · warnings/notices ·
-failed recalls. The leads they produce and where each is closed:
+**Failure-shaped axes are exhausted (do not re-mine):** error strings · tool outcomes by
+name · warnings/notices · failed recalls · cost · the run's own outstanding list · tool wall
+clock/thinking/announce-vs-act. Session 8 re-derived all of these before checking; each is
+closed by a fix whose docstring cites this run:
 
 | looks like a defect | actually | where it is closed |
 | --- | --- | --- |
-| `add_music` refused on an empty duck target | closed — names the tracks that DO carry sound | `music-placement.ts#duckCandidateSentence` |
-| 27 recalls answered "no such handle" for issued ids | closed — invalidated handles leave a tombstone | `evidence-store.ts#expired` |
-| caption / audio / render failure clusters | closed in sessions 3–5 | `BASELINES.md` "session 3" |
-| `load_tools` failed once | one refusal, remedy stated, obeyed next call | — |
-| 144 `add_music` failure lines | ONE failure re-serialised | — |
+| `caption_the_edit` rejected 11× on `caption_captions_70` | duplicate cue id inside one proposal | `captions.ts#seenIds` |
+| `professional_audio` rejected 10× (`target: "music_1"`) | id where a referent belongs; the sentence now says which tool takes an id | `audio-controller.ts#targetHint` |
+| `stale_context …@56 but the project is …@100` ×3 | the agent's own first edit staled the selection | `interaction-context.ts#rebaseEditorInteractionContext` |
+| `add_clip requires end > start` (`start: 44, end: 6`) ×3 | `end` read as a length; the hint names it | `tool-input-contract.ts#durationHint` |
+| eight `v_main` clips re-sent → `video_cutaway_5` | exact duplicate placement | `timeline.ts#existingPlacement` |
+| `add_music` refused on an empty duck target | names the tracks that DO carry sound | `music-placement.ts#duckCandidateSentence` |
+| 27 recalls "no such handle" | invalidated handles leave a tombstone | `evidence-store.ts#expired` |
+| 62 `adjust_audio` calls, five rounds over the same ten clips | `gainDb` is ABSOLUTE (`applyAdjustAudio` replaces the effect), so hunting is churn, not accumulation; identical re-sets are C.12 | `6d52298` |
+| 96 captions on a "no dialogue" brief | the fixture project carries a transcript for `raw_skating.mp4`; the model captioned what the project said, not what the user said | fixture, not code |
 
-**Walked once, and it yielded (brief-vs-delivery):** the ramp (`7853985`), the colour
-measurement (`6b41ff4`), the level re-sets (`6d52298`), the silence answer (`bf60c39`).
-Markers-before-cuts, the music bed and the punch-in were honoured; the second deliverable
-(a horizontal 60 s beside the vertical) is a single-project aspect limit, not an agent
-fault. `BASELINES.md` "continued sweep" has the table.
+**The final-state axis (session 8) — walked once, yielded C.20.** Read the last
+`get_timeline` the run made (line 1,049,912) and replay z-order over it. Count of the
+remaining leads on it: the 5 s hole in `v_main` at 53–58 s is covered by stock on other
+lanes (coverage passes honestly); three empty tracks (`captions`, `cutaways_stock`,
+`layer_audio_5`) are the model's own `add_track` calls — untidy, not a defect;
+`v_vertical_reframe` holds landscape stock cover-cropped to 0.75 width for a vertical
+deliverable that was never built as its own project. **Nothing else on this axis.**
 
-**Walked, and it confirms §2.6 rather than adding to it (the cost axis):** attribute the
-12.36M estimated context tokens across the 309 requests by manifest section. The answer:
-`system`-tier "additional request content" is **8.22M — 67%** — p50 28,190/request, growing
-385 → 34,742. That row is the manifest's REMAINDER (`manifest.ts#withRemainder`), not the
-action log and not the state briefing — I misread it as each in turn before measuring — and
-`orchestrator.ts#agentStableInstructionSections` already names this exact run and number:
-"32,338 tokens: 57% of every request … it is eight pinned playbooks." The attribution fix
-(`ed7839a`) landed the day after the run, which is why the run's manifests show only the
-fifteen generic labels and the remainder. Everything else the axis surfaced is bounded by a
-considered design: the action log is capped at ≤ 24k tokens (`FINDINGS_BUDGET_CEILING_TOKENS`,
-window-as-floor per `compactAgentLog`); compaction fired 0 of 309 times because the peak
-request was 59,172 tokens — 46% of an ASSUMED 128k window (`limitAssumed: true` on all 309)
-— so a window-fraction trigger could not fire; the 24 byte-identical `get_timeline` results
-(17 same-turn, 7 cross-turn) cost digest-size in context, not the 74 KB the transcript
-shows, because the model reads `summarizeReadResult`/`EvidenceStore.preview` (900 chars),
-not the card payload. **No new defect on the cost axis.** But "all axes exhausted" was wrong here for the second
-time: a seventh axis — the run's OWN narration of what was outstanding — surfaced
-`describe_footage` ×5 (refused generically for asset ids the model had invented from
-search results; fixed `f0a2034`) and "sharpness lift" (no sharpen effect exists; the run
-never said so — evidence for acceptance decomposition, not code). **Axes walked:** error
-strings · tool outcomes · warnings/notices · failed recalls · brief-vs-delivery · cost ·
-the run's own outstanding list. An eighth — tool wall clock (54 s of 49 min), thinking (2,905 s, flat over the run, not longer after refusals), proposals invalid whole (0), announce-vs-act (a narration habit, C.19) — yielded **nothing**. The first to. Near done; not declared done.
-
-**A second source, freshly mined:** `framepilot.runs.jsonl` (the desktop's per-call log)
-held 497 calls from 2026-09-05 nobody had read. It yielded one defect — a `render_preview`
-refusal that no edit can fix, forgotten on every edit (`617b427`) — and one open lead
-(GOLDEN-C.16, the 13× caption-style loop). `BASELINES.md` "runs.jsonl" has the table. A second
-axis on the same slice (per-run redundancy, using the log's `fromCache` and `argsSummary`)
-yielded one more fix — the desktop no longer advertises `render_preview`/`export_video`,
-which it cannot run (`abc0a5b`, −96 tokens/request) — and one confirmation: run 7's 16
-`get_timeline` reads had **0 memo misses**, so the "reads are 42%" pattern is re-reading
-after edits, as §2.5 already says. Its ≥ 2026-09-05 slice is now exhausted on both axes;
-older entries were covered by the earlier pass.
+**A tenth axis nobody has walked:** the model's `💬` narration against the timeline it
+was narrating (154 thinking blocks, 123 messages). Session 7's C.19 note found one case by
+hand (the sharpness lift). A systematic pass — every "I will now X" against the next
+turn's ops — is the only unwalked seam. Expect narration habits, not runtime defects.
 
 **Operational loss to know about:** the `s7-*` golden RECORDINGS are gone — gitignored,
 they lived only in the worktree that was removed after the merge. Case files are intact;
 `--replay` of those runs is not possible. Copy `recordings/` out before removing a
-worktree.
+worktree. **This applies to `../FramePilot-reliability-s8` too.**
 
 ---
 
 ## 2. WHAT'S STILL OPEN
 
-### 2.1 CLOSED — the ten cases have evidence, and nine of them score 1.00
+### 2.1 GOLDEN-C.19, the other half — a brief-level ask the run never attempted
 
-Run as `s7-gapfill`, 10 × 1, `claude-agent-sdk`/`claude-sonnet-5`, $3.31, 8.5 min. Full
-metrics and per-case table in `BASELINES.md`. Headline: intent 90%, target 89%, boundary
-100%, validity 100%, first-pass 80%, silent successes 0, reversibility 100%.
-`hook-strongest-line` scored 1.00 on real media for the first time.
+"Lift the sharpness" has no plan step and no failed call, so nothing deterministic knows
+it was asked for. The runtime's objective ledger is one objective with a catch-all
+criterion (`acceptance.ts#checkableAcceptance` derives only duration and reference
+criteria from the prompt). **With "Plan first" ON — the sidebar's default,
+`AiSidebar.tsx#loadPlanFirst` — the drafted steps ARE the decomposition, and the new
+block lists whichever were left.** Run `137d8fd0` had it off (its state at version 2
+shows a plan committed straight from the request text). Two ways forward, both the
+maintainer's: make the plan turn non-optional in agent mode (one model call per run), or
+have the model emit a final "not done" sentence (a prompt-surface change, +tokens on all
+three goldens). Neither is a patch.
 
-**What it found, and this is now the worst adherence failure on the branch:**
-`clarify-which-clip` asked exactly the right question, was told "make no change to the
-timeline", and then put a 0.49-width centre crop on **all five clips**. Same shape as the
-reorder failure — a drastic unrequested whole-timeline action while nominally waiting —
-and worse in one respect, because the instruction was unambiguous.
+### 2.2 GOLDEN-C.16 — `set_track_caption_style` ×13 on `captions-uppercase-bottom`
 
-### 2.2 CLOSED — a decline is a dismissal, and the evidence says so
+Unchanged: the s7 recording is gone; the case file holds counts only. **Needs a run.** Cheapest
+route when credits allow: `--case captions-uppercase-bottom --runs 1` under a NEW label and
+read the recording's `argsSummary` per call.
 
-The runner used to settle a decline as a real ANSWER (the sentence "No answer — stop here
-and make no change"), so the runtime recorded a standing decision, returned `completed`,
-and the run continued. `ask_user` already had `{ kind: 'cancelled' }`, which
-`orchestrator.ts` turns into a stop **before any op is applied**, and the harness was not
-using it.
+### 2.3 The session-7 and session-8 code changes are still unmeasured against the model
 
-I first measured the fix, misread the result, and reverted it. The correction is in
-`BASELINES.md` under "CORRECTION to `s7-gapfill`". The short version: the two runs of
-`guard-wipe-timeline` differ in what the AGENT did, not in what the instrument scored —
-`asked: []` in one, `asked: ["Clear all 5 clips…?"]` in the other. Asking for wipe
-confirmation is precisely what ADR 0166 refused, and under the prose answer that violation
-scored **1.00 with a non-empty `asked`**. The case's purpose was defeated by the harness
-answering.
-
-Landed. A case with no `answer` of its own now dismisses; a case that supplies one is
-unaffected. This also closes the `clarify-which-clip` finding mechanically: the run stops
-at the dismissal, so an agent that would have edited afterwards cannot.
-
-**What remains unmeasured about it:** the model's disposition to over-edit after a decline
-is unchanged — the runtime just no longer lets it act. And whether the agent asks for wipe
-confirmation often enough to matter is two samples, one each way.
-
-### 2.3 The session-7 code changes are still unmeasured against the model
-
-`s7-gapfill`'s ten cases exercise captions, b-roll, music, hooks and guards — **none of
-them reorders, retimes, or touches the beat grid.** So `reorder_clips`, the frame-grid
-retime and the same-wall rejection guard remain unsampled. The eleven cases that would
-exercise them already have `session6` evidence and must not be re-run to satisfy curiosity;
-measuring the change means a NEW label over those cases, deliberately, as its own decision.
-
-`reorder-last-first`'s floor is 1.00 against a 0.60 median, so **the gate will flag it**
-whatever happens. That is not this branch: `reorder-swap-first-two`'s floor was already
-0.50.
+`reorder_clips`, the frame-grid retime, the same-wall guard, and now `hides_a_cutaway` and
+the pin-keyed duplicate have no run. The cases that would exercise the first three already
+hold `session6` evidence and must not be re-run to satisfy curiosity. The two new rules are
+exercised by any b-roll/montage case (`broll-*`, `beat-sync`) — a NEW label over those, as
+its own decision. `reorder-last-first`'s floor is 1.00 against a 0.60 median, so the gate
+will flag it whatever happens; that is not this branch.
 
 ### 2.4 Deferred, and stated rather than done
 
-- **The web-editor reorder gesture is DONE** — right-click a clip → "Move earlier / later
-  in sequence", built on `reorder_clips` so the track re-lays gaplessly and one undo
-  restores the order. The professional `EditorCommand` `reorder` intent was deliberately
-  NOT added: the web editor builds raw ops and nothing converges on that layer, so an entry
-  there would be vocabulary with no consumer. Revisit only if a resolver-gated caller
-  appears.
-- **ADR 0056 (compound-request atomicity vs instant-apply)** is still open on its own
-  merits. `reorder_clips` removes the reason the reorder cases reached for
-  destroy-and-rebuild; it does not make instant-apply transactional for every other
-  compound request.
-- **ADR 0166 (the deleted wipe guard)** stays deleted. ADR 0173 records why: the guard
-  catches two of the five content-loss failures and misses the three 5→1 cases.
+- **The web-editor reorder gesture is DONE** (session 7). The professional `EditorCommand`
+  `reorder` intent was deliberately NOT added — vocabulary with no consumer.
+- **ADR 0056 (compound-request atomicity vs instant-apply)** is still open on its own merits.
+- **ADR 0166 (the deleted wipe guard)** stays deleted; ADR 0173 records why.
+- **A partial same-frames duplicate BETWEEN two entries of one `add_clips` batch** is not
+  caught: the batch's `booked` set is still an exact key. It is caught when it buries; a
+  non-burying partial overlap within one call slips. Small, and touches both tools' shared
+  set — do it when something is seen to need it.
+- **`hidden_picture` is warn-only and not in `FIXABLE_CHECKS`.** Which copy survives is
+  editorial. If a run is ever seen to END with buried picture it placed itself, promote the
+  check to `fail` when `requestWantsPicture` — the same gate `picture_coverage` uses.
 
 ### 2.5 Reads are 42% of tool calls — still deliberately not fixed
 
-Unchanged, and the reasoning is unchanged: the memo cannot serve when every turn applies a
-patch that invalidates timeline-dependent evidence. The lever is `arrangementLine` carrying
-clip ids, a context-budget trade needing a measured before/after.
+Unchanged: the memo cannot serve when every turn applies a patch that invalidates
+timeline-dependent evidence. The lever is `arrangementLine` carrying clip ids, a
+context-budget trade needing a measured before/after.
 
 ### 2.6 Things ruled OUT, so nobody re-investigates them
 
-Everything the previous handoff listed here still holds — compaction never fires, stop is
-not broken, the 144 `add_music` failures are one failure, the void-turn and
-harness-timeout exclusions work, `speech-9min-b` is not a drop-in. Two updates:
+Everything the previous handoffs listed still holds — compaction never fires, stop is not
+broken, the 144 `add_music` failures are one failure, the void-turn and harness-timeout
+exclusions work, `speech-9min-b` is not a drop-in, the pinned-playbook budget is closed.
+Two corrections to the last handoff:
 
-- **"A more specific error message is not free" is now half-solved.** It remains true of
-  `deterministicFailureKey` (the per-CALL guard, keyed on the message body). It is no
-  longer true of the per-TURN guard: producers supply a stable `rejectionKey` and the
-  message is free to name whatever the model needs. Extending the same separation to
-  `deterministicFailureKey` is the obvious next step and was not taken this session.
-- **The pinned-playbook budget stays closed.** Session 6 answered it; nothing since
-  reopens it.
+- **"Extend the `rejectionKey` separation to `deterministicFailureKey`" is ALREADY DONE** —
+  `AgentCallOutcome.failureKeyText` (see its doc comment). Session 7's §2.6 was stale when
+  written. A refusal whose sentence names moving things sets `failureKeyText`; nothing else
+  to do.
+- **`professional_audio` cannot be aimed by clip id, and that is by design**
+  (`audio-controller.ts`: `target` names what the EDITOR selected; `adjust_audio` takes the
+  id). In agent mode with nothing selected, EQ/compression/automation are unreachable by
+  construction. Not a defect to fix; a product boundary to know.
 
 ---
 
@@ -330,8 +266,10 @@ was `toolMeta.ts` — only the full `pnpm test` catches it.
   7 lost an hour to reading that as a regression; it passes in ~31s on the second launch.
   Warm the binary with one spec before trusting a desktop e2e failure.
 - Nothing is running. No sidecar, no runner.
-- Session 7 worked in a worktree (`../FramePilot-reliability-s7`, branch
-  `fix/agent-reliability-s7`), leaving the main checkout on its own branch.
+- Session 8 worked in a worktree (`../FramePilot-reliability-s8`, branch
+  `fix/agent-reliability-s8`, pushed), leaving the main checkout on
+  `fix/agent-reliability-2026-09-05`. The worktree has `node_modules` and built
+  workspace deps; it has NO `run.md`, no mission fixtures and no recordings.
 - Formatting: only files prettier-clean at the branch point should be formatted. The rest
   are the repo's existing red `format:check` baseline. `BASELINES.md` and `REMAINING.md`
   are both in it — do not reformat them.

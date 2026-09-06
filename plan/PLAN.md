@@ -38,7 +38,17 @@ request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
   `checkNoMidWordCuts` now reports `skipped: false` and measures; the cases score 1.00
   anyway. They went UP, not down — the prediction was wrong and the instrument is honest.
 
-**Current snapshot (2026-09-06, GOLDEN-EVAL — goal.md Phase 0):** **no run.** A fifth
+**Current snapshot (2026-09-06b, session 8, GOLDEN-EVAL — goal.md Phase 0):** **no run**
+(credits conserved). A ninth axis on transcript `137d8fd0` — the FINAL STATE of the timeline,
+which no earlier axis had read — found that 37 of its 48 picture clips could never be seen,
+every clip of the main riding track among them, and that the same music file played twice;
+every placement that did it had reported `completed`. Closed with reproducing tests: C.20
+(`23cddd2`) and the deterministic half of C.19 (`afd2671`). `BASELINES.md` "ninth axis" has
+the table and the first-order accounting. Every failure-shaped lead re-derived this session
+was already closed by a fix citing this run; `REMAINING.md` §1b lists them so nobody mines
+them a sixth time. Branch `fix/agent-reliability-s8` (worktree `../FramePilot-reliability-s8`).
+
+**Prior snapshot (2026-09-06, GOLDEN-EVAL — goal.md Phase 0):** **no run.** A fifth
 sweep of `run.md` on a promise-shaped axis (the brief's seven asks against the 416 applied
 operations) found four defects the failure-shaped axes had missed, all closed with
 reproducing tests: the motion domain advertised speed ramps and had no tool (C.10);
@@ -69,12 +79,12 @@ table and corrects this file's earlier "exhausted" claim.
   `completed`, and tools that were called, failed every time, and never succeeded (last
   reason, trimmed). Zero prompt tokens; six-line cap; kept on a cancelled run.
   `reliability/unfinished-work.ts` + `FinalizeEffect.planSteps`. Two frozen goldens move by
-  exactly one added block (`streamAgent-golden`, `golden-corpus` `plan-approval`) — NOT
-  regenerated; awaiting maintainer review.
+  exactly one added block (`streamAgent-golden`, `golden-corpus` `plan-approval`) — regenerated
+  deliberately — an output change, not a request-token change. Commit `afd2671`.
   **Still open:** the brief-level ask the run never attempted at all ("lift the sharpness")
   has no plan step and no failed call, so nothing deterministic knows about it. That is the
   acceptance-decomposition design decision — product-scope gate, not a patch.
-- `[~]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
+- `[x]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
   for two stock cutaways and finished with 25 tracks, 19 of them video, and 37 of its 48
   picture clips never visible — including every clip of `v_main` — because ADR 0169's
   placer opened a new front lane 13 times at t=0 and each lift completely buried the stock
@@ -85,21 +95,7 @@ table and corrects this file's earlier "exhausted" claim.
   exact span, so the same frames at the same moment over a longer span is refused (the run
   also ended with one music file playing 0–60s twice, so the sentence works for sound);
   and a `hidden_picture` Critic check — `warn`, never `fail`, because buried picture can
-  be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Awaiting
-  maintainer review.
-- `[~]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
-  for two stock cutaways and finished with 25 tracks, 19 of them video, and 37 of its 48
-  picture clips never visible — including every clip of `v_main` — because ADR 0169's
-  placer opened a new front lane 13 times at t=0 and each lift completely buried the stock
-  cutaway placed just before it, reporting `completed` every time. Three parts, all with
-  reproducing tests: a `hides_a_cutaway` refusal in `createPicturePlacer` (covering the
-  A-roll base stays legal; swallowing a still-visible cutaway whole does not, and a batch
-  now sees its own entries); `existingPlacement` keys on the source PIN rather than the
-  exact span, so the same frames at the same moment over a longer span is refused (the run
-  also ended with one music file playing 0–60s twice, so the sentence works for sound);
-  and a `hidden_picture` Critic check — `warn`, never `fail`, because buried picture can
-  be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Awaiting
-  maintainer review.
+  be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Commit `23cddd2`; goldens byte-identical; 607 scoped tests green.
 - `[x]` GOLDEN-C.17 — **a surface says what it cannot route, and stops offering it.**
   `HostToolExecutor.unroutableTools?()`; the sidecar executor declares its two render
   actions; `agentTools` drops them; the desktop wrapper forwards it. 91 → 89 tools on the

@@ -46,6 +46,84 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## run.md, ninth axis — 2026-09-06 (session 8) — **the FINAL STATE: 37 of 48 picture clips can never be seen, and the report called every one of them a success**
+
+**No run, no credits spent.** Eight axes had been walked on transcript `137d8fd0` (conversation
+`33f7e787`, created 2026-09-04T18:12 — the same file `run.md` has held since session 3; its
+ids were checked before mining). Every failure-shaped lead this session re-derived was
+already closed by a fix whose docstring cites this run — the caption id collision
+(`captions.ts#seenIds`), the `professional_audio` id-for-referent (`audio-controller.ts#targetHint`),
+`stale_context` after the agent's own first edit (`rebaseEditorInteractionContext`), `end`
+read as a length (`tool-input-contract.ts#durationHint`), the exact-duplicate placement
+(`timeline.ts#existingPlacement`). The ninth axis asks a question none of the eight did:
+**what does the timeline look like when the run stops?** The last `get_timeline` the run
+read (line 1,049,912) answers, and the answer is the worst thing on this transcript.
+
+| measure | figure | reading |
+| --- | --- | --- |
+| tracks at the end | **25** (19 video, 3 audio, 2 overlay, 1 caption); 3 empty | a 60 s highlight with two cutaways asked for |
+| auto-opened picture lanes (`video_cutaway_N`) | **13** | ADR 0169 lifts every occupied placement onto a fresh front layer |
+| picture clips | **48**; never visible: **37** | z-order replay from the final track order |
+| main riding track `v_main` | 9 clips, **all 9 hidden** | the footage the brief was about is under 12 layers of stock |
+| what the export opens on (t = 0–6 s) | stock 15395248 on `v_vertical_reframe` | the brief: "open on the strongest three seconds in the whole file" |
+| the same music file playing twice, 0–60 s | `music_1` + `music_bed`, same asset | +6 dB doubling under a brief that asked to "fix the levels" |
+| placements that reported `completed` while burying a clip | 13 lifts + 3 front placements; **0 refusals, 0 warnings** | the silent-success metric, literally |
+
+**How it happened, call by call.** The placer's job is to find a lane for a clip that
+collides with picture. Told to place stock at 0 s on a lane that was occupied, it opened
+`video_cutaway_N` at the visual front and reported `Add layer; Added clip video_cutaway_9 ·
+0s–17.3s`. The model read that as a placed cutaway and moved on; the previous cutaway at 0 s
+was now behind it, whole, forever. Twelve times. One `add_clips` batch sent the eight
+`v_main` riding clips again to `v_main`; the placer lifted the whole programme onto
+`video_cutaway_5` in front of itself. The exact-duplicate refusal that now catches that batch
+landed after this run; the partial same-frames duplicate (asset 6381282 at 0–9.9 s, then
+0–28.3 s, both `sourceStart 0`) and the buried-cutaway lift had no rule at all.
+
+**First-order accounting of the sixteen stacked placements under the rules this session adds**
+(each refusal would have changed what came after, so this is not a replay):
+
+| placement | lane opened | rule |
+| --- | --- | --- |
+| 34982258 32–35 s (already there on `v_cutaways`) | `video_cutaway_2` | exact duplicate — already refused since `existingPlacement` |
+| eight `v_main` clips re-sent to `v_main` | `video_cutaway_5` | exact duplicate — already refused |
+| 6381282 0–10 s (already at 0–10 on `_8`) | `video_cutaway_13` | exact duplicate — already refused |
+| 6381282 0–10 s over its own 0–28.3 s, same offset | `video_cutaway_8` | **same-frames duplicate (new, B)** |
+| 35518551 35–52.3 s over 35833756 35–43.4 s | `video_cutaway_4` | **buries a cutaway (new, A)** |
+| 6381282 0–28.3 s over four `v_cutaways` clips | `video_cutaway_7` | **buries a cutaway (new, A)** |
+| 35518551 0–17.3 s over 6381282 0–10 s | `video_cutaway_9` | **buries a cutaway (new, A)** |
+| 7037160 0–21.8 s over `_10` 0–8.4 and `_11` 0–7.9 | `video_cutaway_12` | **buries a cutaway (new, A)** |
+| 10458014 0–13.9 s on `stock_chairlift` over `_13` 0–10 | (named, front) | **buries a cutaway (new, A)** |
+| the other seven | — | partial covers — still lifted; ADR 0169 unchanged |
+
+**What this session closes (code, with reproducing tests — A, B and C in `23cddd2`; C.19 in `afd2671`; branch `fix/agent-reliability-s8`):**
+
+- **A — a lift that buries a cutaway is refused** (`refusalCause: hides_a_cutaway`). A
+  full-frame placement may still cover the A-roll wholly or partly (ADR 0169 stands); it may
+  not leave an existing *cutaway* — a clip that itself has picture behind it — with nothing
+  of it ever visible. Clips already fully hidden before the call do not count: inherited
+  defects are advisories. The sentence names the buried clip and the two moves that fix it.
+- **B — a same-frames partial duplicate is refused**: same asset, overlapping time, same
+  source↔timeline offset within one frame — picture and sound alike, which also closes the
+  doubled music bed.
+- **C — the Critic reports hidden picture** (`hidden_picture`, warn): the count and the
+  first three clips no viewer will ever see, so a run cannot end with 37 buried clips and a
+  clean report.
+- **GOLDEN-C.19 — the completion report says what was NOT done**: plan steps left
+  uncompleted, and tools refused on every call this run and never once successful, with the
+  last reason. Deterministic, zero prompt tokens. The brief-level ask ("lift the sharpness"
+  was never attempted and never mentioned) still needs a planning turn the desktop does not
+  run — recorded in `REMAINING.md` §2 as the maintainer's call, not a patch.
+
+### Not evidence of
+- Any effect on the ten goal.md metrics. Nothing ran. The first-order table above counts
+  refusals the new rules would have issued on the recorded calls; it does not say what the
+  model would have done next.
+- A change to ADR 0169 or ADR 0170. Coverage stays a relation; the front layer stays legal.
+- The token surfaces: no tool description changed, so the three frozen goldens are expected
+  to be byte-identical (confirmed in the commit message of each fix).
+- `s7-gapfill`'s `captions-uppercase-bottom` 13× style loop (GOLDEN-C.16): its recording is
+  gone and no run was made; still needs a run.
+
 ## run.md, eighth axis — 2026-09-06 — **time, thinking and announce-vs-act: three null results, the first axis to yield nothing**
 
 **No run, no code.** Recorded because a null result that was measured is worth more than
