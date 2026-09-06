@@ -188,6 +188,47 @@ describe('add_clips cannot duplicate inside one batch', () => {
       ]),
     ).toThrow(/this call placed it already/);
   });
+
+  /**
+   * The batch used to compare an exact key (`asset@start-end:sourceStart`), so it caught
+   * only the byte-identical repeat above. Run `137d8fd0` produced the other shape: asset
+   * 6381282 at 0–9.9s, at 0–28.3s and at 0–10s, every one of them from `sourceStart` 0.
+   * Those spans differ, so the key never matched — but they are the same frames at the
+   * same moment, and the longer one does not bury the shorter, so `hides_a_cutaway` did
+   * not object either. The batch now applies the pin-and-overlap rule to itself.
+   */
+  it('refuses a longer entry that repeats an earlier entry’s frames', () => {
+    let message = '';
+    try {
+      batch([
+        { assetId: 'asset_1', start: 0, end: 10, sourceStart: 0 },
+        { assetId: 'asset_1', start: 0, end: 28, sourceStart: 0 },
+      ]);
+    } catch (error) {
+      message = (error as Error).message;
+    }
+    expect(message).toContain('this call placed it already');
+    // Named by the frames the FIRST entry already took, not by the second entry's span.
+    expect(message).toContain('these same frames from 0s to 10s');
+  });
+
+  it('allows two entries of one asset that merely touch', () => {
+    const after = batch([
+      { assetId: 'asset_1', start: 0, end: 10, sourceStart: 0 },
+      { assetId: 'asset_1', start: 10, end: 20, sourceStart: 10 },
+    ]);
+    expect(after.timeline.tracks.flatMap((t) => t.clips)).toHaveLength(2);
+  });
+
+  it('allows an overlapping entry read from a DIFFERENT point in the file', () => {
+    // A different pin is a different moment of the file at that instant — strange, but a
+    // real edit, and not this rule's to refuse.
+    const after = batch([
+      { assetId: 'asset_1', start: 0, end: 10, sourceStart: 0 },
+      { assetId: 'asset_1', start: 5, end: 15, sourceStart: 20 },
+    ]);
+    expect(after.timeline.tracks.flatMap((t) => t.clips)).toHaveLength(2);
+  });
 });
 
 /**

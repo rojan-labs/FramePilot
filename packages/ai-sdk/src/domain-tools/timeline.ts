@@ -377,6 +377,39 @@ function frameSlack(project: Project): number {
   return 1 / fps;
 }
 
+/** One placement of one asset: where it sits on the sequence and where it reads from. */
+interface Placement {
+  readonly assetId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly sourceStart: number;
+}
+
+/**
+ * The stretch of sequence time two placements of one asset show the identical frames over.
+ *
+ * The test is the OFFSET, not the span: `sourceStart - start` is where the file is pinned
+ * to the sequence, and two placements of one asset with the same pin show the same frames
+ * wherever they overlap. A different pin is a different moment of the file at that instant.
+ * Compared on the frame grid's own slack ({@link frameSlack}) so a placement recomputed a
+ * float apart still counts as the same one, and so two clips that merely touch do not.
+ */
+function sameFrames(
+  frame: number,
+  a: Placement,
+  b: Placement,
+): { readonly overlapStart: number; readonly overlapEnd: number } | undefined {
+  if (a.assetId !== b.assetId) return undefined;
+  if (Math.abs(a.sourceStart - a.start - (b.sourceStart - b.start)) >= frame) return undefined;
+  const overlapStart = Math.max(a.start, b.start);
+  const overlapEnd = Math.min(a.end, b.end);
+  // The whole-span duplicate is the special case of an overlap: a clip shorter than one
+  // frame would fail the width test, so keep it explicit rather than losing it.
+  const identical = Math.abs(a.start - b.start) < frame && Math.abs(a.end - b.end) < frame;
+  if (!identical && overlapEnd - overlapStart <= frame) return undefined;
+  return { overlapStart, overlapEnd };
+}
+
 /** The same asset, already reading the same source frames over the same sequence moment. */
 interface SameFramesPlacement {
   readonly trackId: string;
@@ -398,39 +431,44 @@ interface SameFramesPlacement {
  * the identical frames at the identical moment, and one of them is behind the other for
  * every one of them.
  *
- * So the test is the OFFSET, not the span: `sourceStart - start` is where the file is
- * pinned to the sequence, and two placements of one asset with the same pin show the same
- * frames wherever they overlap. A different pin is a different moment of the file at that
- * instant — a strange edit, but a real one, and not this function's to refuse.
- *
- * Compared on the frame grid's own slack ({@link frameSlack}) so a placement recomputed a
- * float apart still counts as the same one, and so two clips that merely touch do not.
- * See {@link addClipOperation}.
+ * So the test is the OFFSET, not the span — see {@link sameFrames}, which the batch's own
+ * {@link bookedPlacement} asks the same question of. A different pin is a different moment
+ * of the file at that instant: a strange edit, but a real one, and not this function's to
+ * refuse. See {@link addClipOperation}.
  */
-function existingPlacement(
-  project: Project,
-  clip: {
-    readonly assetId: string;
-    readonly start: number;
-    readonly end: number;
-    readonly sourceStart: number;
-  },
-): SameFramesPlacement | undefined {
+function existingPlacement(project: Project, clip: Placement): SameFramesPlacement | undefined {
   const frame = frameSlack(project);
-  const pin = clip.sourceStart - clip.start;
   for (const track of project.timeline.tracks) {
     for (const existing of track.clips) {
-      if (existing.assetId !== clip.assetId) continue;
-      if (Math.abs(existing.sourceStart - existing.start - pin) >= frame) continue;
-      const overlapStart = Math.max(existing.start, clip.start);
-      const overlapEnd = Math.min(existing.end, clip.end);
-      // The whole-span duplicate is the special case of an overlap: a clip shorter than one
-      // frame would fail the width test, so keep it explicit rather than losing it.
-      const identical =
-        Math.abs(existing.start - clip.start) < frame && Math.abs(existing.end - clip.end) < frame;
-      if (!identical && overlapEnd - overlapStart <= frame) continue;
-      return { trackId: track.id, clipId: existing.id, overlapStart, overlapEnd };
+      const shared = sameFrames(frame, existing, clip);
+      if (!shared) continue;
+      return { trackId: track.id, clipId: existing.id, ...shared };
     }
+  }
+  return undefined;
+}
+
+/**
+ * The same frames of this call's own batch, or `undefined` when the entry is new.
+ *
+ * `existingPlacement` reads the pre-call timeline and therefore cannot see an entry the
+ * same `add_clips` batch booked a moment ago — the batch plans every entry against one
+ * snapshot, which is the whole reason the lane allocators are per-call too. This was an
+ * exact-key set (`asset@start-end:sourceStart`), which caught the byte-identical repeat
+ * and nothing else; run `137d8fd0` placed asset 6381282 at 0–9.9s, 0–28.3s and 0–10s,
+ * all from `sourceStart` 0, and a batch shaped like that would have passed. The batch
+ * now asks the same question of itself that {@link existingPlacement} asks of the
+ * timeline: same pin, overlapping moment, same frames.
+ */
+function bookedPlacement(
+  project: Project,
+  booked: readonly Placement[],
+  clip: Placement,
+): { readonly overlapStart: number; readonly overlapEnd: number } | undefined {
+  const frame = frameSlack(project);
+  for (const earlier of booked) {
+    const shared = sameFrames(frame, earlier, clip);
+    if (shared) return shared;
   }
   return undefined;
 }
@@ -485,11 +523,11 @@ function addClipOperation(
   picture: PicturePlacer,
   /**
    * Placements already handed out by THIS call, so a batch cannot duplicate inside
-   * itself. `existingPlacement` reads the pre-call timeline and therefore cannot see an
-   * entry the same `add_clips` batch booked a moment ago — `add_clips` plans every entry
-   * against one snapshot, which is the whole reason the lane allocators are per-call too.
+   * itself. Appended to as each entry is booked and read by {@link bookedPlacement},
+   * which applies the same pin-and-overlap rule to them that {@link existingPlacement}
+   * applies to the clips that were on the timeline before the call.
    */
-  booked: Set<string>,
+  booked: Placement[],
 ): Operation[] {
   // Resolve the lane rather than trusting the one that was named — by two
   // different rules, because picture and everything else fail differently.
@@ -529,10 +567,20 @@ function addClipOperation(
   // Nothing else catches it: a second placement really does change the project, so the
   // run's no-change guard cannot see it, and the copies share no track so the validator
   // cannot either.
-  const placementKey = `${clip.assetId}@${clip.start}-${clip.end}:${clip.sourceStart}`;
   const alreadyThere = existingPlacement(ctx.project, clip);
-  if (alreadyThere || booked.has(placementKey)) {
-    throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
+  if (alreadyThere) throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
+  const alreadyBooked = bookedPlacement(ctx.project, booked, clip);
+  if (alreadyBooked) {
+    // Named by the SHARED frames, not by this entry's own span: what the model has to
+    // change is the overlap, and on the 0–9.9s / 0–28.3s pair of run `137d8fd0` the
+    // entry's own span (0–28.3s) is not the part that was already placed.
+    throw new ToolRefusalError(
+      sameFramesRefusal(
+        ctx,
+        { assetId: clip.assetId, start: alreadyBooked.overlapStart, end: alreadyBooked.overlapEnd },
+        undefined,
+      ),
+    );
   }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
@@ -557,7 +605,7 @@ function addClipOperation(
     sourceEnd: clip.sourceStart + (clip.end - clip.start),
     ...(clipId ? { clipId } : {}),
   };
-  booked.add(placementKey);
+  booked.push(clip);
   const ops = [...placed.setupOps, add];
   if (!crop || !clipId) return ops;
   return [...ops, { type: 'set_clip_crop', clipId, crop }];
@@ -1151,7 +1199,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         createLaneAllocator(ctx.project.timeline),
         createPicturePlacer(ctx.project),
         // One placement, so nothing can precede it within the call.
-        new Set<string>(),
+        [],
       ),
   ),
   mutateTool(
@@ -1195,7 +1243,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // the lanes — and the front layer — entries 1..N-1 already took.
       const lanes = createLaneAllocator(ctx.project.timeline);
       const picture = createPicturePlacer(ctx.project);
-      const booked = new Set<string>();
+      const booked: Placement[] = [];
       return a.clips.flatMap((clip) =>
         addClipOperation({ ...clip, trackId: a.trackId }, ctx, lanes, picture, booked),
       );

@@ -138,10 +138,9 @@ will flag it whatever happens; that is not this branch.
   `reorder` intent was deliberately NOT added — vocabulary with no consumer.
 - **ADR 0056 (compound-request atomicity vs instant-apply)** is still open on its own merits.
 - **ADR 0166 (the deleted wipe guard)** stays deleted; ADR 0173 records why.
-- **A partial same-frames duplicate BETWEEN two entries of one `add_clips` batch** is not
-  caught: the batch's `booked` set is still an exact key. It is caught when it buries; a
-  non-burying partial overlap within one call slips. Small, and touches both tools' shared
-  set — do it when something is seen to need it.
+- **A partial same-frames duplicate BETWEEN two entries of one `add_clips` batch is now
+  refused too** (`sameFrames` is the one predicate the timeline and the batch both ask;
+  closed in the commit after `e9e9265`). Nothing left here.
 - **`hidden_picture` is warn-only and not in `FIXABLE_CHECKS`.** Which copy survives is
   editorial. If a run is ever seen to END with buried picture it placed itself, promote the
   check to `fail` when `requestWantsPicture` — the same gate `picture_coverage` uses.
