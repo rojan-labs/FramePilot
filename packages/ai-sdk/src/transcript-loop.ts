@@ -52,7 +52,24 @@ const LOOP_MIN_SHARE = 0.5;
  * @param words - The transcript, in time order.
  * @returns The loop, or `undefined` when the transcript does not look fabricated.
  */
+/**
+ * Memo keyed on the transcript array itself.
+ *
+ * The scan is quadratic in the transcript and now runs on every context build (the
+ * transcript slice consults it) as well as in the Critic. `Project.transcript` is replaced
+ * as a whole when a transcript changes and is otherwise the same array turn after turn, so
+ * identity is a sound key and the scan runs once per transcript, not once per model call.
+ */
+const LOOP_MEMO = new WeakMap<readonly TranscriptWord[], TranscriptLoop | undefined>();
+
 export function detectTranscriptLoop(words: readonly TranscriptWord[]): TranscriptLoop | undefined {
+  if (LOOP_MEMO.has(words)) return LOOP_MEMO.get(words);
+  const loop = scanForLoop(words);
+  LOOP_MEMO.set(words, loop);
+  return loop;
+}
+
+function scanForLoop(words: readonly TranscriptWord[]): TranscriptLoop | undefined {
   if (words.length < LOOP_MIN_REPEATS * 2) return undefined;
   const span = words[words.length - 1]!.end - words[0]!.start;
   if (!(span > 0)) return undefined;

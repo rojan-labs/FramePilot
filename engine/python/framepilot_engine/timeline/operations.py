@@ -925,7 +925,8 @@ def _apply_reorder_clips(
         if clip_id in seen:
             raise OperationError(
                 "invalid_order",
-                f"reorder_clips: clip '{clip_id}' is listed twice. Each clip appears exactly once.",
+                f"reorder_clips: clip '{clip_id}' is listed twice. "
+                f"Each clip appears exactly once.",
             )
         seen.add(clip_id)
     if len(seen) != len(track.clips):

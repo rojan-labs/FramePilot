@@ -35,7 +35,9 @@ type LaneAllocator = ReturnType<typeof createLaneAllocator>;
  * clips play their own audio? Overlay, caption and effect lanes never do.
  */
 function trackCarriesSound(track: Track): boolean {
-  return track.type === 'audio' || track.type === 'video';
+  // An absent `type` is a video track (the schema's default, and how `carriesPicture`
+  // reads it too), so it carries its clips' sound like an explicit one.
+  return track.type === undefined || track.type === 'audio' || track.type === 'video';
 }
 
 /** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
@@ -1332,10 +1334,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
         if (track !== undefined && !trackCarriesSound(track)) {
           throw new ToolRefusalError(
-            `role labels a track that carries sound, and "${a.trackId}" is ${
-              track.type === undefined ? 'not one' : `a ${track.type} track`
-            }. Mix roles describe sound; name the audio track — or the video track whose ` +
-              'clips carry it.',
+            `role labels a track that carries sound, and "${a.trackId}" is a ${track.type} ` +
+              'track. Mix roles describe sound; name the audio track — or the video track ' +
+              'whose clips carry it.',
           );
         }
       }
