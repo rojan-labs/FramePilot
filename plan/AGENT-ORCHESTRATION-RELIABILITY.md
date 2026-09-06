@@ -357,6 +357,19 @@ Handle AI actions safely, recover from failure, and finish the job.
       into `AgentRun.plan`, and the plan is threaded into every loop turn's context so
       the agent follows its own committed steps. (Streaming `PlanEvent` surfacing +
       per-step reconciliation is a lighter follow-up on `streamAgent`.) 100% cov.
+- [x] **C6 — The runtime measures, the agent decides: no beat-grid validator**
+      (2026-09-06, run `cc907070`, branch `fix/agent-reliability-2026-09-06`, ADR 0174).
+      A GoPro highlight declared `hardSync` on `detect_beats` before any music was placed
+      and the beat-grid rule then refused 126 operations across the whole first assembly;
+      the declaration was sticky and nothing could withdraw it. `kernel/beat-grid/` and
+      `hardSync` are deleted; `detect_beats` stays a reachable measurement whose digest
+      leads with the tempo-grid onsets. Same branch, same run: `word_severed` warns
+      instead of failing under a looping transcript; a leaking stacked placement gets its
+      cover crop applied instead of "add it, then crop it"; video tracks take mix roles so
+      camera audio can be ducked; `set_clip_speed_ramp` fits its slot by default
+      (`keepDuration`) and split keeps ramp points inside each piece; the renderer's ramp
+      time-map is vectorised (the temporal review crashed on every ramped edit);
+      `trim_clip` fills a missing edge and stock `kind` accepts common aliases.
 - [ ] **C5 — Preview render into the loop** (**§7 approval — needs the
       renderer→engine preview IPC**, the ADR 0016 export-channel pattern). Wire an
       auto preview render so the Critic sees real frames mid/post-run. Until the
