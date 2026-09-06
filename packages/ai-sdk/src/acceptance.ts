@@ -493,9 +493,14 @@ const DELIVERABLE_FILE =
  * is the edit itself — both, it, them, the cut, a resolution — is the same request in
  * fewer words. "Export settings" and "the export dialog" are nouns, not the verb, and are
  * not matched: the verb must be followed by its object.
+ *
+ * Whitespace is horizontal-only (` \t\r`, never `\s`), for the reason {@link DELIVERABLE_HEADING}
+ * states: `\s*` after a class that also matches `\n` gives a run of blank lines two ways to
+ * reach every position, which is quadratic backtracking on a prompt re-scanned every turn —
+ * CI's "blank-line-heavy brief in linear time" test caught the first draft at 2.1s.
  */
 const DELIVERABLE_EXPORT_VERB =
-  /(?:^|[.,\n;:—-]\s*|\bthen\s+|\band\s+)export\s+(?:both|it|them|this|that|everything|the\s+(?:cut|edit|sequence|timeline|result|final|finished|16:9|9:16|vertical|horizontal|square|reel|short|montage|version)|a\s|an\s|at\s+\d|in\s+\d|as\s|to\s)/;
+  /(?:^|[.,;:—-][ \t\r]*|\n[ \t\r]*|\bthen[ \t]+|\band[ \t]+)export[ \t]+(?:both|it|them|this|that|everything|the[ \t]+(?:cut|edit|sequence|timeline|result|final|finished|16:9|9:16|vertical|horizontal|square|reel|short|montage|version)|a[ \t]|an[ \t]|at[ \t]+\d|in[ \t]+\d|as[ \t]|to[ \t])/;
 
 /**
  * A request to SEE the cut before it is rendered, which the panel cannot fulfil either:
