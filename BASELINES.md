@@ -46,6 +46,54 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-reorder-fix1` / `s9-live-reorder-fix2` — 2026-09-07 (session 9) — **the two defects closed and measured live: 6 of 6 first-pass, one operation per run, a tenth of the cost**
+
+| | |
+| --- | --- |
+| commit | fix1: `5c36f92` + the standing half of `ee6b713`; fix2: `5c36f92` + `ee6b713` (shortfall reconciled). `ab06c68` (recovery-turn disclosure) landed after fix2 ran and no recovery turn fired in it, so it is unmeasured. |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3, twice (fix1, fix2) |
+| voidTurns | 0 / 0 |
+| wall clock / tier-priced cost | fix1: 5 min, $0.107/accepted edit · fix2: 2 min, **$0.049/accepted edit** |
+
+### Before → after, same two cases, same model
+
+| metric | `s9-live-reorder` (before) | fix1 (stage only) | **fix2 (stage + delta)** |
+| --- | --- | --- | --- |
+| intent accuracy | 83% | 100% | **100%** |
+| target resolution | 50% | 83% | **100%** |
+| first-pass acceptance | 33% | 83% | **100%** |
+| silent successes | 0 | 0 | **0** |
+| reversibility | 100% | 100% | **100%** |
+| operations per run | 6, 7, 5, 6, 2, 6 | 6, 6, 7, 6, 6, 6 | **1, 1, 1, 1, 1, 1** |
+| model calls / turn p50 · p95 | 5 · 11 | 5 · 7 | **3 · 3** |
+| tokens / accepted edit | 387,363 | 118,960 | **73,362** |
+| tier-priced cost / accepted edit | $0.499 | $0.107 | **$0.049** |
+| time to first progress p50 · p95 | 3.4s · 4.3s | — | **3.6s · 3.8s** |
+| time to done p50 · p95 | 48.8s · 107.1s | 30s · 45s | **11.4s · 22.6s** |
+
+### What each fix did, read off the replayed prompts
+
+- **fix1 (`5c36f92`)** — after the landed `reorder_clips` the briefing now reads `STAGE:
+  apply` and `DO THIS NOW: an edit has landed … if the request is now met, finish`. The
+  model finished after one reorder in all six runs ("The last clip is already at the
+  front … No further changes are needed"). Then the done-turn shortfall guard fired —
+  "The request is not met yet — continuing. 5 of 5 picture clips … Crop each to fill the
+  frame." — on a recovery turn with 62 tools, and every run cropped all five clips; r3 of
+  `last-first` also reordered a second time inside that forced turn.
+- **fix2 (`ee6b713`)** — the shortfall is a delta against the starting project, as the
+  verify pass already was. No recovery turn; every run is `reorder_clips` (+ one
+  `get_timeline` to confirm) and a one-line summary.
+
+### Not evidence of
+- The nineteen other cases. The stage defect affects any run that edits straight from
+  inspection, and the standing/shortfall defect any run on a project with an inherited
+  finding — so the whole set is expected to move, and is the next run.
+- The rubric's new `no-collateral-changes` check (`5084805`): both fix runs were scored by
+  the dist of the time, without it. Under it, fix1 would read 0/6 first-pass (every run
+  cropped) and fix2 6/6 — the numbers above already tell that story via `ops per run`.
+
 ## `s9-live-reorder` — 2026-09-07 (session 9) — **`reorder_clips` sampled live for the first time: right on the first call in 6 of 6 runs, then 3 runs rotated the order again until it was wrong and 5 cropped or asked to crop every clip nobody mentioned**
 
 | | |
