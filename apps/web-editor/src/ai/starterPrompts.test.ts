@@ -68,18 +68,45 @@ describe('starterPrompts (UX-02)', () => {
     expect(prompts).not.toContain('Add captions from the transcript');
   });
 
-  it('offers muting only when there is audio on the timeline', () => {
-    const prompts = starterPrompts(
-      project({
-        timeline: {
-          tracks: [
-            { id: 'v', type: 'video', clips: [clip('c1', 'v')] },
-            { id: 'a', type: 'audio', clips: [clip('c2', 'a')] },
-          ],
-        },
-      }),
-    );
-    expect(prompts).toContain('Mute the music track');
+  it('offers muting only when the audio on the timeline is music', () => {
+    // A voice-over on an audio track is not music: the demo project offered "Mute the
+    // music track" over `voiceover.wav` and nothing else. Music is a track labelled with
+    // the music role, or an audio asset whose file name says so.
+    const voiceOver = project({
+      timeline: {
+        tracks: [
+          { id: 'v', type: 'video', clips: [clip('c1', 'v')] },
+          { id: 'a', type: 'audio', clips: [clip('c2', 'a')] },
+        ],
+      },
+    });
+    expect(starterPrompts(voiceOver)).not.toContain('Mute the music track');
+    const labelled = {
+      ...voiceOver,
+      timeline: {
+        ...voiceOver.timeline,
+        tracks: voiceOver.timeline.tracks.map((track) =>
+          track.id === 'a' ? { ...track, role: 'music' as const } : track,
+        ),
+      },
+    };
+    expect(starterPrompts(labelled)).toContain('Mute the music track');
+    const named = {
+      ...voiceOver,
+      assets: [
+        ...voiceOver.assets,
+        { id: 'asset_music', path: 'media/beat-100bpm.wav', kind: 'audio' as const, durationSeconds: 30 },
+      ],
+      timeline: {
+        ...voiceOver.timeline,
+        tracks: voiceOver.timeline.tracks.map((track) =>
+          track.id === 'a'
+            ? { ...track, clips: [{ ...track.clips[0]!, assetId: 'asset_music' }] }
+            : track,
+        ),
+      },
+    };
+    expect(starterPrompts(named)).toContain('Mute the music track');
   });
 
   // The panel's first impression must never be blank, and the two unconditional
