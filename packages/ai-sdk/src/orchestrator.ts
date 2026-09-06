@@ -128,7 +128,7 @@ import {
 } from './kernel/conductor.js';
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd } from './kernel/cost/cost-meter.js';
-import { stageAllowsTool, toolRole } from './kernel/stage-policy.js';
+import { EDIT_LOOK_TOOL_NAMES, stageAllowsTool, toolRole } from './kernel/stage-policy.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -3738,11 +3738,16 @@ export class Orchestrator {
         // And `state.actionRecoveryPending` is set for the whole recovery turn, so one
         // that spends this allowance without acting falls straight through to the
         // convergence guard rather than earning another.
+        //
+        // A look at the run's OWN edit is not reconnaissance either
+        // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
+        // `render_preview` on a recovery turn, and was told the turn was for acting.
         const effect = toolContract(tool).effectClass;
         return (
           effect === 'mutation' ||
           tool.kind === 'ask' ||
           tool.name === 'recall_evidence' ||
+          EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
           toolRole(tool.name, tool.mutates) === 'sourcing'
         );
       }

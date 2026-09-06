@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A "stop reading, act" turn no longer blocks the AI from looking at its own edit.** The
+  run was asked to show a preview before rendering, called `render_preview` on exactly such
+  a turn, and was told the turn was for acting; the self-check's own fix instruction named
+  a transcript read the same turn refused. Previewing, checking transitions, grabbing a
+  frame and reading the mapped transcript are looks at the edit, not at the footage, and
+  stay available on that turn.
 - **A looping transcript is no longer fed to the AI as dialogue.** On a wind-only take the
   transcript slice — 3,000 tokens of one phrase repeated — rode along on all 290 model
   calls, the single largest fixed cost in the request and an invitation to cut on words

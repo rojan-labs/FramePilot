@@ -286,6 +286,30 @@ export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
  */
 export const PRECONDITION_TOOL_NAMES: ReadonlySet<string> = new Set(['transcribe']);
 
+/**
+ * Tools that look at the run's OWN EDIT — never at the material — and so survive the
+ * action-recovery turn (`orchestrator.ts#agentTools('action-recovery')`).
+ *
+ * That turn withholds everything read-shaped because its premise is "you have gathered
+ * enough about the footage; act". A look at the edit is not gathering. Run `cc907070` was
+ * asked "show me a preview before you render", called `render_preview` once — on a
+ * recovery turn — was told "this turn is for acting on what has been gathered", and never
+ * previewed. On the same run's verification fix turn the Critic's own remedy said "read
+ * the word's startFrame from get_mapped_transcript" and the recovery scope refused it:
+ * a refusal naming a tool the same turn forbids, the shape `EXECUTION_MEASUREMENT_TOOL_NAMES`
+ * exists to prevent.
+ *
+ * Every entry reads the timeline or renders it; none of them mints a candidate, opens the
+ * footage, or answers something `recall_evidence` already holds for free. The
+ * `actionRecoveryPending` latch still ends a recovery turn that only looks.
+ */
+export const EDIT_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
+  ...VERIFICATION_LOOK_TOOL_NAMES,
+  'render_preview',
+  'verify_transitions',
+  'get_mapped_transcript',
+]);
+
 export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
   if (EXECUTION_MEASUREMENT_TOOL_NAMES.has(name)) return true;
   if (VERIFICATION_LOOK_TOOL_NAMES.has(name)) return true;

@@ -27,7 +27,7 @@ import { type ContextInput, estimateTokens } from './context-builder.js';
 import { TOOL_REGISTRY, getTool } from './tool-registry.js';
 import { classifyTool } from './tool-classification.js';
 import { toolContract } from './tool-contract.js';
-import { toolRole } from './kernel/stage-policy.js';
+import { EDIT_LOOK_TOOL_NAMES, toolRole } from './kernel/stage-policy.js';
 import { distil } from './kernel/briefing.js';
 import { makeProject } from './__fixtures__/project.js';
 import { describeTransportFailure } from './sidecar-executor.js';
@@ -2900,6 +2900,13 @@ describe('route-scoped tool surface (E5)', () => {
     // meant to rescue.
     expect(names).toContain('search_stock');
     expect(names).toContain('search_music');
+    // A look at the run's OWN edit is not reconnaissance: the preview the editor asked
+    // for, the transition check, the word-boundary read a Critic remedy names. Run
+    // `cc907070` called render_preview once, on a recovery turn, and was refused.
+    expect(names).toContain('render_preview');
+    expect(names).toContain('verify_transitions');
+    expect(names).toContain('get_mapped_transcript');
+    expect(names).toContain('get_frame');
     // Reconnaissance over the project the run already has stays out — that is what the
     // turn exists to stop.
     expect(names).not.toContain('get_timeline');
@@ -2908,7 +2915,7 @@ describe('route-scoped tool surface (E5)', () => {
     expect(names).not.toContain('get_transcript');
     expect(names).not.toContain('map_footage');
     for (const name of names) {
-      if (name === 'recall_evidence') continue;
+      if (name === 'recall_evidence' || EDIT_LOOK_TOOL_NAMES.has(name)) continue;
       const tool = getTool(name)!;
       // The contract and the sourcing role, not the registry kind — that is the whole
       // correction, in its two halves (ADR 0143, then ADR 0147).
