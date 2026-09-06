@@ -23,6 +23,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **The AI no longer gives up on a beat-synced cut it was about to get right.** When every
+  attempt was refused for the same reason, the run used to stop after a few tries even if
+  each attempt had fewer cuts off the beat than the last. It now keeps going while the
+  number of things still wrong is falling, and stops only when it has genuinely stopped
+  improving. (`packages/ai-sdk`)
+
 - **The AI's closing summary now says what it did NOT do.** A run that applied 416 edits
   across a seven-part brief ended with a list of the edits and nothing else — no mention
   that captioning had been refused eleven times and never once worked, or that the audio

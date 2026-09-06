@@ -27,7 +27,7 @@ has an entry for each**, newest first, and the numbers below mean nothing withou
 ## 1. WHAT'S CLOSED
 
 Sessions 3–7 closed forty-eight defects; those lists live in `BASELINES.md` under their
-entries and are not repeated here. **Session 8 closed two, both from the final-state axis:**
+entries and are not repeated here. **Session 8 closed four — two from the final-state axis of `run.md`, one from replaying `session6`, one in the instrument:**
 
 1. **A lift that buries a cutaway is refused; a same-frames duplicate is refused; the
    Critic reports hidden picture** (`23cddd2`, GOLDEN-C.20). ADR 0169's placer lifted every
@@ -40,7 +40,15 @@ entries and are not repeated here. **Session 8 closed two, both from the final-s
    tool description changed: **0 tokens on every frozen surface.** First-order accounting
    on the run's sixteen stacked placements: 3 were already exact duplicates, 1 is now a
    same-frames duplicate, 5 now bury a cutaway, 7 partial covers are still lifted.
-2. **The completion report says what was NOT done** (`afd2671`, GOLDEN-C.19, half). A
+2. **A run getting THROUGH the wall is not stuck at it** (`f84e564`, GOLDEN-C.21). Found by
+   replaying `session6`'s recordings, which session 7 had only done for `beat-sync` r1: r3
+   went from 40 ops / 1.00 to 5 ops / 0.56 because the same-wall guard finalized a run that
+   was converging (off-grid 12 → … → 2) one model call before its edit. A refusal now
+   carries a scale; a new low at the wall is progress. r3 back to 1.00; r1 pays one extra
+   turn ($0.571 → $0.709) and still completes. `BASELINES.md` "s8-replay" has the table.
+3. **Every case file keeps a per-call ledger** (`6c4a15f`): `calls: [{tool, status, args}]`,
+   so a C.16-shaped question is answerable from committed evidence, recording or not.
+4. **The completion report says what was NOT done** (`afd2671`, GOLDEN-C.19, half). A
    `**Not done:**` block after "Skipped": drafted plan steps left uncompleted, and tools
    called at least once, failed every time, never afterwards successful, with the LAST
    reason. Zero prompt tokens. Two goldens moved by exactly that block on a planned run that
@@ -108,7 +116,14 @@ Unchanged: the s7 recording is gone; the case file holds counts only. **Needs a 
 route when credits allow: `--case captions-uppercase-bottom --runs 1` under a NEW label and
 read the recording's `argsSummary` per call.
 
-### 2.3 The session-7 and session-8 code changes are still unmeasured against the model
+### 2.3 What is measured and what is not
+
+**Measured by replay (free):** `beat-sync` ×3, `montage-30s` ×3, `reorder-swap-first-two` ×3
+under the s8 code — the same-wall guard (`0c9f195` + `f84e564`) on the three runs that have
+recordings. **Run the sidecar when replaying a beat case**: the scorer's `cuts-on-beats`
+falls back to the nominal grid without it and reads 0.78 for a 1.00 edit.
+
+**Not measured:**
 
 `reorder_clips`, the frame-grid retime, the same-wall guard, and now `hides_a_cutaway` and
 the pin-keyed duplicate have no run. The cases that would exercise the first three already

@@ -43,7 +43,8 @@ request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
 which no earlier axis had read — found that 37 of its 48 picture clips could never be seen,
 every clip of the main riding track among them, and that the same music file played twice;
 every placement that did it had reported `completed`. Closed with reproducing tests: C.20
-(`23cddd2`) and the deterministic half of C.19 (`afd2671`). `BASELINES.md` "ninth axis" has
+(`23cddd2`), the deterministic half of C.19 (`afd2671`), and C.21 (`f84e564`) — a false
+stop of the session-7 same-wall guard found by replaying session6's recordings for free. `BASELINES.md` "ninth axis" has
 the table and the first-order accounting. Every failure-shaped lead re-derived this session
 was already closed by a fix citing this run; `REMAINING.md` §1b lists them so nobody mines
 them a sixth time. Branch `fix/agent-reliability-s8` (worktree `../FramePilot-reliability-s8`).
@@ -84,6 +85,14 @@ table and corrects this file's earlier "exhausted" claim.
   **Still open:** the brief-level ask the run never attempted at all ("lift the sharpness")
   has no plan step and no failed call, so nothing deterministic knows about it. That is the
   acceptance-decomposition design decision — product-scope gate, not a patch.
+- `[x]` GOLDEN-C.21 — **a run getting THROUGH the wall is not stuck at it.** Replaying
+  `session6`'s `beat-sync` r3 under the s7 code: 40 ops / 1.00 became 5 ops / 0.56, because
+  the same-wall guard (`0c9f195`) finalized a run whose off-grid count was falling
+  (12 → … → 2) one model call before its on-grid edit. A refusal now carries a scale beside
+  its key; a new low at the wall is progress. r3 back to 1.00, r1 still completes (+4
+  calls). Four reducer tests; no golden moved. Commit `f84e564`; evidence
+  `reports/golden/s8-guard-fix`. Also: every case file now carries a per-call ledger
+  (`6c4a15f`), so a C.16-shaped question no longer needs the gitignored recording.
 - `[x]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
   for two stock cutaways and finished with 25 tracks, 19 of them video, and 37 of its 48
   picture clips never visible — including every clip of `v_main` — because ADR 0169's

@@ -46,6 +46,72 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s8-replay` / `s8-replay-sidecar` / `s8-guard-fix` — 2026-09-06 (session 8) — **no model calls; the session-7 guard measured on the two runs it was never replayed on, and one of them was being stopped one call short of a 1.00 edit**
+
+| | |
+| --- | --- |
+| commit | `6c4a15f` (replays) and `f84e564` (fix) on `fix/agent-reliability-s8` |
+| provider / model | replay — none called; recordings are `session6`'s (72 files, copied under new labels) |
+| media | `mission-montage` (the fixture `session6` recorded against) |
+| cases × runs | `beat-sync`, `montage-30s`, `reorder-swap-first-two` × 3 |
+| voidTurns | n/a on replay |
+| wall clock / tier-priced cost | seconds; the recorded run's cost is reproduced, not re-billed |
+
+### What was replayed and what it read
+
+| run | session6 (recorded) | `s8-replay` (no sidecar) | `s8-replay-sidecar` | `s8-guard-fix` (after `f84e564`) |
+| --- | --- | --- | --- | --- |
+| beat-sync r1 | 121 calls, 5 ops, cancelled, 0.56, $3.93 | 25 calls, 5 ops, completed, 0.56 | same | **29 calls**, 5 ops, completed, 0.56, $0.709 |
+| beat-sync r2 | 33 ops, completed, 1.00 | 33 ops, **0.78** | 33 ops, **1.00** | 1.00 |
+| beat-sync r3 | 40 ops / 2 steps, completed, 1.00 | 5 ops / 1 step, **0.56** | 5 ops, **0.56** | **40 ops / 2 steps, 1.00** |
+| montage-30s ×3 | 1.00, 1.00, 1.00 | byte-identical | — | — |
+| reorder-swap-first-two ×3 | 0.60 ×3 | byte-identical | — | — |
+
+Two of the three drops are not regressions and one is:
+
+- **r2, 1.00 → 0.78 without the sidecar, is the INSTRUMENT.** `cuts-on-beats` asks the
+  sidecar for detected onsets and falls back to the nominal 0.6 s grid when it cannot; the
+  detector reads the fixture at 99.4 BPM, so an edit cut correctly to the detected onsets
+  scores 43% against the nominal grid. `--replay` makes no host calls but the SCORER still
+  does — run the sidecar for any beat case, replay included. Session 7's `s7-replay` (r1
+  only, no music placed) could not have shown this.
+- **r3, 1.00 → 0.56 with or without the sidecar, is the session-7 guard.** The run was
+  refused at the beat-grid wall twelve times, but it was getting THROUGH it — off-grid
+  boundaries 12 → 10 → 10 → 18 → 24 → 4 → 8 → 8 → 2 — and the recorded fourteenth response
+  has every interior cut on a detected onset. `0c9f195` asked only "the same wall again?",
+  answered yes, and finalized the run one model call before its 1.00 edit. r1, the run the
+  guard was built on, read 18, 16, 16, 32, 16 at the same wall; that one is stuck.
+- **`f84e564`**: a refusal carries a SCALE beside its key (off-grid count, sub-frame count,
+  validator error count, over-cap overage — never a severity), and a repeat that reaches a
+  new LOW at the standing wall counts as progress. r3 returns to what session6 recorded. r1
+  pays one reprieve (25 → 29 calls, $0.571 → $0.709) for its one real improvement, 18 → 16,
+  then stops exactly as before. Holding r1 at 25 would need a threshold fitted to two runs;
+  not done.
+
+### The ten metrics, `s8-guard-fix`, beat-sync only (3 runs)
+
+| metric | value | note |
+| --- | --- | --- |
+| intent accuracy | 3/3 | |
+| target · boundary · validity | 1.00 · 1.00 · 1.00 | r1's five ops validate; it lands no picture |
+| first-pass acceptance | 2/3 | r1 is the honest miss |
+| silent successes | 0 | |
+| reversibility | 3/3 | |
+| accepted edits | 78 ops over 3 runs | 5 + 33 + 40 |
+| tokens / cost per accepted edit | reproduced from the recording, not re-billed | see `s8-guard-fix/summary.md` |
+| model calls / turn p50 · p95 | 6 · 32 | r1's 32 are the recorded stuck run |
+
+### Not evidence of
+- Anything the model would do differently NOW: a replay re-executes the runtime against
+  recorded answers. Where the runtime diverges (r3's fourteenth call), it follows the
+  recording only as far as the recording goes.
+- The new placement rules (`hides_a_cutaway`, same-frames duplicate): none fired on any
+  replayed run; their sentences appear in no case file. A montage on these fixtures did not
+  stack picture on picture.
+- `session6`'s numbers — untouched; every replay ran under its own label.
+- The three dead `s7-gapfill` questions (C.16) — those recordings are gone; the per-call
+  ledger the runner now writes (`6c4a15f`) is what stops that happening again.
+
 ## run.md, ninth axis — 2026-09-06 (session 8) — **the FINAL STATE: 37 of 48 picture clips can never be seen, and the report called every one of them a success**
 
 **No run, no credits spent.** Eight axes had been walked on transcript `137d8fd0` (conversation
