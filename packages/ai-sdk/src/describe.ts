@@ -44,12 +44,21 @@ const ACTION_LABELS: Record<string, string> = {
   remove_marker: 'Removed marker',
 };
 
-/** Summarize which track flags a `set_track_flags` op sets, e.g. "muted, locked". */
+/**
+ * Summarize which track flags a `set_track_flags` op sets, e.g. "muted, locked", or
+ * "role: music". The role is the label `duck_roles` works by, and the success note was the
+ * one place the model could have confirmed it took — "Updated track Audio 2" said nothing,
+ * and run `cc907070` re-labelled the same track on twenty-two turns.
+ */
 function trackFlagDetail(record: Record<string, unknown>): string {
   const flags: string[] = [];
   for (const key of ['muted', 'locked', 'hidden'] as const) {
     const value = record[key];
     if (typeof value === 'boolean') flags.push(value ? key : `un${key}`);
+  }
+  if ('role' in record) {
+    const role = record['role'];
+    flags.push(typeof role === 'string' ? `role: ${role}` : 'role cleared');
   }
   return flags.join(', ');
 }

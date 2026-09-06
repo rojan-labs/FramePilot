@@ -48,6 +48,14 @@ describe('describeOperation', () => {
     expect(d.action).toBe('Updated track');
     expect(d.detail).toBe('muted, unlocked');
     expect(d.refs).toEqual([{ kind: 'track', id: 'video_1', label: 'video_1' }]);
+    // The role is the label ducking works by; the note used to omit it and the run
+    // re-labelled the same track on twenty-two turns (cc907070).
+    expect(
+      describeOperation(op({ type: 'set_track_flags', trackId: 'a1', role: 'music' })).detail,
+    ).toBe('role: music');
+    expect(
+      describeOperation(op({ type: 'set_track_flags', trackId: 'a1', role: null })).detail,
+    ).toBe('role cleared');
   });
 
   it('labels the styling/timing/marker ops in editor language (no schema jargon)', () => {
