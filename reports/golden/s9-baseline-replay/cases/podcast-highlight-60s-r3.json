@@ -1,0 +1,405 @@
+{
+  "scenario": "podcast-highlight-60s",
+  "category": "highlight",
+  "project": "mission-podcast",
+  "run": 3,
+  "replayed": true,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+      "rubric": "podcast-highlight-60s",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "duration-within",
+          "ok": true,
+          "detail": "60.27s vs 60s ±10s",
+          "weight": 2
+        },
+        {
+          "id": "no-mid-word-cuts",
+          "ok": true,
+          "detail": "0 edge(s) inside a word",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "no-mid-word-cuts: 0 edge(s) inside a word",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 3,
+          "valid": 3,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 13,
+        "toolCalls": 8,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 1.593372,
+        "latency": {
+          "firstProgressMs": 14,
+          "doneMs": 46
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 3 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "Applied 5 changes, but the run could not finish: the self-check still fails — No words cut through: 1 cut(s) land inside a word: frame 805 = 26.833s (\"Starting\"). Move each boundary to the nearest word edge: read the word's startFrame/endFrame from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate (30) to trim_clip or split_clip — those take SECONDS, and a second between two frames is rounded to the nearest one, which is how a cut aimed at a word's edge lands inside it. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 5
+      },
+      "asked": [],
+      "assistantText": "**Applied 5 edits** in 3 steps, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–718s\n- Added clip Video 1 · 0s–26.833s\n- Added clip Video 1 · 26.833s–53.4s\n- Added clip Video 1 · 53.4s–62.067s\n- Trimmed clip speech-9min-c.mp4 · 53.4s–60.267s",
+      "recording": "reports/golden/s9-baseline-replay/recordings/podcast-highlight-60s-r3-t1.json",
+      "calls": [
+        {
+          "tool": "delete_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_001\""
+        },
+        {
+          "tool": "add_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clips: [{\"assetId\":\"asset_001\",…"
+        },
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": "start: 0, end: 62.067"
+        },
+        {
+          "tool": "trim_clip",
+          "status": "completed",
+          "args": "clipId: \"clip__video_1_asset_001…, start: 53.4, end: 60.28"
+        },
+        {
+          "tool": "get_timeline_summary",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "recall_evidence",
+          "status": "warning",
+          "args": "evidenceId: \"ev_1\", query: \"805 This fact\""
+        },
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": "start: 24, end: 30"
+        },
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": ""
+        }
+      ],
+      "metrics": {
+        "wallMs": 46,
+        "modelCalls": 13,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 1.593372,
+        "usageTokens": 162812,
+        "toolCalls": 8,
+        "toolCallsByName": {
+          "delete_clip": 1,
+          "add_clips": 1,
+          "get_mapped_transcript": 3,
+          "trim_clip": 1,
+          "get_timeline_summary": 1,
+          "recall_evidence": 1
+        },
+        "repeatedToolCalls": 2,
+        "analysisFromCache": 0,
+        "contextRequests": 22,
+        "contextByType": [
+          {
+            "system": 2512,
+            "retrieved_evidence": 2439,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2512,
+            "retrieved_evidence": 2439,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2594,
+            "retrieved_evidence": 2435,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2594,
+            "retrieved_evidence": 2435,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2639,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2639,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3664,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3664,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3615,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3615,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3677,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 3677,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 4120,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          },
+          {
+            "system": 4120,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          },
+          {
+            "system": 4010,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 4010,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 4146,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 4146,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 5247,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          },
+          {
+            "system": 5247,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          },
+          {
+            "system": 5669,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          },
+          {
+            "system": 5669,
+            "retrieved_evidence": 2467,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 15006
+          }
+        ],
+        "contextUsedTokens": [
+          13968,
+          7565,
+          14046,
+          7664,
+          14123,
+          7821,
+          15148,
+          10191,
+          15099,
+          10122,
+          15161,
+          10232,
+          23268,
+          10611,
+          15494,
+          10516,
+          15630,
+          10771,
+          24395,
+          13216,
+          24817,
+          13590
+        ],
+        "contextCachedTokens": [
+          null,
+          24245,
+          null,
+          24396,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          null,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          23145,
+          null,
+          23145
+        ],
+        "diffs": 3,
+        "validDiffs": 3,
+        "operations": 5,
+        "errors": [
+          "Applied 5 changes, but the run could not finish: the self-check still fails — No words cut through: 1 cut(s) land inside a word: frame 805 = 26.833s (\"Starting\"). Move each boundary to the nearest word edge: read the word's startFrame/endFrame from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate (30) to trim_clip or split_clip — those take SECONDS, and a second between two frames is rounded to the nearest one, which is how a cut aimed at a word's edge lands inside it. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 60.266666666666666,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "replay",
+  "model": "replay"
+}

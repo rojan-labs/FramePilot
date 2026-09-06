@@ -1,0 +1,233 @@
+{
+  "scenario": "reorder-last-first",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": true,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Move the last clip to the very beginning of the timeline.",
+      "rubric": "reorder-last-first",
+      "expectedIntent": "edit",
+      "score": 0.6,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "last-moved-first",
+          "ok": false,
+          "detail": "order is []",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": false,
+          "detail": "5 clip(s) before, 0 after, content differs",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "ask",
+          "ok": false
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "last-moved-first: order is []",
+            "content-preserved: 5 clip(s) before, 0 after, content differs"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 3,
+        "toolCalls": 2,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0.090537,
+        "latency": {
+          "firstProgressMs": 2,
+          "doneMs": 6
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 0.6,
+        "finalStatus": "completed",
+        "operations": 5
+      },
+      "asked": [],
+      "assistantText": "**Applied 5 edits** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–39.8s\n- Deleted range Video 1 · 39.8s–61.433s\n- Deleted range Video 1 · 61.433s–70.2s\n- Deleted range Video 1 · 70.2s–84.9s\n- Deleted range Video 1 · 84.9s–134.667s",
+      "recording": "reports/golden/s9-baseline-replay/recordings/reorder-last-first-r1-t1.json",
+      "calls": [
+        {
+          "tool": "delete_clips",
+          "status": "completed",
+          "args": "clipIds: [\"clip_001\",\"clip_002\",\"…"
+        },
+        {
+          "tool": "ask_user",
+          "status": "completed",
+          "args": "question: \"The video track is curr…, options: [{\"label\":\"Rebuild the s…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 6,
+        "modelCalls": 3,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 0.090537,
+        "usageTokens": 19227,
+        "toolCalls": 2,
+        "toolCallsByName": {
+          "delete_clips": 1,
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 6,
+        "contextByType": [
+          {
+            "system": 2536,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2536,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2596,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2596,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2656,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2656,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 18,
+            "tool_schemas": 7342
+          }
+        ],
+        "contextUsedTokens": [
+          11959,
+          5465,
+          11974,
+          5483,
+          12034,
+          5541
+        ],
+        "contextCachedTokens": [
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 5,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 0,
+        "pictureClips": 0,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 0
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "replay",
+  "model": "replay"
+}

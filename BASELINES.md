@@ -46,6 +46,76 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-baseline-replay` — 2026-09-07 (session 9) — **the session-9 floor: every session6 recording replayed under `main` at `03a2e31`; the beat-grid deletion (ADR 0174) took `beat-sync` r1 from 0.56 to 1.00**
+
+| | |
+| --- | --- |
+| commit | `03a2e31` (`main`, PR #79 merged) — code; evidence in this entry's commit on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | replay — none called; `session6` recordings copied under this label, sidecar up on :8799 |
+| media | `mission-montage`, `mission-talk`, `speech-9min-c` as `session6` recorded them |
+| cases × runs | 11 × 3 (40 turns) — every `session6` case whose recording is not the 14-byte outage stub |
+| voidTurns | 2 (`memory-captions` r3 t2/t3 — the outage stub; excluded from every rate) |
+| wall clock / tier-priced cost | ~3 min; $0.627 per accepted edit reproduced from the recordings, not re-billed |
+
+This is the **before** table for session 9. Every number here is a replay of session6's
+model answers under today's runtime, so a change to a prompt or tool description cannot
+move it; a change to a guard, a placer, a validator or a rubric can.
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 83% (33/40) |
+| target resolution | 72% |
+| boundary precision | 98% |
+| operation validity | 100% |
+| first-pass acceptance | 80% |
+| silent successes | 0 |
+| reversibility | 100% |
+| accepted edits | 32 |
+| tokens / accepted edit | 0 on replay (reproduced cost: $0.627 / accepted edit) |
+| model calls / turn p50 · p95 | 7 · 16 |
+| tool calls / turn p50 · p95 | 8 · 17 |
+| first progress / done | not meaningful on replay |
+| failure quality | 3 failures: 3 loud, 3 explained |
+
+### Per scenario
+
+| case | runs | score | intent | first-pass | undo | calls/run | USD/run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| montage-30s | 3 | 1.00 | 100% | 100% | 100% | 7 | $0.28 |
+| podcast-highlight-60s | 3 | 1.00 | 67% | 67% | 100% | 5 | $0.32 |
+| remove-dead-air | 3 | 1.00 | 100% | 100% | 100% | 3 | $0.13 |
+| beat-sync | 3 | 1.00 | 100% | 100% | 100% | 16 | $0.57 |
+| refine-tighten | 3 | 1.00 | 100% | 100% | 100% | 8 | $0.74 |
+| memory-captions | 3 | 1.00 | 71% | 71% | 100% | 8 | $1.95 |
+| trim-first-clip-10s | 3 | 1.00 | 100% | 100% | 100% | 4 | $0.09 |
+| trim-opening-10s | 3 | 1.00 | 100% | 100% | 100% | 5 | $0.12 |
+| reorder-last-first | 3 | 0.60 | 67% | 33% | 100% | 7 | $0.32 |
+| reorder-swap-first-two | 3 | 0.60 | 0% | 0% | 100% | 10 | $0.35 |
+| captions-plain | 3 | 1.00 | 100% | 100% | 100% | 8 | $0.57 |
+
+### What moved since `s8-replay-all` (same recordings)
+
+- **`beat-sync` r1: 29 calls / 5 ops / 0.56 → 32 calls / 39 ops / 1.00.** The recording's
+  fourteenth response always had every interior cut on a detected onset; under s8 the
+  same-wall guard's reprieve was not enough and r1 stopped one call short. ADR 0174 deleted
+  the beat-grid refusal on 2026-09-06 (`fix/agent-reliability-2026-09-06`, merged as PR #79),
+  so there is no wall to be stopped at and the recorded edit lands. First measurement of
+  that deletion on a recorded run; it was merged unmeasured.
+- Everything else byte-identical to `s8-replay-all` / `session6`: the six reorder runs still
+  read 0.60 (the recorded model never had `reorder_clips`), `memory-captions` r2 t1 still
+  carries one mid-word edge, `podcast-highlight-60s` r3 still fails at 13 calls.
+
+### Not evidence of
+- Anything the model would do NOW. Every `reorder-*` failure is the recorded model deleting
+  the track and asking; `reorder_clips` (ADR 0173) has never been sampled live.
+- The ten `s7-gapfill` cases (their recordings are gone) — nothing in this table covers
+  `broll-*`, `captions-uppercase-bottom`, `clarify-which-clip`, `compound-silence-captions`,
+  `guard-wipe-timeline`, `hook-strongest-line`, `impossible-8k-drone`, `music-bed-quiet`,
+  `vague-make-better`.
+- Latency: replay answers in milliseconds.
+
 ## run.md, tenth axis — 2026-09-06 (session 8) — **the brief against the delivered cut, clip by clip: a null result on the runtime, and the first proof the run understood the timecodes**
 
 **No run, no code.** The ninth axis read the final timeline for what was HIDDEN; this one
