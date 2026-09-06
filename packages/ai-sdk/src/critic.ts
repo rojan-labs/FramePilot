@@ -1933,6 +1933,27 @@ function checkWordSevered(
     .slice(0, 4)
     .map((s) => `frame ${s.frame} = ${round(s.seconds)}s ("${s.word}")`)
     .join(', ');
+  // A transcript that loops is not a transcript with a bad stretch in it — it is a
+  // recording the recogniser could not hear speech in, and the words OUTSIDE the loop are
+  // its guesses too. Run `cc907070` (a GoPro take of nothing but wind, "no dialogue
+  // anywhere" in the brief) had 2,431 words of which 2,382 were the loop; the other 49 —
+  // "Jake,", "try", "God." — were hallucinated over the same wind, and a cut inside one of
+  // them FAILED the run and its 65 applied changes. So under a loop this is a warning: the
+  // editor is told which cuts and why the words are suspect, and the run is not held to
+  // word boundaries nobody can vouch for.
+  if (loop !== undefined) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'warn',
+      `${severed.length} cut(s) land inside a transcribed word: ${where}${
+        severed.length > 4 ? ', …' : ''
+      }. The transcript repeats one phrase over ${String(Math.round(loop.share * 100))}% ` +
+        'of the recording — speech recognition looping over quiet audio — so the words ' +
+        'outside the loop cannot be trusted either, and these cuts are not counted as ' +
+        `defects. Re-transcribe before cutting on word timings.${aside}`,
+    );
+  }
   return check(
     'word_severed',
     'No words cut through',

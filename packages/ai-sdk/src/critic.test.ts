@@ -1988,19 +1988,26 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
       expect(report.ok).toBe(true);
     });
 
-    it('still fails on a cut inside real speech outside the loop', () => {
-      const real = [
+    it('warns, never fails, on a cut inside a word outside the loop', () => {
+      // Run `cc907070`: a wind-only GoPro take whose transcript was 2,382 loop words plus
+      // 49 others — "Jake,", "try", "God." — hallucinated over the same wind. A cut inside
+      // one of those failed the run and its 65 applied changes. The words outside a loop
+      // are the same recogniser's guesses over the same audio, so they are reported, not
+      // enforced.
+      const outside = [
         { word: 'severed', start: 5.5, end: 6.5 },
         { word: 'here', start: 6.5, end: 7 },
       ];
       const report = critique(
-        cutAt6([...real, ...repeated("i'll try to follow you later", 120, 20)]),
+        cutAt6([...outside, ...repeated("i'll try to follow you later", 120, 20)]),
         {},
       );
       expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
-      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'warn' });
       expect(idOf(report, 'word_severed')?.detail).toContain('severed');
+      expect(idOf(report, 'word_severed')?.detail).toContain('cannot be trusted either');
       expect(idOf(report, 'word_severed')?.detail).toContain('loop artefacts');
+      expect(report.ok).toBe(true);
     });
 
     it('is unchanged when the transcript is clean', () => {
