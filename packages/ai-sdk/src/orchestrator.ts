@@ -3827,10 +3827,23 @@ export class Orchestrator {
         // A look at the run's OWN edit is not reconnaissance either
         // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
         // `render_preview` on a recovery turn, and was told the turn was for acting.
+        //
+        // Progressive disclosure still holds here. This branch returned before the
+        // `loadedDomains` filter below, so a recovery turn advertised EVERY mutation in the
+        // registry — 62 tools against the 39 the run had been working with — which both
+        // re-billed the whole prompt prefix (the tool block sits above it in the cache) and
+        // handed a run that had loaded nothing the caption, colour, motion and tracking
+        // mutations it had never asked for. A domain the run has not loaded is as absent on
+        // a recovery turn as on any other, and `load_tools` rides along so a run that needs
+        // one can still ask for it — it costs no engine work and gathers nothing.
+        if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) {
+          return false;
+        }
         const effect = toolContract(tool).effectClass;
         return (
           effect === 'mutation' ||
           tool.kind === 'ask' ||
+          tool.name === 'load_tools' ||
           tool.name === 'recall_evidence' ||
           EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
           toolRole(tool.name, tool.mutates) === 'sourcing'

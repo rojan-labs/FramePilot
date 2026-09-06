@@ -878,7 +878,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11264,
+      "usedTokens": 11294,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -953,7 +953,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 468,
+            "tokenEstimate": 498,
             "included": true
           },
           {
@@ -968,9 +968,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11264,
+          "estimatedInputTokensBeforeSend": 11294,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180544,
+          "estimatedRemainingCapacity": 180514,
           "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
@@ -988,7 +988,7 @@
           "facts": 2,
           "evidenceHandles": 1,
           "remainingObjectives": 1,
-          "nextAction": "Continue apply: apply the committed plan."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },

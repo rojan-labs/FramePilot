@@ -291,7 +291,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 3,
+        "version": 5,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -303,9 +303,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -385,7 +387,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11673,
+      "usedTokens": 11678,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -460,7 +462,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 263,
+            "tokenEstimate": 268,
             "included": true
           },
           {
@@ -475,9 +477,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11673,
+          "estimatedInputTokensBeforeSend": 11678,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180135,
+          "estimatedRemainingCapacity": 180130,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -488,14 +490,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "plan",
           "projectRevision": 0,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue plan: commit the edit plan for the recorded objective."
         }
       }
     },
@@ -539,7 +541,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 3,
+        "version": 5,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -551,9 +553,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -632,7 +636,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 5,
+        "version": 7,
         "objective": {
           "request": "who is on screen?",
           "outcome": "who is on screen?",
@@ -644,9 +648,11 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "plan",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [],
@@ -698,7 +704,7 @@
         "blockedOn": {
           "reason": "Verification found: No traceable project mutation for the committed plan.",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "atStage": "inspect"
+          "atStage": "plan"
         },
         "integrity": {
           "status": "needs_review",
@@ -708,7 +714,7 @@
               "message": "Verification found: No traceable project mutation for the committed plan.",
               "stage": "verify",
               "blocking": true,
-              "atVersion": 4
+              "atVersion": 6
             }
           ]
         },

@@ -582,7 +582,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 7,
+        "version": 10,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -594,9 +594,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -607,7 +610,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -719,7 +722,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11826,
+      "usedTokens": 11211,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -801,14 +804,14 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 394,
+            "tokenEstimate": 400,
             "included": true
           },
           {
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6721,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -816,10 +819,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11826,
+          "estimatedInputTokensBeforeSend": 11211,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179982,
-          "toolSchemaTokensRebilled": 0,
+          "estimatedRemainingCapacity": 180597,
+          "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -829,14 +832,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 2,
-          "nextAction": "Continue inspect: Trim the dead air"
+          "nextAction": "Continue apply: Trim the dead air"
         }
       }
     },
@@ -888,7 +891,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 8,
+        "version": 11,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -900,9 +903,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -913,7 +919,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -986,7 +992,7 @@
         ],
         "verifications": [],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },
@@ -1029,7 +1035,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 19661,
+      "usedTokens": 9385,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1111,14 +1117,14 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 565,
+            "tokenEstimate": 572,
             "included": true
           },
           {
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15006,
+            "tokenEstimate": 4723,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1126,10 +1132,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 19661,
+          "estimatedInputTokensBeforeSend": 9385,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 172147,
-          "toolSchemaTokensRebilled": 15006,
+          "estimatedRemainingCapacity": 182423,
+          "toolSchemaTokensRebilled": 4723,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1139,7 +1145,7 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
@@ -1190,7 +1196,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 8,
+        "version": 11,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -1202,9 +1208,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -1215,7 +1224,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1288,7 +1297,7 @@
         ],
         "verifications": [],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },
@@ -1385,7 +1394,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1473,7 +1482,7 @@
           }
         ],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },

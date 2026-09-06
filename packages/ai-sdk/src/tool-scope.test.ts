@@ -2,6 +2,7 @@
 import { describe, expect, it } from 'vitest';
 import { TOOL_REGISTRY, type ToolSpec } from './tool-registry.js';
 import { MockProvider } from './providers/mock.js';
+import type { ToolDomain } from './tool-domains.js';
 import { Orchestrator } from './orchestrator.js';
 import type { RunStage } from './kernel/working-state.js';
 import {
@@ -134,6 +135,29 @@ describe('selectTools', () => {
         expect(surface.map((tool) => tool.name)).not.toContain(implicit);
       }
     }
+  });
+
+  it('keeps progressive disclosure on the action-recovery turn', () => {
+    // The recovery branch used to return before the loaded-domains filter, so a run that
+    // had loaded nothing was handed every mutation in the registry (62 tools against its
+    // 39) — a full prompt-prefix re-bill and the motion/colour/caption mutations it never
+    // asked for. `s9-live-reorder-fix1` r1, model call 4.
+    const orchestrator = new Orchestrator(new MockProvider());
+    const nothingLoaded = new Set<ToolDomain>();
+    const names = orchestrator
+      .agentTools('action-recovery', undefined, nothingLoaded)
+      .map((tool) => tool.name);
+    expect(names).toContain('trim_clip');
+    expect(names).toContain('reorder_clips');
+    expect(names).toContain('load_tools');
+    expect(names).not.toContain('set_clip_crop');
+    expect(names).not.toContain('caption_the_edit');
+    expect(names).not.toContain('apply_color_grade');
+    const withMotion = orchestrator
+      .agentTools('action-recovery', undefined, new Set<ToolDomain>(['motion']))
+      .map((tool) => tool.name);
+    expect(withMotion).toContain('set_clip_crop');
+    expect(withMotion).not.toContain('caption_the_edit');
   });
 
   it('lets explicit orchestrator setup select an implicit-only tool by name', () => {
