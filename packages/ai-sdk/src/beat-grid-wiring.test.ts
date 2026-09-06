@@ -33,6 +33,15 @@ const BEATS_PAYLOAD = {
  * source-time onsets above ARE the timeline grid. This is the normal montage case: the bed
  * was placed on an earlier turn.
  */
+/**
+ * Where in `asset_1` the montage pieces come from. The fixture's base clips already show
+ * source 0–10 s on `video_1`; a piece cut from the SAME frames at the SAME moment is refused
+ * as a same-frames duplicate (`timeline.ts#existingPlacement`, commit 23cddd2) before the
+ * beat grid ever sees it. These tests are about the grid, so the pieces are cut from later
+ * in the file — a different moment of the footage, laid over the base as a real montage is.
+ */
+const MONTAGE_SOURCE_OFFSET = 12;
+
 function montageProject() {
   const base = makeProject();
   return {
@@ -128,7 +137,7 @@ class MontageProvider implements AiProvider {
               assetId: 'asset_1',
               start: cut.start,
               end: cut.end,
-              sourceStart: cut.start,
+              sourceStart: MONTAGE_SOURCE_OFFSET + cut.start,
             },
           })),
         ],
@@ -426,7 +435,7 @@ describe('a run that auditions several tracks before choosing one', () => {
               assetId: 'asset_1',
               start: cut.start,
               end: cut.end,
-              sourceStart: cut.start,
+              sourceStart: MONTAGE_SOURCE_OFFSET + cut.start,
             },
           })),
         };
