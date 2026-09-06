@@ -8,6 +8,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An invented tool name is no longer reported as unfinished work.** The receipt listed
+  "Get track flags — never succeeded: There is no tool called…" as if a step of the brief
+  had been dropped; a name that was never a tool is left out of the "Not done" block.
 - **An effect that does not exist is said so, once.** Asked to "lift the sharpness", the
   AI searched the effect catalogue seven different ways and was told "no effects match (0
   in catalog)" each time. An empty search now names the query, the catalogue's real size

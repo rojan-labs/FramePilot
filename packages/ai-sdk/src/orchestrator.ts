@@ -6808,13 +6808,19 @@ export class Orchestrator {
         // The run-level record of what this tool managed. `data` over `summary` because a
         // repeat refusal's summary is the wrapper ("Refused repeat of …") while its `data`
         // is the ORIGINAL error — the sentence the editor needs in the "Not done" block.
-        toolAttempts.push({
-          tool: call.name,
-          status: outcome.status,
-          ...(outcome.status === 'failed'
-            ? { failureReason: typeof outcome.data === 'string' ? outcome.data : outcome.summary }
-            : {}),
-        });
+        // A name the registry has never heard of is not unfinished WORK — there was no
+        // tool to finish. Run `cc907070` invented `get_track_flags`, and its receipt told
+        // the editor "Get track flags — never succeeded: There is no tool called …" as if
+        // a step of the brief had been dropped.
+        if (getTool(call.name)) {
+          toolAttempts.push({
+            tool: call.name,
+            status: outcome.status,
+            ...(outcome.status === 'failed'
+              ? { failureReason: typeof outcome.data === 'string' ? outcome.data : outcome.summary }
+              : {}),
+          });
+        }
         if (outcome.rejectedOpCount) {
           rejectedOpCount += outcome.rejectedOpCount;
           rejectionNotes.push(outcome.note);
