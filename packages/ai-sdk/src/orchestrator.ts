@@ -1901,10 +1901,13 @@ export function arrangementLine(project: Project): string {
       const noRoom = blocked.has(track.id)
         ? ` — hidden behind picture 0–${round2(end)}s (a full-frame clip added here lands on a new front layer)`
         : '';
-      if (track.clips.length === 0) return `${track.id} [${track.type}] empty${noRoom}`;
+      // The mix role is part of the arrangement: it is what `professional_audio` ducks
+      // by, and a run that cannot see it re-labels the same track every turn.
+      const kind = track.role === undefined ? track.type : `${track.type} role:${track.role}`;
+      if (track.clips.length === 0) return `${track.id} [${kind}] empty${noRoom}`;
       const first = track.clips.reduce((m, c) => Math.min(m, c.start), Infinity);
       const last = track.clips.reduce((m, c) => Math.max(m, c.end), 0);
-      return `${track.id} [${track.type}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s${noRoom}`;
+      return `${track.id} [${kind}] ${String(track.clips.length)} clips ${round2(first)}–${round2(last)}s${noRoom}`;
     })
     .join('; ');
   return `Timeline now: sequence ${round2(end)}s, ${String(tracks.length)} tracks, ${String(clipCount)} clips — ${rows}`;
@@ -2122,7 +2125,12 @@ function timelineDigest(tracks: readonly Track[]): string {
   return [head]
     .concat(
       tracks.map((t) => {
-        const flags = [t.locked && 'locked', t.hidden && 'hidden', t.muted && 'muted']
+        const flags = [
+          t.role !== undefined && `role:${t.role}`,
+          t.locked && 'locked',
+          t.hidden && 'hidden',
+          t.muted && 'muted',
+        ]
           .filter(Boolean)
           .join(',');
         const style = t.captionStyle ? ` style: ${captionStyleLine(t.captionStyle)}` : '';
@@ -2648,7 +2656,7 @@ export function summarizeReadResult(
       return `${head}:\n${boundedRecords(
         tracks,
         (t) =>
-          `${String(t.id)} [${String(t.type)}] ${String(t.clipCount ?? 0)} clips${
+          `${String(t.id)} [${String(t.type)}${typeof t.role === 'string' ? ` role:${t.role}` : ''}] ${String(t.clipCount ?? 0)} clips${
             typeof t.firstClipStart === 'number' && typeof t.lastClipEnd === 'number'
               ? ` ${round2(t.firstClipStart)}–${round2(t.lastClipEnd)}s`
               : ''

@@ -711,7 +711,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'get_timeline_summary',
       description:
         'Return a compact overview of the timeline: total duration, and per track its ' +
-        'id, type, flags, clip count, and first/last clip times — plus marker and ' +
+        'id, type, flags, mix role, clip count, and first/last clip times — plus marker and ' +
         'transcript-word counts. Orient with this first on a large project; it is far ' +
         'cheaper than get_timeline, which dumps every clip.',
     },
@@ -733,6 +733,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         ...(track.muted !== undefined ? { muted: track.muted } : {}),
         ...(track.locked !== undefined ? { locked: track.locked } : {}),
         ...(track.hidden !== undefined ? { hidden: track.hidden } : {}),
+        // The mix role an editor (or set_track_flags) authored — the label duck_roles works
+        // by, and the one flag a run could not read back anywhere (run `cc907070`).
+        ...(track.role !== undefined ? { role: track.role } : {}),
       }));
       return {
         durationSeconds: tracks.reduce((max, t) => Math.max(max, t.lastClipEnd ?? 0), 0),

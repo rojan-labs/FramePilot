@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI can see which tracks carry a mix role.** After labelling its music track the AI
+  re-labelled it on twenty-two consecutive turns and finally reported that no track
+  carried a role, because none of the timeline views it reads showed one. The role now
+  appears on the layer line in its context, in the arrangement line, in `get_timeline`'s
+  digest and in `get_timeline_summary`.
 - **Music first is allowed.** Laying a bed with a duck target before any picture is on the
   timeline was refused ("names a track with no clips"), which sent the AI back with an
   unducked bed. When nothing on the timeline carries sound yet, the duck is accepted and

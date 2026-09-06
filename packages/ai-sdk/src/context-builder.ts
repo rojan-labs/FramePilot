@@ -350,7 +350,12 @@ export function summarizeTimeline(
   const lines = timeline.tracks.map((track, i) => {
     const z = i === 0 ? 'front' : i === count - 1 ? 'back' : 'mid';
     const kind = layerKindLabel(track.clips, assetKinds);
-    const head = `- Layer ${i + 1}/${count} (${z}, ${kind}) "${track.id}"`;
+    // The authored mix role rides on the line the model plans from. Without it a run that
+    // had labelled its music track kept re-labelling it — twenty-two turns of "labelling
+    // the music track so the duck has a target" in run `cc907070` — and later reported
+    // that "no track carries a role label" over a timeline where one did.
+    const role = track.role === undefined ? '' : `, role: ${track.role}`;
+    const head = `- Layer ${i + 1}/${count} (${z}, ${kind}${role}) "${track.id}"`;
     if (track.clips.length === 0) return `${head}: empty`;
     const span = clipsSpan(track.clips);
     const clips = renderTrackClips(track.clips, focus, maxClipsPerLayer, retrieval);

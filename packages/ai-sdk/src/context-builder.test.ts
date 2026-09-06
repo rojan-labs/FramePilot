@@ -86,6 +86,20 @@ describe('summaries', () => {
     expect(summarizeTranscript(long)).toContain('…(truncated)');
   });
 
+  it("shows a track's mix role on its layer line", () => {
+    // Run `cc907070` re-labelled its music track on twenty-two turns because nothing it
+    // read back showed the label had taken.
+    const tl = {
+      tracks: [
+        { id: 'bed', type: 'audio', role: 'music', clips: [] },
+        { id: 'v1', type: 'video', clips: [] },
+      ],
+    } as unknown as Timeline;
+    const text = summarizeTimeline(tl);
+    expect(text).toContain('role: music) "bed"');
+    expect(text).not.toContain('role: undefined');
+  });
+
   it('replaces a looping transcript with one sentence saying it is not usable', () => {
     // Run `cc907070`: a wind-only GoPro take whose transcript was 397 repeats of one phrase,
     // fed to the model as 3,000 tokens of "dialogue" on all 290 calls.
