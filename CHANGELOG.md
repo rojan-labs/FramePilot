@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A speed ramp no longer runs the clip into its neighbour.** "Fast in, slow on the
+  impact, back up after" on a clip inside a timed 60-second cut was refused five times
+  because the ramp recomputed the clip's length and overlapped the next shot. The AI's
+  `set_clip_speed_ramp` now keeps the clip's timeline length by default and fits the curve
+  into it (`keepDuration`), so the cut around it does not move; pass `keepDuration: false`
+  for the length-changing form. Splitting a ramped clip also keeps every ramp point inside
+  the piece it belongs to instead of failing validation.
+- **The perceptual review — and the export — of a speed-ramped clip with sound no longer
+  crashes.** The renderer's ramp time-map was handed a whole array of audio sample times
+  and tried to read it as one number (`only 0-dimensional arrays can be converted to Python
+  scalars`), which reported "Review could not run" on every edit carrying a ramp.
+- **Small argument slips are accepted instead of costing a turn.** `trim_clip` fills in
+  whichever edge you leave out from the clip; `search_stock`/`add_stock` accept "footage",
+  "clip", "image", "still" and similar words for the two stock kinds.
 - **A wind-only recording no longer fails the AI's self-check.** Speech recognition over a
   GoPro take with no dialogue produced one phrase repeated 397 times plus a handful of
   other invented words, and a cut landing inside one of those words was reported as a

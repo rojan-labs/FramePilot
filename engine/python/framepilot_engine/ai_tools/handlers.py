@@ -179,7 +179,15 @@ def _derive_id(*parts: str | float) -> str:
 
 
 def trim_clip(args: TrimClipArgs, ctx: ToolContext) -> Operations:
-    return [{"type": "trim_clip", "clipId": args.clip_id, "start": args.start, "end": args.end}]
+    found = _find_clip(ctx.project, args.clip_id)
+    start = args.start if args.start is not None else (found[1].start if found else None)
+    end = args.end if args.end is not None else (found[1].end if found else None)
+    if start is None or end is None:
+        raise ValueError(
+            f'trim_clip: no clip "{args.clip_id}" on the timeline to read the missing edge '
+            "from — get_clips lists the ids, or pass both start and end."
+        )
+    return [{"type": "trim_clip", "clipId": args.clip_id, "start": start, "end": end}]
 
 
 def split_clip(args: SplitClipArgs, ctx: ToolContext) -> Operations:
@@ -257,6 +265,8 @@ def set_clip_speed_ramp(args: SetClipSpeedRampArgs, ctx: ToolContext) -> Operati
         {
             "type": "set_clip_speed_ramp",
             "clipId": args.clip_id,
+            # Fitted by default, like the TS tool: the ramp lives inside a timed cut.
+            "keepDuration": True if args.keep_duration is None else args.keep_duration,
             "ramp": [
                 {
                     "id": f"ramp_{args.clip_id}_{index}",

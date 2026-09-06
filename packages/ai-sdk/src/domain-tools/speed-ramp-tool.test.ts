@@ -78,6 +78,10 @@ describe('set_clip_speed_ramp is reachable from the motion domain', () => {
     expect(ops[0]).toMatchObject({ type: 'set_clip_speed_ramp', clipId: 'clip_a' });
     const ramp = (ops[0] as { ramp: { rate: number; easing: string }[] }).ramp;
     expect(ramp.map((p) => p.rate)).toEqual([2, 0.25, 1]);
+    // Fitted into the clip's slot by default: a ramp lives inside a timed cut, and the
+    // length-changing form overlapped the next clip on all five attempts in run
+    // `cc907070`.
+    expect(ops[0]).toMatchObject({ keepDuration: true });
     expect(ramp.map((p) => p.easing)).toEqual(['linear', 'ease-out', 'linear']);
   });
 
@@ -93,9 +97,10 @@ describe('set_clip_speed_ramp is reachable from the motion domain', () => {
     expect(ramp.map((p) => p.id)).toEqual(['ramp_clip_a_0', 'ramp_clip_a_1']);
   });
 
-  it('applies cleanly and re-derives the clip length from the curve', () => {
+  it('applies cleanly and, with keepDuration off, re-derives the clip length from the curve', () => {
     const ops = call({
       clipId: 'clip_a',
+      keepDuration: false,
       ramp: [
         { sourceTime: 0, rate: 4 },
         { sourceTime: 2, rate: 2 },
@@ -120,5 +125,70 @@ describe('set_clip_speed_ramp is reachable from the motion domain', () => {
   it('clears the curve with ramp: null', () => {
     const ops = call({ clipId: 'clip_a', ramp: null });
     expect(ops[0]).toEqual({ type: 'set_clip_speed_ramp', clipId: 'clip_a', ramp: null });
+  });
+});
+
+describe('the fitted default keeps a packed cut intact', () => {
+  /** Two clips butted together, as a beat-timed montage is. */
+  const packed = (): Project =>
+    parseProject({
+      ...project(),
+      assets: [{ id: 'hero_asset', path: 'hero.mp4', kind: 'video', durationSeconds: 20 }],
+      timeline: {
+        tracks: [
+          {
+            id: 'v1',
+            type: 'video',
+            clips: [
+              { id: 'clip_a', assetId: 'hero_asset', trackId: 'v1', start: 0, end: 4, sourceStart: 0, sourceEnd: 4, effects: [], keyframes: [] },
+              { id: 'clip_b', assetId: 'hero_asset', trackId: 'v1', start: 4, end: 8, sourceStart: 10, sourceEnd: 14, effects: [], keyframes: [] },
+            ],
+          },
+        ],
+      },
+    });
+
+  it('lands a slow-motion ramp on a clip with a neighbour, and the neighbour does not move', () => {
+    const base = packed();
+    const ops = operationsForCall(
+      {
+        id: 'c1',
+        name: 'set_clip_speed_ramp',
+        arguments: {
+          clipId: 'clip_a',
+          ramp: [
+            { sourceTime: 0, rate: 2 },
+            { sourceTime: 1.5, rate: 0.25, easing: 'ease-out' },
+            { sourceTime: 2.5, rate: 1 },
+          ],
+        },
+      },
+      { project: base } as unknown as ToolContext,
+    );
+    const after = applyPatch(base.timeline, {
+      patchId: 'ramp' as PatchId,
+      createdBy: 'agent',
+      reason: 'fast in, slow on the impact, back up',
+      operations: ops,
+    } as Patch);
+    const [a, b] = after.tracks[0]!.clips;
+    expect([a!.start, a!.end]).toEqual([0, 4]);
+    expect([b!.start, b!.end]).toEqual([4, 8]);
+    expect(a!.speedRamp).toHaveLength(3);
+    expect(a!.sourceEnd).not.toBe(4);
+  });
+
+  it('keepDuration: false is the length-changing form, passed through as given', () => {
+    const ops = call({
+      clipId: 'clip_a',
+      keepDuration: false,
+      ramp: [
+        { sourceTime: 0, rate: 2 },
+        { sourceTime: 2, rate: 2 },
+      ],
+    });
+    expect(ops[0]).toMatchObject({ keepDuration: false });
+    // Clearing a ramp fits nothing, so the flag is not written at all.
+    expect(call({ clipId: 'clip_a', ramp: null })[0]).not.toHaveProperty('keepDuration');
   });
 });

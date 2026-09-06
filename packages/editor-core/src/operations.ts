@@ -469,6 +469,23 @@ export interface SetClipSpeedRampOp {
   readonly type: 'set_clip_speed_ramp';
   readonly clipId: string;
   readonly ramp: readonly SpeedPoint[] | null;
+  /**
+   * Keep the clip's TIMELINE length and fit the ramp into it, by changing how much source
+   * the clip consumes — instead of keeping the source range and letting the length change.
+   *
+   * WHY: a ramp is almost always placed inside a cut that is already locked — a montage
+   * timed to music, a sequence the editor said must not change length. Recomputing the
+   * length from the curve then runs the clip into its neighbour, and the validator refuses
+   * the overlap. Run `cc907070` asked for "fast in, slow on the impact, back up after" on a
+   * 60-second beat cut and was refused five times for exactly that, never landing the ramp.
+   *
+   * With this set: the source IN point and `end` stay put; `sourceEnd` becomes the point the
+   * curve reaches after the clip's current length (shorter when the ramp is mostly slow,
+   * longer when it is mostly fast — the rate past the last point is held, as `rateAt` does).
+   * The inverse is a track snapshot, since the prior source range is not re-derivable from
+   * the prior ramp. Default off, so every existing caller is unchanged.
+   */
+  readonly keepDuration?: boolean;
 }
 
 /**
@@ -1366,13 +1383,42 @@ function subtractRange(clip: Clip, start: Seconds, end: Seconds): Clip[] {
  * which is a different rate — the trim would silently change the speed of footage
  * it did not remove.
  */
-function rebaseSpeedRamp(clip: Clip, consumed: Seconds): SpeedPoint[] | undefined {
+function rebaseSpeedRamp(
+  clip: Clip,
+  consumed: Seconds,
+  /**
+   * The piece's own source span after the cut. Points past it are replaced by ONE
+   * synthetic point at the span carrying the rate the curve had there — the validator
+   * refuses a point outside the clip's source range, and a split's LEFT half used to keep
+   * the whole curve: run `cc907070` split a ramped clip and was told its 1.07s piece "has
+   * a speed-ramp point at source time 2.5s". Dropping the points outright would hold the
+   * last surviving rate flat across the tail instead of easing toward the cut.
+   */
+  span?: Seconds,
+): SpeedPoint[] | undefined {
   const ramp = clip.speedRamp;
   if (!ramp || ramp.length === 0) return clip.speedRamp;
-  if (Math.abs(consumed) < EPSILON) return ramp.map(clone);
+  const headTrimmed = Math.abs(consumed) >= EPSILON;
+  const inside = (p: SpeedPoint): boolean =>
+    p.sourceTime > consumed + EPSILON && (span === undefined || p.sourceTime < consumed + span - EPSILON);
   const later = ramp
-    .filter((p) => p.sourceTime > consumed + EPSILON)
-    .map((p) => ({ ...clone(p), sourceTime: p.sourceTime - consumed }));
+    .filter(inside)
+    .map((p) => (headTrimmed ? { ...clone(p), sourceTime: p.sourceTime - consumed } : clone(p)));
+  const tailCut =
+    span !== undefined && ramp.some((p) => p.sourceTime >= consumed + span - EPSILON)
+      ? [
+          {
+            id: `${clip.id}__ramp_tail`,
+            sourceTime: span,
+            rate: rateAt(ramp, consumed + span),
+            easing: 'linear' as const,
+          },
+        ]
+      : [];
+  if (!headTrimmed) {
+    const kept = ramp.filter((p) => p.sourceTime <= consumed + EPSILON).map(clone);
+    return [...kept, ...later, ...tailCut];
+  }
   const rateAtCut = rateAt(ramp, consumed);
   const head: SpeedPoint = {
     id: `${clip.id}__ramp_head`,
@@ -1382,7 +1428,7 @@ function rebaseSpeedRamp(clip: Clip, consumed: Seconds): SpeedPoint[] | undefine
     // of that segment keeps its shape rather than reverting to linear.
     easing: [...ramp].reverse().find((p) => p.sourceTime <= consumed + EPSILON)?.easing ?? 'linear',
   };
-  return [head, ...later];
+  return [head, ...later, ...tailCut];
 }
 
 /**
@@ -1563,7 +1609,7 @@ function truncateClip(clip: Clip, newStart: Seconds, newEnd: Seconds, id: string
   // Assigned rather than spread so an unramped clip does not grow an explicit
   // `speedRamp: undefined` key — which is deep-unequal to a clip that never had
   // one, and would make every trim of an ordinary clip fail an equality check.
-  const rebased = rebaseSpeedRamp(clip, headSource);
+  const rebased = rebaseSpeedRamp(clip, headSource, endSource - headSource);
   if (rebased !== undefined) next.speedRamp = rebased;
   return next;
 }
@@ -2498,6 +2544,20 @@ function applySetClipSpeedRamp(
     // would make the clip's stored data claim two different rates.
     delete next.speed;
   }
+  if (op.keepDuration === true && points.length > 0) {
+    // Fit the curve into the slot the clip already occupies (see the op's doc). The
+    // source span becomes whatever the curve consumes over the current length: inverted
+    // through `sourceTimeAt` while the existing footage suffices, and extended at the
+    // held tail rate past it. `end` and `keyframes` are untouched — nothing about the
+    // clip's timeline extent changed.
+    const slot = clip.end - clip.start;
+    const span = clip.sourceEnd - clip.sourceStart;
+    const whole = integrateRate(points, 0, span);
+    const consumed =
+      whole >= slot ? sourceTimeAt(points, 0, slot, span) : span + (slot - whole) * rateAt(points, span);
+    next.sourceEnd = clip.sourceStart + consumed;
+    return replaceClipAt(timeline, loc, next);
+  }
   const duration = clipTimelineDuration(next);
   if (duration !== null) {
     const fps = gridFps(context);
@@ -2807,6 +2867,10 @@ export function invertOperation(
       // drift accumulates over repeated speed edits. Restoring the track is exact.
       const { clip, track } = findClip(timelineBefore, op.clipId);
       if (clip.keyframes.length > 0) return [restoreFor(track)];
+      // A fitted ramp moved the SOURCE out point, which no same-shape speed op can put
+      // back: re-applying the prior rate recomputes `end` from the new range, not the
+      // old. The snapshot is exact.
+      if (op.type === 'set_clip_speed_ramp' && op.keepDuration === true) return [restoreFor(track)];
       return invertSpeedChange(timelineBefore, op.clipId, context);
     }
     case 'set_clip_crop': {

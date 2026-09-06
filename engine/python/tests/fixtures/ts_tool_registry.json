@@ -3795,6 +3795,11 @@
               "string"
             ]
           },
+          "keepDuration": {
+            "type": [
+              "boolean"
+            ]
+          },
           "ramp": {
             "type": [
               "array"
@@ -4522,9 +4527,7 @@
         ],
         "additionalProperties": false,
         "required": [
-          "clipId",
-          "end",
-          "start"
+          "clipId"
         ],
         "properties": {
           "clipId": {

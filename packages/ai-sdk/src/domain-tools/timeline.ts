@@ -219,7 +219,15 @@ const timelineWindowSchema = z
   .object({ start: seconds.optional(), end: seconds.optional() })
   .strict();
 
-const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }).strict();
+// Either edge may be omitted and the clip's current one stands: "trim the end to 12s" is
+// one number, and run `cc907070` sent exactly that and was refused with `start: expected
+// number, received undefined`. Both omitted is nothing to do, and is refused as such.
+const trimSchema = z
+  .object({ clipId: z.string(), start: seconds.optional(), end: seconds.optional() })
+  .strict()
+  .refine((a) => a.start !== undefined || a.end !== undefined, {
+    message: 'Give start, end, or both — the edge you leave out keeps its current value.',
+  });
 /**
  * The most placements one `add_clips` call may carry.
  *
@@ -973,14 +981,28 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'trim_clip',
       description:
-        "Set a clip's new start/end in timeline seconds; the source in/out shifts by " +
-        "the same amount. Use to tighten or extend one clip's edges. It cannot change " +
+        "Set a clip's new start and/or end in timeline seconds (leave one out to keep " +
+        'it); the source in/out shifts by the same amount. Use to tighten or extend one ' +
+        "clip's edges. It cannot change " +
         'WHERE IN THE ASSET a clip reads from while keeping its timeline position and ' +
         'length — to do that, delete_clip it and add_clip the same span with a different ' +
         'sourceStart.',
     },
     trimSchema,
-    (a) => [{ type: 'trim_clip', clipId: a.clipId, start: a.start, end: a.end }],
+    (a, ctx) => {
+      const found = findClipById(ctx.project.timeline, a.clipId);
+      // An unknown clip is left to the validator, which names the ids that do exist; the
+      // missing edge then has nothing to default to and is passed through as given.
+      const start = a.start ?? found?.clip.start ?? Number.NaN;
+      const end = a.end ?? found?.clip.end ?? Number.NaN;
+      if (!found && (Number.isNaN(start) || Number.isNaN(end))) {
+        throw new ToolRefusalError(
+          `trim_clip: no clip "${a.clipId}" on the timeline to read the missing edge from — ` +
+            'get_clips lists the ids, or pass both start and end.',
+        );
+      }
+      return [{ type: 'trim_clip', clipId: a.clipId, start, end }];
+    },
   ),
   mutateTool(
     {
@@ -1346,10 +1368,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         "Ramp a clip's speed over its length — fast in, slow on the moment, back up after. " +
         "Give points along the clip in SOURCE seconds from its own start (0 = the clip's " +
         'in point), each with a playback rate: [{sourceTime:0, rate:2}, {sourceTime:1.5, ' +
-        "rate:0.25}, {sourceTime:2.5, rate:1}]. The clip's timeline length is recomputed " +
-        'from the ramp. ramp: null clears it back to a constant speed. Use this for a ' +
-        'slow-motion emphasis on an impact or a landing; use set_clip_speed when one rate ' +
-        'covers the whole clip.',
+        "rate:0.25}, {sourceTime:2.5, rate:1}]. By default the clip KEEPS its timeline " +
+        'length and the curve is fitted into it by changing how much source it consumes ' +
+        '(keepDuration: true) — the cut around it does not move, and neighbours are never ' +
+        'overlapped. Pass keepDuration: false to keep the source range instead and let the ' +
+        "clip's length follow the curve; later clips on the track must then have room. " +
+        'ramp: null clears it back to a constant speed. Use this for a slow-motion ' +
+        'emphasis on an impact or a landing; use set_clip_speed when one rate covers the ' +
+        'whole clip.',
       capabilities: ['edit', 'timing'],
     },
     z
@@ -1368,12 +1394,17 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .min(2)
           .max(24)
           .nullable(),
+        keepDuration: boolean().optional(),
       })
       .strict(),
     (a) => [
       {
         type: 'set_clip_speed_ramp',
         clipId: a.clipId,
+        // Fitted by default: a ramp lives inside a cut that is already timed, and the
+        // length-changing form ran into the next clip on every attempt in run
+        // `cc907070`. `ramp: null` clears the curve; there is nothing to fit.
+        ...(a.ramp === null ? {} : { keepDuration: a.keepDuration ?? true }),
         ramp:
           a.ramp === null
             ? null

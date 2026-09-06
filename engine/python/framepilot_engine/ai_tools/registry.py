@@ -88,10 +88,20 @@ class NoArgs(BaseModel):
 
 
 class TrimClipArgs(BaseModel):
+    """Either edge may be omitted and keeps its current value (mirrors ``trimSchema``)."""
+
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
-    start: float = Field(ge=0.0)
-    end: float = Field(ge=0.0)
+    start: float | None = Field(default=None, ge=0.0)
+    end: float | None = Field(default=None, ge=0.0)
+
+    @model_validator(mode="after")
+    def _one_edge(self) -> TrimClipArgs:
+        if self.start is None and self.end is None:
+            raise ValueError(
+                "Give start, end, or both — the edge you leave out keeps its current value."
+            )
+        return self
 
 
 class SplitClipArgs(BaseModel):
@@ -131,6 +141,7 @@ class SetClipSpeedRampArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
     ramp: list[SpeedRampPointArgs] | None = Field(alias="ramp")
+    keep_duration: bool | None = Field(default=None, alias="keepDuration")
 
 
 class ReorderClipsArgs(BaseModel):

@@ -184,6 +184,33 @@ def _apply_crop(source: Any, clip: Clip) -> Any:
 _SPEED_DURATION_TOLERANCE_SECONDS = 0.05
 
 
+def ramped_time_map(ramp: list[Any], max_source: float) -> Any:
+    """The ``time_transform`` callable for a speed-ramped clip.
+
+    MoviePy hands the picture a scalar ``t`` and the AUDIO a whole array of sample
+    times at once — ``AudioClip.get_frame`` is vectorised, and so is every sampler
+    that reads it (the export writer, the temporal-evidence review). ``float(t)`` on
+    that array raised ``only 0-dimensional arrays can be converted to Python scalars``,
+    which killed the perceptual review of every edit carrying a ramp (run
+    ``cc907070``: "Review could not run … (4 reviews)") and would kill the export
+    of a ramped clip with sound. Scalars stay scalars; an array maps element-wise.
+    """
+
+    def _scalar(t: float) -> float:
+        return source_time_at(ramp, 0.0, float(t), max_source)
+
+    def _map(t: Any) -> Any:
+        if np.ndim(t) == 0:
+            return _scalar(t)
+        times = np.asarray(t, dtype=np.float64)
+        mapped = np.fromiter(
+            (_scalar(x) for x in times.ravel()), dtype=np.float64, count=times.size
+        )
+        return mapped.reshape(times.shape)
+
+    return _map
+
+
 def _apply_speed(source: Any, clip: Clip) -> Any:
     speed = clip.speed
     expected_duration = clip.end - clip.start
@@ -195,11 +222,9 @@ def _apply_speed(source: Any, clip: Clip) -> Any:
                 "A speed curve describes how footage is consumed; there is none here."
             )
         max_source = float(clip.source_end) - float(clip.source_start)
-
-        def _ramped_source_time(t: float) -> float:
-            return source_time_at(ramp, 0.0, float(t), max_source)
-
-        remapped = source.time_transform(_ramped_source_time, apply_to=["mask", "audio"])
+        remapped = source.time_transform(
+            ramped_time_map(ramp, max_source), apply_to=["mask", "audio"]
+        )
         return remapped.with_duration(expected_duration)
     if speed is None or speed == 1.0:
         return source

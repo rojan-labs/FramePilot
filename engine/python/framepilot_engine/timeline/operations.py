@@ -23,7 +23,12 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, Field
 
-from framepilot_engine.effects.speed_curve import clip_timeline_duration
+from framepilot_engine.effects.speed_curve import (
+    clip_timeline_duration,
+    integrate_rate,
+    rate_at,
+    source_time_at,
+)
 from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
 from framepilot_engine.timeline.models import (
     AudioRole,
@@ -126,6 +131,9 @@ class SetClipSpeedRamp(_Operation):
     type: Literal["set_clip_speed_ramp"] = "set_clip_speed_ramp"
     clip_id: str = Field(alias="clipId")
     ramp: list[SpeedPoint] | None = None
+    #: Keep the clip's timeline length and fit the curve into it by moving the source out
+    #: point (mirrors ``SetClipSpeedRampOp.keepDuration``; see that doc for why).
+    keep_duration: bool | None = Field(default=None, alias="keepDuration")
 
 
 class ReorderClips(_Operation):
@@ -917,8 +925,7 @@ def _apply_reorder_clips(
         if clip_id in seen:
             raise OperationError(
                 "invalid_order",
-                f"reorder_clips: clip '{clip_id}' is listed twice. "
-                f"Each clip appears exactly once.",
+                f"reorder_clips: clip '{clip_id}' is listed twice. Each clip appears exactly once.",
             )
         seen.add(clip_id)
     if len(seen) != len(track.clips):
@@ -1394,6 +1401,21 @@ def _apply_set_clip_speed_ramp(
         # clip's stored data claim two different rates.
         update["speed"] = None
     next_clip = _clone_clip(clip).model_copy(update=update)
+    if op.keep_duration and points and clip.source_end is not None:
+        # Fit the curve into the slot the clip occupies: the source span becomes what the
+        # curve consumes over the current length — inverted while the footage suffices,
+        # extended at the held tail rate past it. ``end`` is untouched.
+        slot = clip.end - clip.start
+        span = clip.source_end - clip.source_start
+        whole = integrate_rate(points, 0.0, span)
+        consumed = (
+            source_time_at(points, 0.0, slot, span)
+            if whole >= slot
+            else span + (slot - whole) * rate_at(points, span)
+        )
+        return _replace_clip_at(
+            timeline, loc, next_clip.model_copy(update={"source_end": clip.source_start + consumed})
+        )
     duration = clip_timeline_duration(next_clip)
     if duration is not None:
         exact_end = clip.start + duration

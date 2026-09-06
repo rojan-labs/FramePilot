@@ -277,9 +277,10 @@ def test_analysis_tools_reject_bad_args(ctx: ToolContext) -> None:
 
 
 def test_missing_required_arg_raises(ctx: ToolContext) -> None:
+    # ``trim_clip`` fills a missing edge from the clip now; ``split_clip`` still needs ``at``.
     with pytest.raises(ToolInputError) as exc:
-        run_tool("trim_clip", {"clipId": "A", "start": 1.0}, ctx)  # no ``end``
-    assert exc.value.name == "trim_clip"
+        run_tool("split_clip", {"clipId": "A"}, ctx)  # no ``at``
+    assert exc.value.name == "split_clip"
     assert exc.value.validation_error is not None
 
 
@@ -679,6 +680,33 @@ def test_set_clip_speed_ramp(ctx: ToolContext, project: Project) -> None:
     # Ids are derived, never taken from the caller.
     assert [p["id"] for p in op["ramp"]] == ["ramp_A_0", "ramp_A_1", "ramp_A_2"]
     assert [p["easing"] for p in op["ramp"]] == ["linear", "ease-out", "linear"]
+    # Fitted into the clip's slot by default, like the TS tool (run cc907070).
+    assert op["keepDuration"] is True
+
+
+def test_set_clip_speed_ramp_can_let_the_length_follow_the_curve(
+    ctx: ToolContext, project: Project
+) -> None:
+    result = run_tool(
+        "set_clip_speed_ramp",
+        {
+            "clipId": "A",
+            "keepDuration": False,
+            "ramp": [{"sourceTime": 0.0, "rate": 2.0}, {"sourceTime": 3.0, "rate": 2.0}],
+        },
+        ctx,
+    )
+    assert result.operations is not None
+    assert result.operations[0]["keepDuration"] is False
+
+
+def test_trim_clip_fills_the_edge_that_was_left_out(ctx: ToolContext, project: Project) -> None:
+    """``trim_clip {clipId, end}`` was refused with ``start: expected number`` (cc907070)."""
+    result = run_tool("trim_clip", {"clipId": "A", "end": 2.5}, ctx)
+    assert result.operations is not None
+    op = result.operations[0]
+    clip_a = next(c for t in project.timeline.tracks for c in t.clips if c.id == "A")
+    assert op == {"type": "trim_clip", "clipId": "A", "start": clip_a.start, "end": 2.5}
 
 
 def test_set_clip_speed_ramp_null_clears_it(ctx: ToolContext, project: Project) -> None:

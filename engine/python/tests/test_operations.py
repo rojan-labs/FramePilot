@@ -1164,3 +1164,34 @@ def test_move_layer_reorders_with_clamp() -> None:
 )
 def test_new_operation_roundtrips(op: Operation) -> None:
     _roundtrip(op)
+
+
+def test_speed_ramp_keep_duration_fits_the_curve_into_the_slot() -> None:
+    """``keepDuration`` keeps ``end`` and moves the source out point (run cc907070).
+
+    A ramp inside a timed cut used to recompute the clip's length and run into its
+    neighbour; fitted, the neighbour is untouched and half speed over 4s of timeline
+    consumes 2s of footage. Mirrors ``operations.test.ts``.
+    """
+    from framepilot_engine.timeline.operations import SetClipSpeedRamp
+
+    ramp = [
+        {"id": "p1", "sourceTime": 0.0, "rate": 0.5, "easing": "linear"},
+        {"id": "p2", "sourceTime": 4.0, "rate": 0.5, "easing": "linear"},
+    ]
+    op = SetClipSpeedRamp.model_validate(
+        {"type": "set_clip_speed_ramp", "clipId": "A", "ramp": ramp, "keepDuration": True}
+    )
+    after = apply_operation(_timeline(), op)
+    a = next(c for c in _clips(after, "v") if c.id == "A")
+    assert (a.start, a.end) == (0.0, 4.0)
+    assert a.source_end is not None
+    assert a.source_end - a.source_start == pytest.approx(2.0, abs=1e-4)
+    b = next(c for c in _clips(after, "v") if c.id == "B")
+    assert (b.start, b.end) == (5.0, 9.0)
+    # Without the flag the length follows the curve, exactly as before.
+    grown = apply_operation(_timeline(), SetClipSpeedRamp.model_validate(
+        {"type": "set_clip_speed_ramp", "clipId": "A", "ramp": ramp}
+    ))
+    grown_a = next(c for c in _clips(grown, "v") if c.id == "A")
+    assert grown_a.end == pytest.approx(8.0, abs=1e-6)
