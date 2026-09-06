@@ -41,6 +41,27 @@ import { getTool } from './tool-registry.js';
 import type { Project } from '@framepilot/timeline-schema';
 
 const input: ContextInput = { project: makeProject(), userPrompt: 'tighten the intro' };
+/**
+ * The same project holding the extra assets a test dispatches analyses on. Asset existence
+ * is now decided BEFORE a host call (`unknownAssetRefusal`), so a stub executor is never
+ * reached for an id the project does not hold — which is the product behaviour, and not
+ * what these concurrency/compaction tests are about.
+ */
+const withAssets = (base: ContextInput, ...ids: string[]): ContextInput => ({
+  ...base,
+  project: {
+    ...base.project,
+    assets: [
+      ...base.project.assets,
+      ...ids.map((id) => ({
+        id,
+        path: `media/${id}.mp4`,
+        kind: 'video' as const,
+        durationSeconds: 30,
+      })),
+    ],
+  },
+});
 const opts = (signal?: AbortSignal): StreamOptions => ({
   conversationId: 'conv_1',
   turnId: 'turn_1',
@@ -849,8 +870,7 @@ describe('streamEdit variations (H1.5/P13.1 — opt-in "A/B compare")', () => {
       new Orchestrator(new UsageProvider()).streamEdit(input, opts(), { variations: true }),
     );
     const usage = events.find((e) => e.type === 'usage') as
-      | { tokens: number; usd: number }
-      | undefined;
+      { tokens: number; usd: number } | undefined;
     expect(usage).toBeDefined();
     // Two candidates × (100 + 50) tokens = 300 — the SUM, not just one candidate's usage.
     expect(usage?.tokens).toBe(300);
@@ -897,8 +917,7 @@ describe('streamEdit variations (H1.5/P13.1 — opt-in "A/B compare")', () => {
       new Orchestrator(new MockProvider()).streamEdit(input, opts(), { variations: true }),
     );
     const usage = events.find((e) => e.type === 'usage') as
-      | { tokens: number; usd: number }
-      | undefined;
+      { tokens: number; usd: number } | undefined;
     expect(usage).toEqual(expect.objectContaining({ type: 'usage', tokens: 0, usd: 0 }));
   });
 
@@ -2014,6 +2033,128 @@ describe('streamAgent', () => {
     ).not.toContain('chosen from timings alone');
   });
 
+  // GOLDEN-C.19. Run `137d8fd0` closed a seven-part brief with "Applied 416 edits … but the
+  // run did not finish cleanly" and never said that captioning had been refused eleven times
+  // and never once succeeded. The receipt could account for work that landed and work the
+  // validator refused — never for work that was never delivered at all.
+  describe('the "Not done" block', () => {
+    const oneEdit = [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation];
+    const base = { ops: oneEdit, steps: 1, rejectedOpCount: 0, rejectionReasons: [] };
+
+    it('names the plan steps the run never completed, with their real status', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: [
+          { id: 's1', label: 'Cut the silences', status: 'completed' },
+          { id: 's2', label: 'Caption the edit', status: 'failed' },
+          { id: 's3', label: 'Lift the sharpness', status: 'pending' },
+          { id: 's4', label: 'Balance the audio', status: 'running' },
+        ],
+      });
+      expect(report).toContain('**Not done:**');
+      expect(report).toContain('- Caption the edit — failed');
+      expect(report).toContain('- Lift the sharpness — pending');
+      expect(report).toContain('- Balance the audio — running');
+      // The step that WAS delivered is accounted for by the edit list, not here.
+      expect(report).not.toContain('Cut the silences');
+    });
+
+    it('names the tools that never succeeded, with the last reason', () => {
+      const report = agentCompletionReport({
+        ...base,
+        neverSucceeded: [
+          { tool: 'caption_the_edit', reason: 'add_caption_layer.end must be greater than start.' },
+          { tool: 'professional_audio', reason: 'no audio track on the timeline' },
+        ],
+      });
+      expect(report).toContain(
+        '- Caption the edit — never succeeded: add_caption_layer.end must be greater than start.',
+      );
+      expect(report).toContain('- Professional audio — never succeeded: no audio track');
+    });
+
+    it('trims a reason written for the model down to one line', () => {
+      const report = agentCompletionReport({
+        ...base,
+        neverSucceeded: [{ tool: 'professional_audio', reason: `${'x'.repeat(400)}\n\nmore` }],
+      });
+      const line = report.split('\n').find((l) => l.includes('never succeeded')) ?? '';
+      expect(line.endsWith('…')).toBe(true);
+      expect(line.length).toBeLessThan(220);
+    });
+
+    it('caps at six lines and counts the rest', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: Array.from({ length: 8 }, (_, i) => ({
+          id: `s${String(i)}`,
+          label: `Step ${String(i)}`,
+          status: 'pending' as const,
+        })),
+      });
+      const lines = report.split('\n').filter((l) => l.startsWith('- Step '));
+      expect(lines).toHaveLength(6);
+      expect(report).toContain('- …and 2 more');
+    });
+
+    it('is silent when the plan finished and every tool eventually worked', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: [{ id: 's1', label: 'Cut the silences', status: 'completed' }],
+        neverSucceeded: [],
+      });
+      expect(report).not.toContain('Not done');
+      // …and a caller that tracks neither is unchanged.
+      expect(agentCompletionReport(base)).not.toContain('Not done');
+    });
+
+    it('sits after Skipped and before the caveats', () => {
+      const report = agentCompletionReport({
+        ...base,
+        rejectedOpCount: 1,
+        rejectionReasons: ['overlaps a neighbour'],
+        neverSucceeded: [{ tool: 'professional_audio', reason: 'no audio track' }],
+        deliverableFileRequested: true,
+      });
+      expect(report.indexOf('**Skipped:**')).toBeLessThan(report.indexOf('**Not done:**'));
+      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Export dialog'));
+    });
+
+    it('reaches the report from a real run: a tool that only ever failed is named', async () => {
+      // The wiring end to end — settled tool cards → run ledger → report. `add_transition`
+      // with a missing required argument fails deterministically on every attempt, which is
+      // the shape of the eleven refused captioning calls in run `137d8fd0`.
+      const provider = new ScriptedProvider([
+        {
+          text: 'cutting',
+          toolCalls: [
+            deleteRange('c1', 0, 3),
+            { id: 'x', name: 'add_transition', arguments: { trackId: 'video_1' } },
+          ],
+        },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+      const report = events.filter((e) => e.type === 'assistant_message').at(-1);
+      const text = report?.type === 'assistant_message' ? report.text : '';
+      expect(text).toContain('**Applied 1 edit**');
+      expect(text).toContain('**Not done:**');
+      expect(text).toMatch(/- Adding a transition — never succeeded: \S/);
+      // The tool that worked is not in there.
+      expect(text).not.toContain('Deleting a range — never succeeded');
+    });
+
+    it('survives cancellation — the stopped run is the one that needs it most', () => {
+      const report = agentCompletionReport({
+        ...base,
+        cancelled: true,
+        planSteps: [{ id: 's1', label: 'Caption the edit', status: 'pending' }],
+      });
+      expect(report).toContain('before you stopped the run');
+      expect(report).toContain('- Caption the edit — pending');
+    });
+  });
+
   it('uses singular wording for exactly one skipped change', () => {
     const report = agentCompletionReport({
       ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],
@@ -2184,6 +2325,30 @@ describe('streamAgent', () => {
     // The briefing, steering and action log ride in the same message as the tiers, so the
     // account names the remainder rather than silently under-reporting the prompt.
     expect(labels).toContain('additional request content');
+  });
+
+  /**
+   * The remainder row exists for the briefing, the steering and the action log. It was
+   * also swallowing the run-stable head — the agent contract, the committed plan and every
+   * pinned playbook — because `assembleContext` does not build that block and nothing else
+   * accounted for it. In run `137d8fd0` the row was **32,338 tokens, 57% of every
+   * request**, reported as a `system` section, and ADR 0080's promise that "a change in
+   * the number always arrives with its cause attached" failed for the largest number in
+   * the run. The actual system contract is 135 tokens.
+   */
+  it('attributes the run-stable head instead of bucketing it as the remainder', async () => {
+    const events = await drain(
+      new Orchestrator(new MockProvider()).streamAgent(input, opts(), { maxSteps: 1 }),
+    );
+    const usage = events.find((e) => e.type === 'context_usage');
+    const sections = usage?.type === 'context_usage' ? usage.manifest.sections : [];
+    const labels = sections.map((s) => s.label);
+    expect(labels).toContain('agent contract');
+    const contract = sections.find((s) => s.label === 'agent contract');
+    expect(contract?.tokenEstimate).toBeGreaterThan(0);
+    // No playbook is pinned on this turn, so no playbook row is drawn — a zero-token row
+    // would be a line item for nothing.
+    expect(labels).not.toContain('pinned playbooks (0)');
   });
 
   it('defaults the clock when absent; a run that never edits emits no diff', async () => {
@@ -2801,10 +2966,10 @@ describe('streamAgent robustness (parity with agent())', () => {
       // call that keeps producing can never reach an interval — see the re-arm count.
       const timers = handFiredTimers();
       const longStream: readonly ProviderChunk[] = [
-        ...Array.from(
-          { length: 200 },
-          (_, i): ProviderChunk => ({ type: 'text-delta', text: `word${String(i)} ` }),
-        ),
+        ...Array.from({ length: 200 }, (_, i): ProviderChunk => ({
+          type: 'text-delta',
+          text: `word${String(i)} `,
+        })),
         { type: 'tool-call', call: deleteRange('a', 0, 1) },
         { type: 'done' },
       ];
@@ -4258,7 +4423,9 @@ describe('streamAgent concurrent read batches (E1)', () => {
         return { status: 'completed' as const, summary: 'ok', data: {} };
       },
     };
-    const events = await drain(new Orchestrator(provider, { executor }).streamAgent(input, opts()));
+    const events = await drain(
+      new Orchestrator(provider, { executor }).streamAgent(withAssets(input, 'asset_2'), opts()),
+    );
     // Both engine round-trips were in flight at once — the latency win exists…
     expect(maxActive).toBe(2);
     // …while the observable order stayed serial.
@@ -4892,7 +5059,7 @@ describe('streamAgent micro-compaction of old tool results (E2)', () => {
     // so the budget falls to its floor and micro-compaction engages. That also makes this
     // an end-to-end test of the degradation path the budget promises for small models.
     const cramped: ContextInput = {
-      ...input,
+      ...withAssets(input, 'asset_2', 'asset_3', 'asset_4'),
       budget: { contextWindow: 24_000, maxOutputTokens: 8_192 },
     };
     const provider = new ScriptedProvider([
@@ -5045,6 +5212,78 @@ describe('streamAgent cached-read action recovery', () => {
   // had never made the sentence was false. Run e30c1fe9 was told its `add_stock` was
   // "redundant — its result is already in this run"; nothing had been downloaded, and the
   // model believed it and moved on without footage.
+  /**
+   * Run `137d8fd0`, turn 7: fresh from `search_stock`, the model asked to `describe_footage`
+   * five `stock_pexels_<id>` asset ids it had built from catalogue rows not yet downloaded.
+   * The stage refusal came first and said "unavailable this turn"; the true answer — no such
+   * asset, add it first — was never given, and the run described no stock footage at all.
+   */
+  it('refuses a withheld call for a missing asset by the asset, not by the stage', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      {
+        text: 'describe',
+        toolCalls: [
+          { id: 'd1', name: 'describe_footage', arguments: { assetId: 'stock_pexels_30597982' } },
+        ],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('no asset "stock_pexels_30597982"');
+    expect(summary).not.toContain('held back');
+    const note = JSON.stringify(provider.requests[3]?.messages ?? []);
+    expect(note).toMatch(/Known asset ids: asset_1/);
+    expect(note).toMatch(/add_stock/);
+  });
+
+  it('still refuses by the stage when the asset exists — the rule itself is unchanged', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      {
+        text: 'describe',
+        toolCalls: [{ id: 'd1', name: 'describe_footage', arguments: { assetId: 'asset_1' } }],
+      },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 6 }),
+    );
+    const refused = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd1');
+    const summary = refused?.type === 'tool_result' ? refused.summary : '';
+    expect(summary).toContain('held back');
+  });
+
+  it('refuses the same invented asset a second time as a repeat, not a fresh refusal', async () => {
+    const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
+    const bad = (id: string) => ({
+      id,
+      name: 'describe_footage',
+      arguments: { assetId: 'stock_pexels_nope' },
+    });
+    const provider = new ScriptedProvider([
+      { text: 'read', toolCalls: [read('r1')] },
+      { text: 'read again', toolCalls: [read('r2')] },
+      { text: 'describe', toolCalls: [bad('d1')] },
+      { text: 'describe again', toolCalls: [bad('d2')] },
+      { text: 'done', toolCalls: [] },
+    ]);
+    const events = await drain(
+      new Orchestrator(provider).streamAgent(input, opts(), { maxSteps: 8 }),
+    );
+    const second = events.find((e) => e.type === 'tool_result' && e.toolCallId === 'd2');
+    const summary = second?.type === 'tool_result' ? second.summary : '';
+    expect(summary).toMatch(/Refused repeat|already failed/i);
+  });
+
   it('says a withheld tool is unavailable, not redundant, when it holds no such result', async () => {
     const read = (id: string) => ({ id, name: 'get_timeline', arguments: {} });
     const provider = new ScriptedProvider([
@@ -5061,7 +5300,12 @@ describe('streamAgent cached-read action recovery', () => {
       (event) => event.type === 'tool_result' && event.toolCallId === 'b1',
     );
     const summary = refused?.type === 'tool_result' ? refused.summary : '';
-    expect(summary).toContain('unavailable this turn');
+    // The card says it was HELD BACK and why — not that it was redundant, which is the
+    // distinction this test exists for. The wording changed on 2026-09-05: "unavailable
+    // this turn" told the editor nothing about the reason or the duration, and run
+    // `137d8fd0` showed five of them stacked with no explanation on any.
+    expect(summary).toContain('held back');
+    expect(summary).toContain('acting on what has been gathered');
     expect(summary).not.toContain('redundant');
     // And the model is told what the turn IS for, so it has somewhere to go.
     const note = JSON.stringify(provider.requests[3]?.messages ?? []);

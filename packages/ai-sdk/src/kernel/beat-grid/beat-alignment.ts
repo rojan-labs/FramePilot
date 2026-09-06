@@ -123,6 +123,9 @@ const REPORTED_MISS_LIMIT = 6;
 const PICTURE_TRACK_TYPES: ReadonlySet<string> = new Set(['video', 'overlay']);
 
 /** The outcome of applying the grid rule to one proposal. */
+/** The refusal classes the beat grid can reach — the guard key, never the message. */
+export type BeatRejectionKey = 'ungrounded' | 'off-grid' | 'sub-frame';
+
 export type BeatAlignmentResult =
   | {
       readonly ok: true;
@@ -144,7 +147,37 @@ export type BeatAlignmentResult =
        */
       readonly ungrounded?: string;
     }
-  | { readonly ok: false; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly error: string;
+      /**
+       * The refusal's STABLE identity, free of the numbers that vary between attempts.
+       *
+       * `error` names the exact offending cuts, which is what the model needs in order to
+       * fix them — and which made the run's repeated-rejection guard useless: in
+       * `beat-sync` r1 twenty-nine consecutive turns were refused by this same rule, and
+       * because the enumerated off-grid times differed each time, the sentences differed
+       * and `conductor.ts#repeatedRejection` never matched. Twenty minutes and $3.93. The
+       * specifics belong in the message; the identity belongs here.
+       */
+      readonly reasonKey: BeatRejectionKey;
+      /**
+       * HOW MUCH of the proposal this refusal is still refusing — the number of boundaries
+       * that failed the rule, not a severity. Shrinks as the run fixes cuts.
+       *
+       * {@link reasonKey} says the run hit the same wall again; this says whether it is
+       * getting through it. `beat-sync` r3 of `session6` was refused eleven times running
+       * by `off-grid` while its off-grid count fell 12 → 10 → … → 4 → 2, and its twelfth
+       * proposal was the one that landed 35 operations. Under `rejectionKey` alone every
+       * one of those turns read as the same non-progress, the stall streak reached
+       * `conductor.ts#STALL_CONFIRM_TURNS` at the eleventh, and the run stopped one turn before
+       * the edit it was converging on (5 ops, score 0.56, against 40 ops and 1.00).
+       *
+       * Absent where the refusal has no size — `ungrounded` is "the analysed music is not
+       * on the timeline", which is true or false and never partly fixed.
+       */
+      readonly reasonScale?: number;
+    };
 
 /** A time value belonging to one operation, and how to write a new value back. */
 interface Boundary {
@@ -312,6 +345,7 @@ export function alignBeatBackedBoundaries(
       });
       return {
         ok: false,
+        reasonKey: 'ungrounded',
         error:
           'you declared hard sync, so every interior picture cut must land on a detected ' +
           `onset — but ${reason}`,
@@ -392,6 +426,8 @@ export function alignBeatBackedBoundaries(
       });
       return {
         ok: false,
+        reasonKey: 'off-grid',
+        reasonScale: misses.length,
         error:
           'you declared hard sync, so every interior picture cut must land on a detected ' +
           `onset. Off-grid: ${list}. Replace each with the detected onset time exactly as ` +
@@ -427,6 +463,8 @@ export function alignBeatBackedBoundaries(
   if (collapsed.length > 0) {
     return {
       ok: false,
+      reasonKey: 'sub-frame',
+      reasonScale: collapsed.length,
       error:
         `${String(collapsed.length)} picture clip(s) are shorter than one frame once their ` +
         'boundaries sit on real onsets. Use a wider pair of onsets for those cuts — ' +

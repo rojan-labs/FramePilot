@@ -6,6 +6,7 @@ from typing import Any
 
 import pytest
 
+from framepilot_engine.render.frame_grid import is_on_frame_grid
 from framepilot_engine.timeline.models import (
     BlendMode,
     CaptionStyle,
@@ -37,6 +38,7 @@ from framepilot_engine.timeline.operations import (
     RemoveKeyframes,
     RemoveKeyframeTarget,
     RemoveLayer,
+    ReorderClips,
     RestoreClips,
     RippleDelete,
     SetCaptionStyle,
@@ -713,6 +715,51 @@ def test_set_track_flags_only_touches_named_flags() -> None:
     assert audio.locked is False and audio.hidden is False  # untouched flags unchanged
 
 
+def _role_of(timeline: Timeline, track_id: str) -> str | None:
+    return next(t for t in timeline.tracks if t.id == track_id).role
+
+
+def test_set_track_flags_labels_an_audio_track() -> None:
+    """``Track.role`` shipped readable and unwritable after creation.
+
+    ``add_layer`` set it and nothing else could, so ``duck_roles`` asked for a label no
+    surface could apply. This is the write path, and it must behave identically in both
+    runtimes or the same patch labels a track in TypeScript and not here.
+    """
+    result = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="dialogue"))
+    assert _role_of(result, "a") == "dialogue"
+
+
+def test_set_track_flags_leaves_the_label_alone_when_role_is_absent() -> None:
+    labelled = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    after = apply_operation(labelled, SetTrackFlags(track_id="a", muted=True))
+    assert _role_of(after, "a") == "music"
+
+
+def test_set_track_flags_clears_the_label_on_an_explicit_null() -> None:
+    # Absent and explicit-null differ, and the difference is read from the fields that
+    # were SET, not from the value — ``None`` is the clear instruction.
+    labelled = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    cleared = apply_operation(labelled, SetTrackFlags(track_id="a", role=None))
+    assert _role_of(cleared, "a") is None
+
+
+def test_labelling_a_track_is_reversible() -> None:
+    # The inverse of "label it" is an explicit clear, or undo leaves the label behind on
+    # a track that never had one.
+    _roundtrip(SetTrackFlags(track_id="a", role="dialogue"))
+
+
+def test_relabelling_a_track_is_reversible() -> None:
+    before = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    _roundtrip(SetTrackFlags(track_id="a", role="dialogue"), before)
+
+
+def test_clearing_a_label_is_reversible() -> None:
+    before = apply_operation(_timeline(), SetTrackFlags(track_id="a", role="music"))
+    _roundtrip(SetTrackFlags(track_id="a", role=None), before)
+
+
 # --- error paths -------------------------------------------------------------
 
 
@@ -919,6 +966,110 @@ def test_set_clip_speed_source_end_none_treated_as_1to1() -> None:
     )
     slowed = apply_operation(timeline, SetClipSpeed(clip_id="A", speed=0.5))
     assert _clips(slowed, "v")[0].end == 8.0
+
+
+def _reorder_timeline() -> Timeline:
+    """Five clips of unequal length butted end to end — the montage shape of the run."""
+    return Timeline(
+        tracks=[
+            Track(
+                id="v",
+                type=TrackType.VIDEO,
+                clips=[
+                    _clip("c1", "v", 0, 2),
+                    _clip("c2", "v", 2, 5),
+                    _clip("c3", "v", 5, 6),
+                    _clip("c4", "v", 6, 10),
+                    _clip("c5", "v", 10, 11),
+                ],
+            )
+        ]
+    )
+
+
+def test_reorder_clips_moves_the_last_clip_first_without_losing_any() -> None:
+    before = _reorder_timeline()
+    after = apply_operation(
+        before, ReorderClips(track_id="v", clip_ids=["c5", "c1", "c2", "c3", "c4"]), fps=30
+    )
+    assert [c.id for c in _clips(after, "v")] == ["c5", "c1", "c2", "c3", "c4"]
+    assert len(_clips(after, "v")) == len(_clips(before, "v"))
+
+
+def test_reorder_clips_is_gapless_on_the_grid_and_matches_ts() -> None:
+    after = apply_operation(
+        _reorder_timeline(),
+        ReorderClips(track_id="v", clip_ids=["c5", "c1", "c2", "c3", "c4"]),
+        fps=30,
+    )
+    assert [(c.start, c.end) for c in _clips(after, "v")] == [
+        (0.0, 1.0),
+        (1.0, 3.0),
+        (3.0, 6.0),
+        (6.0, 7.0),
+        (7.0, 11.0),
+    ]
+
+
+def test_reorder_clips_anchors_at_the_earliest_start_not_at_zero() -> None:
+    timeline = Timeline(
+        tracks=[
+            Track(
+                id="v", type=TrackType.VIDEO, clips=[_clip("a", "v", 4, 6), _clip("b", "v", 6, 7)]
+            )
+        ]
+    )
+    after = apply_operation(timeline, ReorderClips(track_id="v", clip_ids=["b", "a"]), fps=30)
+    assert [(c.start, c.end) for c in _clips(after, "v")] == [(4.0, 5.0), (5.0, 7.0)]
+
+
+def test_reorder_clips_refuses_a_partial_list_and_names_the_omissions() -> None:
+    with pytest.raises(OperationError) as exc:
+        apply_operation(_reorder_timeline(), ReorderClips(track_id="v", clip_ids=["c5", "c1"]))
+    assert exc.value.code == "invalid_order"
+    assert "Missing: c2, c3, c4" in str(exc.value)
+
+
+def test_reorder_clips_refuses_a_duplicate_and_an_unknown_clip() -> None:
+    with pytest.raises(OperationError) as dup:
+        apply_operation(
+            _reorder_timeline(),
+            ReorderClips(track_id="v", clip_ids=["c1", "c1", "c2", "c3", "c4"]),
+        )
+    assert dup.value.code == "invalid_order"
+    with pytest.raises(OperationError) as unknown:
+        apply_operation(
+            _reorder_timeline(),
+            ReorderClips(track_id="v", clip_ids=["c9", "c1", "c2", "c3", "c4"]),
+        )
+    assert unknown.value.code == "missing_clip"
+
+
+def test_reorder_clips_round_trips() -> None:
+    _roundtrip(
+        ReorderClips(track_id="v", clip_ids=["c5", "c4", "c3", "c2", "c1"]), _reorder_timeline()
+    )
+
+
+def test_set_clip_speed_off_grid_without_fps_matches_the_ts_default() -> None:
+    """No fps means the pre-grid arithmetic, unchanged — the TS default too."""
+    fast = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=1.3))
+    assert _clips(fast, "v")[0].end == pytest.approx(4 / 1.3, abs=1e-12)
+
+
+def test_set_clip_speed_snaps_the_retimed_end_to_the_project_grid() -> None:
+    """Mirror of ``retime-frame-grid.test.ts``: 4s of source at 1.3x on a 30fps grid."""
+    fast = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=1.3), fps=30)
+    end = _clips(fast, "v")[0].end
+    assert end == pytest.approx(92 / 30, abs=1e-12)
+    assert is_on_frame_grid(end, 30)
+
+
+def test_set_clip_speed_never_collapses_the_clip_at_an_extreme_rate() -> None:
+    frozen = apply_operation(_timeline(), SetClipSpeed(clip_id="A", speed=600), fps=30)
+    clip = _clips(frozen, "v")[0]
+    assert clip.end > clip.start
+    assert clip.end - clip.start == pytest.approx(1 / 30, abs=1e-12)
 
 
 @pytest.mark.parametrize("bad", [0, -1, float("inf"), float("nan")])

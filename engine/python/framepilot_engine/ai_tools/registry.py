@@ -37,7 +37,7 @@ from pydantic import BaseModel, BeforeValidator, ConfigDict, Field, field_valida
 
 from framepilot_engine.ai_tools.tool_descriptions_generated import TOOL_DESCRIPTIONS
 from framepilot_engine.render.caption_templates import load_catalog
-from framepilot_engine.timeline.models import BlendMode, CaptionStyle, CropRect
+from framepilot_engine.timeline.models import AudioRole, BlendMode, CaptionStyle, CropRect
 
 _log = logging.getLogger(__name__)
 
@@ -114,6 +114,31 @@ class MoveClipArgs(BaseModel):
     clip_id: str = Field(alias="clipId")
     to_track_id: str = Field(alias="toTrackId")
     to_start: float = Field(alias="toStart", ge=0.0)
+
+
+class SpeedRampPointArgs(BaseModel):
+    """One point on a clip's speed curve (schema v15, ADR 0090)."""
+
+    model_config = _STRICT
+    source_time: float = Field(alias="sourceTime", ge=0.0)
+    rate: float = Field(alias="rate", gt=0.0)
+    easing: Literal["linear", "ease-in", "ease-out", "ease-in-out", "hold", "bezier"] | None = None
+
+
+class SetClipSpeedRampArgs(BaseModel):
+    """Ramp a clip's speed over its length; ``ramp: None`` clears it."""
+
+    model_config = _STRICT
+    clip_id: str = Field(alias="clipId")
+    ramp: list[SpeedRampPointArgs] | None = Field(alias="ramp")
+
+
+class ReorderClipsArgs(BaseModel):
+    """A track and ALL of its clip ids in the order they should play (ADR 0173)."""
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    clip_ids: list[str] = Field(alias="clipIds", min_length=1, max_length=500)
 
 
 class AddClipEntry(BaseModel):
@@ -579,18 +604,30 @@ class TranscribeArgs(BaseModel):
 
 
 class SetTrackFlagsArgs(BaseModel):
-    """Mute/lock/hide a track (schema v4). Only provided flags change."""
+    """Mute/lock/hide a track, or label an audio track with its mix role.
+
+    ``role`` is the write path for ``Track.role`` (schema v17), which shipped readable
+    and settable only at layer creation — so ``duck_roles`` asked for a label no surface
+    could apply. ``None`` CLEARS it, and absent leaves it alone; the difference is read
+    from ``model_fields_set``, mirroring the TS tool where ``null`` clears.
+    """
 
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
     muted: bool | None = None
     locked: bool | None = None
     hidden: bool | None = None
+    role: AudioRole | None = None
 
     @model_validator(mode="after")
     def _at_least_one_flag(self) -> SetTrackFlagsArgs:
-        if self.muted is None and self.locked is None and self.hidden is None:
-            raise ValueError("Set at least one of muted/locked/hidden.")
+        if (
+            self.muted is None
+            and self.locked is None
+            and self.hidden is None
+            and "role" not in self.model_fields_set
+        ):
+            raise ValueError("Set at least one of muted/locked/hidden/role.")
         return self
 
 
@@ -1226,9 +1263,26 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=RangeOnTrackArgs,
         mutating=True,
     ),
+    "reorder_clips": _spec(
+        "reorder_clips",
+        "Change the ORDER of the clips on one track. Give the track and ALL of its "
+        "clip ids in the order you want them; nothing is deleted and nothing is added.",
+        kind="mutate",
+        input_model=ReorderClipsArgs,
+        mutating=True,
+    ),
+    "set_clip_speed_ramp": _spec(
+        "set_clip_speed_ramp",
+        "Ramp a clip's speed over its length — fast in, slow on the moment, back up "
+        "after. ramp: null clears it back to a constant speed.",
+        kind="mutate",
+        input_model=SetClipSpeedRampArgs,
+        mutating=True,
+    ),
     "move_clip": _spec(
         "move_clip",
-        "Move a clip to a track at a new timeline start time (duration unchanged).",
+        "Move ONE clip to a track at a new timeline start time (duration unchanged). "
+        "To change the order of a track's clips, use reorder_clips instead.",
         kind="mutate",
         input_model=MoveClipArgs,
         mutating=True,
@@ -1333,8 +1387,8 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         # contract. Without this the agent could add animation and never take it
         # off, so "stop zooming on that shot" had no tool to answer it.
         "Take animation OFF a clip: clear one property entirely, or remove a single "
-        "keyframe at a time. `{property: \"scale\"}` clears every scale keyframe, "
-        "`{property: \"scale\", time: 2}` removes just the one two seconds in. Times "
+        'keyframe at a time. `{property: "scale"}` clears every scale keyframe, '
+        '`{property: "scale", time: 2}` removes just the one two seconds in. Times '
         "are seconds from the clip's start. Removing something that is not there "
         "changes nothing rather than failing.",
         kind="mutate",
@@ -1479,7 +1533,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "set_track_flags": _spec(
         "set_track_flags",
-        "Mute/unmute, lock/unlock, or hide/show a track (schema v4).",
+        "Mute/unmute, lock/unlock, hide/show, or label a track with its mix role.",
         kind="mutate",
         input_model=SetTrackFlagsArgs,
         mutating=True,

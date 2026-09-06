@@ -23,6 +23,8 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.effects.speed_curve import clip_timeline_duration
+from framepilot_engine.render.frame_grid import frame_to_seconds, seconds_to_frame
 from framepilot_engine.timeline.models import (
     AudioRole,
     BlendMode,
@@ -31,6 +33,7 @@ from framepilot_engine.timeline.models import (
     CropRect,
     Effect,
     Keyframe,
+    SpeedPoint,
     Timeline,
     Track,
     TrackType,
@@ -106,6 +109,37 @@ class MoveClip(_Operation):
     clip_id: str = Field(alias="clipId")
     to_track_id: str = Field(alias="toTrackId")
     to_start: float = Field(alias="toStart")
+
+
+class SetClipSpeedRamp(_Operation):
+    """Replace a clip's speed CURVE and re-derive its timeline duration (schema v15, ADR 0090).
+
+    Mirrors ``packages/editor-core/src/operations.ts#SetClipSpeedRampOp``. The renderer
+    has understood ``Clip.speed_ramp`` since v15 (``render/compiler.py``,
+    ``effects/speed_curve.py``); what was missing was the operation that puts one there,
+    and the AI tool that reaches it — which is why run ``137d8fd0`` named "the speed ramp
+    at the wipeout" as outstanding six times over 48 minutes and never produced one.
+
+    ``ramp: None`` (or empty) clears the curve back to a constant speed.
+    """
+
+    type: Literal["set_clip_speed_ramp"] = "set_clip_speed_ramp"
+    clip_id: str = Field(alias="clipId")
+    ramp: list[SpeedPoint] | None = None
+
+
+class ReorderClips(_Operation):
+    """Re-lay a track's clips in a given order, in ONE operation (ADR 0173).
+
+    Mirrors ``packages/editor-core/src/operations.ts#ReorderClipsOp``; see that
+    docstring for the runs this exists because of. ``clip_ids`` is a permutation of
+    the track's clips, never a subset, and nothing is added or removed — which is
+    what makes a reorder unable to lose footage even if the run stops right after it.
+    """
+
+    type: Literal["reorder_clips"] = "reorder_clips"
+    track_id: str = Field(alias="trackId")
+    clip_ids: list[str] = Field(alias="clipIds")
 
 
 class RippleDelete(_Operation):
@@ -345,6 +379,17 @@ class SetTrackFlags(_Operation):
     locked: bool | None = None
     hidden: bool | None = None
     muted: bool | None = None
+    #: Mix role for an audio track (schema v17), or ``None`` to CLEAR it.
+    #:
+    #: Absent and explicit-null differ here and the distinction is read from
+    #: ``model_fields_set``, not from the value: an omitted ``role`` leaves the label
+    #: alone, ``"role": null`` removes it. That mirrors the TS ``SetTrackFlagsOp``, where
+    #: ``undefined`` means "leave" and ``null`` means "clear".
+    #:
+    #: Without this field Pydantic would drop it silently (the default is ``ignore``), so
+    #: the same patch would label a track in TypeScript and not label it here — the
+    #: cross-runtime divergence the operation mirror exists to prevent.
+    role: AudioRole | None = None
 
 
 class SetEffectParams(_Operation):
@@ -453,6 +498,8 @@ Operation = Annotated[
     | SplitClip
     | DeleteRange
     | MoveClip
+    | ReorderClips
+    | SetClipSpeedRamp
     | RippleDelete
     | AddClip
     | AddTextOverlay
@@ -483,6 +530,7 @@ _OperationCode = Literal[
     "missing_effect",
     "invalid_range",
     "invalid_split",
+    "invalid_order",
     "invalid_transition",
     "duplicate_clip",
     "duplicate_layer",
@@ -623,19 +671,46 @@ def _insert_clip(timeline: Timeline, track_id: str, clip: Clip) -> Timeline:
 # ---------------------------------------------------------------------------
 
 
-def apply_operation(timeline: Timeline, operation: Operation) -> Timeline:
+def apply_operation(
+    timeline: Timeline, operation: Operation, *, fps: float | None = None
+) -> Timeline:
     """Apply ``operation`` to ``timeline``, returning a new immutable timeline.
 
     The input timeline is never mutated.
 
     :param timeline: The timeline to transform.
     :param operation: The operation to apply.
+    :param fps: Project frame rate, when the caller knows it. Read by the two ops that
+        carry no time field and therefore cannot be reached by ``normalize_operation_time``:
+        ``set_clip_speed``, whose invented duration (``source_duration / speed``) is
+        almost never a whole number of frames, and ``reorder_clips``, which derives every
+        start by accumulation.
+        ``None`` means "behave exactly as before" — mirrors
+        ``packages/editor-core/src/operations.ts#ApplyContext``.
     :returns: A new :class:`Timeline`.
     :raises OperationError: If the op references missing entities or would
         produce an invalid timeline.
     """
+    if fps is not None:
+        if isinstance(operation, SetClipSpeed):
+            return _apply_set_clip_speed(timeline, operation, fps=fps)
+        if isinstance(operation, ReorderClips):
+            return _apply_reorder_clips(timeline, operation, fps=fps)
+        if isinstance(operation, SetClipSpeedRamp):
+            return _apply_set_clip_speed_ramp(timeline, operation, fps=fps)
     handler = _APPLY[operation.type]
     return handler(timeline, operation)
+
+
+def _snap_retimed_end(start: float, end: float, fps: float) -> float:
+    """Resolve a retimed clip's ``end`` onto the project frame grid.
+
+    Frame arithmetic rather than a bare snap, so an extreme rate can never collapse
+    the clip onto its own start frame. Mirrors ``operations.ts#snapRetimedEnd``.
+    """
+    start_frame = seconds_to_frame(start, fps)
+    end_frame = max(start_frame + 1, seconds_to_frame(end, fps))
+    return frame_to_seconds(end_frame, fps)
 
 
 def _source_range_rejection(label: str, clip: Clip, source_start: float, source_end: float) -> str:
@@ -817,6 +892,73 @@ def _apply_move(timeline: Timeline, op: MoveClip) -> Timeline:
     )
     dest_clips = after_removal.tracks[dest_index].clips
     return _with_track_clips(after_removal, dest_index, _sort_by_start([*dest_clips, moved]))
+
+
+def _apply_reorder_clips(
+    timeline: Timeline, op: ReorderClips, *, fps: float | None = None
+) -> Timeline:
+    """Lay ``op.clip_ids`` out gaplessly on their track, preserving every duration.
+
+    Frame-domain arithmetic when the caller knows the fps, seconds otherwise — laying
+    five clips end to end in seconds accumulates float error into every boundary after
+    the first. Mirrors ``operations.ts#applyReorderClips`` number for number.
+    """
+    track, track_index = _find_track(timeline, op.track_id)
+    by_id = {c.id: c for c in track.clips}
+
+    seen: set[str] = set()
+    for clip_id in op.clip_ids:
+        if clip_id not in by_id:
+            raise OperationError(
+                "missing_clip",
+                f"reorder_clips: clip '{clip_id}' is not on track '{op.track_id}'. "
+                f"List exactly that track's clips, each once, in the order you want them.",
+            )
+        if clip_id in seen:
+            raise OperationError(
+                "invalid_order",
+                f"reorder_clips: clip '{clip_id}' is listed twice. "
+                f"Each clip appears exactly once.",
+            )
+        seen.add(clip_id)
+    if len(seen) != len(track.clips):
+        missing = [c.id for c in track.clips if c.id not in seen]
+        shown = ", ".join(missing[:8])
+        rest = f", and {len(missing) - 8} more" if len(missing) > 8 else ""
+        raise OperationError(
+            "invalid_order",
+            f"reorder_clips lists {len(op.clip_ids)} of track '{op.track_id}''s "
+            f"{len(track.clips)} clips; it must list them all. Missing: {shown}{rest}.",
+        )
+
+    anchor = min(c.start for c in track.clips)
+    reordered: list[Clip] = []
+    if fps is None:
+        cursor = anchor
+        for clip_id in op.clip_ids:
+            clip = by_id[clip_id]
+            duration = clip.end - clip.start
+            reordered.append(
+                _clone_clip(clip).model_copy(update={"start": cursor, "end": cursor + duration})
+            )
+            cursor += duration
+    else:
+        frame = seconds_to_frame(anchor, fps)
+        for clip_id in op.clip_ids:
+            clip = by_id[clip_id]
+            # At least one frame: a sub-frame clip must still occupy a boundary, or the
+            # next clip starts where this one does and the track acquires an overlap.
+            frames = max(1, seconds_to_frame(clip.end, fps) - seconds_to_frame(clip.start, fps))
+            reordered.append(
+                _clone_clip(clip).model_copy(
+                    update={
+                        "start": frame_to_seconds(frame, fps),
+                        "end": frame_to_seconds(frame + frames, fps),
+                    }
+                )
+            )
+            frame += frames
+    return _with_track_clips(timeline, track_index, reordered)
 
 
 def _apply_add_clip(timeline: Timeline, op: AddClip) -> Timeline:
@@ -1145,11 +1287,16 @@ def _apply_track_object(timeline: Timeline, op: TrackObject) -> Timeline:
 def _apply_set_track_flags(timeline: Timeline, op: SetTrackFlags) -> Timeline:
     track, index = _find_track(timeline, op.track_id)
     # Only flags this op targets (value is not None) change; clips are untouched.
-    update = {
+    update: dict[str, Any] = {
         flag: value
         for flag, value in (("locked", op.locked), ("hidden", op.hidden), ("muted", op.muted))
         if value is not None
     }
+    # ``role`` is keyed on PRESENCE, not on truthiness: ``None`` is the clear instruction,
+    # so "was it provided" is the only question, and the flags' ``is not None`` test would
+    # read a clear as "leave alone".
+    if "role" in op.model_fields_set:
+        update["role"] = op.role
     tracks = list(timeline.tracks)
     tracks[index] = track.model_copy(update=update)
     return timeline.model_copy(update={"tracks": tracks})
@@ -1194,7 +1341,9 @@ def _apply_set_caption_style(timeline: Timeline, op: SetCaptionStyle) -> Timelin
     )
 
 
-def _apply_set_clip_speed(timeline: Timeline, op: SetClipSpeed) -> Timeline:
+def _apply_set_clip_speed(
+    timeline: Timeline, op: SetClipSpeed, *, fps: float | None = None
+) -> Timeline:
     loc = _find_clip(timeline, op.clip_id)
     speed = op.speed if op.speed is not None else 1.0
     if not (speed == speed and abs(speed) != float("inf")) or speed <= 0:
@@ -1208,12 +1357,51 @@ def _apply_set_clip_speed(timeline: Timeline, op: SetClipSpeed) -> Timeline:
     source_duration = source_end - clip.source_start
     # Canonicalize 1x as *absent* (``None``): a reset lands on a timeline deep-equal
     # to a clip that never had a speed set (mirrors the TS canonical form).
+    exact_end = clip.start + source_duration / speed
+    end = exact_end if fps is None else _snap_retimed_end(clip.start, exact_end, fps)
     next_clip = _clone_clip(clip).model_copy(
         update={
-            "end": clip.start + source_duration / speed,
+            "end": end,
             "speed": None if abs(speed - 1.0) <= _EPSILON else speed,
         }
     )
+    return _replace_clip_at(timeline, loc, next_clip)
+
+
+def _apply_set_clip_speed_ramp(
+    timeline: Timeline, op: SetClipSpeedRamp, *, fps: float | None = None
+) -> Timeline:
+    """Mirror of ``operations.ts#applySetClipSpeedRamp``, frame snap included."""
+    loc = _find_clip(timeline, op.clip_id)
+    clip = loc.clip
+    points = list(op.ramp or [])
+    for point in points:
+        # A non-positive rate makes the integral divergent and the mapping
+        # non-invertible, so it must never reach the render. Mirrors TS's defensive
+        # re-validation; the typed model is the primary gate.
+        if not (point.rate > 0.0) or point.rate != point.rate:
+            raise OperationError(
+                "invalid_speed",
+                f"set_clip_speed_ramp received an invalid rate for clip '{op.clip_id}': "
+                f"{point.rate}.",
+            )
+    update: dict[str, Any] = {}
+    if not points:
+        update["speed_ramp"] = None
+    else:
+        update["speed_ramp"] = [p.model_copy(deep=True) for p in points]
+        # A ramp overrides the constant rate entirely; a stale ``speed`` would make the
+        # clip's stored data claim two different rates.
+        update["speed"] = None
+    next_clip = _clone_clip(clip).model_copy(update=update)
+    duration = clip_timeline_duration(next_clip)
+    if duration is not None:
+        exact_end = clip.start + duration
+        next_clip = next_clip.model_copy(
+            update={
+                "end": exact_end if fps is None else _snap_retimed_end(clip.start, exact_end, fps)
+            }
+        )
     return _replace_clip_at(timeline, loc, next_clip)
 
 
@@ -1276,6 +1464,7 @@ _APPLY: dict[str, Callable[[Timeline, Any], Timeline]] = {
     "delete_range": _apply_delete_range,
     "ripple_delete": _apply_ripple_delete,
     "move_clip": _apply_move,
+    "reorder_clips": _apply_reorder_clips,
     "add_clip": _apply_add_clip,
     "add_text_overlay": _apply_add_text_overlay,
     "add_caption_layer": _apply_add_caption_layer,
@@ -1290,6 +1479,7 @@ _APPLY: dict[str, Callable[[Timeline, Any], Timeline]] = {
     "set_effect_params": _apply_set_effect_params,
     "set_caption_style": _apply_set_caption_style,
     "set_clip_speed": _apply_set_clip_speed,
+    "set_clip_speed_ramp": _apply_set_clip_speed_ramp,
     "set_clip_crop": _apply_set_clip_crop,
     "set_clip_blend_mode": _apply_set_clip_blend_mode,
     "add_layer": _apply_add_layer,
@@ -1367,6 +1557,16 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
     if isinstance(operation, MoveClip):
         clip = _find_clip(timeline_before, operation.clip_id).clip
         return [MoveClip(clip_id=operation.clip_id, to_track_id=clip.track_id, to_start=clip.start)]
+    if isinstance(operation, SetClipSpeedRamp):
+        # Same axis as ``set_clip_speed``: each clears the other, so the inverse has to
+        # restore whichever the clip actually had. The track snapshot is the established
+        # answer where a same-shape inverse cannot be exact (mirrors TS's
+        # ``invertSpeedChange`` falling back to ``restore_clips``).
+        return [_restore_for(_find_clip(timeline_before, operation.clip_id).track)]
+    if isinstance(operation, ReorderClips):
+        # The whole clip array is rewritten, so the array itself is the only honest
+        # inverse — and it is cheap for exactly the same reason. Mirrors TS.
+        return [_restore_for(_find_track(timeline_before, operation.track_id)[0])]
     if operation.type in _CLIP_RESTORE_OPS:
         clip_id = cast(str, operation.clip_id)  # type: ignore[union-attr]
         return [_restore_for(_find_clip(timeline_before, clip_id).track)]
@@ -1419,6 +1619,10 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
                 **({"locked": track.locked} if operation.locked is not None else {}),
                 **({"hidden": track.hidden} if operation.hidden is not None else {}),
                 **({"muted": track.muted} if operation.muted is not None else {}),
+                # Passing it explicitly — even as ``None`` — is what puts ``role`` in
+                # ``model_fields_set``, so undoing a label removes it rather than leaving
+                # it behind on a track that never had one.
+                **({"role": track.role} if "role" in operation.model_fields_set else {}),
             )
         ]
     # _TRACK_RESTORE_OPS — every remaining op carries a ``track_id``.

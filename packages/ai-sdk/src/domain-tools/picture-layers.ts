@@ -97,6 +97,8 @@ export interface PictureConflict {
   readonly end: number;
   /** The conflicting track's z-order slot — 0 is the visual front. */
   readonly depth: number;
+  /** The covered clip's asset, so a refusal can name the file rather than the clip id. */
+  readonly assetId: string;
   /**
    * The covered clip and its measured source shape, ready for
    * {@link coverageVerdict}. Coverage is a relation (ADR 0170): deciding it needs
@@ -170,6 +172,7 @@ export function pictureOverlapAcross(
         start: clip.start,
         end: clip.end,
         depth,
+        assetId: clip.assetId,
         shaped: { clip, source: sourceShapeOf(project, clip.assetId) },
       });
     }
@@ -336,6 +339,14 @@ export function createPicturePlacer(project: Project): {
   const booked = new Map<string, { start: number; end: number }[]>();
   /** Front layers opened during this call, newest first (each went in at index 0). */
   const opened: string[] = [];
+  /**
+   * Picture handed out by THIS call, in order.
+   *
+   * The burial check reads the pre-call project, so without this a batch could not see
+   * itself: in run `137d8fd0` entry 2 of an `add_clips` covered entry 1 end to end, and
+   * entry 1 was not on the timeline yet to be found as a conflict.
+   */
+  const placedThisCall: PlacedThisCall[] = [];
 
   const bookedHasRoom = (trackId: string, start: number, end: number): boolean =>
     !(booked.get(trackId) ?? []).some((span) => span.start < end && span.end > start);
@@ -361,8 +372,19 @@ export function createPicturePlacer(project: Project): {
   return {
     place(candidate) {
       const conflicts = pictureOverlapAcross(project, candidate);
+      /** Book the span AND remember it, so a later entry in the same call can see it. */
+      const take = (trackId: string, isCutaway: boolean): void => {
+        book(trackId, candidate.start, candidate.end);
+        placedThisCall.push({
+          trackId,
+          start: candidate.start,
+          end: candidate.end,
+          assetId: candidate.assetId,
+          isCutaway,
+        });
+      };
       if (conflicts.length === 0) {
-        book(candidate.trackId, candidate.start, candidate.end);
+        take(candidate.trackId, false);
         return { trackId: candidate.trackId, setupOps: [] };
       }
       // Coverage is a relation (ADR 0170): the front clip's compositing AND its fitted
@@ -382,6 +404,17 @@ export function createPicturePlacer(project: Project): {
           refusalCause: 'picture_over_picture',
         });
       }
+      // The placement is legal, so it is about to be LIFTED in front of everything it
+      // covers. Before that: is anything it covers a cutaway it would swallow whole?
+      // Covering the base A-roll is what a cutaway is for (ADR 0169) and stays legal;
+      // burying another cutaway end to end is a clip nobody will ever see, and run
+      // `137d8fd0` did it thirteen times at t=0 while reading `completed` every time.
+      const buried = buriedCutaways(project, candidate, conflicts, placedThisCall);
+      if (buried.length > 0) {
+        throw new ToolRefusalError(hidesCutawayRefusal(project, candidate, buried), {
+          refusalCause: 'hides_a_cutaway',
+        });
+      }
       // Everything it covers must end up BEHIND it, so the lane has to sit in
       // front of the front-most thing it covers.
       const frontOf = conflicts.reduce((min, c) => Math.min(min, c.depth), Infinity);
@@ -391,7 +424,7 @@ export function createPicturePlacer(project: Project): {
       // of wrong.
       const named = project.timeline.tracks.find((track) => track.id === candidate.trackId);
       if (named && usableLane(named, candidate.start, candidate.end, frontOf)) {
-        book(named.id, candidate.start, candidate.end);
+        take(named.id, true);
         return { trackId: named.id, setupOps: [] };
       }
       // Then any lane already in front with room — front-most first, since
@@ -399,14 +432,14 @@ export function createPicturePlacer(project: Project): {
       // fresh layer per clip: the second entry reuses the first entry's lane.
       const reusableOpen = opened.find((id) => bookedHasRoom(id, candidate.start, candidate.end));
       if (reusableOpen !== undefined) {
-        book(reusableOpen, candidate.start, candidate.end);
+        take(reusableOpen, true);
         return { trackId: reusableOpen, setupOps: [] };
       }
       const existing = project.timeline.tracks.find((track) =>
         usableLane(track, candidate.start, candidate.end, frontOf),
       );
       if (existing) {
-        book(existing.id, candidate.start, candidate.end);
+        take(existing.id, true);
         return { trackId: existing.id, setupOps: [] };
       }
       // Nothing usable: open a video layer at the visual front (index 0). `video`
@@ -416,7 +449,7 @@ export function createPicturePlacer(project: Project): {
       // next placement would be told the time was free.
       const layerId = nextCutawayLayerId(project, opened);
       opened.unshift(layerId);
-      book(layerId, candidate.start, candidate.end);
+      take(layerId, true);
       return {
         trackId: layerId,
         setupOps: [{ type: 'add_layer', layerId, layerType: 'video', atIndex: 0 }],
@@ -494,4 +527,283 @@ export function tracksCoveredByPictureInFront(project: Project): ReadonlySet<str
     }
   }
   return blocked;
+}
+
+/** The asset table as a map, built once per sweep. */
+function assetsById(project: Project): Map<string, Asset> {
+  return new Map<string, Asset>((project.assets ?? []).map((asset) => [asset.id, asset]));
+}
+
+/** Every picture span on the tracks NEARER the viewer than `depth` (a lower index). */
+function pictureSpansInFrontOf(
+  project: Project,
+  depth: number,
+  assetById: ReadonlyMap<string, Asset>,
+): { start: number; end: number }[] {
+  const spans: { start: number; end: number }[] = [];
+  project.timeline.tracks.forEach((track, index) => {
+    if (index >= depth) return;
+    if (!carriesPicture(track)) return;
+    for (const clip of track.clips) {
+      if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
+      spans.push({ start: clip.start, end: clip.end });
+    }
+  });
+  return spans;
+}
+
+/**
+ * How much of `span` no span in `covers` sits over. Touching edges are free, exactly as
+ * {@link pictureOverlapAcross} treats them.
+ */
+function uncoveredSeconds(
+  span: { start: number; end: number },
+  covers: readonly { start: number; end: number }[],
+): number {
+  let uncovered = 0;
+  let cursor = span.start;
+  for (const cover of [...covers].sort((a, b) => a.start - b.start)) {
+    if (cover.start >= span.end) break;
+    if (cover.end <= cursor) continue;
+    if (cover.start > cursor) uncovered += cover.start - cursor;
+    cursor = Math.max(cursor, cover.end);
+    if (cursor >= span.end) return uncovered;
+  }
+  if (span.end > cursor) uncovered += span.end - cursor;
+  return uncovered;
+}
+
+/**
+ * How many seconds of a picture clip a viewer can actually see.
+ *
+ * The preview paints one picture layer and the export composites full-frame layers
+ * bottom-up, so under ADR 0169/0170 both agree on this: a picture clip is visible exactly
+ * where no picture on a track NEARER the viewer (a lower index) sits over it.
+ *
+ * @param project - The project as it stands.
+ * @param trackIndex - The clip's own z-order slot; 0 is the visual front.
+ * @param clip - The clip to measure.
+ * @returns Seconds of the clip's span nothing in front covers. 0 when it is fully buried.
+ */
+export function visiblePictureSeconds(project: Project, trackIndex: number, clip: Clip): number {
+  const assetById = assetsById(project);
+  if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) return 0;
+  return uncoveredSeconds(
+    { start: clip.start, end: clip.end },
+    pictureSpansInFrontOf(project, trackIndex, assetById),
+  );
+}
+
+/** A picture clip nothing on the timeline ever shows. */
+export interface HiddenPictureClip {
+  readonly clipId: string;
+  readonly trackId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly assetId: string;
+}
+
+/**
+ * Every picture clip that is buried end to end by picture in front of it.
+ *
+ * ## Why this has to be measurable
+ *
+ * Run `137d8fd0` finished a sixty-second highlight with 25 tracks, and 37 of its 48
+ * picture clips — including every clip of the main riding track — could never be seen.
+ * Each burial was reported as a success ("Add layer; Added clip video_cutaway_9 ·
+ * 0s–17.3s"), because lifting a full-frame placement onto a new front layer is exactly
+ * what ADR 0169 asks for and nothing counted what the lift left underneath.
+ *
+ * {@link createPicturePlacer} now refuses the burial as it happens; this is the same
+ * question asked of a finished project, for the Critic and for anything else that has to
+ * report a timeline whose picture is mostly invisible work.
+ *
+ * @param project - The project as it stands.
+ * @returns The buried clips in track order, front lane first. Empty when everything shows.
+ */
+export function hiddenPictureClips(project: Project): readonly HiddenPictureClip[] {
+  const assetById = assetsById(project);
+  const hidden: HiddenPictureClip[] = [];
+  project.timeline.tracks.forEach((track, depth) => {
+    if (!carriesPicture(track)) return;
+    const inFront = pictureSpansInFrontOf(project, depth, assetById);
+    if (inFront.length === 0) return;
+    for (const clip of track.clips) {
+      if (!PICTURE_KINDS.has(clipKindOf(clip, assetById))) continue;
+      if (uncoveredSeconds({ start: clip.start, end: clip.end }, inFront) > COVERAGE_EPSILON) {
+        continue;
+      }
+      hidden.push({
+        clipId: clip.id,
+        trackId: track.id,
+        start: clip.start,
+        end: clip.end,
+        assetId: clip.assetId,
+      });
+    }
+  });
+  return hidden;
+}
+
+/**
+ * Is this clip a CUTAWAY rather than the base?
+ *
+ * A cutaway has picture behind it somewhere in its span; the base A-roll has nothing
+ * behind it at all. The distinction is the whole of ADR 0169: covering the base is what a
+ * cutaway is FOR, so that stays legal however completely it covers it. Covering another
+ * cutaway end to end is not an edit, it is a clip nobody will ever see.
+ */
+function isCutaway(
+  project: Project,
+  depth: number,
+  span: { readonly start: number; readonly end: number },
+  assetById: ReadonlyMap<string, Asset>,
+): boolean {
+  return project.timeline.tracks.some((track, index) => {
+    if (index <= depth) return false;
+    if (!carriesPicture(track)) return false;
+    return track.clips.some(
+      (behind) =>
+        PICTURE_KINDS.has(clipKindOf(behind, assetById)) &&
+        behind.start < span.end - COVERAGE_EPSILON &&
+        behind.end > span.start + COVERAGE_EPSILON,
+    );
+  });
+}
+
+/** A picture span this call has already handed out, so a later entry can see it. */
+interface PlacedThisCall {
+  readonly trackId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly assetId: string;
+  /** True when the placement went in FRONT of picture — i.e. it is itself a cutaway. */
+  readonly isCutaway: boolean;
+}
+
+/** A buried clip, named for the refusal sentence. */
+interface BuriedClip {
+  /** The clip's id, or `''` when this same call placed it and it has no id yet. */
+  readonly clipId: string;
+  readonly trackId: string;
+  readonly start: number;
+  readonly end: number;
+  readonly assetId: string;
+}
+
+/** Does the candidate's span swallow this one whole, so nothing of it is left to see? */
+function swallows(
+  candidate: PictureCandidate,
+  span: { readonly start: number; readonly end: number },
+): boolean {
+  return (
+    candidate.start <= span.start + COVERAGE_EPSILON && candidate.end >= span.end - COVERAGE_EPSILON
+  );
+}
+
+/**
+ * The refusal for a placement that would bury a cutaway, worded once.
+ *
+ * Remedy first, because the sentence's job is the next move: the run that produced this
+ * defect read thirteen "completed" summaries and never learned it had hidden anything, so
+ * the first thing it must read now is what to do instead.
+ *
+ * @param project - The project, for the asset names.
+ * @param candidate - The refused placement.
+ * @param buried - The cutaways it would swallow whole, front-most first.
+ */
+function hidesCutawayRefusal(
+  project: Project,
+  candidate: PictureCandidate,
+  buried: readonly BuriedClip[],
+): string {
+  /* v8 ignore next -- callers only build this from a non-empty list */
+  if (buried.length === 0) return '';
+  const named = buried
+    .slice(0, 2)
+    .map(
+      (clip) =>
+        `"${assetLabel(project, clip.assetId)}" on ${clip.trackId} ` +
+        `(${timeText(clip.start)}–${timeText(clip.end)}s)`,
+    )
+    .join(' and ');
+  const more = buried.length > 2 ? `, and ${String(buried.length - 2)} more` : '';
+  const first = buried[0];
+  /* v8 ignore next -- the list is non-empty */
+  const firstId = first ? first.clipId : '';
+  // A clip this same call placed has no id yet, so `remove_clip` cannot name it; the move
+  // there is to send the batch without that entry.
+  const drop =
+    firstId === ''
+      ? 'drop one of the two from this call'
+      : `take the cutaway out first with remove_clip ${firstId}`;
+  return (
+    `Refused: put "${assetLabel(project, candidate.assetId)}" somewhere ` +
+    `${buried.length > 1 ? 'those cutaways are' : 'that cutaway is'} not, or ${drop}, ` +
+    'or shorten one of them with trim_clip. ' +
+    `At ${timeText(candidate.start)}–${timeText(candidate.end)}s it goes in FRONT of the ` +
+    `picture it covers (ADR 0169), and it covers the whole of ${named}${more}, so nothing ` +
+    `of ${buried.length > 1 ? 'them' : 'it'} would ever be seen. Covering the A-roll is ` +
+    'what a cutaway is for; burying ' +
+    'another cutaway only spends a lane and a render pass on a clip no viewer will see.'
+  );
+}
+
+/**
+ * The cutaways a legal, about-to-be-lifted placement would swallow whole.
+ *
+ * Three conditions, and each one is load-bearing:
+ *
+ * - **it is a cutaway**, not the base — the base has no picture behind it, and ADR 0169
+ *   exists precisely so a cutaway may cover it;
+ * - **it is at least partly visible now** — a clip that was already buried before this
+ *   call is an inherited defect, and an inherited defect is an advisory (the Critic's
+ *   `hidden_picture` reports it), never a reason to refuse the run's next edit;
+ * - **its whole span is inside the candidate's** — a partial cover leaves frames of it on
+ *   screen, which is an ordinary layered edit and nobody's mistake.
+ *
+ * @param project - The project as the call holds it, before any of its operations.
+ * @param candidate - The placement about to be lifted.
+ * @param conflicts - What it covers, from {@link pictureOverlapAcross}.
+ * @param placedThisCall - Picture this same call already handed out.
+ */
+function buriedCutaways(
+  project: Project,
+  candidate: PictureCandidate,
+  conflicts: readonly PictureConflict[],
+  placedThisCall: readonly PlacedThisCall[],
+): readonly BuriedClip[] {
+  const assetById = assetsById(project);
+  const buried: BuriedClip[] = [];
+  for (const conflict of conflicts) {
+    if (!swallows(candidate, conflict)) continue;
+    if (!isCutaway(project, conflict.depth, conflict, assetById)) continue;
+    const visible = uncoveredSeconds(
+      conflict,
+      pictureSpansInFrontOf(project, conflict.depth, assetById),
+    );
+    if (visible <= COVERAGE_EPSILON) continue;
+    buried.push({
+      clipId: conflict.clipId,
+      trackId: conflict.trackId,
+      start: conflict.start,
+      end: conflict.end,
+      assetId: conflict.assetId,
+    });
+  }
+  for (const placed of placedThisCall) {
+    // Whatever lane it landed on, a span this call already booked cannot share a lane with
+    // one that overlaps it, and a lifted placement goes in front of what it covers — so a
+    // span swallowed whole by this candidate is one this candidate would bury.
+    if (!placed.isCutaway) continue;
+    if (!swallows(candidate, placed)) continue;
+    buried.push({
+      clipId: '',
+      trackId: placed.trackId,
+      start: placed.start,
+      end: placed.end,
+      assetId: placed.assetId,
+    });
+  }
+  return buried;
 }

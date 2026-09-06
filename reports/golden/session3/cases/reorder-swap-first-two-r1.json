@@ -1,0 +1,341 @@
+{
+  "scenario": "reorder-swap-first-two",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Swap the first two clips.",
+      "rubric": "reorder-swap-first-two",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "first-two-swapped",
+          "ok": true,
+          "detail": "first two swapped, rest in place",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "cancelled",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "first-two-swapped: first two swapped, rest in place",
+            "content-preserved: same clips, same source ranges"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 3,
+          "valid": 3,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 6,
+        "toolCalls": 5,
+        "tokens": {
+          "prompt": 93787,
+          "output": 5959,
+          "total": 99746
+        },
+        "usd": 0.17445,
+        "latency": {
+          "firstProgressMs": 3560,
+          "doneMs": 1965112
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 3 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "cancelled",
+        "operations": 3
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/session3/recordings/reorder-swap-first-two-r1-t1.json",
+      "metrics": {
+        "wallMs": 1965112,
+        "modelCalls": 6,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 93787,
+          "input": 28355,
+          "output": 5959,
+          "cacheRead": 65432,
+          "cacheCreate": 42568
+        },
+        "perCall": [
+          {
+            "ttftMs": 3555,
+            "wallMs": 11757,
+            "input": 5460,
+            "output": 887,
+            "cacheRead": 10906
+          },
+          {
+            "ttftMs": 2441,
+            "wallMs": 22046,
+            "input": 5640,
+            "output": 2115,
+            "cacheRead": 10906
+          },
+          {
+            "ttftMs": 2961,
+            "wallMs": 3629,
+            "input": 5659,
+            "output": 85,
+            "cacheRead": 10906
+          },
+          {
+            "ttftMs": 954854,
+            "wallMs": 982285,
+            "input": 5839,
+            "output": 2603,
+            "cacheRead": 21808
+          },
+          {
+            "ttftMs": 3344,
+            "wallMs": 6482,
+            "input": 5757,
+            "output": 269,
+            "cacheRead": 10906
+          },
+          {
+            "ttftMs": 3788,
+            "wallMs": 938882,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 6,
+          "ttftMs": {
+            "p50": 3344,
+            "p95": 954854,
+            "min": 2441,
+            "max": 954854
+          },
+          "wallMs": {
+            "p50": 11757,
+            "p95": 982285,
+            "min": 3629,
+            "max": 982285
+          },
+          "inputTokensPerTurn": {
+            "p50": 5640,
+            "p95": 5839,
+            "min": 0,
+            "max": 5839
+          },
+          "outputTokensPerTurn": {
+            "p50": 269,
+            "p95": 2603,
+            "min": 0,
+            "max": 2603
+          },
+          "cacheHitRate": 0.6976659878234723,
+          "cacheReportingTurns": 5
+        },
+        "usd": 0.17445,
+        "usageTokens": 34314,
+        "toolCalls": 5,
+        "toolCallsByName": {
+          "move_clip": 3,
+          "get_timeline": 2
+        },
+        "repeatedToolCalls": 3,
+        "analysisFromCache": 0,
+        "contextRequests": 11,
+        "contextByType": [
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2476,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2476,
+            "retrieved_evidence": 490,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2487,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2487,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2582,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2582,
+            "retrieved_evidence": 489,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2513,
+            "retrieved_evidence": 488,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2513,
+            "retrieved_evidence": 488,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          },
+          {
+            "system": 2608,
+            "retrieved_evidence": 488,
+            "skill": 1649,
+            "latest_user_message": 10,
+            "tool_schemas": 6710
+          }
+        ],
+        "contextUsedTokens": [
+          11194,
+          5460,
+          11335,
+          5640,
+          11345,
+          5659,
+          11440,
+          5839,
+          11370,
+          5757,
+          11465
+        ],
+        "contextCachedTokens": [
+          null,
+          10906,
+          null,
+          10906,
+          null,
+          10906,
+          null,
+          21808,
+          null,
+          10906,
+          null
+        ],
+        "diffs": 3,
+        "validDiffs": 3,
+        "operations": 3,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

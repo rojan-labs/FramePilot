@@ -227,7 +227,27 @@ export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANA
  * had before its own edit, which is the failure the tool exists to prevent. And the
  * withheld-call memo cannot apply to a tool this set stops the stage withholding.
  */
-export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set(['get_frame']);
+export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
+  'get_frame',
+  // `measure_color` is the same tool with numbers instead of pixels, and the contract says
+  // so in one place: `tool-contract.ts` gives the two an identical entry (`pure_read`,
+  // `cacheScope: 'none'`, `stateDependency: 'project_revision'`) under a shared docstring
+  // that calls them both "PICTURE measurements". Grading is measure → adjust → re-measure,
+  // and the second measurement is a look at the edit, which is this set's whole definition.
+  //
+  // Run `137d8fd0` is what withholding it cost. The brief said "Colour: … Measure what's
+  // actually on screen". The run loaded the color domain at minute 2, entered `apply`, and
+  // called `measure_color` twice — refused both times as an analysis tool, told it would be
+  // "available again on the next turn" (false for a stage rule), and never measured
+  // anything. The colour half of the brief was then graded blind.
+  //
+  // Bounded by exactly what bounds `get_frame`, and for the same reasons: it is in
+  // `FFMPEG_BACKED_TOOLS` (`kernel/cost/analysis-caps.ts`) so the per-run `ffmpegSeconds`
+  // cap refuses a spree, and `callNoveltyKey` keys it on `clipId` (not a tuning key), so
+  // re-measuring the SAME clip scores as nothing learned while measuring a different clip is
+  // genuinely new. Not the memo — `cacheScope: 'none'` means there is none, deliberately.
+  'measure_color',
+]);
 
 /**
  * Tools that a MUTATION's own runtime precondition names as the way to satisfy it.

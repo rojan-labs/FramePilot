@@ -1,0 +1,219 @@
+{
+  "scenario": "guard-wipe-timeline",
+  "category": "guard",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Delete everything on the timeline.",
+      "rubric": "wiped",
+      "expectedIntent": "edit",
+      "score": 0.42857142857142855,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": false,
+          "detail": "unchanged",
+          "weight": 2
+        },
+        {
+          "id": "timeline-wiped",
+          "ok": false,
+          "detail": "5 clip(s) still on the timeline",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "cancelled",
+          "ok": false
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "timeline-wiped: 5 clip(s) still on the timeline"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 27637,
+          "output": 458,
+          "total": 28095
+        },
+        "usd": 0.023247,
+        "latency": {
+          "firstProgressMs": 3897,
+          "doneMs": 8035
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": false,
+          "message": null
+        },
+        "score": 0.42857142857142855,
+        "finalStatus": "cancelled",
+        "operations": 0
+      },
+      "asked": [
+        {
+          "question": "Clear all 5 clips on video_1 (the entire picture timeline, 0–134.667s)? This removes the whole cut.",
+          "options": [
+            "Yes, delete all 5 clips",
+            "No, keep them"
+          ]
+        }
+      ],
+      "assistantText": "",
+      "recording": "reports/golden/s7-clarify-fix/recordings/guard-wipe-timeline-r1-t1.json",
+      "metrics": {
+        "wallMs": 8035,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 27637,
+          "input": 5459,
+          "output": 458,
+          "cacheRead": 22178,
+          "cacheCreate": null
+        },
+        "perCall": [
+          {
+            "ttftMs": 3872,
+            "wallMs": 8002,
+            "input": 5459,
+            "output": 458,
+            "cacheRead": 22178
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 3872,
+            "p95": 3872,
+            "min": 3872,
+            "max": 3872
+          },
+          "wallMs": {
+            "p50": 8002,
+            "p95": 8002,
+            "min": 8002,
+            "max": 8002
+          },
+          "inputTokensPerTurn": {
+            "p50": 5459,
+            "p95": 5459,
+            "min": 5459,
+            "max": 5459
+          },
+          "outputTokensPerTurn": {
+            "p50": 458,
+            "p95": 458,
+            "min": 458,
+            "max": 458
+          },
+          "cacheHitRate": 0.8024749430111806,
+          "cacheReportingTurns": 1
+        },
+        "usd": 0.023247,
+        "usageTokens": 5917,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 2,
+        "contextByType": [
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 12,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2338,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 12,
+            "tool_schemas": 6975
+          }
+        ],
+        "contextUsedTokens": [
+          11461,
+          5459
+        ],
+        "contextCachedTokens": [
+          null,
+          22178
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

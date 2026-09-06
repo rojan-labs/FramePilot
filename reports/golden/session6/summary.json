@@ -1,0 +1,136 @@
+{
+  "label": "session6",
+  "generatedAt": "2026-09-05T12:06:33.412Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 3,
+  "replayed": false,
+  "cases": [
+    "trim-first-clip-10s",
+    "trim-opening-10s",
+    "reorder-last-first",
+    "reorder-swap-first-two",
+    "captions-plain",
+    "captions-uppercase-bottom",
+    "hook-strongest-line",
+    "broll-first-20s",
+    "broll-empty-overlay-track",
+    "music-bed-quiet",
+    "compound-silence-captions",
+    "vague-make-better",
+    "impossible-8k-drone",
+    "guard-wipe-timeline",
+    "clarify-which-clip"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 5,
+    "turns": 15,
+    "intentAccuracy": 0.7333333333333333,
+    "targetAccuracy": 0.6666666666666666,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.6666666666666666,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 10,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 336541.6,
+    "usdPerAcceptedEdit": 0.6166289999999999,
+    "modelCallsPerTurn": {
+      "p50": 7,
+      "p95": 49,
+      "n": 15
+    },
+    "toolCallsPerTurn": {
+      "p50": 9,
+      "p95": 49,
+      "n": 15
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3334,
+        "p95": 4758,
+        "n": 15
+      },
+      "doneMs": {
+        "p50": 47959,
+        "p95": 816788,
+        "n": 15
+      }
+    },
+    "failureQuality": {
+      "failures": 0,
+      "loud": 0,
+      "explained": 0
+    },
+    "perCase": {
+      "trim-first-clip-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 84285,
+        "usdPerRun": 0.09456900000000001,
+        "wallMsPerRun": 26841,
+        "silentSuccesses": 0
+      },
+      "trim-opening-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 102519,
+        "usdPerRun": 0.116568,
+        "wallMsPerRun": 35311,
+        "silentSuccesses": 0
+      },
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0.3333333333333333,
+        "reversible": 1,
+        "modelCalls": 7,
+        "tokens": 125032,
+        "usdPerRun": 0.316011,
+        "wallMsPerRun": 150955,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 10,
+        "tokens": 202712,
+        "usdPerRun": 0.354444,
+        "wallMsPerRun": 150871,
+        "silentSuccesses": 0
+      },
+      "captions-plain": {
+        "category": "captions",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 346302,
+        "usdPerRun": 0.571089,
+        "wallMsPerRun": 48040,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

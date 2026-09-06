@@ -17,6 +17,7 @@ import {
   checkNoGaps,
   checkNotDestructive,
   checkOnlyClipsTouched,
+  checkNotLonger,
   checkOpensLaterInSource,
   checkUnchanged,
   checkCutsOnBeats,
@@ -24,6 +25,7 @@ import {
   checkKeptClipsUntouched,
   checkNoMidWordCuts,
   checkNoOverlaps,
+  checkCutsFasterThanBefore,
   checkValidRefs,
   scoreMissionScenario,
   projectDuration,
@@ -179,6 +181,31 @@ describe('mission rubric — primitive checks', () => {
     expect(check.detail).toBe('0 dangling asset ref(s), 0 empty range(s)');
   });
 
+  /**
+   * The other half of the same fix, left behind when the caption half shipped on
+   * 2026-09-04. `__text__` and `__caption__` are declared on consecutive lines of
+   * `operations.ts` as the two synthetic ids for clips with no media source (ADR 0032),
+   * and only one of them was excluded — so any run that put a title on screen, which is
+   * most montage and hook cases, was scored as having produced a broken timeline.
+   */
+  it('does not flag a text overlay either — __text__ is the same kind of sentinel', () => {
+    const check = checkValidRefs(withClips([clip('title', 0, 3, { assetId: '__text__' })]));
+    expect(check.ok).toBe(true);
+    expect(check.detail).toBe('0 dangling asset ref(s), 0 empty range(s)');
+  });
+
+  it('still flags a real dangling ref sitting beside both sentinels', () => {
+    const check = checkValidRefs(
+      withClips([
+        clip('cap', 0, 3, { assetId: '__caption__' }),
+        clip('title', 3, 6, { assetId: '__text__' }),
+        clip('ghost', 6, 9, { assetId: 'nope' }),
+      ]),
+    );
+    expect(check.ok).toBe(false);
+    expect(check.detail).toBe('1 dangling asset ref(s), 0 empty range(s)');
+  });
+
   it('flags a clip edge that lands inside a spoken word', () => {
     const p = withClips([clip('a', 0, 0.75)]);
     // makeProject transcript: hello 0–0.5, world 0.5–1 → edge at 0.75 is inside "world"
@@ -325,6 +352,117 @@ describe('golden-set checks', () => {
     expect(checkOpensLaterInSource({ before, after: hooked }).ok).toBe(true);
     expect(checkOpensLaterInSource({ before, after: before }).ok).toBe(false);
     expect(checkOpensLaterInSource({ before: withClips([]), after: before }).ok).toBe(false);
+  });
+
+  /**
+   * `checkNoMidWordCuts` has said "unmeasurable, so it is not scored" in its own comment
+   * since the loop guard landed, while returning `ok: true` — which `scored` counted in
+   * BOTH sums, so every rubric that carries it on `mission-podcast` was handed a free
+   * point for a check that had looked at nothing. Four of them do:
+   * `podcast-highlight-60s`, `remove-dead-air`, `compound-silence-captions`, `hook-first`.
+   */
+  describe('a check that could not measure is not a check that passed', () => {
+    const looped = (): Project => {
+      const project = withClips([clip('c1', 0, 100)]);
+      // The `mission-podcast` shape: one sentence, back to back, over the whole span.
+      // 12 repeats of a six-word phrase — the detector needs 8 and half the span.
+      const words = Array.from({ length: 72 }, (_, i) => ({
+        word: ["I'll", 'try', 'to', 'follow', 'you', 'later.'][i % 6]!,
+        start: i * 1.3,
+        end: i * 1.3 + 1,
+      }));
+      return { ...project, transcript: words } as Project;
+    };
+
+    it('marks a mid-word check on a looped transcript skipped, not passed', () => {
+      const check = checkNoMidWordCuts(looped());
+      expect(check.skipped).toBe(true);
+      expect(check.detail).toContain('not measurable');
+    });
+
+    it('marks it skipped when there is no transcript at all', () => {
+      const bare = { ...withClips([clip('c1', 0, 100)]), transcript: [] } as Project;
+      expect(checkNoMidWordCuts(bare).skipped).toBe(true);
+    });
+
+    it('still judges a real transcript', () => {
+      const project = withClips([clip('c1', 0, 100)]);
+      const real = {
+        ...project,
+        transcript: [
+          { word: 'the', start: 0, end: 0.4 },
+          { word: 'quick', start: 0.5, end: 0.9 },
+          { word: 'brown', start: 1.0, end: 1.4 },
+        ],
+      } as Project;
+      expect(checkNoMidWordCuts(real).skipped).toBeUndefined();
+    });
+
+    it('leaves the score to the checks that could judge, denominator included', () => {
+      // `remove-dead-air` on the looped transcript: the run did NOT get shorter, so
+      // `shorter-than-before` fails. Scoring the skipped mid-word check as a pass moved
+      // the whole scenario up by its weight; excluding it leaves the failure visible.
+      const before = looped();
+      const after = looped();
+      const scenario = scoreMissionScenario('remove-dead-air', { before, after });
+      const midWord = scenario.checks.find((c) => c.id === 'no-mid-word-cuts');
+      expect(midWord?.skipped).toBe(true);
+
+      const judged = scenario.checks.filter((c) => c.skipped !== true);
+      const total = judged.reduce((sum, c) => sum + (c.weight ?? 1), 0);
+      const passed = judged.reduce((sum, c) => sum + (c.ok ? (c.weight ?? 1) : 0), 0);
+      expect(scenario.score).toBeCloseTo(passed / total, 10);
+
+      // And it is strictly below what the old arithmetic produced, which is the free
+      // point this fix removes.
+      const withFreePoint =
+        (passed + (midWord?.weight ?? 1)) / (total + (midWord?.weight ?? 1));
+      expect(scenario.score).toBeLessThan(withFreePoint);
+    });
+  });
+
+  /**
+   * The `hook-strongest-line` prompt says "then continue from the beginning as before".
+   * A run that does precisely that is longer by one hook, and `checkNotLonger` used to
+   * fail it for that — the same shape as the case above, which the suite has always
+   * called a correct hook.
+   */
+  describe('checkNotLonger allows the hook, and nothing else', () => {
+    const before = withClips([clip('c1', 0, 100)]);
+
+    it('passes a faithful prepend: hook in front, programme unchanged behind it', () => {
+      const hooked = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 105),
+      ]);
+      const check = checkNotLonger({ before, after: hooked });
+      expect(check.ok).toBe(true);
+      expect(check.detail).toContain('+5.00s hook allowed');
+    });
+
+    it('passes a restructure, which grows by nothing at all', () => {
+      const moved = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 100),
+      ]);
+      expect(checkNotLonger({ before, after: moved }).ok).toBe(true);
+    });
+
+    it('still fails padding — growth the opening does not account for', () => {
+      const padded = withClips([
+        clip('h', 0, 5, { sourceStart: 40, sourceEnd: 45 }),
+        clip('c1', 5, 105),
+        clip('pad', 105, 130, { sourceStart: 0, sourceEnd: 25 }),
+      ]);
+      expect(checkNotLonger({ before, after: padded }).ok).toBe(false);
+    });
+
+    it('allows nothing when the opening did not move: growth there is padding', () => {
+      const longer = withClips([clip('c1', 0, 100), clip('pad', 100, 110)]);
+      const check = checkNotLonger({ before, after: longer });
+      expect(check.ok).toBe(false);
+      expect(check.detail).not.toContain('hook allowed');
+    });
   });
 
   it('checkCutawayInWindow + checkDurationKept describe a b-roll cutaway', () => {
@@ -593,5 +731,127 @@ describe('b-roll over an empty overlay track', () => {
     // A cutaway that lengthened the programme instead of covering part of it.
     const appended = overlay([clip('talk', 0, 100), b('bro', 100, 107, 'video_1')]);
     expect(scoreMissionScenario('broll-cutaway-empty-overlay', ctx(appended)).score).toBeLessThan(1);
+  });
+});
+
+/**
+ * `refine-tighten`'s prompt is "tighten the middle section so it moves faster, but keep
+ * the first and last clips exactly as they are". That asks for a faster cutting rhythm,
+ * not a shorter programme — and the rubric asked for a shorter programme. A session-3 run
+ * turned 13 picture clips into 15 with the first and last untouched and the length
+ * unchanged: a correct, skilled edit, scored 0.875 by a check measuring something the
+ * request never mentioned.
+ */
+describe('checkCutsFasterThanBefore', () => {
+  const withDuration = (count: number, total: number): Project =>
+    withClips(
+      Array.from({ length: count }, (_, i) =>
+        clip(`c${String(i)}`, (i * total) / count, ((i + 1) * total) / count),
+      ),
+    );
+
+  it('passes when more cuts fit the same length', () => {
+    const check = checkCutsFasterThanBefore({
+      before: withDuration(13, 29.4),
+      after: withDuration(15, 29.4),
+    });
+    expect(check.ok).toBe(true);
+    expect(check.detail).toContain('mean shot');
+  });
+
+  it('passes when the same cuts fit less length', () => {
+    expect(
+      checkCutsFasterThanBefore({
+        before: withDuration(13, 29.4),
+        after: withDuration(13, 24),
+      }).ok,
+    ).toBe(true);
+  });
+
+  it('fails when nothing about the rhythm moved', () => {
+    expect(
+      checkCutsFasterThanBefore({
+        before: withDuration(13, 29.4),
+        after: withDuration(13, 29.4),
+      }).ok,
+    ).toBe(false);
+  });
+
+  it('fails when the edit got slower', () => {
+    expect(
+      checkCutsFasterThanBefore({
+        before: withDuration(15, 29.4),
+        after: withDuration(9, 29.4),
+      }).ok,
+    ).toBe(false);
+  });
+});
+
+/**
+ * `memory-captions` turn 1 asks "Cut this down to the best 45 seconds." and is scored by
+ * the rubric named `podcast-highlight-60s`, which hard-coded 60. Every run that did
+ * exactly what it was asked was marked `duration-within: 45.00s vs 60s ±10s` — three of
+ * three in the committed `baseline`, read there as the agent falling short.
+ */
+describe('the highlight rubric takes its length from the request', () => {
+  const at = (seconds: number): Project => withClips([clip('a', 0, seconds)]);
+
+  it('accepts the length the case asked for', () => {
+    const report = scoreMissionScenario('podcast-highlight-60s', {
+      before: at(500),
+      after: at(45),
+      durationTargetSeconds: 45,
+    });
+    const duration = report.checks.find((c) => c.id === 'duration-within');
+    expect(duration?.ok).toBe(true);
+  });
+
+  it('still defaults to 60 for the case that asks for 60', () => {
+    const report = scoreMissionScenario('podcast-highlight-60s', {
+      before: at(500),
+      after: at(45),
+    });
+    expect(report.checks.find((c) => c.id === 'duration-within')?.ok).toBe(false);
+    const sixty = scoreMissionScenario('podcast-highlight-60s', {
+      before: at(500),
+      after: at(58),
+    });
+    expect(sixty.checks.find((c) => c.id === 'duration-within')?.ok).toBe(true);
+  });
+});
+
+/**
+ * The rubric's twin of the Critic's `word_severed` bug. Every mission fixture transcript
+ * is schema ≤ v11 and carries no `assetId`, so an unattributed word applied to every clip
+ * — including a b-roll clip's own in and out points, on footage with no speech on it.
+ * `broll-first-20s` was recorded for a whole session as a real placement defect on the
+ * strength of it.
+ */
+describe('checkNoMidWordCuts only judges footage the transcript could be on', () => {
+  const speech = [
+    { word: 'severed', start: 5.5, end: 6.5 },
+    { word: 'later', start: 49.5, end: 50 },
+  ];
+  const project = (brollDuration: number): Project => {
+    const base = withClips([
+      clip('b1', 0, 6, { assetId: 'asset_broll', sourceStart: 0, sourceEnd: 6 }),
+      clip('b2', 6, 8, { assetId: 'asset_broll', sourceStart: 6, sourceEnd: 8 }),
+    ]);
+    return {
+      ...base,
+      transcript: speech,
+      assets: [
+        { id: 'asset_talk', path: 'talk.mp4', kind: 'video', durationSeconds: 60 },
+        { id: 'asset_broll', path: 'broll.mov', kind: 'video', durationSeconds: brollDuration },
+      ],
+    } as Project;
+  };
+
+  it('does not charge a b-roll cut against the narration', () => {
+    expect(checkNoMidWordCuts(project(8)).ok).toBe(true);
+  });
+
+  it('still charges a cut on footage long enough to hold the transcript', () => {
+    expect(checkNoMidWordCuts(project(60)).ok).toBe(false);
   });
 });

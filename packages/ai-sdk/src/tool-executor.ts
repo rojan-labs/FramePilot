@@ -133,6 +133,28 @@ export interface HostToolOutcome {
  */
 export interface HostToolExecutor {
   run(call: ToolCall, ctx: HostExecutionContext, signal?: AbortSignal): Promise<HostToolOutcome>;
+  /**
+   * Tool names this surface can never fulfil — so they must not be ADVERTISED here.
+   *
+   * WHY a per-surface declaration rather than `available: false` in the registry:
+   * `render_preview` and `export_video` are real on the MCP surface (`mcp-server/dispatch.ts`
+   * saves and delegates to the sidecar) and unroutable on the desktop and browser agent
+   * surfaces, where `planSidecarCall` has no route and the executor refuses with
+   * `surface_unavailable`. One registry flag cannot say both. The executor knows which
+   * surface it is, statically, before any call is made.
+   *
+   * WHY it matters: a tool the model can see, it will call. In one desktop run of
+   * 2026-09-05 (`framepilot.runs.jsonl`) `render_preview` was called eight times in 86
+   * minutes and refused identically each time; and every request on that surface paid the
+   * two descriptors' schema tokens for tools that could not run. Dropping them from
+   * advertisement removes the cause upstream of the repeat guard, and the cost.
+   *
+   * Optional and pure: absent means "everything registered is routable here", which is the
+   * MCP server's truth and the previous behaviour everywhere. A wrapper that composes
+   * executors MUST forward this, or the surface behind it silently loses the declaration —
+   * the exact shape by which a sidecar-only fix once never reached the desktop.
+   */
+  unroutableTools?(): ReadonlySet<string>;
 }
 
 /**

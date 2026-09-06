@@ -1,0 +1,284 @@
+{
+  "scenario": "montage-30s",
+  "category": "montage",
+  "project": "mission-montage",
+  "run": 2,
+  "replayed": true,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Create a 30-second fast-paced social montage from the raw footage on the timeline. Pick the strongest moments, vary the shot lengths, keep it vertical.",
+      "rubric": "montage-30s",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "duration-within",
+          "ok": true,
+          "detail": "29.40s vs 30s ±3s",
+          "weight": 2
+        },
+        {
+          "id": "min-clips",
+          "ok": true,
+          "detail": "21 picture clip(s), need ≥ 6"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 2,
+          "valid": 2,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 7,
+        "toolCalls": 8,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0.31411500000000003,
+        "latency": {
+          "firstProgressMs": 4,
+          "doneMs": 24
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 2 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 43
+      },
+      "asked": [],
+      "assistantText": "**Applied 43 edits** in 2 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–39.8s\n- Deleted range Video 1 · 39.8s–61.433s\n- Deleted range Video 1 · 61.433s–70.2s\n- Deleted range Video 1 · 70.2s–84.9s\n- Deleted range Video 1 · 84.9s–134.667s\n- Added clip Video 1 · 0s–0.967s\n- Added clip camera-4k60-40s.mov · 0.967s–1.967s\n- Reframed clip camera-4k60-40s.mov (×4)\n- Added clip b1-4k30-22s.mov · 1.967s–2.967s\n- Reframed clip b1-4k30-22s.mov (×3)\n- …and 22 more\n\n**Skipped:** 1 proposed change did not validate (\"render_preview\" cannot be run from here — the editor renders and e",
+      "recording": "reports/golden/s8-replay/recordings/montage-30s-r2-t1.json",
+      "metrics": {
+        "wallMs": 24,
+        "modelCalls": 7,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 0.31411500000000003,
+        "usageTokens": 64009,
+        "toolCalls": 8,
+        "toolCallsByName": {
+          "delete_clips": 1,
+          "load_skill": 1,
+          "detect_beats": 2,
+          "add_clips": 1,
+          "add_clip": 1,
+          "get_clips": 1,
+          "render_preview": 1
+        },
+        "repeatedToolCalls": 1,
+        "analysisFromCache": 0,
+        "contextRequests": 14,
+        "contextByType": [
+          {
+            "system": 2562,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2562,
+            "retrieved_evidence": 414,
+            "skill": 1649,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2631,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2631,
+            "retrieved_evidence": 369,
+            "skill": 1649,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2696,
+            "retrieved_evidence": 369,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 2696,
+            "retrieved_evidence": 369,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3015,
+            "retrieved_evidence": 369,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3015,
+            "retrieved_evidence": 369,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 7337
+          },
+          {
+            "system": 3564,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          },
+          {
+            "system": 3564,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          },
+          {
+            "system": 4049,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          },
+          {
+            "system": 4049,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          },
+          {
+            "system": 4162,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          },
+          {
+            "system": 4162,
+            "retrieved_evidence": 627,
+            "skill": 2818,
+            "latest_user_message": 42,
+            "tool_schemas": 6716
+          }
+        ],
+        "contextUsedTokens": [
+          12004,
+          5524,
+          12028,
+          5551,
+          13262,
+          6666,
+          13581,
+          7429,
+          13767,
+          8881,
+          14252,
+          9837,
+          14365,
+          9947
+        ],
+        "contextCachedTokens": [
+          null,
+          21701,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          null,
+          null,
+          10081,
+          null,
+          10081
+        ],
+        "diffs": 2,
+        "validDiffs": 2,
+        "operations": 43,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 29.4,
+        "pictureClips": 21,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 21
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 1
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "replay",
+  "model": "replay"
+}

@@ -1,8 +1,8 @@
 /**
  * The AI composer (Phase 11 M8, ADR 0033): a workspace input, not a chat box.
  *
- * Adds a **slash-command palette** (FramePilot task commands), **quick actions**
- * (one-tap prompt prefills), an **included-context panel** (removable chips derived
+ * Adds a **slash-command palette** (FramePilot task commands), an
+ * **included-context panel** (removable chips derived
  * from the project + selection + pinned entities), an **"@" pin-context picker**
  * (H1.5, P8.7 narrow slice — search timeline clips/`project.assets` and pin one as
  * extra context), and **reference tiles** (`ReferenceTile`) fed by a paste handler, a
@@ -14,7 +14,6 @@ import { useEffect, useLayoutEffect, useMemo, useRef, useState, type JSX } from 
 import type { ReferenceRole, RunStatus } from '@framepilot/ai-sdk';
 import type { Attachment, ContextItem } from '../../ai/conversation.js';
 import {
-  QUICK_ACTIONS,
   type PinnedEntity,
   filterAtEntities,
   filterSlashCommands,
@@ -116,7 +115,18 @@ export interface ComposerProps {
 
 export function Composer(props: ComposerProps): JSX.Element {
   const { value, onChange, onSubmit, onStop, running } = props;
-  const [showQuick, setShowQuick] = useState(false);
+  /**
+   * Has the message wrapped past its first line?
+   *
+   * Drives the shell's shape only — a full pill while it is one line, a rounded
+   * rectangle once it is taller. Measured in the auto-grow effect below rather than
+   * derived from the text, because wrapping is a layout fact: a long paragraph wraps
+   * to three lines without the value ever containing a newline.
+   *
+   * It lands on `.ai-composer-shell`, not on the writing row: the shell is the box
+   * with the border and the radius, and the row inside it has neither.
+   */
+  const [multiline, setMultiline] = useState(false);
   const slashMatches = useMemo(() => filterSlashCommands(value), [value]);
   const atMatches = useMemo(
     () => filterAtEntities(value, props.atEntities),
@@ -142,10 +152,25 @@ export function Composer(props: ComposerProps): JSX.Element {
     if (!el) return;
     if (value.trim() === '') {
       el.style.height = '';
+      setMultiline(false);
       return;
     }
     el.style.height = 'auto';
-    el.style.height = `${Math.min(el.scrollHeight, MAX_COMPOSER_HEIGHT)}px`;
+    const content = el.scrollHeight;
+    el.style.height = `${Math.min(content, MAX_COMPOSER_HEIGHT)}px`;
+    // WRAPPED, not "contains a newline": a long single paragraph wraps to three lines
+    // without the value holding one, and the shape has to follow what is on screen. One
+    // line's worth of box is the line-height plus the input's own vertical padding, both
+    // read off the element so a token change cannot desynchronise this from the CSS.
+    const styles = window.getComputedStyle(el);
+    const lineHeight = Number.parseFloat(styles.lineHeight);
+    const padding =
+      Number.parseFloat(styles.paddingTop) + Number.parseFloat(styles.paddingBottom);
+    // A fractional line-height and sub-pixel layout make an exact compare unreliable, so
+    // "taller than one line plus half of another" is the threshold.
+    setMultiline(
+      Number.isFinite(lineHeight) ? content > padding + lineHeight * 1.5 : content > 44,
+    );
   }, [value]);
 
   const submit = (): void => {
@@ -246,6 +271,7 @@ export function Composer(props: ComposerProps): JSX.Element {
     <div
       className="ai-composer-shell"
       data-dragging={dragging ? '' : undefined}
+      data-multiline={multiline ? '' : undefined}
       onDragEnter={onDragEnter}
       onDragOver={onDragOver}
       onDragLeave={onDragLeave}
@@ -331,25 +357,6 @@ export function Composer(props: ComposerProps): JSX.Element {
         </div>
       )}
 
-      {showQuick && (
-        <div className="ai-quick" role="menu" aria-label="Quick actions">
-          {QUICK_ACTIONS.map((action) => (
-            <button
-              key={action.label}
-              type="button"
-              role="menuitem"
-              className="ai-quick-item"
-              onClick={() => {
-                onChange(action.prompt);
-                setShowQuick(false);
-              }}
-            >
-              {action.label}
-            </button>
-          ))}
-        </div>
-      )}
-
       {slashMatches.length > 0 && (
         <ul className="ai-slash" role="listbox" aria-label="Slash commands">
           {slashMatches.map((command) => (
@@ -389,25 +396,33 @@ export function Composer(props: ComposerProps): JSX.Element {
         </ul>
       )}
 
+      {/* Context belongs to workspace chrome, not to the writing row. This component keeps
+          owning the value but portals its control into the AI header, so it renders
+          nothing here and is deliberately not a child of the row's layout. */}
+      <ContextWindowIndicator
+        value={props.contextWindow}
+        phase={props.contextPhase}
+        placement="header"
+        {...(props.contextDebug ? { debug: props.contextDebug } : {})}
+      />
+
+      {/* ONE ROW: lead controls, the message, send — with every control anchored to the
+          BOTTOM edge so nothing drifts downward as the message grows.
+
+          The middle column is `minmax(0, 1fr)`, which is the whole fix for what this
+          looked like before: the winning stylesheet declared three columns against a DOM
+          that had two children, so the textarea sat in an `auto` column and shrank to its
+          own content — the truncated "Message FramePilot…" with the icons crammed against
+          it. A track that cannot grow past its content is not a text field. */}
       <div className="ai-composer">
-        {/* One element for every leading control, whatever their number.
-            The composer row is a THREE-column grid — leading | input | send — and the
-            template is positional, so adding the attach button as a fourth child pushed
-            the textarea into the send column (28px wide: the placeholder rendered as
-            "Me") and wrapped the send button onto a second row. Grouping the leading
-            controls keeps the grid's child count fixed at three however many of them
-            there are. */}
+        {/* One control now, and the wrapper stays anyway: it is the grid's first
+            column, and it is what keeps the message's left edge in the same place on a
+            host that cannot attach files (where this renders empty) as on one that can.
+            The "+" that used to sit here opened seven canned prompts — four of which
+            restated a slash command, and all seven of which were plain English the
+            model classifies exactly as if they had been typed. A second discovery
+            surface for prompts, in the narrowest part of the UI. */}
         <div className="ai-composer-lead">
-          <button
-            type="button"
-            className="ai-icon-button"
-            aria-label="Quick actions"
-            title="Quick actions"
-            data-active={showQuick}
-            onClick={() => setShowQuick((v) => !v)}
-          >
-            +
-          </button>
           {props.onAttachFiles ? (
             <>
               <input
@@ -435,25 +450,19 @@ export function Composer(props: ComposerProps): JSX.Element {
             </>
           ) : null}
         </div>
+
         <textarea
           ref={inputRef}
           className="ai-composer-input"
           value={value}
-          placeholder="Message FramePilot…  (/ for commands)"
+          placeholder="Message FramePilot…"
           aria-label="Message FramePilot"
           rows={1}
           onChange={(e) => onChange(e.target.value)}
           onKeyDown={onKeyDown}
           onPaste={onPaste}
         />
-        {/* Context belongs to workspace chrome, not inside the message row. This component
-            keeps owning the value but portals its circular progress control into the AI header. */}
-        <ContextWindowIndicator
-          value={props.contextWindow}
-          phase={props.contextPhase}
-          placement="header"
-          {...(props.contextDebug ? { debug: props.contextDebug } : {})}
-        />
+
         {running ? (
           // Visually STABLE stop control (H2): no pulsing/blinking — a static ring
           // with distinct hover/pressed states; activity is signalled elsewhere

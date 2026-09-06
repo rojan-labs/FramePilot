@@ -468,8 +468,13 @@ describe('onEffectResult — approval fold (P11.3)', () => {
         appliedTurns: 0,
         rejectedOpCount: 0,
         rejectionReasons: [],
+        // The drafted ledger travels intact, every step still `pending`: a plan the creator
+        // declined is the clearest case of work the run announced and did not do
+        // (GOLDEN-C.19), and the completion report is where they see it.
+        planSteps: drafted.state.planSteps,
       },
     ]);
+    expect(drafted.state.planSteps.every((step) => step.status === 'pending')).toBe(true);
     // No checkpoint event — `finalize`'s checkpoint only fires when cumulativeOps.length > 0.
     expect(types(events)).toEqual(['notification']);
   });
@@ -527,6 +532,8 @@ describe('onEffectResult — resume fold', () => {
         appliedTurns: 0,
         rejectedOpCount: 0,
         rejectionReasons: [],
+        // No drafted ledger travels to the report — see `FinalizeEffect.planSteps`.
+        planSteps: [],
       },
     ]);
     expect(types(events)).toEqual(['warning']);
@@ -974,6 +981,345 @@ describe('onEffectResult — turn stop/continue decisions', () => {
         turnOpCount: 61,
         rejection: refusal,
         note: refusal,
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
+  /**
+   * `beat-sync` r1, session 6: 29 consecutive turns refused by the beat grid, 977
+   * operations rejected, 20 minutes, $3.93, and a picture track left empty. The guard
+   * above existed and passed its tests. Two things let this past it, and both are here.
+   *
+   * ONE: the refusal SENTENCE names the offending cuts, so it differed every attempt even
+   * though the rule was identical. Comparing sentences read 29 refusals at one wall as 29
+   * different refusals. Producers now supply a stable `rejectionKey`.
+   */
+  it('recognises the same wall when the rejection message names different offenders', () => {
+    const key = 'beat-grid:off-grid';
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        rejection: 'rejected by the beat grid. Off-grid: 3.967 (nearest onset 4.180)',
+        rejectionKey: key,
+        note: 'r1',
+      }),
+    );
+    expect(first.state.stallStreak).toBe(0);
+    expect(first.state.lastRejectionReason).toBe(key);
+
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        // A different sentence for the same wall — this is what defeated the old guard.
+        rejection: 'rejected by the beat grid. Off-grid: 10.000 (nearest onset 10.194)',
+        rejectionKey: key,
+        note: 'r2',
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
+  it('still treats a DIFFERENT wall as a fresh attempt', () => {
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: 'off the grid',
+        rejectionKey: 'beat-grid:off-grid',
+        note: 'r1',
+      }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 3,
+        rejection: 'nothing to check against',
+        rejectionKey: 'beat-grid:ungrounded',
+        note: 'r2',
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.stallStreak).toBe(0);
+  });
+
+  /**
+   * TWO: each refused turn called `add_clips` with slightly different arguments, so every
+   * turn produced a first-seen novelty key and `turnLearnedSomethingNew` handed back the
+   * credit `repeatedRejection` had just withheld. A proposal is an ATTEMPT, and the attempt
+   * clause is where it earns progress; it must not also be able to earn it as a LESSON.
+   */
+  it('does not let a re-proposed mutation count as having learned something', () => {
+    const key = 'beat-grid:off-grid';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 33, rejection: 'a', rejectionKey: key, note: 'r1' }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 33,
+        rejection: 'b',
+        rejectionKey: key,
+        note: 'r2',
+        signature: 'sig-2',
+        // Novel key, completed, not from cache — everything the old test for "learned
+        // something" wanted, except that it is the rejected proposal itself.
+        callFacts: [{ key: 'add_clips:attempt-2', status: 'completed', role: 'mutation' }],
+      }),
+    );
+    expect(second.state.stallStreak).toBe(1);
+  });
+
+  /**
+   * Run `137d8fd0` re-set `music_1_clip` to the −18 dB it already held TEN times across
+   * turns 15→149. Session 3 made the tool note honest ("the project already said exactly
+   * this") and plumbed `satisfied` so the turn is not filed as a rejection. It left the
+   * attempt's progress credit in place, so each identical no-op still reset every
+   * run-stopper as if a fader had moved. A turn that by definition changed nothing has not
+   * progressed; it may still count by learning something, like any other non-edit turn.
+   */
+  it('does not credit a turn whose edit the timeline already matched', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({ applied: false, satisfied: true, turnOpCount: 1, turnPlacementCount: 1 }),
+    );
+    expect(state.stallStreak).toBe(1);
+    expect(state.noProgressStreak).toBe(1);
+    // Nothing left reconnaissance, so the research budget is not refunded either.
+    expect(state.researchStreak).toBe(1);
+    // …and it is still not a rejection: nothing failed, nothing to retry.
+    expect(state.rejectedOpCount).toBe(0);
+    expect(state.rejectionReasons).toEqual([]);
+  });
+
+  it('still credits a satisfied turn that learned something new', () => {
+    const { state } = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        satisfied: true,
+        turnOpCount: 1,
+        callFacts: [{ key: 'get_clips:v_main', status: 'completed', role: 'inspection' }],
+      }),
+    );
+    expect(state.stallStreak).toBe(0);
+    expect(state.noProgressStreak).toBe(0);
+  });
+
+  /**
+   * Run 6 of 2026-09-05 (`framepilot.runs.jsonl`): `render_preview` refused eight times in
+   * 86 minutes with the identical sentence, never once as a repeat. Between every pair there
+   * were 3–69 completed mutations, and the applied branch cleared `seenFailureKeys` on each.
+   * A surface verdict is not about the arrangement, so no edit can make it stale.
+   */
+  it('keeps a surface-verdict failure key across an applied edit', () => {
+    const refused = onEffectResult(
+      started(),
+      turn({
+        turnOpCount: 0,
+        anyToolFailed: true,
+        callFacts: [
+          {
+            key: 'render_preview:{}',
+            status: 'failed',
+            role: 'other',
+            failureKey: 'render_preview:surface_unavailable',
+          },
+        ],
+      }),
+    );
+    expect(refused.state.seenFailureKeys).toContain('render_preview:surface_unavailable');
+    const landed = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({ applied: true, turnOpCount: 2, appliedOps: ops(2), signature: 'sig-2' }),
+    );
+    expect(landed.state.seenFailureKeys).toContain('render_preview:surface_unavailable');
+  });
+
+  it('still clears arrangement-dependent failure keys when an edit lands', () => {
+    const refused = onEffectResult(
+      started(),
+      turn({
+        turnOpCount: 0,
+        anyToolFailed: true,
+        callFacts: [
+          // A validator refusal keyed on its text, and a policy refusal about placement:
+          // the next patch can fix either, so both must be forgotten.
+          {
+            key: 'add_clip:a',
+            status: 'failed',
+            role: 'mutation',
+            failureKey: "add_clip:Clips 'x' and 'y' overlap on track 'v1'.",
+          },
+          {
+            key: 'add_clip:b',
+            status: 'failed',
+            role: 'mutation',
+            failureKey: 'add_clip:picture_over_picture',
+          },
+        ],
+      }),
+    );
+    expect(refused.state.seenFailureKeys).toHaveLength(2);
+    const landed = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), signature: 'sig-2' }),
+    );
+    expect(landed.state.seenFailureKeys).toEqual([]);
+  });
+
+  /**
+   * `beat-sync` r3, session 6 — the other half of the same wall, and the cost of closing it
+   * with the key alone.
+   *
+   * Eleven consecutive turns were refused by `beat-grid:off-grid` while the run FIXED its
+   * cuts: 12 off-grid boundaries, then 10, 10, 18, (one turn at a different wall), 24, 4, 8,
+   * 8, 2 — and the twelfth proposal, with every interior cut on a detected onset, landed 35
+   * operations for a score of 1.00. Replaying that recording against a guard that reads
+   * "same key, therefore no progress" stopped the run at the eleventh refusal, one model
+   * call short of the edit: 5 operations, 0.56.
+   *
+   * A run getting through a wall two cuts at a time is not a run repeating itself. The
+   * measurement — {@link AgentTurnResult.rejectionScale}, a new LOW — is what separates them,
+   * and the run must still be executing when the turn that validates arrives.
+   */
+  it('credits a repeated refusal that names fewer offenders — the run converging on the wall', () => {
+    const key = 'beat-grid:off-grid';
+    // The measured `beat-sync` r3 sequence, from its first refusal to its last.
+    const offGridCounts = [12, 10, 10, 18, 24, 4, 8, 8, 2];
+    let s = started();
+    offGridCounts.forEach((scale, i) => {
+      const step = onEffectResult(
+        { ...s, noProgress: [] },
+        turn({
+          applied: false,
+          turnOpCount: 30,
+          rejection: `Off-grid: ${String(scale)} cut(s)`,
+          rejectionKey: key,
+          rejectionScale: scale,
+          signature: `sig-${String(i)}`,
+          note: `attempt ${String(i)}`,
+        }),
+      );
+      // Still executing: a converging run is never finalized out from under its next turn.
+      expect(step.effects[0]).toMatchObject({ kind: 'run_turn' });
+      expect(step.state.stallStreak).toBeLessThan(STALL_CONFIRM_TURNS);
+      s = step.state;
+    });
+    // The floor is the run's BEST attempt at this wall, not its last one.
+    expect(s.lastRejectionScale).toBe(2);
+
+    // The turn the run was converging on: on-grid, not rejected, 35 operations.
+    const landed = onEffectResult(
+      { ...s, noProgress: [] },
+      turn({
+        applied: true,
+        appliedOps: ops(35),
+        turnOpCount: 35,
+        signature: 'sig-landed',
+        note: 'every interior cut on a detected onset',
+      }),
+    );
+    expect(landed.state.cumulativeOps).toHaveLength(35);
+    expect(landed.state.stallStreak).toBe(0);
+    // The applied edit retires the measurement with the refusal it belonged to.
+    expect(landed.state.lastRejectionReason).toBe('');
+    expect(landed.state.lastRejectionScale).toBeUndefined();
+    expect(landed.effects[0]).toMatchObject({ kind: 'run_turn' });
+  });
+
+  /**
+   * The complement, and the reason the credit is a new LOW rather than "smaller than last
+   * turn": `beat-sync` r1 stayed 18, 16, 16, 32, 16 boundaries wrong across the same wall.
+   * One real improvement (18 → 16), then oscillation around a number it had already beaten —
+   * which is exactly the twenty-minute, $3.93 spin this guard exists to stop.
+   */
+  it("does not credit a refusal that fails to beat the run's best attempt at the same wall", () => {
+    const key = 'beat-grid:off-grid';
+    let s = started();
+    [18, 16, 16, 32, 16].forEach((scale, i) => {
+      s = onEffectResult(
+        { ...s, noProgress: [] },
+        turn({
+          applied: false,
+          turnOpCount: 30,
+          rejection: `Off-grid: ${String(scale)} cut(s)`,
+          rejectionKey: key,
+          rejectionScale: scale,
+          signature: `sig-${String(i)}`,
+          note: `attempt ${String(i)}`,
+        }),
+      ).state;
+    });
+    // 18 → first attempt (0), 16 → a new low (0), then 16, 32, 16 → three provable repeats.
+    expect(s.stallStreak).toBe(STALL_CONFIRM_TURNS - 1);
+    expect(s.lastRejectionScale).toBe(16);
+  });
+
+  it("does not carry one wall's measurement to another", () => {
+    const first = onEffectResult(
+      started(),
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'eight overlaps',
+        rejectionKey: 'validator:overlap_error',
+        rejectionScale: 8,
+      }),
+    );
+    // Two off-grid cuts is a smaller NUMBER than eight overlaps and says nothing about
+    // them — a new wall resets the floor rather than lowering it.
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'two off-grid cuts',
+        rejectionKey: 'beat-grid:off-grid',
+        rejectionScale: 2,
+        signature: 'sig-2',
+      }),
+    );
+    expect(second.state.lastRejectionScale).toBe(2);
+    // A different wall was already a fresh attempt; the point is the floor that follows it.
+    const third = onEffectResult(
+      { ...second.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 8,
+        rejection: 'three off-grid cuts',
+        rejectionKey: 'beat-grid:off-grid',
+        rejectionScale: 3,
+        signature: 'sig-3',
+      }),
+    );
+    expect(third.state.stallStreak).toBe(1);
+    expect(third.state.lastRejectionScale).toBe(2);
+  });
+
+  it('leaves a refusal that reports no scale exactly as it was — the same wall twice is a stall', () => {
+    const key = 'beat-grid:ungrounded';
+    const first = onEffectResult(
+      started(),
+      turn({ applied: false, turnOpCount: 4, rejection: 'no music placed', rejectionKey: key }),
+    );
+    const second = onEffectResult(
+      { ...first.state, noProgress: [] },
+      turn({
+        applied: false,
+        turnOpCount: 4,
+        rejection: 'still no music placed',
+        rejectionKey: key,
         signature: 'sig-2',
       }),
     );
@@ -1475,17 +1821,28 @@ describe('run budgets', () => {
 
   it('stops at the cost budget and verifies what was applied', () => {
     const s = started({ config: { ...started().config, maxUsd: 1 } });
-    const { state, effects, events } = onEffectResult(s, turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }));
+    const { state, effects, events } = onEffectResult(
+      s,
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }),
+    );
     expect(state.runUsd).toBe(1.25);
     expect(effects[0]).toMatchObject({ kind: 'run_verify' });
-    expect(events.some((e) => e.type === 'notification' && e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"))).toBe(true);
+    expect(
+      events.some(
+        (e) =>
+          e.type === 'notification' &&
+          e.text.startsWith("Reached this run's $1.00 budget after 1 step ($1.25 spent)"),
+      ),
+    ).toBe(true);
   });
 
   it('stops at the time limit', () => {
     const s = started({ config: { ...started().config, maxWallMs: 60_000 } });
     const { effects, events } = onEffectResult(s, turn({ runElapsedMs: 61_000 }));
     expect(effects[0]).toMatchObject({ kind: 'run_verify' });
-    expect(events.some((e) => e.type === 'notification' && e.text.includes("1-minute limit"))).toBe(true);
+    expect(events.some((e) => e.type === 'notification' && e.text.includes('1-minute limit'))).toBe(
+      true,
+    );
   });
 
   it('within budget, the run advances; an unpriced run is never stopped for money', () => {
@@ -1494,7 +1851,27 @@ describe('run budgets', () => {
     expect(within.effects[0]).toMatchObject({ kind: 'run_turn' });
     const unpriced = onEffectResult(s, turn({ runUsd: 0 }));
     expect(unpriced.effects[0]).toMatchObject({ kind: 'run_turn' });
-    expect(unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget'))).toBe(false);
+    expect(
+      unpriced.events.some((e) => e.type === 'notification' && e.text.includes('budget')),
+    ).toBe(false);
+  });
+
+  // Run `137d8fd0` announced "$26.61 spent" against its $26.50 budget and finished at
+  // $27.76. Both halves of that gap are structural: the check runs after a turn settles,
+  // so the turn that crosses the line is already paid for, and the self-check the notice
+  // promises costs model calls of its own. The notice says what happens next rather than
+  // claiming a stop that is not one.
+  it('says a self-check still runs, because one does', () => {
+    const s = started({ config: { ...started().config, maxUsd: 1 } });
+    const { effects, events } = onEffectResult(
+      s,
+      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), runUsd: 1.25 }),
+    );
+    expect(effects[0]).toMatchObject({ kind: 'run_verify' });
+    const notice = events.find((e) => e.type === 'notification' && e.text.includes('budget'));
+    expect(notice).toBeDefined();
+    expect((notice as { text: string }).text).toContain('a final self-check still runs');
+    expect((notice as { text: string }).text).not.toContain('stopping and reporting');
   });
 
   it('a turn that does not report spend keeps the last known figures', () => {
@@ -1527,17 +1904,27 @@ describe('progress guards, audited together', () => {
         turn({
           stepIndex: i,
           signature: `turn-${String(i)}`,
-          rationale: applied ? `Now placing shot ${String(i)}.` : `Reading scene ${String(i)} to choose the next shot.`,
+          rationale: applied
+            ? `Now placing shot ${String(i)}.`
+            : `Reading scene ${String(i)} to choose the next shot.`,
           callFacts: applied
             ? []
-            : [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+            : [
+                {
+                  key: `describe_footage:scene-${String(i)}`,
+                  status: 'completed',
+                  fromCache: false,
+                },
+              ],
           ...(applied ? { applied: true, turnOpCount: 1, appliedOps: ops(1) } : {}),
           runUsd: usd,
           runElapsedMs: elapsed,
         }),
       );
       notices.push(...step.events.flatMap((e) => (e.type === 'notification' ? [e.text] : [])));
-      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({ kind: 'run_turn' });
+      expect(step.effects[0], `turn ${String(i)} should continue`).toMatchObject({
+        kind: 'run_turn',
+      });
       expect(step.state.stallStreak, `turn ${String(i)} stall streak`).toBe(0);
       expect(step.state.actionRecoveryPending, `turn ${String(i)} recovery`).toBe(false);
       s = step.state;
@@ -1545,11 +1932,19 @@ describe('progress guards, audited together', () => {
     // The step cap, and only the step cap, ends it.
     const last = onEffectResult(
       s,
-      turn({ stepIndex: maxSteps, signature: 'last', applied: true, turnOpCount: 1, appliedOps: ops(1) }),
+      turn({
+        stepIndex: maxSteps,
+        signature: 'last',
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: ops(1),
+      }),
     );
     expect(last.effects[0]).toMatchObject({ kind: 'run_verify' });
     const stoppers = notices.filter((text) => STOP_WORDS.test(text));
-    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual([]);
+    expect(stoppers, `no guard may speak during a productive run:\n${stoppers.join('\n')}`).toEqual(
+      [],
+    );
     expect(s.cumulativeOps.length).toBe(19);
   });
 
@@ -1568,7 +1963,9 @@ describe('progress guards, audited together', () => {
           stepIndex: i,
           signature: `read-${String(i)}`,
           rationale: `Reading scene ${String(i)}.`,
-          callFacts: [{ key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false }],
+          callFacts: [
+            { key: `describe_footage:scene-${String(i)}`, status: 'completed', fromCache: false },
+          ],
           runUsd: i * 0.1,
         }),
       );
@@ -2411,7 +2808,6 @@ describe('working state', () => {
     expect(step.state.working.facts.map((f) => f.id)).toEqual(['fact_1']);
   });
 });
-
 
 describe('failedAfterApplyMessage — the card an editor actually reads', () => {
   const detail = (label: string, text: string) => `${label}: ${text}`;

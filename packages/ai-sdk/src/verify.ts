@@ -24,6 +24,7 @@ import {
   buildTimelineMap,
   listEditBoundaries,
   mapTranscript,
+  speechAssetIdsFor,
   readTransitionAt,
   transitionEligibility,
   type MappedRun,
@@ -389,7 +390,11 @@ export function verifyCaptions(
   tolerance: number = DEFAULT_CAPTION_TOLERANCE_SECONDS,
 ): CaptionVerificationReport {
   const map = buildTimelineMap(project.timeline);
-  const mapped = mapTranscript(map, project.transcript);
+  const mapped = mapTranscript(
+    map,
+    project.transcript,
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
   const issues: VerificationIssue[] = [];
 
   const cues = captionTracks(project).flatMap((track) => track.clips.filter(isCaptionClip));

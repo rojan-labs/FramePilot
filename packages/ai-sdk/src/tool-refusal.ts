@@ -54,7 +54,71 @@
  * Add a member only when a refusal needs run-memory identity of its own. A refusal with
  * no cause keys on its text exactly as it always has.
  */
-export type RefusalCause = 'picture_over_picture';
+export type RefusalCause =
+  | 'picture_over_picture'
+  /**
+   * The placement is a legal full-frame cutaway, and it would swallow another cutaway
+   * whole — every frame of a clip that is on the timeline to be seen.
+   *
+   * ADR 0169 lifts a full-frame placement onto a layer in FRONT of the picture it covers,
+   * which is exactly right when what it covers is the base A-roll: that is what a cutaway
+   * IS. It is not right when the thing underneath is itself a cutaway with nothing behind
+   * it left showing. Run `137d8fd0` lifted thirteen times at t=0 for a sixty-second
+   * highlight and finished with 37 of its 48 picture clips never visible, every one of
+   * those lifts reported as `completed`.
+   *
+   * Deliberately NOT in {@link ARRANGEMENT_INDEPENDENT_CAUSES}: removing or moving the
+   * buried clip changes the answer, so a landed edit must clear the memory of it.
+   */
+  | 'hides_a_cutaway'
+  /**
+   * The tool has no implementation on this surface — `planSidecarCall` routes it
+   * nowhere and no host override claims it. `render_preview` and `export_video` on the
+   * sidecar executor are the standing cases: the editor renders through its own Export
+   * dialog, and no argument the model can send changes that.
+   *
+   * Named rather than left to key on its text because the run has to be able to refuse
+   * the SECOND call. The sentence is constant, so text keying would have matched — but
+   * only `deterministicFailure` opts a host outcome into being remembered at all, and a
+   * host failure that merely happened (a sidecar restart, a timeout) must never be. This
+   * is the narrow other kind: a verdict about the surface, not an event on it. Run
+   * `137d8fd0` called `render_preview` three times and `export_video` once, each time
+   * reading "Do not call it again", and nothing enforced it.
+   */
+  | 'surface_unavailable';
+
+/**
+ * Refusal causes that are verdicts about the SURFACE, not about the arrangement — so no
+ * edit the run makes can change the answer, and the run's memory of the refusal must
+ * survive an applied patch.
+ *
+ * WHY this distinction has to be explicit. `ConductorState.seenFailureKeys` is cleared on
+ * every landed edit, and for a validator refusal that is exactly right: "clips overlap at
+ * 3s" describes the arrangement the validator was shown, and the patch just replaced it.
+ * `surface_unavailable` describes the runtime — `render_preview` has no route on this
+ * surface and never will, whatever the timeline says — and clearing it handed the model a
+ * clean slate for a refusal it had already been given. Run 6 of 2026-09-05 (from
+ * `framepilot.runs.jsonl`) called `render_preview` EIGHT times in 86 minutes, was refused
+ * identically each time, and never once saw "already failed this run": between every
+ * consecutive pair there were 3–69 completed mutations, each of which wiped the key. The
+ * guard built for this in `1bd2f87` could not fire on any run that edits.
+ *
+ * `picture_over_picture` is deliberately NOT here: it is a verdict about where a clip
+ * would land, and the next patch can move what it would have covered.
+ */
+export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set<RefusalCause>([
+  'surface_unavailable',
+]);
+
+/**
+ * Does this `name:cause` failure key describe something an applied edit cannot change?
+ * Keys are `${toolName}:${cause}` for a declared refusal (`deterministicFailureKey`), so the
+ * cause is the last segment; a text-keyed refusal never matches.
+ */
+export function survivesAppliedEdit(failureKey: string): boolean {
+  const cause = failureKey.slice(failureKey.lastIndexOf(':') + 1);
+  return ARRANGEMENT_INDEPENDENT_CAUSES.has(cause as RefusalCause);
+}
 
 /**
  * A tool declining to act on arguments it understood.

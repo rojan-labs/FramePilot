@@ -10,7 +10,13 @@
  * Critic's advisory judgment covers that and never gates.
  */
 import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
-import { CAPTION_ASSET_ID, coverageVerdict, type ShapedClip, type SourceShape } from '@framepilot/editor-core';
+import {
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+  coverageVerdict,
+  type ShapedClip,
+  type SourceShape,
+} from '@framepilot/editor-core';
 import { detectTranscriptLoop, timelineDuration } from '../critic.js';
 
 export interface RubricCheck {
@@ -26,6 +32,21 @@ export interface RubricCheck {
    * against expectation". Unfaceted checks count only toward the score.
    */
   readonly facet?: 'target' | 'boundary';
+  /**
+   * This check could not judge the run, so it is scored as neither pass nor fail.
+   *
+   * NOT the same as `ok: false`, and not the same as `ok: true`. A check with nothing to
+   * measure against — a project with no transcript, or one whose transcript is an ASR
+   * loop rather than speech — has no verdict to give, and both booleans are a lie about
+   * the run. {@link scored} removes these from the numerator AND the denominator, and
+   * `golden-metrics.ts#facet` drops them before computing target/boundary, so a facet
+   * whose only check was skipped reports `null` — not measured — rather than a clean pass.
+   *
+   * This is the check-level form of the exclusion the harness already applies to void and
+   * timed-out turns: a thing that was not measured must not be counted as a thing that
+   * went well.
+   */
+  readonly skipped?: boolean;
 }
 
 export interface RubricScore {
@@ -81,6 +102,16 @@ export interface RubricContext {
   readonly keepClipIds?: readonly string[];
   /** `trim-first-clip`: where the first picture clip must end, in timeline seconds. */
   readonly expectedFirstClipEndSeconds?: number;
+  /**
+   * How long the finished programme should be, when the request named a length.
+   *
+   * The highlight rubric used to hard-code 60s from its own NAME, and `memory-captions`
+   * reuses that rubric for a turn whose prompt is "Cut this down to the best 45 seconds."
+   * Every run that did exactly what it was asked was then scored `duration-within: 45.00s
+   * vs 60s ±10s` — three of three in the committed `baseline`, read there as the agent
+   * falling short. The number belongs to the request, so it comes from the case.
+   */
+  readonly durationTargetSeconds?: number;
   /**
    * `broll-cutaway` / `broll-cutaway-empty-overlay`: the assets that count as b-roll, and
    * the window the cutaway must land in. The runner resolves them from the case's
@@ -171,14 +202,25 @@ export function checkNoOverlaps(project: Project): RubricCheck {
   return { id: 'no-overlaps', ok: overlaps === 0, detail: `${overlaps} overlapping pair(s)` };
 }
 
+/** Asset ids that name no bin asset by design (ADR 0032). See {@link checkValidRefs}. */
+const SYNTHETIC_ASSET_IDS: ReadonlySet<string> = new Set([
+  CAPTION_ASSET_ID,
+  TEXT_OVERLAY_ASSET_ID,
+]);
+
 export function checkValidRefs(project: Project): RubricCheck {
   const assetIds = new Set(project.assets.map((a) => a.id));
   const dangling = project.timeline.tracks
     .flatMap((t) => t.clips)
-    // A caption clip's assetId is deliberately the sentinel CAPTION_ASSET_ID, not a bin
-    // asset — see operations.ts. Flagging it as dangling scored every captioning case
-    // against a ref rule that was never true of captions.
-    .filter((c) => c.assetId !== CAPTION_ASSET_ID && !assetIds.has(c.assetId));
+    // A caption clip's assetId is deliberately the sentinel CAPTION_ASSET_ID, and a text
+    // overlay's is TEXT_OVERLAY_ASSET_ID — synthetic ids for clips with no media source
+    // (ADR 0032), declared on consecutive lines of operations.ts. Neither is a bin asset,
+    // and flagging either as dangling scores a case against a ref rule that was never
+    // true of it. The caption half was fixed on 2026-09-04 after it capped every
+    // captioning case; the text half was left behind in the same edit, so any run that
+    // put a title on screen — which is most montage and hook cases — was still scored as
+    // having produced a broken timeline.
+    .filter((c) => !SYNTHETIC_ASSET_IDS.has(c.assetId) && !assetIds.has(c.assetId));
   const badRanges = project.timeline.tracks
     .flatMap((t) => t.clips)
     .filter((c) => c.end <= c.start || c.sourceEnd <= c.sourceStart);
@@ -213,22 +255,34 @@ export function checkMinClips(project: Project, min: number): RubricCheck {
  * No cut the run MADE lands inside a spoken word.
  *
  * Judges the delta, for the same reason {@link checkCutsOnFrameGrid} does. `mission-podcast`
- * arrives with one: whisper ends the final word at 576.000s while the media is 575.855s
- * long, so the clip's natural end — an edge nobody chose — sits inside it. Charging that to
- * the run failed the `boundary` facet on every podcast case no matter where the agent cut.
+ * used to arrive with one: whisper ended the final word at 576.000s while the media was
+ * 575.855s long, so the clip's natural end — an edge nobody chose — sat inside it. Charging
+ * that to the run failed the `boundary` facet on every podcast case no matter where the
+ * agent cut. The replacement media (`speech-9min-c`) has no such overhang, but a user's
+ * recording can have one at any time, so the delta rule is the rule.
  */
 export function checkNoMidWordCuts(project: Project, before?: Project): RubricCheck {
   const words: readonly TranscriptWord[] = project.transcript;
-  if (words.length === 0) return { id: 'no-mid-word-cuts', ok: true, detail: 'no transcript' };
-  // A hallucinated transcript has no word boundaries to respect. `mission-podcast`'s is 92%
-  // one sentence whisper looped over quiet audio, so "this cut lands inside a word" is a
-  // statement about a fabrication — and `remove-dead-air`, which never reads the transcript
-  // to decide where to cut, was being failed by it. Unmeasurable, so it is not scored.
+  if (words.length === 0) {
+    return { id: 'no-mid-word-cuts', ok: true, skipped: true, detail: 'no transcript' };
+  }
+  // A hallucinated transcript has no word boundaries to respect, so "this cut lands inside
+  // a word" is a statement about a fabrication. `mission-podcast`'s transcript was 92% one
+  // sentence whisper looped over quiet audio until its media was replaced on 2026-09-05,
+  // and `remove-dead-air`, which never reads the transcript to decide where to cut, was
+  // being failed by it. Unmeasurable, so it is not scored. The branch is no longer reached
+  // by any fixture in the repo and is kept for the user recording it will be reached by.
   const loop = detectTranscriptLoop(words);
   if (loop !== undefined) {
     return {
       id: 'no-mid-word-cuts',
       ok: true,
+      // "Unmeasurable, so it is not scored" is what the comment above has always said.
+      // Until this flag existed the code did the opposite: `ok: true` counted as a pass
+      // in both sums, so four rubrics on `mission-podcast` — `podcast-highlight-60s`,
+      // `remove-dead-air`, `compound-silence-captions` and `hook-first` — were each
+      // awarded a point for a check that had looked at nothing.
+      skipped: true,
       detail:
         `not measurable: the transcript repeats "${loop.phrase}" ${String(loop.repeats)} times ` +
         `over ${String(Math.round(loop.share * 100))}% of its span (ASR loop, not speech)`,
@@ -236,11 +290,34 @@ export function checkNoMidWordCuts(project: Project, before?: Project): RubricCh
     };
   }
   const prior = new Map((before ? pictureClips(before) : []).map((c) => [c.id, c]));
+  // WHOSE words are these? Every mission fixture's transcript is schema <= v11 and carries
+  // no `assetId`, and the rule for an unattributed word is "it applies to any clip". On a
+  // single-asset project that is right. On a project that has since gained b-roll it means
+  // the b-roll clip's own in and out points are judged against the narration's words — on
+  // footage with no speech on it at all. The same fabrication failed `word_severed` in the
+  // Critic, where `broll-first-20s` was recorded for a whole session as a real b-roll
+  // placement defect (BASELINES.md, retracted 2026-09-05). An unattributed transcript can
+  // only have come from an asset long enough to contain it; when nothing qualifies, the
+  // old any-clip reading stands so no project loses coverage it had.
+  const spokenUntil = words.reduce((max, word) => Math.max(max, word.end), 0);
+  const speechAssets = new Set(
+    (project.assets ?? [])
+      .filter(
+        (asset) =>
+          asset.kind !== 'image' &&
+          asset.durationSeconds !== undefined &&
+          asset.durationSeconds >= spokenUntil - 0.5,
+      )
+      .map((asset) => asset.id),
+  );
+  const couldBeSpeaking = (assetId: string): boolean =>
+    speechAssets.size === 0 || speechAssets.has(assetId);
   const insideWord = (edge: number): boolean =>
     words.some((w) => w.start + 0.02 < edge && edge < w.end - 0.02);
   let midWord = 0;
   let inherited = 0;
   for (const clip of pictureClips(project)) {
+    if (!couldBeSpeaking(clip.assetId)) continue;
     const b = prior.get(clip.id);
     for (const edge of ['sourceStart', 'sourceEnd'] as const) {
       if (!insideWord(clip[edge])) continue;
@@ -331,6 +408,34 @@ export function checkCutsOnBeats(
       `${measured ? `measured onset (${String(beatTimes.length)} detected)` : `${beatPeriodSeconds}s nominal beat`} ` +
       `(${(share * 100).toFixed(0)}%)`,
     weight: 2,
+  };
+}
+
+/**
+ * The edit cuts FASTER than it did — more picture clips, or the same clips over less
+ * time. "Tighten so it moves faster" is a statement about rhythm, and either answer is a
+ * faithful one: adding cuts at the same length, or removing time at the same cut count.
+ *
+ * Replaces a plain "is it shorter?" on `refine-tighten`, which failed a run that
+ * genuinely tightened by re-cutting. See that case for the numbers.
+ */
+export function checkCutsFasterThanBefore(ctx: RubricContext): RubricCheck {
+  const before = pictureClips(ctx.before);
+  const after = pictureClips(ctx.after);
+  const beforeDuration = projectDuration(ctx.before);
+  const afterDuration = projectDuration(ctx.after);
+  const meanBefore = before.length > 0 ? beforeDuration / before.length : Infinity;
+  const meanAfter = after.length > 0 ? afterDuration / after.length : Infinity;
+  const ok = meanAfter < meanBefore - FRAME_EPSILON;
+  return {
+    id: 'cuts-faster',
+    ok,
+    detail:
+      `${String(before.length)} clip(s) over ${beforeDuration.toFixed(2)}s → ` +
+      `${String(after.length)} over ${afterDuration.toFixed(2)}s ` +
+      `(mean shot ${meanBefore.toFixed(2)}s → ${meanAfter.toFixed(2)}s)`,
+    weight: 2,
+    facet: 'target',
   };
 }
 
@@ -488,11 +593,42 @@ export function checkOpensLaterInSource(ctx: RubricContext): RubricCheck {
   };
 }
 
-/** Not longer than before — a hook restructures, it does not pad. */
+/**
+ * A hook does not PAD — but a faithful prepend is not padding.
+ *
+ * `hook-strongest-line` asks, in the editor's own words: "Start the video with the
+ * strongest line from the recording, **then continue from the beginning as before**."
+ * Doing exactly that puts the hook in front of an unchanged programme, and the result is
+ * longer by the length of the hook. The check used to be `a <= b`, so the committed
+ * baseline's `575.87s → 577.80s` was a run being marked down for obeying its instruction
+ * to the letter. An instrument that punishes obedience does not measure intent accuracy;
+ * it measures the opposite.
+ *
+ * The allowance is the length of the OPENING THE RUN ADDED — exactly what a faithful
+ * prepend costs, and not a frame more. A run that restructures instead (moves the line,
+ * duplicates nothing) keeps its duration and passes as it always did. A run that pads the
+ * body still fails, because padding is growth the opening does not account for.
+ *
+ * The allowance is zero when the run did not change where the programme opens: growth
+ * with the same opening is padding by definition.
+ */
 export function checkNotLonger(ctx: RubricContext): RubricCheck {
   const b = projectDuration(ctx.before);
   const a = projectDuration(ctx.after);
-  return { id: 'not-longer', ok: a <= b + FRAME_EPSILON, detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s` };
+  const beforeFirst = pictureClips(ctx.before)[0];
+  const afterFirst = pictureClips(ctx.after)[0];
+  const prepended =
+    beforeFirst !== undefined &&
+    afterFirst !== undefined &&
+    afterFirst.sourceStart > beforeFirst.sourceStart + 1;
+  const allowance = prepended && afterFirst ? afterFirst.end - afterFirst.start : 0;
+  const ok = a <= b + allowance + FRAME_EPSILON;
+  const allowed = allowance > 0 ? ` (+${allowance.toFixed(2)}s hook allowed)` : '';
+  return {
+    id: 'not-longer',
+    ok,
+    detail: `${b.toFixed(2)}s → ${a.toFixed(2)}s${allowed}`,
+  };
 }
 
 /** A b-roll clip sits inside the requested window (ADR 0140: a non-overlapping cutaway). */
@@ -731,8 +867,13 @@ const COMMON = (ctx: RubricContext): RubricCheck[] => [
 ];
 
 function scored(scenario: MissionScenarioId, checks: readonly RubricCheck[]): RubricScore {
-  const total = checks.reduce((s, c) => s + (c.weight ?? 1), 0);
-  const passed = checks.reduce((s, c) => s + (c.ok ? (c.weight ?? 1) : 0), 0);
+  // A skipped check leaves BOTH sums. Counting it in the denominator alone would fail a
+  // run for an instrument that could not look; counting it in both — which is what
+  // `ok: true` did — hands out a free point on every case that reads `mission-podcast`'s
+  // fabricated transcript. The checks list still carries it, so the report says why.
+  const judged = checks.filter((c) => c.skipped !== true);
+  const total = judged.reduce((s, c) => s + (c.weight ?? 1), 0);
+  const passed = judged.reduce((s, c) => s + (c.ok ? (c.weight ?? 1) : 0), 0);
   return { scenario, score: total === 0 ? 0 : passed / total, checks };
 }
 
@@ -750,7 +891,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
     case 'podcast-highlight-60s':
       return scored(scenario, [
         checkChanged(ctx),
-        checkDurationWithin(p, 60, 10),
+        checkDurationWithin(p, ctx.durationTargetSeconds ?? 60, 10),
         checkNoMidWordCuts(p, ctx.before),
         ...COMMON(ctx),
       ]);
@@ -773,7 +914,16 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
     case 'refine-tighten':
       return scored(scenario, [
         checkChanged(ctx),
-        checkShorterThanBefore(ctx),
+        // NOT `checkShorterThanBefore`. The prompt is "tighten the middle section so it
+        // moves faster, but keep the first and last clips exactly as they are", and that
+        // does not ask for a shorter programme — it asks for a faster cutting rhythm.
+        // Session-3 run 1 did exactly that: 13 picture clips became 15, the first and
+        // last untouched, the programme still 29.4s. A correct, skilled edit, scored
+        // 0.875 by a check measuring something the request never mentioned. (The same
+        // failure is in the committed `baseline`, twice, and was read there as the agent
+        // falling short.) The case exists to prove a second turn REFINES rather than
+        // restarts; that is what these three checks now say.
+        checkCutsFasterThanBefore(ctx),
         checkKeptClipsUntouched(ctx),
         ...COMMON(ctx),
       ]);

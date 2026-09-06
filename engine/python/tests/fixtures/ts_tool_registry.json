@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 91,
+  "toolCount": 93,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -2949,6 +2949,39 @@
         "properties": {}
       }
     },
+    "reorder_clips": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipIds",
+          "trackId"
+        ],
+        "properties": {
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
     "resize_effect": {
       "kind": "mutate",
       "mutates": true,
@@ -3747,6 +3780,71 @@
         }
       }
     },
+    "set_clip_speed_ramp": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "ramp"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "ramp": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "rate",
+                "sourceTime"
+              ],
+              "properties": {
+                "easing": {
+                  "type": [
+                    "string"
+                  ],
+                  "enum": [
+                    "bezier",
+                    "ease-in",
+                    "ease-in-out",
+                    "ease-out",
+                    "hold",
+                    "linear"
+                  ]
+                },
+                "rate": {
+                  "type": [
+                    "number"
+                  ],
+                  "exclusiveMinimum": 0
+                },
+                "sourceTime": {
+                  "type": [
+                    "number"
+                  ],
+                  "minimum": 0
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "set_effect_enabled": {
       "kind": "mutate",
       "mutates": true,
@@ -4232,6 +4330,16 @@
           "muted": {
             "type": [
               "boolean"
+            ]
+          },
+          "role": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "dialogue",
+              "music",
+              "sfx"
             ]
           },
           "trackId": {

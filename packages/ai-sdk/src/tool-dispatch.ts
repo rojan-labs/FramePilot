@@ -10,7 +10,7 @@ import type { AnyOperation } from '@framepilot/editor-core';
 import type { ToolCall } from './providers/types.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
-import { type ToolSpec, getTool } from './tool-registry.js';
+import { TOOL_REGISTRY, type ToolSpec, getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
 
 const log = createLogger('ai-sdk:tool-dispatch');
@@ -28,6 +28,16 @@ interface ArgIssue {
    * reads both, because the two shapes coexist across the schemas this dispatcher parses.
    */
   readonly received?: string;
+  /** For `unrecognized_keys`: the keys the strict object did not declare. */
+  readonly keys?: readonly string[];
+  /**
+   * For Zod 4's `invalid_value` (an enum or literal): the values the schema accepts.
+   *
+   * Zod 4 does NOT put the rejected input on the finalized issue — `values` is all it
+   * carries — which is why {@link receivedValueHint} reads the value back out of the
+   * arguments instead of off the issue.
+   */
+  readonly values?: readonly unknown[];
 }
 
 /**
@@ -132,7 +142,102 @@ function argIssues(cause: unknown): readonly ArgIssue[] {
   return Array.isArray(issues) ? (issues as ArgIssue[]) : [];
 }
 
-export function describeArgValidationError(cause: unknown): string {
+/**
+ * The tools that DO declare every one of these argument names.
+ *
+ * WHY: a strict object's `Unrecognized keys: "subject", "intent"` says which words were
+ * wrong and nothing about where they belong, and the mistake behind it is almost always
+ * one tool's arguments sent to its neighbour. Run `137d8fd0` sent `track_object` the
+ * `subject` and `intent` that belong to `track_subject_automatically`, read the bare key
+ * list, and moved on without ever finding the tool it wanted.
+ *
+ * Only an exact match counts — every rejected key declared by the candidate — so a tool
+ * that happens to share one common name (`trackId`, `clipId`) is not offered as a guess.
+ * At most two are named; more than that is not a pointer, it is a search result.
+ */
+function toolsDeclaring(keys: readonly string[], calledTool: string): string[] {
+  if (keys.length === 0) return [];
+  const owners: string[] = [];
+  for (const spec of TOOL_REGISTRY) {
+    if (spec.name === calledTool) continue;
+    const properties = (spec.parameters as { properties?: Record<string, unknown> }).properties;
+    if (!properties) continue;
+    if (keys.every((key) => Object.hasOwn(properties, key))) owners.push(spec.name);
+    if (owners.length === 2) break;
+  }
+  return owners;
+}
+
+/**
+ * The value the model actually sent at `path`, or `undefined` when there is none there.
+ *
+ * Walks the argument object rather than the issue, because Zod 4 drops the input from a
+ * finalized `invalid_value` issue: `{ code, values, path, message }` and nothing else.
+ */
+function valueAtPath(args: unknown, path: readonly PropertyKey[]): unknown {
+  let cursor: unknown = args;
+  for (const step of path) {
+    if (cursor === null || typeof cursor !== 'object') return undefined;
+    cursor = (cursor as Record<PropertyKey, unknown>)[step];
+  }
+  return cursor;
+}
+
+/** Case, spacing, punctuation and a trailing plural removed — the shape of a near-miss. */
+function normalizedOption(value: string): string {
+  const bare = value.toLowerCase().replace(/[\s_-]+/g, '');
+  return bare.endsWith('s') ? bare.slice(0, -1) : bare;
+}
+
+/**
+ * `received "clip"` — and, when the value is a near-miss, the option it plainly meant.
+ *
+ * WHY: Zod 4 phrases an enum rejection as `kind: Invalid option: expected one of
+ * "photo"|"video"`. That names every legal value and never the illegal one, so a model
+ * reading it cannot tell WHICH of the arguments it just sent was the problem — and with
+ * several enums on one call, it has to guess. Run `137d8fd0` burned two `search_stock`
+ * calls and one `track_subject_automatically` call on exactly this: rejected, told the
+ * options, no mention of what it had written, no correction made.
+ *
+ * The near-miss clause is deliberately narrow — case, spacing, punctuation, a trailing
+ * plural. "videos" for "video" is a typo worth naming. Anything further apart is a
+ * different intention, and guessing at it would send the run somewhere it never asked
+ * to go.
+ */
+function receivedValueHint(issue: ArgIssue, args: unknown): string {
+  if (issue.code !== 'invalid_value' || args === undefined) return '';
+  const received = valueAtPath(args, issue.path);
+  if (received === undefined || typeof received === 'object') return '';
+  const shown = typeof received === 'string' ? `"${received}"` : String(received);
+  const options = (issue.values ?? []).filter((value): value is string => typeof value === 'string');
+  if (typeof received === 'string') {
+    const target = normalizedOption(received);
+    const near = options.find((option) => normalizedOption(option) === target);
+    if (near !== undefined && near !== received) {
+      return ` — received ${shown}; use "${near}".`;
+    }
+  }
+  return ` — received ${shown}.`;
+}
+
+/** The "…which belong to X" clause for an unrecognized-keys issue, or ''. */
+function ownerHint(issue: ArgIssue, calledTool: string): string {
+  if (issue.code !== 'unrecognized_keys' || !issue.keys) return '';
+  const owners = toolsDeclaring(issue.keys, calledTool);
+  if (owners.length === 0) return '';
+  return ` — ${issue.keys.length === 1 ? 'that argument belongs' : 'those arguments belong'} to ${joinList(owners.map((name) => `"${name}"`))}.`;
+}
+
+/**
+ * @param cause - The thrown validation error (a ZodError, or anything else).
+ * @param calledTool - The tool that was called, for the "belongs to X" routing clause.
+ * @param args - The arguments as sent, so an enum refusal can quote the value it refused.
+ */
+export function describeArgValidationError(
+  cause: unknown,
+  calledTool = '',
+  args?: unknown,
+): string {
   /* v8 ignore start */
   if (
     !cause ||
@@ -145,7 +250,8 @@ export function describeArgValidationError(cause: unknown): string {
   return (cause as { issues: ArgIssue[] }).issues
     .map((issue) => {
       const path = issue.path.join('.');
-      return path ? `${path}: ${issue.message}` : issue.message;
+      const hint = ownerHint(issue, calledTool) || receivedValueHint(issue, args);
+      return path ? `${path}: ${issue.message}${hint}` : `${issue.message}${hint}`;
     })
     .join('; ');
 }
@@ -265,7 +371,7 @@ export function operationsForCall(call: ToolCall, ctx: ToolContext): AnyOperatio
         ...(cause.refusalCause ? { refusalCause: cause.refusalCause } : {}),
       });
     }
-    const reason = describeArgValidationError(cause);
+    const reason = describeArgValidationError(cause, call.name, call.arguments);
     log.warn('operationsForCall → invalid args', { tool: call.name, reason });
     throw new ToolInvocationError(
       'invalid_args',

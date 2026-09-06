@@ -3,7 +3,7 @@
  * revert, and timeline diff.
  */
 import { describe, expect, it } from 'vitest';
-import type { Clip, Timeline } from '@framepilot/timeline-schema';
+import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
 import type { PatchId } from '@framepilot/shared-types';
 import { assertOperationContract } from './operation-contract.js';
 import { applyOperation, invertOperation, type Operation } from './operations.js';
@@ -14,6 +14,7 @@ import {
   invertPatch,
   PatchError,
   revertPatch,
+  projectChanged,
   structuredDiffTimeline,
   type Patch,
 } from './patch.js';
@@ -625,5 +626,92 @@ describe('structuredDiffTimeline', () => {
       beforeRange: { start: 1, end: 2 },
       afterRange: null,
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// projectChanged — run 137d8fd0
+// ---------------------------------------------------------------------------
+
+/**
+ * Setting a field to the value it already holds applies cleanly and reports success.
+ * Run `137d8fd0` made 65 `adjust_audio` calls on that basis, seven of them re-setting one
+ * clip to −18 dB, and nothing in the answer could tell it apart from work.
+ */
+describe('projectChanged', () => {
+  const project = (over: Partial<Project> = {}): Project =>
+    ({
+      id: 'p1',
+      name: 'Fixture',
+      version: 1,
+      fps: 30,
+      resolution: { width: 1920, height: 1080 },
+      assets: [{ id: 'asset_1', path: 'a.mp4', kind: 'video', durationSeconds: 20 }],
+      folders: [],
+      markers: [],
+      transcript: [],
+      aiMemory: {},
+      history: [],
+      timeline: timeline(),
+      ...over,
+    }) as unknown as Project;
+
+  it('is false for the same object', () => {
+    const p = project();
+    expect(projectChanged(p, p)).toBe(false);
+  });
+
+  it('is false for a rebuilt but identical project', () => {
+    expect(projectChanged(project(), project())).toBe(false);
+  });
+
+  it('sees a clip field move', () => {
+    const after = project();
+    const track = after.timeline.tracks[0]!;
+    expect(
+      projectChanged(project(), {
+        ...after,
+        timeline: {
+          ...after.timeline,
+          tracks: [
+            { ...track, clips: [{ ...track.clips[0]!, gainDb: -18 }, track.clips[1]!] },
+            after.timeline.tracks[1]!,
+          ],
+        },
+      } as Project),
+    ).toBe(true);
+  });
+
+  it('is false when the same value is written again', () => {
+    const withGain = (): Project => {
+      const base = project();
+      const track = base.timeline.tracks[0]!;
+      return {
+        ...base,
+        timeline: {
+          ...base.timeline,
+          tracks: [
+            { ...track, clips: [{ ...track.clips[0]!, gainDb: -18 }, track.clips[1]!] },
+            base.timeline.tracks[1]!,
+          ],
+        },
+      } as Project;
+    };
+    expect(projectChanged(withGain(), withGain())).toBe(false);
+  });
+
+  it('sees a change outside the timeline', () => {
+    expect(
+      projectChanged(project(), project({ markers: [{ id: 'm', time: 1, label: 'x' }] })),
+    ).toBe(true);
+  });
+
+  it('does not confuse key order with a difference', () => {
+    const a = project();
+    const reordered = {
+      timeline: a.timeline,
+      ...Object.fromEntries(Object.entries(a).filter(([key]) => key !== 'timeline')),
+    } as Project;
+    expect(projectChanged(a, reordered)).toBe(false);
   });
 });

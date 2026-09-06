@@ -1,0 +1,252 @@
+{
+  "scenario": "broll-empty-overlay-track",
+  "category": "broll",
+  "project": "mission-overlay",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Add b-roll from the bin over the first 20 seconds of the narration.",
+      "rubric": "broll-cutaway-empty-overlay",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "cutaway-in-window",
+          "ok": true,
+          "detail": "2 b-roll clip(s) inside 0–20s",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "stacked-picture-is-previewable",
+          "ok": true,
+          "detail": "2 stacked span(s), all full-frame",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "duration-kept",
+          "ok": true,
+          "detail": "528.73s → 528.73s",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "cutaway-in-window: 2 b-roll clip(s) inside 0–20s",
+            "stacked-picture-is-previewable: 2 stacked span(s), all full-frame"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "duration-kept: 528.73s → 528.73s",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 2,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 36569,
+          "output": 556,
+          "total": 37125
+        },
+        "usd": 0.050025,
+        "latency": {
+          "firstProgressMs": 3915,
+          "doneMs": 13168
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 2
+      },
+      "asked": [],
+      "assistantText": "**Applied 2 edits** in 1 step — review the proposed change below.\n\n- Added clip Video 1 · 0s–8.767s\n- Added clip Video 1 · 8.767s–20s",
+      "recording": "reports/golden/s7-gapfill/recordings/broll-empty-overlay-track-r1-t1.json",
+      "metrics": {
+        "wallMs": 13168,
+        "modelCalls": 2,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 36569,
+          "input": 13895,
+          "output": 556,
+          "cacheRead": 22674,
+          "cacheCreate": 25734
+        },
+        "perCall": [
+          {
+            "ttftMs": 3911,
+            "wallMs": 6627,
+            "input": 6851,
+            "output": 325,
+            "cacheRead": 11337
+          },
+          {
+            "ttftMs": 2951,
+            "wallMs": 6479,
+            "input": 7044,
+            "output": 231,
+            "cacheRead": 11337
+          }
+        ],
+        "summary": {
+          "turnCount": 2,
+          "ttftMs": {
+            "p50": 2951,
+            "p95": 3911,
+            "min": 2951,
+            "max": 3911
+          },
+          "wallMs": {
+            "p50": 6479,
+            "p95": 6627,
+            "min": 6479,
+            "max": 6627
+          },
+          "inputTokensPerTurn": {
+            "p50": 6851,
+            "p95": 7044,
+            "min": 6851,
+            "max": 7044
+          },
+          "outputTokensPerTurn": {
+            "p50": 231,
+            "p95": 325,
+            "min": 231,
+            "max": 325
+          },
+          "cacheHitRate": 0.6200333615904181,
+          "cacheReportingTurns": 2
+        },
+        "usd": 0.050025,
+        "usageTokens": 14451,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "add_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 4,
+        "contextByType": [
+          {
+            "system": 2287,
+            "retrieved_evidence": 2287,
+            "skill": 1649,
+            "latest_user_message": 21,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2287,
+            "retrieved_evidence": 2287,
+            "skill": 1649,
+            "latest_user_message": 21,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2389,
+            "retrieved_evidence": 2303,
+            "skill": 1649,
+            "latest_user_message": 21,
+            "tool_schemas": 6975
+          },
+          {
+            "system": 2389,
+            "retrieved_evidence": 2303,
+            "skill": 1649,
+            "latest_user_message": 21,
+            "tool_schemas": 6975
+          }
+        ],
+        "contextUsedTokens": [
+          13219,
+          6851,
+          13337,
+          7044
+        ],
+        "contextCachedTokens": [
+          null,
+          11337,
+          null,
+          11337
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 2,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 528.7333333333333,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "b_roll",
+            "type": "video",
+            "clips": 2
+          },
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

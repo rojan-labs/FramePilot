@@ -47,6 +47,7 @@ import {
   createTurnEmitter,
 } from '../events.js';
 import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
+import { survivesAppliedEdit } from '../tool-refusal.js';
 import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
@@ -291,6 +292,22 @@ export function turnLearnedSomethingNew(
  */
 function callAnswered(fact: TurnCallFact): boolean {
   if (fact.status !== 'completed' && fact.status !== 'warning') return false;
+  // A MUTATION is an attempt, not an answer, and it is already credited as one.
+  //
+  // `progressed` reads `(attemptedEdit && !repeatedRejection) || turnLearnedSomethingNew`.
+  // The first clause is where a proposed edit earns its progress, and it deliberately
+  // withholds that credit from a turn refused at the same wall as the last one. Letting
+  // the same proposal ALSO earn credit through the second clause hands it back — and it
+  // did: in `beat-sync` r1 each of twenty-nine refused turns called `add_clips` with
+  // slightly different arguments, so each produced a first-seen novelty key, `callAnswered`
+  // said the turn had learned something, and the stall streak reset every time. Five facts
+  // were derived across thirty-two model calls; the run's own working memory knew it had
+  // stopped learning eight minutes before it stopped spending.
+  //
+  // Nothing legitimate loses credit here. A mutation that LANDS resets every streak
+  // explicitly in the applied branch, and a mutation that is refused for a NEW reason
+  // still passes the attempt clause.
+  if (fact.role === 'mutation') return false;
   return fact.role === 'recall' || !fact.fromCache;
 }
 
@@ -467,6 +484,23 @@ export interface ConductorState {
    * every state literal carries it and none can silently forget to.
    */
   readonly lastRejectionReason: string;
+  /**
+   * The SMALLEST refusal scale seen so far at the wall named by {@link lastRejectionReason}
+   * — the run's best attempt at getting through it. Absent when no rejection stands, or
+   * when the standing one reports no scale.
+   *
+   * Why a floor and not simply the last turn's scale: `beat-sync` r3 of `session6` went
+   * 12 → 10 → 10 → 18 → 24 → 4 → 8 → 8 → 2 off-grid cuts. Comparing against the previous
+   * turn alone would credit 8 → 2 and 24 → 4 but also 18 → … every oscillation back down to
+   * a number the run had already beaten, which is not new ground. A new LOW is.
+   *
+   * Reset (not merely lowered) when the wall changes, and cleared by any applied edit,
+   * for the same reason {@link lastRejectionReason} is: a refusal describes the arrangement
+   * the validator was shown, and the patch that changes it retires the measurement too.
+   */
+  // `| undefined` explicitly: `exactOptionalPropertyTypes` is on, and this field is
+  // ASSIGNED undefined (an applied edit retires the measurement), not merely omitted.
+  readonly lastRejectionScale?: number | undefined;
   readonly cancelled: boolean;
   /** Integrity failure is terminal and distinct from creator cancellation. */
   readonly integrityFailed: boolean;
@@ -637,6 +671,17 @@ export interface FinalizeEffect {
   readonly appliedTurns: number;
   readonly rejectedOpCount: number;
   readonly rejectionReasons: readonly string[];
+  /**
+   * The drafted plan as it finished, so the completion report can say which of the steps
+   * the run announced were never completed (GOLDEN-C.19).
+   *
+   * EMPTY when the run drafted no plan, even though {@link ConductorState.planSteps} is
+   * not: an unplanned run appends one derived step per turn purely for status tracking
+   * (see `runTurn` in the orchestrator), and those are a log of what the run DID, not a
+   * statement of what it set out to do. Listing the last one as "running" would report a
+   * finished turn as unfinished work.
+   */
+  readonly planSteps: readonly PlanStep[];
 }
 
 /** The inert effect descriptions the Conductor emits for the runtime to interpret. */
@@ -867,6 +912,30 @@ export interface AgentTurnResult {
    */
   readonly rejection?: string;
   /**
+   * The refusal's STABLE identity, free of the values that vary between attempts —
+   * `beat-grid:off-grid`, `validator:overlap_error`, `over-cap`. Absent for a refusal
+   * whose producer states no key, in which case {@link rejection} is the identity, as
+   * before.
+   *
+   * WHY the two are separate: `rejection` is what the editor and the model read, so it
+   * names the exact off-grid times or the exact op count — and that is what broke
+   * {@link ConductorState.lastRejectionReason} as a guard. In `beat-sync` r1 the beat grid
+   * refused twenty-nine consecutive turns for one reason, listing different offending cuts
+   * each time; no two sentences matched, so `repeatedRejection` never fired and the run
+   * re-issued the same rejected edit for twenty minutes and $3.93.
+   */
+  readonly rejectionKey?: string;
+  /**
+   * HOW MUCH of the proposal the refusal is still refusing — offending boundaries,
+   * validator errors, operations over the cap. A count, never a severity, and absent for a
+   * refusal that has no size (`beat-grid:ungrounded` is true or false, never partly fixed).
+   *
+   * {@link rejectionKey} says the turn hit the same wall as the last one. This says whether
+   * it is getting through it, and the two together are what separate a run repeating itself
+   * from a run converging — see {@link ConductorState.lastRejectionScale}.
+   */
+  readonly rejectionScale?: number;
+  /**
    * The turn's own prose, for semantic-loop detection (ADR 0075 §3.5). Optional so the
    * legacy loop and existing fixtures keep compiling; without it a turn's intent reads as
    * `unknown`, which never contributes to a loop — silence is not evidence of repetition.
@@ -939,11 +1008,7 @@ export type RepairOutcome =
 
 /** What the runtime folds back into the Conductor. */
 export type ConductorResult =
-  | DraftPlanResult
-  | ResumeResult
-  | ApprovalResult
-  | AgentTurnResult
-  | VerifyResult;
+  DraftPlanResult | ResumeResult | ApprovalResult | AgentTurnResult | VerifyResult;
 
 /** One reducer step: the next state, the effects to run, and the events to stream. */
 export interface ConductorStep {
@@ -1200,6 +1265,8 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
         appliedTurns: state.appliedTurns,
         rejectedOpCount: state.rejectedOpCount,
         rejectionReasons: [...state.rejectionReasons],
+        // Only a DRAFTED ledger travels — see `FinalizeEffect.planSteps`.
+        planSteps: state.ledgerLength > 0 ? [...state.planSteps] : [],
       },
     ],
     events,
@@ -1215,6 +1282,14 @@ function cancelFinalize(state: ConductorState, em: Emitter, events: AiEvent[]): 
  * Why the run must stop now on its cost or time budget, or `undefined` while within both.
  * Cost is only ever compared when a turn reported a price; an unpriced run (usd 0) is
  * never stopped for money it could not measure.
+ *
+ * THE BUDGET IS A STOPPING RULE, NOT A CEILING, and the notice now says so. The check
+ * runs after a turn settles, so the turn that crosses the line has already been paid for;
+ * and `toVerify` — the self-check and its one bounded repair pass — is what produces the
+ * report the notice promises, so it runs after the stop and costs model calls of its own.
+ * Run `137d8fd0` announced "$26.61 spent" against a $26.50 budget and finished at $27.76,
+ * 4.8% over, and every dollar of that gap is one of those two. Suppressing the check to
+ * hold the line would buy the number by deleting the verdict.
  */
 export function budgetExhausted(state: ConductorState): string | undefined {
   const { maxUsd, maxWallMs } = state.config;
@@ -1222,13 +1297,15 @@ export function budgetExhausted(state: ConductorState): string | undefined {
   if (state.runUsd > 0 && state.runUsd >= maxUsd) {
     return (
       `Reached this run's $${maxUsd.toFixed(2)} budget after ${steps} ` +
-      `($${state.runUsd.toFixed(2)} spent) — stopping and reporting what was applied.`
+      `($${state.runUsd.toFixed(2)} spent) — no more editing turns; a final self-check ` +
+      'still runs, then the run reports what was applied.'
     );
   }
   if (state.runElapsedMs >= maxWallMs) {
     return (
       `Reached this run's ${String(Math.round(maxWallMs / 60_000))}-minute limit after ${steps} ` +
-      `— stopping and reporting what was applied.`
+      '— no more editing turns; a final self-check still runs, then the run reports what ' +
+      'was applied.'
     );
   }
   return undefined;
@@ -1966,11 +2043,17 @@ export function onTurnResult(
       actionRecoveryPending: false,
       // An edit landed, so whatever was refused before is behind the run.
       lastRejectionReason: '',
+      lastRejectionScale: undefined,
       seenCallKeys: mergeSeenKeys(state.seenCallKeys, r.callFacts),
       // Same reason as `lastRejectionReason`: a deterministic refusal describes the
       // arrangement the validator was shown, and this patch has just replaced it. Holding
       // the keys across an applied edit would refuse a retry whose cause the edit fixed.
-      seenFailureKeys: [],
+      //
+      // EXCEPT the refusals no edit can fix. `render_preview: surface_unavailable` is a
+      // verdict about the runtime, not the timeline, and clearing it here is why one
+      // desktop run was refused it eight times in 86 minutes with every mutation in
+      // between wiping the memory (`tool-refusal.ts#ARRANGEMENT_INDEPENDENT_CAUSES`).
+      seenFailureKeys: state.seenFailureKeys.filter(survivesAppliedEdit),
     };
     if (cumulativeOps.length - derivedOpTotal >= state.config.maxOpsPerRun) {
       const note = `Reached the per-run cap of ${state.config.maxOpsPerRun} operations — stopping.`;
@@ -2018,11 +2101,57 @@ export function onTurnResult(
   // the attempt's progress credit — it must learn something new to count. Compared on the
   // rejection alone, never on the turn note, which carries every read result in the turn
   // and would almost never repeat byte for byte.
+  // Compared on the refusal's stable IDENTITY, not on its sentence. A rejection message
+  // names the values that need fixing, so it varies between attempts at the same wall —
+  // and comparing sentences meant a run refused twenty-nine times for one reason read as
+  // twenty-nine different refusals. `rejectionKey` is the producer's own answer to "is
+  // this the same wall?"; a producer that states none still falls back to the sentence,
+  // which is the previous behaviour exactly.
+  const rejectionIdentity = r.rejectionKey ?? r.rejection;
   const repeatedRejection =
-    rejected && r.rejection !== undefined && r.rejection === state.lastRejectionReason;
+    rejected && rejectionIdentity !== undefined && rejectionIdentity === state.lastRejectionReason;
 
+  // …and the same wall is not the same ATTEMPT at it. A refusal that names fewer offenders
+  // than the run's best so far is the run getting through the wall, one course correction at
+  // a time, and it earns the attempt's progress credit even though the wall has not moved.
+  //
+  // Measured, not assumed. `beat-sync` r3 of `session6` was refused eleven consecutive times
+  // by `beat-grid:off-grid` with 12, 10, 10, 18, (a different wall), 24, 4, 8, 8, 2 cuts off
+  // the grid, and its NEXT proposal — the first with every interior cut on a detected onset
+  // — landed 35 operations for a score of 1.00. Replaying that recording against the
+  // key-only guard stopped the run at the eleventh refusal (`stallStreak` reaching
+  // {@link STALL_CONFIRM_TURNS}), one model call short of the edit: 5 operations, 0.56.
+  //
+  // A new LOW, not merely a lower number than last turn — see
+  // {@link ConductorState.lastRejectionScale}. `beat-sync` r1, which re-proposed cuts that
+  // stayed 18, 16, 16, 32, 16 wrong, never reaches a new low after its second attempt and
+  // still stops exactly where it does today.
+  const convergingRejection =
+    repeatedRejection &&
+    r.rejectionScale !== undefined &&
+    state.lastRejectionScale !== undefined &&
+    r.rejectionScale < state.lastRejectionScale;
+  // The wall the run stands at now, and its best attempt at it. A new wall replaces the
+  // floor outright rather than lowering it: fewer overlaps is no evidence about the beat
+  // grid, and carrying one wall's number to another would credit an unrelated refusal as
+  // progress.
+  const lastRejectionScale = !rejected
+    ? state.lastRejectionScale
+    : repeatedRejection && state.lastRejectionScale !== undefined
+      ? Math.min(state.lastRejectionScale, r.rejectionScale ?? state.lastRejectionScale)
+      : r.rejectionScale;
+
+  // A SATISFIED turn is not an attempt at the cut. By its own definition it "landed nothing
+  // because the timeline ALREADY matched it" — nothing moved, there is nothing to retry. It
+  // is right that it is not filed as a rejection (above). It is wrong that it earned the
+  // attempt's progress credit: run `137d8fd0` re-set `music_1_clip` to the −18 dB it was
+  // already at TEN times across turns 15→149, and each identical no-op reset every
+  // run-stopper as if a fader had moved. Same principle as `callAnswered` for mutations —
+  // a re-derivation can still count as progress, but only by LEARNING something, not by
+  // proposing again what is already there.
+  const attemptedChange = attemptedEdit && r.satisfied !== true;
   const progressed =
-    (attemptedEdit && !repeatedRejection) ||
+    (attemptedChange && (!repeatedRejection || convergingRejection)) ||
     turnLearnedSomethingNew(r.callFacts, state.seenCallKeys);
   const seenCallKeys = mergeSeenKeys(state.seenCallKeys, r.callFacts);
   const seenFailureKeys = mergeFailureKeys(state.seenFailureKeys, r.callFacts);
@@ -2052,8 +2181,14 @@ export function onTurnResult(
   //
   // `turnPlacementCount` is absent for callers that do not report it, which keeps the old
   // behaviour for the legacy loop and every fixture rather than silently tightening them.
+  // …and a satisfied turn has not left reconnaissance either: its placements re-derived
+  // what was already placed, so they refund no research budget.
   const changedTheCut =
-    r.turnPlacementCount === undefined ? attemptedEdit : r.turnPlacementCount > 0;
+    r.satisfied === true
+      ? false
+      : r.turnPlacementCount === undefined
+        ? attemptedEdit
+        : r.turnPlacementCount > 0;
   const researchStreak = changedTheCut ? 0 : state.researchStreak + 1;
   // Recalls are excluded from this question, and the exclusion is load-bearing.
   //
@@ -2135,7 +2270,8 @@ export function onTurnResult(
   // restated summaries and memo hits are a run describing itself, not progressing.
   const progressedMeaningfully = madeMeaningfulProgress({
     learnedSomethingNew,
-    attemptedEdit,
+    // The stricter question gets the same answer: an identical re-set is not an attempt.
+    attemptedEdit: attemptedChange,
     appliedEdit: false,
     recordedVerification: false,
     advancedStage: stageAdvanced,
@@ -2208,7 +2344,8 @@ export function onTurnResult(
     // Only a real rejection is remembered; a turn that landed nothing for any other reason
     // (a pure read, an already-satisfied edit) must not make the NEXT rejection look like a
     // repeat of it.
-    lastRejectionReason: rejected ? (r.rejection ?? '') : state.lastRejectionReason,
+    lastRejectionReason: rejected ? (rejectionIdentity ?? '') : state.lastRejectionReason,
+    lastRejectionScale,
     seenCallKeys,
     seenFailureKeys,
   };

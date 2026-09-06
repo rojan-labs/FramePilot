@@ -23,6 +23,7 @@ import {
   buildTimelineMap,
   listEditBoundaries,
   mapTranscript,
+  speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
@@ -33,7 +34,9 @@ import {
 } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
 import type { TemporalReviewReport } from './temporal-review.js';
-import { secondsToFrame } from './frame-time.js';
+import { hiddenPictureClips } from './domain-tools/picture-layers.js';
+import { frameToSeconds, secondsToFrame } from './frame-time.js';
+import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
 
 /** Outcome of a single Critic check. */
@@ -44,6 +47,7 @@ export type CheckId =
   | 'request_match'
   | 'picture_present'
   | 'picture_coverage'
+  | 'hidden_picture'
   | 'duration_target'
   | 'shot_count'
   | 'shot_length_target'
@@ -773,6 +777,59 @@ function checkPictureCoverage(project: Project, options: CritiqueOptions): Criti
 }
 
 /**
+ * Is any picture on this timeline buried where nobody will ever see it?
+ *
+ * ## Why this exists
+ *
+ * `picture_coverage` asks whether every moment of the programme has SOMETHING under it.
+ * It cannot see the opposite defect: too much picture, stacked, with most of it behind
+ * the rest. Run `137d8fd0` finished a sixty-second highlight with 25 tracks and 48
+ * picture clips, of which 37 — including every clip of the main riding track — were
+ * covered end to end by the layers in front of them. Every check in this battery passed.
+ * Every one of the thirteen lifts that produced it was reported as `completed`.
+ *
+ * ADR 0169 lifts a legal full-frame placement in front of the picture it covers, which is
+ * what a cutaway IS; `createPicturePlacer` now refuses the lift that buries another
+ * cutaway whole. This is the same question asked of a project that already has the
+ * defect, wherever it came from.
+ *
+ * ## Why it warns and never fails
+ *
+ * Buried picture can be inherited from the project the run was handed, and an inherited
+ * defect is an advisory — failing the run for it would judge a delta the run did not make.
+ * The remedy is an editorial decision (which copy survives), so the detail names the
+ * clips and leaves the choice.
+ */
+function checkHiddenPicture(project: Project): CriticCheck {
+  const label = 'No picture is buried';
+  if (pictureClips(project).length === 0) {
+    return check('hidden_picture', label, 'skipped', 'No picture clips, so nothing can be buried.');
+  }
+  const hidden = hiddenPictureClips(project);
+  if (hidden.length === 0) {
+    return check('hidden_picture', label, 'pass', 'Every picture clip is visible somewhere.');
+  }
+  const assetPath = new Map(project.assets.map((asset) => [asset.id, asset.path]));
+  const named = hidden
+    .slice(0, 3)
+    .map((clip) => {
+      const path = assetPath.get(clip.assetId);
+      const file = path === undefined ? clip.assetId : (path.split('/').pop() ?? path);
+      return `"${file}" on ${clip.trackId} (${round(clip.start)}s–${round(clip.end)}s)`;
+    })
+    .join(', ');
+  return check(
+    'hidden_picture',
+    label,
+    'warn',
+    `${String(hidden.length)} picture clip${hidden.length === 1 ? ' is' : 's are'} completely ` +
+      `covered by the layers in front of ${hidden.length === 1 ? 'it' : 'them'} and ` +
+      `${hidden.length === 1 ? 'is' : 'are'} never seen: ${named}` +
+      `${hidden.length > 3 ? ', …' : ''}. Remove them, or move them where they show.`,
+  );
+}
+
+/**
  * The one repair for a picture-coverage failure that needs no judgement: trim the sound
  * back to where the picture stops.
  *
@@ -1244,27 +1301,120 @@ const numParam = (effect: Effect, key: string): number | undefined => {
 };
 
 /**
- * Overlays/captions positioned by a normalized (0–1) x/y must stay inside the
- * safe-area inset. Clips with no explicit position are assumed centered (safe).
+ * An overlay's centre as a fraction of the frame (0–1), or `undefined` when unpositioned.
+ *
+ * The whole product speaks `xPercent`/`yPercent` on a 0–100 scale: the schema declares
+ * them (`index.ts`), `add_text_layer` writes them, the preview painter reads them
+ * (`overlay-painter.ts`) and so does the renderer (`text_overlay.py`). This check read
+ * `x` and `y` on a 0–1 scale — a vocabulary nothing in this product writes.
+ *
+ * So it never saw an overlay. `positioned` stayed 0 for every project and the answer was
+ * always "No explicitly-positioned overlays/captions to check". Run `137d8fd0` placed its
+ * title at `xPercent: 50, yPercent: 50` and was told there was nothing positioned to look
+ * at; a title at `yPercent: 3` would have been told the same.
+ *
+ * The 0–1 keys are still read, after the percent ones, so a project written before the
+ * vocabulary settled keeps whatever coverage it had.
  */
-function checkSafeArea(timeline: Timeline): CriticCheck {
+function overlayCentre(effect: Effect): { x?: number; y?: number } | undefined {
+  const xPercent = numParam(effect, 'xPercent');
+  const yPercent = numParam(effect, 'yPercent');
+  if (xPercent !== undefined || yPercent !== undefined) {
+    return {
+      ...(xPercent === undefined ? {} : { x: xPercent / 100 }),
+      ...(yPercent === undefined ? {} : { y: yPercent / 100 }),
+    };
+  }
+  const x = numParam(effect, 'x');
+  const y = numParam(effect, 'y');
+  if (x === undefined && y === undefined) return undefined;
+  return { ...(x === undefined ? {} : { x }), ...(y === undefined ? {} : { y }) };
+}
+
+/**
+ * An overlay whose BOX leaves the frame, described, or `undefined`.
+ *
+ * Different from being outside the safe inset, and worse: this is not "close to the
+ * edge", it is "part of this is not on screen". Both dimensions are plain arithmetic on
+ * values the project already carries, so there is no glyph measurement here and no way
+ * for it to produce a false alarm.
+ *
+ * `add_text_layer`'s own description invites the vertical case — "18+ is a headline that
+ * dominates the frame" — and 18% of frame height centred at `yPercent: 5` puts nearly
+ * half the glyph height above the top of the picture.
+ *
+ * NOT caught: a single word too wide to wrap. `wrap_lines` (and its preview twin) never
+ * split mid-word by design, so an over-long word overruns its box, and knowing that needs
+ * font metrics neither engine exposes here. This reports the geometry it can prove.
+ */
+function overlayOffFrame(clip: Clip, effect: Effect): string | undefined {
+  const centre = overlayCentre(effect);
+  if (centre === undefined) return undefined;
+  const problems: string[] = [];
+  const boxWidth = numParam(effect, 'boxWidthPercent');
+  if (centre.x !== undefined && boxWidth !== undefined) {
+    const half = boxWidth / 200;
+    if (centre.x - half < -1e-9 || centre.x + half > 1 + 1e-9) {
+      problems.push(`its ${boxWidth}%-wide box runs off the side`);
+    }
+  }
+  const fontHeight = numParam(effect, 'fontSizePercent');
+  if (centre.y !== undefined && fontHeight !== undefined) {
+    const half = fontHeight / 200;
+    if (centre.y - half < -1e-9 || centre.y + half > 1 + 1e-9) {
+      problems.push(`its ${fontHeight}% glyph height runs off the top or bottom`);
+    }
+  }
+  return problems.length > 0 ? `${clip.id} — ${problems.join(', ')}` : undefined;
+}
+
+/**
+ * Overlays/captions must stay inside the safe-area inset, must not leave the frame, and
+ * must not carry a word too wide to wrap. Clips with no explicit position are assumed
+ * centered (safe) — but their text is still checked for fit, which position does not
+ * affect and which is the one thing here that neither renderer will report on its own.
+ */
+function checkSafeArea(
+  timeline: Timeline,
+  resolution: { readonly width: number; readonly height: number },
+): CriticCheck {
   const overlayClips = overlayOrCaptionClips(timeline);
   const lo = SAFE_AREA_INSET;
   const hi = 1 - SAFE_AREA_INSET;
   const outside: string[] = [];
+  const clipped: string[] = [];
+  const unwrappable: string[] = [];
   let positioned = 0;
   for (const clip of overlayClips) {
     for (const effect of clip.effects) {
-      const x = numParam(effect, 'x');
-      const y = numParam(effect, 'y');
-      if (x === undefined && y === undefined) continue;
-      positioned += 1;
-      if ((x !== undefined && (x < lo || x > hi)) || (y !== undefined && (y < lo || y > hi))) {
-        outside.push(`${clip.id} at (${x ?? '—'}, ${y ?? '—'})`);
+      // Fit is independent of position, so it is judged before the centre test bails out
+      // on a default-placed overlay. `overflowingWords` has no opinion unless the size and
+      // the box width were both authored.
+      const over = overflowingWords(effect.params, resolution)[0];
+      if (over !== undefined) {
+        unwrappable.push(
+          `${clip.id} — "${over.word}" needs about ${String(over.requiredBoxWidthPercent)}% of ` +
+            `the frame width at this text size and boxWidthPercent is ` +
+            `${round(over.boxWidthPercent)}` +
+            (over.requiredBoxWidthPercent > 100
+              ? '; no box is wide enough, so the text size has to come down'
+              : '; no line break can shorten one word'),
+        );
       }
+      const centre = overlayCentre(effect);
+      if (centre === undefined) continue;
+      positioned += 1;
+      const { x, y } = centre;
+      if ((x !== undefined && (x < lo || x > hi)) || (y !== undefined && (y < lo || y > hi))) {
+        outside.push(
+          `${clip.id} at (${x === undefined ? '—' : round(x)}, ${y === undefined ? '—' : round(y)})`,
+        );
+      }
+      const off = overlayOffFrame(clip, effect);
+      if (off !== undefined) clipped.push(off);
     }
   }
-  if (positioned === 0) {
+  if (positioned === 0 && unwrappable.length === 0) {
     return check(
       'safe_area',
       'Overlays in safe area',
@@ -1272,13 +1422,19 @@ function checkSafeArea(timeline: Timeline): CriticCheck {
       'No explicitly-positioned overlays/captions to check (centered layouts are safe).',
     );
   }
-  if (outside.length > 0) {
-    return check(
-      'safe_area',
-      'Overlays in safe area',
-      'warn',
-      `Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`,
-    );
+  // Leaving the frame outranks being near its edge: one is clipped picture, the other is
+  // a house style. Reported together when both are true, worst first.
+  if (clipped.length > 0 || outside.length > 0 || unwrappable.length > 0) {
+    const parts: string[] = [];
+    if (clipped.length > 0) parts.push(`Off the frame — part of this will not be seen: ${clipped.join('; ')}.`);
+    if (unwrappable.length > 0)
+      parts.push(
+        `Too wide for its box — this runs out the sides in the preview and the export ` +
+          `alike: ${unwrappable.join('; ')}. Widen boxWidthPercent or reduce sizePercent.`,
+      );
+    if (outside.length > 0)
+      parts.push(`Outside the ${Math.round(SAFE_AREA_INSET * 100)}% safe area: ${outside.join(', ')}.`);
+    return check('safe_area', 'Overlays in safe area', 'warn', parts.join(' '));
   }
   return check(
     'safe_area',
@@ -1588,6 +1744,46 @@ function checkJumpCut(project: Project, fps: number): CriticCheck {
   );
 }
 
+/** Slack on the duration comparison in {@link unattributedSpeechAssets}, in seconds. */
+const SPEECH_ASSET_TOLERANCE = 0.5;
+
+/**
+ * Which assets an **unattributed** transcript can be speaking over.
+ *
+ * ## WHY
+ *
+ * A transcript word with no `assetId` (schema ≤ v11, and every fixture in
+ * `tests/fixtures/mission`) is treated as applying to any clip. On a single-asset project
+ * that is right and is the behaviour this preserves. On a project that has since gained
+ * *other* footage it is a fabrication, and it fabricates in the direction that fails runs:
+ * `broll-first-20s` places b-roll over the first 20s of narration, and `word_severed`
+ * judges the b-roll clip's own in and out points against the narration's words — reporting
+ * a severed word on footage that contains no speech at all. The agent then spends its run
+ * trying to move a cut away from a word that was never on that shot; the captured run
+ * burned 19 model calls and $2.07 doing exactly that.
+ *
+ * The timeline already knows the answer without a schema change: an unattributed
+ * transcript covers its own span, so it can only have come from an asset long enough to
+ * contain it. On `mission-talk` that is the 528s narration and not the 9–40s b-roll. When
+ * nothing qualifies — no durations known, or the transcript outruns every asset — the
+ * result is `undefined` and the old any-clip reading stands, so no project loses coverage
+ * it had.
+ *
+ * @returns The asset ids an unattributed word may be judged against, or `undefined` to
+ *   mean "cannot narrow it — judge against everything", which is the pre-existing rule.
+ */
+function unattributedSpeechAssets(project: Project): ReadonlySet<string> | undefined {
+  if (project.transcript.length === 0) return undefined;
+  const spokenUntil = project.transcript.reduce((max, word) => Math.max(max, word.end), 0);
+  const able = project.assets.filter(
+    (asset) =>
+      asset.kind !== 'image' &&
+      asset.durationSeconds !== undefined &&
+      asset.durationSeconds >= spokenUntil - SPEECH_ASSET_TOLERANCE,
+  );
+  return able.length === 0 ? undefined : new Set(able.map((asset) => asset.id));
+}
+
 /**
  * Did I cut through a word?
  *
@@ -1603,8 +1799,26 @@ function checkJumpCut(project: Project, fps: number): CriticCheck {
  * A word with no `assetId` (schema ≤ v11, or a single-asset project) applies to every
  * clip; an attributed one applies only to its own asset, so a two-camera project does not
  * report camera A's words as cut by camera B's edges.
+ *
+ * WHY the detected transcript loop is a parameter: `checkTranscriptReliable` already decided the transcript
+ * is fabricated over a range, and this check has to agree with that decision rather than
+ * re-litigate it. Run `137d8fd0` is what forced the point. Its transcript is 397
+ * back-to-back repeats of "I'll try to follow you later." covering 91% of the recording;
+ * `transcript_reliable` warned, in as many words, "do not select or cut on them" — and
+ * then `word_severed` failed the run for cuts inside "follow" and "God.", which are two
+ * of those words. Nobody said them. The run's repair pass looked at the failure, found
+ * nothing to repair, and the whole edit — 416 applied changes — was reported as failed
+ * on the strength of a word that does not exist.
+ *
+ * So a cut inside a hallucinated word is not a defect and is not counted. Real speech
+ * outside the loop is still protected, which is the part that matters: this transcript's
+ * first ~21s are genuine and cutting through those words is still wrong.
  */
-function checkWordSevered(project: Project, fps: number): CriticCheck {
+function checkWordSevered(
+  project: Project,
+  fps: number,
+  loop: TranscriptLoop | undefined,
+): CriticCheck {
   if (project.transcript.length === 0) {
     return check(
       'word_severed',
@@ -1623,11 +1837,25 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
     );
   }
   const byId = new Map(pictureClipsInOrder(project.timeline).map((clip) => [clip.id, clip]));
+  const speechAssets = unattributedSpeechAssets(project);
   // Word frame spans are computed ONCE and searched, not recomputed per boundary. The
   // naive nested loop is O(boundaries x words) with a rate conversion inside it — on an
   // hour of footage that is a thousand cuts against nine thousand words on every review,
   // and the Critic runs at the end of every run.
-  const spans = project.transcript
+  const inLoop = (word: TranscriptWord): boolean =>
+    loop !== undefined && word.end > loop.startSeconds && word.start < loop.endSeconds;
+  const real = project.transcript.filter((word) => !inLoop(word));
+  const excluded = project.transcript.length - real.length;
+  if (real.length === 0) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'skipped',
+      'Every transcribed word falls inside a speech-recognition loop, so there are no ' +
+        'real word boundaries to protect. Re-transcribe before trusting word timings.',
+    );
+  }
+  const spans = real
     .map((word) => ({
       assetId: word.assetId,
       word: word.word,
@@ -1667,12 +1895,16 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
       // frame its last one ends is cutting AFTER it — both are correct edits.
       if (span.startFrame >= frame || span.endFrame <= frame) continue;
       if (span.assetId !== undefined && span.assetId !== clip.assetId) continue;
+      // An unattributed word is not automatically this clip's — see
+      // `unattributedSpeechAssets`. B-roll is the case this exists for.
+      if (span.assetId === undefined && speechAssets && !speechAssets.has(clip.assetId)) continue;
       return span.word;
     }
     return undefined;
   };
 
-  const severed: { readonly frame: number; readonly word: string }[] = [];
+  const severed: { readonly frame: number; readonly word: string; readonly seconds: number }[] =
+    [];
   for (const boundary of boundaries) {
     const from = byId.get(boundary.fromClipId);
     const to = byId.get(boundary.toClipId);
@@ -1680,27 +1912,37 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
     // the incoming clip may begin mid-word, independently.
     const word =
       severedWordAt(from, from?.sourceEnd ?? 0) ?? severedWordAt(to, to?.sourceStart ?? 0);
-    if (word !== undefined) severed.push({ frame: secondsToFrame(boundary.at, fps), word });
+    if (word !== undefined) {
+      const frame = secondsToFrame(boundary.at, fps);
+      severed.push({ frame, word, seconds: frameToSeconds(frame, fps) });
+    }
   }
+  const aside =
+    excluded === 0
+      ? ''
+      : ` ${String(excluded)} word(s) were ignored as speech-recognition loop artefacts.`;
   if (severed.length === 0) {
     return check(
       'word_severed',
       'No words cut through',
       'pass',
-      `Every cut lands between words (${boundaries.length} cut(s) against ${project.transcript.length} word(s)).`,
+      `Every cut lands between words (${boundaries.length} cut(s) against ${real.length} word(s)).${aside}`,
     );
   }
   const where = severed
     .slice(0, 4)
-    .map((s) => `frame ${s.frame} ("${s.word}")`)
+    .map((s) => `frame ${s.frame} = ${round(s.seconds)}s ("${s.word}")`)
     .join(', ');
   return check(
     'word_severed',
     'No words cut through',
     'fail',
     `${severed.length} cut(s) land inside a word: ${where}${severed.length > 4 ? ', …' : ''}. ` +
-      'Move each boundary to the nearest word edge — read startFrame/endFrame from ' +
-      'get_mapped_transcript and trim_clip (or split_clip) to that frame.',
+      'Move each boundary to the nearest word edge: read the word\'s startFrame/endFrame ' +
+      'from get_mapped_transcript, then pass that frame DIVIDED BY the project frame rate ' +
+      `(${String(fps)}) to trim_clip or split_clip — those take SECONDS, and a second ` +
+      'between two frames is rounded to the nearest one, which is how a cut aimed at a ' +
+      `word's edge lands inside it.${aside}`,
   );
 }
 
@@ -1713,7 +1955,14 @@ function checkWordSevered(project: Project, fps: number): CriticCheck {
  * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
  */
 function checkDeadAir(project: Project, fps: number, options: CritiqueOptions): CriticCheck {
-  const mapped = mapTranscript(buildTimelineMap(project.timeline), project.transcript);
+  const mapped = mapTranscript(
+    buildTimelineMap(project.timeline),
+    project.transcript,
+    // An unattributed word belonging to any asset means dead air is measured against the
+    // b-roll clip's edges as readily as the narration's — the same fabrication
+    // `word_severed` was fixed for in 5d0dbab.
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
   if (mapped.words.length === 0) {
     return check(
       'dead_air',
@@ -2081,6 +2330,10 @@ export interface TranscriptLoop {
   readonly seconds: number;
   /** That span as a share of the transcript's own span, 0..1. */
   readonly share: number;
+  /** Source second the repetition starts at — the low edge of the unreliable stretch. */
+  readonly startSeconds: number;
+  /** Source second it ends at. Word timings in `[startSeconds, endSeconds]` mean nothing. */
+  readonly endSeconds: number;
 }
 
 /** Repeats before a phrase is a hallucination rather than a chorus. */
@@ -2093,9 +2346,12 @@ const LOOP_MIN_SHARE = 0.5;
  *
  * Whisper's best-known failure mode is a loop: over quiet or music-only audio it emits one
  * sentence again and again, with plausible timings, and nothing downstream can tell those
- * words from spoken ones. `mission-podcast` is 2431 words of which 2384 — 92%, from 21.7s
- * to 575.5s — are "I'll try to follow you later." repeated 397 times over a clip whose real
- * speech stops around 30s.
+ * words from spoken ones. This function was written against `mission-podcast`, whose media
+ * was then 2431 words of which 2384 — 92%, from 21.7s to 575.5s — were "I'll try to follow
+ * you later." repeated 397 times over a clip whose real speech stopped around 30s. That
+ * fixture has since been replaced (`speech-9min-c`), so the detector no longer fires on any
+ * project in the repo; it stays because the failure it catches is whisper's, not that
+ * fixture's, and the next quiet recording a user imports reproduces it exactly.
  *
  * That matters well beyond one fixture. The transcript is what grounds a highlight
  * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts
@@ -2147,6 +2403,8 @@ export function detectTranscriptLoop(words: readonly TranscriptWord[]): Transcri
         repeats,
         seconds,
         share,
+        startSeconds: words[start]!.start,
+        endSeconds: words[index - 1]!.end,
       };
     }
   }
@@ -2154,7 +2412,7 @@ export function detectTranscriptLoop(words: readonly TranscriptWord[]): Transcri
 }
 
 /** The transcript grounding every word-level edit is not obviously fabricated. */
-function checkTranscriptReliable(project: Project): CriticCheck {
+function checkTranscriptReliable(project: Project, loop: TranscriptLoop | undefined): CriticCheck {
   const words = project.transcript;
   if (words.length === 0) {
     return check(
@@ -2164,7 +2422,6 @@ function checkTranscriptReliable(project: Project): CriticCheck {
       'No transcript to check.',
     );
   }
-  const loop = detectTranscriptLoop(words);
   if (loop === undefined) {
     return check(
       'transcript_reliable',
@@ -2193,22 +2450,26 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   // project's rate. `Project.fps` is required by the schema; the guard is for a
   // hand-built fixture that lies about it, which must not turn a review into a crash.
   const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
+  // Detected ONCE and shared: `transcript_reliable` reports the loop and `word_severed`
+  // has to honour the same verdict, and the scan is quadratic in the transcript.
+  const loop = detectTranscriptLoop(project.transcript);
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
     checkPicturePresent(project, options),
     ...wholeCutChecks(project, options),
+    checkHiddenPicture(project),
     checkCaptionAlignment(timeline),
-    checkSafeArea(timeline),
+    checkSafeArea(timeline, project.resolution),
     checkAudioClipping(options),
     checkBlackFrames(options),
     ...(options.temporal === undefined ? [] : [checkTemporalEvidence(options)]),
     ...(options.vision === undefined ? [] : [checkVisionReview(options)]),
     checkMissingAssets(project),
     checkExportSettings(project, options),
-    checkTranscriptReliable(project),
+    checkTranscriptReliable(project, loop),
     // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
     checkJumpCut(project, fps),
-    checkWordSevered(project, fps),
+    checkWordSevered(project, fps, loop),
     checkDeadAir(project, fps, options),
     checkTransitionFit(project, fps),
     checkAudioSlam(project, fps),

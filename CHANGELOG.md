@@ -6,7 +6,96 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI can no longer bury one cutaway under another and call it done.** A 60-second
+  highlight that asked for two stock cutaways came back with 19 video layers and 37 of its
+  48 shots — including every clip of the main footage — sitting completely behind
+  something else, with the AI reporting each placement as a success. Placing a shot that
+  would cover another cutaway from its first frame to its last is now refused, with the
+  buried shot named and the ways out (drop it, move it, or trim one of them); covering the
+  main footage, which is what a cutaway is for, is unchanged. Placing the same footage
+  from the same point in the file over a moment where it already plays is refused too,
+  even when the two placements are different lengths — that includes the same music file
+  laid down twice, which does not mix, it just plays twice as loud. And the review pass
+  now reports any picture on the timeline that nothing will ever show.
+  (`packages/ai-sdk`)
+
 ### Added
+
+- **The AI no longer gives up on a beat-synced cut it was about to get right.** When every
+  attempt was refused for the same reason, the run used to stop after a few tries even if
+  each attempt had fewer cuts off the beat than the last. It now keeps going while the
+  number of things still wrong is falling, and stops only when it has genuinely stopped
+  improving. (`packages/ai-sdk`)
+
+- **The AI's closing summary now says what it did NOT do.** A run that applied 416 edits
+  across a seven-part brief ended with a list of the edits and nothing else — no mention
+  that captioning had been refused eleven times and never once worked, or that the audio
+  pass failed all ten times it was tried. The summary now carries a short **Not done**
+  block: the planned steps that were never completed, and the tools the run never got an
+  answer out of, each with the last reason it gave. It appears only when there is something
+  to say, is capped at six lines, and is kept when you stop a run — that is when it matters
+  most.
+
+- **Asking about footage that isn't in the project yet gets a straight answer.** After a
+  stock search, the AI would sometimes ask to describe a result it hadn't downloaded — and
+  was told only "not this turn", so it never learned the real reason and never described any
+  stock footage at all in one captured run. It's now told there is no such asset, which ids
+  do exist, and that a search result becomes an asset only once it's added — and the same
+  answer is given whether the request was held for the stage or sent to the engine, so it is
+  remembered rather than repeated. Search results now say this up front too.
+
+- **The AI no longer offers to render previews or exports from inside the desktop editor.**
+  Those two actions only work through the editor's own Export dialog, yet they were listed
+  among the AI's tools on every surface — so it would try, be refused, and (in one captured
+  session) try eight more times. The desktop now tells the AI up front which tools it cannot
+  run there, and they simply are not offered; the MCP surface, where they do work, is
+  unchanged.
+
+- **A refusal that no edit can fix is now remembered for the whole run.** When the AI was
+  told "render_preview can't run from here — don't call it again", that memory was wiped
+  every time it made an edit, so one session asked eight times in 86 minutes and was refused
+  identically each time. Refusals about the runtime itself now survive edits; refusals about
+  the timeline still clear when the timeline changes, as before.
+
+- **"Silent" now says what level it means.** Asked whether wind-only footage had any real
+  silence, the AI reported "203 silent ranges" — true at the −30 dB detector default, where
+  quiet wind counts, and useless as an answer. The silence check now reports the level it
+  measured against alongside the count, the AI is told that is a level and not a verdict,
+  and the tool explains what "silent" means before it is called.
+
+- **Re-applying a setting the timeline already has no longer counts as progress.** One
+  run set the music bed to the −18 dB it was already at ten separate times, and each one
+  reset the checks that stop a run going in circles, as if a fader had moved. A change that
+  changes nothing now counts only if the AI also learned something on that turn — the same
+  rule reads already follow.
+
+- **The AI can measure colour while it grades.** Asked to "measure what's actually on
+  screen", it could only do so before it started editing; once cutting began the measurement
+  tool was withheld and the AI was told to try again next turn, which never came true, so
+  grades went in blind. Measuring is now allowed throughout the edit — the same rule that
+  already let the AI look at a frame of its own work — and when a tool really is held back
+  for the rest of a stage, the message now says so instead of promising next turn.
+
+- **You can reorder shots too, not just the AI.** Right-click a clip → "Move earlier in
+  sequence" / "Move later in sequence". The track re-lays itself end to end, every clip
+  keeps its own length and media, and one undo puts the order back. Until now this was an
+  AI-only capability: by hand it meant dragging each clip and hoping the gaps worked out.
+
+- **The AI can finally build a speed ramp.** "Ramp into the crash — fast in, slow on the
+  impact, back up after" is a normal thing to ask for, the timeline has stored speed curves
+  since v15, and the renderer has always played them — but the AI had no tool to make one,
+  so it would say it was going to and then quietly not. `set_clip_speed_ramp` takes points
+  along the clip with a rate at each; undo restores the previous timing exactly.
+
+- **Reordering shots no longer risks losing them.** Asking the AI to put the last shot
+  first, swap two clips, or reverse a sequence now runs as a single `reorder_clips`
+  operation that re-lays the track and keeps every clip's length, media and look. Before
+  this there was no way to express a reorder, so the AI had to delete the sequence and
+  rebuild it — and if the run stopped in between, the footage was gone. Four of six
+  reorder runs in the last evaluation lost content this way. Undo restores the previous
+  order exactly. ADR 0173.
 
 - **A new framepilot.app.** The marketing site was rebuilt end to end around one idea: the
   editors you already use are ripple-deleted into a bin in the corner and FramePilot takes
@@ -16,6 +105,138 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   JavaScript. `apps/website` gains `framer-motion` (already in the monorepo). ADR 0172.
 
 ### Fixed
+
+- **A refusal the AI has already hit stops repeating once the project moves.** When adding
+  music was refused because the track to duck under was empty, the refusal helpfully listed
+  the tracks that would have worked — and that list grew as the edit filled in, so the same
+  refusal for the same reason looked new every time and the AI could keep retrying it. The
+  advice still adapts; the "you already tried this" check no longer loses track of it.
+
+- **Analysing a track you just added works with the id you already had.** Music and stock
+  media arrive with a catalogue id, and the bin then stores them under a longer id derived
+  from it — so asking for the beats of a track the AI had just placed, using the id it had
+  just used, failed with "not found". It now resolves to the right file, and still refuses
+  rather than guess when the id could mean more than one thing.
+
+- **A cut aimed at a word no longer lands one frame inside it.** The transcript tool
+  reported which frame a word starts on, but every cut tool takes seconds — so a run that
+  read the right frame and then passed the word's measured time had its cut rounded back
+  across the word edge, clipping the first syllable. The tool now reports the edit point in
+  both units naming the same instant, so either one lands on the same frame.
+
+- **A run that hits the same wall twice now stops instead of paying for it.** When the AI
+  proposed an edit the beat grid or the validator refused, it could re-propose a slightly
+  different version of the same edit indefinitely: the refusal named the exact times that
+  were wrong, so no two refusals read alike and the stop-when-stuck check never matched
+  them. One evaluation run spent twenty minutes and $3.93 doing this and left the picture
+  track empty. Replaying that same run against the fix: 121 tool calls became 25, 825,000
+  tokens became 93,000, and it finishes and reports honestly instead of being cancelled.
+
+- **A speed change now lands on a whole frame.** Retiming a clip used to leave its out
+  point between two frames, so the preview and the export could disagree about where the
+  cut was. One evaluation turn made 16 speed changes and produced 16 off-grid edges. The
+  new duration is resolved against the project's frame rate, and undo still restores the
+  original timing exactly.
+
+- **A word too wide for its text box no longer runs off the screen quietly.** Text
+  overlays and captions never break a word, so a long one in a narrow box overflowed the
+  sides — and because the preview and the export do it identically, nothing looked wrong
+  until you watched the finished file. Review now says which word does not fit and how wide
+  the box would have to be to hold it, or that the text size is what has to come down. The
+  drawing is unchanged: it is reported, not silently reflowed, so what you approve in the
+  preview is still exactly what exports.
+- **Attaching a photo works.** Every image reference failed analysis and showed a wall of
+  raw error data on the chip, because the app choked on a "video" field that images
+  correctly don't have. Images now analyze, and when something genuinely does go wrong the
+  chip says what happened in a sentence — and tells you whether re-analyzing will help.
+- **The message box is usable again.** The AI input had collapsed to a sliver — the
+  placeholder cut off mid-word with the "+" and paperclip squeezed against it. It's a
+  proper field again: full width, growing as you type up to about eight lines and then
+  scrolling, with the controls staying put on the bottom edge instead of sliding down the
+  box. It's a pill when you've typed one line and a rounded box once your message wraps.
+- **Music can duck the sound it's actually playing under.** Asking for a bed that ducks
+  the wind down on a video with no dialogue used to fail: the AI was told to "place the
+  dialogue first", so it laid the track at full level instead and the instruction was
+  quietly dropped. A refusal now names the tracks it can duck under — including the
+  picture track, when the sound you mean is on the footage itself.
+- **Audio tracks can be labelled dialogue, music or sfx.** The AI could read those labels
+  but nothing could write them, so "duck the music under the dialogue" was impossible on
+  any project it hadn't built from scratch. It can label a track now, then duck by role.
+- **A title that runs off the frame gets flagged.** The self-check that was meant to catch
+  an overlay drifting outside the safe area had never actually looked at one. It does now,
+  and it also says when a headline's size or box puts part of it off the picture entirely.
+- **Captions stop putting words in b-roll's mouth.** On a project with stock footage or a
+  music bed, a caption could be attached to — and timed through — a clip that was never
+  speaking, including words the edit had already cut out. Captions and the transcript the
+  AI reads timings from now stay with the footage that carries the speech.
+- **Rejected edits say what to do next.** A refused split now says whether the cut is
+  already there and gives the clip's range; a rejected argument quotes the value it turned
+  down and names the one you probably meant; a clash between two clips names the moves that
+  resolve it.
+- **The AI stops making the same edit over and over.** It would set a clip to the same
+  volume fifteen times, add the same transition nine times, and place the same shot on
+  three different layers — leaving a sixty-second edit with nineteen video tracks, the
+  music bed laid twice and the title card composited on top of itself. It now recognises
+  work it has already done and moves on.
+- **The same title can't be put on screen twice.** Asking for a headline you already have
+  used to quietly open a second layer for it, and the two copies rendered on top of each
+  other.
+- **Edit cards say what they did.** "Added marker" with no time and no label, "Added asset"
+  with no file name, "Add layer" with no lane — one in eight of the AI's own rows told you
+  nothing. Markers now read "Red jacket rider · 120s".
+- **A check tells you what it found.** "Checking caption sync" looked identical whether the
+  captions were perfect or every single word was missing one.
+- **A tool that's held back says why.** It used to read "unavailable this turn", with no
+  reason and no idea when it would come back.
+
+- **Captions work when b-roll is stacked over your footage.** If the same clip appeared on
+  two video layers at once — a cutaway, a second angle, a picture-in-picture — asking for
+  captions produced none at all, and asking again produced none again. Two layers meant two
+  captions competing for the same instant, and the whole caption pass was thrown away
+  rather than one of them. Captions are now laid out one at a time, in order, exactly as
+  they play.
+- **A run is no longer reported as failed over words nobody said.** When speech recognition
+  loops on quiet audio — the same sentence transcribed hundreds of times over wind or music
+  — FramePilot already spotted it and said not to trust those timings. It then failed the
+  whole edit for cutting through one of those imaginary words. Real speech is still
+  protected; the phantom words are not counted, and the report says how many were set
+  aside.
+- **The AI's finished edits get their perceptual check again.** Every run on this path
+  ended "your edits are applied and validated, but were not perceptually checked" because
+  the reviewer could not read the engine's own reply. It can now, and if it ever cannot
+  again it says which field it choked on.
+- **Asking you a question no longer edits your timeline first.** When the AI needed to know
+  which clip you meant, it asked — and applied a batch of unrelated changes in the same
+  breath, composed before you had answered. It now holds those back and makes them once it
+  knows what you meant.
+- **Undo restores a moved clip exactly.** Moving a clip and undoing it could leave it a
+  fraction of a millionth of a second shorter than it started. Nothing looked different,
+  and nothing sounded different, but the file was not the file you had.
+- **Caption styling accepts the words designers use.** Asking for bold captions on a dark
+  chip could be refused for spelling `bold` instead of `700`, and the captions kept the
+  plain default look for the rest of the session.
+- **The AI stops repeating work that changed nothing.** Setting a clip to the volume it
+  already had reported success, so it kept setting it. It now says the value did not move,
+  and where to check before trying again.
+- **The AI stops re-trying things this window cannot do.** Asking it to render or export
+  from a chat run told it, correctly, to finish the edit and use the Export dialog — and
+  nothing stopped it asking three more times.
+- **Selection-based audio and tracking tools survive the AI's own edits.** They read what
+  you have selected in the timeline, and the AI's very first change made every later call
+  refuse as out of date for the rest of the run.
+- **The AI stops re-reading the timeline because it forgot where it put something.** When
+  an edit made an earlier reading out of date, asking for it back said only "no such
+  handle" — the same answer a made-up reference gets — so the AI went and did the
+  reconnaissance again. It now says what that reading was and which tool refreshes it.
+- **B-roll no longer trips a false "you cut through a word".** Laying b-roll over narration
+  could end a run on a cut inside a spoken word — measured on the b-roll clip, which has no
+  speech on it at all.
+- **The run's budget message says what happens next.** It said it was stopping, then ran a
+  final self-check that costs a little more. It now says so.
+- **Clearer refusals when the AI gets an argument wrong.** A clip length sent where a
+  timeline position belongs now names the position that would have worked, a tool that
+  wants your selection says so rather than reporting a typo, and arguments sent to the
+  wrong tool name the tool they belong to.
 
 - **The AI can lay b-roll and montages over your footage again.** Asking for a cutaway on a
   talking head, or a photo montage cut to a music bed, was refused every time — the main
@@ -39,6 +260,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **"Brewed for 1m 14s"** at the end of a run, so you can see what it cost you in time —
+  measured from your message, and still right if you reload or come back to the
+  conversation later.
+- **A roomier message box.** The text now spans the full width with the controls on their
+  own line beneath it, instead of being squeezed between them — which used to cut the
+  placeholder off mid-sentence and strand the buttons at the bottom of a long message.
 - **If you already pay for Claude, you can now use it in FramePilot without an API key.**
   Settings → AI has a new provider, **Claude (your Claude Code login)**. It signs in with
   the login the Claude CLI already stored on your machine, so there is no key to find and

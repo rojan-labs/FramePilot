@@ -524,6 +524,35 @@ describe('split_clip', () => {
       applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 10 }),
     ).toThrow(/inside/);
   });
+
+  /**
+   * Run `137d8fd0` asked to split `clip__v_main_asset_raw_skating_48000` at 48 — that
+   * clip's own start, where a cut already was. "split point 48 is not strictly inside
+   * clip X" told it neither fact, and the run abandoned the split rather than moving it
+   * or naming the neighbour it actually meant to divide.
+   */
+  it('tells a split ON a boundary that the cut is already there, and names the span', () => {
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/already a cut there/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/runs 0s–10s/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 0 }),
+    ).toThrow(/neighbouring clip/);
+  });
+
+  it('tells a split OUTSIDE the clip where to find the one that covers that time', () => {
+    // A different mistake with a different remedy: the number is not near this clip at
+    // all, so pointing at its boundaries would be useless.
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 42 }),
+    ).toThrow(/outside/);
+    expect(() =>
+      applyOperation(baseTimeline(), { type: 'split_clip', clipId: 'a', at: 42 }),
+    ).toThrow(/get_clips/);
+  });
 });
 
 // --- delete_range ----------------------------------------------------------
@@ -675,6 +704,92 @@ describe('move_clip', () => {
         toStart: 0,
       }),
     ).toThrow(/Track not found/);
+  });
+
+  /**
+   * Golden case `reorder-last-first` r1 failed reversibility at
+   * `$.timeline.tracks[0].clips[1].end` after the run moved one clip four times.
+   *
+   * `applyMove` recomputes the clip's end as `toStart + (end - start)`, and in binary
+   * floating point `(toStart + d) - toStart` is not always `d`. A clip 8.033333333333333s
+   * long moved to 48s and back comes home 8.033333333333331s long. The picture is
+   * identical — both quantize to the same frame — but undo is a promise about the file.
+   */
+  describe('a move whose length does not survive the arithmetic', () => {
+    const drifting = (): Timeline => ({
+      revision: 0,
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            {
+              id: 'a',
+              assetId: 'asset_1',
+              trackId: 'video_1',
+              start: 0,
+              end: 8.033333333333333,
+              sourceStart: 0,
+              sourceEnd: 8.033333333333333,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+        { id: 'video_2', type: 'video', clips: [] },
+      ],
+    });
+
+    it('is the case — the forward move really does shed a ULP', () => {
+      const after = applyOperation(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_1',
+        toStart: 48,
+      });
+      const moved = findClipById(after, 'a')!;
+      expect(moved.end - moved.start).not.toBe(8.033333333333333);
+    });
+
+    it('restores the clip exactly anyway, on the same track', () => {
+      expectRoundTrip(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_1',
+        toStart: 48,
+      });
+    });
+
+    it('restores the clip exactly across tracks, leaving neither a copy nor a hole', () => {
+      const after = expectRoundTrip(drifting(), {
+        type: 'move_clip',
+        clipId: 'a',
+        toTrackId: 'video_2',
+        toStart: 48,
+      });
+      expect(track(after, 'video_1').clips).toHaveLength(0);
+      expect(track(after, 'video_2').clips).toHaveLength(1);
+    });
+
+    it('survives four moves and four undos, which is what the run did', () => {
+      const before = drifting();
+      let working = before;
+      const inverses: Operation[][] = [];
+      for (const toStart of [48, 12.5, 33.7, 0.9]) {
+        const op = {
+          type: 'move_clip' as const,
+          clipId: 'a',
+          toTrackId: 'video_1',
+          toStart,
+        };
+        inverses.push([...invertOperation(working, op)]);
+        working = applyOperation(working, op);
+      }
+      for (let i = inverses.length - 1; i >= 0; i -= 1) {
+        for (const op of inverses[i]!) working = applyOperation(working, op);
+      }
+      expect(findClipById(working, 'a')).toEqual(findClipById(before, 'a'));
+    });
   });
 });
 
@@ -1531,6 +1646,84 @@ describe('set_track_flags', () => {
     expect(() =>
       applyOperation(baseTimeline(), { type: 'set_track_flags', trackId: 'ghost', locked: true }),
     ).toThrow(/Track not found/);
+  });
+
+  /**
+   * `Track.role` shipped readable and unwritable after creation: `AddLayerOp.role` set it
+   * and nothing else could. `duck_roles` — "duck the music under the dialogue" — therefore
+   * asked for a label no tool, no UI and no code path in this product ever applied;
+   * nothing writes `role: 'dialogue'` anywhere. Its refusal, "Label the track you mean",
+   * named a move that did not exist, and run `137d8fd0` was refused that way twice.
+   */
+  describe('the mix label, which nothing could previously write', () => {
+    const roleOf = (timeline: Timeline, id: string): string | undefined =>
+      timeline.tracks.find((t) => t.id === id)?.role;
+
+    it('labels an audio track', () => {
+      const after = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'dialogue',
+      });
+      expect(roleOf(after, 'audio_1')).toBe('dialogue');
+    });
+
+    it('leaves the label alone when role is absent', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      const muted = applyOperation(labelled, {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        muted: true,
+      });
+      expect(roleOf(muted, 'audio_1')).toBe('music');
+    });
+
+    it('clears the label on an explicit null — absent and null are different', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      const cleared = applyOperation(labelled, {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: null,
+      });
+      expect(roleOf(cleared, 'audio_1')).toBeUndefined();
+      // Canonicalised as ABSENT rather than stored as null, which is what lets undo land
+      // on a deep-equal timeline.
+      expect('role' in cleared.tracks.find((t) => t.id === 'audio_1')!).toBe(false);
+    });
+
+    it('round-trips: labelling a track that had no label', () => {
+      expectRoundTrip(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'dialogue',
+      });
+    });
+
+    it('round-trips: relabelling a track that already had one', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      expectRoundTrip(labelled, { type: 'set_track_flags', trackId: 'audio_1', role: 'dialogue' });
+    });
+
+    it('round-trips: clearing a label', () => {
+      const labelled = applyOperation(baseTimeline(), {
+        type: 'set_track_flags',
+        trackId: 'audio_1',
+        role: 'music',
+      });
+      expectRoundTrip(labelled, { type: 'set_track_flags', trackId: 'audio_1', role: null });
+    });
   });
 });
 

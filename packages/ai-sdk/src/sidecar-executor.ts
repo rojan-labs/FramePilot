@@ -334,6 +334,14 @@ export function summarizeAnalysis(name: string, data: unknown): string {
         typeof record.longestSeconds === 'number' ? Number(record.longestSeconds.toFixed(3)) : 0;
       return `No gap that long — ${record.measuredCount} shorter silence(s) measured, longest ${String(longest)}s`;
     }
+    // "Found N silent ranges" is the confident POSITIVE. Run `137d8fd0`: wind-only GoPro
+    // audio, an editor who asked "is there any real silence — tell me straight; I don't
+    // think there is", and a card that said 203 silences. Quiet wind is under -30 dB. The
+    // number is honest only with its level attached, so the reader can tell a measurement
+    // from a verdict. Older payloads carry no level and keep the old sentence.
+    if (typeof record.noiseFloorDb === 'number') {
+      return `Found ${n} stretch${n === 1 ? '' : 'es'} under ${String(record.noiseFloorDb)} dB`;
+    }
     return `Found ${n} silent range${n === 1 ? '' : 's'}`;
   }
   if (name === 'detect_scenes' && Array.isArray(record.cuts)) {
@@ -1542,6 +1550,11 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
         log.warn('run → no sidecar route for tool', { tool: call.name });
         return {
           status: 'failed',
+          // A verdict about this surface, not an event on it: `planSidecarCall` is a pure
+          // function of the tool name, so a second call gets the same answer. Declared so
+          // the orchestrator's proven-refusal guard can enforce the "do not call it
+          // again" the sentence already asks for — run `137d8fd0` ignored it four times.
+          refusalCause: 'surface_unavailable',
           // "use the Export dialog" is an instruction for someone with a mouse — the same
           // dead end as run `369e8c82`'s "Place it from the bin". The caller needs to know
           // that no retry helps and what to do with the rest of the run instead.
@@ -1591,6 +1604,10 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
   // of media through the machine.
   return {
     run: (call, ctx, signal) => chargeAnalysisBudget(dispatch, call, ctx, signal, now),
+    // `planSidecarCall` is a pure function of the tool name and has no route for these, so
+    // the answer is knowable before any call — say it where the descriptors are chosen
+    // rather than after the model has already spent a turn asking.
+    unroutableTools: () => RENDER_ACTIONS,
   };
 }
 

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { Timeline } from '@framepilot/timeline-schema';
 import {
+  brewedLabel,
   formatDurationDelta,
   formatRunChangeGroups,
   summarizeRunChanges,
@@ -100,5 +101,27 @@ describe('formatDurationDelta', () => {
   it('says nothing at all when the length did not really move', () => {
     expect(formatDurationDelta(0)).toBeNull();
     expect(formatDurationDelta(0.02)).toBeNull();
+  });
+});
+
+/**
+ * The sidebar showed what a run CHANGED and never what it cost the person waiting, so a
+ * three-second answer and a fifty-minute one closed identically.
+ */
+describe('brewedLabel', () => {
+  it('reads in whole seconds under a minute', () => {
+    expect(brewedLabel(3_000)).toBe('Brewed for 3s');
+    expect(brewedLabel(59_400)).toBe('Brewed for 59s');
+  });
+
+  it('reads in minutes and seconds above one', () => {
+    expect(brewedLabel(74_000)).toBe('Brewed for 1m 14s');
+    expect(brewedLabel(120_000)).toBe('Brewed for 2m');
+    expect(brewedLabel(49 * 60_000)).toBe('Brewed for 49m');
+  });
+
+  it('never claims a run took no time', () => {
+    expect(brewedLabel(1)).toBe('Brewed for <1s');
+    expect(brewedLabel(999)).toBe('Brewed for <1s');
   });
 });

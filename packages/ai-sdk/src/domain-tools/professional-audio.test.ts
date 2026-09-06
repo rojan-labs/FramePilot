@@ -420,6 +420,70 @@ describe('professional_audio role-authored ducking', () => {
       code: 'bed_role_unlabelled',
       detail: expect.stringContaining('never inferred from track names'),
     });
+    // "Label the track you mean" named a move that did not exist: `Track.role` was
+    // writable only at layer creation, so on any project whose audio tracks already
+    // existed this was a dead end. Run `137d8fd0` hit it twice and abandoned the
+    // editor's explicit ducking instruction. The refusal must name the call that works
+    // and the tracks it can be pointed at.
+    if (resolution.status !== 'rejected') return;
+    expect(resolution.detail).toContain('set_track_flags');
+    expect(resolution.detail).toContain('role: "music"');
+    expect(resolution.detail).toContain('Audio tracks here:');
+  });
+
+  it('closes the loop: label with the tool the refusal names, then duck by role', () => {
+    // The end-to-end assertion. Without a write path the previous test's remedy is a
+    // sentence pointing at nothing; this drives the actual `set_track_flags` tool and
+    // proves the result satisfies the controller that refused.
+    const base = project();
+    const label = (input: Project, trackId: string, role: string): Project => ({
+      ...input,
+      timeline: applyPatch(input.timeline, {
+        patchId: 'label' as PatchId,
+        createdBy: 'agent',
+        reason: 'label the mix roles',
+        operations: operationsForCall(
+          { id: 'c', name: 'set_track_flags', arguments: { trackId, role } },
+          { project: input } as ToolContext,
+        ),
+      }),
+    });
+
+    const labelled = label(label(base, 'music', 'music'), 'dialogue', 'dialogue');
+    const resolution = resolveAudioObjective({
+      project: labelled,
+      interaction: captureEditorInteractionContext({
+        project: labelled,
+        projectRevision: 3,
+        playheadSeconds: 5,
+        selectedClipIds: [],
+      }),
+      objective: AudioObjectiveSchema.parse({
+        intent: 'duck_roles',
+        bedRole: 'music',
+        sidechainRole: 'dialogue',
+      }),
+    });
+    expect(resolution.status).toBe('resolved');
+  });
+
+  it('refuses to label a picture track, where a mix role means nothing', () => {
+    // The schema calls `role` "harmless elsewhere", which is exactly how a mislabelled
+    // project gets built. Refused at the boundary, where the sentence can name the type.
+    const base = project();
+    const withPicture = {
+      ...base,
+      timeline: {
+        ...base.timeline,
+        tracks: [...base.timeline.tracks, { id: 'v_main', type: 'video', clips: [] }],
+      },
+    } as unknown as Project;
+    expect(() =>
+      operationsForCall(
+        { id: 'c', name: 'set_track_flags', arguments: { trackId: 'v_main', role: 'dialogue' } },
+        { project: withPicture } as ToolContext,
+      ),
+    ).toThrow(/role labels an audio track/);
   });
 
   it('refuses when two tracks claim the trigger role rather than picking one', () => {
@@ -467,5 +531,51 @@ describe('professional_audio role-authored ducking', () => {
     expect(() =>
       AudioObjectiveSchema.parse({ intent: 'level', gainDb: -6, sidechainRole: 'dialogue' }),
     ).toThrow();
+  });
+});
+
+/**
+ * Run `137d8fd0` sent `target: "music_1"`, `"music_bed"` and `"layer_audio_5"` across
+ * ten `professional_audio` calls and was told, each time, `target: Invalid input:
+ * expected "this"`. That reads as a typo, so the model kept trying ids. It is a category
+ * error — `target` names what the *editor* has selected — and the message now says so,
+ * and names the tool that does take an id.
+ */
+describe('professional_audio target is a referent, not an id', () => {
+  const messageFor = (args: Record<string, unknown>): string => {
+    try {
+      AudioObjectiveSchema.parse(args);
+    } catch (error) {
+      return error instanceof Error ? error.message : String(error);
+    }
+    throw new Error('expected a rejection');
+  };
+
+  for (const intent of ['level', 'eq', 'compress', 'automate_gain'] as const) {
+    it(`explains the wrong kind of value on ${intent}`, () => {
+      const message = messageFor({ intent, target: 'music_1', gainDb: -6 });
+      expect(message).toContain('never a clip or track id');
+      expect(message).toContain('music_1');
+      expect(message).toContain('adjust_audio');
+    });
+  }
+
+  it('explains it on the duck intents, whose referent is fixed', () => {
+    const message = messageFor({
+      intent: 'duck_selection',
+      target: 'music_bed',
+      reductionDb: 12,
+    });
+    expect(message).toContain('never a clip or track id');
+    expect(message).toContain('adjust_audio');
+  });
+
+  it('still accepts the referents themselves', () => {
+    expect(
+      AudioObjectiveSchema.parse({ intent: 'level', target: 'these', gainDb: -6 }),
+    ).toMatchObject({ target: 'these' });
+    expect(AudioObjectiveSchema.parse({ intent: 'level', gainDb: -6 })).toMatchObject({
+      target: 'this',
+    });
   });
 });

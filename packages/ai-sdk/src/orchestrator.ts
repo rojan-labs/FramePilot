@@ -21,12 +21,14 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  projectChanged,
 } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import {
   DEFAULT_DUCK_DB,
   MusicAssetPayloadSchema,
   buildAddMusicOps,
+  musicDuckRefusalKey,
   musicDuckSidechainIssue,
 } from './music-placement.js';
 import { StockAssetPayloadSchema, stockOpsFromPayload } from './stock-placement.js';
@@ -132,7 +134,11 @@ import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
-import { alignBeatBackedBoundaries } from './kernel/beat-grid/beat-alignment.js';
+import { withResolvedAssetId } from './catalogue-asset-id.js';
+import {
+  alignBeatBackedBoundaries,
+  type BeatRejectionKey,
+} from './kernel/beat-grid/beat-alignment.js';
 import {
   BEAT_ANALYSIS_TOOL,
   type BeatEvidence,
@@ -221,6 +227,8 @@ import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import { createRunDeadline } from './reliability/deadline.js';
+import { neverSucceededTools } from './reliability/unfinished-work.js';
+import type { NeverSucceededTool, ToolAttempt } from './reliability/unfinished-work.js';
 import type { TimerApi } from './reliability/timeout.js';
 import {
   MODEL_WAIT_HEARTBEAT_MS,
@@ -239,6 +247,7 @@ import {
   type TouchedRegion,
 } from './review-findings.js';
 import { BUNDLED_SKILLS, skillsByName } from './skills.js';
+import { rebaseEditorInteractionContext } from './editor-context/interaction-context.js';
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import {
@@ -487,6 +496,8 @@ const DEFAULT_MAX_OPS_PER_RUN = AGENT_MAX_OPS_PER_RUN;
 const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 
 /** How many recent step notes the agent context keeps verbatim before digesting (B4). */
+/** The default when no executor declares anything unroutable: nothing is withheld. */
+const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
 
 /**
@@ -1196,7 +1207,7 @@ function alignTurnToBeatGrid(
   evidence: BeatEvidence | undefined,
 ):
   | { ok: true; operations: AnyOperation[]; offGrid?: string; ungrounded?: string }
-  | { ok: false; error: string } {
+  | { ok: false; error: string; reasonKey: BeatRejectionKey; reasonScale?: number } {
   if (!hasBeatEvidence(evidence) || !evidence) return { ok: true, operations: turnOps };
 
   const resolved = resolveBeatGrid(working, evidence, turnOps);
@@ -1433,6 +1444,63 @@ export function callMemoKey(call: ToolCall): string {
 }
 
 /**
+ * The one-phrase answer a VERIFICATION read gives, for its card. `undefined` for every
+ * other read, whose card is correctly just the action it performed.
+ *
+ * These tools exist to answer a yes/no question, and the answer is the reason the run
+ * called them. Leaving it out of the card makes a passing check and a failing one
+ * indistinguishable at a glance — see the call site.
+ */
+function readVerdict(toolName: string, value: unknown): string | undefined {
+  if (toolName !== 'verify_captions' && toolName !== 'verify_transitions') return undefined;
+  if (typeof value !== 'object' || value === null) return undefined;
+  const result = value as {
+    readonly ok?: unknown;
+    readonly issues?: unknown;
+    readonly cueCount?: unknown;
+    readonly speechCoverage?: unknown;
+    readonly transitionCount?: unknown;
+    readonly boundaryCount?: unknown;
+  };
+  if (result.ok !== true && result.ok !== false) return undefined;
+  const issues = Array.isArray(result.issues) ? result.issues.length : 0;
+  if (result.ok === false) {
+    return issues === 1 ? '1 problem' : `${String(issues)} problems`;
+  }
+  if (toolName === 'verify_captions' && typeof result.cueCount === 'number') {
+    return `in sync, ${String(result.cueCount)} cue(s)`;
+  }
+  if (toolName === 'verify_transitions' && typeof result.transitionCount === 'number') {
+    return `all good, ${String(result.transitionCount)} transition(s)`;
+  }
+  return 'all good';
+}
+
+/**
+ * The byte-identity of a MUTATING call, with argument order normalised away.
+ *
+ * {@link callMemoKey} stringifies the arguments as they arrived, so `{clipId, gainDb}`
+ * and `{gainDb, clipId}` are two keys for one call. That is harmless for a read memo and
+ * useless here: run `137d8fd0` sent `adjust_audio` with the same clip and the same −12 dB
+ * fifteen times in one order and ten times in the other, and a key that cannot see through
+ * the ordering cannot see that they are the same instruction.
+ *
+ * Only the top level is sorted — a nested params object's order is the model's own and
+ * has never varied in a captured run, and recursing would cost more than it buys.
+ */
+function appliedCallKey(call: ToolCall): string {
+  const args = call.arguments;
+  if (!args || typeof args !== 'object' || Array.isArray(args)) {
+    return `${call.name}:${JSON.stringify(args)}`;
+  }
+  const record = args as Record<string, unknown>;
+  const sorted = Object.keys(record)
+    .sort()
+    .map((key) => [key, record[key]] as const);
+  return `${call.name}:${JSON.stringify(Object.fromEntries(sorted))}`;
+}
+
+/**
  * The **novelty key** for one call: what the reducer uses to decide whether this call
  * could have taught the model anything it did not already have (see `TurnCallFact`).
  * Deliberately coarser than both {@link turnSignature} and {@link callMemoKey}: it
@@ -1622,6 +1690,24 @@ interface HostCallContext {
    */
   readonly beatEvidence?: BeatEvidence;
   /**
+   * Every MUTATING call this run has already applied, by byte-identity
+   * ({@link appliedCallKey}).
+   *
+   * A per-run mutable ledger for the same reason `beatEvidence` is one: the Orchestrator
+   * serves concurrent runs and must not hold either.
+   *
+   * WHY it exists: a repeat of an applied edit is not caught by anything else. The turn
+   * loop's `appliedPatchIds` compares PATCHES, and a re-placement lands on a different
+   * lane so its patch id differs; `seenFailureKeys` only remembers refusals. Run
+   * `137d8fd0` therefore applied **66 mutating calls that were byte-identical repeats of
+   * an edit it had already made** — the same −12 dB on the same clip fifteen times, the
+   * same transition nine times, the same colour grade four times, `add_track "captions"`
+   * four times. The user's timeline came out with nineteen video layers for a
+   * sixty-second edit, the same stock clip on three of them, and the music bed and the
+   * title card each placed twice.
+   */
+  readonly appliedCalls?: Set<string>;
+  /**
    * The run's analysis budget (plan B5.4). Threaded into the host executor so a
    * capped call (frames extracted, ffmpeg seconds, transcription minutes) that
    * would exceed the per-run budget fails honestly instead of running. Non-optional:
@@ -1703,6 +1789,20 @@ interface AgentCallOutcome {
    */
   deterministicFailure?: boolean;
   /**
+   * The call landed nothing because the timeline **already said what it asked for** —
+   * distinct from landing nothing because something went wrong. See the no-change branch
+   * in `runAgentCall`, and {@link applyAgentTurn}'s use of it: a turn that is satisfied
+   * did not fail, and filing it as failed is the lie that had run `35746d4c` told twenty-
+   * four times that its captions had failed while they sat on the timeline.
+   */
+  satisfied?: boolean;
+  /**
+   * This call put a question to the editor. See {@link applyAgentTurn}: a turn that asks
+   * does not apply its own edits, because every operation in it was composed by the same
+   * model response that asked, and therefore before any answer existed.
+   */
+  askedQuestion?: boolean;
+  /**
    * Which RULE refused this call, when a policy refusal named one
    * (`tool-refusal.ts#RefusalCause`). `deterministicFailureKey` keys run memory on this
    * in preference to the sentence, because a refusal sentence is written to be acted on
@@ -1715,6 +1815,22 @@ interface AgentCallOutcome {
    * rule refused before a download and the same rule refused after it are one key.
    */
   refusalCause?: RefusalCause;
+  /**
+   * The text {@link deterministicFailureKey} should key on, when it must differ from the
+   * sentence the model reads.
+   *
+   * A refusal's sentence carries the REMEDY, and a good remedy names things that vary
+   * with the project — the tracks that would have worked, the ids that do exist. Keying on
+   * it then makes the same refusal of the same argument look new every time the project
+   * moves. `add_music`'s empty-duck refusal is the captured case: appending the candidate
+   * track list (a strictly better refusal) meant placing a clip on an UNRELATED track gave
+   * the identical rule a fresh key, so the repeat guard could not fire.
+   *
+   * Absent ⇒ `data` is the identity, exactly as before. Same separation as
+   * `conductor.ts`'s `rejectionKey` beside its `rejection`: guards key on this, humans
+   * read the sentence.
+   */
+  failureKeyText?: string;
   /** The working copy advanced by this call's validated ops (mutating calls only). */
   project?: Project;
   /**
@@ -2402,7 +2518,12 @@ export function summarizeReadResult(
         typeof obj.requestsLeftThisMonth === 'number'
           ? `\n(${obj.requestsLeftThisMonth} provider requests left this month)`
           : '';
-      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}`;
+      // Said here because run `137d8fd0` did not know it: it built `stock_pexels_<id>`
+      // asset ids from these rows and asked to describe them before downloading anything.
+      const notYetAssets =
+        '\nThese are catalogue entries, not project assets: add_stock one and use the asset ' +
+        'id it returns before describe_footage or detect_beats can read it.';
+      return `${items.length} result${items.length === 1 ? '' : 's'}:\n${lines.join('\n')}${left}${notYetAssets}`;
     }
     case 'add_stock': {
       // What the run needs on its next turn: the file is down, where it went,
@@ -2642,11 +2763,18 @@ export function summarizeReadResult(
       // P3.2: frames alongside seconds. A trim aimed at a word boundary has to be aimed
       // at a FRAME, and asking the model to derive one from a float is asking it to do the
       // arithmetic this tool exists to do for it.
+      // The seconds shown are the EDIT POINTS (`startSeconds`/`endSeconds`), which are the
+      // frames above expressed in seconds — not the raw measured word times. Publishing
+      // both invited the run to read the frame and then pass the float, which
+      // `quantizePatch` rounded back across the word edge; three turns of the session-6
+      // run went that way. Whichever number the model copies now, it names the same frame.
+      // The measurement is still in the payload for a recall.
       return `${head}:\n${boundedRecords(
         words,
         (w) =>
           `f${String(w.startFrame ?? '?')}–${String(w.endFrame ?? '?')} ` +
-          `(${round3(Number(w.start))}–${round3(Number(w.end))}s) ${String(w.word)}`,
+          `(${round3(Number(w.startSeconds ?? w.start))}–${round3(Number(w.endSeconds ?? w.end))}s) ` +
+          `${String(w.word)}`,
         'words',
         'narrow get_mapped_transcript to a window',
         WORD_DIGEST_MAX_ITEMS,
@@ -2751,7 +2879,17 @@ export function summarizeReadResult(
           : 'no silent gaps found in the audio';
       }
       const total = ranges.reduce((sum, r) => sum + Number(r.duration ?? 0), 0);
-      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}, ${round2(
+      // The level is the whole meaning of the count. Without it a run on wind-only audio
+      // reported "silences catalogued" to an editor who had asked whether there was any
+      // REAL silence and said they doubted it (run `137d8fd0`, 728 measured under the
+      // default floor). Say what was measured, and that it is a level and not a verdict.
+      const level =
+        typeof obj.noiseFloorDb === 'number'
+          ? ` under ${String(obj.noiseFloorDb)} dB — a level, not a judgement: on audio with ` +
+            `no speech, quiet ambience reads as silence; listen, or lower noiseFloorDb, before ` +
+            `calling it dead air —`
+          : '';
+      return `${ranges.length} silent gap${ranges.length === 1 ? '' : 's'}${level || ','} ${round2(
         total,
       )}s total, in ${String(obj.assetId ?? '?')}:\n${boundedRecords(
         ranges,
@@ -3316,7 +3454,20 @@ export class Orchestrator {
       // that passes history gets dated memory writes without changing its call.
       turn: (input.history ?? []).filter((m) => m.role === 'user').length + 1,
       ...(input.selection ? { selection: input.selection } : {}),
-      ...(input.interaction ? { interaction: input.interaction } : {}),
+      // Re-stamped, not passed through. The snapshot is captured once when the turn
+      // starts, and in agent mode the agent's own first edit would otherwise make every
+      // selection-authored tool refuse `stale_context` for the rest of the run — see
+      // `rebaseEditorInteractionContext`. A selection whose clips have moved is still
+      // refused; only an intact one is carried forward.
+      ...(input.interaction
+        ? {
+            interaction: rebaseEditorInteractionContext(
+              input.interaction,
+              input.project,
+              input.projectRevision,
+            ),
+          }
+        : {}),
       // ADR 0057: hand the load_skill tool its lookup map. Bundled skills are the
       // default; ContextInput.skills overrides for tests/host configuration.
       skills: skillsByName(input.skills ?? BUNDLED_SKILLS),
@@ -3592,7 +3743,14 @@ export class Orchestrator {
     // description of an image the model never received. Withhold the descriptor entirely
     // rather than let it be called and fail (see `supportsVision`).
     const sighted = supportsVision(this.provider.name, this.provider.modelId);
+    // What this HOST cannot fulfil is not offered. Statically known, declared by the
+    // executor (`HostToolExecutor.unroutableTools`), and the reason is upstream of every
+    // guard: a tool the model can see, it will call. Run 6 of 2026-09-05 called
+    // `render_preview` eight times on a surface with no route for it, and paid the two
+    // render descriptors' schema on every one of its 308 requests besides.
+    const unroutable = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
     return toolDescriptors((tool) => {
+      if (unroutable.has(tool.name)) return false;
       // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
       // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
       // only in `selectTools` — so the ONE surface with a live editor in front of it offered
@@ -3701,7 +3859,13 @@ export class Orchestrator {
    */
   private readonly stableInstructionMemo = new WeakMap<
     ReadonlyMap<string, string>,
-    { size: number; plan: readonly string[] | undefined; text: string }
+    {
+      size: number;
+      plan: readonly string[] | undefined;
+      text: string;
+      /** The same head, as manifest rows — see `agentStableInstructionSections`. */
+      sections: readonly AssembledSection[];
+    }
   >();
 
   /**
@@ -3732,9 +3896,71 @@ export class Orchestrator {
     });
     // ADR 0057: playbooks loaded this run are pinned (never compacted away) so the
     // model keeps the craft instructions it already paid a turn to fetch.
-    const text = `${instruction}${agentPlanBlock(plan)}${agentSkillsBlock([...loadedSkills.values()])}`;
-    this.stableInstructionMemo.set(loadedSkills, { size: loadedSkills.size, plan, text });
+    const planBlock = agentPlanBlock(plan);
+    const skillsBlock = agentSkillsBlock([...loadedSkills.values()]);
+    const text = `${instruction}${planBlock}${skillsBlock}`;
+    const skillCount = loadedSkills.size;
+    this.stableInstructionMemo.set(loadedSkills, {
+      size: loadedSkills.size,
+      plan,
+      text,
+      // Sized once, here, where the parts already exist — the head is ~32k tokens on a
+      // run with playbooks pinned, and re-estimating it every turn to fill in a report
+      // would be the report costing more than the thing it reports on.
+      sections: [
+        {
+          tier: 'system' as const,
+          label: 'agent contract',
+          tokenEstimate: estimateTokens(instruction),
+          included: true,
+        },
+        {
+          tier: 'system' as const,
+          label: 'committed plan',
+          tokenEstimate: estimateTokens(planBlock),
+          included: true,
+        },
+        {
+          tier: 'skills' as const,
+          // The COUNT is in the label because it is the number that explains the size,
+          // and because a reader comparing two manifests wants to see it change.
+          label:
+            skillCount === 1 ? 'pinned playbook (1)' : `pinned playbooks (${String(skillCount)})`,
+          tokenEstimate: estimateTokens(skillsBlock),
+          included: true,
+        },
+      ].filter((section) => section.tokenEstimate > 0),
+    });
     return text;
+  }
+
+  /**
+   * The stable head, as manifest sections — so the biggest block in every agent request
+   * is attributed instead of bucketed.
+   *
+   * ## WHY
+   *
+   * `assembleContext` does not build this block, so it never appeared in the tier account,
+   * and `withRemainder` swept it into one row called "additional request content" —
+   * reported, because `sectionTypeFor` maps an unlabelled `prompt` tier to `system`, as a
+   * **system** section. In run `137d8fd0` that row was **32,338 tokens: 57% of every
+   * request**, and the manifest's whole promise (ADR 0080: "a change in the number always
+   * arrives with its cause attached") failed for the single largest number in the run.
+   * It is not the system contract — that is 135 tokens. It is eight pinned playbooks.
+   *
+   * The budget already subtracts this block (`agentTurnRequest` passes
+   * `estimateTokens(stableHead)`), so nothing about what is SENT changes here. Only the
+   * account does, and only so the next person to ask why a run costs what it costs can
+   * see the answer rather than a bucket.
+   *
+   * Read from the same memo that built the head, so this costs nothing per turn.
+   */
+  private agentStableInstructionSections(
+    loadedSkills: ReadonlyMap<string, string>,
+    plan: readonly string[] | undefined,
+  ): readonly AssembledSection[] {
+    this.agentStableInstruction(loadedSkills, plan);
+    return this.stableInstructionMemo.get(loadedSkills)?.sections ?? [];
   }
 
   /** Build the per-turn context: working-state context + agent instruction + action log. */
@@ -3897,7 +4123,12 @@ export class Orchestrator {
         turnMessage,
       ],
       assembled: {
-        sections: assembled.sections,
+        // The stable head is not assembled by `assembleContext`, so it has to be added
+        // here or `withRemainder` buckets it — see `agentStableInstructionSections`.
+        sections: [
+          ...assembled.sections,
+          ...this.agentStableInstructionSections(loadedSkills, plan),
+        ],
         droppedTokenEstimate: assembled.droppedTokenEstimate,
       },
     };
@@ -3979,7 +4210,7 @@ export class Orchestrator {
       try {
         parsed = tool.parse(args) as typeof parsed;
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
+        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
         return {
           ops: [],
           note,
@@ -3998,7 +4229,13 @@ export class Orchestrator {
           'Could not ask the editor — this run has no way to reach them. Do not ask ' +
           'again. Use your best judgement, and say plainly in your summary what you ' +
           `assumed. (You asked: "${parsed.question}")`;
-        return { ops: [], note, summary: 'No one available to answer', status: 'warning' };
+        return {
+          ops: [],
+          note,
+          summary: 'No one available to answer',
+          status: 'warning',
+          askedQuestion: true,
+        };
       }
       const answerResult = await host.effectRuntime.run(
         {
@@ -4058,6 +4295,7 @@ export class Orchestrator {
           note: `The editor dismissed the question "${parsed.question}" and stopped the run.`,
           summary: 'Question dismissed',
           status: 'cancelled',
+          askedQuestion: true,
         };
       }
       /* v8 ignore start -- TS-narrowing guard only: the check above already proved
@@ -4086,6 +4324,7 @@ export class Orchestrator {
         summary: answerText,
         status: 'completed',
         data: { question: parsed.question, answer: answerText },
+        askedQuestion: true,
       };
     }
     if (tool.kind === 'action' || tool.kind === 'analysis') {
@@ -4094,11 +4333,30 @@ export class Orchestrator {
       // sidecar via the injected executor, and the loop AWAITS the real result.
       // Args are schema-validated here first so a malformed call fails fast
       // without a host round-trip.
-      const args = sanitizeToolArgs(tool, call.arguments);
+      // A catalogue id the run was handed is resolved to the bin asset our own code
+      // derived from it, BEFORE the host is asked. See `catalogue-asset-id.ts`: the
+      // transformation is ours, so reversing it is exact, and an ambiguous id falls
+      // through untouched to the existing "known asset ids" error.
+      const args = withResolvedAssetId(
+        call.name,
+        sanitizeToolArgs(tool, call.arguments) as Record<string, unknown>,
+        ctx.project.assets,
+      );
+      // Asset existence is decided HERE, not by the host's 404: it is a function of the
+      // project and the argument alone, so it can be keyed and remembered, and it gives the
+      // same answer the withheld path gives — see `unknownAssetRefusal`.
+      const namedAsset = (args as { assetId?: unknown }).assetId;
+      if (
+        typeof namedAsset === 'string' &&
+        namedAsset.trim() !== '' &&
+        !ctx.project.assets.some((asset) => asset.id === namedAsset)
+      ) {
+        return unknownAssetRefusal(call.name, namedAsset, ctx.project);
+      }
       try {
         tool.parse(args);
       } catch (cause) {
-        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
+        const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
         return {
           ops: [],
           note,
@@ -4275,6 +4533,7 @@ export class Orchestrator {
         // model reports it dropped under the voice. Fail with the specific
         // sentence instead of letting that through.
         const duckIssue = musicDuckSidechainIssue(ctx.project, duckUnderTrackId);
+        const duckKey = musicDuckRefusalKey(ctx.project, duckUnderTrackId);
         if (duckIssue !== null) {
           const note = `Rejected "add_music" — ${duckIssue}`;
           // IN-PROCESS, despite arriving after a completed paid download — the same reading
@@ -4314,6 +4573,9 @@ export class Orchestrator {
             status: 'failed',
             data: duckIssue,
             deterministicFailure: true,
+            // The sentence names the tracks that WOULD work, and that list grows as the
+            // run places clips — so the sentence cannot be the identity any more.
+            ...(duckKey === null ? {} : { failureKeyText: duckKey }),
             rejectedOpCount: 1,
           };
         }
@@ -4639,9 +4901,22 @@ export class Orchestrator {
               .entries()
               .map((e) => e.id)
               .join(', ');
-            const note = `${desc} → no such handle "${args.evidenceId}"${
-              known ? `. You have: ${known}` : ' — you have not read anything yet this run'
-            }.`;
+            // A HANDLE THE RUN THREW AWAY IS NOT A HANDLE THAT NEVER EXISTED. The store
+            // invalidates a reading when an applied patch makes it untrue, and until now
+            // that left the same "no such handle" a made-up id gets — so the model, which
+            // was holding a real reference, went and re-ran reconnaissance instead of the
+            // one tool that would refresh it. 27 of run `137d8fd0`'s recalls landed here.
+            const expired = host.evidence.expiredHandle(args.evidenceId);
+            const note =
+              expired === undefined
+                ? `${desc} → no such handle "${args.evidenceId}"${
+                    known ? `. You have: ${known}` : ' — you have not read anything yet this run'
+                  }.`
+                : `${desc} → "${args.evidenceId}" (${expired.descriptor}) went stale when the ` +
+                  `timeline changed, so it is no longer true of this project. Run ` +
+                  `${expired.source} again for the current reading.${
+                    known ? ` Still current: ${known}.` : ''
+                  }`;
             return { ops: [], note, summary: desc, status: 'warning', data: note };
           }
           // A recall is explicitly NOT novel: it returns what the run already knew, so it
@@ -4673,7 +4948,7 @@ export class Orchestrator {
           // A refusal from the registered, contracted tool boundary IS the model's to fix —
           // a bad window, an unknown id, the wrong kind of clip — so it keeps the argument
           // wording and stays banked, exactly as it was.
-          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause)}`;
+          const note = `Invalid arguments for "${call.name}": ${describeArgValidationError(cause, call.name, call.arguments)}`;
           return {
             ops: [],
             note,
@@ -4791,10 +5066,16 @@ export class Orchestrator {
         // object (`data`).
         const preview = summarizeReadResult(call.name, value, ctx.project.assets);
         const note = stored ? `${desc} → ${preview} [${stored.id}]` : `${desc} → ${preview}`;
+        // A CHECK'S CARD HAS TO CARRY ITS VERDICT. Every other read's card is right to be
+        // the action label — "Reading the timeline" is the whole story. A verification is
+        // not: run `137d8fd0` shows fourteen rows reading "Checking caption sync" and
+        // "Checking transitions", one of which found 287 of 287 words uncaptioned and the
+        // rest of which passed, and nothing on any of them said which was which.
+        const verdict = readVerdict(call.name, value);
         return {
           ops: [],
           note,
-          summary: desc,
+          summary: verdict === undefined ? desc : `${desc} — ${verdict}`,
           // The card wants the label; the run's memory wants the conclusion.
           finding: preview,
           status: 'completed',
@@ -4921,11 +5202,55 @@ export class Orchestrator {
       // is idempotent, so re-normalizing at turn end is a no-op.
       const normalized = [...probe.patch.operations];
       const applied = applyProjectPatch(ctx.project, probe.patch);
+      // A VALID EDIT THAT CHANGED NOTHING STILL HAS TO SAY SO.
+      //
+      // Writing the value a field already holds applies cleanly and reports success, and
+      // nothing in the answer distinguishes that from work. Run `137d8fd0` made 65
+      // `adjust_audio` calls, seven of them setting one clip to the −18 dB it was already
+      // at, each answered "Adjusted audio WIZARDS_DRIVE.mp3" — so it set it again.
+      //
+      // The operations are NOT dropped. A re-derivation that comes out identical is still
+      // the tool doing its job (`caption_the_edit` re-deriving cues off an unchanged
+      // timeline is the standing case), and withholding it would make the turn's op count
+      // depend on what the timeline happened to already say. Only the sentence changes,
+      // which is the part the model reads.
+      const changed = projectChanged(ctx.project, applied);
+      // A REPEAT THAT CHANGES NOTHING IS THE ONE CASE WORTH WITHHOLDING.
+      //
+      // Neither signal is enough alone. "Changed nothing" on its own is legitimate —
+      // `caption_the_edit` re-deriving cues off an unchanged timeline is the tool doing
+      // its job, and two incident regressions pin that its operations must still flow.
+      // "Byte-identical repeat" on its own is legitimate too — the same call after a cut
+      // is exactly how captions are repaired. Together they are neither: the run already
+      // made this call, and making it again moves nothing. Withholding is provably safe,
+      // because `applyProjectPatch` has just demonstrated the result is the same project.
+      //
+      // Run `137d8fd0` did this 66 times, and the timeline it produced is what that looks
+      // like: nineteen video layers for a sixty-second edit, one stock clip on three of
+      // them, the music bed and the title card each placed twice.
+      const callKey = appliedCallKey(call);
+      if (!changed && host.appliedCalls?.has(callKey) === true) {
+        const note =
+          `${desc} — already done, and doing it again moved nothing. This run has ` +
+          'made this exact call before and the project is unchanged by it, so the ' +
+          'operations were not applied a second time. Read the current state with ' +
+          'get_timeline or get_clips, and go on to the next part of the request.';
+        orchestratorLog.warn('withheld a repeated call that changed nothing', {
+          tool: call.name,
+          opCount: normalized.length,
+        });
+        return { ops: [], note, summary: note, status: 'warning', satisfied: true };
+      }
+      host.appliedCalls?.add(callKey);
       const note =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
-          : '');
+          : '') +
+        (changed
+          ? ''
+          : ' — nothing moved: the project already said exactly this. Read the current ' +
+            'value with get_timeline or get_clips before setting it again.');
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -5009,6 +5334,8 @@ export class Orchestrator {
     appliedPatchIds: Set<string>;
     /** This run's beat ledger, so a repair is held to the grid like any other turn. */
     beatEvidence?: BeatEvidence;
+    /** The run's applied-call ledger (see `HostCallContext.appliedCalls`). */
+    appliedCalls?: Set<string>;
     maxOpsPerTurn: number;
     /** The run's abort signal, so Stop cancels the repair `complete()` call too. */
     signal?: AbortSignal;
@@ -5150,8 +5477,16 @@ export class Orchestrator {
     let names = projectNames(args.working);
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
+    let satisfied = false;
+    let askedQuestion = false;
     for (const call of calls) {
-      const { ops, note, project } = await this.runAgentCall(call, ctx, names, {
+      const {
+        ops,
+        note,
+        project,
+        satisfied: callSatisfied,
+        askedQuestion: callAsked,
+      } = await this.runAgentCall(call, ctx, names, {
         ...(args.signal ? { signal: args.signal } : {}),
         effectRuntime: args.effectRuntime,
         loadedSkills: args.loadedSkills,
@@ -5159,9 +5494,14 @@ export class Orchestrator {
         // Every caller of `attemptRepair` threads the run's `analysisBudget` (created
         // once, up front, and always truthy) straight through — see `HostCallContext`.
         analysisBudget: args.analysisBudget,
+        // The repair pass is the SAME run: an edit it re-issues unchanged is as much a
+        // repeat as one a turn re-issues.
+        ...(args.appliedCalls ? { appliedCalls: args.appliedCalls } : {}),
       });
       turnOps.push(...ops);
       notes.push(note);
+      if (callSatisfied === true) satisfied = true;
+      if (callAsked === true) askedQuestion = true;
       if (project) {
         ctx = { ...ctx, project };
         names = projectNames(project);
@@ -5212,6 +5552,8 @@ export class Orchestrator {
       turnOps,
       working: args.working,
       appliedPatchIds: args.appliedPatchIds,
+      ...(satisfied ? { satisfied: true } : {}),
+      ...(askedQuestion ? { askedQuestion: true } : {}),
       ...(args.beatEvidence ? { beatEvidence: args.beatEvidence } : {}),
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
@@ -5279,6 +5621,8 @@ export class Orchestrator {
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
     const beatEvidence = createBeatEvidence();
+    // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
+    const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
     const loadedSkills = new Map<string, string>();
     const loadedToolDomains = new Set<ToolDomain>();
@@ -5350,6 +5694,8 @@ export class Orchestrator {
       let names = projectNames(working);
       const turnOps: AnyOperation[] = [];
       const notes: string[] = [];
+      let turnSatisfied = false;
+      let turnAskedQuestion = false;
       const callFacts: TurnCallFact[] = [];
       const turnFrames: AiImage[] = [];
       /** Ops a tool derived from the project — excluded from the bound (see below). */
@@ -5363,16 +5709,21 @@ export class Orchestrator {
           fromCache,
           images,
           derivedOpCount: callDerivedOps,
+          satisfied: callSatisfied,
+          askedQuestion: callAskedQuestion,
         } = await this.runAgentCall(call, ctx, names, {
           effectRuntime,
           evidence,
           beatEvidence,
+          appliedCalls,
           loadedSkills,
           loadedToolDomains,
           analysisBudget,
         });
         turnOps.push(...ops);
         notes.push(note);
+        if (callSatisfied === true) turnSatisfied = true;
+        if (callAskedQuestion === true) turnAskedQuestion = true;
         if (callDerivedOps) derivedOpCount += callDerivedOps;
         if (images) turnFrames.push(...images);
         // Parity with the streaming loop's `executeToolCalls` (K1.2): both control paths
@@ -5411,6 +5762,8 @@ export class Orchestrator {
         turnOps,
         working,
         appliedPatchIds,
+        ...(turnSatisfied ? { satisfied: true } : {}),
+        ...(turnAskedQuestion ? { askedQuestion: true } : {}),
         beatEvidence,
       });
       steps.push(step.record);
@@ -5490,6 +5843,7 @@ export class Orchestrator {
         stepIndex: steps.length + 1,
         appliedPatchIds,
         beatEvidence,
+        appliedCalls,
         maxOpsPerTurn,
         effectRuntime,
         loadedSkills,
@@ -5548,6 +5902,16 @@ export class Orchestrator {
      * on this exact wiring point).
      */
     beatEvidence?: BeatEvidence;
+    /**
+     * Some call in this turn reported the timeline already matched it. Only consulted
+     * when the turn landed no operations — see the zero-op branch below.
+     */
+    satisfied?: boolean;
+    /**
+     * Some call in this turn put a question to the editor. The turn's operations are then
+     * withheld — see the branch below.
+     */
+    askedQuestion?: boolean;
   }): {
     record: AgentStep;
     applied: boolean;
@@ -5563,6 +5927,28 @@ export class Orchestrator {
      * line is built from this field instead.
      */
     rejection?: string;
+    /**
+     * The refusal's STABLE identity — the same refusal twice produces the same key,
+     * however much of the message varies with the offending values.
+     *
+     * `rejection` is the sentence the editor and the model both read, so it names the
+     * exact times, counts and ids that need fixing. That is right for the message and
+     * fatal for a guard: `conductor.ts#repeatedRejection` compared whole sentences, so
+     * `beat-sync` r1's twenty-nine consecutive beat-grid refusals — identical rule,
+     * different off-grid times — never matched each other, and the run spent twenty
+     * minutes and $3.93 re-issuing the same rejected edit. Guards key on this; humans
+     * read `rejection`.
+     */
+    rejectionKey?: string;
+    /**
+     * HOW MUCH of the proposal the refusal is still refusing — the count of offending
+     * boundaries, validator errors, or operations over the cap. Never a severity.
+     *
+     * {@link rejectionKey} answers "the same wall again?"; this answers "is the run getting
+     * through it?". See `conductor.ts#onTurnResult`, where a repeated refusal whose scale
+     * has fallen to a new low is credited as progress instead of stall.
+     */
+    rejectionScale?: number;
     /**
      * Interior cuts left deliberately off the beat grid, or cuts checked against nothing
      * because none of the analyzed music is placed — a measurement to report. Only set when
@@ -5580,6 +5966,41 @@ export class Orchestrator {
     if (args.turnOps.length === 0) {
       return {
         record: { index, rationale, toolCalls, applied: false, note: baseNote },
+        applied: false,
+        // Same distinction the identical-patch branch below draws, reached earlier: a
+        // turn whose every operation was a no-op never assembles a patch, so its id can
+        // never match a banked one. Without this it read as a turn that landed nothing —
+        // which the reducer files as `failed`, and the model then hunts for a cause that
+        // does not exist.
+        ...(args.satisfied === true ? { satisfied: true } : {}),
+        working,
+      };
+    }
+
+    // ASKING IS NOT EDITING.
+    //
+    // Every operation in a turn comes from ONE model response, so a turn that calls
+    // `ask_user` composed its edits BEFORE any answer existed — including the answer it
+    // was asking for. Applying them anyway is the run acting on the guess it just told
+    // the editor it could not make.
+    //
+    // The golden case `clarify-which-clip` is this, three runs out of three: "Cut the
+    // clip a bit shorter" over five clips and no selection, the agent correctly asks
+    // which one — and reframes all five in the same turn. The run reported "Applied 5
+    // edits", the rubric expected an untouched timeline, and the editor got work they
+    // never asked for while their question sat open.
+    //
+    // The ops are withheld, not rejected: nothing about them was invalid, and the note
+    // says to make them again once the answer is in. A turn that only asks is unaffected
+    // (it has no ops), and a run whose next turn re-issues them loses one step — which is
+    // what asking a question costs, and is the point of asking one.
+    if (args.askedQuestion === true) {
+      const note =
+        `${baseNote}; asked the editor a question, so this turn's ` +
+        `${String(args.turnOps.length)} edit(s) were not applied — they were composed ` +
+        'before the answer. Make them on the next turn, in light of what they said.';
+      return {
+        record: { index, rationale, toolCalls, applied: false, note },
         applied: false,
         working,
       };
@@ -5613,6 +6034,12 @@ export class Orchestrator {
         },
         applied: false,
         rejection: `rejected by the beat grid: ${beatAligned.error}`,
+        rejectionKey: `beat-grid:${beatAligned.reasonKey}`,
+        // How many boundaries are still off the grid — the measurement that tells a run
+        // fixing its cuts one at a time apart from one re-proposing the same wrong ones.
+        ...(beatAligned.reasonScale === undefined
+          ? {}
+          : { rejectionScale: beatAligned.reasonScale }),
         working,
       };
     }
@@ -5630,10 +6057,11 @@ export class Orchestrator {
      * `edit.validation` can only fail here if that invariant is broken by future code
      * (e.g. a new call site that pushes into `turnOps` without probing first). */
     if (!edit.validation.valid) {
-      const problems = edit.validation.issues
-        .filter((i) => i.severity === 'error')
-        .map((i) => i.message)
-        .join('; ');
+      const errors = edit.validation.issues.filter((i) => i.severity === 'error');
+      const problems = errors.map((i) => i.message).join('; ');
+      // Codes, not messages: an overlap shrinking from 3s to 1s is the SAME refusal, and
+      // keying it on the sentence made the guard read two unrelated failures.
+      const problemKey = [...new Set(errors.map((i) => i.code))].sort().join(',');
       return {
         record: {
           index,
@@ -5645,6 +6073,11 @@ export class Orchestrator {
         },
         applied: false,
         rejection: `rejected by the validator: ${problems}`,
+        rejectionKey: `validator:${problemKey}`,
+        // The number of errors left to fix: a turn that took eight overlaps down to one is
+        // converging, and must not be filed as the same nothing as one that took eight to
+        // eight (`conductor.ts#onTurnResult`).
+        rejectionScale: errors.length,
         working,
       };
     }
@@ -6073,6 +6506,8 @@ export class Orchestrator {
      * but has no turn to hold to a grid.
      */
     beatEvidence?: BeatEvidence,
+    /** Mutating calls this run already applied (see `HostCallContext.appliedCalls`). */
+    appliedCalls?: Set<string>,
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
     rememberDecision?: (note: { readonly title: string; readonly body: string }) => void,
     /**
@@ -6086,12 +6521,25 @@ export class Orchestrator {
      * instead of handing the model the same sentence a second time.
      */
     seenFailureKeys?: ReadonlySet<string>,
+    /**
+     * True when {@link allowedToolNames} is the STAGE rule rather than a recovery-turn
+     * latch. The two withhold the same names and used to earn the same sentence — "it
+     * becomes available again on the next turn" — which is true of a latch and false of a
+     * stage: an analysis tool withheld in `apply` stays withheld until `verify`. Told to
+     * wait a turn, the model waits a turn and calls again (run `137d8fd0`, `measure_color`,
+     * twice). The refusal now says which it is.
+     */
+    stageWithheld?: boolean,
   ): AsyncGenerator<
     AiEvent,
     {
       turnOps: AnyOperation[];
       notes: string[];
       turnStatuses: ToolStatus[];
+      /** Some call reported the timeline already matched it. See `AgentCallOutcome.satisfied`. */
+      satisfied: boolean;
+      /** Some call put a question to the editor. See `AgentCallOutcome.askedQuestion`. */
+      askedQuestion: boolean;
       /** Calls the harness refused this turn (commit-only latch, recovery surface). */
       withheldCallCount: number;
       rejectedOpCount: number;
@@ -6099,6 +6547,13 @@ export class Orchestrator {
       rejectionNotes: string[];
       /** Per-call progress facts the reducer folds (see `TurnCallFact`). */
       callFacts: TurnCallFact[];
+      /**
+       * Every settled call of this turn, for the run-level "Not done" account
+       * (GOLDEN-C.19 — see `reliability/unfinished-work.ts`). Carried separately from
+       * `callFacts`, which is keyed by NOVELTY and deliberately carries neither the tool's
+       * name nor a host failure's text.
+       */
+      toolAttempts: ToolAttempt[];
       /**
        * Images this turn's tool calls produced (`get_frame`), for the next request to
        * attach as real image content. Empty on every turn that did not look at a frame.
@@ -6120,10 +6575,15 @@ export class Orchestrator {
     const turnOps: AnyOperation[] = [];
     const notes: string[] = [];
     const turnStatuses: ToolStatus[] = [];
+    /** Did any call report the timeline already matched it? See `AgentCallOutcome.satisfied`. */
+    let satisfied = false;
+    /** Did any call put a question to the editor? See `AgentCallOutcome.askedQuestion`. */
+    let askedQuestion = false;
     let withheldCallCount = 0;
     /** Frames this turn's `get_frame` calls rendered, for the NEXT request's images. */
     const frames: AiImage[] = [];
     const callFacts: TurnCallFact[] = [];
+    const toolAttempts: ToolAttempt[] = [];
     // Per-call validator rejections (ops proposed but refused) — the honest
     // empty-run notice is built from these when the whole run lands nothing.
     let rejectedOpCount = 0;
@@ -6141,6 +6601,7 @@ export class Orchestrator {
       effectRuntime,
       evidence,
       ...(beatEvidence ? { beatEvidence } : {}),
+      ...(appliedCalls ? { appliedCalls } : {}),
       loadedSkills,
       loadedToolDomains,
       ...(askUser ? { askUser } : {}),
@@ -6291,7 +6752,13 @@ export class Orchestrator {
         if (!inScope) withheldCallCount += 1;
         const outcome: AgentCallOutcome = inScope
           ? await this.runAgentCall(call, turnCtx, turnNames, hostContext)
-          : withheldCallOutcome(call, evidence, bankedSearches);
+          : withheldCallOutcome(
+              call,
+              evidence,
+              bankedSearches,
+              stageWithheld === true,
+              turnCtx.project,
+            );
         settled = [{ call, outcome, runtimeMs: now() - started, announced: true }];
       }
 
@@ -6362,6 +6829,8 @@ export class Orchestrator {
         turnOps.push(...outcome.ops);
         notes.push(outcome.note);
         turnStatuses.push(outcome.status);
+        if (outcome.satisfied === true) satisfied = true;
+        if (outcome.askedQuestion === true) askedQuestion = true;
         // Dev-only hit counter (opt-in via FRAMEPILOT_RUNS_LOG) — see run-log.ts.
         {
           const tool = getTool(call.name);
@@ -6414,6 +6883,16 @@ export class Orchestrator {
             ...(failureKey === undefined ? {} : { failureKey }),
           });
         }
+        // The run-level record of what this tool managed. `data` over `summary` because a
+        // repeat refusal's summary is the wrapper ("Refused repeat of …") while its `data`
+        // is the ORIGINAL error — the sentence the editor needs in the "Not done" block.
+        toolAttempts.push({
+          tool: call.name,
+          status: outcome.status,
+          ...(outcome.status === 'failed'
+            ? { failureReason: typeof outcome.data === 'string' ? outcome.data : outcome.summary }
+            : {}),
+        });
         if (outcome.rejectedOpCount) {
           rejectedOpCount += outcome.rejectedOpCount;
           rejectionNotes.push(outcome.note);
@@ -6438,11 +6917,14 @@ export class Orchestrator {
       turnOps,
       notes,
       turnStatuses,
+      satisfied,
+      askedQuestion,
       withheldCallCount,
       rejectedOpCount,
       derivedOpCount,
       rejectionNotes,
       callFacts,
+      toolAttempts,
       frames,
       proposalCards,
     };
@@ -6763,7 +7245,9 @@ export class Orchestrator {
             Date.now,
             analysisBudget,
             // A question turn can `ask_user` too, and an answer given there is just as
-            // worth keeping as one given mid-edit.
+            // worth keeping as one given mid-edit. It never edits, so it needs no beat
+            // ledger and no applied-call ledger.
+            undefined,
             undefined,
             undefined,
             undefined,
@@ -7617,6 +8101,8 @@ export class Orchestrator {
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
     const beatEvidence = createBeatEvidence();
+    // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
+    const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
     // pass, so a playbook is fetched once and stays pinned in context for the rest of
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
@@ -7725,6 +8211,15 @@ export class Orchestrator {
      * from a footage map it had never asked for.
      */
     let sawContentEvidence = false;
+    /**
+     * Every settled tool call of the run, in call order, for the completion report's
+     * "Not done" block (GOLDEN-C.19 — `reliability/unfinished-work.ts`).
+     *
+     * Held here rather than in the reducer for the same reason `sawContentEvidence` is: it
+     * is an observation the RUNTIME makes about calls it executed, and the pure reducer has
+     * neither the tool's name nor a host failure's text.
+     */
+    const toolAttempts: ToolAttempt[] = [];
     /**
      * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
      * export have no route from the panel — so the completion account says so rather than
@@ -8310,11 +8805,14 @@ export class Orchestrator {
           turnOps,
           notes,
           turnStatuses,
+          satisfied: executedSatisfied,
+          askedQuestion: executedAskedQuestion,
           withheldCallCount,
           rejectedOpCount,
           derivedOpCount,
           rejectionNotes,
           callFacts,
+          toolAttempts: turnToolAttempts,
           frames,
           proposalCards,
         } = yield* self.executeToolCalls(
@@ -8350,12 +8848,16 @@ export class Orchestrator {
             ).map((tool) => tool.name),
           ),
           beatEvidence,
+          appliedCalls,
           controls.rememberDecision,
           withholdSearch ? bankedSearches : undefined,
           // The run's proven-refusal memory, so a call that settles to a refusal this run
           // has already had is answered with "that cannot work" instead of the same
           // sentence again (see `ConductorState.seenFailureKeys`).
           effect.seenFailureKeys ? new Set(effect.seenFailureKeys) : undefined,
+          // A recovery turn is a latch (next turn is different); anything else narrowed here
+          // is the stage rule, and stays narrowed until the stage changes.
+          !effect.actionRecovery,
         );
         // Some calls survived the stream and some did not. The survivors already ran, so the
         // turn is usable — but the model must be told which of its asks never arrived, or it
@@ -8374,6 +8876,7 @@ export class Orchestrator {
           log.push(`Step ${index}: ${note}`);
         }
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
+        toolAttempts.push(...turnToolAttempts);
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
         const anyToolFailed = turnStatuses.includes('failed');
@@ -8427,6 +8930,11 @@ export class Orchestrator {
             anyToolFailed,
             note: overCap,
             rejection: overCap,
+            // The cap message names the op count, which changes every attempt.
+            rejectionKey: 'over-cap',
+            // …and the overage IS the measurement of how far over it still is, so a turn
+            // that halves its batch is credited as converging rather than as a repeat.
+            rejectionScale: turnOps.length - derivedOpCount - maxOpsPerTurn,
             turnOpCount: turnOps.length,
             turnPlacementCount: placementCount(turnOps),
           });
@@ -8440,6 +8948,8 @@ export class Orchestrator {
           turnOps,
           working,
           appliedPatchIds,
+          ...(executedSatisfied ? { satisfied: true } : {}),
+          ...(executedAskedQuestion ? { askedQuestion: true } : {}),
           beatEvidence,
         });
         // A whole-turn rejection un-settles the cards that proposed it. Not a cosmetic
@@ -8509,6 +9019,10 @@ export class Orchestrator {
           note: applied.record.note,
           ...(applied.edit ? { patchId: applied.edit.patch.patchId } : {}),
           ...(applied.rejection === undefined ? {} : { rejection: applied.rejection }),
+          ...(applied.rejectionKey === undefined ? {} : { rejectionKey: applied.rejectionKey }),
+          ...(applied.rejectionScale === undefined
+            ? {}
+            : { rejectionScale: applied.rejectionScale }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
         });
       },
@@ -8552,6 +9066,7 @@ export class Orchestrator {
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
             beatEvidence,
+            appliedCalls,
             maxOpsPerTurn,
             effectRuntime,
             loadedSkills,
@@ -8673,6 +9188,10 @@ export class Orchestrator {
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
+              // What the run announced and never delivered, and what it never got working.
+              // Both are free: the plan ledger and the settled tool cards already exist.
+              planSteps: effect.planSteps,
+              neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(offGridNote ? { offGrid: offGridNote } : {}),
@@ -8815,6 +9334,44 @@ function* settleProposalCards(
 }
 
 /**
+ * The refusal for a call that names an asset this project does not hold.
+ *
+ * ONE function for two paths, because they used to disagree. A withheld call (stage rule,
+ * recovery turn) is refused here in process; an ADMITTED call went to the host and came
+ * back "Analysis failed (404): Asset 'X' not found" — a host failure, unkeyed by the rule
+ * that host work is never keyed. Same invented id, keyed on one path and not the other, so
+ * a run could be refused it forever on the admitted path. Asset existence is a pure
+ * function of the project and the argument — the verdict the rule DOES allow to be keyed —
+ * so it is decided before dispatch, identically, and remembered.
+ *
+ * Keyed on the ID, not the sentence: the sentence lists the bin, and the bin grows every
+ * time the run downloads something, which is exactly what makes the same wrong id look like
+ * a new wall (see `music-placement.ts#musicDuckRefusalKey` for the same trap, closed).
+ */
+function unknownAssetRefusal(
+  callName: string,
+  assetId: string,
+  project: Project,
+): AgentCallOutcome {
+  const known = project.assets.map((asset) => asset.id);
+  const shown = known.slice(0, 12).join(', ');
+  const more = known.length > 12 ? `, and ${String(known.length - 12)} more` : '';
+  const note =
+    `No asset "${assetId}" is in this project. Known asset ids: ${shown}${more}. ` +
+    'A search_stock / search_music result is a catalogue entry, not an asset, until ' +
+    'add_stock / add_music downloads it — do that first, then use the asset id it returns.';
+  return {
+    ops: [],
+    note,
+    summary: `Refused "${callName}" — no asset "${assetId}" in this project`,
+    status: 'failed',
+    data: note,
+    deterministicFailure: true,
+    failureKeyText: `unknown_asset:${assetId}`,
+  };
+}
+
+/**
  * The outcome for a call this turn does not offer.
  *
  * Two different things used to share one sentence, and the wrong one was said far more
@@ -8840,6 +9397,14 @@ function withheldCallOutcome(
    * stranded a run on an empty project.
    */
   bankedSearches?: number,
+  /** The narrowing is the stage rule, not a one-turn latch — see `executeToolCalls`. */
+  stageWithheld = false,
+  /**
+   * The working copy at the moment of refusal, so a call that names an asset the project
+   * does not hold is refused for THAT reason rather than for the stage. Optional only so
+   * the question route, which never withholds by stage, can keep passing nothing.
+   */
+  project?: Project,
 ): AgentCallOutcome {
   // A name the registry has never heard of is not "withheld this turn" — it is not a tool.
   //
@@ -8867,6 +9432,24 @@ function withheldCallOutcome(
       deterministicFailure: true,
     };
   }
+  // THE MOST SPECIFIC TRUE REASON WINS. The stage refusal below is generic by design —
+  // "this turn is for acting on what has been gathered" — and it used to be reached before
+  // the call's arguments were looked at. Run `137d8fd0`, turn 7: fresh from `search_stock`,
+  // the model called `describe_footage` on five `stock_pexels_<id>` asset ids it had
+  // CONSTRUCTED from catalogue results not yet downloaded (the first `add_stock` came at
+  // turn 17). The true answer was "no such asset — add it first". It was told "unavailable
+  // this turn" five times, never learned its ids were invented, and described no stock
+  // footage at all in a 153-step run. A refusal that hides the fixable cause behind a
+  // generic one costs exactly what a missing refusal does.
+  const namedAsset = (call.arguments as { assetId?: unknown } | undefined)?.assetId;
+  if (
+    project &&
+    typeof namedAsset === 'string' &&
+    namedAsset.trim() !== '' &&
+    !project.assets.some((asset) => asset.id === namedAsset)
+  ) {
+    return unknownAssetRefusal(call.name, namedAsset, project);
+  }
   if (bankedSearches !== undefined && isCatalogueSearch(call.name)) {
     return {
       ops: [],
@@ -8886,13 +9469,28 @@ function withheldCallOutcome(
       status: 'failed',
     };
   }
+  // WHICH kind of withholding this is decides the last sentence, and getting it wrong is
+  // not cosmetic. A recovery-turn latch really does lift next turn. The stage rule does
+  // not: an analysis tool withheld in `apply` stays withheld until the run reaches
+  // `verify`. Run `137d8fd0` was told "available again on the next turn" about a
+  // stage-withheld `measure_color`, did exactly as told — waited a turn, called again —
+  // and was refused identically. A refusal has to name the real way out.
+  const wayOut = stageWithheld
+    ? `It stays held for the rest of this stage. If the run already measured this, ` +
+      `recall_evidence returns it; if it has not, finish the edit and check it in verify.`
+    : 'It becomes available again on the next turn.';
   return {
     ops: [],
     note:
       `"${call.name}" is not available on this turn. This turn is for acting on what ` +
       'the run has already gathered: make the edit, recall_evidence for a detail you ' +
-      'need, or ask_user. It becomes available again on the next turn.',
-    summary: `${call.name} is unavailable this turn`,
+      `need, or ask_user. ${wayOut}`,
+    // The MODEL gets the paragraph above; the editor gets this row, and "unavailable this
+    // turn" told them nothing about why or for how long. Run `137d8fd0` showed five of
+    // them in a stack with no reason attached to any.
+    summary: stageWithheld
+      ? `${call.name} held back for this stage — this stage is for acting on what has been gathered`
+      : `${call.name} held back — this turn is for acting on what has been gathered`,
     status: 'warning',
   };
 }
@@ -8989,7 +9587,10 @@ function hostBackedValidatorRejection(
  */
 function deterministicFailureKey(
   callName: string,
-  outcome: Pick<AgentCallOutcome, 'status' | 'data' | 'deterministicFailure' | 'refusalCause'>,
+  outcome: Pick<
+    AgentCallOutcome,
+    'status' | 'data' | 'deterministicFailure' | 'refusalCause' | 'failureKeyText'
+  >,
 ): string | undefined {
   if (outcome.status !== 'failed' || outcome.deterministicFailure !== true) return undefined;
   // The error text is the key's whole discriminating power; without it every failure of a
@@ -9004,6 +9605,11 @@ function deterministicFailureKey(
   // the same "no" three more times. Prose-stripping cannot rescue that the way it rescues
   // a validator locator: here the varying parts are the whole body of the sentence.
   if (outcome.refusalCause !== undefined) return `${callName}:${outcome.refusalCause}`;
+  // An explicit key beats the sentence, for refusals whose remedy names things that move
+  // with the project (see `AgentCallOutcome.failureKeyText`).
+  if (typeof outcome.failureKeyText === 'string' && outcome.failureKeyText.trim() !== '') {
+    return `${callName}:${outcome.failureKeyText}`;
+  }
   return `${callName}:${failureCause(outcome.data)}`;
 }
 
@@ -9073,6 +9679,55 @@ function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome
   };
 }
 
+/** How many "Not done" lines the report prints before collapsing the rest into a count. */
+const NOT_DONE_MAX_LINES = 6;
+
+/**
+ * How much of a failure reason survives into the report. The reason is a tool result
+ * written for the MODEL — a paragraph, sometimes — and this block is a list, not the
+ * error card. Enough to recognise the wall; not enough to bury the other five lines.
+ */
+const NOT_DONE_REASON_MAX_CHARS = 160;
+
+/** One-line failure reason: first sentence's worth, ellipsised, never a paragraph. */
+function trimFailureReason(reason: string): string {
+  const flat = reason.replace(/\s+/g, ' ').trim();
+  if (flat.length <= NOT_DONE_REASON_MAX_CHARS) return flat;
+  return `${flat.slice(0, NOT_DONE_REASON_MAX_CHARS).trimEnd()}…`;
+}
+
+/**
+ * What the run set out to do and did not do (GOLDEN-C.19).
+ *
+ * WHY: the report's other blocks only account for work that reached the validator. Run
+ * `137d8fd0` applied 416 edits against a seven-part brief and closed without a word about
+ * the two parts that never landed at all — captioning, refused eleven times, and
+ * `professional_audio`, which failed all ten times it was called. "Applied 416 edits" is
+ * true and, on its own, misleading.
+ *
+ * Empty when there is nothing to say, so an ordinary clean run is unchanged.
+ */
+function notDoneBlock(
+  planSteps: readonly PlanStep[],
+  neverSucceeded: readonly NeverSucceededTool[],
+): string {
+  const lines: string[] = [];
+  for (const step of planSteps) {
+    if (step.status === 'completed') continue;
+    lines.push(`- ${step.label} — ${step.status}`);
+  }
+  for (const { tool, reason } of neverSucceeded) {
+    const label = describeToolCall({ name: tool, arguments: {} });
+    const why = reason === '' ? '' : `: ${trimFailureReason(reason)}`;
+    lines.push(`- ${label} — never succeeded${why}`);
+  }
+  if (lines.length === 0) return '';
+  const shown = lines.slice(0, NOT_DONE_MAX_LINES);
+  const more = lines.length - NOT_DONE_MAX_LINES;
+  if (more > 0) shown.push(`- …and ${more} more`);
+  return `\n\n**Not done:**\n${shown.join('\n')}`;
+}
+
 /** Markdown completion report closing an agent run that applied edits (U3). Exported for tests. */
 export function agentCompletionReport(args: {
   ops: readonly AnyOperation[];
@@ -9108,6 +9763,15 @@ export function agentCompletionReport(args: {
    * pass). The list is the same receipt; the head stops claiming the work is done.
    */
   failed?: boolean;
+  /**
+   * The run's drafted plan as it finished. Every step that is not `completed` is a thing
+   * the run announced and did not deliver (GOLDEN-C.19). Empty/absent for a run that
+   * drafted no plan — see `FinalizeEffect.planSteps` for why an unplanned run's derived
+   * steps are NOT this.
+   */
+  planSteps?: readonly PlanStep[];
+  /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
+  neverSucceeded?: readonly NeverSucceededTool[];
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -9136,6 +9800,9 @@ export function agentCompletionReport(args: {
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
       : '';
+  // After "Skipped" (work that was attempted and refused) and before the caveats: what was
+  // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
+  const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -9154,7 +9821,7 @@ export function agentCompletionReport(args: {
       ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
         'on your timeline; use the Export dialog to render them out.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}${deliverable}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${offGrid}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

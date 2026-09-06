@@ -251,6 +251,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'rename_folder':
     case 'move_folder':
     case 'delete_folder':
+    case 'reorder_clips': // ids, not times: apply derives every start and snaps it itself
     case 'set_clip_source_range':
     case 'set_clip_media':
     case 'set_transcript':

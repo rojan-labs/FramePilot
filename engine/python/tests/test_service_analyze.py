@@ -173,6 +173,9 @@ def test_analyze_quick_runs_probe_and_silence(
         "longestSeconds": 1.0,
         "belowThresholdSeconds": 0.0,
         "probeFloorSeconds": 0.1,
+        # The level and gap that defined "silent" — carried since run 137d8fd0.
+        "noiseFloorDb": -30.0,
+        "minSilenceSeconds": 0.5,
     }
 
 
@@ -470,6 +473,9 @@ def test_analyze_persists_results_and_serves_cache_hits(
         "longestSeconds": 1.0,
         "belowThresholdSeconds": 0.0,
         "probeFloorSeconds": 0.1,
+        # The level and gap that defined "silent" — carried since run 137d8fd0.
+        "noiseFloorDb": -30.0,
+        "minSilenceSeconds": 0.5,
     }
 
 

@@ -280,6 +280,9 @@ describe('tool calls', () => {
   it('still throws "reached maximum number of turns" when no tool call got out before it', async () => {
     const module = {
       query() {
+        // The point of this case is a stream that dies before it yields anything,
+        // so the missing yield is the fixture, not an oversight.
+        // eslint-disable-next-line require-yield
         return (async function* () {
           throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)');
         })();

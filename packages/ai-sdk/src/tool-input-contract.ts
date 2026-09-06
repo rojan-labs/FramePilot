@@ -46,9 +46,32 @@ function assertOrdered(
   if (typeof start === 'number' && typeof end === 'number' && end <= start) {
     throw new ToolInputContractError(
       toolName,
-      `${toolName} requires ${endField} > ${startField} when both are provided.`,
+      `${toolName} requires ${endField} > ${startField} when both are provided. ` +
+        `You gave ${startField} ${String(start)} and ${endField} ${String(end)}.` +
+        durationHint(startField, endField, start, end),
     );
   }
+}
+
+/**
+ * The one mistake behind almost every ordered-range rejection: `end` read as a LENGTH.
+ *
+ * A positive `end` below `start` is not a typo, it is a different model of the field —
+ * "a six second clip at 44s" sent as `start: 44, end: 6`. Run `137d8fd0` sent exactly
+ * that three times to `add_clip` (`44/6`, `44/14.233`, `60/15`), each time reading back
+ * a sentence that restated the rule it had not understood. Naming the value it should
+ * have sent is what turns the refusal into a correction.
+ *
+ * Only offered when `end` is a plausible duration — positive and shorter than `start`.
+ * A negative or zero `end` is a different mistake and gets no guess.
+ */
+function durationHint(startField: string, endField: string, start: number, end: number): string {
+  if (!(end > 0) || !(start > 0)) return '';
+  return (
+    ` ${endField} is a position on the same timeline as ${startField}, not a length — ` +
+    `for a ${String(end)}s span starting at ${String(start)}, pass ${endField}: ` +
+    `${String(Number((start + end).toFixed(6)))}.`
+  );
 }
 
 function assertMapTime(value: Record<string, unknown>): void {

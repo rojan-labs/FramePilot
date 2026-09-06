@@ -241,3 +241,41 @@ describe('add_clips per-entry ordering', () => {
     accepts('add_clips', { trackId: 'video_1', clips: 'not an array' });
   });
 });
+
+/**
+ * Run `137d8fd0` sent `add_clip` `start: 44, end: 6`, then `start: 44, end: 14.233`,
+ * then `start: 60, end: 15` — three attempts, each read back a restatement of the rule it
+ * had already misunderstood. A positive `end` below `start` is not a typo; it is `end`
+ * read as a LENGTH. The refusal now names the value that would have worked.
+ */
+describe('an ordered range refused because end was read as a duration', () => {
+  it('names the end the model should have sent', () => {
+    rejects(
+      'add_clip',
+      { assetId: 'stock_1', trackId: 'v_cutaways', start: 44, end: 6, sourceStart: 0 },
+      /for a 6s span starting at 44, pass end: 50\./,
+    );
+    rejects(
+      'add_clip',
+      { assetId: 'stock_1', trackId: 'v_cutaways', start: 44, end: 14.233, sourceStart: 0 },
+      /pass end: 58\.233\./,
+    );
+  });
+
+  it('still states the rule, and still quotes what it was given', () => {
+    rejects('trim_clip', { clipId: 'c', start: 10, end: 4 }, /requires end > start/);
+    rejects('trim_clip', { clipId: 'c', start: 10, end: 4 }, /You gave start 10 and end 4\./);
+  });
+
+  it('offers no length reading where there is none to offer', () => {
+    // A zero or negative end is a different mistake, and guessing at it would be noise.
+    rejects('delete_range', { trackId: 't', start: 5, end: 0 }, /requires end > start/);
+    expect(() =>
+      assertToolInputSemantics('delete_range', { trackId: 't', start: 5, end: 0 }),
+    ).toThrow(/^(?!.*pass end:).*$/s);
+  });
+
+  it('leaves a legal range alone', () => {
+    accepts('add_clip', { assetId: 'a', trackId: 'v', start: 44, end: 50 });
+  });
+});

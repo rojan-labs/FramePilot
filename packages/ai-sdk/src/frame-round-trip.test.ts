@@ -14,7 +14,12 @@
  */
 import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
-import { commitProjectPatch, emptyHistory, frameToSeconds } from '@framepilot/editor-core';
+import {
+  commitProjectPatch,
+  emptyHistory,
+  frameToSeconds,
+  snapSecondsToFrame,
+} from '@framepilot/editor-core';
 import type { PatchId } from '@framepilot/shared-types';
 import { getTool } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
@@ -90,6 +95,52 @@ describe('a cut aimed at a word lands on that word’s frame', () => {
     expect(Math.abs(frameToSeconds(but.startFrame, FPS) - but.start)).toBeLessThanOrEqual(
       0.5 / FPS + 1e-9,
     );
+  });
+
+  /**
+   * The word-boundary trap (REMAINING §2.4). Three turns of the session-6 run were lost to
+   * a cut landing one frame inside a word, and in every case the run had read the CORRECT
+   * frame here and then passed seconds — because every cut tool takes seconds — which
+   * `quantizePatch` rounded back across the word edge.
+   *
+   * The tool was publishing two different answers to "when does this word begin". It now
+   * publishes the edit points in both units, naming the same instant, so a run that copies
+   * either one lands on the same frame. The raw measurement stays in the payload.
+   */
+  it('reports the edit point in seconds and in frames as the SAME instant', () => {
+    const mapped = run('get_mapped_transcript', {}, project) as {
+      fps: number;
+      words: {
+        word: string;
+        start: number;
+        end: number;
+        startFrame: number;
+        endFrame: number;
+        startSeconds: number;
+        endSeconds: number;
+      }[];
+    };
+    for (const w of mapped.words) {
+      expect(w.startSeconds).toBe(frameToSeconds(w.startFrame, FPS));
+      expect(w.endSeconds).toBe(frameToSeconds(w.endFrame, FPS));
+    }
+    // And the raw measurement is still there — the two are not the same number, which is
+    // the whole reason publishing only the raw one was a trap.
+    const but = mapped.words.find((w) => w.word === 'but')!;
+    expect(typeof but.start).toBe('number');
+    expect(but.startSeconds).not.toBe(but.start);
+  });
+
+  it('a cut aimed at the reported SECONDS survives the quantizer unchanged', () => {
+    const mapped = run('get_mapped_transcript', {}, project) as {
+      fps: number;
+      words: { word: string; startSeconds: number }[];
+    };
+    for (const w of mapped.words) {
+      // `quantizePatch` snaps to the nearest frame; a value already on a frame is a
+      // fixed point of it, so no cut can be rounded across the boundary it was aimed at.
+      expect(snapSecondsToFrame(w.startSeconds, FPS)).toBe(w.startSeconds);
+    }
   });
 
   it('splitting at the reported frame produces a cut on exactly that frame', () => {
