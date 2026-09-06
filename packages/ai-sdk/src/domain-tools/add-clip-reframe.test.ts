@@ -403,3 +403,39 @@ describe('add_clips — a full batch still fits one turn', () => {
     expect(ops.length).toBeLessThanOrEqual(ORCHESTRATOR_MAX_OPS_PER_TURN);
   });
 });
+
+describe('the note that rides with an automatic reframe', () => {
+  it('says the crop is a centred guess and how to move it, once per call', async () => {
+    // Run `cc907070` read "Reframed clip" thirteen times against a brief that said "not
+    // just centre-cut", and nothing said the crop WAS the centre cut.
+    const { autoReframeNote } = await import('../orchestrator.js');
+    const ops = [
+      {
+        type: 'add_clip',
+        trackId: 'v',
+        assetId: 'a',
+        start: 0,
+        end: 2,
+        sourceStart: 0,
+        sourceEnd: 2,
+      },
+      { type: 'set_clip_crop', clipId: 'c', crop: { x: 0.34, y: 0, width: 0.32, height: 1 } },
+      {
+        type: 'add_clip',
+        trackId: 'v',
+        assetId: 'a',
+        start: 2,
+        end: 4,
+        sourceStart: 2,
+        sourceEnd: 4,
+      },
+      { type: 'set_clip_crop', clipId: 'd', crop: { x: 0.34, y: 0, width: 0.32, height: 1 } },
+    ] as unknown as Operation[];
+    const note = autoReframeNote('add_clips', ops);
+    expect(note).toContain('2 clips auto-reframed with a CENTRED crop');
+    expect(note).toContain('set_clip_crop');
+    expect(autoReframeNote('add_clip', ops.slice(0, 1))).toBe('');
+    // Only the placement tools write a crop on the run's behalf.
+    expect(autoReframeNote('set_clip_crop', ops)).toBe('');
+  });
+});

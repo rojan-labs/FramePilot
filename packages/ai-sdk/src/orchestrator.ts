@@ -1239,6 +1239,34 @@ function operationLine(op: AnyOperation, names?: ProjectNames): string {
  *
  * Exported for tests.
  */
+/**
+ * The caveat that rides with an automatic reframe, so "Reframed clip" is never read as
+ * "the subject is in frame".
+ *
+ * `add_clip`/`add_clips` crop a landscape source to a portrait frame on the run's behalf
+ * (`domain-tools/timeline.ts#autoReframeCrop`), and the picture placer cover-crops a
+ * leaking layer the same way. Both are CENTRED guesses with no subject evidence, and the
+ * placement doc promises the crop is "announced, not hidden". It was announced as
+ * "Reframed clip <id>" — thirteen times in run `cc907070`, against a brief that said
+ * "reframed so the action stays inside the crop, not just centre-cut" — and nothing told
+ * the model the crop was exactly the centre cut the editor had ruled out.
+ *
+ * @param toolName - The call that produced the operations.
+ * @param ops - The operations it produced, after normalisation.
+ * @returns The caveat sentence, or `''` when no automatic crop was written.
+ */
+export function autoReframeNote(toolName: string, ops: readonly AnyOperation[]): string {
+  if (toolName !== 'add_clip' && toolName !== 'add_clips') return '';
+  const crops = ops.filter((op) => op.type === 'set_clip_crop').length;
+  if (crops === 0) return '';
+  return (
+    ` — ${String(crops)} clip${crops === 1 ? '' : 's'} auto-reframed with a CENTRED crop, a ` +
+    'guess made with no subject evidence. If the action sits off-centre, set_clip_crop with ' +
+    'a rect that follows it (get_frame or track_object shows where it is), and say which ' +
+    'you did.'
+  );
+}
+
 export function captionStyleNote(project: Project, trackId: unknown): string {
   if (typeof trackId !== 'string') return '';
   const track = project.timeline.tracks.find((candidate) => candidate.id === trackId);
@@ -5237,6 +5265,7 @@ export class Orchestrator {
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
+        autoReframeNote(call.name, normalized) +
         (changed
           ? ''
           : ' — nothing moved: the project already said exactly this. Read the current ' +

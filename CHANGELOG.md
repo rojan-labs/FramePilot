@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An automatic reframe says it is a centred guess.** Placing landscape footage in a
+  vertical sequence crops it to the frame for you; the note read only "Reframed clip", and
+  a brief that asked for the action kept inside the crop "not just centre-cut" got thirteen
+  centre cuts described as reframes. The note now says the crop is centred, made without
+  subject evidence, and how to move it.
 - **An invented tool name is no longer reported as unfinished work.** The receipt listed
   "Get track flags — never succeeded: There is no tool called…" as if a step of the brief
   had been dropped; a name that was never a tool is left out of the "Not done" block.
