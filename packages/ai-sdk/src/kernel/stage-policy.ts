@@ -22,7 +22,6 @@
  * spent eight turns doing reconnaissance. A tool that is absent cannot be called.
  */
 import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
-import { BEAT_ANALYSIS_TOOL } from './beat-grid/beat-tool.js';
 import { type ToolRole, classifyTool } from '../tool-classification.js';
 import { getTool } from '../tool-registry.js';
 
@@ -157,19 +156,17 @@ export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
 }
 
 /**
- * Tools whose STORED OUTPUT a runtime validator consumes when it judges a proposal.
+ * Measurements a run legitimately needs AFTER its first cut has landed, because what they
+ * measure is chosen and placed during execution.
  *
- * These may never be withheld from a stage in which that validator runs, and the reason is
- * not politeness — it is that a run cannot satisfy a guard it is forbidden to feed.
- *
- * `detect_beats` is the case. The beat-grid rule (`kernel/beat-grid/`) validates every
- * picture cut against the payload that tool returned, and `add_clips` — a mutation — is
- * offered throughout `apply`. So from the first landed patch onwards a beat-backed run kept
- * the tool whose output is CHECKED and lost the only sanctioned way to establish what it is
- * checked against. In run `ea8e46ec` the model diagnosed its own situation exactly right —
- * "the system's beat grid is tracking a different audio asset than what's actually placed on
- * the timeline. Let me detect beats on the placed music" — and the runtime answered
- * "detect_beats is unavailable this turn", twice, until the run died.
+ * `detect_beats` is the case. A run picks its music while it edits — `search_music` and
+ * `add_music` are execution-stage tools — so the onsets it needs to cut to belong to a bed
+ * that did not exist when reconnaissance closed. Withholding the measurement then leaves the
+ * run cutting to a track it never analysed: in run `ea8e46ec` the model said, correctly,
+ * "let me detect beats on the placed music" and was told "detect_beats is unavailable this
+ * turn", twice, until the run died. (That run was also being refused by a runtime beat-grid
+ * validator, which ADR 0174 removed — where a cut lands against the music is the model's
+ * editorial call now — but the measurement itself is still the model's to take.)
  *
  * This is the same defect this file already corrected for `guidance`, in the same words:
  * "the moment a run landed its first clip, it kept the tools that demand a real catalog id
@@ -189,15 +186,16 @@ export function stageAllowsRole(stage: RunStage, role: ToolRole): boolean {
  *    `sidecar-executor.ts`) refuses the call outright once the run has spent its
  *    analysis budget.
  *
- * What none of that ever justified was withholding the measurement a validator demands.
+ * What none of that ever justified was withholding the measurement of media the run
+ * itself placed.
  *
- * Keep this set minimal. A tool belongs here only when a runtime check reads its output;
- * `stage-policy.test.ts` asserts that property rather than trusting the list.
+ * Keep this set minimal. A tool belongs here only when the thing it measures is placed
+ * during execution; `stage-policy.test.ts` pins the property rather than trusting the list.
  */
-export const VALIDATOR_INPUT_TOOL_NAMES: ReadonlySet<string> = new Set([BEAT_ANALYSIS_TOOL]);
+export const EXECUTION_MEASUREMENT_TOOL_NAMES: ReadonlySet<string> = new Set(['detect_beats']);
 
 /**
- * May a stage use this tool? {@link stageAllowsRole}, plus the validator-input exemption.
+ * May a stage use this tool? {@link stageAllowsRole}, plus the named exemptions.
  *
  * Prefer this over {@link stageAllowsRole} at any call site that decides what a run may
  * actually call — the role alone cannot express "the runtime will hold you to this".
@@ -252,9 +250,9 @@ export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
 /**
  * Tools that a MUTATION's own runtime precondition names as the way to satisfy it.
  *
- * The same shape as {@link VALIDATOR_INPUT_TOOL_NAMES}, one step earlier: there the
- * validator refuses the proposal, here the tool refuses the call. Either way a run cannot
- * clear a bar it is forbidden to reach.
+ * The same shape as {@link EXECUTION_MEASUREMENT_TOOL_NAMES}, one step earlier: there
+ * the measurement is of media the run placed, here the tool refuses the call. Either way a
+ * run cannot clear a bar it is forbidden to reach.
  *
  * `transcribe` is the case. `caption_the_edit` is a mutation and stays offered through
  * `apply`; it throws "This project has no transcript yet ... Run transcribe first" when
@@ -289,7 +287,7 @@ export const VERIFICATION_LOOK_TOOL_NAMES: ReadonlySet<string> = new Set([
 export const PRECONDITION_TOOL_NAMES: ReadonlySet<string> = new Set(['transcribe']);
 
 export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean): boolean {
-  if (VALIDATOR_INPUT_TOOL_NAMES.has(name)) return true;
+  if (EXECUTION_MEASUREMENT_TOOL_NAMES.has(name)) return true;
   if (VERIFICATION_LOOK_TOOL_NAMES.has(name)) return true;
   if (PRECONDITION_TOOL_NAMES.has(name)) return true;
   return stageAllowsRole(stage, toolRole(name, mutates));

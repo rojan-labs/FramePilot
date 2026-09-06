@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The AI is no longer refused for cutting off the beat.** A 60-second GoPro highlight
+  that asked for cuts on the music's beat lost its entire first assembly — 126 changes,
+  including the title and the cutaways — because the AI had declared "hard sync" on the
+  beat analysis before the music was on the timeline, and a runtime rule then rejected
+  every picture cut it could not check against an onset. That rule, its sticky
+  declaration and the `hardSync` option are gone (ADR 0174). Beat detection still measures
+  the music; where a cut lands against it is the AI's editorial call, made with the exact
+  onset times in hand.
 - **The AI can no longer bury one cutaway under another and call it done.** A 60-second
   highlight that asked for two stock cutaways came back with 19 video layers and 37 of its
   48 shots — including every clip of the main footage — sitting completely behind

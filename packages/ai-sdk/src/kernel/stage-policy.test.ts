@@ -11,7 +11,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
   PRECONDITION_TOOL_NAMES,
-  VALIDATOR_INPUT_TOOL_NAMES,
+  EXECUTION_MEASUREMENT_TOOL_NAMES,
   settledStageFor,
   stageAdvanceFor,
   stageAllowsRole,
@@ -21,7 +21,6 @@ import {
 } from './stage-policy.js';
 import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
 import { RUN_STAGES, isExecutionStage } from './working-state.js';
-import { BEAT_ANALYSIS_TOOL } from './beat-grid/beat-tool.js';
 
 describe('toolRole', () => {
   it('separates reading the arrangement from reading the content', () => {
@@ -203,22 +202,13 @@ describe('the locked plan is actually closed to re-analysis', () => {
   });
 
   /**
-   * The invariant behind run `ea8e46ec`, asserted against what the runtime ACTUALLY
-   * validates rather than against a hand-written list.
-   *
-   * A guard that reads a tool's stored output and refuses a proposal over it is a contract
-   * with the run. If the stage policy can run that guard while withholding the tool, the
-   * contract is unkeepable: the run is refused, told what would satisfy the refusal, and
-   * forbidden to do it. `ea8e46ec` spent 35 minutes there.
-   *
-   * `VALIDATOR_CONSUMED_TOOL_NAMES` is derived from the guards themselves, so a new
-   * validator input fails here until the policy admits it.
+   * The invariant behind run `ea8e46ec`: a run chooses and places its music while it
+   * edits, so the measurement of that music has to stay reachable after the first cut
+   * lands. The run said "let me detect beats on the placed music" and was refused, twice.
    */
-  it('never withholds a tool whose output a runtime validator judges proposals against', () => {
-    // The beat-grid rule reads this tool's payload and refuses proposals over it, so the
-    // policy must offer it wherever that rule runs — which is every stage.
-    expect(VALIDATOR_INPUT_TOOL_NAMES.has(BEAT_ANALYSIS_TOOL)).toBe(true);
-    for (const name of VALIDATOR_INPUT_TOOL_NAMES) {
+  it('never withholds the measurement of media the run places during execution', () => {
+    expect(EXECUTION_MEASUREMENT_TOOL_NAMES.has('detect_beats')).toBe(true);
+    for (const name of EXECUTION_MEASUREMENT_TOOL_NAMES) {
       const spec = getTool(name);
       expect(spec, `${name} must be a registered tool`).toBeDefined();
       for (const stage of RUN_STAGES) {
@@ -234,12 +224,12 @@ describe('the locked plan is actually closed to re-analysis', () => {
     const analysisTools = TOOL_REGISTRY.filter(
       (tool) => toolRole(tool.name, tool.mutates) === 'analysis',
     );
-    // Three named carve-outs, each with a written incident: the validator input a guard
-    // reads, the picture look that verifies an edit, and the precondition a mutation's own
-    // refusal names. The lockout is the whole point of the execution stages, so the
+    // Three named carve-outs, each with a written incident: the measurement of media the
+    // run places while editing, the picture look that verifies an edit, and the
+    // precondition a mutation's own refusal names. The lockout is the whole point of the execution stages, so the
     // exempted set must stay a small minority of the analysis surface.
     const exempt = new Set([
-      ...VALIDATOR_INPUT_TOOL_NAMES,
+      ...EXECUTION_MEASUREMENT_TOOL_NAMES,
       ...VERIFICATION_LOOK_TOOL_NAMES,
       ...PRECONDITION_TOOL_NAMES,
     ]);

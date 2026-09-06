@@ -31,10 +31,6 @@ const detectBeatsSchema = z
   .object({
     assetId: filterString(),
     sensitivity: numeric(z.number().min(0.5).max(4)).optional(),
-    // The EDITORIAL declaration, not an analysis parameter (the engine never sees it):
-    // whether you intend every interior picture cut to land exactly on an onset. See the
-    // tool description and `kernel/beat-grid/beat-alignment.ts`.
-    hardSync: z.boolean().optional(),
   })
   .strict();
 
@@ -90,12 +86,11 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'ffmpeg, free, cached per file at default settings. Returns ' +
         'beat times in seconds; does not edit the timeline. Needs an asset that has an ' +
         "audio track — silent footage has no beats, so pass the music asset's id. " +
-        'Set hardSync when the editor asked for cuts ON the beat — "cut to the beat", ' +
-        '"beat-synced", "on every drop" — because that is a promise about the rhythm and ' +
-        'the runtime then holds you to it, rejecting a cut it cannot place on an onset. ' +
-        'Leave it off — the default — when the music informs the rhythm but the picture ' +
-        'leads, which is the more common case: near-misses are still snapped for you, and ' +
-        'a cut deliberately off the grid is reported to you rather than refused.',
+        'The onsets come back in the music\'s own seconds; once the bed is on the ' +
+        'timeline, map_time converts them to timeline time. Where a cut lands against ' +
+        'them is your editorial call — nothing snaps or refuses a cut for you, so when ' +
+        'the editor asked for cuts on the beat, place each boundary on an onset time ' +
+        'exactly as returned.',
     },
     detectBeatsSchema,
   ),

@@ -135,18 +135,6 @@ import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/
 import { buildStateBriefing, distil } from './kernel/briefing.js';
 import { createNarrationFilter } from './kernel/narration.js';
 import { withResolvedAssetId } from './catalogue-asset-id.js';
-import {
-  alignBeatBackedBoundaries,
-  type BeatRejectionKey,
-} from './kernel/beat-grid/beat-alignment.js';
-import {
-  BEAT_ANALYSIS_TOOL,
-  type BeatEvidence,
-  createBeatEvidence,
-  hasBeatEvidence,
-  recordBeatAnalysis,
-  resolveBeatGrid,
-} from './kernel/beat-grid/beat-evidence.js';
 import { describeUnrecovered, ensureContextInvariants } from './kernel/context/invariants.js';
 import { EvidenceStore, evidenceScopeFor } from './kernel/evidence-store.js';
 import { hostRefusalFor, type HostPatchRefusal } from './kernel/commit-ledger.js';
@@ -1178,50 +1166,6 @@ function* trimNotices(
 }
 
 /**
- * Apply the beat-grid boundary rule to one turn's operations, when — and only when — this
- * run gathered beat evidence.
- *
- * ## The gate is the agent's own decision
- *
- * `detect_beats` is a tool the model elects. If it never called it, this returns the
- * operations untouched and nothing about the run changes. There is no beat-sync mode, no
- * request classifier deciding a prompt "is rhythmic", and no user-facing toggle — which is
- * exactly the property that makes this an execution guarantee rather than a hardcoded
- * technique. The model decides that the music matters; the runtime then makes sure the cuts
- * actually land on it, because that is frame arithmetic against 300 onsets and no model
- * should be doing it in its head (ADR 0076's two-timebases rule, same reasoning).
- *
- * ## Which grid, before whether the cuts land on it
- *
- * Resolution is `beat-evidence.ts`'s job and is a fact about the project and the proposal,
- * not about which analysis the run happened to finish last. It considers EVERY track the
- * run analyzed — a music-video brief that says "evaluate multiple tracks and select the
- * strongest" produces several — and picks the one the picture actually sits against.
- *
- * Returns the operations unchanged when there is no beat evidence, so a run that never
- * looked at the music pays one map lookup.
- */
-function alignTurnToBeatGrid(
-  working: Project,
-  turnOps: AnyOperation[],
-  evidence: BeatEvidence | undefined,
-):
-  | { ok: true; operations: AnyOperation[]; offGrid?: string; ungrounded?: string }
-  | { ok: false; error: string; reasonKey: BeatRejectionKey; reasonScale?: number } {
-  if (!hasBeatEvidence(evidence) || !evidence) return { ok: true, operations: turnOps };
-
-  const resolved = resolveBeatGrid(working, evidence, turnOps);
-  const aligned = alignBeatBackedBoundaries(working, turnOps, resolved, evidence.hardSync);
-  if (!aligned.ok) return aligned;
-  return {
-    ok: true,
-    operations: [...aligned.operations],
-    ...(aligned.offGrid ? { offGrid: aligned.offGrid } : {}),
-    ...(aligned.ungrounded ? { ungrounded: aligned.ungrounded } : {}),
-  };
-}
-
-/**
  * One operation as a line an editor can read: the action, WHAT it happened to, and the
  * detail when there is one.
  *
@@ -1676,25 +1620,11 @@ interface HostCallContext {
    */
   readonly evidence?: EvidenceStore;
   /**
-   * Every `detect_beats` payload this run gathered, keyed by the asset it describes, for
-   * the beat-grid boundary rule (`kernel/beat-grid/`).
-   *
-   * A per-run mutable ledger rather than a field on the Orchestrator, which serves
-   * concurrent runs — the threading ADR 0126 named as the missing piece. Analysis results
-   * are NOT kept in the evidence store (only reads and `measure_color` are), so this is the
-   * one place the payloads survive the turn that fetched them.
-   *
-   * Keyed, not a single slot: `detect_beats` is `pure_read` and therefore runs in parallel,
-   * so a turn that auditions three tracks has three concurrent writers. Distinct keys
-   * commute; one field did not (see `beat-evidence.ts`).
-   */
-  readonly beatEvidence?: BeatEvidence;
-  /**
    * Every MUTATING call this run has already applied, by byte-identity
    * ({@link appliedCallKey}).
    *
-   * A per-run mutable ledger for the same reason `beatEvidence` is one: the Orchestrator
-   * serves concurrent runs and must not hold either.
+   * A per-run mutable ledger rather than a field on the Orchestrator, which serves
+   * concurrent runs and must not hold it.
    *
    * WHY it exists: a repeat of an applied edit is not caught by anything else. The turn
    * loop's `appliedPatchIds` compares PATCHES, and a re-placement lands on a different
@@ -2665,10 +2595,22 @@ export function summarizeReadResult(
       if (typeof value !== 'object' || value === null)
         return previewJson(value, ANALYSIS_PREVIEW_MAX);
       const beats = (Array.isArray(obj.beats) ? obj.beats : []) as Record<string, unknown>[];
-      const times = beats
-        .map((b) => b?.time)
-        .filter((t): t is number => typeof t === 'number' && Number.isFinite(t));
-      if (times.length === 0) return 'no beats detected';
+      const timeOf = (b: Record<string, unknown>): number | undefined =>
+        typeof b?.time === 'number' && Number.isFinite(b.time) ? b.time : undefined;
+      const allTimes = beats.map(timeOf).filter((t): t is number => t !== undefined);
+      if (allTimes.length === 0) return 'no beats detected';
+      // An onset detector answers "something happened here", and music routinely puts
+      // loud events off the beat — so the digest leads with the onsets the engine marked
+      // as sitting on the tempo grid, which are the ones a cut "on the beat" wants. Every
+      // onset is still there when nothing is marked (an older sidecar, a track with no
+      // derivable tempo). The runtime does not hold cuts to any of these: where a cut
+      // lands is the model's editorial call (ADR 0174), so the numbers have to be exact
+      // and complete rather than sliced.
+      const onGrid = beats
+        .filter((b) => b?.on_grid === true)
+        .map(timeOf)
+        .filter((t): t is number => t !== undefined);
+      const times = onGrid.length > 0 ? onGrid : allTimes;
       const bpm = typeof obj.bpm === 'number' ? ` · ~${Math.round(obj.bpm)} BPM` : '';
       const first = times[0] as number;
       const last = times[times.length - 1] as number;
@@ -2678,7 +2620,14 @@ export function summarizeReadResult(
       // enough to preserve the complete result while dropping per-beat strength fields.
       const exactGrid = times.map(round3).join(', ');
       const span = `from ${round3(first)}s to ${round3(last)}s`;
-      return `${times.length} exact beat onsets${bpm}, ${span}:\n${exactGrid}`;
+      const head =
+        onGrid.length > 0
+          ? `${onGrid.length} beat onsets on the tempo grid (of ${allTimes.length} detected)${bpm}`
+          : `${times.length} exact beat onsets${bpm}`;
+      return (
+        `${head}, ${span}, in the music's own seconds — once the bed is on the timeline, ` +
+        `map_time converts them; cutting on them is your call, nothing enforces it:\n${exactGrid}`
+      );
     }
     case 'get_timeline_summary': {
       // The cheap orientation read. Through `previewJson` its per-track rows were the
@@ -4385,19 +4334,6 @@ export class Orchestrator {
       /* v8 ignore stop */
       const outcome: HostToolOutcome = result.outcome;
       const runtimeCached = result.cached;
-      // Keep every beat analysis for the rest of the run, filed under the asset it
-      // describes. A later re-analysis of the SAME asset at a different sensitivity
-      // replaces that entry: the grid the model is cutting to is the one it last saw for
-      // that track. An analysis of a DIFFERENT track is a separate fact and is kept
-      // alongside — auditioning candidate tracks is what a music brief asks for, and the
-      // old single slot could remember exactly one of them.
-      if (call.name === BEAT_ANALYSIS_TOOL && outcome.status === 'completed' && host.beatEvidence) {
-        recordBeatAnalysis(
-          host.beatEvidence,
-          outcome.data,
-          (call.arguments as { hardSync?: unknown }).hardSync === true,
-        );
-      }
       // EVERY host-tool payload is stored, not just `measure_color`'s.
       //
       // The read path (below) has always stored its results and handed the model a handle,
@@ -5332,8 +5268,6 @@ export class Orchestrator {
     critiqueOptions: CritiqueOptions;
     stepIndex: number;
     appliedPatchIds: Set<string>;
-    /** This run's beat ledger, so a repair is held to the grid like any other turn. */
-    beatEvidence?: BeatEvidence;
     /** The run's applied-call ledger (see `HostCallContext.appliedCalls`). */
     appliedCalls?: Set<string>;
     maxOpsPerTurn: number;
@@ -5554,7 +5488,6 @@ export class Orchestrator {
       appliedPatchIds: args.appliedPatchIds,
       ...(satisfied ? { satisfied: true } : {}),
       ...(askedQuestion ? { askedQuestion: true } : {}),
-      ...(args.beatEvidence ? { beatEvidence: args.beatEvidence } : {}),
     });
     const record: AgentStep = { ...step.record, note: `Repair pass: ${step.record.note}` };
     return step.applied
@@ -5620,7 +5553,6 @@ export class Orchestrator {
     // unchanged working copy is served from here, marked non-novel, so it never looks
     // like progress — and, unlike the memo it replaces, it serves the DATA back.
     const evidence = new EvidenceStore();
-    const beatEvidence = createBeatEvidence();
     // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
     const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — see the streaming loop's identical comment.
@@ -5714,7 +5646,6 @@ export class Orchestrator {
         } = await this.runAgentCall(call, ctx, names, {
           effectRuntime,
           evidence,
-          beatEvidence,
           appliedCalls,
           loadedSkills,
           loadedToolDomains,
@@ -5764,7 +5695,6 @@ export class Orchestrator {
         appliedPatchIds,
         ...(turnSatisfied ? { satisfied: true } : {}),
         ...(turnAskedQuestion ? { askedQuestion: true } : {}),
-        beatEvidence,
       });
       steps.push(step.record);
       log.push(`Step ${index}: ${rationale ? `${rationale} — ` : ''}${step.record.note}`);
@@ -5842,7 +5772,6 @@ export class Orchestrator {
         critiqueOptions: this.critiqueOptions(input, options, cumulativeOps.length > 0, evidence),
         stepIndex: steps.length + 1,
         appliedPatchIds,
-        beatEvidence,
         appliedCalls,
         maxOpsPerTurn,
         effectRuntime,
@@ -5896,13 +5825,6 @@ export class Orchestrator {
     working: Project;
     appliedPatchIds: Set<string>;
     /**
-     * This run's beat ledger, when it gathered any: every `detect_beats` payload keyed by
-     * the asset it describes, plus the run's own hard-sync declaration. Passed per call
-     * rather than held on the Orchestrator, which serves concurrent runs (ADR 0126's note
-     * on this exact wiring point).
-     */
-    beatEvidence?: BeatEvidence;
-    /**
      * Some call in this turn reported the timeline already matched it. Only consulted
      * when the turn landed no operations — see the zero-op branch below.
      */
@@ -5949,12 +5871,6 @@ export class Orchestrator {
      * has fallen to a new low is credited as progress instead of stall.
      */
     rejectionScale?: number;
-    /**
-     * Interior cuts left deliberately off the beat grid, or cuts checked against nothing
-     * because none of the analyzed music is placed — a measurement to report. Only set when
-     * the run did NOT declare hard sync; see `kernel/beat-grid/beat-alignment.ts`.
-     */
-    offGrid?: string;
     working: Project;
     edit?: EditResult;
   } {
@@ -6006,49 +5922,7 @@ export class Orchestrator {
       };
     }
 
-    // THE BEAT GRID (ADR 0126's open follow-up; `kernel/beat-grid/beat-alignment.ts`).
-    //
-    // This is NOT a beat-sync mode and there is no flag that turns it on. The gate is
-    // evidence the AGENT chose to gather: the rule engages only when this run actually
-    // called `detect_beats`. A run that never asked about the music is untouched, and no
-    // conditional anywhere decides that a request "is a beat-sync request" — the model
-    // decides that by electing the tool, and the runtime then guarantees the mechanical
-    // accuracy the model cannot deliver by arithmetic. The roadmap's governing split:
-    // the runtime controls execution and safety, the model controls editorial strategy.
-    //
-    // The module handles its own exemptions (audio/caption boundaries, the sequence's
-    // outer edges) and snaps interior near-misses rather than rejecting them, so a cut two
-    // frames off a real onset becomes frame-accurate sync instead of a wasted repair turn.
-    // A cut too far to snap is REPORTED unless the run declared hard sync: quantising every
-    // cut is a style, not a correctness property, and holding a run to it uninvited rewrote
-    // the rhythm a captured brief had asked for in so many words.
-    const beatAligned = alignTurnToBeatGrid(working, args.turnOps, args.beatEvidence);
-    if (!beatAligned.ok) {
-      return {
-        record: {
-          index,
-          rationale,
-          toolCalls,
-          applied: false,
-          note: `${baseNote}; rejected by the beat grid: ${beatAligned.error}`,
-        },
-        applied: false,
-        rejection: `rejected by the beat grid: ${beatAligned.error}`,
-        rejectionKey: `beat-grid:${beatAligned.reasonKey}`,
-        // How many boundaries are still off the grid — the measurement that tells a run
-        // fixing its cuts one at a time apart from one re-proposing the same wrong ones.
-        ...(beatAligned.reasonScale === undefined
-          ? {}
-          : { rejectionScale: beatAligned.reasonScale }),
-        working,
-      };
-    }
-    const turnOps = beatAligned.operations;
-    // The measurement rides with the turn's note, which is what the model reads next turn.
-    // `ungrounded` and `offGrid` are mutually exclusive by construction — a cut checked
-    // against nothing has no measured distance — so one field carries whichever applies.
-    const beatMeasurement = beatAligned.offGrid ?? beatAligned.ungrounded;
-    const beatNote = beatMeasurement ? `${baseNote}; ${beatMeasurement}` : baseNote;
+    const turnOps = args.turnOps;
 
     const edit = assembleEdit(working, turnOps, rationale || 'Agent step', 'agent');
     /* v8 ignore start -- defense in depth: every op in `turnOps` already passed its own
@@ -6099,7 +5973,7 @@ export class Orchestrator {
           toolCalls,
           patch: edit.patch,
           applied: false,
-          note: `${beatNote}; already in place — this exact change is already on the timeline`,
+          note: `${baseNote}; already in place — this exact change is already on the timeline`,
         },
         applied: false,
         satisfied: true,
@@ -6112,9 +5986,8 @@ export class Orchestrator {
     // manage_assets) and edit the timeline in the same run.
     const nextWorking: Project = applyProjectPatch(working, edit.patch);
     return {
-      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: beatNote },
+      record: { index, rationale, toolCalls, patch: edit.patch, applied: true, note: baseNote },
       applied: true,
-      ...(beatMeasurement ? { offGrid: beatMeasurement } : {}),
       working: nextWorking,
       edit,
     };
@@ -6500,12 +6373,6 @@ export class Orchestrator {
      * is NOT in this set, so it still refuses exactly as before.
      */
     domainGatedToolNames?: ReadonlySet<string>,
-    /**
-     * The run's beat ledger (see `HostCallContext.beatEvidence`). Absent on routes
-     * that never edit — the question route can call `detect_beats` to answer a question,
-     * but has no turn to hold to a grid.
-     */
-    beatEvidence?: BeatEvidence,
     /** Mutating calls this run already applied (see `HostCallContext.appliedCalls`). */
     appliedCalls?: Set<string>,
     /** Durable note sink for what the editor tells the run (see `rememberDecision`). */
@@ -6600,7 +6467,6 @@ export class Orchestrator {
       ...(signal ? { signal } : {}),
       effectRuntime,
       evidence,
-      ...(beatEvidence ? { beatEvidence } : {}),
       ...(appliedCalls ? { appliedCalls } : {}),
       loadedSkills,
       loadedToolDomains,
@@ -7245,9 +7111,8 @@ export class Orchestrator {
             Date.now,
             analysisBudget,
             // A question turn can `ask_user` too, and an answer given there is just as
-            // worth keeping as one given mid-edit. It never edits, so it needs no beat
-            // ledger and no applied-call ledger.
-            undefined,
+            // worth keeping as one given mid-edit. It never edits, so it needs no
+            // applied-call ledger.
             undefined,
             undefined,
             undefined,
@@ -8100,7 +7965,6 @@ export class Orchestrator {
     // unchanged working copy is served from here and marked non-novel, so re-reading is
     // never mistaken for progress. Cleared inside `runAgentCall` when an edit lands.
     const evidence = new EvidenceStore();
-    const beatEvidence = createBeatEvidence();
     // Per-run ledger of mutating calls already applied — see `HostCallContext.appliedCalls`.
     const appliedCalls = new Set<string>();
     // ADR 0057: per-run skill ledger — shared across the run's turns AND its repair
@@ -8226,15 +8090,6 @@ export class Orchestrator {
      * reporting a finished job over a deliverable that was never produced.
      */
     const asksForFile = asksForRenderedFile(input.userPrompt);
-    /**
-     * The last applying turn's beat-grid measurement, for the completion account.
-     *
-     * A cut a few frames off the beat is ordinary editing, not a failure — and a montage cut
-     * before the music is placed is a decision, not a defect — but the editor should be told
-     * either way, in the same breath as the edits themselves, rather than finding out by
-     * watching it.
-     */
-    let offGridNote: string | undefined;
     /**
      * Frames the LAST turn rendered, waiting to be shown to the model on the next one.
      *
@@ -8847,7 +8702,6 @@ export class Orchestrator {
               : self.agentTools(turnScope, effect.stage)
             ).map((tool) => tool.name),
           ),
-          beatEvidence,
           appliedCalls,
           controls.rememberDecision,
           withholdSearch ? bankedSearches : undefined,
@@ -8950,7 +8804,6 @@ export class Orchestrator {
           appliedPatchIds,
           ...(executedSatisfied ? { satisfied: true } : {}),
           ...(executedAskedQuestion ? { askedQuestion: true } : {}),
-          beatEvidence,
         });
         // A whole-turn rejection un-settles the cards that proposed it. Not a cosmetic
         // detail: those cards are the editor's only live account of the run, and past-tense
@@ -8961,7 +8814,6 @@ export class Orchestrator {
         // timeline already said what it asked for did not fail, and marking it failed is
         // the same lie in the other direction.
         if (applied.rejection !== undefined) yield* settleProposalCards(emit, proposalCards);
-        if (applied.offGrid) offGridNote = applied.offGrid;
         const describedActions: DescribedAction[] = [];
         const workingBefore = working;
         if (applied.applied) {
@@ -9065,7 +8917,6 @@ export class Orchestrator {
             critiqueOptions: verifyOptions,
             stepIndex: state.planSteps.length + 1,
             appliedPatchIds,
-            beatEvidence,
             appliedCalls,
             maxOpsPerTurn,
             effectRuntime,
@@ -9194,7 +9045,6 @@ export class Orchestrator {
               neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
-              ...(offGridNote ? { offGrid: offGridNote } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
             }),
           );
@@ -9742,13 +9592,6 @@ export function agentCompletionReport(args: {
    */
   contentEvidence?: boolean;
   /**
-   * What the beat grid measured and did not enforce: interior cuts the run left deliberately
-   * off the detected onsets, or — when none of the analyzed music is placed — that the cuts
-   * were checked against nothing at all. Present only when the run analyzed beats and did
-   * not declare hard sync; the two never co-occur, since an unchecked cut has no distance.
-   */
-  offGrid?: string;
-  /**
    * True when the request asked for a rendered/exported file. The panel cannot produce one, so
    * the report says where to get it instead of leaving the editor to notice the absence.
    */
@@ -9812,8 +9655,6 @@ export function agentCompletionReport(args: {
     args.contentEvidence === false && placedShots >= UNEVIDENCED_SHOT_CAVEAT_THRESHOLD
       ? `\n\nHeads up: these ${String(placedShots)} shots were chosen from timings alone — nothing was read about what is actually in the footage. Ask for a footage map, or for specific moments, if you want the selection grounded in content.`
       : '';
-  // Reported, never apologised for: the cut stands, and the editor gets the number.
-  const offGrid = args.offGrid === undefined ? '' : `\n\n${args.offGrid}`;
   // The deliverable the panel cannot make. Run 2's brief closed with "One final rendered 30s
   // vertical MP4"; the run never attempted it, never mentioned it, and reported completed.
   const deliverable =
@@ -9821,7 +9662,7 @@ export function agentCompletionReport(args: {
       ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
         'on your timeline; use the Export dialog to render them out.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${offGrid}${deliverable}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

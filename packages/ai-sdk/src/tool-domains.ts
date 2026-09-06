@@ -123,9 +123,9 @@ const CORE: readonly string[] = [
   // These three are not core because they are common — they are core because
   // `kernel/stage-policy.ts` already exempts each of them from every stage narrowing,
   // each after a run died without it: `get_frame` is how the agent looks at its own edit
-  // (`VERIFICATION_LOOK_TOOL_NAMES`), `detect_beats` is the payload the beat grid
-  // VALIDATES against (`VALIDATOR_INPUT_TOOL_NAMES`, run `ea8e46ec` was refused it twice
-  // and died), and `transcribe` is what a mutation's own precondition tells the model to
+  // (`VERIFICATION_LOOK_TOOL_NAMES`), `detect_beats` measures the music the run places
+  // while it edits (`EXECUTION_MEASUREMENT_TOOL_NAMES`, run `ea8e46ec` was refused it
+  // twice and died), and `transcribe` is what a mutation's own precondition tells the model to
   // run (`PRECONDITION_TOOL_NAMES`). A tool the runtime has decided must always be
   // reachable must not then need asking for; `tool-domains.test.ts` asserts that both
   // ways round, so a future exemption cannot be added without landing here too.

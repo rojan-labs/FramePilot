@@ -165,11 +165,11 @@ describe('Orchestrator.streamAuto', () => {
     // below are unchanged from the planner-era test on purpose.
     //
     // What this test deliberately no longer covers: the planner-era version fed an
-    // off-grid first proposal and asserted the beat-grid boundary rule REJECTED it and
-    // spent one bounded repair turn. The agent does not enforce that rule
-    // (`kernel/beat-grid/beat-alignment.ts` is currently unwired — roadmap PR 5), so
-    // asserting it here would test behavior that does not exist. The scripted clips below
-    // are on-grid because the model placed them there, not because anything checked.
+    // off-grid first proposal and asserted a beat-grid boundary rule REJECTED it and
+    // spent one bounded repair turn. No such rule exists (ADR 0174: where a cut lands
+    // against the music is the model's editorial call), so asserting it here would test
+    // behavior that does not exist. The scripted clips below are on-grid because the
+    // model placed them there, not because anything checked.
     const addClip = (start: number, end: number, sourceStart: number) => ({
       id: `add_${String(start)}`,
       name: 'add_clip',
