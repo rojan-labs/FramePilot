@@ -370,6 +370,13 @@ Handle AI actions safely, recover from failure, and finish the job.
       (`keepDuration`) and split keeps ramp points inside each piece; the renderer's ramp
       time-map is vectorised (the temporal review crashed on every ramped edit);
       `trim_clip` fills a missing edge and stock `kind` accepts common aliases.
+      Second pass (2026-09-07): a looping transcript is one sentence in context, not a
+      3k-token slice; FAILED briefing rows group by reason; the recovery turn may look at
+      its own edit (`EDIT_LOOK_TOOL_NAMES`); an imperative export, a preview request and a
+      "remember for future edits" clause are criteria and are reported when unmet; a track's
+      mix role is visible in every timeline view and in the `set_track_flags` note;
+      music-first ducking is accepted with an idle-duck note; the buried-cutaway remedy
+      names `delete_clip`; `detect_beats` drops a stray `hardSync`.
 - [ ] **C5 — Preview render into the loop** (**§7 approval — needs the
       renderer→engine preview IPC**, the ADR 0016 export-channel pattern). Wire an
       auto preview render so the Critic sees real frames mid/post-run. Until the
