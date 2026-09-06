@@ -37,6 +37,7 @@ import { verifyTransitions } from '../verify.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
+import { largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
 /**
@@ -130,6 +131,13 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       return {
         matched: results.length,
         returned: limited.length,
+        // Echoed so an empty result can say what was asked and how big the catalogue is:
+        // run `cc907070` searched "sharpness", "unsharp mask", "sharpen clarity unsharp",
+        // "sharpen focus clarity", "clarity", "sharpen" — seven ways of asking for an
+        // effect this build does not have — and each answer read "no effects match
+        // (0 in catalog)", which says neither.
+        ...(a.query !== undefined ? { query: a.query } : {}),
+        total: EFFECT_CATALOG.length,
         categories: EFFECT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         effects: limited.map((effect) => ({
           effectId: effect.id,
@@ -190,6 +198,8 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       return {
         matched: results.length,
         returned: limited.length,
+        ...(a.query !== undefined ? { query: a.query } : {}),
+        total: TRANSITION_CATALOG.length,
         categories: TRANSITION_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         transitions: limited.map((transition) => ({
           kind: transition.id,
@@ -307,6 +317,30 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
             'the same words on top of themselves. Change that overlay with ' +
             'set_effect_params, move it with move_clip, or write different text.',
         );
+      }
+      // A word that cannot fit its box runs out the sides of the frame in the preview and
+      // the export alike, and the safe-area check can only say so afterwards. The fit is
+      // arithmetic on the text and the box, so it is decided here: run `4a8e` set "Breck,
+      // opening weekend" at a size where "weekend" needed 119% of the frame in an 80% box.
+      if (a.sizePercent !== undefined && a.boxWidthPercent !== undefined) {
+        const over = overflowingWords(
+          { text: a.text, fontSizePercent: a.sizePercent, boxWidthPercent: a.boxWidthPercent },
+          ctx.project.resolution,
+        )[0];
+        if (over !== undefined) {
+          const fits = largestFittingSizePercent(a.text, a.boxWidthPercent, ctx.project.resolution);
+          throw new ToolRefusalError(
+            `"${over.word}" does not fit: at sizePercent ${String(a.sizePercent)} it needs about ` +
+              `${String(over.requiredBoxWidthPercent)}% of the frame width and boxWidthPercent is ` +
+              `${String(a.boxWidthPercent)}, so it would run out the sides of the frame. ` +
+              (fits !== undefined
+                ? `The largest size that fits this box is sizePercent ${String(fits)}; `
+                : '') +
+              (over.requiredBoxWidthPercent <= 100
+                ? `or widen boxWidthPercent to ${String(over.requiredBoxWidthPercent)}.`
+                : 'no box is wide enough at this size, so the size has to come down.'),
+          );
+        }
       }
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
       const trackId = placed.trackId;

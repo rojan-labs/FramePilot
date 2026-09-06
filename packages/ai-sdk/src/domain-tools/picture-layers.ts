@@ -49,7 +49,7 @@
  * caller and CAN be replaced, and same-track overlap is already the validator's
  * job — it rejects it with a better message than this could.
  */
-import type { Asset, Clip, Project, Track } from '@framepilot/timeline-schema';
+import type { Asset, Clip, CropRect, Project, Track } from '@framepilot/timeline-schema';
 import type { Operation } from '@framepilot/editor-core';
 import {
   coverageVerdict,
@@ -243,11 +243,13 @@ export function pictureOverlapRefusal(
     // the crop the clip is carrying, and the move is to put the whole frame back.
     const rect =
       verdict.coverCrop ?? (candidate.compositing?.crop !== undefined ? null : undefined);
+    // A fresh `add_clip` only reaches this sentence when the cover crop did NOT close the
+    // leak (the placer applies it itself when it does — see `PicturePlacement.crop`), so
+    // naming a crop for a fresh add would name a move that was just tried. Only a clip
+    // that already exists gets the crop remedy, on its own id.
     const cropWay =
-      rect !== undefined
-        ? (candidate.ignoreClipId !== undefined
-            ? `set_clip_crop on ${candidate.ignoreClipId} with crop `
-            : 'add it, then set_clip_crop with crop ') +
+      rect !== undefined && candidate.ignoreClipId !== undefined
+        ? `set_clip_crop on ${candidate.ignoreClipId} with crop ` +
           `${JSON.stringify(rect)} so it fills the frame; then it goes on its own front ` +
           'layer. Or '
         : '';
@@ -297,6 +299,20 @@ export interface PicturePlacement {
    * patch as the placement, so it applies atomically and one undo removes both.
    */
   readonly setupOps: readonly Operation[];
+  /**
+   * The cover crop the placer applied on the candidate's behalf so that it hides what it
+   * covers — present only when the candidate came in uncropped and would otherwise have
+   * leaked. The caller MUST write it onto the placed clip (`set_clip_crop` in the same
+   * patch); the lane was chosen on the strength of it.
+   *
+   * WHY the placer does this rather than refusing: the refusal it replaces said "add it,
+   * then set_clip_crop with crop {…}" — and the add was the thing being refused. Run
+   * `cc907070` tried the same 1080x2048 stock clip nine times over a 1080x1920 sequence,
+   * was told that sentence nine times, and never placed it. The crop is fully determined by
+   * two measured shapes; there is nothing for the model to decide, so the runtime decides
+   * it, and the `set_clip_crop` in the diff is how the editor sees that it did.
+   */
+  readonly crop?: CropRect;
 }
 
 /**
@@ -389,21 +405,41 @@ export function createPicturePlacer(project: Project): {
       }
       // Coverage is a relation (ADR 0170): the front clip's compositing AND its fitted
       // rect against every rect it covers, in this project's frame.
-      const compositing = candidate.compositing ?? {};
-      const front: ShapedClip = {
-        clip: { ...compositing, assetId: candidate.assetId },
-        source: sourceShapeOf(project, candidate.assetId),
-      };
-      const verdict = coverageVerdict(
-        front,
-        conflicts.map((conflict) => conflict.shaped),
-        project.resolution,
-      );
+      const source = sourceShapeOf(project, candidate.assetId);
+      const behind = conflicts.map((conflict) => conflict.shaped);
+      const verdictFor = (compositing: FullFrameOpaqueFields): CoverageVerdict =>
+        coverageVerdict(
+          { clip: { ...compositing, assetId: candidate.assetId }, source },
+          behind,
+          project.resolution,
+        );
+      let verdict = verdictFor(candidate.compositing ?? {});
+      // A FRESH placement whose only problem is its shape gets the crop that fixes it,
+      // rather than a refusal telling it to "add it, then crop it" — see
+      // {@link PicturePlacement.crop}. A `move_clip` (`ignoreClipId`) keeps the refusal:
+      // that clip already carries compositing the editor may have chosen, and the refusal
+      // names `set_clip_crop` on it, which is a move that exists.
+      let appliedCrop: CropRect | undefined;
+      if (
+        !verdict.hides &&
+        verdict.reason === 'leaks' &&
+        verdict.coverCrop !== undefined &&
+        candidate.ignoreClipId === undefined &&
+        candidate.compositing?.crop === undefined
+      ) {
+        const cropped = verdictFor({ ...(candidate.compositing ?? {}), crop: verdict.coverCrop });
+        if (cropped.hides) {
+          appliedCrop = verdict.coverCrop;
+          verdict = cropped;
+        }
+      }
       if (!verdict.hides) {
         throw new ToolRefusalError(pictureOverlapRefusal(project, candidate, conflicts, verdict), {
           refusalCause: 'picture_over_picture',
         });
       }
+      const withCrop = (placement: PicturePlacement): PicturePlacement =>
+        appliedCrop === undefined ? placement : { ...placement, crop: appliedCrop };
       // The placement is legal, so it is about to be LIFTED in front of everything it
       // covers. Before that: is anything it covers a cutaway it would swallow whole?
       // Covering the base A-roll is what a cutaway is for (ADR 0169) and stays legal;
@@ -425,7 +461,7 @@ export function createPicturePlacer(project: Project): {
       const named = project.timeline.tracks.find((track) => track.id === candidate.trackId);
       if (named && usableLane(named, candidate.start, candidate.end, frontOf)) {
         take(named.id, true);
-        return { trackId: named.id, setupOps: [] };
+        return withCrop({ trackId: named.id, setupOps: [] });
       }
       // Then any lane already in front with room — front-most first, since
       // `tracks` is ordered front to back. This is what stops a montage opening a
@@ -433,14 +469,14 @@ export function createPicturePlacer(project: Project): {
       const reusableOpen = opened.find((id) => bookedHasRoom(id, candidate.start, candidate.end));
       if (reusableOpen !== undefined) {
         take(reusableOpen, true);
-        return { trackId: reusableOpen, setupOps: [] };
+        return withCrop({ trackId: reusableOpen, setupOps: [] });
       }
       const existing = project.timeline.tracks.find((track) =>
         usableLane(track, candidate.start, candidate.end, frontOf),
       );
       if (existing) {
         take(existing.id, true);
-        return { trackId: existing.id, setupOps: [] };
+        return withCrop({ trackId: existing.id, setupOps: [] });
       }
       // Nothing usable: open a video layer at the visual front (index 0). `video`
       // rather than `overlay` deliberately — a clip's kind comes from its asset,
@@ -450,10 +486,10 @@ export function createPicturePlacer(project: Project): {
       const layerId = nextCutawayLayerId(project, opened);
       opened.unshift(layerId);
       take(layerId, true);
-      return {
+      return withCrop({
         trackId: layerId,
         setupOps: [{ type: 'add_layer', layerId, layerType: 'video', atIndex: 0 }],
-      };
+      });
     },
   };
 }
@@ -731,12 +767,14 @@ function hidesCutawayRefusal(
   const first = buried[0];
   /* v8 ignore next -- the list is non-empty */
   const firstId = first ? first.clipId : '';
-  // A clip this same call placed has no id yet, so `remove_clip` cannot name it; the move
-  // there is to send the batch without that entry.
+  // A clip this same call placed has no id yet, so `delete_clip` cannot name it; the move
+  // there is to send the batch without that entry. (`delete_clip` is the tool's real
+  // name — this sentence used to say `remove_clip`, which exists nowhere, so the one
+  // remedy it offered by name was one the model could not make.)
   const drop =
     firstId === ''
       ? 'drop one of the two from this call'
-      : `take the cutaway out first with remove_clip ${firstId}`;
+      : `take the cutaway out first with delete_clip ${firstId}`;
   return (
     `Refused: put "${assetLabel(project, candidate.assetId)}" somewhere ` +
     `${buried.length > 1 ? 'those cutaways are' : 'that cutaway is'} not, or ${drop}, ` +

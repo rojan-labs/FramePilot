@@ -118,12 +118,38 @@ const searchMusicSchema = z
 // differently from what the user saw. Reported as a failure with the reason, so
 // the model can move the placement instead of claiming an edit that lies
 // (`plan/3rd-party-sourcing/photo-video/README.md` §2).
+/**
+ * The two stock kinds, accepting the words a model reaches for. Run `cc907070` lost two
+ * searches to `kind: Invalid option: expected one of "photo"|"video"`; "footage" and
+ * "image" mean exactly one of the two and refusing them teaches nothing.
+ */
+const STOCK_KIND_ALIASES: Readonly<Record<string, 'photo' | 'video'>> = {
+  photo: 'photo',
+  photos: 'photo',
+  image: 'photo',
+  images: 'photo',
+  picture: 'photo',
+  pictures: 'photo',
+  still: 'photo',
+  stills: 'photo',
+  video: 'video',
+  videos: 'video',
+  footage: 'video',
+  clip: 'video',
+  clips: 'video',
+};
+const stockKind = z.preprocess(
+  (value) =>
+    typeof value === 'string' ? (STOCK_KIND_ALIASES[value.trim().toLowerCase()] ?? value) : value,
+  z.enum(['photo', 'video']),
+);
+
 const searchStockSchema = z
   .object({
     // Bounded for the same reason as `search_music`: forwarded verbatim to a
     // third-party provider, on the user's metered quota.
     query: z.string().min(1).max(200),
-    kind: z.enum(['photo', 'video']),
+    kind: stockKind,
     limit: numeric(z.number().int().min(1).max(40)).optional(),
     orientation: z.enum(['landscape', 'portrait', 'square']).optional(),
   })
@@ -132,7 +158,7 @@ const searchStockSchema = z
 const addStockSchema = z
   .object({
     remoteId: z.string().min(1),
-    kind: z.enum(['photo', 'video']),
+    kind: stockKind,
     atSeconds: numeric(z.number().min(0)).optional(),
   })
   .strict();

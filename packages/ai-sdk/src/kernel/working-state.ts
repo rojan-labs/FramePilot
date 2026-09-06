@@ -132,7 +132,18 @@ export function isExecutionStage(stage: RunStage): boolean {
  * - `timeline_dependent` — true of the *arrangement*: clip ids, positions, gaps, the
  *   edited duration. An applied patch invalidates exactly these and nothing else.
  */
-export const FactScopeSchema = z.enum(['revision_independent', 'timeline_dependent']);
+/**
+ * How long a fact stays true.
+ *
+ * - `revision_independent`: about the footage; outlives every cut AND the run.
+ * - `timeline_dependent`: about the arrangement; dies with the next edit.
+ * - `run_local`: about THIS run's own context — which playbooks are pinned, which tool
+ *   domains are loaded. True until the run ends and false the moment the next one starts,
+ *   whatever the timeline did. Run `cc907070`'s second turn opened with twelve facts
+ *   "(from an earlier session) … playbook loaded — its instructions are pinned in your
+ *   context" for playbooks that were not pinned in that session at all.
+ */
+export const FactScopeSchema = z.enum(['revision_independent', 'timeline_dependent', 'run_local']);
 export type FactScope = z.infer<typeof FactScopeSchema>;
 
 export const FactKindSchema = z.enum([
@@ -1200,7 +1211,9 @@ export function onProjectRevisionChanged(
   revision: ProjectRevision,
 ): RunWorkingState {
   if (revision === state.currentProjectRevision) return state;
-  const facts = state.facts.filter((f) => f.scope === 'revision_independent');
+  // Only the ARRANGEMENT goes stale on an edit: a run-local fact (what is pinned in this
+  // run's context) is as true after the cut as before it.
+  const facts = state.facts.filter((f) => f.scope !== 'timeline_dependent');
   const evidence = state.evidence.filter((e) => e.scope === 'revision_independent');
   const dropped = state.facts.length - facts.length;
   if (dropped > 0) {

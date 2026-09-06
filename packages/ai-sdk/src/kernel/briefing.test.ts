@@ -113,6 +113,26 @@ describe('distil', () => {
     expect(distil({ ...settled, toolName: 'load_skill', role: 'guidance' })!.kind).toBe('derived');
   });
 
+  it('scopes a guidance finding to this run, so it is neither dropped by a cut nor carried', () => {
+    // "playbook loaded — its instructions are pinned in your context" was carried into the
+    // next session of run `cc907070` twelve times over, for playbooks that session had not
+    // pinned. A fact about the run's own context is true for exactly one run.
+    const loaded = distil({ ...settled, toolName: 'load_skill', role: 'guidance' })!;
+    expect(loaded.scope).toBe('run_local');
+    expect(distil({ ...settled, toolName: 'load_tools', role: 'guidance' })!.scope).toBe(
+      'run_local',
+    );
+    // A footage fact keeps the scope the tool declares.
+    expect(distil({ ...settled, toolName: 'map_footage' })!.scope).toBe(settled.scope);
+  });
+
+  it('files nothing for a WITHHELD call — a policy sentence is not a finding', () => {
+    // "search_stock withheld — place what this run already found" and "detect_beats held
+    // back — this turn is for acting" were carried into run `cc907070`'s next session as
+    // facts about the footage. The orchestrator marks those outcomes and distil declines.
+    expect(distil({ ...settled, status: 'withheld' })).toBeUndefined();
+  });
+
   it('accepts a warning as a finding — a partial result is still something learned', () => {
     expect(distil({ ...settled, status: 'warning' })).toBeDefined();
   });
@@ -316,6 +336,30 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('ripple_delete 2:10–3:40');
     expect(text).toContain('FAILED — fix the cause, do not retry unchanged');
     expect(text).toContain('overlaps clip_b');
+  });
+
+  it('groups failures that share one reason instead of printing the reason per call', () => {
+    // Run `cc907070`: eleven ledger rows refused for one sentence, printed eleven times per
+    // turn. One row per reason, naming the calls; a different reason is still its own row.
+    let state = base();
+    for (let i = 0; i < 5; i++) {
+      state = recordOperation(state, {
+        intent: `add_clips batch ${String(i)}`,
+        status: 'failed',
+        failureReason: 'refused by the same rule',
+      });
+    }
+    state = recordOperation(state, {
+      intent: 'set_track_flags v_main',
+      status: 'failed',
+      failureReason: 'a different reason',
+    });
+    const text = buildStateBriefing(state);
+    expect(text.split('refused by the same rule')).toHaveLength(2);
+    expect(text).toContain(
+      '- 5 calls (add_clips batch 0; add_clips batch 1; add_clips batch 2; and 2 more): refused by the same rule',
+    );
+    expect(text).toContain('- set_track_flags v_main: a different reason');
   });
 
   describe('ALREADY APPLIED collapses repetition without losing work', () => {

@@ -1931,6 +1931,8 @@ describe('streamAgent', () => {
       rejectionReasons: [],
       cancelled: true,
       deliverableFileRequested: true,
+      previewRequested: true,
+      preferenceRequested: true,
     });
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
@@ -1938,6 +1940,9 @@ describe('streamAgent', () => {
     expect(report).not.toMatch(/review the proposed change below/);
     // …and the things the panel cannot do are still said, because they are still true.
     expect(report).toMatch(/use the Export dialog/);
+    expect(report).toMatch(/asks to see a preview first/);
+    // The preference the brief asked to keep was never written (no set_ai_memory op).
+    expect(report).toMatch(/nothing was saved to project memory/);
   });
 
   it('collapses edits that read identically instead of repeating the line', () => {
@@ -2217,6 +2222,13 @@ describe('streamAgent', () => {
     expect(events.filter((e) => e.type === 'tool_call' && e.status === 'running')).toHaveLength(2);
     // An unknown no-op tool never lands an edit — ADR 0081 ends the run `failed`.
     expect(events.at(-1)).toMatchObject({ status: 'failed' });
+    // …and an invented name is not a step of the brief left undone: the receipt does not
+    // list "No such tool — never succeeded" (run `cc907070` invented `get_track_flags`).
+    const messages = events
+      .filter((e) => e.type === 'assistant_message')
+      .map((e) => (e as { text: string }).text)
+      .join('\n');
+    expect(messages).not.toMatch(/never succeeded: There is no tool called/);
   });
 
   // GAP-002 (run `fc10301a`). A montage places clips in batches and MUST re-read the

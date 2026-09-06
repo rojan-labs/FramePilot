@@ -66,6 +66,12 @@ function previousRun(): RunWorkingState {
     scope: 'timeline_dependent',
     evidenceIds: ['ev_9'],
   });
+  state = recordFact(state, {
+    kind: 'derived',
+    statement: 'Reading the pacing playbook → short-form-pacing playbook loaded — pinned',
+    scope: 'run_local',
+    evidenceIds: [],
+  });
   state = recordDecision(state, {
     decision: 'Vertical 9:16, no music.',
     reconsiderIf: 'The editor asks for a different aspect.',
@@ -92,6 +98,13 @@ describe('carryForwardWorkingState', () => {
     // the field that exists so this distinction can be made.
     const seeded = carryForwardWorkingState(previousRun(), freshFor());
     expect(seeded.facts.some((f) => f.statement.includes('46 clips'))).toBe(false);
+  });
+
+  it('never carries a fact about the previous run’s own context', () => {
+    // The new run pins its own playbooks; a claim that one is "pinned in your context"
+    // from a run that is over is false the moment it is read (run `cc907070`, turn 2).
+    const seeded = carryForwardWorkingState(previousRun(), freshFor());
+    expect(seeded.facts.some((f) => f.statement.includes('playbook loaded'))).toBe(false);
   });
 
   it('carries committed decisions and leaves tentative ones behind', () => {

@@ -667,6 +667,10 @@ describe('critique — shape', () => {
       'picture_coverage',
       'duration_target',
       'shot_count',
+      // The two the second GoPro run (`4a8e`) added: stock held to the brief's count, and a
+      // tracker that holds no motion named as such.
+      'cutaway_count',
+      'tracker_motion',
       'shot_length_target',
       'reframe_coverage',
       'treatment_coverage',
@@ -1988,19 +1992,26 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
       expect(report.ok).toBe(true);
     });
 
-    it('still fails on a cut inside real speech outside the loop', () => {
-      const real = [
+    it('warns, never fails, on a cut inside a word outside the loop', () => {
+      // Run `cc907070`: a wind-only GoPro take whose transcript was 2,382 loop words plus
+      // 49 others — "Jake,", "try", "God." — hallucinated over the same wind. A cut inside
+      // one of those failed the run and its 65 applied changes. The words outside a loop
+      // are the same recogniser's guesses over the same audio, so they are reported, not
+      // enforced.
+      const outside = [
         { word: 'severed', start: 5.5, end: 6.5 },
         { word: 'here', start: 6.5, end: 7 },
       ];
       const report = critique(
-        cutAt6([...real, ...repeated("i'll try to follow you later", 120, 20)]),
+        cutAt6([...outside, ...repeated("i'll try to follow you later", 120, 20)]),
         {},
       );
       expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
-      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'fail' });
+      expect(idOf(report, 'word_severed')).toMatchObject({ status: 'warn' });
       expect(idOf(report, 'word_severed')?.detail).toContain('severed');
+      expect(idOf(report, 'word_severed')?.detail).toContain('cannot be trusted either');
       expect(idOf(report, 'word_severed')?.detail).toContain('loop artefacts');
+      expect(report.ok).toBe(true);
     });
 
     it('is unchanged when the transcript is clean', () => {
@@ -2181,5 +2192,107 @@ describe('hidden_picture', () => {
       }),
     );
     expect(idOf(report, 'hidden_picture')?.status).toBe('skipped');
+  });
+});
+
+describe('cutaway_count — stock cutaways held to the number the brief asked for', () => {
+  const stockAsset = (id: string) => ({
+    id,
+    path: `media/${id}.mp4`,
+    kind: 'video',
+    durationSeconds: 30,
+    source: {
+      provider: 'pexels',
+      remoteId: '1',
+      license: 'Pexels',
+      attributionRequired: false,
+      fetchedAt: '2026-09-06T00:00:00Z',
+    },
+  });
+  const withStock = (stockClips: number): Project =>
+    withTracks(
+      [
+        {
+          id: 'v_main',
+          type: 'video',
+          clips: [clip({ id: 'own', start: 0, end: 60, sourceStart: 0, sourceEnd: 60 })],
+        },
+        {
+          id: 'cutaways',
+          type: 'video',
+          clips: Array.from({ length: stockClips }, (_, i) =>
+            clip({
+              id: `stock_${String(i)}`,
+              assetId: `stock_${String(i)}`,
+              trackId: 'cutaways',
+              start: i * 5,
+              end: i * 5 + 3,
+              sourceStart: 0,
+              sourceEnd: 3,
+            }),
+          ),
+        },
+      ],
+      {
+        assets: [
+          { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 60 },
+          ...Array.from({ length: stockClips }, (_, i) => stockAsset(`stock_${String(i)}`)),
+        ],
+      } as Partial<Project>,
+    );
+
+  it('fails when more stock is placed than asked for, naming the clips', () => {
+    // Run `4a8e`: "two cutaways I never shot" → eight stock clips over 50 of 60 seconds.
+    const report = critique(withStock(4), { maxStockCutaways: 2 });
+    expect(idOf(report, 'cutaway_count')).toMatchObject({ status: 'fail' });
+    expect(idOf(report, 'cutaway_count')?.detail).toContain('4 stock cutaways');
+    expect(idOf(report, 'cutaway_count')?.detail).toContain('asked for 2');
+    expect(idOf(report, 'cutaway_count')?.detail).toContain('stock_0');
+  });
+
+  it('passes at or under the cap, and is skipped when no count was asked for', () => {
+    expect(idOf(critique(withStock(2), { maxStockCutaways: 2 }), 'cutaway_count')).toMatchObject({
+      status: 'pass',
+    });
+    expect(idOf(critique(withStock(4), {}), 'cutaway_count')).toMatchObject({ status: 'skipped' });
+  });
+});
+
+describe('tracker_motion — a tracker with no keyframes follows nothing', () => {
+  it('warns on an empty tracker, passes a measured one, and is skipped with none', () => {
+    const tracked = (keyframes: unknown[]) =>
+      withTracks([
+        {
+          id: 'v',
+          type: 'video',
+          clips: [
+            clip({
+              id: 'hero',
+              effects: [
+                {
+                  id: 'hero__track',
+                  type: 'object_track',
+                  params: { target: 'object' },
+                  keyframes,
+                },
+              ],
+            }),
+          ],
+        },
+      ]);
+    // Run `4a8e` attached ten empty trackers and reported "Tracked object" each time.
+    const empty = idOf(critique(tracked([]), {}), 'tracker_motion');
+    expect(empty).toMatchObject({ status: 'warn' });
+    expect(empty?.detail).toContain('hero');
+    expect(empty?.detail).toContain('draw a mask');
+    expect(
+      idOf(
+        critique(tracked([{ id: 'k1', time: 0, property: 'x', value: 0.4, easing: 'linear' }]), {}),
+        'tracker_motion',
+      ),
+    ).toMatchObject({ status: 'pass' });
+    expect(idOf(critique(makeProject(), {}), 'tracker_motion')).toMatchObject({
+      status: 'skipped',
+    });
   });
 });

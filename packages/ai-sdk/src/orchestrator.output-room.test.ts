@@ -100,6 +100,22 @@ describe('agent requests carry maxTokens', () => {
 });
 
 describe('callMemoKey (P1.1c)', () => {
+  it('treats detect_beats with a stray hardSync as the same question (ADR 0174)', () => {
+    const a = callMemoKey({ id: '1', name: 'detect_beats', arguments: { assetId: 'm' } });
+    const b = callMemoKey({
+      id: '2',
+      name: 'detect_beats',
+      arguments: { assetId: 'm', hardSync: true },
+    });
+    const c = callMemoKey({
+      id: '3',
+      name: 'detect_beats',
+      arguments: { assetId: 'm', sensitivity: 2 },
+    });
+    expect(a).toBe(b);
+    expect(a).not.toBe(c);
+  });
+
   it('treats a smaller re-render of the same frame as the same call', () => {
     const a = callMemoKey({
       id: '1',

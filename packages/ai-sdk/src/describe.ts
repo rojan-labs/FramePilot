@@ -27,7 +27,7 @@ const ACTION_LABELS: Record<string, string> = {
   adjust_audio: 'Adjusted audio',
   add_transition: 'Added transition',
   add_mask: 'Added mask',
-  track_object: 'Tracked object',
+  track_object: 'Attached tracker (no motion yet)',
   add_asset: 'Added asset',
   move_asset: 'Moved asset',
   create_folder: 'Created folder',
@@ -44,12 +44,21 @@ const ACTION_LABELS: Record<string, string> = {
   remove_marker: 'Removed marker',
 };
 
-/** Summarize which track flags a `set_track_flags` op sets, e.g. "muted, locked". */
+/**
+ * Summarize which track flags a `set_track_flags` op sets, e.g. "muted, locked", or
+ * "role: music". The role is the label `duck_roles` works by, and the success note was the
+ * one place the model could have confirmed it took — "Updated track Audio 2" said nothing,
+ * and run `cc907070` re-labelled the same track on twenty-two turns.
+ */
 function trackFlagDetail(record: Record<string, unknown>): string {
   const flags: string[] = [];
   for (const key of ['muted', 'locked', 'hidden'] as const) {
     const value = record[key];
     if (typeof value === 'boolean') flags.push(value ? key : `un${key}`);
+  }
+  if ('role' in record) {
+    const role = record['role'];
+    flags.push(typeof role === 'string' ? `role: ${role}` : 'role cleared');
   }
   return flags.join(', ');
 }
@@ -80,7 +89,7 @@ const TOOL_VERBS: Record<string, string> = {
   adjust_audio: 'Adjusting audio on',
   add_transition: 'Adding a transition to',
   add_mask: 'Masking',
-  track_object: 'Tracking an object in',
+  track_object: 'Attaching a tracker to',
   add_asset: 'Adding an asset',
   manage_assets: 'Organizing assets',
   set_track_flags: 'Updating',

@@ -23,7 +23,7 @@ import { toolSchemaCost } from './kernel/context/manifest.js';
 import { AGENT_MAX_OPS_PER_TURN } from './kernel/conductor.js';
 import {
   PRECONDITION_TOOL_NAMES,
-  VALIDATOR_INPUT_TOOL_NAMES,
+  EXECUTION_MEASUREMENT_TOOL_NAMES,
   VERIFICATION_LOOK_TOOL_NAMES,
 } from './kernel/stage-policy.js';
 
@@ -183,7 +183,7 @@ describe('derived fan-out is a short, justified list', () => {
 describe('a tool the stage policy always allows is always advertised', () => {
   const alwaysReachable = [
     ...VERIFICATION_LOOK_TOOL_NAMES,
-    ...VALIDATOR_INPUT_TOOL_NAMES,
+    ...EXECUTION_MEASUREMENT_TOOL_NAMES,
     ...PRECONDITION_TOOL_NAMES,
   ];
 

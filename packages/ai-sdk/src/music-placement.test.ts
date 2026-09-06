@@ -9,7 +9,11 @@
  * notice.
  */
 import { describe, expect, it } from 'vitest';
-import { applyProjectPatch, invertProjectPatch } from '@framepilot/editor-core';
+import {
+  applyProjectPatch,
+  invertProjectPatch,
+  musicDuckEmptyTrackNote,
+} from '@framepilot/editor-core';
 import { assembleEdit } from './assemble.js';
 import type { Project } from '@framepilot/timeline-schema';
 import {
@@ -300,7 +304,9 @@ describe('musicDuckSidechainIssue', () => {
     expect(musicDuckRefusalKey(project(), undefined)).toBeNull();
   });
 
-  it('rejects an empty sidechain track, where a duck has nothing to duck under', () => {
+  it('rejects an empty sidechain track while another track carries sound', () => {
+    // Run `137d8fd0` named an empty `layer_audio_5` while the wind sat on `v_main`: the
+    // wrong lane, and the refusal names the right one.
     const base = project();
     (base.timeline.tracks as unknown as Array<{ id: string; clips: unknown[] }>).push({
       id: 'empty_audio',
@@ -308,6 +314,29 @@ describe('musicDuckSidechainIssue', () => {
     });
     const issue = musicDuckSidechainIssue(base, 'empty_audio');
     expect(issue).toContain('no clips');
+    expect(musicDuckEmptyTrackNote(base, 'empty_audio')).toBeNull();
+  });
+
+  it('accepts an empty target when NOTHING carries sound yet — music first — with an idle-duck note', () => {
+    // Run `cc907070`: the first add_music named the video track of a timeline that was
+    // entirely empty (its first assembly had been rejected); the refusal sent the bed in
+    // as a bare clip with no duck. Ducking is evaluated at render, so the idle duck
+    // engages the moment picture lands.
+    const bare = project();
+    const tracks = bare.timeline.tracks as unknown as Array<{
+      id: string;
+      type: string;
+      clips: unknown[];
+    }>;
+    tracks.length = 0;
+    tracks.push(
+      { id: 'v_main', type: 'video', clips: [] },
+      { id: 'a_bed', type: 'audio', clips: [] },
+    );
+    expect(musicDuckSidechainIssue(bare, 'v_main')).toBeNull();
+    expect(musicDuckRefusalKey(bare, 'v_main')).toBeNull();
+    expect(musicDuckEmptyTrackNote(bare, 'v_main')).toContain('has no clips yet');
+    expect(musicDuckEmptyTrackNote(bare, 'nope')).toBeNull();
   });
 
   /**

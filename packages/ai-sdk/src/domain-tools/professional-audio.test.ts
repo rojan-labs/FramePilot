@@ -428,7 +428,7 @@ describe('professional_audio role-authored ducking', () => {
     if (resolution.status !== 'rejected') return;
     expect(resolution.detail).toContain('set_track_flags');
     expect(resolution.detail).toContain('role: "music"');
-    expect(resolution.detail).toContain('Audio tracks here:');
+    expect(resolution.detail).toContain('Tracks that carry sound here:');
   });
 
   it('closes the loop: label with the tool the refusal names, then duck by role', () => {
@@ -467,23 +467,113 @@ describe('professional_audio role-authored ducking', () => {
     expect(resolution.status).toBe('resolved');
   });
 
-  it('refuses to label a picture track, where a mix role means nothing', () => {
+  it('refuses to label a track that carries no sound, where a mix role means nothing', () => {
     // The schema calls `role` "harmless elsewhere", which is exactly how a mislabelled
     // project gets built. Refused at the boundary, where the sentence can name the type.
     const base = project();
-    const withPicture = {
+    const withOverlay = {
       ...base,
       timeline: {
         ...base.timeline,
-        tracks: [...base.timeline.tracks, { id: 'v_main', type: 'video', clips: [] }],
+        tracks: [...base.timeline.tracks, { id: 'titles', type: 'overlay', clips: [] }],
       },
     } as unknown as Project;
     expect(() =>
       operationsForCall(
-        { id: 'c', name: 'set_track_flags', arguments: { trackId: 'v_main', role: 'dialogue' } },
-        { project: withPicture } as ToolContext,
+        { id: 'c', name: 'set_track_flags', arguments: { trackId: 'titles', role: 'dialogue' } },
+        { project: withOverlay } as ToolContext,
       ),
-    ).toThrow(/role labels an audio track/);
+    ).toThrow(/role labels a track that carries sound, and "titles" is a overlay track/);
+  });
+
+  it('labels a VIDEO track, and ducks the bed under the sound its clips carry', () => {
+    // Run `cc907070`: "duck the wind right down" — the wind was the GoPro's own audio, on
+    // the picture track. Only audio tracks took roles, so the refusal said "name the
+    // audio track carrying it", and there was none. A video track carries its clips'
+    // sound and takes a role like any other.
+    const base = project();
+    const withPov = parseProject({
+      ...base,
+      assets: [
+        ...base.assets,
+        { id: 'pov_asset', path: 'pov.mp4', kind: 'video', durationSeconds: 20 },
+      ],
+      timeline: {
+        ...base.timeline,
+        tracks: [
+          {
+            id: 'v_main',
+            type: 'video',
+            clips: [
+              {
+                id: 'pov',
+                assetId: 'pov_asset',
+                trackId: 'v_main',
+                start: 0,
+                end: 20,
+                sourceStart: 0,
+                sourceEnd: 20,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+          ...base.timeline.tracks,
+        ],
+      },
+    });
+    const labelOps = operationsForCall(
+      { id: 'c', name: 'set_track_flags', arguments: { trackId: 'v_main', role: 'sfx' } },
+      { project: withPov } as ToolContext,
+    );
+    expect(labelOps).toEqual([{ type: 'set_track_flags', trackId: 'v_main', role: 'sfx' }]);
+    const labelled = parseProject({
+      ...withPov,
+      timeline: applyPatch(withPov.timeline, {
+        patchId: 'label_pov' as PatchId,
+        createdBy: 'agent',
+        reason: 'the wind is the sidechain',
+        operations: [...labelOps, { type: 'set_track_flags', trackId: 'music', role: 'music' }],
+      }),
+    });
+    const resolution = resolveAudioObjective({
+      project: labelled,
+      interaction: captureEditorInteractionContext({
+        project: labelled,
+        projectRevision: 3,
+        playheadSeconds: 5,
+        selectedClipIds: [],
+      }),
+      // `target: "playhead"` is what every other intent accepts; ducking ignores it
+      // rather than refusing the turn over a field that carries nothing.
+      objective: AudioObjectiveSchema.parse({
+        intent: 'duck_roles',
+        bedRole: 'music',
+        sidechainRole: 'sfx',
+        reductionDb: 18,
+        target: 'playhead',
+      }),
+    });
+    expect(resolution.status).toBe('resolved');
+    if (resolution.status !== 'resolved') return;
+    expect(resolution.commands[0]).toMatchObject({
+      type: 'mix_clip_audio',
+      clipId: 'bed',
+      settings: { duckUnderTrackId: 'v_main', duckAmountDb: -18 },
+    });
+    // End to end through the tool: the compiler and the operation contract accept a video
+    // track as the trigger, and the bed clip carries the duck.
+    const edited = dispatch(labelled, context(labelled), {
+      intent: 'duck_roles',
+      bedRole: 'music',
+      sidechainRole: 'sfx',
+      reductionDb: 18,
+    });
+    const bed = edited.tracks.flatMap((t) => t.clips).find((c) => c.id === 'bed')!;
+    expect(bed.effects[0]).toMatchObject({
+      type: 'audio_gain',
+      params: { duckUnderTrackId: 'v_main', duckAmountDb: -18 },
+    });
   });
 
   it('refuses when two tracks claim the trigger role rather than picking one', () => {

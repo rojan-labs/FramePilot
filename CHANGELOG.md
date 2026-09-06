@@ -8,6 +8,115 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
+  never shot" came back with eight stock clips covering fifty of its sixty seconds and six
+  whole shots of the editor's own footage buried beneath them. When the request names a
+  count, a placement past it is refused with the clips that are already there, and the
+  self-check reports the count against the request.
+- **"Track them" no longer reports a subject as tracked.** The tracker tool attaches an
+  effect with no motion in it; the measured track needs a mask drawn in the editor and the
+  automatic tracking tool. The tool now says so, its note reads "Attached tracker (no motion
+  yet)", the self-check warns on a tracker with no motion, and the request's criteria state
+  the limit up front instead of the review discovering it at the end.
+- **A title that cannot fit its box is refused with the size that would.** "Breck, opening
+  weekend" was placed at a size where "weekend" needed 119% of the frame width; the safe-area
+  check could only say so afterwards. The fit is decided when the title is added, naming the
+  largest size that fits the box or the box width the word needs.
+- **An automatic reframe says it is a centred guess.** Placing landscape footage in a
+  vertical sequence crops it to the frame for you; the note read only "Reframed clip", and
+  a brief that asked for the action kept inside the crop "not just centre-cut" got thirteen
+  centre cuts described as reframes. The note now says the crop is centred, made without
+  subject evidence, and how to move it.
+- **An invented tool name is no longer reported as unfinished work.** The receipt listed
+  "Get track flags — never succeeded: There is no tool called…" as if a step of the brief
+  had been dropped; a name that was never a tool is left out of the "Not done" block.
+- **An effect that does not exist is said so, once.** Asked to "lift the sharpness", the
+  AI searched the effect catalogue seven different ways and was told "no effects match (0
+  in catalog)" each time. An empty search now names the query, the catalogue's real size
+  and categories, and says another wording will not help — so the AI tells you instead.
+- **Withheld calls are no longer filed as knowledge.** "search_stock withheld" and
+  "detect_beats held back" were recorded as established facts and carried into the next
+  session. A withheld call learns nothing and records nothing.
+- **A new session no longer inherits false facts about the last one's context.** The
+  second turn of a run opened with twelve "playbook loaded — its instructions are pinned in
+  your context" facts carried from the first, for playbooks that session had not loaded.
+  What a run knows about its own context is scoped to that run: it survives every edit
+  within it and is never carried forward.
+- **The AI can see which tracks carry a mix role.** After labelling its music track the AI
+  re-labelled it on twenty-two consecutive turns and finally reported that no track
+  carried a role, because none of the timeline views it reads showed one. The role now
+  appears on the layer line in its context, in the arrangement line, in `get_timeline`'s
+  digest and in `get_timeline_summary`.
+- **Music first is allowed.** Laying a bed with a duck target before any picture is on the
+  timeline was refused ("names a track with no clips"), which sent the AI back with an
+  unducked bed. When nothing on the timeline carries sound yet, the duck is accepted and
+  noted as idle until the picture lands; naming an empty lane while another lane already
+  carries sound is still refused, with the right lane named.
+- **A refusal named a tool that does not exist.** The "you would bury another cutaway"
+  refusal told the AI to use `remove_clip`; the tool is `delete_clip`, and it says so now.
+- **"Remember this for future edits" can no longer be silently dropped.** A brief that
+  stated a lasting preference ended with nothing saved and no mention of it. The request
+  now carries a criterion the AI is held to, and the completion report says plainly when
+  nothing was written to project memory.
+- **"Export both" and "show me a preview first" are now acknowledged, not skipped.** Neither
+  can run from the AI panel, and a brief that asked for both was answered with a report
+  that mentioned neither, because the export detector only matched file nouns ("an mp4",
+  "the video"). An imperative export of the cut itself now counts, a preview request is
+  recorded as a deliverable the panel cannot make, and the completion report says where
+  both actually happen — the timeline monitor and the Export dialog.
+- **A "stop reading, act" turn no longer blocks the AI from looking at its own edit.** The
+  run was asked to show a preview before rendering, called `render_preview` on exactly such
+  a turn, and was told the turn was for acting; the self-check's own fix instruction named
+  a transcript read the same turn refused. Previewing, checking transitions, grabbing a
+  frame and reading the mapped transcript are looks at the edit, not at the footage, and
+  stay available on that turn.
+- **A looping transcript is no longer fed to the AI as dialogue.** On a wind-only take the
+  transcript slice — 3,000 tokens of one phrase repeated — rode along on all 290 model
+  calls, the single largest fixed cost in the request and an invitation to cut on words
+  nobody said. When the loop signature is detected the slice becomes one sentence saying
+  the transcript is not usable and why; the words stay on the project for `get_transcript`.
+- **The AI's private run memory no longer repeats one rejection eleven times.** Refused
+  calls that share a reason are grouped into one row naming the calls, so a new reason
+  stands out instead of being buried under copies of the old one.
+- **A speed ramp no longer runs the clip into its neighbour.** "Fast in, slow on the
+  impact, back up after" on a clip inside a timed 60-second cut was refused five times
+  because the ramp recomputed the clip's length and overlapped the next shot. The AI's
+  `set_clip_speed_ramp` now keeps the clip's timeline length by default and fits the curve
+  into it (`keepDuration`), so the cut around it does not move; pass `keepDuration: false`
+  for the length-changing form. Splitting a ramped clip also keeps every ramp point inside
+  the piece it belongs to instead of failing validation.
+- **The perceptual review — and the export — of a speed-ramped clip with sound no longer
+  crashes.** The renderer's ramp time-map was handed a whole array of audio sample times
+  and tried to read it as one number (`only 0-dimensional arrays can be converted to Python
+  scalars`), which reported "Review could not run" on every edit carrying a ramp.
+- **Small argument slips are accepted instead of costing a turn.** `trim_clip` fills in
+  whichever edge you leave out from the clip; `search_stock`/`add_stock` accept "footage",
+  "clip", "image", "still" and similar words for the two stock kinds.
+- **A wind-only recording no longer fails the AI's self-check.** Speech recognition over a
+  GoPro take with no dialogue produced one phrase repeated 397 times plus a handful of
+  other invented words, and a cut landing inside one of those words was reported as a
+  failed edit — over 65 changes that had applied cleanly. When the transcript shows that
+  looping signature, cuts through its words are now reported as a warning with the reason,
+  never as a failure.
+- **Stock footage of the wrong shape now lands over the picture instead of being refused.**
+  A taller-than-frame chairlift clip placed over the sequence was refused nine times with
+  an instruction to add it and then crop it — while the add was the thing being refused.
+  A placement whose only problem is its shape now gets the cover crop applied for it, on
+  its own front layer, with the crop visible in the diff and undone in one step.
+- **The AI can duck sound that lives on the picture track.** "Duck the wind under the
+  music" was impossible because only audio tracks could carry a mix role and the wind was
+  the camera's own audio. A video track now takes a role (dialogue, music or sfx) like an
+  audio track does, `professional_audio` ducks under it, and the perceptual review measures
+  it; the duck intents also accept the same `target` values every other intent does
+  instead of refusing "playhead".
+- **The AI is no longer refused for cutting off the beat.** A 60-second GoPro highlight
+  that asked for cuts on the music's beat lost its entire first assembly — 126 changes,
+  including the title and the cutaways — because the AI had declared "hard sync" on the
+  beat analysis before the music was on the timeline, and a runtime rule then rejected
+  every picture cut it could not check against an onset. That rule, its sticky
+  declaration and the `hardSync` option are gone (ADR 0174). Beat detection still measures
+  the music; where a cut lands against it is the AI's editorial call, made with the exact
+  onset times in hand.
 - **The AI can no longer bury one cutaway under another and call it done.** A 60-second
   highlight that asked for two stock cutaways came back with 19 video layers and 37 of its
   48 shots — including every clip of the main footage — sitting completely behind

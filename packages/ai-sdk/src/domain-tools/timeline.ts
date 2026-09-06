@@ -30,6 +30,54 @@ import { createLaneAllocator } from '@framepilot/editor-core';
 
 /** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
 type LaneAllocator = ReturnType<typeof createLaneAllocator>;
+/**
+ * Does a track carry sound the mix can address — an audio track, or a video track whose
+ * clips play their own audio? Overlay, caption and effect lanes never do.
+ */
+function trackCarriesSound(track: Track): boolean {
+  // An absent `type` is a video track (the schema's default, and how `carriesPicture`
+  // reads it too), so it carries its clips' sound like an explicit one.
+  return track.type === undefined || track.type === 'audio' || track.type === 'video';
+}
+
+/**
+ * The refusal for one more stock cutaway than the brief asked for, or `null` when the
+ * placement is within the cap (or no cap was stated).
+ *
+ * Counted off the timeline, not off the bin: a downloaded clip in the bin costs nothing the
+ * editor sees. Run `4a8e` asked for "two cutaways I never shot" and placed eight stock clips
+ * over 50 of its 60 seconds; every placement passed every other rule.
+ *
+ * @param ctx - The tool context; `stockCutawayCap` is the brief's number.
+ * @param assetId - The asset about to be placed; a non-stock asset is never refused here.
+ */
+export function stockCutawayCapRefusal(ctx: ToolContext, assetId: string): string | null {
+  const cap = ctx.stockCutawayCap;
+  if (cap === undefined) return null;
+  const asset = ctx.project.assets.find((candidate) => candidate.id === assetId);
+  if (!asset || asset.kind === 'audio' || asset.source?.provider === undefined) return null;
+  const stockIds = new Set(
+    ctx.project.assets
+      .filter((candidate) => candidate.kind !== 'audio' && candidate.source?.provider !== undefined)
+      .map((candidate) => candidate.id),
+  );
+  const placed = ctx.project.timeline.tracks.flatMap((track) =>
+    track.clips.filter((clip) => stockIds.has(clip.assetId)),
+  );
+  if (placed.length < cap) return null;
+  const named = placed
+    .slice(0, 4)
+    .map((clip) => `${clip.id} (${roundSeconds(clip.start)}–${roundSeconds(clip.end)}s)`)
+    .join(', ');
+  return (
+    `the request asked for ${String(cap)} stock cutaway${cap === 1 ? '' : 's'} and ` +
+    `${String(placed.length)} ${placed.length === 1 ? 'is' : 'are'} already on the timeline: ` +
+    `${named}${placed.length > 4 ? ', …' : ''}. The editor's own footage is the picture. To ` +
+    'use this clip instead of one of those, delete_clip that one first; otherwise leave it ' +
+    'in the bin and move on.'
+  );
+}
+
 /** The per-call picture-layer bookkeeping; see `createPicturePlacer`. */
 type PicturePlacer = ReturnType<typeof createPicturePlacer>;
 import { frameToSeconds, secondsToFrame } from '../frame-time.js';
@@ -211,7 +259,15 @@ const timelineWindowSchema = z
   .object({ start: seconds.optional(), end: seconds.optional() })
   .strict();
 
-const trimSchema = z.object({ clipId: z.string(), start: seconds, end: seconds }).strict();
+// Either edge may be omitted and the clip's current one stands: "trim the end to 12s" is
+// one number, and run `cc907070` sent exactly that and was refused with `start: expected
+// number, received undefined`. Both omitted is nothing to do, and is refused as such.
+const trimSchema = z
+  .object({ clipId: z.string(), start: seconds.optional(), end: seconds.optional() })
+  .strict()
+  .refine((a) => a.start !== undefined || a.end !== undefined, {
+    message: 'Give start, end, or both — the edge you leave out keeps its current value.',
+  });
 /**
  * The most placements one `add_clips` call may carry.
  *
@@ -569,6 +625,9 @@ function addClipOperation(
   // cannot either.
   const alreadyThere = existingPlacement(ctx.project, clip);
   if (alreadyThere) throw new ToolRefusalError(sameFramesRefusal(ctx, clip, alreadyThere));
+  // One more stock cutaway than the brief asked for is refused before any lane is chosen.
+  const overCap = stockCutawayCapRefusal(ctx, clip.assetId);
+  if (overCap !== null) throw new ToolRefusalError(overCap);
   const alreadyBooked = bookedPlacement(ctx.project, booked, clip);
   if (alreadyBooked) {
     // Named by the SHARED frames, not by this entry's own span: what the model has to
@@ -584,16 +643,20 @@ function addClipOperation(
   }
   const kind = ctx.project.assets?.find((a) => a.id === clip.assetId)?.kind;
   const isPicture = kind === 'video' || kind === 'image' || kind === undefined;
-  const crop = autoReframeCrop(ctx, clip);
-  const placed = isPicture
+  const reframe = autoReframeCrop(ctx, clip);
+  const placed: { trackId: string; setupOps: readonly Operation[]; crop?: CropRect } = isPicture
     ? picture.place({
         trackId: clip.trackId,
         assetId: clip.assetId,
         start: clip.start,
         end: clip.end,
-        compositing: crop ? { crop } : {},
+        compositing: reframe ? { crop: reframe } : {},
       })
     : lanes.allocate(clip.trackId, clip.start, clip.end);
+  // The placer's own cover crop wins when it applied one: it is the crop the lane was
+  // chosen on (`PicturePlacement.crop`), and the placer only applies it to an uncropped
+  // candidate, so the two never both exist.
+  const crop = placed.crop ?? reframe;
   const clipId = crop ? placementClipId({ ...clip, trackId: placed.trackId }) : undefined;
   const add: Operation = {
     type: 'add_clip',
@@ -691,7 +754,7 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'get_timeline_summary',
       description:
         'Return a compact overview of the timeline: total duration, and per track its ' +
-        'id, type, flags, clip count, and first/last clip times — plus marker and ' +
+        'id, type, flags, mix role, clip count, and first/last clip times — plus marker and ' +
         'transcript-word counts. Orient with this first on a large project; it is far ' +
         'cheaper than get_timeline, which dumps every clip.',
     },
@@ -713,6 +776,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         ...(track.muted !== undefined ? { muted: track.muted } : {}),
         ...(track.locked !== undefined ? { locked: track.locked } : {}),
         ...(track.hidden !== undefined ? { hidden: track.hidden } : {}),
+        // The mix role an editor (or set_track_flags) authored — the label duck_roles works
+        // by, and the one flag a run could not read back anywhere (run `cc907070`).
+        ...(track.role !== undefined ? { role: track.role } : {}),
       }));
       return {
         durationSeconds: tracks.reduce((max, t) => Math.max(max, t.lastClipEnd ?? 0), 0),
@@ -961,14 +1027,28 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
     {
       name: 'trim_clip',
       description:
-        "Set a clip's new start/end in timeline seconds; the source in/out shifts by " +
-        "the same amount. Use to tighten or extend one clip's edges. It cannot change " +
+        "Set a clip's new start and/or end in timeline seconds (leave one out to keep " +
+        'it); the source in/out shifts by the same amount. Use to tighten or extend one ' +
+        "clip's edges. It cannot change " +
         'WHERE IN THE ASSET a clip reads from while keeping its timeline position and ' +
         'length — to do that, delete_clip it and add_clip the same span with a different ' +
         'sourceStart.',
     },
     trimSchema,
-    (a) => [{ type: 'trim_clip', clipId: a.clipId, start: a.start, end: a.end }],
+    (a, ctx) => {
+      const found = findClipById(ctx.project.timeline, a.clipId);
+      // An unknown clip is left to the validator, which names the ids that do exist; the
+      // missing edge then has nothing to default to and is passed through as given.
+      const start = a.start ?? found?.clip.start ?? Number.NaN;
+      const end = a.end ?? found?.clip.end ?? Number.NaN;
+      if (!found && (Number.isNaN(start) || Number.isNaN(end))) {
+        throw new ToolRefusalError(
+          `trim_clip: no clip "${a.clipId}" on the timeline to read the missing edge from — ` +
+            'get_clips lists the ids, or pass both start and end.',
+        );
+      }
+      return [{ type: 'trim_clip', clipId: a.clipId, start, end }];
+    },
   ),
   mutateTool(
     {
@@ -1255,11 +1335,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Mute/unmute, lock/unlock, hide/show, or LABEL a track. Muting silences ' +
         "a track's audio in the render; hiding drops a visual track's picture; locking " +
-        'prevents edits. role labels an audio track as dialogue, music or sfx — the ' +
-        'mix roles professional_audio duck_roles works in ("duck the music under the ' +
-        'dialogue"), which are never guessed from a track\'s name because a lane called ' +
-        '"Music 2" routinely holds a voice-over. Label the track, then duck by role. ' +
-        'Pass role: null to remove a label. Only the fields you provide change.',
+        'prevents edits. role labels a track that carries sound as dialogue, music or ' +
+        'sfx — the mix roles professional_audio duck_roles works in ("duck the music ' +
+        'under the dialogue"), which are never guessed from a track\'s name because a ' +
+        'lane called "Music 2" routinely holds a voice-over. A video track counts when ' +
+        'its clips carry the sound you mean (camera audio, wind, a recorded voice), so ' +
+        'label THAT track when the sound lives in the picture. Label the track, then ' +
+        'duck by role. Pass role: null to remove a label. Only the fields you provide ' +
+        'change.',
     },
     z
       .object({
@@ -1279,15 +1362,22 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         { message: 'Set at least one of muted/locked/hidden/role.' },
       ),
     (a, ctx) => {
-      // A role on a picture track is meaningless — the schema calls it "harmless
-      // elsewhere", which is exactly how a mislabelled project gets built. Refused here,
-      // at the boundary, where the sentence can name the track's actual type.
+      // A role on a track that carries no sound is meaningless — the schema calls it
+      // "harmless elsewhere", which is exactly how a mislabelled project gets built.
+      // Refused here, at the boundary, where the sentence can name the track's type.
+      // A VIDEO track carries sound — its clips' own audio — and is the only place a
+      // camera's wind or a recorded voice can live, so it takes a role like an audio
+      // track does. Run `cc907070` was asked to "duck the wind right down" under music;
+      // the wind was the GoPro's own track, this refusal said "name the audio track
+      // carrying it", and there was none. `add_music`'s duckUnderTrackId already accepts
+      // a video track for the same reason.
       if (a.role !== undefined) {
         const track = ctx.project.timeline.tracks.find((candidate) => candidate.id === a.trackId);
-        if (track !== undefined && track.type !== 'audio') {
+        if (track !== undefined && !trackCarriesSound(track)) {
           throw new ToolRefusalError(
-            `role labels an audio track, and "${a.trackId}" is a ${track.type} track. ` +
-              'Mix roles describe sound; name the audio track carrying it.',
+            `role labels a track that carries sound, and "${a.trackId}" is a ${track.type} ` +
+              'track. Mix roles describe sound; name the audio track — or the video track ' +
+              'whose clips carry it.',
           );
         }
       }
@@ -1323,10 +1413,14 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         "Ramp a clip's speed over its length — fast in, slow on the moment, back up after. " +
         "Give points along the clip in SOURCE seconds from its own start (0 = the clip's " +
         'in point), each with a playback rate: [{sourceTime:0, rate:2}, {sourceTime:1.5, ' +
-        "rate:0.25}, {sourceTime:2.5, rate:1}]. The clip's timeline length is recomputed " +
-        'from the ramp. ramp: null clears it back to a constant speed. Use this for a ' +
-        'slow-motion emphasis on an impact or a landing; use set_clip_speed when one rate ' +
-        'covers the whole clip.',
+        'rate:0.25}, {sourceTime:2.5, rate:1}]. By default the clip KEEPS its timeline ' +
+        'length and the curve is fitted into it by changing how much source it consumes ' +
+        '(keepDuration: true) — the cut around it does not move, and neighbours are never ' +
+        'overlapped. Pass keepDuration: false to keep the source range instead and let the ' +
+        "clip's length follow the curve; later clips on the track must then have room. " +
+        'ramp: null clears it back to a constant speed. Use this for a slow-motion ' +
+        'emphasis on an impact or a landing; use set_clip_speed when one rate covers the ' +
+        'whole clip.',
       capabilities: ['edit', 'timing'],
     },
     z
@@ -1345,12 +1439,17 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .min(2)
           .max(24)
           .nullable(),
+        keepDuration: boolean().optional(),
       })
       .strict(),
     (a) => [
       {
         type: 'set_clip_speed_ramp',
         clipId: a.clipId,
+        // Fitted by default: a ramp lives inside a cut that is already timed, and the
+        // length-changing form ran into the next clip on every attempt in run
+        // `cc907070`. `ramp: null` clears the curve; there is nothing to fit.
+        ...(a.ramp === null ? {} : { keepDuration: a.keepDuration ?? true }),
         ramp:
           a.ramp === null
             ? null

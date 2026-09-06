@@ -85,6 +85,42 @@ describe('summaries', () => {
     });
     expect(summarizeTranscript(long)).toContain('…(truncated)');
   });
+
+  it("shows a track's mix role on its layer line", () => {
+    // Run `cc907070` re-labelled its music track on twenty-two turns because nothing it
+    // read back showed the label had taken.
+    const tl = {
+      tracks: [
+        { id: 'bed', type: 'audio', role: 'music', clips: [] },
+        { id: 'v1', type: 'video', clips: [] },
+      ],
+    } as unknown as Timeline;
+    const text = summarizeTimeline(tl);
+    expect(text).toContain('role: music) "bed"');
+    expect(text).not.toContain('role: undefined');
+  });
+
+  it('replaces a looping transcript with one sentence saying it is not usable', () => {
+    // Run `cc907070`: a wind-only GoPro take whose transcript was 397 repeats of one phrase,
+    // fed to the model as 3,000 tokens of "dialogue" on all 290 calls.
+    const phrase = ["i'll", 'try', 'to', 'follow', 'you', 'later.'];
+    const words = Array.from({ length: 120 * phrase.length }, (_, i) => ({
+      word: phrase[i % phrase.length]!,
+      start: 3 + i * 0.5,
+      end: 3.4 + i * 0.5,
+    }));
+    const looped = makeProject({ transcript: words });
+    const text = summarizeTranscript(looped);
+    expect(text).toMatch(/^Transcript: NOT USABLE/);
+    expect(text).toContain('repeats 120 times');
+    expect(text).toContain('do not select, caption or cut on these words');
+    expect(text.length).toBeLessThan(600);
+    // The focused and retrieval-ranked forms say the same thing.
+    expect(summarizeTranscript(looped, { start: 10, end: 20 })).toMatch(/^Transcript: NOT USABLE/);
+    expect(
+      summarizeTranscript(looped, undefined, 400, { scope: 'global', pinnedClipIds: new Set() }),
+    ).toMatch(/^Transcript: NOT USABLE/);
+  });
 });
 
 describe('editor interaction context', () => {

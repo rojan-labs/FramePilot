@@ -37,4 +37,10 @@ export interface ToolContext {
    * contract (no filesystem, no network) is unchanged.
    */
   readonly skills?: ReadonlyMap<string, Skill>;
+  /**
+   * The most stock cutaways the request asked for, when it named a number
+   * (`acceptance.ts#explicitCutawayCount`). The placement tools refuse the placement past it
+   * — run `4a8e` asked for two and got eight, burying the editor's own footage.
+   */
+  readonly stockCutawayCap?: number;
 }

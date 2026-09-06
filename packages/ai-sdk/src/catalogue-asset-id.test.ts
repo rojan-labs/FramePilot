@@ -52,10 +52,10 @@ describe('resolveCatalogueAssetId', () => {
 
 describe('withResolvedAssetId', () => {
   it('rewrites the argument and leaves everything else untouched', () => {
-    const args = { assetId: REMOTE, hardSync: true };
+    const args = { assetId: REMOTE, sensitivity: 2 };
     expect(withResolvedAssetId('detect_beats', args, assets)).toEqual({
       assetId: BIN,
-      hardSync: true,
+      sensitivity: 2,
     });
   });
 

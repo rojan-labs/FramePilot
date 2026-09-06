@@ -357,6 +357,40 @@ Handle AI actions safely, recover from failure, and finish the job.
       into `AgentRun.plan`, and the plan is threaded into every loop turn's context so
       the agent follows its own committed steps. (Streaming `PlanEvent` surfacing +
       per-step reconciliation is a lighter follow-up on `streamAgent`.) 100% cov.
+- [x] **C6 — The runtime measures, the agent decides: no beat-grid validator**
+      (2026-09-06, run `cc907070`, branch `fix/agent-reliability-2026-09-06`, ADR 0174).
+      A GoPro highlight declared `hardSync` on `detect_beats` before any music was placed
+      and the beat-grid rule then refused 126 operations across the whole first assembly;
+      the declaration was sticky and nothing could withdraw it. `kernel/beat-grid/` and
+      `hardSync` are deleted; `detect_beats` stays a reachable measurement whose digest
+      leads with the tempo-grid onsets. Same branch, same run: `word_severed` warns
+      instead of failing under a looping transcript; a leaking stacked placement gets its
+      cover crop applied instead of "add it, then crop it"; video tracks take mix roles so
+      camera audio can be ducked; `set_clip_speed_ramp` fits its slot by default
+      (`keepDuration`) and split keeps ramp points inside each piece; the renderer's ramp
+      time-map is vectorised (the temporal review crashed on every ramped edit);
+      `trim_clip` fills a missing edge and stock `kind` accepts common aliases.
+      Second pass (2026-09-07): a looping transcript is one sentence in context, not a
+      3k-token slice; FAILED briefing rows group by reason; the recovery turn may look at
+      its own edit (`EDIT_LOOK_TOOL_NAMES`); an imperative export, a preview request and a
+      "remember for future edits" clause are criteria and are reported when unmet; a track's
+      mix role is visible in every timeline view and in the `set_track_flags` note;
+      music-first ducking is accepted with an idle-duck note; the buried-cutaway remedy
+      names `delete_clip`; `detect_beats` drops a stray `hardSync`.
+      Third pass (2026-09-07): guidance findings get a `run_local` fact scope (kept across
+      edits, never carried to the next session); withheld calls distil to no fact; an
+      empty catalogue search names the query and the catalogue size and says another
+      wording will not help; an invented tool name is not "unfinished work" in the
+      receipt; an automatic reframe is announced as a centred guess; video-track ducking
+      is proven end to end.
+      Second captured run of the same brief (2026-09-06 19:43, on this branch): one turn,
+      completed, 100 edits, every disclosure present. Three new gaps closed: stock cutaways
+      held to the brief's count (`explicitCutawayCount` → `ToolContext.stockCutawayCap`,
+      placement refusal, `cutaway_count` check); `track_object` honest about holding no
+      motion (`tracker_motion` check, `subjectTracking` unmeetable); `add_text_layer` refuses
+      a title whose widest word cannot fit its box. Open: the temporal review timed out at
+      300s over 12 requests on a 60s timeline carrying eight 4K stock layers — the cap cuts
+      the layers, the decode cost per composite frame is the engine's.
 - [ ] **C5 — Preview render into the loop** (**§7 approval — needs the
       renderer→engine preview IPC**, the ADR 0016 export-channel pattern). Wire an
       auto preview render so the Critic sees real frames mid/post-run. Until the

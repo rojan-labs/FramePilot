@@ -2624,6 +2624,93 @@ describe('set_clip_speed_ramp', () => {
     expect(findClipById(applied, 'a')?.speedRamp?.[0]?.rate).toBe(0.5);
   });
 
+  it('keepDuration fits the curve into the slot: end stays, the source out point moves', () => {
+    // "Fast in, slow on the impact, back up after" on a clip inside a locked 60-second
+    // cut (run `cc907070`): recomputing the length ran the clip into its neighbour and
+    // the validator refused it five times. Fitted, the clip keeps its 10s and consumes
+    // however much source the curve reaches in 10s.
+    const packed: Timeline = {
+      tracks: [
+        {
+          id: 'video_1',
+          type: 'video',
+          clips: [
+            clip({ id: 'a', trackId: 'video_1', start: 0, end: 10, sourceStart: 5, sourceEnd: 15 }),
+            clip({ id: 'b', trackId: 'video_1', start: 10, end: 14, sourceStart: 0, sourceEnd: 4 }),
+          ],
+        },
+      ],
+    };
+    const slow = applyOperation(packed, {
+      type: 'set_clip_speed_ramp',
+      clipId: 'a',
+      ramp: ramp(0.5),
+      keepDuration: true,
+    });
+    const a = findClipById(slow, 'a')!;
+    expect([a.start, a.end]).toEqual([0, 10]);
+    expect(a.sourceStart).toBe(5);
+    // Half speed for 10s of timeline consumes 5s of footage.
+    expect(a.sourceEnd - a.sourceStart).toBeCloseTo(5, 4);
+    expect(findClipById(slow, 'b')).toMatchObject({ start: 10, end: 14 });
+    // A curve that is mostly FAST needs more footage than the clip had; the tail rate is
+    // held past the last point, exactly as `rateAt` extrapolates.
+    const fast = applyOperation(packed, {
+      type: 'set_clip_speed_ramp',
+      clipId: 'a',
+      ramp: ramp(2),
+      keepDuration: true,
+    });
+    const fastA = findClipById(fast, 'a')!;
+    expect([fastA.start, fastA.end]).toEqual([0, 10]);
+    expect(fastA.sourceEnd - fastA.sourceStart).toBeCloseTo(20, 6);
+    // And the validator's own invariant holds either way.
+    expect(applyOperation(slow, { type: 'split_clip', clipId: 'a', at: 4 })).toBeDefined();
+  });
+
+  it('a fitted ramp inverts through a track snapshot, since the source range moved', () => {
+    const packed = rampTimeline();
+    const applied = expectRoundTrip(packed, {
+      type: 'set_clip_speed_ramp',
+      clipId: 'a',
+      ramp: ramp(0.5),
+      keepDuration: true,
+    });
+    expect(findClipById(applied, 'a')?.sourceEnd).toBeCloseTo(5, 4);
+  });
+
+  it('splitting a ramped clip keeps every point inside the piece it belongs to', () => {
+    // The LEFT half used to carry the whole curve, and the validator refused it: "has a
+    // speed-ramp point at source time 2.5s, outside its 1.07s source range" (run
+    // `cc907070`). Points past a piece's span are replaced by one point AT the span
+    // carrying the rate the curve had there, so the piece still eases toward the cut.
+    const curved = applyOperation(rampTimeline(), {
+      type: 'set_clip_speed_ramp',
+      clipId: 'a',
+      ramp: [
+        { id: 'p1', sourceTime: 0, rate: 2, easing: 'linear' },
+        { id: 'p2', sourceTime: 5, rate: 0.5, easing: 'linear' },
+        { id: 'p3', sourceTime: 10, rate: 2, easing: 'linear' },
+      ],
+    });
+    const at = findClipById(curved, 'a')!.start + 1.5;
+    const split = applyOperation(curved, { type: 'split_clip', clipId: 'a', at });
+    const track = split.tracks[0]!;
+    expect(track.clips).toHaveLength(2);
+    for (const piece of track.clips) {
+      const span = piece.sourceEnd - piece.sourceStart;
+      for (const point of piece.speedRamp ?? []) {
+        expect(point.sourceTime).toBeGreaterThanOrEqual(0);
+        expect(point.sourceTime).toBeLessThanOrEqual(span + 1e-6);
+      }
+    }
+    const left = track.clips[0]!;
+    const leftSpan = left.sourceEnd - left.sourceStart;
+    // The left piece ends where the cut fell on the curve, at the rate the curve had there.
+    expect(left.speedRamp?.at(-1)).toMatchObject({ sourceTime: leftSpan });
+    expect(left.speedRamp?.at(-1)?.rate).toBeCloseTo(2 - 1.5 * (leftSpan / 5), 2);
+  });
+
   it('round-trips clearing a ramp back to constant speed', () => {
     const ramped = applyOperation(rampTimeline(), {
       type: 'set_clip_speed_ramp',

@@ -77,10 +77,27 @@ export interface CheckableAcceptance {
    * silently shipping without them.
    */
   readonly unmeetable?: readonly UnmeetableDeliverable[];
+  /**
+   * True when the request states something to remember for FUTURE edits — "one thing to
+   * remember for future edits: no fade to black mid-action" — which `remember_preference`
+   * exists for and run `cc907070` never called. An instruction about memory that is not
+   * a criterion is an instruction the run can drop without anyone noticing.
+   */
+  readonly rememberPreference?: boolean;
+  /**
+   * The most stock cutaways the request asked for ("I'm missing two cutaways I never
+   * shot"), when it named a number. Read deterministically; absent when it did not.
+   *
+   * Run `4a8e` (2026-09-06, GoPro highlight) asked for two and received eight stock clips
+   * covering 50 of its 60 seconds, six whole shots of the editor's own footage buried under
+   * them. Nothing bounded the count: every placement was legal, every download was a
+   * success. The number is in the brief, so the runtime can hold the run to it.
+   */
+  readonly maxStockCutaways?: number;
 }
 
 /** A deliverable no registered tool can produce. */
-export type UnmeetableDeliverable = 'voiceover' | 'soundEffects';
+export type UnmeetableDeliverable = 'voiceover' | 'soundEffects' | 'preview' | 'subjectTracking';
 
 /** What each unmeetable deliverable reads as in a criterion an editor will see. */
 export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
@@ -90,6 +107,14 @@ export const UNMEETABLE_LABEL: Record<UnmeetableDeliverable, string> = {
   soundEffects:
     'Sound effects cannot be sourced here — the stock libraries cover music and picture, ' +
     'not SFX. Import the effects you want and they can be placed on the timeline.',
+  preview:
+    'A rendered preview cannot be produced from this panel — the timeline monitor plays ' +
+    'the current cut, and the Export dialog renders it. Say so rather than promising one.',
+  subjectTracking:
+    'Subject motion cannot be computed by the AI on its own: track_object only ATTACHES a ' +
+    'tracker with no motion in it, and the measured track comes from the automatic tracking ' +
+    'tool, which needs a mask the editor draws around the subject in the editor. Attach the ' +
+    'tracker, tell the editor to draw the mask, and never report the subject as tracked.',
 };
 
 /**
@@ -474,6 +499,33 @@ const DELIVERABLE_FILE =
   /\b(render(?:ed|ing)?|export(?:ed|ing)?|deliver(?:ed|able)?)\b[^.\n]{0,60}\b(mp4|mov|webm|file|video|deliverable)\b|\b(mp4|mov|webm|file|deliverable)\b[^.\n]{0,40}\b(render(?:ed|ing)?|export(?:ed|ing)?)\b/;
 
 /**
+ * "Export" as the sentence's own verb, with the cut as its object — no file noun anywhere.
+ *
+ * Run `cc907070`'s brief closed with "Export both — the 16:9 at 1080p and the vertical."
+ * There is no mp4, file or video within reach of the verb, so {@link DELIVERABLE_FILE} read
+ * it as asking for no file, the run never mentioned the export, and the completion account
+ * said nothing about the one thing the panel cannot do. An imperative export whose object
+ * is the edit itself — both, it, them, the cut, a resolution — is the same request in
+ * fewer words. "Export settings" and "the export dialog" are nouns, not the verb, and are
+ * not matched: the verb must be followed by its object.
+ *
+ * Whitespace is horizontal-only (` \t\r`, never `\s`), for the reason {@link DELIVERABLE_HEADING}
+ * states: `\s*` after a class that also matches `\n` gives a run of blank lines two ways to
+ * reach every position, which is quadratic backtracking on a prompt re-scanned every turn —
+ * CI's "blank-line-heavy brief in linear time" test caught the first draft at 2.1s.
+ */
+const DELIVERABLE_EXPORT_VERB =
+  /(?:^|[.,;:—-][ \t\r]*|\n[ \t\r]*|\bthen[ \t]+|\band[ \t]+)export[ \t]+(?:both|it|them|this|that|everything|the[ \t]+(?:cut|edit|sequence|timeline|result|final|finished|16:9|9:16|vertical|horizontal|square|reel|short|montage|version)|a[ \t]|an[ \t]|at[ \t]+\d|in[ \t]+\d|as[ \t]|to[ \t])/;
+
+/**
+ * A request to SEE the cut before it is rendered, which the panel cannot fulfil either:
+ * `render_preview` has no route from the editor (`sidecar-executor.ts#RENDER_ACTIONS`).
+ * The timeline monitor plays the current cut; that is the preview the product has.
+ */
+const PREVIEW_REQUEST =
+  /\b(?:show|see|give|send|watch|check|review|look at|want|need|render)\b[^.\n]{0,40}\bpreview\b|\bpreview\b[^.\n]{0,30}\b(?:before|first|then|prior)\b/;
+
+/**
  * The same request, written as a SECTION rather than a sentence.
  *
  * A long brief does not say "produce a rendered MP4" mid-paragraph; it ends with a heading
@@ -504,8 +556,77 @@ const DELIVERABLE_HEADING =
 /** Does this request ask for a rendered or exported file as its deliverable? */
 export function asksForRenderedFile(prompt: string): boolean {
   const normalized = prompt.toLowerCase();
-  return DELIVERABLE_FILE.test(normalized) || DELIVERABLE_HEADING.test(normalized);
+  return (
+    DELIVERABLE_FILE.test(normalized) ||
+    DELIVERABLE_EXPORT_VERB.test(normalized) ||
+    DELIVERABLE_HEADING.test(normalized)
+  );
 }
+
+/** Does this request ask to be shown a preview before the render? */
+export function asksForPreview(prompt: string): boolean {
+  return PREVIEW_REQUEST.test(prompt.toLowerCase());
+}
+
+/**
+ * A lasting preference stated for later sessions, as editors phrase it: "remember for
+ * future edits", "from now on", "going forward", "always … in my videos", "note for next
+ * time". Deliberately not "remember to …" alone, which is an instruction about this edit.
+ */
+const LASTING_PREFERENCE =
+  /\b(?:remember|note|keep in mind|bear in mind)\b[^.\n]{0,40}\b(?:future|next time|from now on|going forward|always|every (?:edit|video|project)|in general|for later)\b|\b(?:from now on|going forward)\b|\bfor (?:all )?future (?:edits|videos|projects|sessions)\b/;
+
+/** Does this request state a preference the editor wants remembered for future edits? */
+export function asksToRememberPreference(prompt: string): boolean {
+  return LASTING_PREFERENCE.test(prompt.toLowerCase());
+}
+
+const COUNT_WORDS: Readonly<Record<string, number>> = {
+  a: 1,
+  an: 1,
+  one: 1,
+  two: 2,
+  three: 3,
+  four: 4,
+  five: 5,
+  six: 6,
+  seven: 7,
+  eight: 8,
+  nine: 9,
+  ten: 10,
+};
+
+/**
+ * "two cutaways", "3 stock cutaways", "a cutaway of the crowd", "cutaways: 2". The noun is
+ * the anchor; a bare number near "clips" is the shot-count reader's business, not this one's.
+ * When the brief states several counts the LARGEST is the cap — a brief that says "two
+ * cutaways … one more cutaway" is asking for three, and the smaller number must not fail
+ * a run that did what was asked.
+ */
+const CUTAWAY_COUNT =
+  /\b(\d{1,2}|a|an|one|two|three|four|five|six|seven|eight|nine|ten)\s+(?:more\s+|extra\s+|new\s+)?(?:stock\s+|b-?roll\s+)?cutaways?\b|\bcutaways?\s*[:—-]\s*(\d{1,2})\b/g;
+
+/** How many stock cutaways the request asked for, when it said. */
+export function explicitCutawayCount(prompt: string): number | undefined {
+  const normalized = prompt.toLowerCase();
+  let max: number | undefined;
+  for (const match of normalized.matchAll(CUTAWAY_COUNT)) {
+    const raw = match[1] ?? match[2];
+    if (raw === undefined) continue;
+    const value = COUNT_WORDS[raw] ?? Number(raw);
+    if (!Number.isFinite(value) || value < 1) continue;
+    max = max === undefined ? value : Math.max(max, value);
+  }
+  return max;
+}
+
+/**
+ * Tracking a PERSON or object through the picture: the verb next to a subject noun. "The
+ * audio track" and "the music track" are nouns and never match; "follow the music" has no
+ * subject. "track them through that section" is the captured brief.
+ */
+const SUBJECT_TRACKING =
+  /\b(?:track|follow|tracking|following)\b[^.\n]{0,40}\b(?:him|her|them|the rider|rider|subject|the person|person|face|faces|skier|snowboarder|the (?:guy|girl|man|woman|player|speaker|presenter|dog|cat|car))\b/;
 
 /** The narration nouns editors use, in both spellings. */
 const VOICEOVER_NOUN = 'voice[- ]?over|narration|narrator|tts|text[- ]to[- ]speech|ai voice';
@@ -552,6 +673,8 @@ export function unmeetableDeliverables(prompt: string): UnmeetableDeliverable[] 
   const missing: UnmeetableDeliverable[] = [];
   if (GENERATED_VOICEOVER.test(normalized)) missing.push('voiceover');
   if (SOURCED_SOUND_EFFECTS.test(normalized)) missing.push('soundEffects');
+  if (PREVIEW_REQUEST.test(normalized)) missing.push('preview');
+  if (SUBJECT_TRACKING.test(normalized)) missing.push('subjectTracking');
   return missing;
 }
 
@@ -571,6 +694,7 @@ export function checkableAcceptance(
   const minShotCount = explicitMinShotCount(prompt);
   const coverage = explicitCoverage(prompt);
   const unmeetable = unmeetableDeliverables(prompt);
+  const cutaways = explicitCutawayCount(prompt);
   const medianShotSource = references.applied.find((c) => c.line.startsWith('Pacing:'));
   return {
     ...(durationSeconds === undefined ? {} : { durationSeconds }),
@@ -582,6 +706,8 @@ export function checkableAcceptance(
     ...(coverage.length === 0 ? {} : { coverage }),
     ...(asksForRenderedFile(prompt) ? { deliverableFile: true } : {}),
     ...(unmeetable.length === 0 ? {} : { unmeetable }),
+    ...(asksToRememberPreference(prompt) ? { rememberPreference: true } : {}),
+    ...(cutaways === undefined ? {} : { maxStockCutaways: cutaways }),
   };
 }
 
@@ -634,6 +760,20 @@ export function acceptanceCriteria(acceptance: CheckableAcceptance): readonly st
   for (const deliverable of acceptance.unmeetable ?? []) {
     criteria.push(UNMEETABLE_LABEL[deliverable]);
   }
+  if (acceptance.maxStockCutaways !== undefined) {
+    criteria.push(
+      `At most ${String(acceptance.maxStockCutaways)} stock cutaway${
+        acceptance.maxStockCutaways === 1 ? '' : 's'
+      } on the timeline — the editor's own footage is the picture; stock fills the shots ` +
+        'they named and nothing else.',
+    );
+  }
+  if (acceptance.rememberPreference === true) {
+    criteria.push(
+      'The preference the editor stated for future edits is saved with remember_preference ' +
+        '(preferredPacing, brandStyle, captionStyle or targetAudience), not only applied here.',
+    );
+  }
   criteria.push(JUDGEMENT_CRITERION);
   return criteria;
 }
@@ -654,6 +794,8 @@ export function hasCheckableAcceptance(acceptance: CheckableAcceptance): boolean
     acceptance.medianShotSeconds !== undefined ||
     (acceptance.coverage?.length ?? 0) > 0 ||
     acceptance.deliverableFile === true ||
-    (acceptance.unmeetable?.length ?? 0) > 0
+    (acceptance.unmeetable?.length ?? 0) > 0 ||
+    acceptance.rememberPreference === true ||
+    acceptance.maxStockCutaways !== undefined
   );
 }

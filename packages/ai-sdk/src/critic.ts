@@ -33,11 +33,16 @@ import {
   type CoverageTreatment,
 } from './acceptance.js';
 import type { TargetPlatform } from './context-builder.js';
+import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 import type { TemporalReviewReport } from './temporal-review.js';
 import { hiddenPictureClips } from './domain-tools/picture-layers.js';
 import { frameToSeconds, secondsToFrame } from './frame-time.js';
 import { overflowingWords } from './overlay-fit.js';
 import type { VisionReviewReport } from './vision-review.js';
+
+// The detector lives in its own module so the context builder can share it without
+// importing the whole Critic; re-exported here for the callers that always found it here.
+export { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
 
 /** Outcome of a single Critic check. */
 export type CheckStatus = 'pass' | 'warn' | 'fail' | 'skipped';
@@ -50,6 +55,8 @@ export type CheckId =
   | 'hidden_picture'
   | 'duration_target'
   | 'shot_count'
+  | 'cutaway_count'
+  | 'tracker_motion'
   | 'shot_length_target'
   | 'reframe_coverage'
   | 'treatment_coverage'
@@ -114,6 +121,12 @@ export interface CritiqueOptions {
    * number. Read deterministically from the prompt by `acceptance.ts`.
    */
   readonly minShotCount?: number;
+  /**
+   * The most stock cutaways the request asked for, when it named a number — see
+   * `acceptance.ts#explicitCutawayCount`. The tool surface refuses the placement past this
+   * (`domain-tools/timeline.ts`); this check is the same rule read back off the timeline.
+   */
+  readonly maxStockCutaways?: number;
   /**
    * The editor's request, verbatim, when the caller has it.
    *
@@ -987,6 +1000,97 @@ function checkShotCount(project: Project, options: CritiqueOptions): CriticCheck
     'Shot count on target',
     'fail',
     `The cut uses ${String(shots)} shots but at least ${String(target)} were asked for.`,
+  );
+}
+
+/**
+ * Picture clips whose asset came from a stock library — the cutaways a run sourced.
+ *
+ * Stock is what `Asset.source` records (schema v20, the credit); the editor's own footage
+ * has none. Music is sourced the same way and is not picture, so it is not counted.
+ */
+export function stockPictureClips(project: Project): readonly Clip[] {
+  const stock = new Set(
+    project.assets.filter((asset) => asset.source?.provider !== undefined).map((a) => a.id),
+  );
+  return pictureClips(project).filter((clip) => stock.has(clip.assetId));
+}
+
+/**
+ * Did the run place more stock cutaways than the brief asked for?
+ *
+ * Run `4a8e` asked for "two cutaways I never shot" and delivered eight stock clips over 50
+ * of 60 seconds, burying six whole shots of the editor's own footage. Every placement was
+ * legal on its own; the count was the defect, and the count was in the brief.
+ */
+function checkCutawayCount(project: Project, options: CritiqueOptions): CriticCheck {
+  const cap = options.maxStockCutaways;
+  if (cap === undefined) {
+    return check('cutaway_count', 'Cutaways as asked', 'skipped', 'No cutaway count was asked for.');
+  }
+  const placed = stockPictureClips(project);
+  if (placed.length <= cap) {
+    return check(
+      'cutaway_count',
+      'Cutaways as asked',
+      'pass',
+      `${String(placed.length)} stock cutaway(s) on the timeline (at most ${String(cap)} asked for).`,
+    );
+  }
+  const named = placed
+    .slice(0, 4)
+    .map((clip) => `${clip.id} (${round(clip.start)}–${round(clip.end)}s)`)
+    .join(', ');
+  return check(
+    'cutaway_count',
+    'Cutaways as asked',
+    'fail',
+    `${String(placed.length)} stock cutaways are on the timeline but the request asked for ` +
+      `${String(cap)}: ${named}${placed.length > 4 ? ', …' : ''}. The editor's own footage is ` +
+      'the picture; delete_clip the extra stock so only the shots they named remain.',
+  );
+}
+
+/**
+ * Does every tracker actually carry motion?
+ *
+ * `track_object` attaches an `object_track` effect; unless keyframes were supplied it holds
+ * none, and nothing computes them afterwards — the measured track comes from the automatic
+ * tracking tool, which needs a mask the editor draws. Run `4a8e` attached ten empty
+ * trackers to the same clip, each reported "Tracked object", and the perceptual review was
+ * the first thing to say the tracker had no points. A warning, because the tracker itself
+ * is legal and the fix needs the editor's hand.
+ */
+function checkTrackerMotion(project: Project): CriticCheck {
+  const empty: string[] = [];
+  let trackers = 0;
+  for (const clip of pictureClips(project)) {
+    // A hand-built fixture may omit `effects`; a review must not crash on it.
+    for (const effect of clip.effects ?? []) {
+      if (effect.type !== 'object_track') continue;
+      trackers += 1;
+      if ((effect.keyframes ?? []).length === 0) empty.push(clip.id);
+    }
+  }
+  if (trackers === 0) {
+    return check('tracker_motion', 'Trackers carry motion', 'skipped', 'No trackers on the timeline.');
+  }
+  if (empty.length === 0) {
+    return check(
+      'tracker_motion',
+      'Trackers carry motion',
+      'pass',
+      `${String(trackers)} tracker(s), each with measured motion.`,
+    );
+  }
+  return check(
+    'tracker_motion',
+    'Trackers carry motion',
+    'warn',
+    `${String(empty.length)} of ${String(trackers)} tracker(s) hold no motion at all — a ` +
+      `highlight on them will not follow anything: ${[...new Set(empty)].slice(0, 4).join(', ')}. ` +
+      'The AI cannot compute the track by itself: draw a mask around the subject on that clip ' +
+      'in the editor and run automatic tracking, or remove the tracker.',
   );
 }
 
@@ -1933,6 +2037,27 @@ function checkWordSevered(
     .slice(0, 4)
     .map((s) => `frame ${s.frame} = ${round(s.seconds)}s ("${s.word}")`)
     .join(', ');
+  // A transcript that loops is not a transcript with a bad stretch in it — it is a
+  // recording the recogniser could not hear speech in, and the words OUTSIDE the loop are
+  // its guesses too. Run `cc907070` (a GoPro take of nothing but wind, "no dialogue
+  // anywhere" in the brief) had 2,431 words of which 2,382 were the loop; the other 49 —
+  // "Jake,", "try", "God." — were hallucinated over the same wind, and a cut inside one of
+  // them FAILED the run and its 65 applied changes. So under a loop this is a warning: the
+  // editor is told which cuts and why the words are suspect, and the run is not held to
+  // word boundaries nobody can vouch for.
+  if (loop !== undefined) {
+    return check(
+      'word_severed',
+      'No words cut through',
+      'warn',
+      `${severed.length} cut(s) land inside a transcribed word: ${where}${
+        severed.length > 4 ? ', …' : ''
+      }. The transcript repeats one phrase over ${String(Math.round(loop.share * 100))}% ` +
+        'of the recording — speech recognition looping over quiet audio — so the words ' +
+        'outside the loop cannot be trusted either, and these cuts are not counted as ' +
+        `defects. Re-transcribe before cutting on word timings.${aside}`,
+    );
+  }
   return check(
     'word_severed',
     'No words cut through',
@@ -2217,6 +2342,8 @@ function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck
     checkPictureCoverage(project, options),
     checkDurationTarget(project.timeline, options),
     checkShotCount(project, options),
+    checkCutawayCount(project, options),
+    checkTrackerMotion(project),
     checkShotLengthTarget(project, options),
     checkReframeCoverage(project),
     checkTreatmentCoverage(project, options),
@@ -2318,97 +2445,6 @@ export function reconcileInheritedFailures(
     ? `Passed with ${String(warns)} warning(s) (${tail}).`
     : `${String(fails)} check(s) failed, ${String(warns)} warning(s) (${tail}).`;
   return { checks, ok, summary };
-}
-
-/** A stretch of transcript that is one phrase repeated — the ASR hallucination signature. */
-export interface TranscriptLoop {
-  /** The repeated phrase, as transcribed. */
-  readonly phrase: string;
-  /** How many times it repeats back to back. */
-  readonly repeats: number;
-  /** Seconds of the recording the repetition covers. */
-  readonly seconds: number;
-  /** That span as a share of the transcript's own span, 0..1. */
-  readonly share: number;
-  /** Source second the repetition starts at — the low edge of the unreliable stretch. */
-  readonly startSeconds: number;
-  /** Source second it ends at. Word timings in `[startSeconds, endSeconds]` mean nothing. */
-  readonly endSeconds: number;
-}
-
-/** Repeats before a phrase is a hallucination rather than a chorus. */
-const LOOP_MIN_REPEATS = 8;
-/** …and the share of the transcript it must cover, so a real refrain is not flagged. */
-const LOOP_MIN_SHARE = 0.5;
-
-/**
- * Is this transcript mostly one phrase repeated — i.e. did ASR hallucinate?
- *
- * Whisper's best-known failure mode is a loop: over quiet or music-only audio it emits one
- * sentence again and again, with plausible timings, and nothing downstream can tell those
- * words from spoken ones. This function was written against `mission-podcast`, whose media
- * was then 2431 words of which 2384 — 92%, from 21.7s to 575.5s — were "I'll try to follow
- * you later." repeated 397 times over a clip whose real speech stopped around 30s. That
- * fixture has since been replaced (`speech-9min-c`), so the detector no longer fires on any
- * project in the repo; it stays because the failure it catches is whisper's, not that
- * fixture's, and the next quiet recording a user imports reproduces it exactly.
- *
- * That matters well beyond one fixture. The transcript is what grounds a highlight
- * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts
- * confidently on words nobody said, and every check that reads the transcript — `dead_air`,
- * `word_severed` — agrees with it. Detecting the loop is what lets the run say so instead.
- *
- * Deliberately conservative, because a chorus, a chant and a drill are all legitimately
- * repetitive: the phrase must repeat back to back at least {@link LOOP_MIN_REPEATS} times AND
- * cover at least half the transcript's span. Real speech does not do both.
- *
- * @param words - The transcript, in time order.
- * @returns The loop, or `undefined` when the transcript does not look fabricated.
- */
-export function detectTranscriptLoop(words: readonly TranscriptWord[]): TranscriptLoop | undefined {
-  if (words.length < LOOP_MIN_REPEATS * 2) return undefined;
-  const span = words[words.length - 1]!.end - words[0]!.start;
-  if (!(span > 0)) return undefined;
-  const norm = (w: TranscriptWord): string => w.word.trim().toLowerCase();
-  // Try each plausible phrase length, shortest first: the loop's period is unknown, and a
-  // longer window would also match a multiple of the true one.
-  for (let size = 1; size <= 12; size++) {
-    for (let start = 0; start + size * LOOP_MIN_REPEATS <= words.length; start++) {
-      const phrase = words
-        .slice(start, start + size)
-        .map(norm)
-        .join(' ');
-      if (!phrase) continue;
-      let repeats = 1;
-      let index = start + size;
-      while (
-        index + size <= words.length &&
-        words
-          .slice(index, index + size)
-          .map(norm)
-          .join(' ') === phrase
-      ) {
-        repeats++;
-        index += size;
-      }
-      if (repeats < LOOP_MIN_REPEATS) continue;
-      const seconds = words[index - 1]!.end - words[start]!.start;
-      const share = seconds / span;
-      if (share < LOOP_MIN_SHARE) continue;
-      return {
-        phrase: words
-          .slice(start, start + size)
-          .map((w) => w.word.trim())
-          .join(' '),
-        repeats,
-        seconds,
-        share,
-        startSeconds: words[start]!.start,
-        endSeconds: words[index - 1]!.end,
-      };
-    }
-  }
-  return undefined;
 }
 
 /** The transcript grounding every word-level edit is not obviously fabricated. */

@@ -10,7 +10,10 @@ import { describe, expect, it } from 'vitest';
 import {
   JUDGEMENT_CRITERION,
   acceptanceCriteria,
+  asksForPreview,
   asksForRenderedFile,
+  asksToRememberPreference,
+  explicitCutawayCount,
   checkableAcceptance,
   explicitCoverage,
   explicitMinShotCount,
@@ -200,6 +203,16 @@ describe('asksForRenderedFile', () => {
     expect(asksForRenderedFile('render out a mov file')).toBe(true);
   });
 
+  it('recognises an imperative export whose object is the cut, with no file noun', () => {
+    // Run `cc907070`'s brief, verbatim: no mp4, file or video within reach of the verb.
+    expect(asksForRenderedFile('Export both — the 16:9 at 1080p and the vertical.')).toBe(true);
+    expect(asksForRenderedFile('When you are done, export it.')).toBe(true);
+    expect(asksForRenderedFile('Then export the cut at 4K.')).toBe(true);
+    // The noun, not the verb: dialogs and settings are not a request for a file.
+    expect(asksForRenderedFile('use the export dialog defaults')).toBe(false);
+    expect(asksForRenderedFile('leave the export settings alone')).toBe(false);
+  });
+
   // GAP-021 (run `fc10301a`). A long brief states its deliverable as a SECTION, not a
   // sentence — and the inline reader bounds its gap with `[^.\n]{0,60}`, which cannot
   // cross the newline between the heading and the noun under it. That run asked for a
@@ -302,7 +315,63 @@ describe('checkableAcceptance', () => {
  * The precedent is `deliverableFile`, which exists for exactly this reason and covered
  * exactly one case. This is disclosure, not capability.
  */
+describe('asksForPreview', () => {
+  it('recognises a request to be shown the cut before the render', () => {
+    expect(asksForPreview('Show me a preview before you render.')).toBe(true);
+    expect(asksForPreview('I want to see a preview first')).toBe(true);
+    expect(asksForPreview('preview it, then export')).toBe(true);
+    expect(asksForPreview('the preview thumbnails look soft')).toBe(false);
+    expect(unmeetableDeliverables('show me a preview before you render')).toEqual(['preview']);
+  });
+});
+
+describe('asksToRememberPreference', () => {
+  it('recognises a preference stated for future edits, not an instruction about this one', () => {
+    expect(
+      asksToRememberPreference(
+        'One thing to remember for future edits: no fade to black in the middle of an action sequence, ever.',
+      ),
+    ).toBe(true);
+    expect(asksToRememberPreference('From now on, always big yellow captions')).toBe(true);
+    expect(asksToRememberPreference('note for next time: I like cuts on the impact')).toBe(true);
+    expect(asksToRememberPreference('remember to trim the head of the last clip')).toBe(false);
+    expect(asksToRememberPreference('remember, this one is for founders')).toBe(false);
+    const acceptance = checkableAcceptance('remember for future edits: punchier cuts', undefined);
+    expect(acceptance.rememberPreference).toBe(true);
+    expect(acceptanceCriteria(acceptance).join('\n')).toContain('remember_preference');
+  });
+});
+
+describe('explicitCutawayCount', () => {
+  it('reads the number of cutaways a brief asks for, in words or digits, taking the largest', () => {
+    expect(
+      explicitCutawayCount("I'm missing two cutaways I never shot: a chairlift, and snow."),
+    ).toBe(2);
+    expect(explicitCutawayCount('drop in 3 stock cutaways and one more cutaway at the end')).toBe(
+      3,
+    );
+    expect(explicitCutawayCount('a cutaway of the crowd would help')).toBe(1);
+    expect(explicitCutawayCount('cutaways: 4')).toBe(4);
+    expect(explicitCutawayCount('use plenty of b-roll')).toBeUndefined();
+    expect(explicitCutawayCount('at least 20 clips')).toBeUndefined();
+    const acceptance = checkableAcceptance('two cutaways please', undefined);
+    expect(acceptance.maxStockCutaways).toBe(2);
+    expect(acceptanceCriteria(acceptance).join('\n')).toContain('At most 2 stock cutaways');
+  });
+});
+
 describe('unmeetableDeliverables', () => {
+  it('records subject tracking as unmeetable without the editor’s mask, never an audio track', () => {
+    expect(
+      unmeetableDeliverables(
+        'find them, track them through that section, and keep a soft highlight on them',
+      ),
+    ).toEqual(['subjectTracking']);
+    expect(unmeetableDeliverables('follow the rider down the run')).toEqual(['subjectTracking']);
+    expect(unmeetableDeliverables('put the music on its own track')).toEqual([]);
+    expect(unmeetableDeliverables('follow the music with the cuts')).toEqual([]);
+  });
+
   it('spots a request to generate narration', () => {
     expect(unmeetableDeliverables('add a voiceover explaining the story')).toEqual(['voiceover']);
     expect(unmeetableDeliverables('I need AI narration over the b-roll')).toEqual(['voiceover']);

@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 import subprocess
 from collections.abc import Callable
+from itertools import pairwise
 from pathlib import Path
 from typing import Any, ClassVar
 
@@ -23,6 +24,7 @@ from framepilot_engine.render.compiler import (
     expected_render,
     has_audio_content,
     has_video_content,
+    ramped_time_map,
     timeline_duration,
     unsupported_animated_properties,
     unsupported_track_types,
@@ -120,6 +122,32 @@ def _clip_model(source_start: float, source_end: float) -> Clip:
             "sourceEnd": source_end,
         }
     )
+
+
+def test_ramped_time_map_takes_scalars_and_sample_arrays() -> None:
+    """MoviePy hands the audio an ARRAY of sample times (run ``cc907070``).
+
+    ``float(t)`` on that array raised ``only 0-dimensional arrays can be converted to
+    Python scalars`` and killed the perceptual review of every edit carrying a ramp;
+    the export of a ramped clip with sound would have died the same way.
+    """
+    ramp = [
+        {"id": "p1", "sourceTime": 0.0, "rate": 2.0, "easing": "linear"},
+        {"id": "p2", "sourceTime": 2.0, "rate": 0.5, "easing": "linear"},
+    ]
+    remap = ramped_time_map(ramp, 4.0)
+    scalar = remap(0.5)
+    assert isinstance(scalar, float)
+    assert 0.0 < scalar < 4.0
+    times = np.linspace(0.0, 3.0, 7)
+    mapped = remap(times)
+    assert isinstance(mapped, np.ndarray)
+    assert mapped.shape == times.shape
+    # Element-wise, and monotonic: the integral of a positive rate is invertible.
+    assert mapped[1] == pytest.approx(remap(float(times[1])))
+    assert all(a <= b for a, b in pairwise(mapped))
+    assert mapped[0] == pytest.approx(0.0)
+    assert mapped[-1] <= 4.0
 
 
 def test_subclipped_source_clamps_out_point_past_decoded_duration() -> None:

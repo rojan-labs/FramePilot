@@ -137,8 +137,50 @@ export function musicDuckRefusalKey(
   if (track.type === 'caption' || track.type === 'effect') {
     return `duck_wrong_track_kind:${track.type}:${duckUnderTrackId}`;
   }
-  if (track.clips.length === 0) return `duck_empty_track:${duckUnderTrackId}`;
+  if (track.clips.length === 0 && !musicFirst(project)) {
+    return `duck_empty_track:${duckUnderTrackId}`;
+  }
   return null;
+}
+
+/**
+ * Is this a bed placed BEFORE any sound exists — no track anywhere carries a clip?
+ *
+ * The one case an empty duck target is accepted. When some other track already carries
+ * sound, naming an empty one is almost certainly the wrong lane (run `137d8fd0` named an
+ * empty `layer_audio_5` while the wind sat on `v_main`), and the refusal that names the
+ * right track stands. When NOTHING carries sound yet, there is no right track to name:
+ * the music-first order every beat-cut montage uses places the bed, then the picture.
+ * Run `cc907070` was refused here on its first `add_music` — its first assembly had been
+ * rejected and the whole timeline was empty — and placed the bed as a bare clip with no
+ * duck at all. Ducking is evaluated at render against whatever the trigger track holds
+ * then (`compiler.py#_duck_intervals`), so an idle duck is harmless and engages when the
+ * clips land.
+ */
+function musicFirst(project: Project): boolean {
+  return duckCandidateTrackIds(project).length === 0;
+}
+
+/**
+ * The sentence for a duck target accepted while it is still empty (see {@link musicFirst}).
+ *
+ * Said as a note so the model narrates what is true: the duck is authored, and engages
+ * when the track fills.
+ *
+ * @returns The note, or `null` when the target has clips, is refused, or names nothing.
+ */
+export function musicDuckEmptyTrackNote(
+  project: Project,
+  duckUnderTrackId: string | undefined,
+): string | null {
+  if (duckUnderTrackId === undefined || duckUnderTrackId.trim() === '') return null;
+  const track = project.timeline.tracks.find((candidate) => candidate.id === duckUnderTrackId);
+  if (!track || track.type === 'caption' || track.type === 'effect') return null;
+  if (track.clips.length > 0 || !musicFirst(project)) return null;
+  return (
+    `"${duckUnderTrackId}" has no clips yet, so the duck is authored but idle: it engages ` +
+    'the moment clips land on that track, and the bed plays at full level until then.'
+  );
 }
 
 export function musicDuckSidechainIssue(
@@ -162,7 +204,10 @@ export function musicDuckSidechainIssue(
       `sound to duck under. ${duckCandidateSentence(project)}`
     );
   }
-  if (track.clips.length === 0) {
+  // An empty track is refused only while some OTHER track carries sound — then it is the
+  // wrong lane and the sentence names the right one. With nothing placed anywhere the bed
+  // is simply first, and the duck waits for the picture (`musicDuckEmptyTrackNote`).
+  if (track.clips.length === 0 && !musicFirst(project)) {
     return (
       `duckUnderTrackId "${duckUnderTrackId}" names a track with no clips, so there is ` +
       `nothing to duck under. ${duckCandidateSentence(project)}`

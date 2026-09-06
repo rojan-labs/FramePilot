@@ -149,8 +149,13 @@ const targetField = z
   );
 
 /** Ducking derives its own targets, so its referent is fixed — same wrong-kind message. */
+// Ducking derives its targets from roles or the selection, never from a referent, so a
+// `target` here carries no information. It used to be pinned to the literal `this`, and
+// a model that wrote `playhead` — the value every OTHER intent accepts — was refused for
+// it: run `cc907070` lost a ducking turn to `expected "this" — received "playhead"`.
+// Accepted and ignored; the objective's own intent says what happens.
 const duckTargetField = z
-  .literal('this', { error: (issue) => targetHint(issue.input) })
+  .enum(TARGET_REFERENTS, { error: (issue) => targetHint(issue.input) })
   .default('this');
 
 const reductionField = z
@@ -638,7 +643,13 @@ function resolveDuckRoles(input: ResolveAudioObjectiveInput): AudioControllerRes
   if (!bedRole || !sidechainRole) {
     return rejected(input.objective, 'sidechain_unresolved', 'duck_roles needs both roles.');
   }
-  const audioTracks = input.project.timeline.tracks.filter((track) => track.type === 'audio');
+  // A VIDEO track carries its clips' own sound and takes a role like an audio track does
+  // (see `set_track_flags`): a GoPro's wind, a camera's recorded voice. Run `cc907070`
+  // was asked to duck the wind under music and could not, because the wind lived on the
+  // picture and only audio tracks were consulted.
+  const audioTracks = input.project.timeline.tracks.filter(
+    (track) => track.type === 'audio' || track.type === 'video',
+  );
   const bedTracks = audioTracks.filter((track) => track.role === bedRole);
   const sidechainTracks = audioTracks.filter((track) => track.role === sidechainRole);
   // "Label the track you mean" named a move that did not exist. `Track.role` shipped
@@ -648,10 +659,11 @@ function resolveDuckRoles(input: ResolveAudioObjectiveInput): AudioControllerRes
   // `set_track_flags` can write it now, so the sentence names the call.
   const labelWith = (role: string): string =>
     `Label it first: set_track_flags with trackId and role: "${role}". Roles are never ` +
-    `inferred from track names — a lane called "Music 2" routinely holds a voice-over.` +
+    `inferred from track names — a lane called "Music 2" routinely holds a voice-over. ` +
+    'A video track counts when its clips carry the sound you mean.' +
     (audioTracks.length > 0
-      ? ` Audio tracks here: ${audioTracks.map((track) => track.id).join(', ')}.`
-      : ' This project has no audio track yet.');
+      ? ` Tracks that carry sound here: ${audioTracks.map((track) => track.id).join(', ')}.`
+      : ' This project has no track carrying sound yet.');
   if (bedTracks.length === 0) {
     return rejected(
       input.objective,

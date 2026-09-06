@@ -364,9 +364,10 @@ export function checkHasMusic(project: Project): RubricCheck {
  * The two are not the same grid, and the difference was worth 45 points. `detect_beats`
  * reads `beat-100bpm.wav` as 99.4 BPM and returns onsets at 0.581, 0.975, 1.184, 1.788,
  * 1.974 … — only 30 of its 50 onsets sit within this check's tolerance of an ideal 0.6s
- * grid. The runtime then snaps cuts to those onsets (`kernel/beat-grid/beat-alignment.ts`),
- * which is the correct thing for it to do, and scoring the result against the ideal grid
- * failed all three baseline runs at 45–54% for hitting exactly what they were aimed at.
+ * grid. A run that cuts on the onsets it was handed is doing exactly what the brief asked,
+ * and scoring the result against the ideal grid failed all three baseline runs at 45–54%
+ * for hitting exactly what they were aimed at. (A runtime beat-grid validator used to snap
+ * cuts onto those onsets; ADR 0174 retired it, and the placement is now the model's own.)
  *
  * The case this serves says so itself: "Cuts must land on a measured beat grid, not an
  * estimated one." The nominal period was the estimated one.
