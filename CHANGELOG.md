@@ -6,7 +6,31 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **The AI can no longer bury one cutaway under another and call it done.** A 60-second
+  highlight that asked for two stock cutaways came back with 19 video layers and 37 of its
+  48 shots — including every clip of the main footage — sitting completely behind
+  something else, with the AI reporting each placement as a success. Placing a shot that
+  would cover another cutaway from its first frame to its last is now refused, with the
+  buried shot named and the ways out (drop it, move it, or trim one of them); covering the
+  main footage, which is what a cutaway is for, is unchanged. Placing the same footage
+  from the same point in the file over a moment where it already plays is refused too,
+  even when the two placements are different lengths — that includes the same music file
+  laid down twice, which does not mix, it just plays twice as loud. And the review pass
+  now reports any picture on the timeline that nothing will ever show.
+  (`packages/ai-sdk`)
+
 ### Added
+
+- **The AI's closing summary now says what it did NOT do.** A run that applied 416 edits
+  across a seven-part brief ended with a list of the edits and nothing else — no mention
+  that captioning had been refused eleven times and never once worked, or that the audio
+  pass failed all ten times it was tried. The summary now carries a short **Not done**
+  block: the planned steps that were never completed, and the tools the run never got an
+  answer out of, each with the last reason it gave. It appears only when there is something
+  to say, is capped at six lines, and is kept when you stop a run — that is when it matters
+  most.
 
 - **Asking about footage that isn't in the project yet gets a straight answer.** After a
   stock search, the AI would sometimes ask to describe a result it hadn't downloaded — and

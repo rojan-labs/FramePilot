@@ -227,6 +227,8 @@ import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import { createRunDeadline } from './reliability/deadline.js';
+import { neverSucceededTools } from './reliability/unfinished-work.js';
+import type { NeverSucceededTool, ToolAttempt } from './reliability/unfinished-work.js';
 import type { TimerApi } from './reliability/timeout.js';
 import {
   MODEL_WAIT_HEARTBEAT_MS,
@@ -6528,6 +6530,13 @@ export class Orchestrator {
       /** Per-call progress facts the reducer folds (see `TurnCallFact`). */
       callFacts: TurnCallFact[];
       /**
+       * Every settled call of this turn, for the run-level "Not done" account
+       * (GOLDEN-C.19 — see `reliability/unfinished-work.ts`). Carried separately from
+       * `callFacts`, which is keyed by NOVELTY and deliberately carries neither the tool's
+       * name nor a host failure's text.
+       */
+      toolAttempts: ToolAttempt[];
+      /**
        * Images this turn's tool calls produced (`get_frame`), for the next request to
        * attach as real image content. Empty on every turn that did not look at a frame.
        */
@@ -6556,6 +6565,7 @@ export class Orchestrator {
     /** Frames this turn's `get_frame` calls rendered, for the NEXT request's images. */
     const frames: AiImage[] = [];
     const callFacts: TurnCallFact[] = [];
+    const toolAttempts: ToolAttempt[] = [];
     // Per-call validator rejections (ops proposed but refused) — the honest
     // empty-run notice is built from these when the whole run lands nothing.
     let rejectedOpCount = 0;
@@ -6855,6 +6865,16 @@ export class Orchestrator {
             ...(failureKey === undefined ? {} : { failureKey }),
           });
         }
+        // The run-level record of what this tool managed. `data` over `summary` because a
+        // repeat refusal's summary is the wrapper ("Refused repeat of …") while its `data`
+        // is the ORIGINAL error — the sentence the editor needs in the "Not done" block.
+        toolAttempts.push({
+          tool: call.name,
+          status: outcome.status,
+          ...(outcome.status === 'failed'
+            ? { failureReason: typeof outcome.data === 'string' ? outcome.data : outcome.summary }
+            : {}),
+        });
         if (outcome.rejectedOpCount) {
           rejectedOpCount += outcome.rejectedOpCount;
           rejectionNotes.push(outcome.note);
@@ -6886,6 +6906,7 @@ export class Orchestrator {
       derivedOpCount,
       rejectionNotes,
       callFacts,
+      toolAttempts,
       frames,
       proposalCards,
     };
@@ -8173,6 +8194,15 @@ export class Orchestrator {
      */
     let sawContentEvidence = false;
     /**
+     * Every settled tool call of the run, in call order, for the completion report's
+     * "Not done" block (GOLDEN-C.19 — `reliability/unfinished-work.ts`).
+     *
+     * Held here rather than in the reducer for the same reason `sawContentEvidence` is: it
+     * is an observation the RUNTIME makes about calls it executed, and the pure reducer has
+     * neither the tool's name nor a host failure's text.
+     */
+    const toolAttempts: ToolAttempt[] = [];
+    /**
      * Did this run's request ask for a rendered FILE? The agent cannot make one — render and
      * export have no route from the panel — so the completion account says so rather than
      * reporting a finished job over a deliverable that was never produced.
@@ -8764,6 +8794,7 @@ export class Orchestrator {
           derivedOpCount,
           rejectionNotes,
           callFacts,
+          toolAttempts: turnToolAttempts,
           frames,
           proposalCards,
         } = yield* self.executeToolCalls(
@@ -8827,6 +8858,7 @@ export class Orchestrator {
           log.push(`Step ${index}: ${note}`);
         }
         if (callFacts.some(isContentEvidenceFact)) sawContentEvidence = true;
+        toolAttempts.push(...turnToolAttempts);
         // Hand this turn's frames to the NEXT request (see `pendingFrames`).
         pendingFrames = frames;
         const anyToolFailed = turnStatuses.includes('failed');
@@ -9132,6 +9164,10 @@ export class Orchestrator {
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
               contentEvidence: sawContentEvidence,
+              // What the run announced and never delivered, and what it never got working.
+              // Both are free: the plan ledger and the settled tool cards already exist.
+              planSteps: effect.planSteps,
+              neverSucceeded: neverSucceededTools(toolAttempts),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(offGridNote ? { offGrid: offGridNote } : {}),
@@ -9619,6 +9655,55 @@ function repeatedFailureOutcome(call: ToolCall, error: string): AgentCallOutcome
   };
 }
 
+/** How many "Not done" lines the report prints before collapsing the rest into a count. */
+const NOT_DONE_MAX_LINES = 6;
+
+/**
+ * How much of a failure reason survives into the report. The reason is a tool result
+ * written for the MODEL — a paragraph, sometimes — and this block is a list, not the
+ * error card. Enough to recognise the wall; not enough to bury the other five lines.
+ */
+const NOT_DONE_REASON_MAX_CHARS = 160;
+
+/** One-line failure reason: first sentence's worth, ellipsised, never a paragraph. */
+function trimFailureReason(reason: string): string {
+  const flat = reason.replace(/\s+/g, ' ').trim();
+  if (flat.length <= NOT_DONE_REASON_MAX_CHARS) return flat;
+  return `${flat.slice(0, NOT_DONE_REASON_MAX_CHARS).trimEnd()}…`;
+}
+
+/**
+ * What the run set out to do and did not do (GOLDEN-C.19).
+ *
+ * WHY: the report's other blocks only account for work that reached the validator. Run
+ * `137d8fd0` applied 416 edits against a seven-part brief and closed without a word about
+ * the two parts that never landed at all — captioning, refused eleven times, and
+ * `professional_audio`, which failed all ten times it was called. "Applied 416 edits" is
+ * true and, on its own, misleading.
+ *
+ * Empty when there is nothing to say, so an ordinary clean run is unchanged.
+ */
+function notDoneBlock(
+  planSteps: readonly PlanStep[],
+  neverSucceeded: readonly NeverSucceededTool[],
+): string {
+  const lines: string[] = [];
+  for (const step of planSteps) {
+    if (step.status === 'completed') continue;
+    lines.push(`- ${step.label} — ${step.status}`);
+  }
+  for (const { tool, reason } of neverSucceeded) {
+    const label = describeToolCall({ name: tool, arguments: {} });
+    const why = reason === '' ? '' : `: ${trimFailureReason(reason)}`;
+    lines.push(`- ${label} — never succeeded${why}`);
+  }
+  if (lines.length === 0) return '';
+  const shown = lines.slice(0, NOT_DONE_MAX_LINES);
+  const more = lines.length - NOT_DONE_MAX_LINES;
+  if (more > 0) shown.push(`- …and ${more} more`);
+  return `\n\n**Not done:**\n${shown.join('\n')}`;
+}
+
 /** Markdown completion report closing an agent run that applied edits (U3). Exported for tests. */
 export function agentCompletionReport(args: {
   ops: readonly AnyOperation[];
@@ -9654,6 +9739,15 @@ export function agentCompletionReport(args: {
    * pass). The list is the same receipt; the head stops claiming the work is done.
    */
   failed?: boolean;
+  /**
+   * The run's drafted plan as it finished. Every step that is not `completed` is a thing
+   * the run announced and did not deliver (GOLDEN-C.19). Empty/absent for a run that
+   * drafted no plan — see `FinalizeEffect.planSteps` for why an unplanned run's derived
+   * steps are NOT this.
+   */
+  planSteps?: readonly PlanStep[];
+  /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
+  neverSucceeded?: readonly NeverSucceededTool[];
 }): string {
   const maxLines = 10;
   // Collapse lines that render identically. Eight successive restyles of one caption track
@@ -9682,6 +9776,9 @@ export function agentCompletionReport(args: {
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
       : '';
+  // After "Skipped" (work that was attempted and refused) and before the caveats: what was
+  // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
+  const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -9700,7 +9797,7 @@ export function agentCompletionReport(args: {
       ? '\n\nThis asks for a rendered file, which the AI panel cannot produce — the edits are ' +
         'on your timeline; use the Export dialog to render them out.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${unevidenced}${offGrid}${deliverable}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${offGrid}${deliverable}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

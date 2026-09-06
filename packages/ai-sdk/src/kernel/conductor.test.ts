@@ -468,8 +468,13 @@ describe('onEffectResult — approval fold (P11.3)', () => {
         appliedTurns: 0,
         rejectedOpCount: 0,
         rejectionReasons: [],
+        // The drafted ledger travels intact, every step still `pending`: a plan the creator
+        // declined is the clearest case of work the run announced and did not do
+        // (GOLDEN-C.19), and the completion report is where they see it.
+        planSteps: drafted.state.planSteps,
       },
     ]);
+    expect(drafted.state.planSteps.every((step) => step.status === 'pending')).toBe(true);
     // No checkpoint event — `finalize`'s checkpoint only fires when cumulativeOps.length > 0.
     expect(types(events)).toEqual(['notification']);
   });
@@ -527,6 +532,8 @@ describe('onEffectResult — resume fold', () => {
         appliedTurns: 0,
         rejectedOpCount: 0,
         rejectionReasons: [],
+        // No drafted ledger travels to the report — see `FinalizeEffect.planSteps`.
+        planSteps: [],
       },
     ]);
     expect(types(events)).toEqual(['warning']);

@@ -654,6 +654,17 @@ export interface FinalizeEffect {
   readonly appliedTurns: number;
   readonly rejectedOpCount: number;
   readonly rejectionReasons: readonly string[];
+  /**
+   * The drafted plan as it finished, so the completion report can say which of the steps
+   * the run announced were never completed (GOLDEN-C.19).
+   *
+   * EMPTY when the run drafted no plan, even though {@link ConductorState.planSteps} is
+   * not: an unplanned run appends one derived step per turn purely for status tracking
+   * (see `runTurn` in the orchestrator), and those are a log of what the run DID, not a
+   * statement of what it set out to do. Listing the last one as "running" would report a
+   * finished turn as unfinished work.
+   */
+  readonly planSteps: readonly PlanStep[];
 }
 
 /** The inert effect descriptions the Conductor emits for the runtime to interpret. */
@@ -1227,6 +1238,8 @@ function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
         appliedTurns: state.appliedTurns,
         rejectedOpCount: state.rejectedOpCount,
         rejectionReasons: [...state.rejectionReasons],
+        // Only a DRAFTED ledger travels — see `FinalizeEffect.planSteps`.
+        planSteps: state.ledgerLength > 0 ? [...state.planSteps] : [],
       },
     ],
     events,

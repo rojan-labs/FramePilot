@@ -1521,7 +1521,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–3s"
+      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not done:**\n- Tighten the intro — pending"
     },
     {
       "id": "turn_golden:status:19",

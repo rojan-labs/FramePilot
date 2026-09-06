@@ -9613,7 +9613,10 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "id": "turn_1:assistant",
       "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.
 
-- Deleted range Video 1 · 0s–3s",
+- Deleted range Video 1 · 0s–3s
+
+**Not done:**
+- Wrap up — pending",
       "ts": 1000,
       "turnId": "turn_1",
       "type": "assistant_message",

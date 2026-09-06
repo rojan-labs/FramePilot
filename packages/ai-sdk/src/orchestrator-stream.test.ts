@@ -2033,6 +2033,128 @@ describe('streamAgent', () => {
     ).not.toContain('chosen from timings alone');
   });
 
+  // GOLDEN-C.19. Run `137d8fd0` closed a seven-part brief with "Applied 416 edits … but the
+  // run did not finish cleanly" and never said that captioning had been refused eleven times
+  // and never once succeeded. The receipt could account for work that landed and work the
+  // validator refused — never for work that was never delivered at all.
+  describe('the "Not done" block', () => {
+    const oneEdit = [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation];
+    const base = { ops: oneEdit, steps: 1, rejectedOpCount: 0, rejectionReasons: [] };
+
+    it('names the plan steps the run never completed, with their real status', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: [
+          { id: 's1', label: 'Cut the silences', status: 'completed' },
+          { id: 's2', label: 'Caption the edit', status: 'failed' },
+          { id: 's3', label: 'Lift the sharpness', status: 'pending' },
+          { id: 's4', label: 'Balance the audio', status: 'running' },
+        ],
+      });
+      expect(report).toContain('**Not done:**');
+      expect(report).toContain('- Caption the edit — failed');
+      expect(report).toContain('- Lift the sharpness — pending');
+      expect(report).toContain('- Balance the audio — running');
+      // The step that WAS delivered is accounted for by the edit list, not here.
+      expect(report).not.toContain('Cut the silences');
+    });
+
+    it('names the tools that never succeeded, with the last reason', () => {
+      const report = agentCompletionReport({
+        ...base,
+        neverSucceeded: [
+          { tool: 'caption_the_edit', reason: 'add_caption_layer.end must be greater than start.' },
+          { tool: 'professional_audio', reason: 'no audio track on the timeline' },
+        ],
+      });
+      expect(report).toContain(
+        '- Caption the edit — never succeeded: add_caption_layer.end must be greater than start.',
+      );
+      expect(report).toContain('- Professional audio — never succeeded: no audio track');
+    });
+
+    it('trims a reason written for the model down to one line', () => {
+      const report = agentCompletionReport({
+        ...base,
+        neverSucceeded: [{ tool: 'professional_audio', reason: `${'x'.repeat(400)}\n\nmore` }],
+      });
+      const line = report.split('\n').find((l) => l.includes('never succeeded')) ?? '';
+      expect(line.endsWith('…')).toBe(true);
+      expect(line.length).toBeLessThan(220);
+    });
+
+    it('caps at six lines and counts the rest', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: Array.from({ length: 8 }, (_, i) => ({
+          id: `s${String(i)}`,
+          label: `Step ${String(i)}`,
+          status: 'pending' as const,
+        })),
+      });
+      const lines = report.split('\n').filter((l) => l.startsWith('- Step '));
+      expect(lines).toHaveLength(6);
+      expect(report).toContain('- …and 2 more');
+    });
+
+    it('is silent when the plan finished and every tool eventually worked', () => {
+      const report = agentCompletionReport({
+        ...base,
+        planSteps: [{ id: 's1', label: 'Cut the silences', status: 'completed' }],
+        neverSucceeded: [],
+      });
+      expect(report).not.toContain('Not done');
+      // …and a caller that tracks neither is unchanged.
+      expect(agentCompletionReport(base)).not.toContain('Not done');
+    });
+
+    it('sits after Skipped and before the caveats', () => {
+      const report = agentCompletionReport({
+        ...base,
+        rejectedOpCount: 1,
+        rejectionReasons: ['overlaps a neighbour'],
+        neverSucceeded: [{ tool: 'professional_audio', reason: 'no audio track' }],
+        deliverableFileRequested: true,
+      });
+      expect(report.indexOf('**Skipped:**')).toBeLessThan(report.indexOf('**Not done:**'));
+      expect(report.indexOf('**Not done:**')).toBeLessThan(report.indexOf('Export dialog'));
+    });
+
+    it('reaches the report from a real run: a tool that only ever failed is named', async () => {
+      // The wiring end to end — settled tool cards → run ledger → report. `add_transition`
+      // with a missing required argument fails deterministically on every attempt, which is
+      // the shape of the eleven refused captioning calls in run `137d8fd0`.
+      const provider = new ScriptedProvider([
+        {
+          text: 'cutting',
+          toolCalls: [
+            deleteRange('c1', 0, 3),
+            { id: 'x', name: 'add_transition', arguments: { trackId: 'video_1' } },
+          ],
+        },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
+      const report = events.filter((e) => e.type === 'assistant_message').at(-1);
+      const text = report?.type === 'assistant_message' ? report.text : '';
+      expect(text).toContain('**Applied 1 edit**');
+      expect(text).toContain('**Not done:**');
+      expect(text).toMatch(/- Adding a transition — never succeeded: \S/);
+      // The tool that worked is not in there.
+      expect(text).not.toContain('Deleting a range — never succeeded');
+    });
+
+    it('survives cancellation — the stopped run is the one that needs it most', () => {
+      const report = agentCompletionReport({
+        ...base,
+        cancelled: true,
+        planSteps: [{ id: 's1', label: 'Caption the edit', status: 'pending' }],
+      });
+      expect(report).toContain('before you stopped the run');
+      expect(report).toContain('- Caption the edit — pending');
+    });
+  });
+
   it('uses singular wording for exactly one skipped change', () => {
     const report = agentCompletionReport({
       ops: [{ type: 'delete_range', trackId: 'video_1' } as unknown as AnyOperation],

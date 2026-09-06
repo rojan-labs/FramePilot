@@ -60,11 +60,33 @@ table and corrects this file's earlier "exhausted" claim.
 - `[x]` GOLDEN-C.18 — **the most specific true refusal wins.** `describe_footage` refused
   ×5 "unavailable this turn" for invented asset ids; now refused by the missing asset,
   before the stage rule and before the host, keyed on the id. Commit `f0a2034`.
-- `[ ]` GOLDEN-C.19 — **the completion report cannot say what was NOT done.** Second brief
+- `[~]` GOLDEN-C.19 — **the completion report cannot say what was NOT done.** Second brief
   ask found unmet and unmentioned ("lift the sharpness" — no sharpen effect exists; the
   speed ramp was the first). A multi-part brief decomposes to one catch-all acceptance
-  criterion (`remainingObjectives` was a constant 1 for 308 manifests). Design decision:
-  acceptance decomposition. Needs the product-scope gate, not a patch.
+  criterion (`remainingObjectives` was a constant 1 for 308 manifests).
+  **Shipped (the deterministic half):** a `**Not done:**` block on `agentCompletionReport`,
+  fed by two things the runtime already knows — drafted plan steps that never reached
+  `completed`, and tools that were called, failed every time, and never succeeded (last
+  reason, trimmed). Zero prompt tokens; six-line cap; kept on a cancelled run.
+  `reliability/unfinished-work.ts` + `FinalizeEffect.planSteps`. Two frozen goldens move by
+  exactly one added block (`streamAgent-golden`, `golden-corpus` `plan-approval`) — NOT
+  regenerated; awaiting maintainer review.
+  **Still open:** the brief-level ask the run never attempted at all ("lift the sharpness")
+  has no plan step and no failed call, so nothing deterministic knows about it. That is the
+  acceptance-decomposition design decision — product-scope gate, not a patch.
+- `[~]` GOLDEN-C.20 — **a lift that buries a cutaway is not a success.** `137d8fd0` asked
+  for two stock cutaways and finished with 25 tracks, 19 of them video, and 37 of its 48
+  picture clips never visible — including every clip of `v_main` — because ADR 0169's
+  placer opened a new front lane 13 times at t=0 and each lift completely buried the stock
+  cutaway placed just before it, reporting `completed` every time. Three parts, all with
+  reproducing tests: a `hides_a_cutaway` refusal in `createPicturePlacer` (covering the
+  A-roll base stays legal; swallowing a still-visible cutaway whole does not, and a batch
+  now sees its own entries); `existingPlacement` keys on the source PIN rather than the
+  exact span, so the same frames at the same moment over a longer span is refused (the run
+  also ended with one music file playing 0–60s twice, so the sentence works for sound);
+  and a `hidden_picture` Critic check — `warn`, never `fail`, because buried picture can
+  be inherited. `picture-layers.ts`, `domain-tools/timeline.ts`, `critic.ts`. Awaiting
+  maintainer review.
 - `[x]` GOLDEN-C.17 — **a surface says what it cannot route, and stops offering it.**
   `HostToolExecutor.unroutableTools?()`; the sidecar executor declares its two render
   actions; `agentTools` drops them; the desktop wrapper forwards it. 91 → 89 tools on the
@@ -140,7 +162,7 @@ provider dropped and the run was stopped. Nine of the eleven score 1.00 on every
 116 gaps in 3 calls for $0.13. **§2.2's four "upper bound" scores resolved UPWARD**, not
 down as predicted — `no-mid-word-cuts` is measuring rather than being handed a point, and
 the cases score 1.00 anyway. The run also found that **a reorder loses the editor's
-footage** in four of six clean runs. Full numbers, per-case table and what each is *not*
+footage** in four of six clean runs. Full numbers, per-case table and what each is _not_
 evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
 
 - `[x]` GOLDEN-C.1 — **`mission-podcast` measures what its cases claim.** Measuring the
@@ -174,7 +196,7 @@ attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten
 31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
 target resolution, operation validity and reversibility all **1.00** and zero silent
 successes. Running it found **five instrument defects**, all fixed. Full numbers, the
-per-case table, and what each is *not* evidence of: `BASELINES.md` "session3". What is
+per-case table, and what each is _not_ evidence of: `BASELINES.md` "session3". What is
 still open: `REMAINING.md`.
 
 - `[x]` GOLDEN-B.2 — **five instrument defects, found by running the thing.** A rubric
@@ -193,7 +215,7 @@ was **not re-run** this session (credits conserved). Sixteen defects closed on
 single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
 session's open leads, and one of those a **retraction**: `broll-first-20s`'s severed word
 was the instrument, not b-roll placement. Every number, every prediction the next run
-should test, and what each is *not* evidence of: `BASELINES.md` "session 3". What is still
+should test, and what each is _not_ evidence of: `BASELINES.md` "session 3". What is still
 open, with root causes: `REMAINING.md`.
 
 - `[x]` GOLDEN-B.1 — **thirteen defects from one transcript, and three golden leads.**
@@ -479,7 +501,7 @@ reconcileInheritedFailures`: a health check failing identically before and after
   verified from `run.md`: in every block `Summary == Reason ==` that turn's assistant chat
   message, byte for byte. They are ONE string, produced once, assigned at one site —
   `assemble.ts#assembleEdit(project, operations, reason)` returns `{patch: {…, reason}, …,
-  text: reason}`, fed from `orchestrator.ts#applyAgentTurn`'s `rationale`, which is
+text: reason}`, fed from `orchestrator.ts#applyAgentTurn`'s `rationale`, which is
   `turn.text` (`orchestrator.ts:8238`). The model never re-reads it: the agent loop rebuilds
   its prompt every turn from `assembleContext` + the stable head + the briefing
   (`orchestrator.ts#agentMessages`) — it does not replay a transcript — the briefing renders
@@ -4066,8 +4088,7 @@ workspace typecheck/lint clean, dist rebuilt.
         `maxTokens`, `cacheBoundary` or image support; cost reported in tokens, not dollars.
   - [ ] **Ship `claude-agent-sdk` in the packaged desktop app.** Works in dev; the signed
         build does not yet. The SDK ships a per-platform `claude` binary that cannot be
-        spawned from inside `app.asar`, so it needs `extraResources` + a `signIgnore` entry
-        + staged signing (the treatment `scripts/sign-engine.mjs` gives the Python engine).
+        spawned from inside `app.asar`, so it needs `extraResources` + a `signIgnore` entry + staged signing (the treatment `scripts/sign-engine.mjs` gives the Python engine).
         Separately, the macOS Keychain token is bound to Claude Code's own code signature —
         a differently-signed app may be prompted or denied, which has to be tested against a
         real notarized build rather than asserted. Until this lands the provider is
@@ -8759,9 +8780,9 @@ capability matching for `glm-5v-turbo`.
       both changelogs, then run coverage and release-readiness verification.
 
       Verification: `@framepilot/ai-sdk` 2,184 tests with 100/100/100/100 coverage;
-      `@framepilot/web-editor` 1,358 tests; desktop 242 tests; 41 Playwright E2E tests;
-      Python engine 1,421 tests; workspace typecheck/lint/build and website production build
-      green. **Last updated:** 2026-07-30
+          `@framepilot/web-editor` 1,358 tests; desktop 242 tests; 41 Playwright E2E tests;
+          Python engine 1,421 tests; workspace typecheck/lint/build and website production build
+          green. **Last updated:** 2026-07-30
 
 ## Third-party media sourcing — `[~]` shipped on Openverse · two evidence runs outstanding
 
@@ -9017,8 +9038,8 @@ no image correction, could not render a preview, and still reported the edit as 
       affected test/typecheck/lint suites (repository-wide verification excluded by request).
 
       Verification: 164 focused AI SDK tests and 98 Python AI-tool tests passed; AI SDK typecheck
-      and lint, Python mypy/ruff, generated skill parity, website typecheck/production build,
-      formatting and diff hygiene passed. **Last updated:** 2026-08-03
+          and lint, Python mypy/ruff, generated skill parity, website typecheck/production build,
+          formatting and diff hygiene passed. **Last updated:** 2026-08-03
 
 ## Discovered (2026-08-05) — short clips could take neither a transition nor a caption; the sidebar retained every past run — `[x]` done
 
@@ -9041,7 +9062,7 @@ longer than the clip, treated as an error rather than as something to fit.
       tool description now states the clamp so the agent reports the applied duration.
 
       Verification: `turbo run test typecheck` green across all 25 tasks — editor-core 614,
-      web-editor 2310, ai-sdk 2348. **Last updated:** 2026-08-05
+          web-editor 2310, ai-sdk 2348. **Last updated:** 2026-08-05
 
 - [x] **SHRT4** Sidebar heap containment. Measured first: the deterministic core is linear and
       sub-millisecond at 4 000 clips / 8 000 cues (`buildTimelineMap` 0.18 ms, `validatePatch`
@@ -9055,8 +9076,8 @@ longer than the clip, treated as an error rather than as something to fit.
       duration.
 
       Verification: `turbo run test typecheck lint` green across 34 tasks — web-editor 2317
-      (+7 focused regressions), ai-sdk 2348, editor-core 614; 98 Python AI-tool tests green
-      after the skill regeneration. **Last updated:** 2026-08-05
+          (+7 focused regressions), ai-sdk 2348, editor-core 614; 98 Python AI-tool tests green
+          after the skill regeneration. **Last updated:** 2026-08-05
 
 - [ ] **SHRT5** Remaining performance areas need an instrumented run against real desktop-scale
       media, not static analysis: React commit profile during drag/zoom, proxy + thumbnail
@@ -9073,23 +9094,23 @@ longer than the clip, treated as an error rather than as something to fit.
       scoped by each tool's declared `cacheScope`, so preview/export/transcribe never replay.
 
       > **Correction (2026-08-30):** this entry used to end "and `get_frame` is stamped with
-      > the timeline revision". That tier is gone. `Timeline.revision` advances only when clip
-      > timing moves, so it stood still through the colour grades, effects and bin imports the
-      > memoized reads were asked to check — `get_frame`, `measure_color` and `search_media`
-      > each shipped a stale-answer bug on it. A host read whose answer the run can change is
-      > now uncacheable by DERIVATION, not by each author remembering to declare `none`; only
-      > `revision_independent` source-material reads memoize.
+          > the timeline revision". That tier is gone. `Timeline.revision` advances only when clip
+          > timing moves, so it stood still through the colour grades, effects and bin imports the
+          > memoized reads were asked to check — `get_frame`, `measure_color` and `search_media`
+          > each shipped a stale-answer bug on it. A host read whose answer the run can change is
+          > now uncacheable by DERIVATION, not by each author remembering to declare `none`; only
+          > `revision_independent` source-material reads memoize.
 
-      Verification: `pnpm verify` green — TS typecheck/lint/tests at the 100% coverage gate
-      (editor-core 689, ai-sdk 2855), 2437 Python tests, `ruff`/`mypy` clean. The verification
-      pass itself found six defects the implementation pass could not see (inverted parity for
-      defaulted arguments, host caching disabled rather than scoped, autonomous idempotency
-      that never hit, a `diffProject` crash on projects without markers, internal patch ids in
-      user-facing copy, and a stale hand-maintained Python mirror) — all fixed and covered.
+          Verification: `pnpm verify` green — TS typecheck/lint/tests at the 100% coverage gate
+          (editor-core 689, ai-sdk 2855), 2437 Python tests, `ruff`/`mypy` clean. The verification
+          pass itself found six defects the implementation pass could not see (inverted parity for
+          defaulted arguments, host caching disabled rather than scoped, autonomous idempotency
+          that never hit, a `diffProject` crash on projects without markers, internal patch ids in
+          user-facing copy, and a stale hand-maintained Python mirror) — all fixed and covered.
 
-      > **Sub-plan: [`plan/AI-CONTRACT-HARDENING.md`](./AI-CONTRACT-HARDENING.md)** ·
-      > ADR: [`docs/adr/0107-ai-tool-and-edit-contract-authority.md`](../docs/adr/0107-ai-tool-and-edit-contract-authority.md)
-      > **Last updated:** 2026-08-08
+          > **Sub-plan: [`plan/AI-CONTRACT-HARDENING.md`](./AI-CONTRACT-HARDENING.md)** ·
+          > ADR: [`docs/adr/0107-ai-tool-and-edit-contract-authority.md`](../docs/adr/0107-ai-tool-and-edit-contract-authority.md)
+          > **Last updated:** 2026-08-08
 
 ## Discovered (2026-08-11) — the durable run log recorded the whole project per tool call — `[x]` done
 
@@ -9132,8 +9153,8 @@ ever made into a cache that was never evicted (~2 GB measured, growing per sessi
       explicit flush on settle instead of firing on every durable event.
 
       Verification: `pnpm typecheck` + `pnpm lint` green (15/15 tasks); desktop 286 tests,
-      web-editor 2355 tests. New: `effect-record.test.ts` (9), `run-store.retention.test.ts`
-      (8), 4 added to `run-coordinator.test.ts`. **Last updated:** 2026-08-11
+          web-editor 2355 tests. New: `effect-record.test.ts` (9), `run-store.retention.test.ts`
+          (8), 4 added to `run-coordinator.test.ts`. **Last updated:** 2026-08-11
 
 ## Discovered (2026-08-14) — review discarded a valid montage; the audio tool could not be called correctly — `[x]` done
 
@@ -9171,9 +9192,9 @@ oneOf: [...] }` like `map_time`. Misfiled fields are answered with the intent th
       them. Costs ~480 tokens in the tool block; goldens re-recorded. ADR 0116.
 
                                                             Verification: ai-sdk 3149 passed (the 3 `langchain-providers` temperature failures are
-                                                            a pre-existing local edit commenting out temperature forwarding, untouched here);
-                                                            engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
-                                                            **Last updated:** 2026-08-14
+                                                                a pre-existing local edit commenting out temperature forwarding, untouched here);
+                                                                engine 2542 passed; mcp-server 130 passed; `tsc`, `eslint`, `ruff`, `mypy` clean.
+                                                                **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — an identity key grew with the size of the edit — `[x]` done
 
@@ -9206,9 +9227,9 @@ not complete.
       enforced at, so it holds the line for future producers too.
 
       Verification: ai-sdk 3155 passed (the 3 `langchain-providers` temperature failures
-      remain a pre-existing local edit), desktop 358 passed; `pnpm typecheck` + `pnpm lint`
-      green. New: `stable-key.test.ts` (5), 1 added to `effect-runtime.test.ts`.
-      **Last updated:** 2026-08-14
+          remain a pre-existing local edit), desktop 358 passed; `pnpm typecheck` + `pnpm lint`
+          green. New: `stable-key.test.ts` (5), 1 added to `effect-runtime.test.ts`.
+          **Last updated:** 2026-08-14
 
 ## Discovered (2026-08-14) — one blocking route starved every analysis, and the edit was built on nothing — `[x]` done
 
@@ -9245,9 +9266,9 @@ Three causes in series, from the desktop + sidecar logs:
       substitute regular intervals or library order. ADR 0118.
 
       Verification: ai-sdk 3159 passed (the 3 `langchain-providers` temperature failures
-      remain a pre-existing local edit commenting out temperature forwarding); engine 2544
-      passed; `pnpm typecheck` + `pnpm lint` green (17/17); ruff + mypy (101 files) clean.
-      **Last updated:** 2026-08-14
+          remain a pre-existing local edit commenting out temperature forwarding); engine 2544
+          passed; `pnpm typecheck` + `pnpm lint` green (17/17); ruff + mypy (101 files) clean.
+          **Last updated:** 2026-08-14
 
 - [ ] **SIDECON5** Follow-up (not done): an objective cannot declare which analyses are
       load-bearing, so "beat-synced" losing its beat grid is handled by _telling_ the model
@@ -9270,7 +9291,7 @@ were reproduced against that real project, not a fixture.
       the previous set. An empty cue list deliberately clears nothing.
 
       Verified end-to-end on the user's project: 40 captions → `Synthesized 23 caption layers
-      (headline), replacing 40`, patch applies, first cue `"Car, take a new route,"`.
+          (headline), replacing 40`, patch applies, first cue `"Car, take a new route,"`.
 
 - [x] **TEMPBUDGET** Temporal review timed out on every real project. The engine's batch
       ceiling and the client's timeout were independent numbers that had never been compared,
@@ -9282,18 +9303,18 @@ were reproduced against that real project, not a fixture.
       arithmetic and pointing at the other. ADR 0119.
 
       Frames are now sampled via `sorted(visual_frames)`: readers stream forwards and seek
-      backwards expensively (60 frames = 18.8s ordered vs 38.8s shuffled). The old `set`
-      iteration was ascending only by CPython's small-int hash order, which holds only while
-      frame indices stay under the set's table size — i.e. only under ~35s of sequence.
-      `test_samples_frames_in_ascending_order` uses frames 5 and 33 because `list({5, 33})`
-      is `[33, 5]`; confirmed to fail against the old code.
+          backwards expensively (60 frames = 18.8s ordered vs 38.8s shuffled). The old `set`
+          iteration was ascending only by CPython's small-int hash order, which holds only while
+          frame indices stay under the set's table size — i.e. only under ~35s of sequence.
+          `test_samples_frames_in_ascending_order` uses frames 5 and 33 because `list({5, 33})`
+          is `[33, 5]`; confirmed to fail against the old code.
 
-      Verification: engine 2545 passed (was 2544 + the new ordering test); ai-sdk 3162 passed
-      with the same 3 pre-existing `langchain-providers` temperature failures, confirmed by
-      stash to come from the uncommitted local edit and not from this work; ruff + mypy +
-      eslint + `tsc --noEmit` clean on every touched file; `@framepilot/ai-sdk` rebuilt so
-      desktop/web-editor consume the fix rather than stale `dist`.
-      **Last updated:** 2026-08-14
+          Verification: engine 2545 passed (was 2544 + the new ordering test); ai-sdk 3162 passed
+          with the same 3 pre-existing `langchain-providers` temperature failures, confirmed by
+          stash to come from the uncommitted local edit and not from this work; ruff + mypy +
+          eslint + `tsc --noEmit` clean on every touched file; `@framepilot/ai-sdk` rebuilt so
+          desktop/web-editor consume the fix rather than stale `dist`.
+          **Last updated:** 2026-08-14
 
 - [ ] **TEMPBUDGET2** Follow-up (not done): a role-isolated audio request compiles its own
       composition, so a batch touching dialogue and music pays the compile three times — the
@@ -9312,31 +9333,31 @@ were reproduced against that real project, not a fixture.
       a Pillow resize.
 
       Three changes, in the order pixels flow: `compile_timeline(max_decode_dimension=)`
-      applies the ceiling in the *decoder* (`VideoFileClip(target_resolution=)` → ffmpeg
-      `-s`) and never upscales; `acquire_temporal_evidence` caps its preset at
-      `REVIEW_MAX_DIMENSION` (960) and passes the same figure as the decode budget;
-      `grab_frame` composites at the size the caller asked for. Export passes `None` and
-      still reads masters.
+          applies the ceiling in the *decoder* (`VideoFileClip(target_resolution=)` → ffmpeg
+          `-s`) and never upscales; `acquire_temporal_evidence` caps its preset at
+          `REVIEW_MAX_DIMENSION` (960) and passes the same figure as the decode budget;
+          `grab_frame` composites at the size the caller asked for. Export passes `None` and
+          still reads masters.
 
-      Measured (8 clips, 2160x3840, 20 frames ascending, isolated processes):
-      **273ms → 38ms** per frame, **781 MB → 176 MB** peak RSS. Compile is ~86ms/clip slower
-      (one extra ffmpeg spawn to probe-then-reopen an oversized source), repaid after ~3
-      frames. Accepted trade: `min`/`max` over a resampled frame no longer see a one-pixel
-      excursion — the reason the cap is 960 and not 512 — and `renderSettings.identity`
-      records the exact size measured, so a review stays reproducible. ADR 0124.
+          Measured (8 clips, 2160x3840, 20 frames ascending, isolated processes):
+          **273ms → 38ms** per frame, **781 MB → 176 MB** peak RSS. Compile is ~86ms/clip slower
+          (one extra ffmpeg spawn to probe-then-reopen an oversized source), repaid after ~3
+          frames. Accepted trade: `min`/`max` over a resampled frame no longer see a one-pixel
+          excursion — the reason the cap is 960 and not 512 — and `renderSettings.identity`
+          records the exact size measured, so a review stays reproducible. ADR 0124.
 
-      Also closed the concurrency hole ADR 0123 left: it serialized
-      `/review/temporal-evidence`, but the same unbounded concurrent compiles were reachable
-      through `/render/frame` and the MCP server. The bound now lives in `CompositionCache`
-      (`MAX_CONCURRENT_BUILDS = 1`), covering every caller, and bounds *builds* rather than
-      borrows so a caller whose key is already cached never waits.
+          Also closed the concurrency hole ADR 0123 left: it serialized
+          `/review/temporal-evidence`, but the same unbounded concurrent compiles were reachable
+          through `/render/frame` and the MCP server. The bound now lives in `CompositionCache`
+          (`MAX_CONCURRENT_BUILDS = 1`), covering every caller, and bounds *builds* rather than
+          borrows so a caller whose key is already cached never waits.
 
-      Verification: engine 2574 passed (was 2559 + 15 new), ruff clean, mypy back to its
-      5-error pre-existing baseline (added none); ai-sdk 3208 passed; repo `typecheck` and
-      `lint` green; `@framepilot/ai-sdk` rebuilt. `FRAMEPILOT_MAX_REVIEW_CONCURRENCY` shipped
-      with ADR 0123 but was never registered — added to `.env.example`, `turbo.json`
-      `globalEnv`, and the configuration guide.
-      **Last updated:** 2026-08-15
+          Verification: engine 2574 passed (was 2559 + 15 new), ruff clean, mypy back to its
+          5-error pre-existing baseline (added none); ai-sdk 3208 passed; repo `typecheck` and
+          `lint` green; `@framepilot/ai-sdk` rebuilt. `FRAMEPILOT_MAX_REVIEW_CONCURRENCY` shipped
+          with ADR 0123 but was never registered — added to `.env.example`, `turbo.json`
+          `globalEnv`, and the configuration guide.
+          **Last updated:** 2026-08-15
 
 - [x] **TEMPGATE** An uncleared perceptual gate destroyed the run's applied work. Traced from
       a desktop session log: temporal evidence returned in 46s (TEMPBUDGET holding), review
@@ -9350,8 +9371,8 @@ were reproduced against that real project, not a fixture.
       diff can never auto-commit. ADR 0120.
 
       This deliberately reverses `editor-run-adapter.test.ts`'s "stops after one unsuccessful
-      repair and **releases no staged patch**": the gate's job is to stop an edit being
-      presented as checked, not to delete it.
+          repair and **releases no staged patch**": the gate's job is to stop an edit being
+          presented as checked, not to delete it.
 
 - [x] **TEMPVIS** The review phase was invisible while it ran. The graph settles `completed`
       (sidebar prints "Done.") and only _then_ is evidence acquired — 46s of silence after
@@ -9361,9 +9382,9 @@ were reproduced against that real project, not a fixture.
       the "Plan n/n" header. The failure path settles the task too, or the step spins forever.
 
       Verification: ai-sdk 3162 passed (3 pre-existing `langchain-providers` temperature
-      failures unrelated, see TEMPBUDGET); web-editor AI components 208 passed; `tsc --noEmit`
-      clean; ai-sdk rebuilt so desktop/web consume it.
-      **Last updated:** 2026-08-14
+          failures unrelated, see TEMPBUDGET); web-editor AI components 208 passed; `tsc --noEmit`
+          clean; ai-sdk rebuilt so desktop/web consume it.
+          **Last updated:** 2026-08-14
 
 - [x] **TEMPREPAIR** The repair reporting its own success signal as a failure. Ruled out the
       mechanism first, against the live gateway: non-streaming tool calls work (1 call
@@ -9371,12 +9392,12 @@ were reproduced against that real project, not a fixture.
       transport was never the problem and no fallback parser was warranted.
 
       The real defect is a contradiction in the contract: `repairPassInstruction` tells the
-      model "reply without a tool call when done", and the orchestrator then treats exactly
-      that reply as `Temporal repair did not produce a valid patch`. The model complied — the
-      "Done." in the session transcript is its reply — and was reported as broken. The message
-      now states what happened: the repair made no changes and the finding is still present.
-      Combined with TEMPGATE the edits survive with the finding attached, which is the whole
-      user-visible harm.
+          model "reply without a tool call when done", and the orchestrator then treats exactly
+          that reply as `Temporal repair did not produce a valid patch`. The model complied — the
+          "Done." in the session transcript is its reply — and was reported as broken. The message
+          now states what happened: the repair made no changes and the finding is still present.
+          Combined with TEMPGATE the edits survive with the finding attached, which is the whole
+          user-visible harm.
 
 - [x] **RUNRECOVER** Interrupted runs were stranded permanently. `idempotencyKey` was a plain
       `idSchema` (max 256), so a snapshot carrying a longer key could not parse — and a
@@ -9386,12 +9407,12 @@ were reproduced against that real project, not a fixture.
       purely a read-path problem for runs persisted earlier.
 
       `identityKeySchema` bounds instead of rejecting, via the existing `boundedKeySegment`.
-      The `<= 256` guard makes the transform idempotent, which is load-bearing rather than an
-      optimisation: a snapshot round-trips many times, and bounding unconditionally would
-      re-truncate an already-bounded key on every pass.
+          The `<= 256` guard makes the transform idempotent, which is load-bearing rather than an
+          optimisation: a snapshot round-trips many times, and bounding unconditionally would
+          re-truncate an already-bounded key on every pass.
 
-      Verified against the real stranded artifact — run `cb12af31` on disk carried a 268-char
-      `host_tool:search_visual:` key; it now parses to 256 and is stable on re-parse.
+          Verified against the real stranded artifact — run `cb12af31` on disk carried a 268-char
+          `host_tool:search_visual:` key; it now parses to 256 and is stable on re-parse.
 
 - [x] **PROVTEMP** `temperature` was commented out in `langchain-openai-compatible.ts`, which
       silently dropped it for every OpenAI-compatible endpoint and left 3 tests red. Confirmed
@@ -9399,18 +9420,18 @@ were reproduced against that real project, not a fixture.
       answers `Unsupported parameter: temperature` and fails the call outright.
 
       A model-name guess is especially wrong for this provider — it exists to address arbitrary
-      servers by URL, so the name says nothing, and the capability catalog has no temperature
-      notion to consult. The endpoint already knows and says so, so it is asked once and
-      remembered per instance: send it, and on that specific rejection retry once without it.
-      The stream override refuses to retry after a chunk has been yielded, since replaying a
-      partially consumed stream would duplicate tokens and tool calls. Verified live:
-      rejection detected → retried → answered.
+          servers by URL, so the name says nothing, and the capability catalog has no temperature
+          notion to consult. The endpoint already knows and says so, so it is asked once and
+          remembered per instance: send it, and on that specific rejection retry once without it.
+          The stream override refuses to retry after a chunk has been yielded, since replaying a
+          partially consumed stream would duplicate tokens and tool calls. Verified live:
+          rejection detected → retried → answered.
 
-      Verification for TEMPREPAIR/RUNRECOVER/PROVTEMP: ai-sdk **3168 passed, 0 failed** — the
-      first fully green suite this session, the 3 long-standing `langchain-providers`
-      temperature failures included; eslint + `tsc --noEmit` clean on every touched file;
-      ai-sdk rebuilt.
-      **Last updated:** 2026-08-14
+          Verification for TEMPREPAIR/RUNRECOVER/PROVTEMP: ai-sdk **3168 passed, 0 failed** — the
+          first fully green suite this session, the 3 long-standing `langchain-providers`
+          temperature failures included; eslint + `tsc --noEmit` clean on every touched file;
+          ai-sdk rebuilt.
+          **Last updated:** 2026-08-14
 
 **Latent core issues found while auditing for more of the same classes (2026-08-14).**
 
@@ -9419,21 +9440,21 @@ were reproduced against that real project, not a fixture.
       projects and would serve a stale picture for an in-memory change that never bumped one.
 
       Borrowed under a per-entry lock rather than shared: MoviePy readers carry seek state
-      and sidecar routes run in a threadpool, so handing one composition to two callers
-      would interleave seeks and return frames from the wrong time. Eviction closes the
-      whole clip tree and waits for the borrower, so readers are never pulled out from
-      under an in-flight grab. Bounded to 2 entries.
+          and sidecar routes run in a threadpool, so handing one composition to two callers
+          would interleave seeks and return frames from the wrong time. Eviction closes the
+          whole clip tree and waits for the borrower, so readers are never pulled out from
+          under an in-flight grab. Bounded to 2 entries.
 
-      Measured on `project_scenery`, five frames at different times: 35.6s then 2.0 / 2.6 /
-      0.7 / 0.3s — 41s total vs 178s uncached. Correctness verified against ground truth,
-      not assumed: every cached frame is pixel-identical to a freshly compiled one (mean
-      absolute difference 0.0000). ADR 0121.
+          Measured on `project_scenery`, five frames at different times: 35.6s then 2.0 / 2.6 /
+          0.7 / 0.3s — 41s total vs 178s uncached. Correctness verified against ground truth,
+          not assumed: every cached frame is pixel-identical to a freshly compiled one (mean
+          absolute difference 0.0000). ADR 0121.
 
-      The d0c3603 leak contract moved rather than weakened — "closed after every call"
-      became "at most N open, each closed on eviction"; the two engine tests asserting the
-      old wording now assert the new one, plus an autouse fixture clearing the cache
-      between tests (a process-wide content-keyed cache would otherwise serve one test
-      another's monkeypatched fake).
+          The d0c3603 leak contract moved rather than weakened — "closed after every call"
+          became "at most N open, each closed on eviction"; the two engine tests asserting the
+          old wording now assert the new one, plus an autouse fixture clearing the cache
+          between tests (a process-wide content-keyed cache would otherwise serve one test
+          another's monkeypatched fake).
 
 - [x] **VISIONGATE** Closed. `acquireVisionRunReview` now returns `judged` — true only when
       a check actually reached `fail`. Both vision exits release the run's work on a real
@@ -9450,16 +9471,16 @@ were reproduced against that real project, not a fixture.
       on the failure and cancellation paths too so neither can spin forever.
 
       UI: `TaskRunView` was gated behind `tasks.length === 0` on the plan dock, from when
-      tasks and the plan were two renderings of one DAG. They are complementary now, so both
-      render — and the task panel is retitled **Activity**, because two panels both headed
-      "Plan" read as the same thing drawn twice. Caught a regression this created: the
-      temporal-review task alone would have hidden a five-step plan mid-run; a new test
-      pins the two coexisting.
+          tasks and the plan were two renderings of one DAG. They are complementary now, so both
+          render — and the task panel is retitled **Activity**, because two panels both headed
+          "Plan" read as the same thing drawn twice. Caught a regression this created: the
+          temporal-review task alone would have hidden a five-step plan mid-run; a new test
+          pins the two coexisting.
 
-      Verification for all three: ai-sdk **3170 passed**, web-editor **2403 passed**, engine
-      **2550 passed**, 0 failures anywhere; eslint + `tsc --noEmit` + ruff + mypy clean on
-      every touched file; ai-sdk rebuilt.
-      **Last updated:** 2026-08-14
+          Verification for all three: ai-sdk **3170 passed**, web-editor **2403 passed**, engine
+          **2550 passed**, 0 failures anywhere; eslint + `tsc --noEmit` + ruff + mypy clean on
+          every touched file; ai-sdk rebuilt.
+          **Last updated:** 2026-08-14
 
 - [x] **CTXBENCH** Context management measured, not assumed. Sub-plan:
       **`plan/context-management/`** — [README](context-management/README.md) (index, decision
@@ -9470,17 +9491,17 @@ were reproduced against that real project, not a fixture.
       `reports/context-benchmark-baseline.{txt,json}`.
 
       Read-only, deterministic, model-free (recording provider double, fixed clock; two runs
-      produce byte-identical JSON), built on the existing `ScriptedProvider` pattern, the
-      context manifest's own estimator and the golden-corpus fixture shape rather than a
-      parallel harness. Baseline: on a 60-minute project one planning turn costs ~22,333
-      tokens, of which **1,346 (6.0%) describe the user's video** and 17,490 (78%) are tool
-      schemas; the model sees **2.1% of clips and 6.7% of dialogue** with ~113,667 tokens of
-      window unused. At the north-star 10-minute scale it is 12.8% / 40.0%. Sharpest single
-      finding: `get_transcript` returns **25 of 1,500 words**, cut mid-JSON, with no count and
-      no narrowing instruction — one of nine reads with no case in `summarizeReadResult`.
-      Also recorded: the timeline has **no frame grid** (three tolerances, nothing that
-      quantizes), so "precise edits" has no frame to be precise about. No runtime behaviour
-      changed.
+          produce byte-identical JSON), built on the existing `ScriptedProvider` pattern, the
+          context manifest's own estimator and the golden-corpus fixture shape rather than a
+          parallel harness. Baseline: on a 60-minute project one planning turn costs ~22,333
+          tokens, of which **1,346 (6.0%) describe the user's video** and 17,490 (78%) are tool
+          schemas; the model sees **2.1% of clips and 6.7% of dialogue** with ~113,667 tokens of
+          window unused. At the north-star 10-minute scale it is 12.8% / 40.0%. Sharpest single
+          finding: `get_transcript` returns **25 of 1,500 words**, cut mid-JSON, with no count and
+          no narrowing instruction — one of nine reads with no case in `summarizeReadResult`.
+          Also recorded: the timeline has **no frame grid** (three tolerances, nothing that
+          quantizes), so "precise edits" has no frame to be precise about. No runtime behaviour
+          changed.
 
 - [x] **CTX-PHASES** Context-aware professional editing — five phases, all closed
       (2026-08-26). `plan/context-management/`. One programme, not two: a professional
@@ -9489,21 +9510,21 @@ were reproduced against that real project, not a fixture.
       `reports/context-benchmark-after.{txt,json}`.
 
       **Headline.** On a 60-minute project the model saw 2.1% of its clips and 6.7% of its
-      dialogue; it now sees **100% of both**. `get_transcript` returned 25 of 1,500 words;
-      it now returns all of them. Every model trimmed against one hardcoded 190K window;
-      every model now trims against its own, minus the ~19,500 tokens of tool schemas and
-      agent contract the assembler never sees. Cuts land on frames — for MANUAL edits as
-      well as AI ones — and preview/export cut-point divergence is **0 frames** at the
-      delivery rate. The Critic gained six editorial checks (18 total, was 12), two of them
-      repairable. And a follow-up request inherits what the last run learned instead of
-      re-reading the footage. Cacheable prefix share went **up**, 81% → 91.6%.
+          dialogue; it now sees **100% of both**. `get_transcript` returned 25 of 1,500 words;
+          it now returns all of them. Every model trimmed against one hardcoded 190K window;
+          every model now trims against its own, minus the ~19,500 tokens of tool schemas and
+          agent contract the assembler never sees. Cuts land on frames — for MANUAL edits as
+          well as AI ones — and preview/export cut-point divergence is **0 frames** at the
+          delivery rate. The Critic gained six editorial checks (18 total, was 12), two of them
+          repairable. And a follow-up request inherits what the last run learned instead of
+          re-reading the footage. Cacheable prefix share went **up**, 81% → 91.6%.
 
-      **Two things did not land as written, both recorded rather than quietly dropped:**
-      the "unused capacity < 30,000" target is retired (at 60 minutes coverage is 100%, so
-      the remaining window is genuinely spare, not waste), and P5.3's behavioural half is
-      deliberately not shipped — the guard it would remove exists because instruction was
-      already tried and lost, and the evidence to check the trade needs real run logs. Its
-      cost is now measured per request instead of invisible.
+          **Two things did not land as written, both recorded rather than quietly dropped:**
+          the "unused capacity < 30,000" target is retired (at 60 minutes coverage is 100%, so
+          the remaining window is genuinely spare, not waste), and P5.3's behavioural half is
+          deliberately not shipped — the guard it would remove exists because instruction was
+          already tried and lost, and the evidence to check the trade needs real run logs. Its
+          cost is now measured per request instead of invisible.
 
 - [x] **CTX-P1** [Phase 1 — see the footage](context-management/PHASE-1-see-the-footage.md).
       Honest read digests for the nine fall-through reads (`get_transcript` first);

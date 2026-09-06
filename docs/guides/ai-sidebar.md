@@ -53,7 +53,10 @@ Each turn streams in place — nothing freezes, nothing duplicates:
   they fail honestly. Stopping mid-analysis marks the card **Stopped** — never a
   checkmark. Tools that aren't available yet render as **gated**, not faked.
 - **A completion report** — a run that applied edits closes with a markdown summary of
-  what changed, what was skipped, and why.
+  what changed, what was skipped, and why. When the run left work behind it also carries a
+  **Not done** block: planned steps it never completed, and tools it called, failed, and
+  never got an answer out of (with the last reason). It is capped at six lines, and a run
+  you stop keeps it.
 - **Reference chips** — clickable `clip`, `track`, and file references (shown by name)
   that reveal the item in the editor.
 - **A single progress bar** that names the current phase ("Trimming Intro.mp4",
