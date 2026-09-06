@@ -561,6 +561,19 @@ describe('professional_audio role-authored ducking', () => {
       clipId: 'bed',
       settings: { duckUnderTrackId: 'v_main', duckAmountDb: -18 },
     });
+    // End to end through the tool: the compiler and the operation contract accept a video
+    // track as the trigger, and the bed clip carries the duck.
+    const edited = dispatch(labelled, context(labelled), {
+      intent: 'duck_roles',
+      bedRole: 'music',
+      sidechainRole: 'sfx',
+      reductionDb: 18,
+    });
+    const bed = edited.tracks.flatMap((t) => t.clips).find((c) => c.id === 'bed')!;
+    expect(bed.effects[0]).toMatchObject({
+      type: 'audio_gain',
+      params: { duckUnderTrackId: 'v_main', duckAmountDb: -18 },
+    });
   });
 
   it('refuses when two tracks claim the trigger role rather than picking one', () => {
