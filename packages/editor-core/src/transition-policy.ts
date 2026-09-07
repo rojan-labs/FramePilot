@@ -130,7 +130,16 @@ export interface MeasuredCut {
   readonly duplicate?: boolean;
   /** The caller's own jump-cut determination, e.g. a `list_edit_boundaries` flag. */
   readonly jumpCut?: boolean;
-  readonly outgoingIsDark?: boolean;
+  /**
+   * The INCOMING shot is dark. Only the incoming side is read: a dip to black is about what
+   * the cut lands on, and `lumaDelta` already carries the size of the step.
+   *
+   * There was an `outgoingIsDark` beside this, set by `transition-planning.ts` and read by
+   * nothing — so a caller computed it, passed it, and reasonably assumed a dark shot being
+   * cut AWAY from would dip. It never did. Removed rather than left to mislead. Whether a
+   * dark outgoing shot should also dip is a real question about the craft; it is open, and
+   * deleting an unread field is deliberately not the place to answer it.
+   */
   readonly incomingIsDark?: boolean;
   /** True when this is the first cut of the sequence — the only place a reveal means anything. */
   readonly isFirstCut?: boolean;
@@ -441,7 +450,12 @@ function decide(reason: TransitionReason, cut: MeasuredCut, pacing: number): Dec
     case 'reveal':
       // An opening gesture. Mid-timeline it is a dissolve the user did not ask
       // for, so the honest answer there is the hard cut the edit already has.
-      if (cut.isFirstCut === false) return null;
+      //
+      // `!== true`, not `=== false`: `isFirstCut` is OPTIONAL, and an absent flag means the
+      // caller does not know where this cut sits. Treating unknown as "first" put a fade
+      // anywhere in the timeline for any caller that omitted it — the exact behaviour the
+      // line above says is dishonest. A reveal needs positive proof it opens the sequence.
+      if (cut.isFirstCut !== true) return null;
       return {
         family: 'fade',
         seconds: pacing,

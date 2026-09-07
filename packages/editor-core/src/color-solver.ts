@@ -634,7 +634,12 @@ export function solveColorMatch(
   //    exposure and then by contrast, so the warmth the WB stage must produce is
   //    the reference's divided by the contrast gain, less what the source carries
   //    through exposure.
-  const chromaCarry = contrastGain === 0 ? 0 : 1 / contrastGain;
+  // `ratio`, not a bare `=== 0` guard: every other divisor in this module goes through
+  // MEASUREMENT_EPSILON, and this one guarded only EXACT zero. A contrast solve landing a
+  // hair above zero produced a vast carry that drove the 2x2 white-balance solve to absurd
+  // temperature and tint before the contract clamp caught it. Reachable depends on
+  // CONTRAST_RESPONSE, which is no longer certain to be 1.0 now that it is measurable.
+  const chromaCarry = ratio(1, contrastGain, 0);
   const warmthResidual =
     finite(reference.warmth) * chromaCarry - finite(target.warmth) * exposureGain;
   const greenMagentaResidual =

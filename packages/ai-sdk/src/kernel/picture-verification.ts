@@ -452,6 +452,14 @@ function decide(
       detail: `the ${what} at ${where} measures small, but the two shots are described as different scenes`,
     };
   }
+  // Same STATUS as the fallthrough below, deliberately, and a different SENTENCE.
+  //
+  // A reader checking only the status will call this branch dead. It is not: the status is
+  // what the run acts on, the detail is what a person reads, and "the transition carries the
+  // join" is a true and useful explanation where "not visible in the render" would be a
+  // confusing one — the flag is refuted because a transition is doing the work, not because
+  // the render failed to show something. Refuted is the honest verdict either way; only the
+  // reason differs. Do not collapse this into the fallthrough to save a branch.
   if (candidate.method === 'transition_continuity' && candidate.cut.delta.sameSetting === null) {
     return {
       status: 'refuted',

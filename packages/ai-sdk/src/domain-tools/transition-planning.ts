@@ -73,7 +73,6 @@ export function measuredCutOf(
   index: number,
   isFirstCut: boolean,
 ): MeasuredCut {
-  const from = pictureClipOf(slice, boundary.fromClipId)?.dominant?.measured;
   const to = pictureClipOf(slice, boundary.toClipId)?.dominant?.measured;
   const movement = pictureClipOf(slice, boundary.fromClipId)?.dominant?.described?.camera?.movement;
   const delta = cut?.delta;
@@ -94,9 +93,6 @@ export function measuredCutOf(
       ? {}
       : { duplicate: delta.duplicate }),
     jumpCut: flags.includes('jump_cut'),
-    ...(from === null || from === undefined
-      ? {}
-      : { outgoingIsDark: from.black || from.luma.mean < DARK_LUMA_MEAN }),
     ...(to === null || to === undefined
       ? {}
       : { incomingIsDark: to.black || to.luma.mean < DARK_LUMA_MEAN }),

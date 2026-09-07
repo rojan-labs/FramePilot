@@ -146,6 +146,11 @@ describe('chooseTransition — one row per reason', () => {
 
   it('refuses a reveal anywhere but the opening', () => {
     expect(chooseTransition('reveal', { isFirstCut: false }, NORMAL_PACING)).toBeNull();
+    // UNKNOWN is not first. `isFirstCut` is optional, so a caller that does not track cut
+    // position omits it — and the guard used to test `=== false`, which let every one of
+    // those through as an opening fade. A reveal is the one choice that needs proof of
+    // where it sits, so absence has to read as "not the opening", never as "probably fine".
+    expect(chooseTransition('reveal', {}, NORMAL_PACING)).toBeNull();
   });
 });
 
@@ -233,7 +238,7 @@ const CUT_MATRIX: readonly MeasuredCut[] = [
   {},
   { isFirstCut: true },
   { lumaDelta: -0.5, incomingIsDark: true, isFirstCut: true },
-  { lumaDelta: 0.5, outgoingIsDark: true, warmthDelta: -0.4, isFirstCut: true },
+  { lumaDelta: 0.5, warmthDelta: -0.4, isFirstCut: true },
   { motionChange: 'up', isFirstCut: true },
   { motionChange: 'down', shotSizeSteps: -3, isFirstCut: true },
   { outgoingCameraMovement: 'pan', motionChange: 'up', index: 1, isFirstCut: true },
@@ -266,8 +271,17 @@ describe('chooseTransition — invariants over the whole matrix', () => {
         }
       }
     }
-    // Continuity is the only reason that never returns a choice.
-    expect(returned).toBe((TRANSITION_REASONS.length - 1) * CUT_MATRIX.length * PACINGS.length);
+    // Continuity is the only reason that never returns a choice, and `reveal` is the only
+    // one that refuses on the CUT rather than the reason: it needs positive proof the cut
+    // opens the sequence. This used to assert a flat product, which quietly asserted that a
+    // cut with no `isFirstCut` still got an opening fade — a reveal dropped in the middle of
+    // a timeline for any caller that did not say where the cut was.
+    const notFirstCut = CUT_MATRIX.filter((cut) => cut.isFirstCut !== true).length;
+    expect(notFirstCut).toBeGreaterThan(0); // or this invariant proves nothing
+    expect(returned).toBe(
+      (TRANSITION_REASONS.length - 1) * CUT_MATRIX.length * PACINGS.length -
+        notFirstCut * PACINGS.length,
+    );
   });
 
   it('is deterministic: the same inputs give an identical result twice', () => {
