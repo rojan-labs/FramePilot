@@ -1,10 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type {
-  PictureClip,
-  PictureCut,
-  PictureCutFlag,
-  PictureSlice,
-} from './semantic-index/picture.js';
+import type { PictureCut, PictureSlice } from './semantic-index/picture.js';
 import { diffPicture } from './briefing-picture.js';
 
 function cut(over: Partial<PictureCut> & Pick<PictureCut, 'fromClipId' | 'toClipId'>): PictureCut {
@@ -26,32 +21,6 @@ function cut(over: Partial<PictureCut> & Pick<PictureCut, 'fromClipId' | 'toClip
     flags: [],
     ...over,
   } as PictureCut;
-}
-
-function clipWithSize(clipId: string, shotSize: string | null): PictureClip {
-  return {
-    clipId,
-    trackId: 'v1',
-    start: 0,
-    end: 4,
-    assetId: 'a1',
-    shots: [],
-    dominant:
-      shotSize === null
-        ? null
-        : ({
-            shotKey: `${clipId}:0`,
-            assetId: 'a1',
-            contentHash: 'h',
-            shotIndex: 0,
-            t0: 0,
-            t1: 4,
-            splitOf: false,
-            measured: null,
-            labelled: { tier1Version: 1, model: 'm', shotSize: { value: shotSize, p: 0.9 } },
-            described: null,
-          } as PictureClip['dominant']),
-  } as PictureClip;
 }
 
 function slice(cuts: readonly PictureCut[], clips: readonly PictureClip[] = []): PictureSlice {
