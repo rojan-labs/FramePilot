@@ -61,9 +61,53 @@
 
 ## Discovered while implementing (2026-09-07)
 
-| Finding | Where | Status |
-| --- | --- | --- |
+| Finding                                                                                                                                                                                                                                                                                                                                                                                                                      | Where                                                                 | Status                                                                                                                                                                                                                                                           |
+| ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | **`translateSourceRange` assumes 1:1 playback speed**, and its comment says "no `speedRamps` op exists yet". `speedRamp` has been in the schema since v15 (`timeline-schema/src/index.ts:762`) and `set_clip_speed_ramp` is a shipped tool. So the semantic index's `shots`, `silences` and `beats` slices place their times WRONG on any speed-changed or reversed clip — a pre-existing bug, not one this plan introduced. | `packages/ai-sdk/src/kernel/semantic-index/semantic-index.ts:410–423` | Open. The `picture` slice does its own speed-aware projection (integrating `speedRamp` through `integrateRate`, mirroring reverse, holding a freeze), so the ledger is correct today while the older slices are not. Converge them onto one projection in VU2.5. |
-| **`brain/__init__.py` already exports an `AssetDigest`** from `brain/similar.py`, unrelated to the ledger's. The ledger models are therefore imported from `brain.ledger_models` directly and are NOT re-exported. | `engine/python/framepilot_engine/brain/__init__.py:93` | Decided: no re-export. The `GET /brain/shots` route imports from the module. Renaming a shipped public name to make a barrel tidier is not worth a migration. |
-| **`lowQualityShots` had no threshold anywhere in the plan.** `LOW_SHARPNESS = 0.4` was derived from the two blur measurements recorded in `shot_stats.py` (sharp 4.2 → 0.74, gblur sigma 6 → 0.18). | `brain/ledger_store.py` | First calibration; VU1.6's hand-labelled sharpness classes confirm or move it. |
-| **A pre-existing UI transition suggester picks by hardcoded id** (`suggest('cross-dissolve', …)`), timeline-only by design. | `apps/web-editor/src/components/transition-recommendations.ts` | Converge onto the policy in VU4.2, once the ledger is populated — not before, or the UI would suggest from facts that do not exist yet. |
+| **`brain/__init__.py` already exports an `AssetDigest`** from `brain/similar.py`, unrelated to the ledger's. The ledger models are therefore imported from `brain.ledger_models` directly and are NOT re-exported.                                                                                                                                                                                                           | `engine/python/framepilot_engine/brain/__init__.py:93`                | Decided: no re-export. The `GET /brain/shots` route imports from the module. Renaming a shipped public name to make a barrel tidier is not worth a migration.                                                                                                    |
+| **`lowQualityShots` had no threshold anywhere in the plan.** `LOW_SHARPNESS = 0.4` was derived from the two blur measurements recorded in `shot_stats.py` (sharp 4.2 → 0.74, gblur sigma 6 → 0.18).                                                                                                                                                                                                                          | `brain/ledger_store.py`                                               | First calibration; VU1.6's hand-labelled sharpness classes confirm or move it.                                                                                                                                                                                   |
+| **A pre-existing UI transition suggester picks by hardcoded id** (`suggest('cross-dissolve', …)`), timeline-only by design.                                                                                                                                                                                                                                                                                                  | `apps/web-editor/src/components/transition-recommendations.ts`        | Converge onto the policy in VU4.2, once the ledger is populated — not before, or the UI would suggest from facts that do not exist yet.                                                                                                                          |
+
+## Licence position for VU5/VU6 (recorded 2026-09-07)
+
+`pnpm license:scan` was run on this tree: **7 packages checked, no denylisted licences**.
+
+**That result does not clear the VU5/VU6 dependencies, and must not be quoted as if it
+did.** `scripts/license-scan.mjs` walks `node_modules` package manifests only. It does not
+see Python packages, native binaries, or model weights — which is the entire surface those
+two phases add. The gate is real for what it covers and silent about what matters here.
+
+So the VU5/VU6 licences are a hand review, to be completed and recorded in each worker's
+`LICENSES.md` at the time it is added, with the hash pinned in its `models.lock.toml`:
+
+| Component                                     | Phase | Licence to verify at add time | Notes                                                                             |
+| --------------------------------------------- | ----- | ----------------------------- | --------------------------------------------------------------------------------- |
+| onnxruntime                                   | VU5   | MIT                           | already an OPTIONAL engine extra (`embeddings`); the pack worker gets its own pin |
+| opencv-contrib-python-headless                | VU5   | Apache-2.0                    | already used by `workers/subject-intelligence` under the `cv` extra               |
+| SigLIP 2 base patch16-224 (ONNX export)       | VU5   | Apache-2.0                    | verify the EXPORT's licence, not only the upstream model card                     |
+| CLIP ViT-B/32 (fallback)                      | VU5   | MIT                           | only if SigLIP 2's export is unusable                                             |
+| YuNet (OpenCV Zoo)                            | VU5   | MIT                           | ~0.3 MB                                                                           |
+| SFace (OpenCV Zoo)                            | VU5   | Apache-2.0                    | ~37 MB                                                                            |
+| llama.cpp (`llama-server` / `llama-mtmd-cli`) | VU6   | MIT                           | binary ships in the pack, like `whisper-cli` today                                |
+| SmolVLM2-2.2B-Instruct GGUF + mmproj          | VU6   | Apache-2.0                    | default; ~1.5 GB resident                                                         |
+| SmolVLM2-500M-Instruct GGUF                   | VU6   | Apache-2.0                    | low-RAM machines                                                                  |
+
+**Excluded on licence grounds, decided now so nobody re-opens it mid-phase:** Qwen2.5-VL
+(research-only terms) and Gemma 3 (Gemma terms). Neither may be the default nor an option.
+
+**A precedent worth naming:** the engine already ships `twelvelabs` with NO declared licence
+at all, adopted with the maintainer's explicit acceptance (ADR 0071) and redistributed
+through PyInstaller. That was a considered exception. It is not a template — every component
+above has a real licence and must keep one.
+
+### The deprecations still owed, and what gates each
+
+| Deprecation                                             | Gated on | Why it cannot be done sooner                                                                                               |
+| ------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
+| The NVIDIA hosted-embeddings arm (ADR 0066)             | **VU5**  | Removing it before the local pack ships would delete the only tier-1 producer and leave the product with no labels at all. |
+| Free-text captions (`CAPTION_INSTRUCTION`)              | **VU6**  | The structured schema needs a producer. Deleting the prose captioner first leaves `describe_footage` with nothing.         |
+| The pairwise duplicate scan (`_SIMILAR_GROUP_SPAN_CAP`) | **VU5**  | Its replacement is the phash multi-index bucket that tier 1 populates.                                                     |
+
+The two deprecations that were NOT gated — the key gate and the per-path enrolment hooks —
+are **deleted** as of `dc5809f`: implementation, settings surface, config key (with a
+drop-on-load migration), docs and tests, in one change.
