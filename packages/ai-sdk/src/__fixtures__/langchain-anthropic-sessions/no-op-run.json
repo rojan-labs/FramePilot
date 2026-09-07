@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11885,
+      "usedTokens": 11888,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -193,7 +193,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 156,
+            "tokenEstimate": 155,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11885,
+          "estimatedInputTokensBeforeSend": 11888,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860115,
+          "estimatedRemainingCapacity": 860112,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -308,7 +308,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -329,7 +329,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 156,
+            "tokenEstimate": 155,
             "included": true
           },
           {
@@ -344,7 +344,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11885,
+          "estimatedInputTokensBeforeSend": 11888,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",

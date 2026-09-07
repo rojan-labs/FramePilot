@@ -746,6 +746,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     let latest: Extract<ViewNode, { kind: 'plan' }> | undefined;
     const activity: ViewNode[] = [];
     for (const node of view.nodes) {
+      // A plan belongs to the turn that drafted it: a later message from the editor starts
+      // a new run (or a chat), and the old ledger pinned over it read as that run's plan.
+      if (node.kind === 'user') latest = undefined;
       if (node.kind === 'plan') latest = node;
       // A diff folded into its plan step is already on screen as that step's own outcome;
       // rendering it again here is the two-parallel-narratives problem the merge removes.

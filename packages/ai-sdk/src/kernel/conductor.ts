@@ -1151,6 +1151,27 @@ function toVerify(state: ConductorState, em: Emitter, events: AiEvent[]): Conduc
  * reasoning/status. Shared by the cancel path and the post-verify path.
  */
 function finalize(state: ConductorState, em: Emitter, events: AiEvent[]): ConductorStep {
+  // The plan card must not outlive the run. A step still `pending` or `running` when the
+  // run ends kept its hollow dot or spinner on the pinned ledger after "Made 1 edit" —
+  // the UI walk's `reports/golden/s9-ui-walk/04-cards-expanded.png` reads "Plan 1/2" with
+  // a step apparently in progress under a finished run. Settle every unreached step as
+  // failed with the reason on its mark, in the same terminal event the reducer already
+  // owns for the ledger.
+  if (
+    state.ledgerLength > 0 &&
+    state.planSteps.some((step) => step.status === 'pending' || step.status === 'running')
+  ) {
+    const reason = state.cancelled ? 'Stopped before this step' : 'The run ended before this step';
+    events.push(
+      em.plan(
+        state.planSteps.map((step) =>
+          step.status === 'pending' || step.status === 'running'
+            ? { ...step, status: 'failed' as const, detail: reason }
+            : step,
+        ),
+      ),
+    );
+  }
   if (state.cancelled && state.cumulativeOps.length > 0) {
     events.push(
       em.checkpoint({

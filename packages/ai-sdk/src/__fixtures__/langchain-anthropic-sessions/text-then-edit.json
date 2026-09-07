@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11882,
+      "usedTokens": 11885,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -193,7 +193,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 156,
+            "tokenEstimate": 155,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11882,
+          "estimatedInputTokensBeforeSend": 11885,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860118,
+          "estimatedRemainingCapacity": 860115,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -308,7 +308,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -329,7 +329,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 156,
+            "tokenEstimate": 155,
             "included": true
           },
           {
@@ -344,7 +344,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11882,
+          "estimatedInputTokensBeforeSend": 11885,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -679,7 +679,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11438,
+      "usedTokens": 11441,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -733,7 +733,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -754,7 +754,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 333,
+            "tokenEstimate": 332,
             "included": true
           },
           {
@@ -769,9 +769,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11438,
+          "estimatedInputTokensBeforeSend": 11441,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860562,
+          "estimatedRemainingCapacity": 860559,
           "toolSchemaTokensRebilled": 6966,
           "calculationSource": "local_estimate"
         },
@@ -871,7 +871,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1670,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -892,7 +892,7 @@
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 333,
+            "tokenEstimate": 332,
             "included": true
           },
           {
@@ -907,7 +907,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11438,
+          "estimatedInputTokensBeforeSend": 11441,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 6966,
