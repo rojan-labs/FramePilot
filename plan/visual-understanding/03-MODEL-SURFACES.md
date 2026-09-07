@@ -11,7 +11,7 @@ edits, it can say what changed on screen.
   index, `ProjectIndex.clipsOfAsset`, context-builder tiers, briefing distil, existing tools.
   Deferred: any new tool, any UI.
 
-## VU2.1 Ledger snapshot to the run `[ ]`
+## VU2.1 Ledger snapshot to the run `[x]` (2026-09-07)
 
 - Engine: `GET /brain/shots?projectId=…&assetIds=…` returns shots for the given assets
   (all tiers, bounded to 5,000 rows per call, paged by `(asset_id, shot_index)`), plus
@@ -23,7 +23,7 @@ edits, it can say what changed on screen.
 - Desktop main passes the snapshot into the run the same way it passes the footage map today
   (`context-builder` input). The MCP server does the same through its session.
 
-## VU2.2 The `picture` slice `[ ]`
+## VU2.2 The `picture` slice `[x]` (2026-09-07)
 
 `kernel/semantic-index/picture.ts`: `derivePicture(index, ledger): PictureSlice` per
 `01-ARCHITECTURE.md` §6. Pure, memoized per project snapshot via the existing WeakMap scheme.
@@ -37,7 +37,7 @@ edits, it can say what changed on screen.
   `black_in`, `soft_in` (sharpness < 0.35).
 - Coverage counts drive an honest line when a tier is missing.
 
-## VU2.3 Clip rows carry facts `[ ]`
+## VU2.3 Clip rows carry facts `[x]` (2026-09-07)
 
 `context-builder.ts` `renderTrackClips`: `inFull(c)` appends ` · ${factSuffix(c)}` when the
 clip has a dominant shot. `factSuffix` is a pure function in `context/shot-words.ts`:
@@ -53,7 +53,7 @@ label; never a number; one flag glyph max. A clip with only `measured` facts sti
 motion and exposure words. Token delta is measured (VU2.7); the budget is the existing
 `maxClipsPerLayer`, unchanged.
 
-## VU2.4 Project digest block `[ ]`
+## VU2.4 Project digest block `[x]` (2026-09-07)
 
 A new tiered block `picture digest` beside `footage map` in `buildContext`, ≤ 600 tokens,
 built from `asset_digest` rows only:
@@ -83,7 +83,7 @@ footage" looks like in 600 tokens.
 - Tool descriptions updated by the lead-prompt-engineer pass; the shape test in
   `tool-domains` must pass (a tool needs a domain).
 
-## VU2.6 Briefing PICTURE line `[ ]`
+## VU2.6 Briefing PICTURE line `[x]` (2026-09-07)
 
 `kernel/briefing.ts` `buildStateBriefing`: after an apply that changed picture clips, render
 ≤ 3 lines from the diff of `picture.cuts` before/after:
@@ -95,7 +95,7 @@ PICTURE — cut at 12.0s now MS→WS (+1.1 stops brighter) ⚑exposure_jump · c
 Inherited flags (present before the run) print as advisories, never as shortfalls
 (memory: verification judges the delta).
 
-## VU2.7 Evidence `[ ]`
+## VU2.7 Evidence `[~]` — token cost measured; the live golden delta needs a run
 
 - Unit: `picture.test.ts` (join, speed/trim mapping, flags, memoization), `shot-words.test.ts`
   (budget, thresholds, provenance gating), context-builder snapshot for rows and digest.
@@ -105,6 +105,25 @@ Inherited flags (present before the run) print as advisories, never as shortfall
   `broll-first-20s`, `montage-30s`, `vague-make-better`. Record the tables here.
 - New golden cases (from `06`): `which-clips-show-host`, `whats-on-screen-at`, `find-dark-clips`.
   Each must resolve from the digest or rows without `get_frame`.
+
+
+### Measured, 2026-09-07
+
+| Claim | Result |
+| --- | --- |
+| An unindexed project pays nothing | **Zero token delta.** Every golden manifest passes UNREGENERATED — no ledger, no suffix, byte-identical prompt. Nothing was hand-edited. |
+| The opt-in cost | digest **~108 tokens** once per turn; row suffix **~10 tokens** per covered clip, hard-capped at ~23. A fully covered 12-clip layer is about **one eighth of a single `get_frame`**. |
+| The clip COUNT bound is unchanged | `maxClipsPerLayer`, the focus path and retrieval ranking all take the same facts map; the slice grows by a bounded suffix per shown row, never by a row. The grounding-slice search prices the real rendering so it cannot under-size. |
+| `pictureFactsInPrompt` — this phase's exit metric | reports **0.5** on a half-covered layer and **0** with no ledger. |
+
+Two §7 details could not be rendered as written, and are worded honestly rather than
+invented: `AssetDigest.people` carries entity ids with no names or counts, and
+`lowQualityShots` carries indices with no reason. Getting the plan's wording needs new
+fields on the engine's digest row. And per-asset medians make a project "typical shot",
+not a median — a median of medians is not the median.
+
+What is NOT yet measured: the live golden delta on the 21 cases with ledgers built for the
+fixtures. That needs a run of the harness, which is the maintainer's to spend.
 
 ## VU2.8 Definition of done
 

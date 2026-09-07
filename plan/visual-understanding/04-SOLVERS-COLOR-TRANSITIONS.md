@@ -13,7 +13,7 @@ Deferred: LUT generation, per-region grading, new render kinds, any new schema.
 
 ## VU3 Deterministic color
 
-### VU3.1 The color model `[ ]`
+### VU3.1 The color model `[x]` (2026-09-07) — arithmetic exact, coefficients UNFITTED
 
 The renderer's grade is a parameter set with fixed ranges. The solver maps measured deltas
 onto those parameters with a calibrated, invertible model that is **fitted once against the
@@ -34,6 +34,35 @@ renderer**, not guessed:
 3. Skin protection: when both sides have `skin_*` channels with enough samples, cap the
    temperature/tint move so skin hue shifts stay under a fixed threshold (the `scope`
    request already measures skin channels).
+
+
+### VU3.1 as built, and what is not yet true
+
+The inversion is **derived from `engine/python/framepilot_engine/render/color.py`**, not
+guessed: it honours the renderer's pipeline order (exposure → white balance → contrast →
+shadows/highlights → saturation), solves each stage against what the previous ones leave
+behind, and clamps before the next stage predicts from it. Two consequences of reading the
+real pass: exposure and contrast both scale chroma, so warmth and saturation are solved net
+of them (which is why "brighter" returns pure exposure and not an unrequested temperature
+move); and shadows/highlights each move BOTH percentiles, so they are one 2×2 solve rather
+than two nudges.
+
+**The coefficients are UNFITTED.** All three response constants sit at 1.0 — the
+no-clipping value — and the fit will move them below. `packages/ai-sdk/scripts/fit-color-response.mjs`
+runs the real fit against a live sidecar and prints the constants to replace. Its header
+names the one thing it cannot settle: `scope` has no U/V channel, so the chroma matrix and
+range (full-range BT.709 is assumed) need a second `signalstats` pass over a rendered file.
+White balance's second-order effect on saturation is modelled as zero and named as a gap.
+
+**No test asserts a fitted number** — signs, orderings, bounds and invariants only.
+Freezing a provisional coefficient as an expected value would turn a guess into a
+regression gate and make the real fit look like a bug.
+
+A finding worth keeping: under this renderer's white-balance model the skin cap effectively
+governs `tint` alone. A full-range temperature move shifts a mid-tone skin hue by about 3°,
+because pushing red up and blue down moves skin ALONG its own hue line; a full-range tint
+move shifts it about 33°. That matches colourist practice, but it is a property of the model
+rather than a measured fact about faces.
 
 ### VU3.2 Tools `[ ]`
 
@@ -66,7 +95,7 @@ outside → one correction (solver re-run on the residual) then a fact either wa
 
 ## VU4 Transition policy
 
-### VU4.1 The policy `[ ]`
+### VU4.1 The policy `[x]` (2026-09-07)
 
 `editor-core/src/transition-policy.ts`: `chooseTransition(reason, cut, pacing): Choice | null`.
 
