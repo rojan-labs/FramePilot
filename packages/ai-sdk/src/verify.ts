@@ -29,6 +29,7 @@ import {
   transitionEligibility,
   type MappedRun,
   type MappedWord,
+  MAX_CAPTION_CUE_WORDS,
 } from '@framepilot/editor-core';
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
 
@@ -89,8 +90,12 @@ const captionTracks = (project: Project): readonly Track[] =>
 const isCaptionClip = (clip: Clip): boolean =>
   clip.assetId === '__caption__' || clip.effects.some((effect) => effect.type === 'caption');
 
-/** A readable cue should never be a paragraph (the shared segmenter stays well below this). */
-const MAX_VERIFIABLE_CAPTION_WORDS = 12;
+/**
+ * A readable cue should never be a paragraph. The bar is the segmenter's own widest preset
+ * (`subtitle`, 14 words): anything the segmenter can produce passes, and only a block it
+ * could not have written fails. A private 12 here failed correctly segmented subtitles.
+ */
+const MAX_VERIFIABLE_CAPTION_WORDS = MAX_CAPTION_CUE_WORDS;
 
 /** Round for display so messages read as seconds, not float noise. */
 const at = (n: number): string => `${+n.toFixed(3)}s`;

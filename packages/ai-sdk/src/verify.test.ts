@@ -8,7 +8,12 @@
  * verified-looking one.
  */
 import { describe, expect, it } from 'vitest';
-import { buildTimelineMap, deriveCaptionCues, captionSegmentConfig } from '@framepilot/editor-core';
+import {
+  buildTimelineMap,
+  deriveCaptionCues,
+  captionSegmentConfig,
+  MAX_CAPTION_CUE_WORDS,
+} from '@framepilot/editor-core';
 import type { Clip, Project, TranscriptWord } from '@framepilot/timeline-schema';
 import { verifyCaptions, verifyTransitions } from './verify.js';
 
@@ -411,6 +416,19 @@ describe('verifyCaptions', () => {
     expect(report.issues.map((issue) => issue.code)).toEqual(
       expect.arrayContaining(['caption_too_dense', 'caption_provenance_unknown']),
     );
+  });
+
+  it('does not call a cue the subtitle preset itself produced too dense', () => {
+    // The verifier's bar is the segmenter's widest preset: a correctly segmented
+    // 14-word subtitle cue is a caption, not a transcript block.
+    const first = correctCaptions()[0]!;
+    const words = Array.from({ length: MAX_CAPTION_CUE_WORDS }, (_, i) => ({
+      ...first.captionCue!.words[0]!,
+      text: `w${String(i)}`,
+    }));
+    const wide: Clip[] = [{ ...first, captionCue: { ...first.captionCue!, words } }];
+    const report = verifyCaptions(projectDoc(wide));
+    expect(report.issues.map((i) => i.code)).not.toContain('caption_too_dense');
   });
 
   it('does not count a title on an overlay track as a caption cue', () => {

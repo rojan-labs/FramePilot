@@ -776,7 +776,7 @@ describe('mutating tools — build valid operations', () => {
       },
     ]);
     expect(getTool('add_caption_layer')?.description).toContain('ONE short');
-    expect(getTool('add_caption_layer')?.description).toContain('never more than 12');
+    expect(getTool('add_caption_layer')?.description).toContain('never more than 14');
     // The rejection names the bulk tool that would have avoided it: a model that
     // over-reaches here should be steered to caption_the_edit, not left to guess
     // its way through one hand-placed cue at a time.

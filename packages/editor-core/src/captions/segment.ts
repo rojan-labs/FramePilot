@@ -89,6 +89,16 @@ export interface CaptionCueDraft {
  * `one-word` serves the one-word template family, where every word is its own
  * cue and the only real constraint is that each is held long enough to read.
  */
+/**
+ * The most words any preset lets one cue carry — the bar a cue has to clear before it is
+ * a "block" rather than a caption. Derived from the presets below, never a second number:
+ * `verify_captions` used a private 12 while the `subtitle` preset segments to 14, so a
+ * correctly captioned talk failed its own verification (15 of 262 cues) and the model,
+ * told to "regenerate through the segmenter", re-captioned the whole thing in another
+ * preset — 700 operations to fix nothing (s9-live-all captions-plain).
+ */
+export const MAX_CAPTION_CUE_WORDS = 14;
+
 export const CAPTION_SEGMENT_PRESETS = {
   'short-form': {
     maxCharsPerLine: 24,
@@ -104,7 +114,7 @@ export const CAPTION_SEGMENT_PRESETS = {
   subtitle: {
     maxCharsPerLine: 42,
     maxLines: 2,
-    maxWordsPerCue: 14,
+    maxWordsPerCue: MAX_CAPTION_CUE_WORDS,
     minCueSeconds: 0.8,
     maxCueSeconds: 6,
     maxCharsPerSecond: 17,
