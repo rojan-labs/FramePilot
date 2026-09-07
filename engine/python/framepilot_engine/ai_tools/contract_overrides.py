@@ -341,7 +341,7 @@ class _AdjustAudioArgs(BaseModel):
     gain_db: float = Field(alias="gainDb")
 
     @model_validator(mode="after")
-    def _exactly_one_target(self) -> "_AdjustAudioArgs":
+    def _exactly_one_target(self) -> _AdjustAudioArgs:
         if (self.clip_id is None) == (self.track_id is None):
             raise ValueError("adjust_audio takes exactly one of clipId or trackId.")
         return self

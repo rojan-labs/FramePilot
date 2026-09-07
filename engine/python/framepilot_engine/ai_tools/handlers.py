@@ -526,8 +526,7 @@ def adjust_audio(args: AdjustAudioArgs, ctx: ToolContext) -> Operations:
     if not track.clips:
         raise ValueError(f"Track {track.id} has no clips to adjust.")
     return [
-        {"type": "adjust_audio", "clipId": clip.id, "gainDb": args.gain_db}
-        for clip in track.clips
+        {"type": "adjust_audio", "clipId": clip.id, "gainDb": args.gain_db} for clip in track.clips
     ]
 
 
