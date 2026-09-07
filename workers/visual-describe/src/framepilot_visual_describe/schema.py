@@ -62,6 +62,8 @@ QUALITY_VOCABULARY: Final[tuple[str, ...]] = (
 
 CONFIDENCE_LEVELS: Final[tuple[str, ...]] = ("low", "medium", "high")
 
+# `MAX_ON_SCREEN_TEXT_ITEMS` is also the schema's array bound, so the grammar and the
+# parser agree on one number rather than trimming to a limit generation never reached.
 MAX_SUMMARY_CHARS: Final = 400
 MAX_FIELD_CHARS: Final = 160
 MAX_ON_SCREEN_TEXT_ITEMS: Final = 16
@@ -82,11 +84,6 @@ DESCRIBE_INSTRUCTION: Final = (
     "camera and quality: choose only from the listed values, and choose 'unknown' rather "
     "than guessing. confidence: how sure you are of this description overall."
 )
-
-
-#: Most legible text lines one keyframe can carry before the list stops being useful.
-#: It is also the grammar's stop condition — see the note on `onScreenText` below.
-MAX_ON_SCREEN_TEXT: Final = 12
 
 
 def _enum(values: tuple[str, ...]) -> list[str]:
@@ -136,7 +133,7 @@ DESCRIBED_JSON_SCHEMA: Final[dict[str, Any]] = {
         "onScreenText": {
             "type": "array",
             "items": {"type": "string", "minLength": 1},
-            "maxItems": MAX_ON_SCREEN_TEXT,
+            "maxItems": MAX_ON_SCREEN_TEXT_ITEMS,
             "description": "Text legible in frame, verbatim. Empty when there is none.",
         },
         "quality": {

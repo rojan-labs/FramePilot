@@ -106,6 +106,8 @@ CONFIDENCE_BUCKETS: Final[dict[str, float]] = {"low": 0.5, "medium": 0.7, "high"
 
 #: Hard caps applied after whitespace collapse. A description is stored on every shot of
 #: every asset, so a runaway field is a bloated ledger rather than a richer one.
+#: ``MAX_ON_SCREEN_TEXT_ITEMS`` is also the schema's array bound, so the grammar and the
+#: parser agree on one number rather than trimming to a limit generation never reached.
 MAX_SUMMARY_CHARS: Final = 400
 MAX_FIELD_CHARS: Final = 160
 MAX_ON_SCREEN_TEXT_ITEMS: Final = 16
@@ -176,14 +178,23 @@ DESCRIBED_JSON_SCHEMA: Final[dict[str, Any]] = {
             },
         },
         "mood": {"type": "string", "description": "The visual feel of the frame."},
+        # WHY BOTH ARRAYS ARE BOUNDED, AND WHY onScreenText FORBIDS AN EMPTY STRING:
+        # these are grammar constraints, not documentation. An unbounded array of strings
+        # lets a decoder that has run out of things to say keep emitting `""`, forever,
+        # because the grammar says another item is always legal. Measured on
+        # SmolVLM2-2.2B: it filled `onScreenText` with empty strings until `--n-predict`
+        # ran out, leaving the object unterminated and every describe call failing as
+        # "not valid JSON". The bound is what makes closing the array reachable.
         "onScreenText": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {"type": "string", "minLength": 1},
+            "maxItems": MAX_ON_SCREEN_TEXT_ITEMS,
             "description": "Text legible in frame, verbatim. Empty when there is none.",
         },
         "quality": {
             "type": "array",
             "items": {"type": "string", "enum": list(QUALITY_VOCABULARY)},
+            "maxItems": len(QUALITY_VOCABULARY),
             "description": "Observable defects or virtues, from the closed list only.",
         },
         "confidence": {"type": "string", "enum": list(CONFIDENCE_BUCKETS)},
