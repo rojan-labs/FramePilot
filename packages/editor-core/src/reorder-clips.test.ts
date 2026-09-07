@@ -1,5 +1,5 @@
 /**
- * `reorder_clips` — the atomic route that does not destroy footage (REMAINING §2.1).
+ * `reorder_clips` — the atomic route that does not destroy footage (session-6 handoff).
  *
  * Four of six clean reorder runs in the session-6 baseline lost the editor's content.
  * Asked to move the last clip to the front, the agent deleted the sequence and then

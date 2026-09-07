@@ -106,7 +106,7 @@ and `hook-first` have each been awarding themselves a free point**. Their record
 are upper bounds; no recorded number was edited. Two capabilities that could never succeed
 on a real project — ducking a bed under footage that carries the sound, and `duck_roles` on
 any project the agent did not build — now can, at a measured cost of **+130 tokens per
-request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
+request**. Full detail: `BASELINES.md` "session 5". (The `REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.3 — **eight defects from the second sweep of `137d8fd0`.** A duck refused
   with no viable track named; an enum rejection that never quoted the value it refused; a
@@ -128,7 +128,7 @@ every placement that did it had reported `completed`. Closed with reproducing te
 (`23cddd2`), the deterministic half of C.19 (`afd2671`), and C.21 (`f84e564`) — a false
 stop of the session-7 same-wall guard found by replaying session6's recordings for free. `BASELINES.md` "ninth axis" has
 the table and the first-order accounting. Every failure-shaped lead re-derived this session
-was already closed by a fix citing this run; `REMAINING.md` §1b lists them so nobody mines
+was already closed by a fix citing this run; the handoff log lists them so nobody mines
 them a sixth time. Branch `fix/agent-reliability-s8` (worktree `../FramePilot-reliability-s8`).
 
 **Prior snapshot (2026-09-06, GOLDEN-EVAL — goal.md Phase 0):** **no run.** A fifth
@@ -215,7 +215,7 @@ grid in both runtimes. Cost on the frozen token surfaces: **+169 tokens per requ
 measured. **Nothing here is sampled against the model** — `reorder_clips` in particular is
 a capability the agent did not have, so its effect on the reorder cases is unknown until
 someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
-"s7-replay"; what is still open: `REMAINING.md`.
+"s7-replay"; what is still open: the session handoff (removed 2026-09-08; see the `BASELINES.md` session entries).
 
 - `[x]` GOLDEN-C.4 — **a reorder no longer loses footage.** `reorder_clips` recomputes a
   track's starts in ONE patch: no delete, no add, clip set invariant, so a run that stops
@@ -263,7 +263,7 @@ provider dropped and the run was stopped. Nine of the eleven score 1.00 on every
 down as predicted — `no-mid-word-cuts` is measuring rather than being handed a point, and
 the cases score 1.00 anyway. The run also found that **a reorder loses the editor's
 footage** in four of six clean runs. Full numbers, per-case table and what each is _not_
-evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
+evidence of: `BASELINES.md` "session6". (The `REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-C.1 — **`mission-podcast` measures what its cases claim.** Measuring the
   alternatives is what settled it: `speech-9min-b` has real words and no silent gap at −30,
@@ -280,13 +280,13 @@ evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
 - `[x]` GOLDEN-C.4 — **a reorder must not lose footage.** Closed 2026-09-05d, see above. Four of six clean runs destroyed
   content; twice the agent deleted the sequence and then asked the editor how to recover
   from the state it had made. Needs a maintainer decision (ADR 0056 atomicity, ADR 0166
-  wipe guard) and probably an atomic `reorder_clips` operation. `REMAINING.md` §2.1.
+  wipe guard) and probably an atomic `reorder_clips` operation. Session-6 handoff.
 - `[x]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** Closed 2026-09-05d, see above. 29 identical
   calls, $3.93, an empty track, past a guard that exists and passes its tests. Reproduce
-  with `--replay` before tuning any of the five run-stoppers. `REMAINING.md` §2.2.
+  with `--replay` before tuning any of the five run-stoppers. Session-7 handoff.
 - `[x]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** Closed 2026-09-05d, see above. 16 `set_clip_speed` calls at
   1.3× produced 16 off-grid edges; both engines agree, so parity holds and both are wrong
-  together. Three routes, all decisions. `REMAINING.md` §2.3.
+  together. Three routes, all decisions. Session-7 handoff.
 - `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; re-running
   them is the one legitimate use of `--force`.
 
@@ -296,8 +296,9 @@ attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten
 31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
 target resolution, operation validity and reversibility all **1.00** and zero silent
 successes. Running it found **five instrument defects**, all fixed. Full numbers, the
-per-case table, and what each is _not_ evidence of: `BASELINES.md` "session3". What is
-still open: `REMAINING.md`.
+per-case table, and what each is _not_ evidence of: `BASELINES.md` "session3". (The
+`REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live
+in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.2 — **five instrument defects, found by running the thing.** A rubric
   demanding a shorter programme for a prompt asking for a faster one; a case asking for 45
@@ -315,8 +316,9 @@ was **not re-run** this session (credits conserved). Sixteen defects closed on
 single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
 session's open leads, and one of those a **retraction**: `broll-first-20s`'s severed word
 was the instrument, not b-roll placement. Every number, every prediction the next run
-should test, and what each is _not_ evidence of: `BASELINES.md` "session 3". What is still
-open, with root causes: `REMAINING.md`.
+should test, and what each is _not_ evidence of: `BASELINES.md` "session 3". (The
+`REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live
+in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.1 — **thirteen defects from one transcript, and three golden leads.**
   Caption patches discarded on stacked footage; `word_severed` failing runs on hallucinated
@@ -448,7 +450,8 @@ reconcileInheritedFailures`: a health check failing identically before and after
   route, so the remedy reaches the briefing instead of ageing out with the tool result;
   and `arrangementLine` / `get_timeline_summary` mark a video track with no free picture
   span, so the state stops advertising a layer nothing may go on. Not reproducible on the
-  golden set — every mission fixture has one video track; see TRACKING.md for the shape.
+  golden set — every mission fixture has one video track, so the multi-track shape
+  could not be exercised there.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
   **Narrowed twice since, and the narrowing is the shipped rule.** ADR 0169: a full-frame
   opaque placement over picture is legal and goes on a layer in front. ADR 0170: "full-frame"

@@ -5,7 +5,7 @@
 > The detailed execution record remains [`plan/PLAN.md`](../../plan/PLAN.md), and user-facing
 > changes remain [`CHANGELOG.md`](../../CHANGELOG.md).
 
-**Snapshot date:** 2026-08-05  
+**Snapshot date:** 2026-09-08  
 **Lifecycle:** Active pre-release development  
 **Repository version:** `0.0.0`  
 **Overall:** Functional desktop editor and AI editing system under continued product,
@@ -29,8 +29,9 @@ packaging, and release mechanics can continue to evolve before a stable public r
 - Zod project schema with cross-language synchronization into the Python engine.
 - Typed timeline operations with validation, transactional patch application, inversion,
   diffing, and undo/redo.
-- Schema migrations through version 14, including effect layers and real cubic Bezier
-  keyframe handles.
+- Schema migrations through version 21, including effect layers, real cubic Bezier
+  keyframe handles, speed curves, caption emphasis and layout, audio track roles, camera
+  angle groups, on-demand capability packs, asset provenance, and asset pixel dimensions.
 - Multitrack video, audio, caption, overlay, and effect timelines.
 - Manual trim, split, move, ripple, snapping, marker, transition, effect, and keyframe
   workflows.
@@ -65,12 +66,15 @@ packaging, and release mechanics can continue to evolve before a stable public r
 FramePilot currently exposes provider adapters for:
 
 - Anthropic
+- Claude Agent SDK (the user's existing Claude Code login rather than an API key)
 - NVIDIA
 - OpenRouter
+- Vercel AI Gateway
 - Groq
 - Google Gemini
 - Ollama
 - DeepSeek
+- Any OpenAI-compatible server (vLLM, LM Studio, llama.cpp, LiteLLM, or a local proxy)
 - Deterministic mock
 
 Provider choice changes transport and model behavior. It does not bypass the tool registry,
@@ -126,12 +130,11 @@ patch validation, host authority, or project safety boundaries.
 
 ## Latest recorded verification
 
-The latest verification recorded on `main` for the August 4 vision and performance work
-reported:
+The latest verification recorded on `main` for the August 7 reliability work reported:
 
 - `pnpm verify` green across 16 of 16 Turborepo tasks.
-- 2,253 Python engine tests passed.
-- One intentional Python test skip.
+- 2,405 Python engine tests passed.
+- Engine `ruff`/`mypy` clean.
 
 This is a historical verification snapshot, not a claim that every later branch has run the
 same checks. Each pull request must report exactly what it validated.
