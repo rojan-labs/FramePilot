@@ -970,7 +970,7 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     "Deployment was blocked", which is a project/account gate rather than a failed build.
     Settle it in the Vercel dashboard; it is not evidence about this branch.
 
-- [ ] **T16.3. The behavioural payoff is unmeasured** — **the biggest open question**
+- [x] **T16.3. The behavioural payoff is unmeasured** — **MEASURED 2026-09-08**
   - Nothing here has been measured for its effect on **edit quality**. Whether first-pass
     acceptance improves needs a live golden run against a real provider.
   - Per repo memory: run it **detached**, or your own vitest kills it. `--replay` is free but
