@@ -1,0 +1,247 @@
+{
+  "scenario": "trim-first-clip-10s",
+  "category": "trim",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Trim the first clip so it ends at exactly 10 seconds.",
+      "rubric": "trim-first-clip",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "first-clip-ends-at",
+          "ok": true,
+          "detail": "ends at 10.0000s, asked 10s (0.00 frame(s) off)",
+          "weight": 2,
+          "facet": "boundary"
+        },
+        {
+          "id": "only-target-touched",
+          "ok": true,
+          "detail": "no other clip changed",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "only-target-touched: no other clip changed"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "first-clip-ends-at: ends at 10.0000s, asked 10s (0.00 frame(s) off)",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 2,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 32341,
+          "output": 150,
+          "total": 32491
+        },
+        "usd": 0.035277,
+        "latency": {
+          "firstProgressMs": 4010,
+          "doneMs": 8123
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 1
+      },
+      "asked": [],
+      "assistantText": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Trimmed clip camera-4k60-40s.mov · 0s–10s",
+      "recording": "reports/golden/s9-live-all/recordings/trim-first-clip-10s-r1-t1.json",
+      "calls": [
+        {
+          "tool": "trim_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_001\", end: 10"
+        }
+      ],
+      "metrics": {
+        "wallMs": 8123,
+        "modelCalls": 2,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 32341,
+          "input": 11009,
+          "output": 150,
+          "cacheRead": 21332,
+          "cacheCreate": 22613
+        },
+        "perCall": [
+          {
+            "ttftMs": 4006,
+            "wallMs": 4006,
+            "input": 5392,
+            "output": 101,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 3131,
+            "wallMs": 4104,
+            "input": 5617,
+            "output": 49,
+            "cacheRead": 10179
+          }
+        ],
+        "summary": {
+          "turnCount": 2,
+          "ttftMs": {
+            "p50": 3131,
+            "p95": 4006,
+            "min": 3131,
+            "max": 4006
+          },
+          "wallMs": {
+            "p50": 4006,
+            "p95": 4104,
+            "min": 4006,
+            "max": 4104
+          },
+          "inputTokensPerTurn": {
+            "p50": 5392,
+            "p95": 5617,
+            "min": 5392,
+            "max": 5617
+          },
+          "outputTokensPerTurn": {
+            "p50": 49,
+            "p95": 101,
+            "min": 49,
+            "max": 101
+          },
+          "cacheHitRate": 0.6595961782257815,
+          "cacheReportingTurns": 2
+        },
+        "usd": 0.035277,
+        "usageTokens": 11159,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "trim_clip": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 4,
+        "contextByType": [
+          {
+            "system": 2277,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2277,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2461,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2461,
+            "retrieved_evidence": 487,
+            "skill": 1649,
+            "latest_user_message": 17,
+            "tool_schemas": 6263
+          }
+        ],
+        "contextUsedTokens": [
+          11314,
+          5392,
+          10877,
+          5617
+        ],
+        "contextCachedTokens": [
+          null,
+          11153,
+          null,
+          10179
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 1,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

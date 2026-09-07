@@ -1,0 +1,394 @@
+{
+  "scenario": "podcast-highlight-60s",
+  "category": "highlight",
+  "project": "mission-podcast",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Pull the best 60 seconds of this recording into a highlight clip. Do not cut mid-sentence.",
+      "rubric": "podcast-highlight-60s",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "duration-within",
+          "ok": true,
+          "detail": "61.60s vs 60s ±10s",
+          "weight": 2
+        },
+        {
+          "id": "no-mid-word-cuts",
+          "ok": true,
+          "detail": "0 edge(s) inside a word",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "no-mid-word-cuts: 0 edge(s) inside a word",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 4,
+          "valid": 4,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 7,
+        "toolCalls": 6,
+        "tokens": {
+          "prompt": 127952,
+          "output": 8402,
+          "total": 136354
+        },
+        "usd": 0.29320499999999994,
+        "latency": {
+          "firstProgressMs": 3200,
+          "doneMs": 111029
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 4 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 4
+      },
+      "asked": [],
+      "assistantText": "**Applied 4 edits** in 4 steps — review the proposed change below.\n\n- Deleted range Video 1 · 0s–718s\n- Added clip Video 1 · 0s–63.433s\n- Trimmed clip speech-9min-c.mp4 · 0s–62.067s\n- Trimmed clip speech-9min-c.mp4 · 0s–61.6s",
+      "recording": "reports/golden/s9-live-all/recordings/podcast-highlight-60s-r1-t1.json",
+      "calls": [
+        {
+          "tool": "delete_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_001\""
+        },
+        {
+          "tool": "add_clip",
+          "status": "completed",
+          "args": "trackId: \"video_1\", assetId: \"asset_001\", start: 0, end: 63.42, sourceStart: 137…"
+        },
+        {
+          "tool": "trim_clip",
+          "status": "completed",
+          "args": "clipId: \"clip__video_1_asset_001…, end: 62.08"
+        },
+        {
+          "tool": "get_timeline_map",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": "start: 50, end: 62.07"
+        },
+        {
+          "tool": "trim_clip",
+          "status": "completed",
+          "args": "clipId: \"clip__video_1_asset_001…, end: 61.6"
+        }
+      ],
+      "metrics": {
+        "wallMs": 111029,
+        "modelCalls": 7,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 127952,
+          "input": 55725,
+          "output": 8402,
+          "cacheRead": 72227,
+          "cacheCreate": 100468
+        },
+        "perCall": [
+          {
+            "ttftMs": 3183,
+            "wallMs": 21107,
+            "input": 7565,
+            "output": 1702,
+            "cacheRead": 11153
+          },
+          {
+            "ttftMs": 4421,
+            "wallMs": 20323,
+            "input": 7695,
+            "output": 1465,
+            "cacheRead": 10179
+          },
+          {
+            "ttftMs": 2304,
+            "wallMs": 14862,
+            "input": 7761,
+            "output": 1276,
+            "cacheRead": 10179
+          },
+          {
+            "ttftMs": 3249,
+            "wallMs": 4645,
+            "input": 7795,
+            "output": 183,
+            "cacheRead": 10179
+          },
+          {
+            "ttftMs": 4038,
+            "wallMs": 28396,
+            "input": 7914,
+            "output": 2436,
+            "cacheRead": 10179
+          },
+          {
+            "ttftMs": 2473,
+            "wallMs": 12253,
+            "input": 8542,
+            "output": 1045,
+            "cacheRead": 10179
+          },
+          {
+            "ttftMs": 5384,
+            "wallMs": 9363,
+            "input": 8453,
+            "output": 295,
+            "cacheRead": 10179
+          }
+        ],
+        "summary": {
+          "turnCount": 7,
+          "ttftMs": {
+            "p50": 3249,
+            "p95": 5384,
+            "min": 2304,
+            "max": 5384
+          },
+          "wallMs": {
+            "p50": 14862,
+            "p95": 28396,
+            "min": 4645,
+            "max": 28396
+          },
+          "inputTokensPerTurn": {
+            "p50": 7795,
+            "p95": 8542,
+            "min": 7565,
+            "max": 8542
+          },
+          "outputTokensPerTurn": {
+            "p50": 1276,
+            "p95": 2436,
+            "min": 183,
+            "max": 2436
+          },
+          "cacheHitRate": 0.5644851194197824,
+          "cacheReportingTurns": 7
+        },
+        "usd": 0.29320499999999994,
+        "usageTokens": 64127,
+        "toolCalls": 6,
+        "toolCallsByName": {
+          "delete_clip": 1,
+          "add_clip": 1,
+          "trim_clip": 2,
+          "get_timeline_map": 1,
+          "get_mapped_transcript": 1
+        },
+        "repeatedToolCalls": 1,
+        "analysisFromCache": 0,
+        "contextRequests": 14,
+        "contextByType": [
+          {
+            "system": 2313,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2313,
+            "retrieved_evidence": 2512,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2427,
+            "retrieved_evidence": 2508,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2427,
+            "retrieved_evidence": 2508,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2447,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2447,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2464,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2464,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2539,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2539,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2825,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2825,
+            "retrieved_evidence": 2518,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2754,
+            "retrieved_evidence": 2517,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2754,
+            "retrieved_evidence": 2517,
+            "skill": 1649,
+            "latest_user_message": 26,
+            "tool_schemas": 6263
+          }
+        ],
+        "contextUsedTokens": [
+          13384,
+          7565,
+          12873,
+          7695,
+          12903,
+          7761,
+          12920,
+          7795,
+          12995,
+          7914,
+          13281,
+          8542,
+          13209,
+          8453
+        ],
+        "contextCachedTokens": [
+          null,
+          11153,
+          null,
+          10179,
+          null,
+          10179,
+          null,
+          10179,
+          null,
+          10179,
+          null,
+          10179,
+          null,
+          10179
+        ],
+        "diffs": 4,
+        "validDiffs": 4,
+        "operations": 4,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 61.6,
+        "pictureClips": 1,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

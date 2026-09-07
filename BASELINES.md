@@ -46,6 +46,101 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-all` — 2026-09-07 (session 9) — **the first complete 21-case live run since the harness was built: 18 of 21 first-pass, silent successes 0, reversibility 21/21, $0.232 per accepted edit**
+
+| | |
+| --- | --- |
+| commit | cases 1–12 + `impossible-8k-drone` at `ed84844` (stage + delta fixes, recovery-turn disclosure); the 8 cases after a transport outage re-run at `9295303` (adds the SDK system-prompt prefix, note bound, caption cap) — `--force` on exactly the void cases |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | all four mission fixtures |
+| cases × runs | 21 × 1 (24 turns) |
+| voidTurns | 9 in the first pass (the SDK subprocess could not be reached: "FramePilot couldn't reach claude-agent-sdk"); all 9 re-run, 0 in the merged file |
+| wall clock / tier-priced cost | ~45 min of model time; $4.87 list for 21 accepted edits |
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 87.5% (21/24 turns) |
+| target resolution | 100% |
+| boundary precision | 100% |
+| operation validity | 100% |
+| first-pass acceptance | 87.5% (21/24) |
+| silent successes | **0** |
+| reversibility | **100%** (24/24) |
+| accepted edits | 21 |
+| tokens / accepted edit | 128,790 |
+| tier-priced cost / accepted edit | $0.232 |
+| model calls / turn p50 · p95 | 4 · 10 |
+| tool calls / turn p50 · p95 | 3 · 14 |
+| first progress p50 · p95 | 3.3s · 5.9s |
+| done p50 · p95 | 30.5s · 124.4s |
+| failure quality | 3 failures, 3 loud, 0 explained |
+
+### Per turn
+
+| case | observed / expected | score | first-pass | calls | ops | USD | wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| montage-30s | edit / edit | 1.00 | ✓ | 4 | 22 | $0.14 | 60s |
+| podcast-highlight-60s | edit / edit | 1.00 | ✓ | 7 | 4 | $0.29 | 111s |
+| remove-dead-air | edit / edit | 1.00 | ✓ | 4 | 116 | $0.15 | 20s |
+| **beat-sync** | **ask (dismissed) / edit** | 0.33 | ✗ | 2 | 0 | $0.07 | 27s |
+| refine-tighten t1 | edit / edit | 1.00 | ✓ | 5 | 38 | $0.22 | 100s |
+| refine-tighten t2 | edit / edit | 1.00 | ✓ | 8 | 184 | $0.65 | 308s |
+| memory-captions t1–t3 | edit ×3 | 1.00 | ✓ | 6 · 6 · 3 | 4 · 50 · 2 | $0.67 | 183s |
+| trim-first-clip-10s | edit / edit | 1.00 | ✓ | 2 | 1 | $0.04 | 8s |
+| trim-opening-10s | edit / edit | 1.00 | ✓ | 2 | 1 | $0.04 | 14s |
+| reorder-last-first | edit / edit | 1.00 | ✓ | 3 | 1 | $0.05 | 13s |
+| reorder-swap-first-two | edit / edit | 1.00 | ✓ | 4 | 1 | $0.10 | 31s |
+| captions-plain | edit / edit | 1.00 | ✓ | 8 | 1399 | $0.56 | 52s |
+| captions-uppercase-bottom | edit / edit | 1.00 | ✓ | 10 | 1400 | $0.74 | 62s |
+| hook-strongest-line | edit / edit | 1.00 | ✓ | 4 | 2 | $0.07 | 51s |
+| broll-first-20s | edit / edit | 1.00 | ✓ | 3 | 4 | $0.03 | 19s |
+| broll-empty-overlay-track | edit / edit | 1.00 | ✓ | 2 | 2 | $0.02 | 16s |
+| music-bed-quiet | edit / edit | 1.00 | ✓ | 6 | 38 | $0.10 | 54s |
+| compound-silence-captions | edit / edit | 1.00 | ✓ | 9 | 1305 | $0.68 | 55s |
+| vague-make-better | edit / ask-or-edit | 1.00 | ✓ | 10 | 5 | $0.21 | 124s |
+| **impossible-8k-drone** | **ask (dismissed) / decline** | 1.00 | ✗ | 1 | 0 | $0.01 | 11s |
+| guard-wipe-timeline | edit / edit | 1.00 | ✓ | 2 | 5 | $0.01 | 8s |
+| **clarify-which-clip** | **ask (dismissed) / ask** | 1.00 | ✗ | 1 | 0 | $0.01 | 7s |
+
+### What the three misses are
+
+- **`clarify-which-clip` is the instrument.** It asked exactly the question its rubric wants
+  ("which clip?"); the scripted operator dismisses (C.9), the run settles `cancelled`, and
+  `observeIntent` read the status before the question. Fixed in this session's next commit:
+  a dismissed question is still a question. Under that reading the run is 22/24.
+- **`beat-sync` asked a scope question the request had answered.** "Aim for about 30
+  seconds" on a 134.7s sequence → "How do you want me to handle the existing 134.7s
+  sequence? Replace it / Append / Build as an alternate." The AMBIGUITY clause tells it to ask
+  before "a full re-cut"; the request named the re-cut. Open: the clause needs "a request
+  that names the scope has answered it" (GOLDEN-C.26).
+- **`impossible-8k-drone` asked instead of declining.** It correctly said neither part
+  (8K upscale, drone footage) is possible, then offered alternatives through `ask_user`.
+  Arguably the better product behaviour; the case expects a plain decline. Left as is.
+
+### What this run also found (each fixed with a reproducing test, this session)
+
+- `captions-plain` / `captions-uppercase-bottom` / `compound-silence-captions`: **the
+  verifier failed the segmenter's own subtitle cues** (>12 words while `subtitle` segments
+  to 14), and the model re-captioned everything in another preset — ~700 operations and a
+  second verify per case for nothing (`9295303`). And `caption_the_edit`'s note listed all
+  1,399 operations: 44,570 characters in the action log, 41k uncached input tokens on the
+  calls after it (`e4ec8bc`).
+- `music-bed-quiet`: **`professional_audio duck_roles` was refused** — "requires a live
+  editor interaction snapshot" — after the model labelled both tracks exactly as the tool
+  asks; the harness never sent the snapshot the desktop always sends (runner fixed next
+  commit). The model fell back to **eighteen** one-clip `adjust_audio` calls, one per
+  30-second tile of the bed; `adjust_audio` now takes a `trackId` (`3e44ed4`).
+- `refine-tighten` t2: 184 operations, 29.5k output tokens, $0.65, 308s — the model
+  rebuilt the middle section three times (delete_clips + add_clips ×3). Scored 1.00. Open
+  (GOLDEN-C.27): a tighten that re-lays 30 clips three times is not a tighten.
+
+### Not evidence of
+- Run-to-run variance: one run per case. The two reorder cases are 3× elsewhere.
+- The plan-first path the desktop takes by default (`--plan-first`, unsampled).
+- The cache saving of `b0fab26` (measured separately, `s9-live-reorder-cache`).
+
 ## `s9-live-reorder-fix1` / `s9-live-reorder-fix2` — 2026-09-07 (session 9) — **the two defects closed and measured live: 6 of 6 first-pass, one operation per run, a tenth of the cost**
 
 | | |

@@ -163,10 +163,16 @@ export function observeIntent(
 ): ObservedIntent {
   const status = lastStatus(events);
   if (status === 'failed') return 'failed';
-  if (status === 'cancelled') return 'cancelled';
   // Asking comes first: a question before an edit is the behaviour the guard/clarify cases
-  // exist to see, and an edit after the operator's answer is judged by the rubric.
+  // exist to see, and an edit after the operator's answer is judged by the rubric. It also
+  // comes before `cancelled`: the scripted operator DISMISSES a question it has no answer
+  // for (see `GoldenTurn.answer`), which settles the run as cancelled — and a run that asked
+  // the right question and was dismissed is still a run that asked. `clarify-which-clip`
+  // in `s9-live-all` asked exactly what its rubric wants and was scored `cancelled`,
+  // intent 0%. A guard case that asks when it should have edited still reads as `ask`,
+  // still mismatches `edit`, and the deviation stays visible in `asked`.
   if (events.some((e) => e.type === 'ask')) return 'ask';
+  if (status === 'cancelled') return 'cancelled';
   if (appliedOperations > 0) return 'edit';
   if (assistantText(events).length > 0) return 'decline';
   return 'silent';

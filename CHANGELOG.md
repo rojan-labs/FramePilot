@@ -21,6 +21,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   first-pass 33% → 100%, one operation per run, a tenth of the cost.
 - **A recovery turn offers only the tools the run has loaded**, not every mutation in the
   registry.
+- **Captions the subtitle preset wrote no longer fail their own check.** The verifier
+  flagged any cue over 12 words while the subtitle preset writes up to 14, so a correctly
+  captioned talk was re-captioned in another preset for nothing. One number now, shared by
+  the segmenter, the verifier and the hand-cue tool.
+- **Lowering a whole music bed is one call.** `adjust_audio` takes a track as well as a
+  clip, so a bed tiled from a short file is set once instead of once per tile.
+- **The AI panel's copy stops promising a review step.** The contract, the receipt and the
+  empty state all said the edit would be reviewed before it applied; edits apply as they
+  land and undo takes them back, and the words now say so.
+- **"Mute the music track" is only suggested when there is music** — a voice-over on an
+  audio track no longer earns it.
+- **The editing playbooks name the tools that exist**: captions in one call
+  (`caption_the_edit`), a speed ramp on one clip (`set_clip_speed_ramp`), a reorder that
+  cannot lose footage (`reorder_clips`).
+
+### Changed
+
+- **Runs on the Claude login provider bill less per call.** The run-stable prefix (skills,
+  request, agent contract) is sent as the system prompt, where the SDK caches it.
+- **A tool that lands hundreds of operations reports eight and counts the rest**, so a
+  re-caption no longer carries every cue's timestamp into the next turns.
 
 - **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
   never shot" came back with eight stock clips covering fifty of its sixty seconds and six

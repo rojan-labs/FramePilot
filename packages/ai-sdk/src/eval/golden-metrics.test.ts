@@ -81,6 +81,16 @@ describe('observeIntent', () => {
   it('a cancelled status is cancelled', () => {
     expect(observeIntent([ev('status', { status: 'cancelled' })], 0)).toBe('cancelled');
   });
+  it('a question the operator dismissed is still a question', () => {
+    // The scripted operator settles an unanswerable question as a dismissal, which the
+    // runtime reports as `cancelled`; the run's decision was to ask.
+    expect(
+      observeIntent(
+        [ev('ask', { question: 'which clip?' }), ev('status', { status: 'cancelled' })],
+        0,
+      ),
+    ).toBe('ask');
+  });
   it('a question wins over a later edit — asking came first', () => {
     expect(
       observeIntent(

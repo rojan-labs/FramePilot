@@ -65,6 +65,7 @@ const {
   summarizeGoldenRun,
   renderGoldenSummary,
   estimateRun,
+  captureEditorInteractionContext,
 } = sdk;
 
 const args = parseArgs(process.argv.slice(2));
@@ -338,6 +339,13 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
         project,
         userPrompt: turn.prompt,
         history,
+        // The editor snapshot the desktop captures on every send (`AiSidebar.tsx` →
+        // `captureEditorInteractionContext`): playhead at 0, nothing selected. Without it
+        // every professional_* tool throws "requires a live editor interaction snapshot"
+        // — s9-live-all music-bed-quiet labelled its tracks exactly as the tool asks and
+        // was refused the duck, then lowered eighteen clips by hand — so the harness was
+        // measuring a surface the desktop never shows.
+        interaction: captureEditorInteractionContext({ project, projectRevision: 0, playheadSeconds: 0 }),
         ...(visualStatus ? { visualStatus } : {}),
         ...(footageMap ? { footageMap } : {}),
         ...(sessionContext ? { sessionContext } : {}),
@@ -745,7 +753,7 @@ function writeOutputs() {
       : [`mixed (${stamps.join('; ')})`, 'see provider'];
   const meta = { label: LABEL, generatedAt, provider, model, runsPerScenario: RUNS, replayed: REPLAY };
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ ...meta, merged, golden: summary }, null, 2));
+  writeFileSync(OUT, JSON.stringify({ ...meta, results: merged, golden: summary }, null, 2));
   writeFileSync(join(RUN_DIR, 'summary.json'), JSON.stringify({ ...meta, cases: selected.map((c) => c.id), crashed, summary }, null, 2));
   const md = renderGoldenSummary(summary, meta) + (crashed.length ? `\nCrashed turns:\n${crashed.map((c) => `- ${c}`).join('\n')}\n` : '');
   writeFileSync(join(RUN_DIR, 'summary.md'), md);
