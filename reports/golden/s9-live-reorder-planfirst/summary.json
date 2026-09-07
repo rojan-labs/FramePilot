@@ -1,0 +1,84 @@
+{
+  "label": "s9-live-reorder-planfirst",
+  "generatedAt": "2026-09-07T03:48:24.672Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 3,
+  "replayed": false,
+  "cases": [
+    "reorder-last-first",
+    "reorder-swap-first-two"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 2,
+    "turns": 6,
+    "intentAccuracy": 0,
+    "targetAccuracy": 1,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 0,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": null,
+    "usdPerAcceptedEdit": null,
+    "modelCallsPerTurn": {
+      "p50": 4,
+      "p95": 6,
+      "n": 6
+    },
+    "toolCallsPerTurn": {
+      "p50": 1,
+      "p95": 4,
+      "n": 6
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 9682,
+        "p95": 14788,
+        "n": 6
+      },
+      "doneMs": {
+        "p50": 21856,
+        "p95": 35600,
+        "n": 6
+      }
+    },
+    "failureQuality": {
+      "failures": 6,
+      "loud": 6,
+      "explained": 6
+    },
+    "perCase": {
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 40320,
+        "usdPerRun": 0.030393,
+        "wallMsPerRun": 19914,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 58820,
+        "usdPerRun": 0.039810000000000005,
+        "wallMsPerRun": 28171,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

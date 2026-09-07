@@ -13,7 +13,89 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
+**Status snapshot (2026-09-07b, session 9, GOLDEN-EVAL — goal.md Phase 0):** the session-9
+floor is `s9-baseline-replay` (session6 recordings under `main`, 11 × 3: first-pass 80%,
+$0.627/accepted edit). `reorder_clips` was then **sampled live for the first time**
+(`s9-live-reorder`): right on the first call in 6 of 6 runs, then 3 runs rotated the order
+again and 5 cropped every clip nobody mentioned — first-pass 33%. Two runtime defects read
+off the replayed prompts and closed with tests, each measured live: **first-pass 33% → 100%,
+one operation per run, $0.499 → $0.049 per accepted edit, done p95 107s → 23s**
+(`s9-live-reorder-fix2`). `BASELINES.md` has the three tables. Branch
+`fix/ai-editing-audit-2026-09-07`.
+
+- `[x]` GOLDEN-C.22 — **a run that edits straight from inspection is executing.**
+  `stageAdvanceFor('inspect', [mutation])` returned `null`; the briefing then said
+  "Continue inspect" under "ALREADY APPLIED — do not repeat", and the model re-applied the
+  relative request against the new timeline (r3: five rotations, back to the start).
+  `inspect → plan` on a mutation; the apply-stage default action says to finish when the
+  request is met. Commit `5c36f92`.
+- `[x]` GOLDEN-C.23 — **a finding the footage already had is not the run's to fix.**
+  WHERE YOU STAND and the done-turn shortfall both carried `reframe_coverage`'s "Crop each
+  to fill the frame" on a fixture that was letterboxed before the run; the shortfall guard
+  forced a recovery turn that cropped all five clips in every fix1 run. Both now judge the
+  delta (ids blanked so a reorder does not make an old finding new); request-derived
+  checks never excused. Commit `ee6b713`.
+- `[x]` GOLDEN-C.24 — **the recovery turn keeps progressive disclosure.** It advertised
+  every mutation in the registry (62 vs 39) — a full prefix re-bill plus tools the run
+  never loaded. `load_tools` rides along. Commit `ab06c68`. Unmeasured live (no recovery
+  turn fired after C.23).
+- `[x]` GOLDEN-C.25 — **the reorder rubrics see an unasked crop.** `no-collateral-changes`:
+  a moved clip keeps its crop, speed, effects and keyframes. Commit `5084805`.
+- `[x]` GOLDEN-0.4 — **the full 21-case live run** (`s9-live-all`): first-pass 21/24
+  turns, silent successes 0, reversibility 24/24, $0.232 per accepted edit, done p50 30.5s.
+  Nine void turns from a transport outage were re-run with `--force`. Three misses, each
+  read: an instrument defect (C.28, fixed), a scope question the request had answered
+  (C.26), an ask where a decline was expected (left).
+- `[x]` GOLDEN-C.26 — **a scope the request named is settled.** `beat-sync` asked "Replace
+  it / Append / Build as an alternate" on "cut the picture to the beat … about 30 seconds".
+  The AMBIGUITY clause now says a scope the editor stated is not a question. Measured live
+  on `beat-sync` ×3 (`s9-live-beat-scope`).
+- `[x]` GOLDEN-C.27 — **the verifier failed the segmenter's own subtitle cues** (12 vs 14
+  words) and every caption case re-captioned itself for nothing; one `MAX_CAPTION_CUE_WORDS`
+  now. Commit `9295303`.
+- `[x]` GOLDEN-C.28 — **a dismissed question is still a question** (`observeIntent` read
+  `cancelled` first; `clarify-which-clip` asked right and scored intent 0). Commit `7c31a7d`.
+- `[x]` GOLDEN-C.29 — **`adjust_audio` takes a track.** Eighteen one-clip calls to lower
+  one tiled bed. Commit `3e44ed4`. Also: the harness never sent the editor interaction
+  snapshot the desktop always sends, so every `professional_*` tool was refused in it
+  (`7c31a7d`).
+- `[x]` GOLDEN-C.30 — **a fan-out tool's note is bounded** (1,399-line note, 41k uncached
+  tokens on the next calls). Commit `e4ec8bc`.
+- `[x]` GOLDEN-C.31 — **the Claude-login provider caches the run-stable prefix**: 5.5k →
+  2.0k uncached tokens per call, $0.049 → $0.022 per accepted edit on the reorder cases
+  (`s9-live-reorder-cache`). Commit `b0fab26`.
+- `[x]` GOLDEN-C.32 — **copy that promised a review step** (contract, receipt, empty state)
+  says edits land and undo; the skills name `caption_the_edit`, `set_clip_speed_ramp`,
+  `reorder_clips`; the repair pass advertises its stage's surface; the runner's merged file
+  describes the label. Commits `c4721a6`, `1a950ec`, `fe48ee3`, `424075c`, `f1f8237`.
+- `[x]` GOLDEN-C.33 — `refine-tighten` t2 rebuilt the middle section three times (184 ops,
+  $0.65, 308s): read with a two-turn replay — the model's own delete-then-re-add workflow,
+  re-run at three cadences, because no tool shortened shots in place. Closed by C.36.
+- `[x]` GOLDEN-0.5 — **the desktop's default path measured** (`s9-live-reorder-planfirst`):
+  every correct one-op edit settled `failed` ("The committed plan still has incomplete
+  deliverables") because the drafted plan lists reads and reports as steps and only an
+  applied patch completes a step. GOLDEN-C.34: the plan ledger is advisory at
+  verification; unreached steps are a notice + "Not done". After: 6/6 `completed`,
+  $0.024/accepted edit (`…-planfirst-fix`).
+- `[x]` UX-S9.1 — **the pinned plan card settles when its run ends** (unreached steps
+  marked with the reason) and belongs to the turn that drafted it. Commit after `e7410f4`.
+- `[x]` GOLDEN-C.35 — **an objective's delivery follows the run's verdict**: plan-first
+  montage/dead-air applied 17 and 116 changes, passed every check, and settled `failed`
+  ("This deliverable was not completed"). Commit `cb83bc9`.
+- `[x]` GOLDEN-C.36 — **`tighten_clips`**: shorten every shot in a window and close the
+  gaps in one patch (trim_clip + reorder_clips) — the pacing gap behind refine-tighten's
+  184-op, three-rebuild turn. Core set, Python mirror, tests. Commit `4cd3084`. Measured
+  live in `s9-live-all-planfirst-2` (pending).
+- `[ ]` UX-S9.2 — **review findings show the model's remedy sentence to the editor**
+  ("ripple_delete the head/tail range", "Look at a rendered frame before treating the
+  framing as correct"), and a check that could not run ("Not checked: … never measured")
+  renders as a warning card. Findings need an editor-facing line; skipped checks need no
+  card.
+- `[ ]` UX-S9.3 — the browser build's "Review could not run" notice names an env var
+  (`VITE_FRAMEPILOT_PYTHON_API_URL`); say "the engine is not connected" and where to
+  connect it. Browser-only; desktop configures it.
+
+**Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
 (credits conserved). A second, systematic sweep of the captured transcript `137d8fd0` —
 the full deduplicated inventory of its 44 failed and 42 warning tool calls, which the
 earlier pass did not read — plus the open handoff items, closed **eight more defects**.

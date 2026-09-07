@@ -59,8 +59,15 @@
  * - **No `maxTokens`.** The SDK owns the output budget. Harmless in practice — the models
  *   it serves default to a far larger ceiling than the 2,048 clamp that once truncated
  *   structured proposals — but it is not a promise this provider can keep.
- * - **No `cacheBoundary`.** The SDK manages its own prompt caching, so the run-stable
- *   prefix breakpoint is ignored.
+ * - **`cacheBoundary` decides what is system prompt.** The SDK places its own cache
+ *   breakpoints — on the system prompt and the tool block, never inside the one user
+ *   message this adapter sends — so a run-stable block rendered into the transcript was
+ *   re-billed on every call. Measured on `s9-live-reorder-fix2` (claude-sonnet-5): 5.4–5.7k
+ *   uncached input tokens per call against ~22k cached, and ~4k of the uncached were the
+ *   skills manifest, the request and the agent contract — byte-identical from the first
+ *   call of a run to the last. Everything up to and including the last `cacheBoundary`
+ *   message is therefore rendered into the system prompt (see {@link renderMessages}),
+ *   where the SDK caches it; only what follows is the transcript.
  * - **No images.** A string prompt cannot carry image blocks, so `get_frame` frames would
  *   be silently dropped. {@link supportsVision} must therefore report `false` for this
  *   provider rather than inferring `true` from the `claude-*` model id.
@@ -145,8 +152,16 @@ export function renderMessages(messages: readonly AiMessage[]): {
 } {
   const system: string[] = [];
   const turns: string[] = [];
-  for (const message of messages) {
-    if (message.role === 'system') {
+  // The LAST boundary wins, as it does for the LangChain adapters: everything at or
+  // before it is the run-stable prefix the orchestrator promises will not change between
+  // calls, which is exactly what a system prompt is to the SDK's cache. A request with no
+  // boundary (chat, plan, the classifier) renders as before.
+  const boundary = messages.reduce(
+    (last, message, index) => (message.cacheBoundary === true ? index : last),
+    -1,
+  );
+  for (const [index, message] of messages.entries()) {
+    if (message.role === 'system' || index <= boundary) {
       system.push(message.content);
       continue;
     }

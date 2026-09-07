@@ -1,0 +1,323 @@
+{
+  "scenario": "reorder-swap-first-two",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 3,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Swap the first two clips.",
+      "rubric": "reorder-swap-first-two",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "first-two-swapped",
+          "ok": true,
+          "detail": "first two swapped, rest in place",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-collateral-changes",
+          "ok": true,
+          "detail": "no clip restyled",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "first-two-swapped: first two swapped, rest in place",
+            "content-preserved: same clips, same source ranges",
+            "no-collateral-changes: no clip restyled"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 5,
+        "toolCalls": 2,
+        "tokens": {
+          "prompt": 56923,
+          "output": 658,
+          "total": 57581
+        },
+        "usd": 0.03576,
+        "latency": {
+          "firstProgressMs": 4888,
+          "doneMs": 20164
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 1
+      },
+      "asked": [],
+      "assistantText": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Reading the timeline — running",
+      "recording": "reports/golden/s9-live-reorder-planfirst-fix/recordings/reorder-swap-first-two-r3-t1.json",
+      "calls": [
+        {
+          "tool": "reorder_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clipIds: [\"clip_002\",\"clip_001\",\"…"
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        }
+      ],
+      "metrics": {
+        "wallMs": 20164,
+        "modelCalls": 5,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 56923,
+          "input": 13418,
+          "output": 658,
+          "cacheRead": 43505,
+          "cacheCreate": 44249
+        },
+        "perCall": [
+          {
+            "ttftMs": 4885,
+            "wallMs": 4885,
+            "input": 3578,
+            "output": 242,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 4269,
+            "wallMs": 4269,
+            "input": 2190,
+            "output": 128,
+            "cacheRead": 10985
+          },
+          {
+            "ttftMs": 3293,
+            "wallMs": 3951,
+            "input": 2381,
+            "output": 93,
+            "cacheRead": 10011
+          },
+          {
+            "ttftMs": 2300,
+            "wallMs": 3839,
+            "input": 2565,
+            "output": 103,
+            "cacheRead": 15489
+          },
+          {
+            "ttftMs": 1849,
+            "wallMs": 3187,
+            "input": 2704,
+            "output": 92,
+            "cacheRead": 7020
+          }
+        ],
+        "summary": {
+          "turnCount": 5,
+          "ttftMs": {
+            "p50": 3293,
+            "p95": 4885,
+            "min": 1849,
+            "max": 4885
+          },
+          "wallMs": {
+            "p50": 3951,
+            "p95": 4885,
+            "min": 3187,
+            "max": 4885
+          },
+          "inputTokensPerTurn": {
+            "p50": 2565,
+            "p95": 3578,
+            "min": 2190,
+            "max": 3578
+          },
+          "outputTokensPerTurn": {
+            "p50": 103,
+            "p95": 242,
+            "min": 92,
+            "max": 242
+          },
+          "cacheHitRate": 0.8155403505483175,
+          "cacheReportingTurns": 4
+        },
+        "usd": 0.03576,
+        "usageTokens": 10256,
+        "toolCalls": 2,
+        "toolCallsByName": {
+          "reorder_clips": 1,
+          "get_timeline": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 8,
+        "contextByType": [
+          {
+            "system": 2590,
+            "retrieved_evidence": 487,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2590,
+            "retrieved_evidence": 487,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2714,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2714,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2811,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 2811,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 3000,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 4301
+          },
+          {
+            "system": 3000,
+            "retrieved_evidence": 488,
+            "latest_user_message": 52,
+            "skill": 1670,
+            "tool_schemas": 4301
+          }
+        ],
+        "contextUsedTokens": [
+          11683,
+          2190,
+          11187,
+          2381,
+          11284,
+          2565,
+          9511,
+          2704
+        ],
+        "contextCachedTokens": [
+          null,
+          10985,
+          null,
+          10011,
+          null,
+          15489,
+          null,
+          7020
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 1,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

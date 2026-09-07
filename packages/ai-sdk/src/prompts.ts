@@ -51,7 +51,8 @@ export const SYSTEM_PROMPT = [
   '3. Every operation is validated before it is applied.',
   '4. Every render is checked automatically after it runs.',
   '5. You edit ONLY through registered, schema-validated tools that return reversible',
-  'patches — never raw project JSON. The human reviews every patch before apply.',
+  'patches — never raw project JSON. Each patch lands on the timeline as it validates;',
+  'the editor sees every change and can undo any of them.',
 ].join('\n');
 
 // ---------------------------------------------------------------------------
@@ -135,9 +136,11 @@ export function questionModeInstruction(options: { canSeeFrames?: boolean } = {}
  */
 export const AGENT_PLAN_DRAFT_INSTRUCTION =
   'Write a short numbered execution plan: one observable edit outcome per item, with ' +
-  'dependencies in working order. For long footage, divide outcomes into bounded sections ' +
-  'so progress can be verified incrementally. The numbered list becomes the run ledger; ' +
-  'keep questions and introductory prose outside it. Plan only — do not call tools.';
+  'dependencies in working order. Every item is a change that lands on the timeline; the ' +
+  'reads, checks and reporting around it are not items. For long footage, divide outcomes ' +
+  'into bounded sections so progress can be verified incrementally. The numbered list ' +
+  'becomes the run ledger; keep questions and introductory prose outside it. Plan only — ' +
+  'do not call tools.';
 
 // ---------------------------------------------------------------------------
 // Agent mode (PRD §7.4) — the multi-turn autonomous loop
@@ -294,7 +297,9 @@ const AGENT_CONTRACT_TAIL = [
   // has to carry the cost/reversibility judgement itself.
   'AMBIGUITY. Cheap and reversible with one likely reading: act, stating the assumption in a',
   'sentence. Costly, slow, or hard to undo (most of a track, a full re-cut, paid analysis of',
-  'long footage): first ask ONE question naming its scope — "Clear all 5 clips on V1?".',
+  'long footage): first ask ONE question naming its scope — "Clear all 5 clips on V1?" — unless',
+  'the request already named that scope ("cut it to 30 seconds", "delete everything"): a scope',
+  'the editor stated is settled, so do it.',
   'Never ask what a tool can answer (durations, which clip is selected, what a scene holds),',
   'two questions where one does, or a settled point twice. "The clip"/"the last one" with',
   'several candidates and nothing selected: resolve from the selection, the playhead and the',

@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11565,
+      "usedTokens": 11889,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 7591,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11565,
+          "estimatedInputTokensBeforeSend": 11889,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860435,
+          "estimatedRemainingCapacity": 860111,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -266,7 +266,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -308,7 +308,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -322,7 +322,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -336,7 +336,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 7591,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -344,7 +344,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11565,
+          "estimatedInputTokensBeforeSend": 11889,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -557,7 +557,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 6,
+        "version": 9,
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
@@ -569,9 +569,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -582,7 +585,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -676,7 +679,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11711,
+      "usedTokens": 11445,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -688,7 +691,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -730,7 +733,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -744,21 +747,21 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 301,
+            "tokenEstimate": 332,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6970,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -766,10 +769,10 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11711,
+          "estimatedInputTokensBeforeSend": 11445,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860289,
-          "toolSchemaTokensRebilled": 0,
+          "estimatedRemainingCapacity": 860555,
+          "toolSchemaTokensRebilled": 6970,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -779,14 +782,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -826,7 +829,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -868,7 +871,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -882,21 +885,21 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 301,
+            "tokenEstimate": 332,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7342,
+            "tokenEstimate": 6970,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -904,10 +907,10 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11711,
+          "estimatedInputTokensBeforeSend": 11445,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
-          "toolSchemaTokensRebilled": 0,
+          "toolSchemaTokensRebilled": 6970,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
@@ -920,14 +923,14 @@
         },
         "memory": {
           "runId": "turn_parity",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 1,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 1,
-          "nextAction": "Continue inspect: read only what the objective still needs."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -953,7 +956,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_parity"
         },
-        "version": 6,
+        "version": 9,
         "objective": {
           "request": "trim the dead air",
           "outcome": "trim the dead air",
@@ -965,9 +968,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -978,7 +984,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1110,7 +1116,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1205,7 +1211,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_parity:status:13",

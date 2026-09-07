@@ -1937,7 +1937,7 @@ describe('streamAgent', () => {
     expect(report).toMatch(/before you stopped the run/);
     expect(report).toMatch(/can be undone/);
     // It must not claim the work is finished…
-    expect(report).not.toMatch(/review the proposed change below/);
+    expect(report).not.toMatch(/on your timeline now; each one can be undone/);
     // …and the things the panel cannot do are still said, because they are still true.
     expect(report).toMatch(/use the Export dialog/);
     expect(report).toMatch(/asks to see a preview first/);
@@ -2501,10 +2501,21 @@ describe('streamAgent robustness (parity with agent())', () => {
       label: 'Trim the intro',
       detail: 'Reading the timeline',
     });
-    // Read-only work cannot check off a drafted edit; later steps stay pending.
+    // Read-only work cannot check off a drafted edit; later steps stay pending while the
+    // run is live — and the terminal plan event settles them as not reached, with the
+    // reason on the mark, so the pinned card never shows a spinner under a finished run.
+    const live = plans.at(-2);
+    expect(live?.type === 'plan' && live.steps[0]?.status).toBe('running');
+    expect(live?.type === 'plan' && live.steps[2]?.status).toBe('pending');
     const lastPlan = plans.at(-1);
-    expect(lastPlan?.type === 'plan' && lastPlan.steps[0]?.status).toBe('running');
-    expect(lastPlan?.type === 'plan' && lastPlan.steps[2]?.status).toBe('pending');
+    expect(lastPlan?.type === 'plan' && lastPlan.steps.map((s) => s.status)).toEqual([
+      'failed',
+      'failed',
+      'failed',
+    ]);
+    expect(lastPlan?.type === 'plan' && lastPlan.steps[2]?.detail).toBe(
+      'The run ended before this step',
+    );
   });
 
   it('continues an unfinished drafted plan when the model declares done too early', async () => {

@@ -8,6 +8,46 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The agent stops when the request is met.** A run that read the timeline and made its
+  edit in one step was treated as still "inspecting", told to keep reading, and re-applied
+  a position-relative request ("move the last clip to the front") against the timeline it
+  had just changed — three of six live runs ended with the wrong order. The run now
+  recognises a landed edit as execution and finishes after it.
+- **The agent no longer fixes things you did not ask about.** A project whose footage was
+  already letterboxed before the run had "Crop each to fill the frame" put in front of the
+  model every turn, and again when it declared the request done — so "swap the first two
+  clips" came back with every clip cropped. Findings the footage already had are advisories
+  for the review, never orders during the edit. Measured on the two reorder cases:
+  first-pass 33% → 100%, one operation per run, a tenth of the cost.
+- **A run that made the edit no longer reports itself as failed.** With "Plan first" on
+  (the default), the drafted plan's read-and-report steps could never be ticked, so a
+  correct one-step edit ended "Applied 1 change, but the run could not finish". Steps the
+  run never reached are now listed under "Not done"; the verdict comes from the request
+  and the edit.
+- **A recovery turn offers only the tools the run has loaded**, not every mutation in the
+  registry.
+- **Captions the subtitle preset wrote no longer fail their own check.** The verifier
+  flagged any cue over 12 words while the subtitle preset writes up to 14, so a correctly
+  captioned talk was re-captioned in another preset for nothing. One number now, shared by
+  the segmenter, the verifier and the hand-cue tool.
+- **Lowering a whole music bed is one call.** `adjust_audio` takes a track as well as a
+  clip, so a bed tiled from a short file is set once instead of once per tile.
+- **The AI panel's copy stops promising a review step.** The contract, the receipt and the
+  empty state all said the edit would be reviewed before it applied; edits apply as they
+  land and undo takes them back, and the words now say so.
+- **"Mute the music track" is only suggested when there is music** — a voice-over on an
+  audio track no longer earns it.
+- **The editing playbooks name the tools that exist**: captions in one call
+  (`caption_the_edit`), a speed ramp on one clip (`set_clip_speed_ramp`), a reorder that
+  cannot lose footage (`reorder_clips`).
+
+### Changed
+
+- **Runs on the Claude login provider bill less per call.** The run-stable prefix (skills,
+  request, agent contract) is sent as the system prompt, where the SDK caches it.
+- **A tool that lands hundreds of operations reports eight and counts the rest**, so a
+  re-caption no longer carries every cue's timestamp into the next turns.
+
 - **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
   never shot" came back with eight stock clips covering fifty of its sixty seconds and six
   whole shots of the editor's own footage buried beneath them. When the request names a

@@ -12,6 +12,7 @@ import {
   checkStackedPictureIsPreviewable,
   checkFirstClipEndsAt,
   checkLastClipMovedFirst,
+  checkNoCollateralChanges,
   checkMusicCovers,
   checkMusicQuieter,
   checkNoGaps,
@@ -325,6 +326,21 @@ describe('golden-set checks', () => {
     expect(r.ok).toBe(false);
     expect(r.detail).toContain('c2');
     expect(r.detail).toContain('c3');
+  });
+
+  it('checkNoCollateralChanges sees a crop a reorder was never asked for', () => {
+    const c1 = { assetId: 'a1', sourceStart: 0, sourceEnd: 1 };
+    const c2 = { assetId: 'a2', sourceStart: 5, sourceEnd: 6 };
+    const before = withClips([clip('c1', 0, 1, c1), clip('c2', 1, 2, c2)]);
+    const rotated = withClips([clip('c2', 0, 1, c2), clip('c1', 1, 2, c1)]);
+    expect(checkNoCollateralChanges({ before, after: rotated }).ok).toBe(true);
+    const cropped = withClips([
+      clip('c2', 0, 1, { ...c2, crop: { x: 0.28, y: 0, width: 0.44, height: 1 } }),
+      clip('c1', 1, 2, c1),
+    ]);
+    const verdict = checkNoCollateralChanges({ before, after: cropped });
+    expect(verdict.ok).toBe(false);
+    expect(verdict.detail).toContain('c2');
   });
 
   it('checkLastClipMovedFirst + checkContentPreserved + checkNoGaps describe a reorder', () => {

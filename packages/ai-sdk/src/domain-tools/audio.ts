@@ -12,8 +12,10 @@
  */
 import { z } from 'zod/v4';
 import type { ToolSpec } from '../tool-registry.js';
+import type { Operation } from '@framepilot/editor-core';
 import { analysisTool, mutateTool } from './tool-factories.js';
 import { filterString, numeric, seconds } from './tool-args.js';
+import { DEFAULT_FILLER_WORDS, fillerCutOps } from '../silence-cut.js';
 
 const transcribeSchema = z
   .object({
@@ -60,9 +62,97 @@ const addMusicSchema = z
 
 export const AUDIO_TOOLS: readonly ToolSpec[] = [
   mutateTool(
-    { name: 'adjust_audio', description: 'Adjust a clip’s audio gain (dB).' },
-    z.object({ clipId: z.string(), gainDb: numeric(z.number()) }).strict(),
-    (a) => [{ type: 'adjust_audio', clipId: a.clipId, gainDb: a.gainDb }],
+    {
+      name: 'adjust_audio',
+      description:
+        'Set audio gain (dB, absolute — 0 is unchanged, -18 is a quiet bed) on ONE clip by ' +
+        'clipId, or on EVERY clip of a track by trackId in one call: a music bed tiled from ' +
+        'a short file is one trackId call, never one call per tile. Give exactly one of the ' +
+        'two. To lower a bed only while someone speaks, use professional_audio duck_roles ' +
+        'instead.',
+      // NOT `derivedFanOut`: that flag is per tool, and it would exempt a one-clip call
+      // from the per-turn blast-radius cap too (a repair turn of 200 single adjustments
+      // sailed through it). A track-wide call counts one op per clip against the cap,
+      // which a tiled bed (eighteen clips in s9-live-all music-bed-quiet) sits well under.
+    },
+    z
+      .object({
+        clipId: z.string().min(1).optional(),
+        trackId: z.string().min(1).optional(),
+        gainDb: numeric(z.number()),
+      })
+      .strict(),
+    (a, ctx) => {
+      if ((a.clipId === undefined) === (a.trackId === undefined)) {
+        throw new Error('adjust_audio takes exactly one of clipId or trackId.');
+      }
+      if (a.clipId !== undefined) {
+        return [{ type: 'adjust_audio', clipId: a.clipId, gainDb: a.gainDb }];
+      }
+      const track = ctx.project.timeline.tracks.find((t) => t.id === a.trackId);
+      if (!track) {
+        throw new Error(
+          `Track not found: ${String(a.trackId)}. The tracks in this timeline are: ` +
+            `${ctx.project.timeline.tracks.map((t) => t.id).join(', ')}.`,
+        );
+      }
+      if (track.clips.length === 0) {
+        throw new Error(`Track ${track.id} has no clips to adjust.`);
+      }
+      return track.clips.map((clip) => ({
+        type: 'adjust_audio' as const,
+        clipId: clip.id,
+        gainDb: a.gainDb,
+      }));
+    },
+  ),
+  mutateTool(
+    {
+      name: 'remove_filler_words',
+      description:
+        'Cut the "um"s and "uh"s out of a recording in ONE call: every hesitation word in ' +
+        'the transcript (um, uh, er, hmm and the like — pass words to use your own list) is ' +
+        'ripple-deleted from the clips that play it, with padSeconds (default 0.04) of ' +
+        'breath kept on each side so the neighbouring words are never touched. Needs a ' +
+        'transcript — run transcribe first. assetId limits it to one recording, trackId to ' +
+        'one track. Reports how many fillers were cut and the seconds removed; if the ' +
+        'transcript holds none it says so rather than cutting anything. Use ' +
+        'remove_silences for dead air, this for spoken filler. Returns a reversible patch.',
+      // One ripple_delete per filler word: the count is a fact about the transcript, not
+      // the model's choice — the same reasoning as remove_silences and caption_the_edit.
+      derivedFanOut: true,
+    },
+    z
+      .object({
+        assetId: z.string().min(1).optional(),
+        trackId: z.string().min(1).optional(),
+        words: z.array(z.string().min(1)).min(1).max(50).optional(),
+        padSeconds: numeric(z.number().min(0).max(0.5)).optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      if (ctx.project.transcript.length === 0) {
+        throw new Error(
+          'remove_filler_words: this project has no transcript yet, so there are no words ' +
+            'to find. Run transcribe first.',
+        );
+      }
+      const { ops, cuts } = fillerCutOps(ctx.project, {
+        ...(a.assetId === undefined ? {} : { assetId: a.assetId }),
+        ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
+        ...(a.words === undefined ? {} : { words: a.words }),
+        ...(a.padSeconds === undefined ? {} : { padSeconds: a.padSeconds }),
+      });
+      if (cuts.length === 0) {
+        throw new Error(
+          'remove_filler_words: no filler words on the timeline — the transcript has none ' +
+            `of ${(a.words ?? DEFAULT_FILLER_WORDS).join(', ')} inside a placed clip. Nothing to cut; ` +
+            'do not call this again with the same words.',
+        );
+      }
+      // `ripple_delete`s only — timeline operations.
+      return ops as Operation[];
+    },
   ),
   analysisTool(
     {

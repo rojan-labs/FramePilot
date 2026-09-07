@@ -133,6 +133,9 @@ describe('derived fan-out is a short, justified list', () => {
       // One `move_asset` per asset in the bin on the by-kind path — 301 for a 300-photo
       // montage. Its EXPLICIT plan is model-composed and bounded at the schema instead.
       'manage_assets',
+      // One `ripple_delete` per filler word the transcript holds — the count is the
+      // recording's, not the model's.
+      'remove_filler_words',
       // One `ripple_delete` per measured silence — ~250 on a twenty-minute interview,
       // and the count is a fact about the recording.
       'remove_silences',

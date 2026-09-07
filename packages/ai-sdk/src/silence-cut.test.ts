@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { Project } from '@framepilot/timeline-schema';
 import { makeProject } from './__fixtures__/project.js';
 import {
+  fillerCutOps,
   DEFAULT_SILENCE_CUT,
   noCutsNote,
   silenceCutOps,
@@ -278,5 +279,47 @@ describe('suggestedThreshold', () => {
   it('returns null when no legal threshold could reach the gaps', () => {
     expect(suggestedThreshold(0.3)).toBeNull();
     expect(suggestedThreshold(0)).toBeNull();
+  });
+});
+
+describe("fillerCutOps — the um's and uh's, by the transcript's own timings", () => {
+  const spoken = (project: Project): Project => ({
+    ...project,
+    fps: 30,
+    transcript: [
+      { word: 'So', start: 5.0, end: 5.4 },
+      { word: 'um,', start: 5.5, end: 5.9 },
+      { word: 'we', start: 6.0, end: 6.2 },
+      { word: 'Uh', start: 8.0, end: 8.3 },
+      { word: 'built', start: 8.32, end: 8.8 },
+      { word: 'it', start: 20.0, end: 20.2 },
+      // Past the clip's source window: never cut.
+      { word: 'um', start: 30.0, end: 30.3 },
+    ],
+  });
+
+  it('ripple-deletes each filler from the clip that plays it, last to first, padded but never into a neighbour', () => {
+    const project = spoken(projectWithClip(10, 5, 20)); // source 5–25 → timeline 10–30
+    const { ops, cuts, removedSeconds } = fillerCutOps(project);
+    expect(ops.map((op) => op.type)).toEqual(['ripple_delete', 'ripple_delete']);
+    // "Uh" at source 8.0–8.3 → timeline 13.0–13.3, padded 0.04 but "built" starts at 8.32,
+    // so the end stops at 8.32 (13.32); the start pads freely to 12.96.
+    expect(cuts[0]).toMatchObject({ trackId: 'video_1', clipId: 'c1' });
+    expect(cuts[0]!.start).toBeCloseTo(12.967, 2);
+    expect(cuts[0]!.end).toBeCloseTo(13.3, 1);
+    // "um," at 5.5–5.9 → 10.5–10.9, padded to 10.46–10.94 (both neighbours clear).
+    expect(cuts[1]!.start).toBeCloseTo(10.467, 2);
+    expect(cuts[1]!.end).toBeCloseTo(10.933, 2);
+    expect(removedSeconds).toBeGreaterThan(0.7);
+    // Last to first, so each delete leaves the earlier positions untouched.
+    expect(ops[0]!.type === 'ripple_delete' && ops[0].start).toBeGreaterThan(
+      ops[1]!.type === 'ripple_delete' ? ops[1].start : 0,
+    );
+  });
+
+  it("takes the editor's own word list, and cuts nothing from a speed-changed clip", () => {
+    const project = spoken(projectWithClip(10, 5, 20));
+    expect(fillerCutOps(project, { words: ['so'] }).cuts).toHaveLength(1);
+    expect(fillerCutOps(spoken(projectWithClip(10, 5, 20, 2))).cuts).toHaveLength(0);
   });
 });

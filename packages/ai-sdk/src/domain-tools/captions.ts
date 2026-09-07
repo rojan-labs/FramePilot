@@ -27,6 +27,7 @@ import {
   mapTranscript,
   speechAssetIdsFor,
   type CaptionSegmentPresetName,
+  MAX_CAPTION_CUE_WORDS,
 } from '@framepilot/editor-core';
 import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
@@ -116,7 +117,6 @@ const normalizeCaptionWord = (value: string): string =>
     .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
 
 const MAX_CAPTION_CUE_SECONDS = 10;
-const MAX_CAPTION_CUE_WORDS = 12;
 
 function assertKnownCaptionStyle(style: z.infer<typeof CaptionStyleSchema> | null): void {
   if (style === null) return;
@@ -494,7 +494,7 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         '(start/end seconds). To caption a whole recording use caption_the_edit instead — ' +
         'it segments and writes every cue in a single call. Reach for this one only to ' +
         'patch a specific gap by hand: it needs get_mapped_transcript first, and a range ' +
-        'longer than one readable phrase (3–7 words, never more than 12) is rejected. ' +
+        'longer than one readable phrase (3–7 words, never more than 14) is rejected. ' +
         'If the track you name is already busy over that range the cue is placed on ' +
         'another free caption track, or a new one carrying the same style. ' +
         'Style the completed set track-wide.',

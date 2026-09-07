@@ -1,0 +1,210 @@
+{
+  "label": "s9-baseline-replay",
+  "generatedAt": "2026-09-06T21:04:00.655Z",
+  "provider": "replay",
+  "model": "replay",
+  "runsPerScenario": 3,
+  "replayed": true,
+  "cases": [
+    "montage-30s",
+    "podcast-highlight-60s",
+    "remove-dead-air",
+    "beat-sync",
+    "refine-tighten",
+    "memory-captions",
+    "trim-first-clip-10s",
+    "trim-opening-10s",
+    "reorder-last-first",
+    "reorder-swap-first-two",
+    "captions-plain"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 11,
+    "turns": 40,
+    "intentAccuracy": 0.825,
+    "targetAccuracy": 0.7222222222222222,
+    "boundaryPrecision": 0.975,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.8,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 32,
+    "voidTurns": 2,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 0,
+    "usdPerAcceptedEdit": 0.6274821562499999,
+    "modelCallsPerTurn": {
+      "p50": 7,
+      "p95": 16,
+      "n": 40
+    },
+    "toolCallsPerTurn": {
+      "p50": 8,
+      "p95": 17,
+      "n": 40
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3,
+        "p95": 18,
+        "n": 40
+      },
+      "doneMs": {
+        "p50": 24,
+        "p95": 292,
+        "n": 40
+      }
+    },
+    "failureQuality": {
+      "failures": 3,
+      "loud": 3,
+      "explained": 3
+    },
+    "perCase": {
+      "montage-30s": {
+        "category": "montage",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 7,
+        "tokens": 0,
+        "usdPerRun": 0.276201,
+        "wallMsPerRun": 25,
+        "silentSuccesses": 0
+      },
+      "podcast-highlight-60s": {
+        "category": "highlight",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0.6666666666666666,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 0,
+        "usdPerRun": 0.31710000000000005,
+        "wallMsPerRun": 39,
+        "silentSuccesses": 0
+      },
+      "remove-dead-air": {
+        "category": "silence",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 0,
+        "usdPerRun": 0.12878699999999998,
+        "wallMsPerRun": 42,
+        "silentSuccesses": 0
+      },
+      "beat-sync": {
+        "category": "beat",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 16,
+        "tokens": 0,
+        "usdPerRun": 0.571233,
+        "wallMsPerRun": 22,
+        "silentSuccesses": 0
+      },
+      "refine-tighten": {
+        "category": "pacing",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 0,
+        "usdPerRun": 0.744135,
+        "wallMsPerRun": 39,
+        "silentSuccesses": 0
+      },
+      "memory-captions": {
+        "category": "memory",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0.7142857142857143,
+        "firstPass": 0.7142857142857143,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 0,
+        "usdPerRun": 1.94622,
+        "wallMsPerRun": 94,
+        "silentSuccesses": 0
+      },
+      "trim-first-clip-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 0,
+        "usdPerRun": 0.09456900000000001,
+        "wallMsPerRun": 8,
+        "silentSuccesses": 0
+      },
+      "trim-opening-10s": {
+        "category": "trim",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 0,
+        "usdPerRun": 0.116568,
+        "wallMsPerRun": 9,
+        "silentSuccesses": 0
+      },
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 0.6666666666666666,
+        "firstPass": 0.3333333333333333,
+        "reversible": 1,
+        "modelCalls": 7,
+        "tokens": 0,
+        "usdPerRun": 0.316011,
+        "wallMsPerRun": 12,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 0.6,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 10,
+        "tokens": 0,
+        "usdPerRun": 0.354444,
+        "wallMsPerRun": 15,
+        "silentSuccesses": 0
+      },
+      "captions-plain": {
+        "category": "captions",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 0,
+        "usdPerRun": 0.571089,
+        "wallMsPerRun": 306,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

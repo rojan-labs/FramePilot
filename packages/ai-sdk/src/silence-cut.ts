@@ -277,3 +277,86 @@ export function noCutsNote(
     `speed ramps instead.`
   );
 }
+
+// ---------------------------------------------------------------------------
+// Filler words
+// ---------------------------------------------------------------------------
+
+/**
+ * The words that are hesitation and nothing else. Deliberately short: "like", "so" and
+ * "you know" carry meaning often enough that cutting them by pattern removes speech, and
+ * the editor can name their own list with `words`.
+ */
+export const DEFAULT_FILLER_WORDS: readonly string[] = [
+  'um', 'umm', 'uh', 'uhh', 'uhm', 'er', 'erm', 'ah', 'ahh', 'hmm', 'hm', 'mm', 'mhm',
+];
+
+/** Seconds kept on each side of a filler so the cut never clips the neighbouring word. */
+export const DEFAULT_FILLER_PAD_SECONDS = 0.04;
+
+export interface FillerCutOptions {
+  /** The recording whose words are cut; default: every asset the transcript speaks for. */
+  readonly assetId?: string;
+  readonly trackId?: string;
+  readonly words?: readonly string[];
+  readonly padSeconds?: number;
+}
+
+const normaliseWord = (word: string): string => word.toLowerCase().replace(/[^a-z]/g, '');
+
+/**
+ * Timeline ranges that remove every filler word from the clips playing the recording —
+ * the transcript's own timings, widened by `padSeconds`, pulled out of any neighbouring
+ * word ({@link wordSafeRange}), clipped to the clip, and snapped to the frame grid.
+ * Speed-changed clips are skipped, as in {@link silenceCuts}.
+ */
+export function fillerCuts(project: Project, options: FillerCutOptions = {}): SilenceCut[] {
+  const fillers = new Set((options.words ?? DEFAULT_FILLER_WORDS).map(normaliseWord));
+  const pad = options.padSeconds ?? DEFAULT_FILLER_PAD_SECONDS;
+  const cuts: SilenceCut[] = [];
+  for (const track of project.timeline.tracks) {
+    if (options.trackId && track.id !== options.trackId) continue;
+    for (const clip of track.clips as readonly Clip[]) {
+      if (options.assetId && clip.assetId !== options.assetId) continue;
+      const speed = (clip as { speed?: number }).speed ?? 1;
+      if (speed !== 1) continue;
+      // Words attributed to this clip's asset, or unattributed (a v11 single-asset file).
+      const words = project.transcript.filter(
+        (w) => w.assetId === undefined || w.assetId === clip.assetId,
+      );
+      if (words.length === 0) continue;
+      for (const word of words) {
+        if (!fillers.has(normaliseWord(word.word))) continue;
+        if (word.end <= clip.sourceStart || word.start >= clip.sourceEnd) continue;
+        const wide = {
+          start: Math.max(word.start - pad, clip.sourceStart),
+          end: Math.min(word.end + pad, clip.sourceEnd),
+        };
+        // Never eat into the words either side; the filler itself is the range's interior.
+        const others = words.filter((w) => w !== word);
+        const safe = wordSafeRange(wide.start, wide.end, others);
+        if (safe === null) continue;
+        const start = frameSnap(clip.start + (safe.start - clip.sourceStart), project.fps);
+        const end = frameSnap(clip.start + (safe.end - clip.sourceStart), project.fps);
+        if (end - start <= EPS) continue;
+        cuts.push({ trackId: track.id, clipId: clip.id, start, end });
+      }
+    }
+  }
+  return cuts;
+}
+
+/** Ripple deletes for {@link fillerCuts}, last to first, and the seconds removed. */
+export function fillerCutOps(
+  project: Project,
+  options: FillerCutOptions = {},
+): { ops: AnyOperation[]; cuts: SilenceCut[]; removedSeconds: number } {
+  const cuts = fillerCuts(project, options).sort((a, b) => b.start - a.start);
+  const ops: AnyOperation[] = cuts.map((cut) => ({
+    type: 'ripple_delete',
+    trackId: cut.trackId,
+    start: cut.start,
+    end: cut.end,
+  }));
+  return { ops, cuts, removedSeconds: cuts.reduce((sum, c) => sum + (c.end - c.start), 0) };
+}

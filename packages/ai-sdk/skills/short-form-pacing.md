@@ -1,7 +1,7 @@
 ---
 name: short-form-pacing
 description: Shape a concise vertical edit around hook clarity, information density, rhythmic contrast, and a clean payoff without mechanically accelerating everything.
-tools: [get_mapped_transcript, get_timeline, analyze_silence, ripple_delete, set_clip_speed, punch_in, add_caption_layer, set_caption_style]
+tools: [get_mapped_transcript, get_timeline, analyze_silence, tighten_clips, ripple_delete, set_clip_speed, punch_in, add_caption_layer, set_caption_style]
 ---
 
 # Short-form pacing
@@ -32,6 +32,7 @@ Every second must either deliver value, build anticipation, or provide purposefu
 
 ## Professional heuristics
 
+- To make a section that is already in order cut faster, `tighten_clips` trims every shot in the window to a shot length and closes the gaps in one patch (name the shots to keep); do not delete the section and re-add it.
 - Hook in the first seconds; context follows.
 - Cut hesitation before speeding speech. Keep natural dialogue near 1.0–1.3×.
 - Vary density; a brief hold makes the next burst feel faster.

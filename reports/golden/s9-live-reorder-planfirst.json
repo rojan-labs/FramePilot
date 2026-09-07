@@ -1,0 +1,1998 @@
+{
+  "label": "s9-live-reorder-planfirst",
+  "generatedAt": "2026-09-07T03:48:24.672Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 3,
+  "replayed": false,
+  "results": [
+    {
+      "scenario": "reorder-last-first",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 1,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Move the last clip to the very beginning of the timeline.",
+          "rubric": "reorder-last-first",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "last-moved-first",
+              "ok": true,
+              "detail": "order rotated as asked",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "last-moved-first: order rotated as asked",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 6,
+            "toolCalls": 4,
+            "tokens": {
+              "prompt": 62796,
+              "output": 1559,
+              "total": 64355
+            },
+            "usd": 0.041333999999999996,
+            "latency": {
+              "firstProgressMs": 14788,
+              "doneMs": 35600
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Apply reorder_clips moving clip_005 to position 0 on video_1, ahead of clip_001. — running\n- Call get_timeline again and verify the observable outcome: order is now clip_005, clip_001, clip_002, clip_003, clip_004, total track duration still 134.667s, and no clip gained/lost source content. — pending",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-last-first-r1-t1.json",
+          "calls": [
+            {
+              "tool": "load_skill",
+              "status": "completed",
+              "args": "name: \"story-structure\""
+            },
+            {
+              "tool": "get_timeline",
+              "status": "completed",
+              "args": ""
+            },
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+            },
+            {
+              "tool": "get_timeline",
+              "status": "completed",
+              "args": ""
+            }
+          ],
+          "metrics": {
+            "wallMs": 35600,
+            "modelCalls": 6,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 62796,
+              "input": 14503,
+              "output": 1559,
+              "cacheRead": 48293,
+              "cacheCreate": 68343
+            },
+            "perCall": [
+              {
+                "ttftMs": 14764,
+                "wallMs": 14764,
+                "input": 3560,
+                "output": 992,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 3497,
+                "wallMs": 4215,
+                "input": 2352,
+                "output": 125,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 4450,
+                "wallMs": 4450,
+                "input": 2627,
+                "output": 127,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 3722,
+                "wallMs": 4302,
+                "input": 2,
+                "output": 89,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 2424,
+                "wallMs": 4442,
+                "input": 2858,
+                "output": 120,
+                "cacheRead": 16312
+              },
+              {
+                "ttftMs": 1805,
+                "wallMs": 3342,
+                "input": 3104,
+                "output": 106,
+                "cacheRead": null
+              }
+            ],
+            "summary": {
+              "turnCount": 6,
+              "ttftMs": {
+                "p50": 3497,
+                "p95": 14764,
+                "min": 1805,
+                "max": 14764
+              },
+              "wallMs": {
+                "p50": 4302,
+                "p95": 14764,
+                "min": 3342,
+                "max": 14764
+              },
+              "inputTokensPerTurn": {
+                "p50": 2627,
+                "p95": 3560,
+                "min": 2,
+                "max": 3560
+              },
+              "outputTokensPerTurn": {
+                "p50": 120,
+                "p95": 992,
+                "min": 89,
+                "max": 992
+              },
+              "cacheHitRate": 0.8603470391220694,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.041333999999999996,
+            "usageTokens": 11510,
+            "toolCalls": 4,
+            "toolCallsByName": {
+              "load_skill": 1,
+              "get_timeline": 2,
+              "reorder_clips": 1
+            },
+            "repeatedToolCalls": 1,
+            "analysisFromCache": 0,
+            "contextRequests": 10,
+            "contextByType": [
+              {
+                "system": 2935,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 2935,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3139,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3139,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3171,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3171,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3270,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3270,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3508,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3508,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 2201,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              12036,
+              2352,
+              12771,
+              2627,
+              12185,
+              2,
+              12284,
+              2858,
+              10560,
+              3104
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              16312,
+              null,
+              null
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "scenario": "reorder-last-first",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 2,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Move the last clip to the very beginning of the timeline.",
+          "rubric": "reorder-last-first",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "last-moved-first",
+              "ok": true,
+              "detail": "order rotated as asked",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "last-moved-first: order rotated as asked",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 4,
+            "toolCalls": 1,
+            "tokens": {
+              "prompt": 39552,
+              "output": 690,
+              "total": 40242
+            },
+            "usd": 0.030393,
+            "latency": {
+              "firstProgressMs": 5560,
+              "doneMs": 19461
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Reorder video_1 so clip_005 moves to position 0, ahead of clip_001, using reorder_clips (single ordered op — no manual split/move sequencing needed). — pending\n- Verify via get_timeline that the new order is [clip_005, clip_001, clip_002, clip_003, clip_004], durations preserved, total timeline duration unchanged at 134.667s, and no gaps/overlaps introduced. — pending\n- Report the new clip boundaries (start/end times) to ",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-last-first-r2-t1.json",
+          "calls": [
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+            }
+          ],
+          "metrics": {
+            "wallMs": 19461,
+            "modelCalls": 4,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 39552,
+              "input": 11536,
+              "output": 690,
+              "cacheRead": 28016,
+              "cacheCreate": 38695
+            },
+            "perCall": [
+              {
+                "ttftMs": 5556,
+                "wallMs": 5556,
+                "input": 3560,
+                "output": 259,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 3220,
+                "wallMs": 3220,
+                "input": 2465,
+                "output": 128,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 3855,
+                "wallMs": 6023,
+                "input": 2624,
+                "output": 157,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 2855,
+                "wallMs": 4633,
+                "input": 2887,
+                "output": 146,
+                "cacheRead": 7020
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 3220,
+                "p95": 5556,
+                "min": 2855,
+                "max": 5556
+              },
+              "wallMs": {
+                "p50": 4633,
+                "p95": 6023,
+                "min": 3220,
+                "max": 6023
+              },
+              "inputTokensPerTurn": {
+                "p50": 2624,
+                "p95": 3560,
+                "min": 2465,
+                "max": 3560
+              },
+              "outputTokensPerTurn": {
+                "p50": 146,
+                "p95": 259,
+                "min": 128,
+                "max": 259
+              },
+              "cacheHitRate": 0.7783951989330963,
+              "cacheReportingTurns": 3
+            },
+            "usd": 0.030393,
+            "usageTokens": 8407,
+            "toolCalls": 1,
+            "toolCallsByName": {
+              "reorder_clips": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 6,
+            "contextByType": [
+              {
+                "system": 3003,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3003,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3115,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3115,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3368,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3368,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              12104,
+              2465,
+              11598,
+              2624,
+              9889,
+              2887
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              7020
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "scenario": "reorder-last-first",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 3,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Move the last clip to the very beginning of the timeline.",
+          "rubric": "reorder-last-first",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "last-moved-first",
+              "ok": true,
+              "detail": "order rotated as asked",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "last-moved-first: order rotated as asked",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 4,
+            "toolCalls": 1,
+            "tokens": {
+              "prompt": 39372,
+              "output": 948,
+              "total": 40320
+            },
+            "usd": 0.028488,
+            "latency": {
+              "firstProgressMs": 8780,
+              "doneMs": 19914
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Reorder the timeline so clip_005 moves from the end to the front, yielding the new sequence clip_005→clip_001→clip_002→clip_003→clip_004, with clip_005 now occupying 0–49.767s and the remaining clips shifted later by that same offset. — pending\n- Verify the post-edit timeline: total duration unchanged (134.667s), clip count unchanged (5), revision incremented, and clip order/boundaries match the expected shifted layout wi",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-last-first-r3-t1.json",
+          "calls": [
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+            }
+          ],
+          "metrics": {
+            "wallMs": 19914,
+            "modelCalls": 4,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 39372,
+              "input": 11356,
+              "output": 948,
+              "cacheRead": 28016,
+              "cacheCreate": 38528
+            },
+            "perCall": [
+              {
+                "ttftMs": 8777,
+                "wallMs": 8777,
+                "input": 3560,
+                "output": 608,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 3785,
+                "wallMs": 3785,
+                "input": 2416,
+                "output": 128,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 1719,
+                "wallMs": 3094,
+                "input": 2569,
+                "output": 99,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 2784,
+                "wallMs": 4235,
+                "input": 2811,
+                "output": 113,
+                "cacheRead": 7020
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 2784,
+                "p95": 8777,
+                "min": 1719,
+                "max": 8777
+              },
+              "wallMs": {
+                "p50": 3785,
+                "p95": 8777,
+                "min": 3094,
+                "max": 8777
+              },
+              "inputTokensPerTurn": {
+                "p50": 2569,
+                "p95": 3560,
+                "min": 2416,
+                "max": 3560
+              },
+              "outputTokensPerTurn": {
+                "p50": 113,
+                "p95": 608,
+                "min": 99,
+                "max": 608
+              },
+              "cacheHitRate": 0.7823076063889199,
+              "cacheReportingTurns": 3
+            },
+            "usd": 0.028488,
+            "usageTokens": 8136,
+            "toolCalls": 1,
+            "toolCallsByName": {
+              "reorder_clips": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 6,
+            "contextByType": [
+              {
+                "system": 2976,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 2976,
+                "retrieved_evidence": 487,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3089,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3089,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3337,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3337,
+                "retrieved_evidence": 490,
+                "latest_user_message": 60,
+                "skill": 1670,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              12077,
+              2416,
+              11572,
+              2569,
+              9858,
+              2811
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              7020
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "scenario": "reorder-swap-first-two",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 1,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Swap the first two clips.",
+          "rubric": "reorder-swap-first-two",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "first-two-swapped",
+              "ok": true,
+              "detail": "first two swapped, rest in place",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "first-two-swapped: first two swapped, rest in place",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 5,
+            "toolCalls": 2,
+            "tokens": {
+              "prompt": 57464,
+              "output": 1356,
+              "total": 58820
+            },
+            "usd": 0.039810000000000005,
+            "latency": {
+              "firstProgressMs": 10454,
+              "doneMs": 28171
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Reorder video_1 so clip_002 moves ahead of clip_001, producing the sequence clip_002, clip_001, clip_003, clip_004, clip_005. — running\n- Re-read the timeline to confirm the swap landed: clip_002 now occupies 0–21.633s, clip_001 now occupies 21.633–61.433s, and clip_003/004/005 retain their original durations and order immediately after. — pending",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-swap-first-two-r1-t1.json",
+          "calls": [
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_002\",\"clip_001\",\"…"
+            },
+            {
+              "tool": "get_timeline",
+              "status": "completed",
+              "args": "start: 0, end: 70"
+            }
+          ],
+          "metrics": {
+            "wallMs": 28171,
+            "modelCalls": 5,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 57464,
+              "input": 13875,
+              "output": 1356,
+              "cacheRead": 43589,
+              "cacheCreate": 45361
+            },
+            "perCall": [
+              {
+                "ttftMs": 10451,
+                "wallMs": 10451,
+                "input": 3555,
+                "output": 766,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 2671,
+                "wallMs": 3827,
+                "input": 2346,
+                "output": 154,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 2256,
+                "wallMs": 4571,
+                "input": 2482,
+                "output": 242,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 4357,
+                "wallMs": 5813,
+                "input": 2628,
+                "output": 96,
+                "cacheRead": 15573
+              },
+              {
+                "ttftMs": 1826,
+                "wallMs": 3470,
+                "input": 2864,
+                "output": 98,
+                "cacheRead": 7020
+              }
+            ],
+            "summary": {
+              "turnCount": 5,
+              "ttftMs": {
+                "p50": 2671,
+                "p95": 10451,
+                "min": 1826,
+                "max": 10451
+              },
+              "wallMs": {
+                "p50": 4571,
+                "p95": 10451,
+                "min": 3470,
+                "max": 10451
+              },
+              "inputTokensPerTurn": {
+                "p50": 2628,
+                "p95": 3555,
+                "min": 2346,
+                "max": 3555
+              },
+              "outputTokensPerTurn": {
+                "p50": 154,
+                "p95": 766,
+                "min": 96,
+                "max": 766
+              },
+              "cacheHitRate": 0.8085662876328628,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.039810000000000005,
+            "usageTokens": 10910,
+            "toolCalls": 2,
+            "toolCallsByName": {
+              "reorder_clips": 1,
+              "get_timeline": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 2891,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 2891,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3003,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3003,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3082,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3082,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3301,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3301,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              11984,
+              2346,
+              11476,
+              2482,
+              11555,
+              2628,
+              9812,
+              2864
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              15573,
+              null,
+              7020
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "scenario": "reorder-swap-first-two",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 2,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Swap the first two clips.",
+          "rubric": "reorder-swap-first-two",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "first-two-swapped",
+              "ok": true,
+              "detail": "first two swapped, rest in place",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "first-two-swapped: first two swapped, rest in place",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 5,
+            "toolCalls": 2,
+            "tokens": {
+              "prompt": 58463,
+              "output": 1374,
+              "total": 59837
+            },
+            "usd": 0.042351,
+            "latency": {
+              "firstProgressMs": 9955,
+              "doneMs": 30343
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Swap: reorder_clips to place clip_002 first and clip_001 second on video_1 (clip_002 → 0–21.633s, clip_001 → 21.633–61.433s), leaving clip_003/004/005 order untouched. — running\n- Structural verify: get_timeline confirms new order/boundaries (clip_002 then clip_001), total track duration still 134.667s, and clip_003–005 timings unchanged relative to the new 61.433s handoff point. — pending\n- Continuity check: render_previ",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-swap-first-two-r2-t1.json",
+          "calls": [
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_002\",\"clip_001\",\"…"
+            },
+            {
+              "tool": "get_timeline",
+              "status": "completed",
+              "args": "start: 0, end: 65"
+            }
+          ],
+          "metrics": {
+            "wallMs": 30343,
+            "modelCalls": 5,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 58463,
+              "input": 14787,
+              "output": 1374,
+              "cacheRead": 43676,
+              "cacheCreate": 46629
+            },
+            "perCall": [
+              {
+                "ttftMs": 9952,
+                "wallMs": 9952,
+                "input": 3555,
+                "output": 797,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 4603,
+                "wallMs": 5681,
+                "input": 2550,
+                "output": 156,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 2498,
+                "wallMs": 3737,
+                "input": 2704,
+                "output": 150,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 4522,
+                "wallMs": 6354,
+                "input": 2850,
+                "output": 145,
+                "cacheRead": 15660
+              },
+              {
+                "ttftMs": 2946,
+                "wallMs": 4575,
+                "input": 3128,
+                "output": 126,
+                "cacheRead": 7020
+              }
+            ],
+            "summary": {
+              "turnCount": 5,
+              "ttftMs": {
+                "p50": 4522,
+                "p95": 9952,
+                "min": 2498,
+                "max": 9952
+              },
+              "wallMs": {
+                "p50": 5681,
+                "p95": 9952,
+                "min": 3737,
+                "max": 9952
+              },
+              "inputTokensPerTurn": {
+                "p50": 2850,
+                "p95": 3555,
+                "min": 2550,
+                "max": 3555
+              },
+              "outputTokensPerTurn": {
+                "p50": 150,
+                "p95": 797,
+                "min": 126,
+                "max": 797
+              },
+              "cacheHitRate": 0.7954396444962483,
+              "cacheReportingTurns": 4
+            },
+            "usd": 0.042351,
+            "usageTokens": 11809,
+            "toolCalls": 2,
+            "toolCallsByName": {
+              "reorder_clips": 1,
+              "get_timeline": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 8,
+            "contextByType": [
+              {
+                "system": 3047,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3047,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3158,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3158,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3237,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3237,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3504,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3504,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              12140,
+              2550,
+              11631,
+              2704,
+              11710,
+              2850,
+              10015,
+              3128
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              15660,
+              null,
+              7020
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    },
+    {
+      "scenario": "reorder-swap-first-two",
+      "category": "reorder",
+      "project": "mission-montage",
+      "run": 3,
+      "replayed": false,
+      "turns": [
+        {
+          "turnIndex": 0,
+          "prompt": "Swap the first two clips.",
+          "rubric": "reorder-swap-first-two",
+          "expectedIntent": "edit",
+          "score": 1,
+          "checks": [
+            {
+              "id": "timeline-changed",
+              "ok": true,
+              "detail": "changed",
+              "weight": 2
+            },
+            {
+              "id": "first-two-swapped",
+              "ok": true,
+              "detail": "first two swapped, rest in place",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "content-preserved",
+              "ok": true,
+              "detail": "same clips, same source ranges",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-collateral-changes",
+              "ok": true,
+              "detail": "no clip restyled",
+              "weight": 2,
+              "facet": "target"
+            },
+            {
+              "id": "no-gaps",
+              "ok": true,
+              "detail": "0 gap(s)"
+            },
+            {
+              "id": "valid-refs",
+              "ok": true,
+              "detail": "0 dangling asset ref(s), 0 empty range(s)"
+            },
+            {
+              "id": "no-overlaps",
+              "ok": true,
+              "detail": "0 overlapping pair(s)"
+            },
+            {
+              "id": "cuts-on-frame-grid",
+              "ok": true,
+              "detail": "0 clip edge(s) off the 30 fps grid",
+              "facet": "boundary"
+            }
+          ],
+          "golden": {
+            "intent": {
+              "expected": "edit",
+              "observed": "failed",
+              "ok": false
+            },
+            "target": {
+              "ok": true,
+              "checks": [
+                "first-two-swapped: first two swapped, rest in place",
+                "content-preserved: same clips, same source ranges",
+                "no-collateral-changes: no clip restyled"
+              ]
+            },
+            "boundary": {
+              "ok": true,
+              "checks": [
+                "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+              ]
+            },
+            "validity": {
+              "diffs": 1,
+              "valid": 1,
+              "invalid": 0,
+              "rate": 1
+            },
+            "firstPass": false,
+            "silentSuccess": false,
+            "modelCalls": 4,
+            "toolCalls": 1,
+            "tokens": {
+              "prompt": 36641,
+              "output": 1101,
+              "total": 37742
+            },
+            "usd": 0.021105000000000002,
+            "latency": {
+              "firstProgressMs": 9682,
+              "doneMs": 21856
+            },
+            "reversibility": {
+              "ok": true,
+              "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+            },
+            "failureQuality": {
+              "loud": true,
+              "explained": true,
+              "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            },
+            "score": 1,
+            "finalStatus": "failed",
+            "operations": 1
+          },
+          "asked": [],
+          "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Call `reorder_clips` on video_1 to swap clip_001 and clip_002, producing the sequence clip_002, clip_001, clip_003, clip_004, clip_005 — this is the one structural edit the request requires. — pending\n- Call `get_timeline` again to verify the applied order (clip_002 now 0–21.633s, clip_001 now 21.633–61.433s) and confirm clip_003/004/005 boundaries and total duration (134.667s) are unchanged, closing the loop on the swap.",
+          "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-swap-first-two-r3-t1.json",
+          "calls": [
+            {
+              "tool": "reorder_clips",
+              "status": "completed",
+              "args": "trackId: \"video_1\", clipIds: [\"clip_002\",\"clip_001\",\"…"
+            }
+          ],
+          "metrics": {
+            "wallMs": 21856,
+            "modelCalls": 4,
+            "tierCalls": {
+              "small": 0,
+              "mid": 0,
+              "large": 0
+            },
+            "tokens": {
+              "prompt": 36641,
+              "input": 8625,
+              "output": 1101,
+              "cacheRead": 28016,
+              "cacheCreate": 38589
+            },
+            "perCall": [
+              {
+                "ttftMs": 9679,
+                "wallMs": 9679,
+                "input": 3555,
+                "output": 708,
+                "cacheRead": null
+              },
+              {
+                "ttftMs": 3349,
+                "wallMs": 4376,
+                "input": 2455,
+                "output": 154,
+                "cacheRead": 10985
+              },
+              {
+                "ttftMs": 1981,
+                "wallMs": 4181,
+                "input": 2613,
+                "output": 129,
+                "cacheRead": 10011
+              },
+              {
+                "ttftMs": 2127,
+                "wallMs": 3594,
+                "input": 2,
+                "output": 110,
+                "cacheRead": 7020
+              }
+            ],
+            "summary": {
+              "turnCount": 4,
+              "ttftMs": {
+                "p50": 2127,
+                "p95": 9679,
+                "min": 1981,
+                "max": 9679
+              },
+              "wallMs": {
+                "p50": 4181,
+                "p95": 9679,
+                "min": 3594,
+                "max": 9679
+              },
+              "inputTokensPerTurn": {
+                "p50": 2455,
+                "p95": 3555,
+                "min": 2,
+                "max": 3555
+              },
+              "outputTokensPerTurn": {
+                "p50": 129,
+                "p95": 708,
+                "min": 110,
+                "max": 708
+              },
+              "cacheHitRate": 0.8467629813214048,
+              "cacheReportingTurns": 3
+            },
+            "usd": 0.021105000000000002,
+            "usageTokens": 5463,
+            "toolCalls": 1,
+            "toolCallsByName": {
+              "reorder_clips": 1
+            },
+            "repeatedToolCalls": 0,
+            "analysisFromCache": 0,
+            "contextRequests": 6,
+            "contextByType": [
+              {
+                "system": 2971,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 2971,
+                "retrieved_evidence": 487,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6884
+              },
+              {
+                "system": 3088,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3088,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 6263
+              },
+              {
+                "system": 3340,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              },
+              {
+                "system": 3340,
+                "retrieved_evidence": 488,
+                "latest_user_message": 52,
+                "skill": 1670,
+                "tool_schemas": 4301
+              }
+            ],
+            "contextUsedTokens": [
+              12064,
+              2455,
+              11561,
+              2613,
+              9851,
+              2
+            ],
+            "contextCachedTokens": [
+              null,
+              10985,
+              null,
+              10011,
+              null,
+              7020
+            ],
+            "diffs": 1,
+            "validDiffs": 1,
+            "operations": 1,
+            "errors": [
+              "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+            ],
+            "finalStatus": "failed"
+          },
+          "timelineAfter": {
+            "durationSeconds": 134.66666666666666,
+            "pictureClips": 5,
+            "tracks": [
+              {
+                "id": "video_1",
+                "type": "video",
+                "clips": 5
+              },
+              {
+                "id": "audio_1",
+                "type": "audio",
+                "clips": 0
+              }
+            ]
+          }
+        }
+      ],
+      "provider": "claude-agent-sdk",
+      "model": "claude-sonnet-5"
+    }
+  ],
+  "golden": {
+    "cases": 2,
+    "turns": 6,
+    "intentAccuracy": 0,
+    "targetAccuracy": 1,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 0,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": null,
+    "usdPerAcceptedEdit": null,
+    "modelCallsPerTurn": {
+      "p50": 4,
+      "p95": 6,
+      "n": 6
+    },
+    "toolCallsPerTurn": {
+      "p50": 1,
+      "p95": 4,
+      "n": 6
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 9682,
+        "p95": 14788,
+        "n": 6
+      },
+      "doneMs": {
+        "p50": 21856,
+        "p95": 35600,
+        "n": 6
+      }
+    },
+    "failureQuality": {
+      "failures": 6,
+      "loud": 6,
+      "explained": 6
+    },
+    "perCase": {
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 4,
+        "tokens": 40320,
+        "usdPerRun": 0.030393,
+        "wallMsPerRun": 19914,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 3,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 58820,
+        "usdPerRun": 0.039810000000000005,
+        "wallMsPerRun": 28171,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

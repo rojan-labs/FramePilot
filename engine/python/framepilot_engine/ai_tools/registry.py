@@ -144,6 +144,27 @@ class SetClipSpeedRampArgs(BaseModel):
     keep_duration: bool | None = Field(default=None, alias="keepDuration")
 
 
+class RemoveFillerWordsArgs(BaseModel):
+    """Mirror of the TS ``remove_filler_words``."""
+
+    model_config = _STRICT
+    asset_id: str | None = Field(default=None, alias="assetId", min_length=1)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
+    words: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    pad_seconds: float | None = Field(default=None, alias="padSeconds", ge=0, le=0.5)
+
+
+class TightenClipsArgs(BaseModel):
+    """Mirror of the TS ``tighten_clips``: trim clips in a window to a shot length, then re-lay."""
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId", min_length=1)
+    shot_seconds: float = Field(alias="shotSeconds", ge=0.1, le=60)
+    start: float | None = Field(default=None, ge=0)
+    end: float | None = Field(default=None, ge=0)
+    keep_clip_ids: list[str] | None = Field(default=None, alias="keepClipIds", max_length=200)
+
+
 class ReorderClipsArgs(BaseModel):
     """A track and ALL of its clip ids in the order they should play (ADR 0173)."""
 
@@ -289,9 +310,18 @@ class ApplyColorGradeArgs(BaseModel):
 
 
 class AdjustAudioArgs(BaseModel):
+    """Mirror of the TS ``adjust_audio``: one clip by id, or every clip on a track."""
+
     model_config = _STRICT
-    clip_id: str = Field(alias="clipId")
+    clip_id: str | None = Field(default=None, alias="clipId", min_length=1)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
     gain_db: float = Field(alias="gainDb")
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> AdjustAudioArgs:
+        if (self.clip_id is None) == (self.track_id is None):
+            raise ValueError("adjust_audio takes exactly one of clipId or trackId.")
+        return self
 
 
 # --- Effect layers (schema v13, ADR 0088) ----------------------------------
@@ -1272,6 +1302,22 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         input_model=RangeOnTrackArgs,
         mutating=True,
     ),
+    "remove_filler_words": _spec(
+        "remove_filler_words",
+        "Ripple-delete every hesitation word (um, uh, er, hmm…) from the clips that play "
+        "the transcript, keeping a little breath on each side, in one reversible patch.",
+        kind="mutate",
+        input_model=RemoveFillerWordsArgs,
+        mutating=True,
+    ),
+    "tighten_clips": _spec(
+        "tighten_clips",
+        "Trim every clip on a track (or in a window of it) longer than shotSeconds to that "
+        "length and close the gaps, in one reversible patch.",
+        kind="mutate",
+        input_model=TightenClipsArgs,
+        mutating=True,
+    ),
     "reorder_clips": _spec(
         "reorder_clips",
         "Change the ORDER of the clips on one track. Give the track and ALL of its "
@@ -1429,7 +1475,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "adjust_audio": _spec(
         "adjust_audio",
-        "Adjust a clip's audio gain (dB).",
+        "Set audio gain (dB) on one clip by clipId, or on every clip of a track by trackId.",
         kind="mutate",
         input_model=AdjustAudioArgs,
         mutating=True,

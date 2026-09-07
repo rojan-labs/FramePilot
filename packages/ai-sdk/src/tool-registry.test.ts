@@ -8,7 +8,9 @@ import {
   COLOR_GRADE_PARAMETER_CONTRACTS,
   validatePatch,
   type Operation,
+  applyProjectPatch,
 } from '@framepilot/editor-core';
+import { assembleEdit } from './assemble.js';
 import { ZodError } from 'zod/v4';
 import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
@@ -691,6 +693,53 @@ describe('discover_transitions', () => {
 });
 
 describe('mutating tools — build valid operations', () => {
+  it('tighten_clips trims every long shot in a window and re-lays the track gaplessly', () => {
+    // s9-live-all refine-tighten t2: 184 operations, three delete-then-re-add rebuilds, to
+    // shorten a section's shots. This is that job as one patch.
+    const tool = getTool('tighten_clips')!;
+    const track = ctx.project.timeline.tracks.find((t) => t.clips.length > 1)!;
+    const first = [...track.clips].sort((a, b) => a.start - b.start)[0]!;
+    const ops = tool.buildOps!(
+      { trackId: track.id, shotSeconds: 1, keepClipIds: [first.id] },
+      ctx,
+    );
+    const trims = ops.filter((op) => op.type === 'trim_clip') as { clipId: string; start: number; end: number }[];
+    expect(trims.length).toBeGreaterThan(0);
+    expect(trims.every((t) => t.end - t.start === 1)).toBe(true);
+    expect(trims.some((t) => t.clipId === first.id)).toBe(false);
+    const relay = ops.at(-1) as { type: string; clipIds: string[] };
+    expect(relay.type).toBe('reorder_clips');
+    expect(relay.clipIds).toHaveLength(track.clips.length);
+    // Applies and inverts like any other patch.
+    const applied = applyProjectPatch(ctx.project, assembleEdit(ctx.project, ops, 'tighten', 'agent').patch);
+    const laid = applied.timeline.tracks.find((t) => t.id === track.id)!.clips;
+    for (let i = 1; i < laid.length; i += 1) expect(laid[i]!.start).toBeCloseTo(laid[i - 1]!.end, 3);
+    expect(() => tool.buildOps!({ trackId: 'nope', shotSeconds: 1 }, ctx)).toThrow(/no track/);
+    expect(() => tool.buildOps!({ trackId: track.id, shotSeconds: 60 }, ctx)).toThrow(/nothing to tighten/);
+  });
+
+  it('adjust_audio sets one clip, or every clip on a track in one call', () => {
+    // s9-live-all music-bed-quiet: a bed tiled from a 30-second file took eighteen
+    // one-clip calls. A trackId fans out to one op per clip; both targets at once, or
+    // neither, is refused before any op is built.
+    const tool = getTool('adjust_audio')!;
+    const track = ctx.project.timeline.tracks.find((t) => t.clips.length > 1)!;
+    const perTrack = tool.buildOps!({ trackId: track.id, gainDb: -18 }, ctx);
+    expect(perTrack.map((op) => (op as { clipId: string }).clipId)).toEqual(
+      track.clips.map((c) => c.id),
+    );
+    expect(perTrack.every((op) => (op as { gainDb: number }).gainDb === -18)).toBe(true);
+    const one = tool.buildOps!({ clipId: track.clips[0]!.id, gainDb: -6 }, ctx);
+    expect(one).toHaveLength(1);
+    expect(() => tool.buildOps!({ gainDb: -6 }, ctx)).toThrow(/exactly one/);
+    expect(() =>
+      tool.buildOps!({ clipId: track.clips[0]!.id, trackId: track.id, gainDb: -6 }, ctx),
+    ).toThrow(/exactly one/);
+    expect(() => tool.buildOps!({ trackId: 'nope', gainDb: -6 }, ctx)).toThrow(/Track not found/);
+    // Counted against the blast-radius cap like any other mutation — see the tool.
+    expect(tool.derivedFanOut).toBeUndefined();
+  });
+
   it('trim_clip / split_clip', () => {
     expect(build('trim_clip', { clipId: 'clip_a', start: 0, end: 4 })).toEqual([
       { type: 'trim_clip', clipId: 'clip_a', start: 0, end: 4 },
@@ -776,7 +825,7 @@ describe('mutating tools — build valid operations', () => {
       },
     ]);
     expect(getTool('add_caption_layer')?.description).toContain('ONE short');
-    expect(getTool('add_caption_layer')?.description).toContain('never more than 12');
+    expect(getTool('add_caption_layer')?.description).toContain('never more than 14');
     // The rejection names the bulk tool that would have avoided it: a model that
     // over-reaches here should be steered to caption_the_edit, not left to guess
     // its way through one hand-placed cue at a time.

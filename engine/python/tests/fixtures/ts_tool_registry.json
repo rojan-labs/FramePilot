@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 93,
+  "toolCount": 95,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -607,7 +607,6 @@
         ],
         "additionalProperties": false,
         "required": [
-          "clipId",
           "gainDb"
         ],
         "properties": {
@@ -619,6 +618,11 @@
           "gainDb": {
             "type": [
               "number"
+            ]
+          },
+          "trackId": {
+            "type": [
+              "string"
             ]
           }
         }
@@ -889,7 +893,7 @@
               "integer"
             ],
             "minimum": 1,
-            "maximum": 12
+            "maximum": 14
           },
           "preset": {
             "type": [
@@ -2793,6 +2797,47 @@
         }
       }
     },
+    "remove_filler_words": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
+          "padSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 0.5
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          },
+          "words": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      }
+    },
     "remove_keyframes": {
       "kind": "mutate",
       "mutates": true,
@@ -4372,6 +4417,58 @@
             "minimum": 0
           },
           "clipId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "tighten_clips": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "shotSeconds",
+          "trackId"
+        ],
+        "properties": {
+          "end": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "keepClipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "shotSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.1,
+            "maximum": 60
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "trackId": {
             "type": [
               "string"
             ]
