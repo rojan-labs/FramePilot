@@ -38,6 +38,12 @@ const COST_TOLERANCE = 0.1;
 /** One turn out of ~20 flipping is noise on a small sample; more than that is a regression. */
 const RATE_TOLERANCE = 0.05;
 
+/**
+ * Half a frame per accepted edit. The floor is zero frames, so any real looking trips this;
+ * the slack exists so ONE verification frame across a two-edit run is not a build failure.
+ */
+const FRAMES_TOLERANCE = 0.5;
+
 const p50 = (xs) => {
   const a = xs.filter((x) => typeof x === 'number' && Number.isFinite(x)).sort((x, y) => x - y);
   return a.length ? a[Math.floor((a.length - 1) / 2)] : null;
@@ -265,6 +271,40 @@ if (!now || !was) {
   {
     const share = (s) => (s?.failureQuality?.failures ? s.failureQuality.explained / s.failureQuality.failures : null);
     console.log(`| failures explained | ${pct(share(was))} | ${pct(share(now))} | reported |`);
+  }
+  // ── perception (plan/visual-understanding VU0.1) ────────────────────────────────
+  //
+  // `framesSeenPerEdit` is gated as a CEILING, which is the opposite of every rate above.
+  // The plan's whole claim is that facts arriving as text remove the need to look, so a
+  // change that makes the agent look MORE has not worked — even if its rubric score rose.
+  // The floor is 0.00 (`reports/golden/BASELINE.md`: get_frame was never called in any of
+  // ten recorded runs), so this trips on the first frame a change starts spending.
+  {
+    const a = was.perception?.framesSeenPerEdit;
+    const b = now.perception?.framesSeenPerEdit;
+    let verdict = 'held';
+    if (a == null || b == null) verdict = 'n/a — not measured';
+    else if (b > a + FRAMES_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
+    else if (b < a) verdict = 'fewer frames';
+    console.log(`| frames seen / accepted edit | ${fmt(a, 2)} | ${fmt(b, 2)} | ${verdict} |`);
+  }
+  // A guess rate that RISES means the model went back to inventing grade and transition
+  // values the solvers exist to compute. Gated, not merely reported.
+  {
+    const a = was.perception?.numericGuessRate;
+    const b = now.perception?.numericGuessRate;
+    let verdict = 'held';
+    if (a == null || b == null) verdict = 'n/a — no grade/transition applied';
+    else if (b > a + RATE_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
+    else if (b < a) verdict = 'better';
+    console.log(`| grade/transition guess rate | ${pct(a)} | ${pct(b)} | ${verdict} |`);
+  }
+  // Reported, never gated: a run that legitimately needs no footage surface should not be
+  // punished for not calling one.
+  {
+    const a = was.perception?.perceptionCallsPerRun;
+    const b = now.perception?.perceptionCallsPerRun;
+    console.log(`| footage-surface calls / run | ${fmt(a, 2)} | ${fmt(b, 2)} | reported |`);
   }
   const dropped = [];
   for (const [id, c] of Object.entries(now.perCase)) {
