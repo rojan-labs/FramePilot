@@ -514,7 +514,21 @@ def apply_color_grade(args: ApplyColorGradeArgs, ctx: ToolContext) -> Operations
 
 
 def adjust_audio(args: AdjustAudioArgs, ctx: ToolContext) -> Operations:
-    return [{"type": "adjust_audio", "clipId": args.clip_id, "gainDb": args.gain_db}]
+    """One clip, or every clip on a track (mirrors ``domain-tools/audio.ts``)."""
+    if args.clip_id is not None:
+        return [{"type": "adjust_audio", "clipId": args.clip_id, "gainDb": args.gain_db}]
+    track = _find_track(ctx.project, str(args.track_id))
+    if track is None:
+        known = ", ".join(t.id for t in ctx.project.timeline.tracks)
+        raise ValueError(
+            f"Track not found: {args.track_id}. The tracks in this timeline are: {known}."
+        )
+    if not track.clips:
+        raise ValueError(f"Track {track.id} has no clips to adjust.")
+    return [
+        {"type": "adjust_audio", "clipId": clip.id, "gainDb": args.gain_db}
+        for clip in track.clips
+    ]
 
 
 def add_transition(args: AddTransitionArgs, ctx: ToolContext) -> Operations:

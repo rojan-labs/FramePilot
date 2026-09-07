@@ -60,9 +60,49 @@ const addMusicSchema = z
 
 export const AUDIO_TOOLS: readonly ToolSpec[] = [
   mutateTool(
-    { name: 'adjust_audio', description: 'Adjust a clip’s audio gain (dB).' },
-    z.object({ clipId: z.string(), gainDb: numeric(z.number()) }).strict(),
-    (a) => [{ type: 'adjust_audio', clipId: a.clipId, gainDb: a.gainDb }],
+    {
+      name: 'adjust_audio',
+      description:
+        'Set audio gain (dB, absolute — 0 is unchanged, -18 is a quiet bed) on ONE clip by ' +
+        'clipId, or on EVERY clip of a track by trackId in one call: a music bed tiled from ' +
+        'a short file is one trackId call, never one call per tile. Give exactly one of the ' +
+        'two. To lower a bed only while someone speaks, use professional_audio duck_roles ' +
+        'instead.',
+      // One op per clip on the track: the count is a fact about the timeline, not a
+      // decision the model made (see `ToolSpec.derivedFanOut`). s9-live-all
+      // music-bed-quiet made eighteen one-clip calls, one per 30-second tile of the bed.
+      derivedFanOut: true,
+    },
+    z
+      .object({
+        clipId: z.string().min(1).optional(),
+        trackId: z.string().min(1).optional(),
+        gainDb: numeric(z.number()),
+      })
+      .strict(),
+    (a, ctx) => {
+      if ((a.clipId === undefined) === (a.trackId === undefined)) {
+        throw new Error('adjust_audio takes exactly one of clipId or trackId.');
+      }
+      if (a.clipId !== undefined) {
+        return [{ type: 'adjust_audio', clipId: a.clipId, gainDb: a.gainDb }];
+      }
+      const track = ctx.project.timeline.tracks.find((t) => t.id === a.trackId);
+      if (!track) {
+        throw new Error(
+          `Track not found: ${String(a.trackId)}. The tracks in this timeline are: ` +
+            `${ctx.project.timeline.tracks.map((t) => t.id).join(', ')}.`,
+        );
+      }
+      if (track.clips.length === 0) {
+        throw new Error(`Track ${track.id} has no clips to adjust.`);
+      }
+      return track.clips.map((clip) => ({
+        type: 'adjust_audio' as const,
+        clipId: clip.id,
+        gainDb: a.gainDb,
+      }));
+    },
   ),
   analysisTool(
     {

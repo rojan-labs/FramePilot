@@ -1060,6 +1060,20 @@ def test_adjust_audio(ctx: ToolContext, project: Project) -> None:
     _assert_patch_ok(result, project)
 
 
+def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:
+    # Mirror of the TS tool: a trackId fans out to every clip on the track, exactly one
+    # of clipId/trackId is accepted, and an unknown track names the real ones.
+    track = next(t for t in project.timeline.tracks if any(c.id == "AU" for c in t.clips))
+    result = run_tool("adjust_audio", {"trackId": track.id, "gainDb": -18.0}, ctx)
+    assert [op["clipId"] for op in result.operations] == [c.id for c in track.clips]
+    assert all(op["gainDb"] == -18.0 for op in result.operations)
+    _assert_patch_ok(result, project)
+    with pytest.raises(Exception, match="exactly one"):
+        run_tool("adjust_audio", {"gainDb": -6.0}, ctx)
+    with pytest.raises(Exception, match="Track not found"):
+        run_tool("adjust_audio", {"trackId": "nope", "gainDb": -6.0}, ctx)
+
+
 def test_add_transition() -> None:
     # add_transition requires an adjacent clean cut; the shared `project` fixture
     # leaves a 1s gap between A and B for unrelated tests, so build one locally.

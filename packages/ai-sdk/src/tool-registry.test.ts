@@ -691,6 +691,27 @@ describe('discover_transitions', () => {
 });
 
 describe('mutating tools — build valid operations', () => {
+  it('adjust_audio sets one clip, or every clip on a track in one call', () => {
+    // s9-live-all music-bed-quiet: a bed tiled from a 30-second file took eighteen
+    // one-clip calls. A trackId fans out to one op per clip; both targets at once, or
+    // neither, is refused before any op is built.
+    const tool = getTool('adjust_audio')!;
+    const track = ctx.project.timeline.tracks.find((t) => t.clips.length > 1)!;
+    const perTrack = tool.buildOps!({ trackId: track.id, gainDb: -18 }, ctx);
+    expect(perTrack.map((op) => (op as { clipId: string }).clipId)).toEqual(
+      track.clips.map((c) => c.id),
+    );
+    expect(perTrack.every((op) => (op as { gainDb: number }).gainDb === -18)).toBe(true);
+    const one = tool.buildOps!({ clipId: track.clips[0]!.id, gainDb: -6 }, ctx);
+    expect(one).toHaveLength(1);
+    expect(() => tool.buildOps!({ gainDb: -6 }, ctx)).toThrow(/exactly one/);
+    expect(() =>
+      tool.buildOps!({ clipId: track.clips[0]!.id, trackId: track.id, gainDb: -6 }, ctx),
+    ).toThrow(/exactly one/);
+    expect(() => tool.buildOps!({ trackId: 'nope', gainDb: -6 }, ctx)).toThrow(/Track not found/);
+    expect(tool.derivedFanOut).toBe(true);
+  });
+
   it('trim_clip / split_clip', () => {
     expect(build('trim_clip', { clipId: 'clip_a', start: 0, end: 4 })).toEqual([
       { type: 'trim_clip', clipId: 'clip_a', start: 0, end: 4 },

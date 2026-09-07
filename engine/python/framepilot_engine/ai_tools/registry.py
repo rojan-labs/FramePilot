@@ -289,9 +289,18 @@ class ApplyColorGradeArgs(BaseModel):
 
 
 class AdjustAudioArgs(BaseModel):
+    """Mirror of the TS ``adjust_audio``: one clip by id, or every clip on a track."""
+
     model_config = _STRICT
-    clip_id: str = Field(alias="clipId")
+    clip_id: str | None = Field(default=None, alias="clipId", min_length=1)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
     gain_db: float = Field(alias="gainDb")
+
+    @model_validator(mode="after")
+    def _exactly_one_target(self) -> "AdjustAudioArgs":
+        if (self.clip_id is None) == (self.track_id is None):
+            raise ValueError("adjust_audio takes exactly one of clipId or trackId.")
+        return self
 
 
 # --- Effect layers (schema v13, ADR 0088) ----------------------------------
@@ -1429,7 +1438,7 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
     ),
     "adjust_audio": _spec(
         "adjust_audio",
-        "Adjust a clip's audio gain (dB).",
+        "Set audio gain (dB) on one clip by clipId, or on every clip of a track by trackId.",
         kind="mutate",
         input_model=AdjustAudioArgs,
         mutating=True,

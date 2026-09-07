@@ -607,7 +607,6 @@
         ],
         "additionalProperties": false,
         "required": [
-          "clipId",
           "gainDb"
         ],
         "properties": {
@@ -619,6 +618,11 @@
           "gainDb": {
             "type": [
               "number"
+            ]
+          },
+          "trackId": {
+            "type": [
+              "string"
             ]
           }
         }
