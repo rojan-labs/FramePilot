@@ -930,11 +930,24 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
        front" against the timeline it had just changed, rotating a 5-clip list back to its
        original order, and the run reported "Applied 5 edits". It passes **4/4** on
        `claude-sonnet-5` in the recorded s9 runs (1 op, 3–4 calls), so the T9.1 fix holds on
-       the measured provider and this is a weaker-model failure — but nothing in the kernel
-       *detects* that a position-relative request was already satisfied, so a weaker model
-       can rotate to identity and still report success.
+       the measured provider and this is a weaker-model failure.
+       **Hardened 2026-09-08:** `reorder_clips` now refuses the order the track is already
+       in (`order_already_applied`). That is precisely the call that did the damage — the
+       fifth, which asked for the original order — so the run can no longer silently undo
+       its own correct edit, and an accepted no-op can no longer reset every run-stopper as
+       if a clip had moved. **What it does not do:** stop a model that keeps issuing
+       genuinely new orderings. A rotation only repeats itself at the start, so this catches
+       the undo, not every wasted step. Making a run stop once a positional request is *met*
+       is conductor-level progress accounting (`kernel/conductor.ts`), and is left as a
+       maintainer decision rather than guessed at — see the note below.
     3. The three `question` cases scored **1.00** on their checks while recording
        `intent=failed`. Right answer, failure-shaped verdict — worth a look alongside T9.2.
+  - **Open, for the maintainer:** nothing in the kernel detects that a position-relative
+    request has been satisfied. `callNoveltyKey` keys a mutation on its arguments, so five
+    reorders with five different orderings each read as "learned something new" and the
+    stall guard cannot fire. Closing that means teaching progress accounting about
+    *arrangements the run has already produced*, which is a behavioural change to the run
+    loop and wants its own slice and evidence.
   - Owner: ______
 
 - [ ] **T16.4. Colour coefficients unfitted** — see T5.7. Decide whether to fit before merge

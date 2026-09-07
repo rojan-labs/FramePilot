@@ -1161,9 +1161,12 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'reorder_clips',
       description:
         'Reorder one track\'s clips — "put the last shot first", "swap these two". ' +
-        'Pass the track and ALL its clip ids in the new order; they are re-laid end to ' +
-        'end keeping each length and media. Nothing is deleted or added, so this cannot ' +
-        'lose footage; deleting and re-adding clips can. move_clip cannot reorder.',
+        'Pass the track and ALL its clip ids in the ABSOLUTE new order; they are re-laid ' +
+        'end to end keeping each length and media. Nothing is deleted or added, so this ' +
+        'cannot lose footage; deleting and re-adding clips can. move_clip cannot reorder. ' +
+        'One call does it: the order you send is the final order, so do NOT re-apply a ' +
+        'positional instruction ("move the last first") to the result of your own reorder — ' +
+        'that rotates the track and can land it back where it started.',
     },
     z
       .object({
@@ -1175,7 +1178,38 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
           .describe("All the track's clip ids, each once, in play order"),
       })
       .strict(),
-    (a) => [{ type: 'reorder_clips', trackId: a.trackId, clipIds: a.clipIds }],
+    (a, ctx) => {
+      const track = ctx.project.timeline.tracks.find((t) => t.id === a.trackId);
+      if (!track) {
+        throw new ToolRefusalError(
+          `reorder_clips: no track "${a.trackId}". The tracks in this timeline are: ` +
+            `${ctx.project.timeline.tracks.map((t) => t.id).join(', ')}.`,
+        );
+      }
+      // THE ORDER ASKED FOR IS THE ORDER THAT IS ALREADY THERE.
+      //
+      // `reorder_clips` re-lays the whole track, so it is the one tool where "do it again"
+      // is indistinguishable from "do nothing" — and a no-op that reports `completed` is
+      // worse than an error, because it resets every run-stopper as if a clip had moved
+      // (the same failure `conductor.ts` records for a fader re-set to the dB it was
+      // already at, ten times). Live run `vu-ledger-all/reorder-last-first` shows where
+      // that leads: five accepted reorders re-deriving "move the last one to the front"
+      // against the track each one had just changed, rotating five clips back to their
+      // ORIGINAL order and reporting "Applied 5 edits".
+      //
+      // A refusal here is recoverable and informative — it tells the model the arrangement
+      // it wants is the arrangement it has, which is the fact it was failing to notice.
+      const current = [...track.clips].sort((x, y) => x.start - y.start).map((c) => c.id);
+      if (current.length === a.clipIds.length && current.every((id, i) => id === a.clipIds[i])) {
+        throw new ToolRefusalError(
+          `reorder_clips: track "${a.trackId}" is already in that exact order ` +
+            `(${current.join(' → ')}), so this would change nothing. If you have just ` +
+            'reordered it, the edit already landed — read the track before ordering it again.',
+          { refusalCause: 'order_already_applied' },
+        );
+      }
+      return [{ type: 'reorder_clips', trackId: a.trackId, clipIds: a.clipIds }];
+    },
   ),
   mutateTool(
     {

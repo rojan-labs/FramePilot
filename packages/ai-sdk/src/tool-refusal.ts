@@ -72,6 +72,24 @@ export type RefusalCause =
    */
   | 'hides_a_cutaway'
   /**
+   * `reorder_clips` was handed the order the track is already in, so it would change
+   * nothing.
+   *
+   * Named rather than left to its text because this refusal is the run's evidence that a
+   * positional instruction is being re-derived. `reorder_clips` re-lays the WHOLE track, so
+   * it is the one mutation where "do it again" and "do nothing" are the same call, and an
+   * accepted no-op resets every run-stopper as if a clip had moved. Live run
+   * `reports/golden/vu-ledger-all/cases/reorder-last-first-r1.json`: five accepted reorders,
+   * each re-applying "move the last clip to the front" to the track the previous one had
+   * just changed, rotating five clips back to their original order and reporting
+   * "Applied 5 edits".
+   *
+   * Deliberately NOT in {@link ARRANGEMENT_INDEPENDENT_CAUSES}: a landed edit that moves,
+   * adds or removes a clip changes the track's order, and then the same call is no longer a
+   * no-op. Clearing it on an edit is exactly right.
+   */
+  | 'order_already_applied'
+  /**
    * The tool has no implementation on this surface — `planSidecarCall` routes it
    * nowhere and no host override claims it. `render_preview` and `export_video` on the
    * sidecar executor are the standing cases: the editor renders through its own Export
