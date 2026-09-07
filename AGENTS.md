@@ -83,11 +83,14 @@ Monorepo: **pnpm workspaces + Turbo** for TS, **`uv`** for the Python engine.
 apps/
   desktop/          Electron shell (main/preload/renderer); secure IPC; spawns Python sidecar
   web-editor/       React + TS editor UI (timeline, preview, panels)
+  website/          Marketing site (framepilot.app) + Freemius licensing/checkout
 packages/
   timeline-schema/  Project/Timeline/Track/Clip/Effect/Keyframe schemas (Zod), versioning + migrations
   shared-types/     Cross-package TS types
   editor-core/      Typed timeline operations + patch engine (apply/invert/validate/diff/undo)
   ai-sdk/           AI orchestrator, tool registry, context builder, memory store (TS)
+  mcp-server/       Streamable-HTTP MCP server exposing the editing tools externally
+  capability-packs/ On-demand capability packs (ADR 0114)
   ui/               Shared React components
 engine/python/      framepilot_engine: render/ timeline/ effects/ audio/ tracking/ masking/ validation/ ai_tools/
 tests/e2e/          Playwright end-to-end suite
