@@ -77,22 +77,27 @@ transitions land as the existing transition effect. No timeline schema migration
 
 ## Phase order and gates
 
-| Phase | Name                   | Depends on | Exit evidence                                                                                                                                                    |
-| ----- | ---------------------- | ---------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VU0   | Baseline and contracts | —          | blindness metrics recorded on `main`; labelled fixture set; ledger ADR accepted; ask-list resolved                                                               |
-| VU1   | Tier 0 shot ledger     | VU0        | every mission fixture has a ledger with no key configured; per-shot stats within tolerance of the labelled set; import → ledger under 2× real-time on the M1 Pro |
-| VU2   | Model surfaces         | VU1        | clip rows carry facts; `frames_seen_per_edit` unchanged or lower; target resolution on the visual golden cases up; token delta measured                          |
-| VU3   | Deterministic color    | VU1        | `match_color` closes the measured luma/chroma gap on `mission-montage` to within tolerance and verifies by re-measurement; golden case passes                    |
-| VU4   | Transition policy      | VU2        | `add_transition` with a reason picks from the policy table; a continuity cut gets no transition; golden case passes                                              |
-| VU5   | Tier 1 local pack      | VU1        | offline `search_visual` works with no key; zero-shot shot-size accuracy on the labelled set; person clusters on `talk-1080p-98s` + `camera-4k60-40s`             |
-| VU6   | Tier 2 local VLM pack  | VU5        | structured captions on every fixture shot; hosted captioner emits the same JSON; background indexing of the whole fixture set finishes without the UI stalling   |
-| VU7   | Sampled verification   | VU2, VU3   | post-apply `shot_match` on flagged cuts; vision review fires only on undecidable pairs; findings land as working-state facts                                     |
-| VU8   | Scale and operations   | VU1–VU6    | 10-hour synthetic library and 1000-asset project indexed within budget; pause during render; resume after kill; eviction                                         |
-| VU9   | Closure                | all        | docs, ADRs, changelog, plan reconciled; the golden gate carries the new metrics                                                                                  |
+**Status 2026-09-07** (branch `plan/visual-understanding`, ten commits). Every number below
+was measured, not estimated; where a thing is unfitted or unlabelled it says so.
 
-VU1, VU2 and VU3 are the first vertical slice and need no new model, no new dependency, and
-no capability pack. They are where "context aware instead of vague trimming" first becomes
-visible on the default install. Do them first and measure before starting VU5.
+| Phase | Name | Status | Evidence |
+| --- | --- | --- | --- |
+| VU0 | Baseline and contracts | `[~]` | **VU0.1 `[x]`** — metrics + the floor: 318 turns, 210 accepted edits, ten recorded runs, `get_frame` **0**, footage surfaces **0**, guess rate **1.00** (`reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4 `[x]`** — ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. VU0.2/VU0.3 need a human eye on a contact sheet; they run alongside VU2. |
+| VU1 | Tier 0 shot ledger | `[~]` | **VU1.1–VU1.4 `[x]`.** One ffmpeg pass, two chains, one decode. 160 px proven lossless against full res (YAVG 74.0424 vs 74.0471). Brain schema v4. The keyless route: the embedder short-circuit is deleted, tier 0 runs first on both arms. 17–47× real-time on an M1 Pro. VU1.5 (host key gate) in flight; `phash`/`loudnessLufs` still null — VU1.1's remaining half. |
+| VU2 | Model surfaces | `[~]` | **VU2.1–VU2.4 `[x]`.** Picture slice (39 tests), clip-row words (25), the row + digest in the prompt (35). Token delta on an unindexed project: **zero, goldens unregenerated**. Opt-in cost ~108 tokens for the digest, ~10 per covered row. VU2.5 (tools carry facts) in flight; VU2.6 (briefing) open. |
+| VU3 | Deterministic colour | `[~]` | **VU3.1 `[x]`** — the solver, derived from `render/color.py`'s actual pass, 58 tests. **Coefficients are UNFITTED**: `scripts/fit-color-response.mjs` runs the real fit against a live sidecar. No test asserts a fitted number. VU3.2 (tools) in flight, VU3.3 (verification) open. |
+| VU4 | Transition policy | `[~]` | **VU4.1 `[x]`** — 25 tests; families resolve through catalog data, never an id literal; `continuity` returns null at any delta. VU4.2 (the `reason` argument) in flight. |
+| VU5 | Tier 1 local pack | `[ ]` | Not started. |
+| VU6 | Tier 2 local VLM pack | `[ ]` | Not started. |
+| VU7 | Sampled verification | `[ ]` | Not started. |
+| VU8 | Scale and operations | `[ ]` | Not started. |
+| VU9 | Closure | `[ ]` | Not started. |
+
+**What is true today that was not this morning:** on a machine with no key, no network and
+no vision model, the engine measures every imported asset into a shot ledger, and the agent's
+prompt carries what each clip shows in words. What is NOT yet true: the host still gates
+enrolment on a key (VU1.5), the model cannot yet ask for a solved grade or a reasoned
+transition (VU3.2/VU4.2), and nothing verifies an applied edit against pixels (VU7).
 
 ## Scale, in numbers
 
