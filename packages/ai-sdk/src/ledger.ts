@@ -118,8 +118,14 @@ export const MeasuredFactsSchema = z.object({
   freeze: z.boolean(),
   /** 1 − normalised blurdetect median; low is soft. */
   sharpness: z.number(),
-  /** 64-bit dHash as TEXT — a value a JSON number cannot hold. */
-  phash: z.string(),
+  /**
+   * 64-bit dHash as TEXT — a value a JSON number cannot hold.
+   *
+   * Absent when no keyframe hash was computed (the hash comes from the sampler's JPEG pass,
+   * not the statistics decode). Never a placeholder string: every unhashed shot would then
+   * read as a duplicate of every other.
+   */
+  phash: z.string().nullish(),
   loudnessLufs: z.number().nullish(),
 });
 export type MeasuredFacts = z.infer<typeof MeasuredFactsSchema>;

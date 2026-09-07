@@ -23,13 +23,21 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
 
 from framepilot_engine.brain.embeddings import pack_vector, unpack_vector
 from framepilot_engine.brain.fts import SupportsMarker, fts_match_expression
+from framepilot_engine.brain.ledger_models import (
+    AssetDigest,
+    DescribedFacts,
+    LabelledFacts,
+    MeasuredFacts,
+    ShotRecord,
+    TierCoverage,
+)
 from framepilot_engine.brain.migrations import (
     BrainSchemaError,
     current_version,
@@ -67,10 +75,23 @@ __all__ = [
     "brain_dir_for",
     "brain_status",
     "open_brain",
+    "shot_cursor",
 ]
 
 DERIVED_DIR_NAME = ".framepilot-derived"
 BRAIN_FILENAME = "brain.sqlite"
+
+#: Ledger tier name → (JSON column, version column). One table, so a tier's identity is
+#: a pair of column names and nothing else; every ledger query below is parameterised on
+#: this map rather than branching, which is what keeps "write one tier, touch no other"
+#: a property of the code instead of a promise in a comment.
+LedgerTier = Literal["measured", "labelled", "described"]
+
+_TIER_COLUMNS: dict[str, tuple[str, str]] = {
+    "measured": ("measured", "tier0_version"),
+    "labelled": ("labelled", "tier1_version"),
+    "described": ("described", "tier2_version"),
+}
 
 # Returns the current UTC time; injected in tests for deterministic timestamps.
 Clock = Callable[[], datetime]
@@ -1075,6 +1096,280 @@ class BrainStore:
             "assets": assets,
         }
 
+    # -- shot ledger (ADR 0175, plan/visual-understanding VU1.3) ---------------------
+
+    def upsert_shots(
+        self,
+        asset_id: str,
+        content_hash: str,
+        tier: LedgerTier,
+        rows: Sequence[ShotRecord],
+    ) -> int:
+        """Write ONE tier's facts for an asset's shots, leaving the other two alone.
+
+        This is the method the whole three-column schema exists for. A model swap bumps
+        one ``tierN_version``, nulls one column and re-queues one tier; if this wrote a
+        whole row it would silently discard the two tiers that did not change, and the
+        cheap-swap property in ADR 0175 would be a claim rather than a mechanism.
+
+        The tier's document and its version are written together — a version without its
+        facts (or the reverse) would make :meth:`existing_shot_tier_keys` resume work it
+        had never done. A row whose group is ``None`` writes NULL for both: "not measured
+        yet", which is exactly what a geometry-only insert from tier 0 means before the
+        statistics pass lands.
+
+        Shot GEOMETRY (``t0``/``t1``/``keyframe_t``/``split_of``) is tier 0's product, so
+        only a ``measured`` write updates it. Tiers 1 and 2 describe shots they were
+        handed; letting them move a boundary would let a probabilistic tier overwrite a
+        measured fact.
+
+        :param asset_id: Owning asset; every row must agree with it.
+        :param content_hash: Source-bytes digest; every row must agree with it.
+        :param tier: Which provenance group these rows carry.
+        :param rows: The shots to write. An empty sequence is a no-op, not an error —
+            an asset with no detected shots is a legitimate outcome.
+        :returns: The number of rows written.
+        :raises BrainError: If ``tier`` is unknown, or a row's key disagrees with the
+            ``asset_id``/``content_hash`` arguments (a mismatched batch would scatter one
+            asset's facts across two key spaces and read back as missing coverage).
+        """
+        column, version_column = _tier_columns(tier)
+        for row in rows:
+            if row.asset_id != asset_id or row.content_hash != content_hash:
+                raise BrainError(
+                    f"shot row {row.asset_id}/{row.content_hash}#{row.shot_index} does not "
+                    f"belong to the batch key {asset_id}/{content_hash}"
+                )
+        if not rows:
+            return 0
+        now = self._now()
+        # Column names come from the frozen _TIER_COLUMNS map, never from a caller, so
+        # this interpolation carries no untrusted text.
+        geometry_update = (
+            """,
+                    t0 = excluded.t0,
+                    t1 = excluded.t1,
+                    keyframe_t = excluded.keyframe_t,
+                    split_of = excluded.split_of"""
+            if tier == "measured"
+            else ""
+        )
+        with self._conn:
+            self._conn.executemany(
+                f"""
+                INSERT INTO shots
+                    (asset_id, content_hash, shot_index, t0, t1, keyframe_t, split_of,
+                     {version_column}, {column}, updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(asset_id, content_hash, shot_index) DO UPDATE SET
+                    {version_column} = excluded.{version_column},
+                    {column} = excluded.{column},
+                    updated_at = excluded.updated_at{geometry_update}
+                """,
+                [_shot_params(row, tier, version_column, now) for row in rows],
+            )
+        return len(rows)
+
+    def list_shots(
+        self,
+        asset_ids: Sequence[str],
+        *,
+        limit: int = 500,
+        after: str | None = None,
+    ) -> list[ShotRecord]:
+        """One page of shots for the given assets, ordered ``(asset_id, shot_index)``.
+
+        Paged because a run reads the shots of every asset ITS timeline references, and a
+        long-form project reaches thousands; the route streams pages rather than
+        materialising a library. The order is total and stable, which is what makes the
+        cursor exact instead of approximately-right under concurrent writes.
+
+        An empty ``asset_ids`` returns nothing rather than everything. The dangerous
+        default here is "no filter means the whole table": one caller forgetting to pass
+        its timeline's assets would load the library into a turn's context.
+
+        :param asset_ids: Assets to read. Duplicates are harmless.
+        :param limit: Maximum rows in the page.
+        :param after: Cursor from :func:`shot_cursor` on the previous page's last row.
+        :returns: Up to ``limit`` records. A full page means there may be more; ask again
+            with a cursor built from its last row.
+        :raises BrainError: If ``after`` is not a cursor this store produced.
+        """
+        if not asset_ids or limit <= 0:
+            return []
+        placeholders = ",".join("?" for _ in asset_ids)
+        params: list[Any] = list(asset_ids)
+        cursor_clause = ""
+        if after is not None:
+            cursor_asset, cursor_index = _decode_shot_cursor(after)
+            cursor_clause = " AND (asset_id > ? OR (asset_id = ? AND shot_index > ?))"
+            params += [cursor_asset, cursor_asset, cursor_index]
+        params.append(limit)
+        rows = self._conn.execute(
+            f"SELECT * FROM shots WHERE asset_id IN ({placeholders}){cursor_clause}"
+            " ORDER BY asset_id, shot_index LIMIT ?",
+            params,
+        ).fetchall()
+        return [_shot_from(r) for r in rows]
+
+    def existing_shot_tier_keys(
+        self, asset_id: str, content_hash: str, tier: LedgerTier, version: int
+    ) -> set[int]:
+        """The ``shot_index`` keys this tier has ALREADY produced for the current bytes.
+
+        The resume key, mirroring :meth:`existing_visual_span_keys`. Three conditions,
+        each of which is a different way work can be stale: a different ``content_hash``
+        describes bytes that no longer exist, a different ``tierN_version`` was produced
+        by a model whose fields mean something else, and a NULL column is a tier that
+        never ran. An interrupted job restarts by skipping exactly this set.
+
+        :raises BrainError: If ``tier`` is unknown.
+        """
+        column, version_column = _tier_columns(tier)
+        rows = self._conn.execute(
+            f"SELECT shot_index FROM shots WHERE asset_id = ? AND content_hash = ?"
+            f" AND {version_column} = ? AND {column} IS NOT NULL",
+            (asset_id, content_hash, version),
+        ).fetchall()
+        return {int(r["shot_index"]) for r in rows}
+
+    def delete_shots_for_asset(self, asset_id: str) -> int:
+        """Drop an asset's whole ledger — every shot of every content hash, and its digest.
+
+        The digest goes with the shots because it is nothing but their aggregate; leaving
+        it behind would let the project digest keep describing footage the ledger no
+        longer holds, which reads to the agent as a fact rather than a stale cache.
+
+        :returns: The number of shot rows deleted.
+        """
+        with self._conn:
+            deleted = self._conn.execute(
+                "DELETE FROM shots WHERE asset_id = ?", (asset_id,)
+            ).rowcount
+            self._conn.execute("DELETE FROM asset_digest WHERE asset_id = ?", (asset_id,))
+        return int(deleted)
+
+    def drop_stale_shots(self, asset_id: str, content_hash: str) -> int:
+        """Delete the asset's shots that describe bytes other than ``content_hash``.
+
+        The re-index path (``_index_one_asset`` does the same for ``visual_spans``): a
+        re-encoded or replaced file keeps its asset id but is, to the ledger, different
+        footage. Rows for the current hash survive untouched, so calling this before a
+        run is free when nothing changed and complete when something did.
+
+        :returns: The number of shot rows deleted.
+        """
+        with self._conn:
+            deleted = self._conn.execute(
+                "DELETE FROM shots WHERE asset_id = ? AND content_hash != ?",
+                (asset_id, content_hash),
+            ).rowcount
+            self._conn.execute(
+                "DELETE FROM asset_digest WHERE asset_id = ? AND content_hash != ?",
+                (asset_id, content_hash),
+            )
+        return int(deleted)
+
+    def clear_stale_shot_tier(
+        self, tier: LedgerTier, current_version: int, *, asset_id: str | None = None
+    ) -> int:
+        """Null ONE tier's column wherever it was produced by an older version.
+
+        The other half of invalidation, and the reason a model swap is cheap: bumping
+        ``TIER1_VERSION`` re-queues labelling for the whole library without re-measuring a
+        single frame or re-running a single caption. The shot rows, their geometry and the
+        other two tiers are untouched — only the one column and its version go to NULL,
+        which is the same "has not run" state a fresh row is in.
+
+        :param tier: Which group to invalidate.
+        :param current_version: The version to KEEP; anything else is cleared.
+        :param asset_id: Restrict to one asset; ``None`` clears the whole ledger's tier.
+        :returns: The number of rows cleared.
+        :raises BrainError: If ``tier`` is unknown.
+        """
+        column, version_column = _tier_columns(tier)
+        clause = f"{column} IS NOT NULL AND ({version_column} IS NULL OR {version_column} != ?)"
+        params: list[Any] = [current_version]
+        if asset_id is not None:
+            clause += " AND asset_id = ?"
+            params.append(asset_id)
+        with self._conn:
+            cleared = self._conn.execute(
+                f"UPDATE shots SET {column} = NULL, {version_column} = NULL,"
+                f" updated_at = ? WHERE {clause}",
+                [self._now(), *params],
+            ).rowcount
+        return int(cleared)
+
+    def upsert_asset_digest(self, digest: AssetDigest) -> None:
+        """Store the pre-aggregated per-asset summary (one row per asset).
+
+        Keyed by asset alone, not by content hash, because it is a cache of the CURRENT
+        bytes: a digest for footage that has been replaced is not history worth keeping.
+        The hash is stored as a column so a reader can check the cache against the asset
+        instead of trusting it.
+        """
+        now = self._now()
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO asset_digest (asset_id, content_hash, digest, updated_at)
+                VALUES (?, ?, ?, ?)
+                ON CONFLICT(asset_id) DO UPDATE SET
+                    content_hash = excluded.content_hash,
+                    digest = excluded.digest,
+                    updated_at = excluded.updated_at
+                """,
+                (
+                    digest.asset_id,
+                    digest.content_hash,
+                    _canonical_json(digest.model_dump(by_alias=True)),
+                    now,
+                ),
+            )
+
+    def get_asset_digests(self, asset_ids: Sequence[str]) -> list[AssetDigest]:
+        """Digests for the given assets, in asset-id order; missing assets are omitted.
+
+        Omitted rather than defaulted: "this asset has no digest yet" is what the coverage
+        line needs to say, and an empty :class:`AssetDigest` would claim the footage was
+        examined and found to contain nothing.
+        """
+        if not asset_ids:
+            return []
+        placeholders = ",".join("?" for _ in asset_ids)
+        rows = self._conn.execute(
+            f"SELECT digest FROM asset_digest WHERE asset_id IN ({placeholders})"
+            " ORDER BY asset_id",
+            list(asset_ids),
+        ).fetchall()
+        return [AssetDigest.model_validate(json.loads(r["digest"])) for r in rows]
+
+    def tier_coverage(self, asset_ids: Sequence[str]) -> TierCoverage:
+        """How many of the given assets' shots each tier has reached.
+
+        Computed in SQL rather than by loading rows: this is what the Settings line
+        ("measured 61/61 · described 12/61") and the run's snapshot header read, on every
+        turn, for projects whose shot count is the thing being paged over.
+        """
+        if not asset_ids:
+            return TierCoverage()
+        placeholders = ",".join("?" for _ in asset_ids)
+        row = self._conn.execute(
+            "SELECT COUNT(*) AS total,"
+            " COUNT(measured) AS measured,"
+            " COUNT(labelled) AS labelled,"
+            " COUNT(described) AS described"
+            f" FROM shots WHERE asset_id IN ({placeholders})",
+            list(asset_ids),
+        ).fetchone()
+        return TierCoverage(
+            measured=int(row["measured"]),
+            labelled=int(row["labelled"]),
+            described=int(row["described"]),
+            total=int(row["total"]),
+        )
+
 
 # -- row mappers -----------------------------------------------------------------
 
@@ -1145,6 +1440,120 @@ def _frame_from(r: sqlite3.Row) -> FrameRow:
         ts_seconds=r["ts_seconds"],
         path=r["path"],
         purpose=r["purpose"],
+    )
+
+
+def _tier_columns(tier: str) -> tuple[str, str]:
+    """(JSON column, version column) for a ledger tier name.
+
+    :raises BrainError: On an unknown tier — a typo must not silently write nothing.
+    """
+    try:
+        return _TIER_COLUMNS[tier]
+    except KeyError:
+        raise BrainError(
+            f"unknown ledger tier {tier!r}; expected one of {sorted(_TIER_COLUMNS)}"
+        ) from None
+
+
+def _tier_facts(
+    row: ShotRecord, tier: str
+) -> MeasuredFacts | LabelledFacts | DescribedFacts | None:
+    """The group of ``row`` that ``tier`` names."""
+    if tier == "measured":
+        return row.measured
+    if tier == "labelled":
+        return row.labelled
+    return row.described
+
+
+def _shot_params(
+    row: ShotRecord, tier: str, version_column: str, now: str
+) -> tuple[Any, ...]:
+    """Bind one shot row for :meth:`BrainStore.upsert_shots`.
+
+    ``version_column`` doubles as the attribute name on the facts model (``tier0_version``
+    and friends) — the one place the SQL column and the Pydantic field are the same
+    string, which is what keeps them from drifting apart.
+    """
+    facts = _tier_facts(row, tier)
+    document = _canonical_json(facts.model_dump(by_alias=True)) if facts is not None else None
+    version = getattr(facts, version_column) if facts is not None else None
+    return (
+        row.asset_id,
+        row.content_hash,
+        row.shot_index,
+        row.t0,
+        row.t1,
+        row.keyframe_t,
+        int(row.split_of),
+        version,
+        document,
+        now,
+    )
+
+
+def shot_cursor(row: ShotRecord) -> str:
+    """The ``after`` cursor that resumes :meth:`BrainStore.list_shots` past ``row``.
+
+    A JSON pair rather than a delimited string: asset ids are opaque and may contain any
+    separator we would have picked, and a cursor that split wrongly would skip shots
+    silently instead of failing.
+    """
+    return _canonical_json([row.asset_id, row.shot_index])
+
+
+def _decode_shot_cursor(after: str) -> tuple[str, int]:
+    """Parse a :func:`shot_cursor` value.
+
+    :raises BrainError: If it is not a ``[asset_id, shot_index]`` pair. Cursors reach the
+        store from HTTP query strings, so a malformed one is untrusted input, not a bug.
+    """
+    try:
+        decoded = json.loads(after)
+    except json.JSONDecodeError as exc:
+        raise BrainError(f"invalid shot cursor {after!r}: {exc}") from exc
+    if (
+        not isinstance(decoded, list)
+        or len(decoded) != 2
+        or not isinstance(decoded[0], str)
+        or not isinstance(decoded[1], int)
+        or isinstance(decoded[1], bool)
+    ):
+        raise BrainError(f"invalid shot cursor {after!r}: expected [asset_id, shot_index]")
+    return decoded[0], decoded[1]
+
+
+def _shot_from(r: sqlite3.Row) -> ShotRecord:
+    """Rebuild a ledger record from its row; each tier column parses independently.
+
+    A tier stored by an older engine that this one cannot parse would otherwise take the
+    whole record down and hide the two tiers that are still readable, so each group is
+    validated on its own and a NULL column stays ``None``.
+    """
+    return ShotRecord(
+        asset_id=r["asset_id"],
+        content_hash=r["content_hash"],
+        shot_index=int(r["shot_index"]),
+        t0=float(r["t0"]),
+        t1=float(r["t1"]),
+        keyframe_t=float(r["keyframe_t"]),
+        split_of=bool(r["split_of"]),
+        measured=(
+            MeasuredFacts.model_validate(json.loads(r["measured"]))
+            if r["measured"] is not None
+            else None
+        ),
+        labelled=(
+            LabelledFacts.model_validate(json.loads(r["labelled"]))
+            if r["labelled"] is not None
+            else None
+        ),
+        described=(
+            DescribedFacts.model_validate(json.loads(r["described"]))
+            if r["described"] is not None
+            else None
+        ),
     )
 
 

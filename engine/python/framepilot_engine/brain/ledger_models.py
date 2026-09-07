@@ -175,8 +175,13 @@ class MeasuredFacts(BaseModel):
     black: bool = Field(description="The shot lies inside a blackdetect interval.")
     freeze: bool = Field(description="The shot lies inside a freezedetect interval.")
     sharpness: float = Field(description="1 - normalised blurdetect median; low is soft.")
-    phash: str = Field(
-        description="64-bit dHash of the keyframe as TEXT — a value JSON numbers cannot hold.",
+    phash: str | None = Field(
+        default=None,
+        description="64-bit dHash of the keyframe as TEXT — a value JSON numbers cannot hold. "
+        "None when no keyframe hash was computed: the hash comes from the sampler's JPEG "
+        "pass, not the statistics decode, so a shot can legitimately have every other "
+        "measured fact and no hash. It must never be a placeholder string — every "
+        "unhashed shot would then be a duplicate of every other.",
     )
     loudness_lufs: float | None = Field(
         default=None,

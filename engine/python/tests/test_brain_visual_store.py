@@ -66,13 +66,16 @@ def _span(
 # --- migration v3 -------------------------------------------------------------
 
 
-def test_schema_version_is_three() -> None:
-    assert SCHEMA_VERSION == 3
+def test_schema_version_covers_the_visual_index() -> None:
+    """v3 is a floor, not the ceiling: the exact version pin lives with the NEWEST
+    migration (``test_brain_ledger.py``), so appending one does not fail every older
+    migration's tests."""
+    assert SCHEMA_VERSION >= 3
 
 
 def test_fresh_create_has_v3_tables_at_version_three(tmp_path: Path) -> None:
     with BrainStore.open(tmp_path / "brain.sqlite", clock=fixed_clock()) as s:
-        assert current_version(s._conn) == 3
+        assert current_version(s._conn) == SCHEMA_VERSION
         tables = {
             r[0]
             for r in s._conn.execute(
@@ -97,7 +100,7 @@ def test_v2_to_v3_upgrade_preserves_existing_data(tmp_path: Path) -> None:
     conn.close()
 
     with BrainStore.open(path, clock=fixed_clock()) as s:
-        assert current_version(s._conn) == 3
+        assert current_version(s._conn) == SCHEMA_VERSION
         asset = s.get_asset("a1")
         assert asset is not None and asset.path == "a.mp4"
         # New tables exist and are empty.
