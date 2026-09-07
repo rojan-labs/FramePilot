@@ -64,7 +64,12 @@ store; a label is the softmax over its class group; `p` is that probability. Ban
   pairwise bound exists; replace pairwise with a 64-bit multi-index bucket so 7,200 shots is
   cheap).
 
-### VU5.4 Evidence `[ ]` — NOT MEASURED
+### VU5.4 Evidence `[ ]` — STILL NOT MEASURED (the weights exist now; the labels do not)
+
+The pack loads and embeds real video as of 2026-09-08, so these targets are now *runnable*
+rather than blocked. None of them has been run: every one below needs the labelled fixtures
+in `06`, and those labels have not been made. Nothing in the repository asserts a number
+here.
 
 - Worker tests on captured keyframes (decoded_media marker, pack build job only); protocol
   tests without media.

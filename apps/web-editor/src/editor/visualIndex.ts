@@ -14,9 +14,15 @@
  * single batching enroller (`apps/desktop/electron/ai/asset-enrolment.ts`), which sees
  * human imports, stock and every other acquired asset alike.
  *
- * The browser build has no sidecar and no main process, so it enrols nothing and the
- * understanding surfaces degrade to `unavailable` — accepted per CLAUDE.md's desktop-first
- * rule. Nothing here throws when there is no engine to reach.
+ * The browser build has no MAIN PROCESS to enrol from, so it enrols nothing — accepted per
+ * CLAUDE.md's desktop-first rule. Nothing here throws when there is no engine to reach.
+ *
+ * Note what that costs, stated accurately rather than conveniently: the browser build CAN
+ * reach a sidecar in dev (`resolveEngineBaseUrl` / `FRAMEPILOT_PYTHON_API_URL`), so "no
+ * sidecar" was too strong. A web-editor user with an NVIDIA key and a reachable engine used
+ * to get import-time indexing and now gets none; the understanding surfaces degrade to
+ * `unavailable` rather than filling in the background. Recorded in CHANGELOG.md so the
+ * behaviour change is discoverable rather than inferred from this comment.
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { AiConfig } from '@framepilot/shared-types';

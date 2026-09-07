@@ -80,11 +80,34 @@ with no tier-1 producer at all — worse than the duplication it removes. It goe
 
 ## Status of the implementation, stated plainly
 
-Both packs are **structure without weights**. No model file or binary has been fetched;
-`llama_backend.py` and `onnx_backend.py` have never executed, and their preprocessing
-constants are transcribed from model cards rather than observed. Every test in both packs
-runs against an injected fake. **No accuracy is claimed** — not shot size, not subject kind,
-not identity clustering, not caption quality. The plan carries the exact remaining steps.
+**Updated 2026-09-08.** Both packs now fetch real weights, register, pass their health
+checks and have executed against the real runtimes. `pack/models.lock.toml` carries verified
+digests in both; `resolve_model` still refuses a placeholder digest, a missing file and a
+hash mismatch as three distinct errors, so a pack cannot half-work. The first real runs are
+what found the bugs no injected fake could: `run(None, …)[0]` reading `last_hidden_state`
+instead of `pooler_output`, CoreML refusing any batch above one, `--no-display-prompt`
+rejected by `llama-mtmd-cli`, and an unbounded schema array that let a decoder emit empty
+strings until it ran out of tokens.
+
+**No accuracy is claimed** — not shot size, not subject kind, not identity clustering. The
+unit suites still run against injected fakes and prove protocol, policy, sandbox and schema
+only.
+
+**Caption quality has a measured floor, and only a floor.** `workers/visual-describe/eval/`
+scores the shipped path through the signed entrypoint on frames whose content is true by
+construction: 9/9 checks on SmolVLM2-2.2B-Instruct-Q4_K_M — no invented person or on-screen
+text on a blank frame, a title card read verbatim, a featureless frame declined cleanly. It
+says nothing about a description of real footage; VU6.5's ≥80% subject/setting agreement
+still needs the human labelling pass, and `tests/fixtures/mission/labels/tier2.json` remains
+a scaffold whose every field is null.
+
+**Maintainer decision, recorded here per `CLAUDE.md` §5.** The packs ship in the same PR as
+the ledger rather than being held for their own. The argument for holding is real — they are
+~9k lines and their label accuracy is unmeasured. The argument for shipping is that without
+them tiers 1 and 2 have exactly one producer each, both hosted, and the keyless privacy
+claim this ADR exists to make is unreachable by any user. They are inert unless a pack
+handle is configured (`FRAMEPILOT_PACK_VISUAL_EMBED` / `_DESCRIBE`, both empty by default),
+so the default install is unaffected either way.
 
 ## Rejected alternatives
 

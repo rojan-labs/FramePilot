@@ -9853,8 +9853,10 @@ surfaces → color solver) as the first vertical slice before any pack work.
 - [x] VU5 — tier 1 pack `framepilot.visual-embed`: worker, protocol, versioned prompt bank,
   local arm preferred over the hosted one, entity clustering. **The pairwise duplicate scan is
   DELETED** (`_SIMILAR_GROUP_SPAN_CAP` returns nothing) for an exact multi-index bucket.
-  **No weights fetched** — every digest is a placeholder `resolve_model` refuses by name, the
-  ONNX backend has never executed, and no accuracy is claimed.
+  **Weights fetched and the backend has run** (2026-09-08): real digests, health check green,
+  and the first real run found what no fake could — `run(None, …)[0]` was reading
+  `last_hidden_state`, not `pooler_output`. `resolve_model` still refuses a placeholder digest
+  by name. **No label accuracy is claimed**; VU5.4 is still unmeasured.
 - [x] VU6 — tier 2 pack `framepilot.visual-describe`: one STRUCTURED description per shot,
   the same schema from the local pack, the hosted arm and TwelveLabs. **Free-text captions are
   DELETED** — `CAPTION_INSTRUCTION` and the prose path are gone, and `captioner.py` no longer

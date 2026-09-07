@@ -8,6 +8,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Automatic preparation on import no longer spends money without being asked.** Importing
+  media always prepares the free, on-device part — the measurements the AI reads on every
+  clip. The paid parts follow what you have set up: labelling runs only if you have added an
+  embeddings key, and written descriptions are never produced by an unattended import. Ask
+  for them and they run as before.
+- **Browser-only: the web editor no longer prepares media as you import it.** Preparation
+  moved into the desktop app, where it can see everything you add — files you drag in, stock
+  you download, and clips the AI acquires for you — rather than only some of them. In a
+  browser the understanding features report themselves as unavailable instead of filling in
+  the background, even when a local engine is reachable. The desktop app is unaffected.
 - **The AI can see what is on each clip.** Ask it to "match the third clip to the first" or
   "drop the duplicate takes" and it works from what the footage actually looks like —
   framing, brightness, warmth, movement, sharpness — instead of guessing from clip names and
