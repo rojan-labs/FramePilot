@@ -106,8 +106,14 @@ do not repeat it by hand.
 | Golden gate | pass | rubric, efficiency, **`framesSeenPerEdit` ceiling** |
 | Professional operations · 33 rendered proofs | pass | render-backed op correctness |
 | Build desktop · License scan · Dependency review | pass | packaging, new worker deps |
-| **CodeQL** | **fail — 42 alerts** | see T16.1 |
+| **CodeQL** | **pass** (was 42 alerts) | resolved — see T16.1 |
 | **Vercel** | **fail — deployment blocked** | see T16.2 |
+
+> **Updated 2026-09-08.** Re-read against the PR head, not the head this table was first
+> written from. CodeQL now passes. The Python job **failed** on
+> `test_described_drift.py` — the pack's schema was tightened in `00d1221` and the
+> engine's mirror was not; fixed in `dea3f40`. Re-check `gh pr checks 82` before trusting
+> any row here.
 
 - [ ] **T1.1. Re-run only the suites you are about to poke at** — `local`
   - Per repo memory, do **not** run the full suites locally; CI already did. Targeted:
@@ -117,7 +123,11 @@ do not repeat it by hand.
     - Solved-colour tools + transitions: `pnpm --filter @framepilot/ai-sdk exec vitest run src/domain-tools/solved-color.test.ts src/domain-tools/transition-planning.test.ts src/domain-tools/picture-facts.test.ts`
     - Verification: `pnpm --filter @framepilot/ai-sdk exec vitest run src/kernel/picture-verification.test.ts`
     - TS↔Python ledger parity: `uv run pytest tests/test_ledger_ts_parity.py`
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS · notes: engine targeted 134 passed; solvers 83 passed;
+    ai-sdk solved-colour + transitions + picture-facts + both verification suites +
+    `prompts`/`context-builder` goldens 181 passed, goldens unregenerated (T4.2 holds).
+    Full engine suite re-run after the `described.py` fix: **3160 passed, 1 skipped**;
+    `engine:lint` and `engine:typecheck` clean.
 
 - [ ] **T1.2. Confirm the ceiling gate actually trips** — `local`
   - Why: `framesSeenPerEdit` is the only metric in the golden gate that is a **maximum**.
@@ -130,7 +140,17 @@ do not repeat it by hand.
   - Expect: gate **fails** on the raised value.
   - Fail if: raising frames-per-edit passes the gate. That would make the whole measurement
     decorative.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · **PASS (mechanism) / FAIL (armed)** · notes: the comparison is a
+    true ceiling and trips — floor 0.00 vs 1.40 ⇒ `REGRESSION`, exit 2; 0.00 vs 0.00 holds.
+    **But neither `reports/golden/floor.json` nor `reports/golden/baseline.json` (the file
+    CI feeds the gate) carries a `perception` block at all**, so on CI this row prints
+    `n/a — not measured` and the guard on the PR's central claim never fires. Both predate
+    the metric. The floor is not unknown — `reports/golden/BASELINE.md` records 0 frames
+    over 318 turns / 210 accepted edits, and `perception-baseline.mjs --json
+    reports/golden/baseline` recomputes 0 frames / 43 accepted edits for the floor's own
+    run — it was simply never written into the floor file. Deliberately **not** patched
+    here: writing a derived block into a recorded evaluation artifact is the maintainer's
+    call. See T16.3.
 
 - [ ] **T1.3. Do NOT run the live golden harness casually** — `note`
   - It costs provider money and hours. Read the recorded runs instead:
@@ -466,7 +486,12 @@ Three new AI tools: `match_color`, `normalize_exposure`, `apply_look`
   - Do: confirm the limitation is documented and that no test claims it works.
   - Do not: file this as a new regression during testing. Verify it is still limited to
     speed-changed clips only.
-  - Result: __/__/____ · N/A · notes:
+  - Result: 09/08/2026 · **N/A — confirmed recorded, still unpatched** · notes: the
+    limitation is written up in `plan/visual-understanding/08-REMOVE-DEFER-RISKS.md` and no
+    test asserts the mapping is speed-aware. The stale comments that *caused* it were still
+    live in `semantic-index.ts` (three sites claiming "no `speedRamps` op exists yet") and
+    have been corrected to state the real limitation — comments only; the 1:1 mapping is
+    untouched and still deferred to VU2.5.
 
 ---
 
@@ -637,33 +662,41 @@ number is a constant, by design.
 
 ---
 
-## Part 12 — The two local packs · **P3 — structure only**
+## Part 12 — The two local packs · **P2 — they load now**
 
-**Read this before testing anything here.** `visual-embed` (tier 1) and `visual-describe`
-(tier 2) have **never loaded a model**. Every digest in `models.lock.toml` is a placeholder
-that `resolve_model` refuses **by name**, so a pack cannot half-work. `onnx_backend.py` and
-`llama_backend.py` have never executed; every test runs against an injected fake. **No
-accuracy is claimed** — not shot size, not subject kind, not identity clustering, not
-caption quality.
+**Read this before testing anything here — it changed after the plan was first written.**
+As of `00d1221` both packs **fetch, register and load real weights**. `models.lock.toml`
+carries verified sha256 digests in both packs; `onnx_backend.py` and `llama_backend.py`
+have executed against the real runtimes. The earlier "structure only, every digest is a
+placeholder" framing is **obsolete** — do not fail a row because a pack works.
 
-So the goal here is to confirm the packs are **inert and honest**, not that they work.
+What has **not** changed: **no accuracy is claimed** — not shot size, not subject kind, not
+identity clustering, not caption quality. The unit suites still run against injected fakes
+and prove protocol, policy, sandbox and schema only.
+
+So the goal here is to confirm the packs **load and stay honest about what they do not
+know** — and, unchanged, that a pack still cannot *half*-work.
 
 - [ ] **T12.1. The register-all script covers all four packs** — `local`
   - Do: `pnpm packs:register` (`scripts/dev-register-all-packs.sh`).
   - Expect: it runs `tracking-lite`, `subject-intelligence`, `visual-embed`,
-    `visual-describe`. The first two register; the last two report as **blocked** (weights
-    unfetched) and **do not fail the run**. A drift guard fails the script if any
-    `dev-register-*.sh` on disk is missing from its lists.
-  - Result: __/__/____ · PASS / FAIL · notes:
+    `visual-describe`, and **all four** end `installed  healthy` in the store listing. A
+    drift guard fails the script if any `dev-register-*.sh` on disk is missing from its
+    lists.
+  - Fail if: any pack reports blocked. That was the expected state before `00d1221`; it is
+    now a regression, not the design.
+  - Result: 09/08/2026 · PASS · notes: all four `installed  healthy`.
 
-- [ ] **T12.2. A pack cannot half-work** — `local`
-  - Do: attempt `uv run python tools/fetch_models.py --check` in `workers/visual-embed`
-    and `workers/visual-describe`.
-  - Expect: **fails by design**, naming the placeholder digest. Not a silent pass, not a
-    partial load.
-  - Fail if: either pack loads anything. That would mean an unverified weight can reach a
-    user, which is the thing ADR 0176 exists to prevent.
-  - Result: __/__/____ · PASS / FAIL · notes:
+- [x] **T12.2. A pack still cannot half-work** — `local`
+  - Do: `uv run python tools/fetch_models.py --check` in `workers/visual-embed` and
+    `workers/visual-describe`.
+  - Expect: **passes** now — every digest is real and present. The refusal mechanism is
+    unchanged and is what to test instead: `models.py` refuses the `000…0` sentinel **by
+    name**, and the health check fails while any remains.
+  - Fail if: a check passes with a weight whose sha256 does not match its pin. An
+    unverified weight reaching a user is the thing ADR 0176 exists to prevent, and that
+    guarantee is what survived the packs becoming real.
+  - Result: 09/08/2026 · PASS · notes: `--check` exits 0 on both; no digest is a sentinel.
 
 - [ ] **T12.3. The tiers degrade to absent, not to wrong** — `desktop`
   - Do: leave `FRAMEPILOT_PACK_VISUAL_EMBED` / `_DESCRIBE` empty and index normally.
@@ -673,8 +706,10 @@ So the goal here is to confirm the packs are **inert and honest**, not that they
 - [ ] **T12.4. Pack unit tests pass against fakes** — `local`
   - Do: `cd workers/visual-embed && uv run pytest`; same for `workers/visual-describe`.
   - Expect: pass. Understand that this proves protocol, policy, sandbox and schema — and
-    proves **nothing** about model output.
-  - Result: __/__/____ · PASS / FAIL · notes:
+    proves **nothing** about model output, even now that the weights are real.
+  - Note: the packs are separate uv projects; run `uv sync --extra dev` in each first or
+    `pytest` will not be on the path.
+  - Result: 09/08/2026 · PASS · notes: visual-describe 86 passed; visual-embed green.
 
 - [ ] **T12.5. Licence position is recorded** — `local`
   - Do: read `workers/visual-embed/LICENSES.md` and `workers/visual-describe/LICENSES.md`.
@@ -803,7 +838,9 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     and compare. Then either dismiss with a reason or fix the genuinely new ones. Do **not**
     merge on the assumption that they are all inherited — path handling is the sandbox
     boundary this project takes seriously.
-  - Owner: ______  Result: __/__/____
+  - Owner: ______  Result: 09/08/2026 · **RESOLVED** — CodeQL now reports **pass** on the
+    PR head (`Analyze (python)`, `Analyze (javascript-typescript)`, `Analyze (actions)` all
+    green). The 42 alerts are no longer outstanding on this PR; no dismissal is needed.
 
 - [ ] **T16.2. Vercel deployment blocked** — check whether the website build is actually
       affected by this PR or whether the block is unrelated to the diff.
@@ -826,11 +863,18 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
 - [ ] **T16.5. Pack weights and licences** — VU5/VU6 cannot go live until each pack's
       quantisation/export/release artifact licence is verified and `models.lock.toml` carries
       real digests. Each pack's plan section carries the exact steps.
-  - Owner: ______  Result: __/__/____
+  - Owner: ______  Result: 09/08/2026 · **MOSTLY CLOSED** by `00d1221` — both lock files
+    carry real digests, `--check` passes, and all four packs register healthy. `pnpm
+    license:scan` is clean (7 packages, no denylisted licences). **One row stays open on
+    purpose**: the SigLIP 2 ONNX export declares no licence of its own, and the commit
+    records what replaces it if that answer comes back negative. That is the remaining
+    decision here — it gates shipping the pack, not merging this PR.
 
-- [ ] **T16.6. `.env.example` line for TwelveLabs** — per repo memory this was still pending
+- [x] **T16.6. `.env.example` line for TwelveLabs** — per repo memory this was still pending
       from the earlier TL work. Confirm whether this PR closed it or it is still open.
-  - Owner: ______  Result: __/__/____
+  - Owner: —  Result: 09/08/2026 · **CLOSED** — `TWELVELABS_API_KEY` is in `.env.example`
+    (line 147) and in `turbo.json` `globalEnv` (line 16), as are both new pack handles.
+    One source of truth holds; nothing is in one file and missing from the other.
 
 - [ ] **T16.7. Fixture labels are a human pass** — `tests/fixtures/mission/labels/{tier0,tier1,tier2,cuts}.json`
       score the answer cases. `packages/ai-sdk/scripts/contact-sheet.mjs` exists to make that

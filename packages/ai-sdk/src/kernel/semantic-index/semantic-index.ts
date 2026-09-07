@@ -29,10 +29,20 @@
  * source-media time into timeline time via
  * every clip that actually references the analyzed asset ({@link ProjectIndex.clipsOfAsset}),
  * so an asset that isn't (yet) placed on the timeline honestly contributes nothing. Slices
- * gated on a schema/op that does not exist yet (`speedRamps`, `markers`, CV `broll`) are
+ * gated on a schema/op that does not exist yet (`markers`, CV `broll`) are
  * still typed for a stable contract but left empty — they have no analysis result to
  * ingest. Nothing here is ever faked: an omitted `analysisResults` field reproduces the
  * exact K2.1 empty-array/null behavior.
+ *
+ * KNOWN LIMITATION — speed-changed clips. `speedRamp` HAS existed in the schema since v15
+ * and `set_clip_speed_ramp` is a shipped tool, so this module's comments claiming
+ * otherwise were wrong, and being wrong is why nothing was fixed: the `shots`, `silences`,
+ * `beats`, `loudness` and `black` slices map source time to timeline time at a flat 1:1
+ * and therefore place their times WRONG on any speed-changed or reversed clip. Pre-existing
+ * and deliberately NOT patched by the visual-understanding work
+ * (`plan/visual-understanding/08-REMOVE-DEFER-RISKS.md`); the `picture` slice already does
+ * the speed-aware projection the others need, and VU2.5 converges them. Do not read the
+ * empty `speedRamps` slice below as evidence the op is missing.
  */
 import type { Clip, Effect, Project, Track } from '@framepilot/timeline-schema';
 import { clipKindOf, indexFor, type ProjectIndex } from '../../project-index.js';
@@ -143,8 +153,9 @@ export interface BeatGrid {
   readonly bpm?: number;
 }
 
-/** A speed/time-remap ramp. Empty until a speed op exists (punch-in is scale/zoom,
- *  represented as keyframes, not a playback-speed change). */
+/** A speed/time-remap ramp. Left empty because no ANALYSIS produces one — not because the
+ *  op is missing: `speedRamp` is in the schema and `set_clip_speed_ramp` ships. See the
+ *  known-limitation note in the module doc. */
 export interface SpeedRamp {
   readonly clipId: string;
   readonly effectId: string;
@@ -406,9 +417,12 @@ function deriveMusic(tracks: readonly Track[], index: ProjectIndex): MusicEntry[
  * Clip a source-media-time span [sourceStart, sourceEnd) to `clip`'s trimmed window
  * ([clip.sourceStart, clip.sourceEnd)) and translate the overlap into timeline time.
  * `null` when the span does not overlap this clip's source window at all - the honest
- * "this shot/silence isn't part of what's actually placed on the timeline" case. Assumes
- * 1:1 playback speed (no `speedRamps` op exists yet - see the module doc), matching every
- * other timeline<->source mapping in this codebase.
+ * "this shot/silence isn't part of what's actually placed on the timeline" case.
+ *
+ * Assumes 1:1 playback speed, which is WRONG on a speed-changed or reversed clip. An
+ * earlier version of this comment justified that with "no `speedRamps` op exists yet";
+ * it does exist, and the false justification is why the gap survived. It is a recorded,
+ * deferred limitation (module doc), not an invariant to rely on.
  */
 function translateSourceRange(
   clip: Clip,
@@ -588,7 +602,8 @@ export function buildSemanticIndex(
     beats: deriveBeats(index, analysisResults?.beats),
     loudness: deriveLoudness(index, analysisResults?.loudness),
     black: deriveTranslatedRanges(index, analysisResults?.black),
-    // Schema-gated - no op exists yet to feed these; honestly empty (see module doc).
+    // Honestly empty: no ANALYSIS feeds these. For `speedRamps` that is not because the
+    // op is missing — see the known-limitation note in the module doc.
     speedRamps: [],
     markers: [],
     broll: [],
