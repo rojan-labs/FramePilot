@@ -8,8 +8,9 @@ Every hosted provider is served by a LangChain chat model (ADR 0105). FramePilot
 clients were removed on 2026-08-07 after measurement showed the LangChain path faster on
 every latency figure and the only one reporting prompt-cache counts. There is no switch
 between implementations, and `FRAMEPILOT_AI_PROVIDER_IMPL` is no longer read — delete it if
-you have it set. `mock` is the one exception and stays client-free by design, so the offline
-path works with no network at all.
+you have it set. Two exceptions stay client-free by design: `mock`, so the offline path
+works with no network at all, and `claude-agent-sdk`, which reaches Claude through a
+spawned `claude` process (your existing Claude Code login) instead of HTTPS (ADR 0171).
 
 Provider selection changes model transport and capability. It does not change editing
 authority. Every provider remains behind the same tool registry, input schemas, patch
@@ -19,6 +20,7 @@ validation, host authorization, usage events, cancellation, and completion rules
 
 ```text
 anthropic
+claude-agent-sdk
 nvidia
 openrouter
 vercel-gateway
@@ -35,6 +37,7 @@ mock
 | Provider id         | Required or typical values                                                                                                                  | Transport                              |
 | ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------- |
 | `anthropic`         | `ANTHROPIC_API_KEY`, `ANTHROPIC_MODEL`, optional `ANTHROPIC_BASE_URL`                                                                       | Anthropic Messages API                 |
+| `claude-agent-sdk`  | `FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL` (full id only); no key — uses the `claude` login                                                                       | Spawned `claude` process (desktop only)|
 | `nvidia`            | `NVIDIA_API_KEY`, `NVIDIA_MODEL`, optional `NVIDIA_BASE_URL`                                                                                | OpenAI-compatible chat API             |
 | `openrouter`        | `OPENROUTER_API_KEY`, `OPENROUTER_MODEL`, optional `OPENROUTER_BASE_URL`                                                                    | OpenAI-compatible chat API             |
 | `vercel-gateway`    | `AI_GATEWAY_API_KEY`, `AI_GATEWAY_MODEL`, optional `AI_GATEWAY_BASE_URL`                                                                    | OpenAI-compatible chat API             |
@@ -125,6 +128,21 @@ ANTHROPIC_BASE_URL=https://api.anthropic.com
 The adapter uses Anthropic's native message, content block, tool-use, streaming, usage, and
 image shapes. Vision is available only when the selected model is recognized as
 vision-capable by the current capability policy.
+
+## Claude via your Claude Code login
+
+```bash
+FRAMEPILOT_AI_PROVIDER=claude-agent-sdk
+FRAMEPILOT_CLAUDE_AGENT_SDK_MODEL=claude-opus-5
+```
+
+No API key: the Claude Agent SDK reads the credential the `claude` CLI already stored when
+you ran `claude login`, so this spends your Claude subscription rather than an API account
+(ADR 0171). It is **desktop only** — it spawns the `claude` binary, which the browser build
+cannot do. Set the model to a **full id, never a short alias** like `opus`: the context
+meter sizes the window by matching the id against the model catalog, and an alias matches
+nothing. It is deliberately absent from the browser's provider list, so it cannot be
+mistaken for an `anthropic` variant with a different credential.
 
 ## NVIDIA
 

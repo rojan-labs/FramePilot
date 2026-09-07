@@ -8,7 +8,6 @@
 Export through a deterministic, validated render pipeline.**
 
 [![CI](https://github.com/rojan-labs/FramePilot/actions/workflows/ci.yml/badge.svg)](./.github/workflows/ci.yml)
-[![CodeQL](https://github.com/rojan-labs/FramePilot/actions/workflows/codeql.yml/badge.svg)](./.github/workflows/codeql.yml)
 [![License: Non-Commercial](https://img.shields.io/badge/license-non--commercial-blue.svg)](./LICENSE)
 [![Status: Pre-release](https://img.shields.io/badge/status-pre--release-e5670a.svg)](./docs/reports/STATUS.md)
 
