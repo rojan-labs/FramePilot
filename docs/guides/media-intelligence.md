@@ -1,50 +1,91 @@
-# Media Intelligence — the orchestrator can see your footage
+# Media Intelligence — what the agent knows about your footage
 
-FramePilot's AI used to be **blind**. It reasoned over transcripts, silence maps,
-scene cuts, and loudness — all _signal-derived_ facts — but it had no idea what
-was actually **on screen**. "Cut to the product shot", "find where the whiteboard
-appears", "make a short from the demo part" all degraded to transcript keyword
-luck or plain heuristics: if nobody happened to _say_ "product", the moment was
-invisible.
+The agent used to be blind, and the measurement was not close: across ten recorded runs
+(318 scored turns) it called `get_frame` **zero** times and every footage surface **zero**
+times, then invented every colour and transition value it applied. It edited a spreadsheet
+of clip ids.
 
-Media Intelligence gives every project a **visual memory**. Footage is sampled,
-embedded, and captioned into the [Project Brain](./project-brain.md); the
-orchestrator gets tools that retrieve _ranked visual evidence_ on demand. So an
-edit like "cut to the product shot" is grounded in retrieved frames and their
-captions — evidence, not vibes.
+The fix is not to show it more pictures. It is to **compile what the footage contains, once
+per asset, into text the agent already has** — the shot ledger (ADR 0175). Perception costs
+scale with footage minutes, paid once at import; a run reads words. A frame per model call
+would scale with _decisions_, getting more expensive exactly as the agent gets more capable.
 
-**WHY it is safe to have:** like everything else in the brain, the visual index
-is a _derived, rebuildable cache with provenance_, never a second source of
-truth. `project.fp.json` stays canonical; deleting the derived directory loses
-time, never work. See [ADR 0058](../adr/0058-project-brain-derived-sqlite-substrate.md)
-for the substrate and [ADR 0066](../adr/0066-nvidia-cloud-visual-embeddings.md)
-for the one thing that is genuinely new here — frames leaving the machine.
+## The three tiers
 
-This is the **Media Intelligence** plan (`plan/MEDIA-INTELLIGENCE.md`, phases
-MI0–MI7), built on the [Project Brain](./project-brain.md).
+Each tier fails independently, is useful independently, and records its own coverage. A tier
+that has not run is **absent**, never a default — "not measured yet" and "normal" must never
+render the same, or an unindexed project reads as uniformly average footage.
+
+| Tier              | Needs                                                    | Produces                                                                                 | Runs                    |
+| ----------------- | -------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------- |
+| **0 · measured**  | nothing — ffmpeg only                                    | shot boundaries, brightness, warmth, contrast, motion, sharpness, black/freeze, loudness | always, on every import |
+| **1 · labelled**  | `framepilot.visual-embed` pack (or an NVIDIA key)        | shot size, subject, setting, screen content, face identity, duplicate takes              | when installed          |
+| **2 · described** | `framepilot.visual-describe` pack (or a vision provider) | one structured description per shot: subject, action, setting, camera, on-screen text    | when installed          |
+
+**Tier 0 needs no key, no network and no model**, which is the single most important
+property here. On a clean install with nothing configured, the agent still knows which clips
+are dark, warm, soft, static or duplicated, and where every shot starts and ends.
+
+What that looks like in a prompt — a clip row goes from
+
+    c12[0–4.2s]
+
+to
+
+    c12[61–66.4s] · MS man at desk · static · bright warm
+
+Words, never numbers. A model handed `0.47` compares it badly and confidently, then invents
+a third number to put in a grade. Numbers go to the solvers (`match_color`,
+`normalize_exposure`, `apply_look`, the transition policy), which can do arithmetic.
+
+**Cost, measured:** tier 0 runs at ~29× real-time (a ten-hour library in ~20 minutes) and
+stores ~643 bytes per shot (~6.3 MB for ten hours). An unindexed project's prompt is
+byte-identical to before — zero extra tokens. A fully covered twelve-clip layer costs about
+one eighth of a single `get_frame`.
+
+**Why it is safe to have:** like everything in the brain, the ledger is a derived,
+rebuildable cache with provenance, never a second source of truth. `project.fp.json` stays
+canonical; deleting the derived directory loses time, never work. See
+[ADR 0058](../adr/0058-project-brain-derived-sqlite-substrate.md) for the substrate,
+[ADR 0175](../adr/0175-perception-is-a-compiled-shot-ledger.md) for the ledger, and
+[ADR 0176](../adr/0176-local-perception-ships-as-packs.md) for the packs.
+
+> **Status:** tiers 1 and 2 are implemented but their packs have **no weights yet** — every
+> model digest is a placeholder the loader refuses by name, so a pack cannot half-work. No
+> accuracy has been measured for either. Tier 0 is complete and measured.
 
 ## Architecture
 
 ```
-                        apps/web-editor
-  Settings → AI → Embeddings (plain-text keys, status, index-now)
-        │ persists cfg.keys.nvidiaEmbeddings (plaintext AI config file)
-        ▼
-  packages/ai-sdk ────────────────────────────────────────────────
-   context-builder: "visual index: 3/4 assets, 2,841 vectors"      │ orchestrator
-   tool-registry:  search_visual · describe_footage · index_media  │ reads only
-        │ sidecar-executor (HTTP)                                  ▼
-  engine/python sidecar ──────────────────────────────────────────
-   POST /brain/visual/index    → sampler → NVIDIA embed client → brain
-   POST /brain/visual/search   → query embed → sqlite-vec KNN → fuse → spans+captions
-   POST /brain/visual/describe → local ordered span/caption enumeration (no query/key)
-   GET  /brain/visual/status   → coverage, model, vec backend, key health
-        │                                    │
-   analysis/scenes.py + frames.py       brain.sqlite
-   (keyframes, phash dedupe)            ├─ visual_vectors (vec0 / BLOB fallback)
-   captioner (provider registry VLM)    ├─ visual_spans   (asset, t0, t1, scene, phash, hash…)
-                                        └─ visual_captions (span → text, source='model')
+  apps/web-editor + apps/desktop
+   every acquired asset (import · stock · agent download) → ONE enroller
+   Settings → AI → Media intelligence: per-tier coverage, no toggle
+        │
+  packages/ai-sdk ──────────────────────────────────────────────────
+   ledger-client:   GET /brain/shots (paged, cached per content hash)   │ orchestrator
+   semantic-index:  picture slice — clip → shots, cut-pair deltas       │ reads only
+   context-builder: clip-row words + PICTURE digest (≤600 tokens)       ▼
+   solvers (editor-core): match_color · apply_look · transition policy
+        │ sidecar-executor (HTTP)
+  engine/python sidecar ────────────────────────────────────────────
+   POST /brain/visual/index  → tier 0 ALWAYS, then 1 and 2 if available
+   GET  /brain/shots         → the ledger a run reads
+   POST /brain/visual/search → query embed → KNN → fuse → evidence packets
+   GET  /brain/visual/status → per-tier coverage
+        │                              │
+   analysis/shot_stats.py          brain.sqlite (schema v4)
+   (ONE ffmpeg pass, two chains)   ├─ shots      (measured │ labelled │ described)
+   brain/governor.py               ├─ entities   (person_NN clusters)
+   (yields to render/export/frame) ├─ asset_digest
+                                   └─ visual_vectors / visual_spans / visual_captions
+        │
+   capability packs (ADR 0114/0176), optional, local:
+   framepilot.visual-embed → tier 1        framepilot.visual-describe → tier 2
 ```
+
+The sections below describe the tier-1 sampling and vector machinery, which is unchanged
+from the original Media Intelligence design. Tier 0 is described in
+`plan/visual-understanding/02-TIER0-SHOT-LEDGER.md`; it needs none of it.
 
 Four stages turn raw footage into readable evidence:
 
@@ -236,22 +277,21 @@ so the visual tools honestly report unavailable there — there is no
 browser-without-sidecar visual indexing (a stated non-goal). Design and test the
 desktop path first.
 
-## Privacy boundary — frames leave the machine
+## Privacy boundary — what leaves the machine
 
-Be clear-eyed about this: **indexing uploads sampled JPEG frames of your footage
-to NVIDIA's cloud API** (`integrate.api.nvidia.com`). Everything else in the
-brain is computed locally; visual embeddings are not. The frames are down-scaled
-and deduped, but content still leaves the machine.
+**Nothing, by default.** Tier 0 decodes locally through ffmpeg and always has. Both local
+packs run on your machine. A frame leaves only on a **hosted arm**, and only because you
+configured its key — which is what configuring it means (ADR 0066).
 
-**Configuring a key IS the consent, and it is narrower than it used to be.** With no
-key, no frame is ever sent — the hosted tiers simply do not run. Local decode always
-runs: measurement reads your footage with ffmpeg on your own machine and writes numbers
-into the project's derived `brain.sqlite`. Nothing about that leaves the machine. The engine never logs, echoes, or persists the key
-itself; captioning reuses whichever provider you already configured. See
-[ADR 0066](../adr/0066-nvidia-cloud-visual-embeddings.md) for the full data-flow
-and consent model, and [ADR 0067](../adr/0067-plaintext-key-storage-multi-key-failover.md)
-for the at-rest key-storage trade-off (plaintext, user-mandated) and its exact
-scope.
+| Path                                                           | Frames leave?                               |
+| -------------------------------------------------------------- | ------------------------------------------- |
+| Tier 0 (always)                                                | no                                          |
+| `framepilot.visual-embed` / `framepilot.visual-describe` packs | no                                          |
+| NVIDIA embeddings (key configured)                             | yes — sampled keyframes, bounded resolution |
+| Hosted vision provider for descriptions (key configured)       | yes — 1–3 keyframes per shot                |
+| TwelveLabs (key configured)                                    | yes — the asset is uploaded                 |
+
+Keys are never logged, never written to the brain, and never echoed back in a response.
 
 ## Testing & performance
 
