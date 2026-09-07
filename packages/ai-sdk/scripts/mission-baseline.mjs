@@ -30,7 +30,7 @@
  *   node scripts/mission-baseline.mjs --replay --label baseline  # re-score from recordings
  *   node scripts/mission-baseline.mjs --list
  */
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { basename, dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -710,22 +710,42 @@ process.stdout.write(`wrote ${OUT.slice(REPO.length + 1)}, ${join(RUN_DIR, 'summ
 
 function writeOutputs() {
   const generatedAt = new Date().toISOString();
-  const rows = results.flatMap((r) => r.turns.filter((t) => t.golden).map((t) => ({ caseId: r.scenario, category: r.category, turnIndex: t.turnIndex, run: r.run, metrics: t.golden })));
+  // The merged file and the summary describe the LABEL, not this invocation. A partial
+  // re-run (`--case a,b --force` after a provider outage) used to overwrite the merged
+  // file with only the cases it ran: `s9-live-all.json` read "8 results" over a label with
+  // twenty-one case files, and its summary averaged eight. Every case file on disk is
+  // folded in; a case this invocation ran takes precedence over its file.
+  const ran = new Map(results.map((r) => [`${r.scenario}-r${r.run}`, r]));
+  for (const name of existsSync(CASES_DIR) ? readdirSync(CASES_DIR) : []) {
+    if (!name.endsWith('.json')) continue;
+    const key = name.slice(0, -'.json'.length);
+    if (ran.has(key)) continue;
+    try {
+      const stored = JSON.parse(readFileSync(join(CASES_DIR, name), 'utf8'));
+      if (stored?.scenario && stored?.turns) ran.set(key, stored);
+    } catch {
+      /* an unreadable case file is not evidence; it is simply not counted */
+    }
+  }
+  const merged = [...ran.values()].sort(
+    (a, b) => GOLDEN_CASES.findIndex((c) => c.id === a.scenario) - GOLDEN_CASES.findIndex((c) => c.id === b.scenario) || a.run - b.run,
+  );
+  const rows = merged.flatMap((r) => r.turns.filter((t) => t.golden).map((t) => ({ caseId: r.scenario, category: r.category, turnIndex: t.turnIndex, run: r.run, metrics: t.golden })));
   const summary = summarizeGoldenRun(rows);
-  const crashed = results.flatMap((r) => r.turns.filter((t) => t.crashed).map((t) => `${r.scenario} r${r.run} t${t.turnIndex + 1}: ${t.crashed.slice(0, 200)}`));
+  const crashed = merged.flatMap((r) => r.turns.filter((t) => t.crashed).map((t) => `${r.scenario} r${r.run} t${t.turnIndex + 1}: ${t.crashed.slice(0, 200)}`));
   // Read the provider off the RESULTS, not off this process: cached cases may have been
   // produced by another invocation, and a header naming the wrong model is worse than none.
   // A run assembled from more than one is named as the mixture it is — which is also how a
   // half-re-run baseline stops passing itself off as coherent.
-  const stamps = [...new Set(results.map((r) => `${r.provider ?? '?'} / ${r.model ?? '?'}`))].sort();
-  const unstamped = results.some((r) => r.provider === undefined);
+  const stamps = [...new Set(merged.map((r) => `${r.provider ?? '?'} / ${r.model ?? '?'}`))].sort();
+  const unstamped = merged.some((r) => r.provider === undefined);
   const [provider, model] =
     stamps.length === 1 && !unstamped
-      ? [results[0].provider, results[0].model]
+      ? [merged[0].provider, merged[0].model]
       : [`mixed (${stamps.join('; ')})`, 'see provider'];
   const meta = { label: LABEL, generatedAt, provider, model, runsPerScenario: RUNS, replayed: REPLAY };
   mkdirSync(dirname(OUT), { recursive: true });
-  writeFileSync(OUT, JSON.stringify({ ...meta, results, golden: summary }, null, 2));
+  writeFileSync(OUT, JSON.stringify({ ...meta, merged, golden: summary }, null, 2));
   writeFileSync(join(RUN_DIR, 'summary.json'), JSON.stringify({ ...meta, cases: selected.map((c) => c.id), crashed, summary }, null, 2));
   const md = renderGoldenSummary(summary, meta) + (crashed.length ? `\nCrashed turns:\n${crashed.map((c) => `- ${c}`).join('\n')}\n` : '');
   writeFileSync(join(RUN_DIR, 'summary.md'), md);
