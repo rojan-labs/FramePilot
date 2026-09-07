@@ -146,13 +146,36 @@ const TOOL_VERBS: Record<string, string> = {
   auto_emphasize_captions: 'Emphasising key words in the captions',
 };
 
+/** The dangling tails `stripTrailingDangle` peels off, longest-first within a length. */
+const TRAILING_DANGLE_WORDS = ['about', 'like', 'for', 'the', 'in', 'on', 'of', 'to', 'at', 'as'];
+
 /**
  * Some verbs end in a preposition, an article or a colon so a resolved subject reads
  * naturally ("Finding silences in Intro.mp4", "Asking you: should I keep the intro?").
  * When nothing resolves, that tail would dangle ("Finding silences in"), so it is
  * stripped back to a complete phrase ("Finding silences").
+ *
+ * WHY a loop and not `/(?:\s(?:in|on|…)|:)+$/`: the verb can come from `humanize()` on a
+ * tool name we did not write, and an anchored `+` over an alternation backtracks
+ * quadratically on a long run of colons (CodeQL js/polynomial-redos).
  */
-const TRAILING_DANGLE = /(?:\s(?:in|on|of|to|for|at|like|the|as|about)|:)+$/;
+function stripTrailingDangle(text: string): string {
+  let end = text.length;
+  for (;;) {
+    if (end > 0 && text.charAt(end - 1) === ':') {
+      end -= 1;
+      continue;
+    }
+    const word = TRAILING_DANGLE_WORDS.find(
+      (candidate) =>
+        end > candidate.length &&
+        text.slice(end - candidate.length, end) === candidate &&
+        /\s/.test(text.charAt(end - candidate.length - 1)),
+    );
+    if (word === undefined) return text.slice(0, end);
+    end -= word.length + 1;
+  }
+}
 
 /**
  * The argument that names WHAT a call is about, for tools whose subject is not an id.
@@ -342,7 +365,7 @@ export function describeToolCall(
       ? (call.arguments as Record<string, unknown>)
       : {};
   const subject = toolCallSubject(call.name, args, names);
-  if (subject === undefined) return verb.replace(TRAILING_DANGLE, '');
+  if (subject === undefined) return stripTrailingDangle(verb);
   const phrase = subject.fromArg ? (SUBJECT_ARG_VERBS[call.name] ?? verb) : verb;
   const suffix = subject.fromArg ? SUBJECT_SUFFIX[call.name] : undefined;
   return suffix ? `${phrase} ${subject.text} ${suffix}` : `${phrase} ${subject.text}`;
@@ -386,12 +409,17 @@ export interface OperationDescriptor {
  * listed still falls through to the generic range/id path, which is right for the
  * operations whose subject really is a clip and a span.
  */
-function operationSubject(op: AnyOperation, record: Record<string, unknown>, names?: ProjectNames): string {
+function operationSubject(
+  op: AnyOperation,
+  record: Record<string, unknown>,
+  names?: ProjectNames,
+): string {
   switch (op.type) {
     case 'add_asset': {
       const asset = record['asset'];
       const id = typeof asset === 'object' && asset ? (asset as { id?: unknown }).id : undefined;
-      const path = typeof asset === 'object' && asset ? (asset as { path?: unknown }).path : undefined;
+      const path =
+        typeof asset === 'object' && asset ? (asset as { path?: unknown }).path : undefined;
       // The op's OWN path wins. `add_asset` is the operation that puts the asset in the
       // project, so at the moment it is described the resolver has never heard of it —
       // and `ProjectNames.asset` answers an unknown id with the id, not with `undefined`,
