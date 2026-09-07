@@ -31,6 +31,14 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const FLOOR = join(REPO, 'reports', 'golden', 'floor.json');
+/**
+ * Waive the perception ceiling for one run, out loud.
+ *
+ * The escape hatch for gating "not measured": a human types this when they knowingly gate
+ * an artifact recorded before the metric existed. It is a flag rather than a silent pass so
+ * the waiver appears in the command someone had to write.
+ */
+const ALLOW_UNMEASURED = process.argv.includes('--allow-unmeasured-perception');
 /** A p50 may wobble by one rubric check on a 3-run sample; more than that is a regression. */
 const SCORE_TOLERANCE = 0.05;
 /** Run-to-run noise on a 2-3 run sample is well under this; a real cost regression is not. */
@@ -39,10 +47,14 @@ const COST_TOLERANCE = 0.1;
 const RATE_TOLERANCE = 0.05;
 
 /**
- * Half a frame per accepted edit. The floor is zero frames, so any real looking trips this;
- * the slack exists so ONE verification frame across a two-edit run is not a build failure.
+ * Zero. The floor IS zero frames — `reports/golden/BASELINE.md` records `get_frame` called
+ * not once across 318 turns and 210 accepted edits — so there is no noise band to leave
+ * room for, and the comment on the ceiling below promises this trips "on the first frame a
+ * change starts spending". It did not: at 0.5 a change could spend 0.4 frames per accepted
+ * edit and pass silently, which on a ten-edit run is four frames the gate was written to
+ * catch. The comment was the honest half; this is now the number it describes.
  */
-const FRAMES_TOLERANCE = 0.5;
+const FRAMES_TOLERANCE = 0;
 
 const p50 = (xs) => {
   const a = xs.filter((x) => typeof x === 'number' && Number.isFinite(x)).sort((x, y) => x - y);
@@ -289,7 +301,18 @@ if (!now || !was) {
     // now (`perception-baseline.mjs --write-into`), so an absent block means someone fed an
     // artifact from before the metric, and the line has to say the ceiling is OFF.
     if (a == null || b == null) {
-      verdict = `⚠ NOT MEASURED — ceiling unguarded (${a == null ? 'floor' : 'input'} has no perception block; arm it with perception-baseline.mjs --write-into)`;
+      // A gate that WARNS is not a gate. This branch printed "⚠ NOT MEASURED" and passed,
+      // which is the exact condition the arming commit was written to remove: an artifact
+      // with no perception block sailed through CI behind a line nobody reads. Both sides
+      // are armed now, so reaching this means someone fed the gate a pre-metric artifact,
+      // and the honest response is to stop the build and make a human say so out loud.
+      const side = a == null ? 'floor' : 'input';
+      if (ALLOW_UNMEASURED) {
+        verdict = `⚠ NOT MEASURED — ${side} has no perception block (waived by --allow-unmeasured-perception)`;
+      } else {
+        verdict = `NOT MEASURED — ${side} has no perception block; arm it with perception-baseline.mjs --write-into, or pass --allow-unmeasured-perception`;
+        failed += 1;
+      }
     } else if (b > a + FRAMES_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
     else if (b < a) verdict = 'fewer frames';
     console.log(`| frames seen / accepted edit | ${fmt(a, 2)} | ${fmt(b, 2)} | ${verdict} |`);
@@ -300,6 +323,9 @@ if (!now || !was) {
     const a = was.perception?.numericGuessRate;
     const b = now.perception?.numericGuessRate;
     let verdict = 'held';
+    // Unlike the ceiling above, absent here is legitimately "no grade or transition was
+    // applied in this run", which is not the same as an unarmed artifact — a run that
+    // graded nothing has no rate to report. Reported, not gated.
     if (a == null || b == null) verdict = 'n/a — no grade/transition applied';
     else if (b > a + RATE_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
     else if (b < a) verdict = 'better';

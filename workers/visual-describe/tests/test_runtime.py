@@ -118,9 +118,26 @@ def test_the_result_carries_the_backend_identity_and_digests() -> None:
     assert set(result["modelDigests"]) == {"fake.gguf"}
 
 
-def test_a_shot_the_model_could_not_describe_fails_the_whole_request() -> None:
+def test_a_shot_the_model_declines_is_skipped_and_the_others_still_answer() -> None:
+    # This used to assert the opposite — that one summaryless shot failed the whole request,
+    # "no partial result: a described row that was never produced must not read as
+    # coverage". That reasoning answered the wrong question: a row that is never written
+    # cannot be counted as coverage. What failing actually cost was the OTHER shots. A batch
+    # is up to 16, so one fade to black, lens cap or leader denied tier 2 to up to fifteen
+    # describable shots beside it, on every pass, forever.
     backend = FakeDescribeBackend(answers=[answer(), answer(summary="")])
+    result = _terminal(_run(request_line() + "\n", lambda: backend))
+    assert result["type"] == "result"
+    described = result.get("shots") or result.get("result", {}).get("shots") or []
+    assert [shot["shotIndex"] for shot in described] == [0]
+
+
+def test_a_request_where_EVERY_shot_declines_fails_and_is_not_retryable() -> None:
+    # The protocol has no empty result — naming none of the requested shots would read as
+    # coverage that does not exist — so this one has to fail. Not retryably: every shot
+    # declined on its content, and the content is the same next pass.
+    backend = FakeDescribeBackend(answers=[answer(summary=""), answer(summary="")])
     failure = _terminal(_run(request_line() + "\n", lambda: backend))
     assert failure["type"] == "failure"
-    # No partial result: a described row that was never produced must not read as coverage.
     assert failure["code"] == "internal_error"
+    assert failure["retryable"] is False

@@ -1,11 +1,21 @@
 """The real inference backend: onnxruntime for the two SigLIP 2 towers, OpenCV for pixels.
 
-**Unverified against weights.** No model file has been fetched, so nothing in this module
-has ever produced a vector. Every number it depends on — the preprocessing constants, the
-tower input names, the tokenizer's padded length — is transcribed from the model card and
-must be confirmed against the exported artifacts before this pack is released. That
-confirmation is the ``decoded_media`` suite, which is skipped by default and only runs in
-the pack build job where the weights exist. Treat this file as *wiring*, not as evidence.
+**Run once against fetched weights, and no accuracy is claimed.** The digests in
+``pack/models.lock.toml`` are real, the towers load, and this module has produced vectors
+from decoded video. That first run is what confirmed the numbers transcribed from the model
+card — the preprocessing constants, the tower input names, the tokenizer's padded length —
+and it found two things no scripted backend could:
+
+- ``run(None, ...)[0]`` was reading ``last_hidden_state``, a ``(batch, 196, 768)`` patch
+  grid, not the embedding. The output is selected BY NAME now, and an export without
+  ``pooler_output`` is refused rather than silently averaged.
+- CoreML cannot execute the vision graph for any batch above one, so a request carrying up
+  to 64 keyframes failed while the health check — which embeds nothing — passed.
+
+What that run does NOT establish is whether the vectors are any *good*: no retrieval
+accuracy, no shot-size or subject figure, has been measured. The ``decoded_media`` suite is
+the confirmation, and it is skipped unless the weights are present. Treat this file as
+wiring that has been proven to execute, not as evidence about label quality.
 
 The layering is deliberate: everything above (:mod:`framepilot_visual_embed.policy`,
 :mod:`framepilot_visual_embed.protocol`, :mod:`framepilot_visual_embed.runtime`) is pure

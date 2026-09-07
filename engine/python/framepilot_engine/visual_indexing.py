@@ -41,7 +41,7 @@ from framepilot_engine.analysis.visual_sampler import (
     image_span,
     plan_spans,
 )
-from framepilot_engine.media.ffmpeg import find_ffmpeg, run_bytes
+from framepilot_engine.media.ffmpeg import FFmpegError, find_ffmpeg, run_bytes
 
 _log = logging.getLogger(__name__)
 
@@ -208,6 +208,48 @@ def extract_keyframe_jpeg(
             f"ffmpeg produced no keyframe at t={t}s for {media_path.name}."
         )
     return bytes(data)
+
+
+def keyframe_dhashes(
+    media_path: Path,
+    timestamps: Sequence[float],
+    *,
+    ffmpeg: str | None = None,
+    runner: BytesRunner | None = None,
+    timeout: float = DEFAULT_TIMEOUT_SECONDS,
+) -> dict[int, str]:
+    """dHash one frame per timestamp, keyed by the timestamp's index (VU5.3).
+
+    The tier-0 measurement pass computes no hash of any kind — it reads `signalstats` off a
+    160px decode and never looks at a single frame as pixels. So `MeasuredFacts.phash` had
+    no producer, and `duplicateOf` could never be populated: `_link_duplicate_shots` filters
+    on `phash is not None` and therefore matched nothing, on every project, forever. This is
+    that producer.
+
+    Deliberately its OWN pass rather than an output of the statistics filtergraph: the
+    grid decode is one 9x8 grayscale frame per shot, seeked, which is cheap next to the
+    measurement itself, and wiring a third output into the split filtergraph is what made
+    stills silently unmeasured the last time it was tried.
+
+    A frame that will not decode yields NO entry rather than a zero. A shared placeholder
+    value would make every unhashable shot a duplicate of every other, which is the exact
+    failure `shots_from_stats` refuses to write.
+
+    :param media_path: Absolute path to the media.
+    :param timestamps: Seconds to hash, in shot order.
+    :param runner: Bytes runner; defaults to the real subprocess runner.
+    :returns: ``{index: decimal-string hash}``, missing an entry per undecodable frame.
+    """
+    resolved_ffmpeg, invoke = _resolve(ffmpeg, runner, timeout)
+    hashes: dict[int, str] = {}
+    for index, timestamp in enumerate(timestamps):
+        try:
+            grid = grid_from_bytes(invoke(_grid_argv(resolved_ffmpeg, media_path, timestamp)))
+        except (FrameExtractionError, FFmpegError, OSError):
+            # One unreadable keyframe must not cost the asset its other hashes.
+            continue
+        hashes[index] = str(dhash(grid))
+    return hashes
 
 
 def sample_asset(

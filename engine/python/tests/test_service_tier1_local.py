@@ -172,36 +172,39 @@ def build(
 
     monkeypatch.setattr(service_module, "measure_asset", measure)
     monkeypatch.setattr(service_module, "_sha256_file", lambda path: "sha-file")
-    # Tier 0's phash comes from the sampler's JPEG pass, which does not run here, so the
-    # ledger rows are seeded with hashes directly where a test needs duplicate detection.
+    # The REAL tier-0 producer, stubbed at the ffmpeg boundary rather than replaced.
+    #
+    # This used to monkeypatch `shots_from_stats` itself with a wrapper that injected
+    # hashes, on the belief that "the real phash comes from the sampler's JPEG pass". It
+    # does not: the sampler writes `visual_spans.phash`, a different column, and nothing
+    # wrote `MeasuredFacts.phash` at all — so the test manufactured its own premise and
+    # passed green over a `duplicateOf` that could never fire in production. Tier 0 calls
+    # `keyframe_dhashes` now, so the seam to stub is the frame decode: the production call
+    # site, the production `shots_from_stats`, and a fake only where the bytes would be.
     monkeypatch.setattr(
         service_module,
-        "shots_from_stats",
-        lambda asset_id, content_hash, stat_rows, **_kw: _with_phashes(
-            asset_id, content_hash, stat_rows, hashes
-        ),
+        "keyframe_dhashes",
+        lambda media_path, timestamps, **_kw: _dhashes_for(media_path, timestamps, hashes),
     )
     monkeypatch.setattr(LocalVisualEmbedClient, "__init__", _patched_init(process))
     return TestClient(create_app(Settings(projects_root=tmp_path)))
 
 
-def _with_phashes(
-    asset_id: str, content_hash: str, stat_rows: Any, hashes: dict[str, list[str]]
-) -> Any:
-    """Tier-0 rows carrying a keyframe hash where a test asked for one.
+def _dhashes_for(
+    media_path: Path, timestamps: Any, hashes: dict[str, list[str]]
+) -> dict[int, str]:
+    """Stand in for the keyframe decode, and ONLY for the decode.
 
-    The real phash comes from the sampler's JPEG pass, which is not part of the statistics
-    decode and does not run here; a test that wants duplicate detection supplies it.
+    `keyframe_dhashes` shells out to ffmpeg for one 9x8 grayscale frame per shot; these
+    fixtures are six fake bytes on disk. So the bytes are faked and everything downstream —
+    the production call site, `shots_from_stats`, the NOT NULL span column, the duplicate
+    linker — is the real thing. An asset with no entry in `hashes` returns none, which is
+    the honest "this frame would not decode" and exercises the `phash is None` path.
     """
-    from framepilot_engine.brain.ledger_store import shots_from_stats as real
-
-    per_asset = hashes.get(asset_id)
-    return real(
-        asset_id,
-        content_hash,
-        stat_rows,
-        phashes={index: value for index, value in enumerate(per_asset)} if per_asset else None,
-    )
+    per_asset = hashes.get(Path(media_path).stem)
+    if not per_asset:
+        return {}
+    return {index: value for index, value in enumerate(per_asset) if value}
 
 
 def _patched_init(process: ScriptedPack) -> Any:

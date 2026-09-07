@@ -2312,6 +2312,19 @@ function registerIpcHandlers(): void {
    * controller for the abort to reach anything.
    */
   const enrolmentShutdown = new AbortController();
+  /**
+   * The tiers an UNATTENDED import may fill (see the note at its call site).
+   *
+   * `measured` is local, keyless and free, and is the whole point of ADR 0175 — it runs for
+   * everyone. `labelled` costs money only where the user has already configured an
+   * embeddings key, which is exactly the consent the deleted key gate used to require.
+   * `described` is a per-shot vision call and never runs without the user asking.
+   */
+  const autoEnrolmentTiers = (): readonly ('measured' | 'labelled' | 'described')[] =>
+    aiConfig.resolveEmbeddingsKeys() !== undefined || aiConfig.resolveTwelveLabsKey() !== undefined
+      ? (['measured', 'labelled'] as const)
+      : (['measured'] as const);
+
   const assetEnroller = createAssetEnroller({
     signal: enrolmentShutdown.signal,
     // ONE loop per batch, not one per asset. `/brain/visual/index` takes a list and paces
@@ -2323,10 +2336,26 @@ function registerIpcHandlers(): void {
         client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
         // Credentials still ride along, but they no longer decide WHETHER this runs:
         // they decide which tiers the engine can add on top of the keyless measurement
-        // (ADR 0175). `tiers`/`priority` are left at the engine's defaults — all three
-        // tiers, the brain's own order — because an import batch wants everything it can
-        // get for exactly the assets it names.
-        request: { projectId, assetIds: [...assetIds], ...visualIndexCredentials() },
+        // (ADR 0175).
+        //
+        // WHAT AUTOMATIC ENROLMENT IS ALLOWED TO SPEND. `tiers` is NOT left at the
+        // engine's default of all three. On `main` this path was gated behind an
+        // embeddings key, and deleting that gate — correct, because tier 0 needs no key —
+        // also removed the only thing standing between an unattended import and a paid
+        // vision call. `captionProvider` falls back to the ACTIVE chat provider, and tier 2
+        // is one call per shot, so a user whose only key is for chat would have been billed
+        // per shot on every import, with no prompt and no toggle.
+        //
+        // So: the keyless floor always, `labelled` only when the user has configured an
+        // embeddings key — the same consent signal the deleted gate read — and `described`
+        // never from an unattended import. Explicit indexing through the IPC surface is
+        // unchanged and still fills every tier the credentials allow.
+        request: {
+          projectId,
+          assetIds: [...assetIds],
+          tiers: autoEnrolmentTiers(),
+          ...visualIndexCredentials(),
+        },
         signal,
       });
       aiLog.debug('asset enrolment settled', {

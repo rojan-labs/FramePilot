@@ -152,7 +152,14 @@ class TestDescribeShots:
         assert caught.value.code == "internal_error"
         assert caught.value.retryable is True
 
-    def test_a_summaryless_answer_fails_rather_than_dropping_the_shot(self) -> None:
+    def test_a_summaryless_shot_is_skipped_and_its_neighbours_still_describe(self) -> None:
+        # The damage the old "fail the whole request" rule did, at the unit level: a batch
+        # is up to 16 shots, and one blank frame took every describable shot beside it down.
+        backend = FakeDescribeBackend(answers=[answer(summary=""), answer()])
+        described = list(describe_shots(_request(), backend))
+        assert [shot.shot_index for shot in described] == [1]
+
+    def test_every_shot_declining_fails_because_there_is_no_empty_result(self) -> None:
         backend = FakeDescribeBackend(answers=[answer(summary="")])
         with pytest.raises(ProtocolError, match="no summary"):
             list(describe_shots(_request(), backend))

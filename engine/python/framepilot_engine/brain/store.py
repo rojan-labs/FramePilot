@@ -1202,13 +1202,29 @@ class BrainStore:
         params: list[Any] = list(asset_ids)
         cursor_clause = ""
         if after is not None:
-            cursor_asset, cursor_index = _decode_shot_cursor(after)
-            cursor_clause = " AND (asset_id > ? OR (asset_id = ? AND shot_index > ?))"
-            params += [cursor_asset, cursor_asset, cursor_index]
+            cursor_asset, cursor_hash, cursor_index = _decode_shot_cursor(after)
+            cursor_clause = (
+                " AND (asset_id > ?"
+                " OR (asset_id = ? AND content_hash > ?)"
+                " OR (asset_id = ? AND content_hash = ? AND shot_index > ?))"
+            )
+            params += [
+                cursor_asset,
+                cursor_asset,
+                cursor_hash,
+                cursor_asset,
+                cursor_hash,
+                cursor_index,
+            ]
         params.append(limit)
+        # ORDER BY the FULL primary key. `(asset_id, shot_index)` is not unique: the key is
+        # `(asset_id, content_hash, shot_index)`, and two generations can coexist because
+        # `drop_stale_shots` runs only on the tier-0 path — a slice asking for `labelled`
+        # alone writes new-hash rows beside old-hash ones. Paging an order that repeats a
+        # value silently skipped one generation's row at every page boundary.
         rows = self._conn.execute(
             f"SELECT * FROM shots WHERE asset_id IN ({placeholders}){cursor_clause}"
-            " ORDER BY asset_id, shot_index LIMIT ?",
+            " ORDER BY asset_id, content_hash, shot_index LIMIT ?",
             params,
         ).fetchall()
         return [_shot_from(r) for r in rows]
@@ -1585,18 +1601,23 @@ def _shot_params(
 def shot_cursor(row: ShotRecord) -> str:
     """The ``after`` cursor that resumes :meth:`BrainStore.list_shots` past ``row``.
 
-    A JSON pair rather than a delimited string: asset ids are opaque and may contain any
+    A JSON triple rather than a delimited string: asset ids are opaque and may contain any
     separator we would have picked, and a cursor that split wrongly would skip shots
     silently instead of failing.
+
+    It carries ``content_hash`` because that is part of the ``shots`` primary key and two
+    generations of a re-measured asset can coexist. A two-part cursor could not tell them
+    apart and dropped a row at each page boundary.
     """
-    return _canonical_json([row.asset_id, row.shot_index])
+    return _canonical_json([row.asset_id, row.content_hash, row.shot_index])
 
 
-def _decode_shot_cursor(after: str) -> tuple[str, int]:
+def _decode_shot_cursor(after: str) -> tuple[str, str, int]:
     """Parse a :func:`shot_cursor` value.
 
-    :raises BrainError: If it is not a ``[asset_id, shot_index]`` pair. Cursors reach the
-        store from HTTP query strings, so a malformed one is untrusted input, not a bug.
+    :raises BrainError: If it is not an ``[asset_id, content_hash, shot_index]`` triple.
+        Cursors reach the store from HTTP query strings, so a malformed one is untrusted
+        input, not a bug.
     """
     try:
         decoded = json.loads(after)
@@ -1604,13 +1625,16 @@ def _decode_shot_cursor(after: str) -> tuple[str, int]:
         raise BrainError(f"invalid shot cursor {after!r}: {exc}") from exc
     if (
         not isinstance(decoded, list)
-        or len(decoded) != 2
+        or len(decoded) != 3
         or not isinstance(decoded[0], str)
-        or not isinstance(decoded[1], int)
-        or isinstance(decoded[1], bool)
+        or not isinstance(decoded[1], str)
+        or not isinstance(decoded[2], int)
+        or isinstance(decoded[2], bool)
     ):
-        raise BrainError(f"invalid shot cursor {after!r}: expected [asset_id, shot_index]")
-    return decoded[0], decoded[1]
+        raise BrainError(
+            f"invalid shot cursor {after!r}: expected [asset_id, content_hash, shot_index]"
+        )
+    return decoded[0], decoded[1], decoded[2]
 
 
 def _shot_from(r: sqlite3.Row) -> ShotRecord:

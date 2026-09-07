@@ -202,11 +202,25 @@ class TestRefusals:
         with pytest.raises(PackWorkerError, match=message):
             run(handle, Scripted(reply), [(0, 0.0, 4.0)])
 
-    def test_a_short_answer_is_refused_rather_than_stored_as_coverage(
+    def test_a_short_answer_is_accepted_and_the_missing_shot_is_simply_absent(
         self, handle: PackHandle
     ) -> None:
+        # This used to demand every requested shot come back, on the reasoning that "a
+        # short answer would be written as coverage for shots nobody looked at". Backwards:
+        # a shot the pack does not return gets NO `described` row, and no row is not
+        # coverage. What the rule actually did was throw away the whole batch — up to 16
+        # shots — because one frame was featureless enough that the model declined it.
         launcher = Scripted(describe_reply([shot(0)]))
-        with pytest.raises(PackWorkerError, match="answered 1 of 2 requested shots"):
+        described = run(handle, launcher, [(0, 0.0, 4.0), (1, 4.0, 9.0)])
+        assert [d.shot_index for d in described] == [0]
+
+    def test_an_answer_naming_a_shot_nobody_asked_for_is_still_refused(
+        self, handle: PackHandle
+    ) -> None:
+        # The half of that rule that was right, and is kept: a subset is honest, a stranger
+        # is a pack that is not speaking the contract.
+        launcher = Scripted(describe_reply([shot(7)]))
+        with pytest.raises(PackWorkerError, match="unrequested shot"):
             run(handle, launcher, [(0, 0.0, 4.0), (1, 4.0, 9.0)])
 
     def test_a_capability_the_handle_does_not_claim_is_refused(self, entrypoint: Path) -> None:

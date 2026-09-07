@@ -169,14 +169,18 @@ def _on_screen_text(raw: Any) -> list[str]:
 
     Verbatim: whitespace collapsed, length capped, nothing else. Nothing here may "tidy" a
     lower-third, or a solver reading a title reads our paraphrase of it.
-    # Deduplicated, first occurrence winning, for the same reason `quality` below
-    # is: a constrained decoder that has said everything it has to say fills the
-    # array to its bound with the SAME line rather than closing it. Measured on
-    # SmolVLM2-2.2B against `eval/media/slate.mp4`, a card reading "SCENE 4 TAKE 2":
-    # sixteen identical copies, exactly `MAX_ON_SCREEN_TEXT_ITEMS`. The bound stops
-    # the runaway; it does not make the value useful. Verbatim is a promise about
-    # each line's CONTENT — never to tidy or paraphrase it — not a promise to repeat
-    # a decoder's stutter back to the editor as sixteen separate readings.
+
+    Deduplicated, first occurrence winning, for the same reason ``quality`` is: a
+    constrained decoder that has said everything it has to say fills the array to its bound
+    with the SAME line rather than closing it. Measured on SmolVLM2-2.2B against
+    ``eval/media/slate.mp4``, a card reading "SCENE 4 TAKE 2": sixteen identical copies,
+    exactly :data:`MAX_ON_SCREEN_TEXT_ITEMS`. The bound stops the runaway; it does not make
+    the value useful. Verbatim is a promise about each line's CONTENT — never to tidy or
+    paraphrase it — not a promise to repeat a decoder's stutter back to the editor as
+    sixteen separate readings.
+
+    :param raw: The model's ``onScreenText`` value, of any shape.
+    :returns: The distinct legible lines, in the order first seen.
     """
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
         return []
@@ -205,16 +209,26 @@ def describe_shots(
     the only place tier 2 can honour it — a llama.cpp call is not interruptible mid-token
     from here.
 
-    A shot the model DECLINES to describe still fails the whole request — the protocol has
-    no partial answer, and the engine client rejects a short one — but it fails as NOT
-    retryable. See :class:`ShotNotDescribableError`: a featureless frame will decline again,
-    so retrying spends a model call to be told the same nothing.
+    A shot the model DECLINES to describe — a parseable object with no summary, which is
+    what a featureless frame returns — is SKIPPED, and every other shot in the request is
+    still answered. The ledger simply gets no ``described`` row for it, which is "absent",
+    and absent is this tier's designed degradation.
+
+    That is a change from failing the whole request, and the reasoning it replaces ("a
+    described row that was never produced must not be counted as coverage") was answering
+    the wrong question: a row that is never written cannot be counted as anything. What
+    failing actually cost was the OTHER shots — a batch is up to 16, so one fade to black,
+    one lens cap or one leader denied tier 2 to up to fifteen perfectly describable shots
+    beside it, on every pass.
 
     :raises ProtocolError: ``cancelled`` when the host cancels, ``media_unreadable`` when a
         keyframe cannot be decoded, ``internal_error`` when the model answered nothing
-        usable — retryable for a malformed answer, NOT retryable when the model simply had
-        nothing to say about the frame.
+        usable (retryable — a malformed answer is a hiccup) or when EVERY shot declined
+        (NOT retryable: the protocol has no empty result, and the footage will decline
+        identically next time).
     """
+    declined: list[int] = []
+    answered = False
     for span in request.shots:
         if should_cancel():
             raise ProtocolError("cancelled", "shot description cancelled by the host.")
@@ -230,15 +244,27 @@ def describe_shots(
             )
         try:
             payload = backend.describe(frames, DESCRIBED_JSON_SCHEMA)
-            yield normalise(payload, span.shot_index)
-        except ShotNotDescribableError as error:
-            # NOT retryable. The model looked and had nothing to say, and it will have
-            # nothing to say next time: the cause is the frame, not the run. Marking this
-            # retryable made a fade to black or a lens cap fail its whole batch on every
-            # pass, forever, spending a model call each time to be told the same nothing.
-            raise ProtocolError("internal_error", str(error), retryable=False) from error
+            described = normalise(payload, span.shot_index)
+        except ShotNotDescribableError:
+            # The model looked and had nothing to say. Skip THIS shot and keep going: it
+            # will say the same nothing next pass, so failing here would take its
+            # describable neighbours down with it, every time, forever.
+            declined.append(span.shot_index)
+            continue
         except DescribeFailedError as error:
-            # Retryable: a malformed answer IS a hiccup, and the same shot on a second pass
-            # usually answers. It still fails the whole request rather than being skipped —
-            # a described row that was never produced must not be counted as coverage.
+            # Retryable, and it DOES fail the request: a malformed answer is a hiccup, the
+            # same shot usually answers on a second pass, and a run that cannot parse its
+            # own model's output has a problem this batch cannot route around.
             raise ProtocolError("internal_error", str(error), retryable=True) from error
+        answered = True
+        yield described
+    if not answered:
+        # Every shot declined. The protocol has no empty result — a result naming none of
+        # the requested shots would read as coverage that does not exist — so this must
+        # fail, and NOT retryably: the cause is the footage, and the footage is unchanged.
+        raise ProtocolError(
+            "internal_error",
+            f"no shot could be described: the model returned no summary for all "
+            f"{len(declined)} shot(s) of this request.",
+            retryable=False,
+        )

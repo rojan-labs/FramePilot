@@ -31,10 +31,14 @@ That eval found two defects on its first run, both fixed:
   exactly `MAX_ON_SCREEN_TEXT_ITEMS`. Bounding the array stopped the decoder running away;
   it did not stop it filling the bound with one repeated line. Deduplicated now, first
   occurrence winning, in this pack and in the engine's mirror.
-- **A featureless frame failed its whole batch as `retryable`.** SmolVLM2 returns a
-  parseable object with an empty summary for flat grey every time, so the retry bought
-  another model call to be told the same nothing — forever, for any fade to black or lens
-  cap. It is `ShotNotDescribableError` now and reports **not retryable**.
+- **A featureless frame failed its whole batch.** SmolVLM2 returns a parseable object with
+  an empty summary for flat grey every time, and that failed the entire request — a batch of
+  up to 16 — so one fade to black, lens cap or leader denied tier 2 to up to fifteen
+  perfectly describable shots beside it, on every pass. It is `ShotNotDescribableError`
+  now: the declined shot is **skipped**, its neighbours are still described, and the ledger
+  simply carries no `described` row for it, which is absent rather than wrong. A request
+  where EVERY shot declines still fails — the protocol has no empty result — but reports
+  **not retryable**, because the footage will decline identically next time.
 
 Getting there cost two fixes that only a real run could have surfaced, both recorded here
 because they are the shape of bug this pack invites:

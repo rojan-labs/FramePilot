@@ -34,10 +34,12 @@ It found three real defects on its first run, all now fixed:
    `MAX_ON_SCREEN_TEXT_ITEMS`. Bounding the array stopped the decoder running away; it did
    not stop it filling the bound with one repeated line. Deduplicated now, in the pack and
    in the engine mirror, first occurrence winning.
-2. **A featureless frame failed its whole batch as `retryable`.** SmolVLM2 returns a
-   parseable object with an empty summary for flat grey, every time, so the retry bought
-   another model call to be told the same nothing — forever, for any fade to black or lens
-   cap. That failure is now `ShotNotDescribableError` and is reported **not retryable**.
+2. **A featureless frame failed its whole batch.** SmolVLM2 returns a parseable object
+   with an empty summary for flat grey, every time. That failed the whole request — up to
+   16 shots — so one fade to black denied tier 2 to fifteen describable shots beside it,
+   and it was marked retryable, so it did so again on every pass. Now the declined shot is
+   skipped and its neighbours still describe; only an all-declined request fails, and it
+   fails **not retryable**.
 3. The eval itself: scoring the decline as a failure would have made a correct refusal look
    like a bug. A frame with nothing in it is allowed to produce nothing.
 

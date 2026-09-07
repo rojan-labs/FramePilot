@@ -181,10 +181,13 @@ class LocalVisualDescribeClient:
                 # contract, so this is a protocol failure rather than a soft "no caption".
                 raise PackWorkerError(f"shot {index}: {error}") from error
             out.append(ShotDescription(shot_index=index, facts=facts))
-        returned = {shot.shot_index for shot in out}
-        if returned != expected:
-            # A short answer would be written as coverage for shots nobody looked at.
-            raise PackWorkerError(
-                f"pack answered {len(returned)} of {len(expected)} requested shots."
-            )
+        # A SHORT answer is legal; an answer naming shots nobody asked about is not.
+        #
+        # The per-entry check above already rejects an unrequested index, so what is left
+        # here is a subset — the pack describing some of the batch and declining the rest,
+        # which is what a featureless frame produces. Those shots get no `described` row at
+        # all, which is "absent", not coverage; the reasoning this replaces ("a short answer
+        # would be written as coverage for shots nobody looked at") had it backwards, and
+        # rejecting the batch meant one blank frame denied tier 2 to up to fifteen
+        # describable shots beside it. An EMPTY answer is still refused, by the check above.
         return out

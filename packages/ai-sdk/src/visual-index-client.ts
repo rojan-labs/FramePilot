@@ -245,6 +245,14 @@ export interface VisualIndexRequestInput {
   readonly jobId?: string;
   /** Assets to index this slice (engine-bounded 1..10). */
   readonly maxAssets?: number;
+  /**
+   * Which ledger tiers this request may fill. Omit for the engine's default (all three).
+   *
+   * The lever automatic, unattended enrolment needs. `measured` is the keyless local
+   * ffmpeg floor; `labelled` and `described` reach a paid provider, so a caller running
+   * without the user watching can name the floor rather than spending on their behalf.
+   */
+  readonly tiers?: readonly ('measured' | 'labelled' | 'described')[];
 }
 
 /** Request body for `POST /brain/visual/index/cancel`. */

@@ -266,6 +266,7 @@ from framepilot_engine.validation.temporal_evidence import (
 from framepilot_engine.visual_indexing import (
     FrameExtractionError,
     extract_keyframe_jpeg,
+    keyframe_dhashes,
     sample_asset,
 )
 
@@ -2770,7 +2771,16 @@ def create_app(
         except (FFmpegError, OSError) as exc:
             _log.warning("tier 0 measurement failed: asset=%s reason=%s", asset_id, exc)
             return _TierOutcome("failed", str(exc))
-        rows = shots_from_stats(asset_id, content_hash, stats)
+        # VU5.3's duplicate detection needs a keyframe hash, and the measurement pass
+        # above computes none — it reads `signalstats` off a 160px decode and never looks
+        # at a frame as pixels. Without this, `MeasuredFacts.phash` had no producer at all,
+        # so `_link_duplicate_shots` filtered on `phash is not None` and matched nothing on
+        # every project. One 9x8 grayscale frame per shot, and a frame that will not decode
+        # yields no entry rather than a zero every other shot would look like.
+        phashes = keyframe_dhashes(
+            media_path, [s.keyframe_t for s in stats], timeout=timeout
+        )
+        rows = shots_from_stats(asset_id, content_hash, stats, phashes=phashes)
         try:
             store.upsert_shots(asset_id, content_hash, "measured", rows)
             # Rebuilt from the asset's whole ledger, not from `rows`: a digest that
@@ -2798,16 +2808,50 @@ def create_app(
     #: the probe's duration and the measurement pass's last boundary.
     _KEYFRAME_EPSILON = 0.05
 
+    def _spans_model_id(store: BrainStore, asset_id: str | None = None) -> str:
+        """Which vector space this brain's spans actually live in (VU5.3).
+
+        Tier 1 has two producers writing two spaces: the hosted NVIDIA embedder under
+        :data:`MODEL_ID` and the local Capability Pack under :data:`LOCAL_MODEL_ID`. Every
+        READ — footage map, visual search, describe — used to be hard-coded to the hosted
+        one, so on a pack-only machine indexing wrote rows that no query could ever see:
+        the arm that owns the vectors did not own the lookup.
+
+        Hosted wins when both spaces carry rows, because that is the space the hosted
+        embedder can also embed a QUERY into; the local space is served when it is the only
+        one there. This is a read-side resolution on purpose — it needs no new request field
+        and no pack handle on a search, and a brain knows perfectly well what is in it.
+        """
+        try:
+            if store.list_visual_spans(asset_id, model=MODEL_ID):
+                return MODEL_ID
+            if store.list_visual_spans(asset_id, model=LOCAL_MODEL_ID):
+                return LOCAL_MODEL_ID
+        except BrainError:
+            # A read that cannot answer degrades to the hosted default rather than failing
+            # the request: this only decides WHICH rows to look at.
+            return MODEL_ID
+        return MODEL_ID
+
     def _shot_phash(shot: ShotRecord) -> int:
         """The shot's keyframe dHash as an integer for its ``visual_spans`` row.
 
-        Zero when tier 0 computed no hash. That is a placeholder in a NOT NULL column, and
-        it is safe here only because the local space's duplicate detection reads
-        ``MeasuredFacts.phash`` directly — where ``None`` is preserved and skipped — rather
-        than this column. Nothing may start comparing local span hashes without fixing
-        that: every unhashed shot would be a duplicate of every other.
+        Tier 0 computes this now (``keyframe_dhashes``), so the real hash is present for
+        every shot whose keyframe decoded. When one did not, this column still has to carry
+        something — it is NOT NULL — and what it carries must be UNIQUE to the shot.
+
+        This used to return a shared ``0``, with a comment warning that nothing may start
+        comparing local span hashes because "every unhashed shot would be a duplicate of
+        every other". Making the local vector space readable is exactly that change, so the
+        trap is removed rather than re-documented: an unhashed shot gets a value derived
+        from its own identity, which two different shots cannot collide on and which sits
+        ~32 bits from any real hash — far outside any dedupe threshold. Absent still reads
+        as absent through ``MeasuredFacts.phash``, which stays ``None``.
         """
-        return int(shot.measured.phash) if shot.measured and shot.measured.phash else 0
+        if shot.measured and shot.measured.phash:
+            return int(shot.measured.phash)
+        key = f"{shot.asset_id}#{shot.shot_index}".encode()
+        return int.from_bytes(hashlib.sha256(key).digest()[:8], "big")
 
     def _label_tier1_local(
         store: BrainStore,
@@ -3113,10 +3157,21 @@ def create_app(
         if failure is not None:
             return _TierOutcome("failed", failure)
         if not described:
-            # Nothing written and nothing to write: the hosted provider refused every shot
-            # it was asked about. Reported as a failure of THIS tier for THIS asset, never
-            # as coverage, and never as a failure of the slice.
-            return _TierOutcome("failed", "the vision provider described no shot of this asset")
+            # Nothing written and nothing to write. Reported as a failure of THIS tier for
+            # THIS asset, never as coverage, and never as a failure of the slice — but the
+            # REASON matters to whoever reads the journal. `complete` false means the
+            # per-asset time budget expired before the first shot came back, which points
+            # at a slow provider or a long asset; saying "described no shot" there sends an
+            # operator looking for a provider that refused, which is a different problem.
+            return _TierOutcome(
+                "failed",
+                "the vision provider described no shot of this asset"
+                if complete
+                else (
+                    "the tier-2 time budget for this asset expired before any shot was "
+                    f"described ({TIER2_ASSET_BUDGET_SECONDS:.0f}s)"
+                ),
+            )
         by_index = {shot.shot_index: shot for shot in pending}
         rows = [
             by_index[index].model_copy(update={"described": facts})
@@ -3378,15 +3433,35 @@ def create_app(
         in_bin.sort(key=lambda a: recency.get(a) or "", reverse=True)
         return on_timeline + in_bin if req.priority == "timeline" else in_bin + on_timeline
 
-    def _resolve_visual_job(store: BrainStore, req: VisualIndexRequest) -> JobRow:
+    def _resolve_visual_job(
+        store: BrainStore, req: VisualIndexRequest, *, require_existing: bool = False
+    ) -> JobRow:
         """Get the caller's in-flight index job, or create one with a fixed worklist.
 
         A continuation call (``jobId`` names an existing job) resumes it as-is;
         a fresh job's worklist is the explicit ``assetIds`` (deduped, order
         preserved) or every video/image asset the brain knows.
+
+        ``require_existing`` decides what an UNKNOWN ``jobId`` means, and the two routes
+        want different answers. The built-in route leaves it false: minting a job under a
+        caller-supplied id is a deliberate idempotency-key pattern, and the worst case is
+        re-running a local ffmpeg pass. The HOSTED arm passes true, because there the same
+        fall-through is expensive — a stale or mistyped id silently started a full re-upload
+        and re-bill of the entire worklist, with nothing in the response to say that a
+        continuation had quietly become a new job. There, "the thing you named is not here"
+        is the honest answer, and it is the same 409 the wrong-kind check already gives.
+
+        :param require_existing: Refuse an unknown ``jobId`` rather than creating one.
         """
         if req.job_id is not None:
             existing = store.get_job(req.job_id)
+            if existing is None and require_existing:
+                raise HTTPException(
+                    status.HTTP_409_CONFLICT,
+                    f"Job {req.job_id!r} does not exist or has expired. Omit jobId to start "
+                    "a new index — re-using an unknown id here would re-upload and re-bill "
+                    "the whole worklist.",
+                )
             if existing is not None:
                 if existing.kind != VISUAL_JOB_KIND:
                     raise HTTPException(
@@ -3779,6 +3854,12 @@ def create_app(
         unavailable: an auth failure reports ``invalid_api_key``; other API
         failures surface their message; no key never reaches here.
         """
+        # The governor's pause, on this route too (plan VU8 §8.3). "Hosted means network"
+        # is true for tiers 1 and 2 and FALSE for tier 0: the measurement below is a local
+        # ffmpeg decode, and without this wait a TwelveLabs user's export competed for
+        # cores with it — the exact symptom the governor exists to remove, on the one route
+        # that skipped it. Waited before the brain is opened, like the built-in route.
+        index_governor.wait_until_clear()
         tl_captions_reason = (
             "TwelveLabs indexes the audio track natively; per-scene captions are not used."
         )
@@ -3797,7 +3878,7 @@ def create_app(
         try:
             with open_brain(resolved_root, req.project_id) as store:
                 sweep_interrupted_jobs_once(store, req.project_id)
-                job = _resolve_visual_job(store, req)
+                job = _resolve_visual_job(store, req, require_existing=True)
                 asset_ids = [str(a) for a in job.payload.get("assetIds", [])]
                 cursor = int(job.payload.get("cursor", 0))
                 total = len(asset_ids)
@@ -4427,12 +4508,17 @@ def create_app(
                         prepare_builtin,
                         resolved_root=resolved_root,
                         project_id=req.project_id,
-                        # The deep pass is a hosted round trip on this backend, not local
-                        # compute, so the governor leaves its bound to the configured
-                        # visual-index concurrency (see `tier_workers`).
+                        # `hosted` must describe what the pass actually DOES, not what
+                        # phase it is in. The deep pass is a hosted round trip only when
+                        # the NVIDIA embedder is the producer; on a pack-only machine it is
+                        # `_label_tier1_local`, a local subprocess with a resident model per
+                        # worker. Keying on the phase name gave that four concurrent
+                        # workers — precisely the oversubscription `tier_workers` exists to
+                        # prevent, on the only install where it matters most.
                         max_workers=index_governor.tier_workers(
                             "measured" if current.phase == MEASURED_PHASE else "labelled",
-                            hosted=current.phase == DEEP_PHASE,
+                            hosted=current.phase == DEEP_PHASE
+                            and embedder_res.client is not None,
                         ),
                     )
                 except (
@@ -4712,7 +4798,11 @@ def create_app(
                     if requested
                     else [a.id for a in store.list_assets() if _asset_is_visual(a)]
                 )
-                shots = store.list_shots(asset_ids, limit=page, after=after)
+                # One more than the page, so "is there another page" is a fact rather
+                # than an inference from a full page (see `next_cursor` below).
+                probed = store.list_shots(asset_ids, limit=page + 1, after=after)
+                has_more = len(probed) > page
+                shots = probed[:page]
                 digests: list[LedgerAssetDigest] = (
                     store.get_asset_digests(asset_ids) if after is None else []
                 )
@@ -4724,8 +4814,11 @@ def create_app(
             shots=shots,
             digests=digests,
             coverage=coverage,
-            # A full page means there MAY be more; an exhausted worklist ends the paging.
-            next_cursor=shot_cursor(shots[-1]) if len(shots) == page else None,
+            # Only when a further row actually EXISTS. A full page used to emit a cursor
+            # unconditionally, so a worklist that is an exact multiple of the page size
+            # always cost one extra round trip that came back empty. `page + 1` is fetched
+            # above and the extra row trimmed, so this is knowledge rather than a guess.
+            next_cursor=shot_cursor(shots[-1]) if has_more else None,
         )
 
     def _tl_search(
@@ -5208,7 +5301,7 @@ def create_app(
         """
         spans = [
             span
-            for span in store.list_visual_spans(model=MODEL_ID)
+            for span in store.list_visual_spans(model=_spans_model_id(store))
             if (req.asset_id is None or span.asset_id == req.asset_id)
             and (only_assets is None or span.asset_id in only_assets)
         ]
@@ -5378,7 +5471,7 @@ def create_app(
                     semantic = semantic_hits(
                         text_res.embedder, req.query, rows, limit=VISUAL_SEARCH_POOL
                     )
-                spans = store.list_visual_spans(model=MODEL_ID)
+                spans = store.list_visual_spans(model=_spans_model_id(store))
                 captions = [
                     caption
                     for caption in store.list_visual_captions()
@@ -5445,7 +5538,7 @@ def create_app(
                     return True
                 return not any(
                     span.asset_id == req.asset_id
-                    for span in store.list_visual_spans(model=MODEL_ID)
+                    for span in store.list_visual_spans(model=_spans_model_id(store))
                 )
         except (BrainError, BrainSchemaError, PathTraversalError, OSError):
             return True
@@ -5578,7 +5671,7 @@ def create_app(
                 backend = VisualVectorStore(store).backend()
                 spans = [
                     span
-                    for span in store.list_visual_spans(model=MODEL_ID)
+                    for span in store.list_visual_spans(model=_spans_model_id(store))
                     if span.asset_id == req.asset_id
                     and (
                         req.time_range is None
