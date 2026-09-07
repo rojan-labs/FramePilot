@@ -23,8 +23,10 @@ from typing import Annotated, Any, Literal, NamedTuple, cast
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.effects.keyframes import evaluate_keyframes
 from framepilot_engine.effects.speed_curve import (
     clip_timeline_duration,
+    has_speed_ramp,
     integrate_rate,
     rate_at,
     source_time_at,
@@ -636,19 +638,231 @@ def _replace_clip_at(timeline: Timeline, loc: _ClipLocation, next_clip: Clip) ->
     return _with_track_clips(timeline, loc.track_index, clips)
 
 
+def _has_time_based_source(clip: Clip) -> bool:
+    """Does this clip draw from a real, time-based source?
+
+    Mirrors ``operations.ts#hasTimeBasedSource``. A text overlay or a caption cue is
+    generated at render time from its own parameters, so its ``source_start: 0`` means
+    "nothing to say" rather than "the file starts here" — treating that 0 as a real
+    in-point is what made an overlay extendable forwards and immovable backwards.
+    """
+    return clip.asset_id not in (TEXT_OVERLAY_ASSET_ID, CAPTION_ASSET_ID)
+
+
+def _clip_source_end(clip: Clip) -> float:
+    """``clip.source_end``, defaulted to the 1:1 span the TS schema always stores."""
+    return clip.source_end if clip.source_end is not None else clip.end - clip.start
+
+
+def _rebase_speed_ramp(
+    clip: Clip, consumed: float, span: float | None = None
+) -> list[SpeedPoint] | None:
+    """Re-base a speed ramp after ``consumed`` source seconds came off the head.
+
+    Mirrors ``operations.ts#rebaseSpeedRamp`` (schema v15, ADR 0090). A ramp's points
+    are anchored in clip-relative SOURCE time, so trimming the head without re-basing
+    slides the whole curve along the footage — the slow-motion moment placed on a
+    specific gesture drifts off it.
+
+    Points now before the new origin become **one synthetic point at 0 carrying the
+    rate at the cut**, not nothing: dropping them would leave :func:`rate_at` holding
+    the first *surviving* point's rate across the head, silently changing the speed of
+    footage the trim did not remove. Points past ``span`` (the piece's own source span)
+    likewise collapse to one point at the span — the validator refuses a ramp point
+    outside a clip's source range, which is how a split's left half used to be told its
+    1.07s piece "has a speed-ramp point at source time 2.5s".
+    """
+    ramp = clip.speed_ramp
+    if not ramp:
+        return clip.speed_ramp
+    head_trimmed = abs(consumed) >= _EPSILON
+
+    def inside(point: SpeedPoint) -> bool:
+        return point.source_time > consumed + _EPSILON and (
+            span is None or point.source_time < consumed + span - _EPSILON
+        )
+
+    later = [
+        point.model_copy(deep=True, update={"source_time": point.source_time - consumed})
+        if head_trimmed
+        else point.model_copy(deep=True)
+        for point in ramp
+        if inside(point)
+    ]
+    tail_cut: list[SpeedPoint] = []
+    if span is not None and any(p.source_time >= consumed + span - _EPSILON for p in ramp):
+        tail_cut = [
+            SpeedPoint(
+                id=f"{clip.id}__ramp_tail",
+                source_time=span,
+                rate=rate_at(ramp, consumed + span),
+                easing="linear",
+            )
+        ]
+    if not head_trimmed:
+        kept = [p.model_copy(deep=True) for p in ramp if p.source_time <= consumed + _EPSILON]
+        return [*kept, *later, *tail_cut]
+    head = SpeedPoint(
+        id=f"{clip.id}__ramp_head",
+        source_time=0.0,
+        rate=rate_at(ramp, consumed),
+        # The easing of whichever segment the cut fell inside, so the surviving part of
+        # that segment keeps its shape rather than reverting to linear.
+        easing=next(
+            (p.easing for p in reversed(ramp) if p.source_time <= consumed + _EPSILON),
+            "linear",
+        ),
+    )
+    return [head, *later, *tail_cut]
+
+
+def _source_offset_for_timeline(clip: Clip, timeline_delta: float) -> float:
+    """The **signed** source offset reached ``timeline_delta`` timeline seconds in.
+
+    Mirrors ``operations.ts#sourceOffsetForTimeline``. Signed and deliberately
+    unclamped, because a trim can also EXTEND an edge — a negative head delta, or a
+    tail delta past the clip's own duration — where
+    :func:`~framepilot_engine.effects.speed_curve.source_span_for_duration`'s clamping
+    is wrong. Outside the clip's span the rate is HELD at the nearest end of the curve,
+    matching :func:`rate_at`'s extrapolation exactly, so an extension never uses a rate
+    the curve never states.
+    """
+    if not has_speed_ramp(clip):
+        # ``_truncate_clip`` (the only caller) returns before this for a freeze frame
+        # (no ramp and ``speed == 0``), so ``speed`` here is never 0.
+        speed = clip.speed if clip.speed is not None else 1.0
+        return timeline_delta * abs(speed)
+    ramp = clip.speed_ramp or []
+    if timeline_delta < 0:
+        return timeline_delta * rate_at(ramp, 0.0)
+    span = _clip_source_end(clip) - clip.source_start
+    whole = integrate_rate(ramp, 0.0, span)
+    if timeline_delta <= whole:
+        return source_time_at(ramp, 0.0, timeline_delta, span)
+    return span + (timeline_delta - whole) * rate_at(ramp, span)
+
+
+def _rebase_keyframes(clip: Clip, head_seconds: float, clip_id: str) -> list[Keyframe]:
+    """Re-base a clip's keyframes for a head trim of ``head_seconds``, keeping the curve.
+
+    Mirrors ``operations.ts#rebaseKeyframes``. Everything shifts by ``-head_seconds``.
+    Points landing before the new start are replaced, per property, by ONE keyframe at
+    time 0 carrying the value the animation actually had there — resampling the curve
+    rather than discarding it. Keeping negative times is not an option (the schema's
+    ``time`` is non-negative, so the whole patch would fail validation and the edit
+    would be lost); dropping them is not either (the evaluator interpolates from the
+    preceding point, so the clip would open on a flat value instead of partway along
+    its ramp).
+    """
+    if head_seconds == 0 or not clip.keyframes:
+        return [k.model_copy(deep=True) for k in clip.keyframes]
+    shifted = [
+        k.model_copy(deep=True, update={"time": k.time - head_seconds}) for k in clip.keyframes
+    ]
+    if all(k.time >= -_EPSILON for k in shifted):
+        # Nothing crossed the new start; clamp away float dust and keep the rest.
+        return [k.model_copy(update={"time": 0.0}) if k.time < 0 else k for k in shifted]
+
+    kept: list[Keyframe] = []
+    for prop in dict.fromkeys(k.property for k in shifted):
+        points = sorted((k for k in shifted if k.property == prop), key=lambda k: k.time)
+        before = [k for k in points if k.time < -_EPSILON]
+        after = [k for k in points if k.time >= -_EPSILON]
+        if not before:
+            kept.extend(after)
+            continue
+        if not any(abs(k.time) <= _EPSILON for k in after):
+            value = evaluate_keyframes(shifted, prop, 0.0)
+            # Easing describes the segment LEAVING a keyframe, so the point governing
+            # the segment running into 0 is the one still in force there.
+            governing = before[-1]
+            kept.append(
+                governing.model_copy(
+                    deep=True,
+                    update={
+                        "id": f"kf_{clip_id}_{prop}_0",
+                        "time": 0.0,
+                        "value": value if value is not None else governing.value,
+                    },
+                )
+            )
+        kept.extend(after)
+    return kept
+
+
 def _truncate_clip(clip: Clip, new_start: float, new_end: float, clip_id: str) -> Clip:
-    """A clip spanning [new_start, new_end) with source re-mapped 1:1."""
-    d_start = new_start - clip.start
-    d_end = new_end - clip.end
-    return _clone_clip(clip).model_copy(
+    """A clip spanning [new_start, new_end) with its source re-mapped THROUGH its speed.
+
+    Mirrors ``operations.ts#truncateClip`` (schema v15, ADR 0090), and the single place
+    ``trim_clip``, ``split_clip``, ``delete_range`` and ``ripple_delete`` get their edge
+    arithmetic from, so they cannot disagree.
+
+    This replaced a 1:1 re-map that ADR 0046 flagged as a known limitation: moving the
+    source in/out by the same delta as the timeline edges breaks the duration invariant
+    on a retimed clip, so the validator rejected an ordinary trim of a 2x clip. Four
+    cases, all routed through :mod:`framepilot_engine.effects.speed_curve` so nothing
+    here re-derives the arithmetic:
+
+    - **No time-based source** (text/caption): the window is always the whole of
+      itself, so the source range is rewritten rather than consumed — otherwise moving
+      the left edge earlier drives ``source_start`` negative and the trim is rejected.
+    - **Freeze** (``speed == 0``): the source range names a held frame, so it is left
+      untouched; consuming it proportionally would shrink it to nothing.
+    - **Reverse** (``speed < 0``): the clip plays ``source_end -> source_start``, so
+      trimming the timeline HEAD consumes footage from the source END. Getting this
+      backwards is invisible in the duration check and obvious in the picture.
+    - **Forward, constant or ramped**: the integral mapping, with the ramp re-based.
+    """
+    if not _has_time_based_source(clip):
+        return _clone_clip(clip).model_copy(
+            update={
+                "id": clip_id,
+                "start": new_start,
+                "end": new_end,
+                "source_start": 0.0,
+                "source_end": new_end - new_start,
+                "keyframes": _rebase_keyframes(clip, new_start - clip.start, clip_id),
+            }
+        )
+    head_seconds = new_start - clip.start
+    tail_seconds = clip.end - new_end
+    speed = clip.speed if clip.speed is not None else 1.0
+    # Keyframe times are CLIP-relative, so a head trim has to re-base them or the
+    # animation slides: a punch-in placed on a gesture drifted off it the moment the
+    # clip was trimmed. The shift is ``head_seconds`` at any speed — including a
+    # reverse clip, whose SOURCE mapping is inverted below while its keyframe times
+    # are not.
+    base = _clone_clip(clip).model_copy(
         update={
             "id": clip_id,
             "start": new_start,
             "end": new_end,
-            "source_start": clip.source_start + d_start,
-            "source_end": (clip.source_end + d_end) if clip.source_end is not None else None,
+            "keyframes": _rebase_keyframes(clip, head_seconds, clip_id),
         }
     )
+    ramped = has_speed_ramp(clip)
+    if not ramped and speed == 0:
+        return base
+    if not ramped and speed < 0:
+        magnitude = abs(speed)
+        return base.model_copy(
+            update={
+                "source_start": clip.source_start + tail_seconds * magnitude,
+                "source_end": _clip_source_end(clip) - head_seconds * magnitude,
+            }
+        )
+    head_source = _source_offset_for_timeline(clip, head_seconds)
+    end_source = _source_offset_for_timeline(clip, new_end - clip.start)
+    update: dict[str, Any] = {
+        "source_start": clip.source_start + head_source,
+        "source_end": clip.source_start + end_source,
+    }
+    # Assigned only when the clip HAS a ramp, so an unramped clip does not grow an
+    # explicit ``speed_ramp`` key that is unequal to a clip that never had one.
+    rebased = _rebase_speed_ramp(clip, head_source, end_source - head_source)
+    if rebased is not None:
+        update["speed_ramp"] = rebased
+    return base.model_copy(update=update)
 
 
 def _subtract_range(clip: Clip, start: float, end: float) -> list[Clip]:
@@ -755,23 +969,19 @@ def _apply_trim(timeline: Timeline, op: TrimClip) -> Timeline:
             f"{round(op.start, 3):g}s → {round(op.end, 3):g}s.",
         )
     clip = loc.clip
-    # Move source in/out by the same delta as the timeline edges (1:1 speed).
-    source_end = clip.source_end if clip.source_end is not None else clip.end - clip.start
-    new_source_start = clip.source_start + (op.start - clip.start)
-    new_source_end = source_end + (op.end - clip.end)
+    # Speed-aware since schema v15 (ADR 0090). This used to move source in/out by the
+    # same delta as the timeline edges regardless of ``speed`` — ADR 0046's documented
+    # known limitation, which meant an ordinary trim of a 2x clip was rejected by
+    # ``speed_duration_mismatch``. ``_truncate_clip`` owns the mapping for every speed
+    # case, so trim, split, delete_range and ripple_delete cannot disagree.
+    next_clip = _truncate_clip(clip, op.start, op.end, clip.id)
+    new_source_start = next_clip.source_start
+    new_source_end = _clip_source_end(next_clip)
     if new_source_start < -_EPSILON or new_source_end - new_source_start <= _EPSILON:
         raise OperationError(
             "invalid_range",
             _source_range_rejection("trim_clip", clip, new_source_start, new_source_end),
         )
-    next_clip = clip.model_copy(
-        update={
-            "start": op.start,
-            "end": op.end,
-            "source_start": new_source_start,
-            "source_end": new_source_end,
-        }
-    )
     return _replace_clip_at(timeline, loc, next_clip)
 
 
@@ -833,11 +1043,9 @@ def _apply_split(timeline: Timeline, op: SplitClip) -> Timeline:
         raise OperationError(
             "invalid_split", f"split point {op.at} is not strictly inside clip {op.clip_id}"
         )
-    source_end = clip.source_end if clip.source_end is not None else clip.end - clip.start
-    fraction = (op.at - clip.start) / (clip.end - clip.start)
-    source_at = clip.source_start + fraction * (source_end - clip.source_start)
     offset = op.at - clip.start
 
+    # Keyframes are clip-relative: partition by the split offset, re-base the right side.
     left_keyframes = [
         k.model_copy(deep=True) for k in clip.keyframes if k.time <= offset + _EPSILON
     ]
@@ -847,17 +1055,18 @@ def _apply_split(timeline: Timeline, op: SplitClip) -> Timeline:
         if k.time > offset + _EPSILON
     ]
 
-    left = _clone_clip(clip).model_copy(
-        update={"end": op.at, "source_end": source_at, "keyframes": left_keyframes}
+    # Speed-aware since schema v15 (ADR 0090). The old code took the LINEAR fraction of
+    # the source span, which is right for a constant rate and wrong for a ramp: on a
+    # clip that starts slow and ends fast, the halfway point in TIME is nowhere near the
+    # halfway point in FOOTAGE, so a split placed on a gesture cut somewhere else
+    # entirely. ``_truncate_clip`` also re-bases the right half's ramp, without which
+    # both halves would carry the whole original curve.
+    left = _truncate_clip(clip, clip.start, op.at, clip.id).model_copy(
+        update={"keyframes": left_keyframes}
     )
-    right = _clone_clip(clip).model_copy(
-        update={
-            "id": _derive_clip_id(clip.id, "split", op.at),
-            "start": op.at,
-            "source_start": source_at,
-            "keyframes": right_keyframes,
-        }
-    )
+    right = _truncate_clip(
+        clip, op.at, clip.end, _derive_clip_id(clip.id, "split", op.at)
+    ).model_copy(update={"keyframes": right_keyframes})
     clips = list(loc.track.clips)
     clips[loc.clip_index : loc.clip_index + 1] = [left, right]
     return _with_track_clips(timeline, loc.track_index, clips)
@@ -925,8 +1134,7 @@ def _apply_reorder_clips(
         if clip_id in seen:
             raise OperationError(
                 "invalid_order",
-                f"reorder_clips: clip '{clip_id}' is listed twice. "
-                f"Each clip appears exactly once.",
+                f"reorder_clips: clip '{clip_id}' is listed twice. Each clip appears exactly once.",
             )
         seen.add(clip_id)
     if len(seen) != len(track.clips):
@@ -1554,7 +1762,19 @@ def invert_operation(timeline_before: Timeline, operation: Operation) -> list[Op
         ``timeline_before``.
     """
     if isinstance(operation, TrimClip):
-        clip = _find_clip(timeline_before, operation.clip_id).clip
+        loc = _find_clip(timeline_before, operation.clip_id)
+        clip = loc.clip
+        # An ANIMATED clip inverts by restoring the track, not by trimming back.
+        #
+        # A head trim re-bases keyframes and resamples the curve at the new start (see
+        # ``_rebase_keyframes``), which is deliberately lossy: the points that fell off
+        # the front are replaced by one carrying their combined effect. Trimming back
+        # out cannot invent them again, so the same-shape inverse would return a clip
+        # that looks right and no longer holds the animation it had. This file's rule
+        # for an inverse that cannot be exact is ``restore_clips``, and the cost is paid
+        # only by clips that actually carry keyframes. Mirrors ``operations.ts``.
+        if clip.keyframes:
+            return [_restore_for(loc.track)]
         return [TrimClip(clip_id=operation.clip_id, start=clip.start, end=clip.end)]
     if isinstance(operation, SetClipSourceRange):
         clip = _find_clip(timeline_before, operation.clip_id).clip

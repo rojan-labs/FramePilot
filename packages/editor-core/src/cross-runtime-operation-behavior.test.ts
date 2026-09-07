@@ -49,14 +49,36 @@ describe('cross-runtime operation behavior fixture', () => {
         const located = findClip(timeline, expected.clipId);
         expect(located).toBeDefined();
         if (!located) return;
+        // A speed CURVE is inverted numerically (bisection over a fixed-step
+        // integral), so a case that crosses one states the slack it accepts rather
+        // than demanding two languages land on the same last bit.
+        const tolerance = typeof expected.tolerance === 'number' ? expected.tolerance : undefined;
+        const expectTime = (actual: number | undefined, want: number): void => {
+          if (tolerance === undefined) expect(actual).toBe(want);
+          else expect(actual ?? Number.NaN).toBeCloseTo(want, -Math.log10(tolerance));
+        };
         if (typeof expected.trackId === 'string') expect(located.track.id).toBe(expected.trackId);
-        if (typeof expected.start === 'number') expect(located.clip.start).toBe(expected.start);
-        if (typeof expected.end === 'number') expect(located.clip.end).toBe(expected.end);
+        if (typeof expected.start === 'number') expectTime(located.clip.start, expected.start);
+        if (typeof expected.end === 'number') expectTime(located.clip.end, expected.end);
         if (typeof expected.sourceStart === 'number')
-          expect(located.clip.sourceStart).toBe(expected.sourceStart);
+          expectTime(located.clip.sourceStart, expected.sourceStart);
         if (typeof expected.sourceEnd === 'number')
-          expect(located.clip.sourceEnd).toBe(expected.sourceEnd);
+          expectTime(located.clip.sourceEnd, expected.sourceEnd);
         if (typeof expected.speed === 'number') expect(located.clip.speed).toBe(expected.speed);
+        // The re-based speed ramp: source times and rates, in order. A runtime that
+        // leaves the original curve on a trimmed or split piece renders the wrong
+        // speeds over the wrong footage and the validator rejects the patch.
+        if (Array.isArray(expected.speedRamp)) {
+          const points = (expected.speedRamp as { sourceTime: number; rate: number }[]).map(
+            (point) => point,
+          );
+          expect(located.clip.speedRamp?.length).toBe(points.length);
+          points.forEach((point, index) => {
+            const actual = located.clip.speedRamp?.[index];
+            expectTime(actual?.sourceTime, point.sourceTime);
+            expectTime(actual?.rate, point.rate);
+          });
+        }
         if (expected.crop !== undefined) expect(located.clip.crop).toEqual(expected.crop);
         if (typeof expected.blendMode === 'string')
           expect(located.clip.blendMode).toBe(expected.blendMode);
