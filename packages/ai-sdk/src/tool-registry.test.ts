@@ -709,7 +709,8 @@ describe('mutating tools — build valid operations', () => {
       tool.buildOps!({ clipId: track.clips[0]!.id, trackId: track.id, gainDb: -6 }, ctx),
     ).toThrow(/exactly one/);
     expect(() => tool.buildOps!({ trackId: 'nope', gainDb: -6 }, ctx)).toThrow(/Track not found/);
-    expect(tool.derivedFanOut).toBe(true);
+    // Counted against the blast-radius cap like any other mutation — see the tool.
+    expect(tool.derivedFanOut).toBeUndefined();
   });
 
   it('trim_clip / split_clip', () => {

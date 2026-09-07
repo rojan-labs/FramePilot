@@ -68,10 +68,10 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         'a short file is one trackId call, never one call per tile. Give exactly one of the ' +
         'two. To lower a bed only while someone speaks, use professional_audio duck_roles ' +
         'instead.',
-      // One op per clip on the track: the count is a fact about the timeline, not a
-      // decision the model made (see `ToolSpec.derivedFanOut`). s9-live-all
-      // music-bed-quiet made eighteen one-clip calls, one per 30-second tile of the bed.
-      derivedFanOut: true,
+      // NOT `derivedFanOut`: that flag is per tool, and it would exempt a one-clip call
+      // from the per-turn blast-radius cap too (a repair turn of 200 single adjustments
+      // sailed through it). A track-wide call counts one op per clip against the cap,
+      // which a tiled bed (eighteen clips in s9-live-all music-bed-quiet) sits well under.
     },
     z
       .object({

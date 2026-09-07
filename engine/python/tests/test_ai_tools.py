@@ -1065,6 +1065,7 @@ def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:
     # of clipId/trackId is accepted, and an unknown track names the real ones.
     track = next(t for t in project.timeline.tracks if any(c.id == "AU" for c in t.clips))
     result = run_tool("adjust_audio", {"trackId": track.id, "gainDb": -18.0}, ctx)
+    assert result.operations is not None
     assert [op["clipId"] for op in result.operations] == [c.id for c in track.clips]
     assert all(op["gainDb"] == -18.0 for op in result.operations)
     _assert_patch_ok(result, project)
