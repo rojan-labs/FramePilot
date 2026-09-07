@@ -1,10 +1,22 @@
 /**
  * Media-understanding host glue.
  *
- * The editor owns credentials and the sidecar owns media processing. Imported
- * media may be warmed in the background, while semantic tools can call
- * {@link ensureProjectMediaUnderstanding} to prepare unchanged media implicitly.
- * Users and models never need to manage an index as a separate workflow.
+ * The editor owns credentials and the sidecar owns media processing. Semantic tools call
+ * {@link ensureProjectMediaUnderstanding} to prepare unchanged media implicitly. Users and
+ * models never need to manage an index as a separate workflow.
+ *
+ * ## Where import-time warming went
+ *
+ * It used to live here, as `autoIndexImportedAssets`, and it ran only when an NVIDIA or
+ * TwelveLabs key was configured. Both halves of that were wrong (ADR 0175): tier 0 of the
+ * shot ledger needs no key, and a per-surface hook in the renderer left every asset the
+ * AGENT acquired unindexed. Acquisition-time enrolment is now the desktop main process's
+ * single batching enroller (`apps/desktop/electron/ai/asset-enrolment.ts`), which sees
+ * human imports, stock and every other acquired asset alike.
+ *
+ * The browser build has no sidecar and no main process, so it enrols nothing and the
+ * understanding surfaces degrade to `unavailable` — accepted per CLAUDE.md's desktop-first
+ * rule. Nothing here throws when there is no engine to reach.
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { AiConfig } from '@framepilot/shared-types';
@@ -13,9 +25,7 @@ import {
   type EnsureMediaUnderstandingResult,
   type FootageMap,
   VisualIndexClient,
-  runVisualIndexLoop,
   summarizeFootageMap,
-  type VisualIndexLoopResult,
 } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
 import { resolveEngineBaseUrl } from './ai.js';
@@ -64,59 +74,6 @@ export function understandingCredentials(config: AiConfig): {
     // Always sent, never gated on the hosted key: the engine routes stills here.
     ...(onDevice ? { nvidiaKeys: onDevice } : {}),
   };
-}
-
-/**
- * Background warming is automatic whenever a media-understanding backend is
- * configured. The old `embeddingsAutoIndex` preference is migration-only and is
- * intentionally ignored: semantic tools also prepare media lazily on first need.
- */
-export function shouldAutoIndex(config: AiConfig): boolean {
-  return nvidiaEmbeddingsKeys(config) !== undefined || twelveLabsKey(config) !== undefined;
-}
-
-export interface AutoIndexInput {
-  readonly projectId: string;
-  /** The just-imported asset ids (the worklist for this run). */
-  readonly assetIds: readonly string[];
-  readonly config: AiConfig;
-  /** Overridable for tests; defaults to a client on the resolved sidecar URL. */
-  readonly client?: VisualIndexClient;
-}
-
-/**
- * Warm freshly imported assets in the background. This is an optimization only:
- * import and preview never wait for it, and semantic tools still call the ensure
- * gate before querying so cancelled or offline warming cannot create stale assumptions.
- */
-export async function autoIndexImportedAssets(
-  input: AutoIndexInput,
-): Promise<VisualIndexLoopResult | undefined> {
-  if (input.assetIds.length === 0 || !shouldAutoIndex(input.config)) return undefined;
-  const nvidiaKeys = nvidiaEmbeddingsKeys(input.config);
-  const tlKey = twelveLabsKey(input.config);
-  if (!nvidiaKeys && !tlKey) return undefined;
-
-  const client = input.client ?? createVisualIndexClient();
-  log.action('media warmup → start', {
-    projectId: input.projectId,
-    assetCount: input.assetIds.length,
-    backend: tlKey ? 'twelvelabs' : 'builtin',
-  });
-  const result = await runVisualIndexLoop({
-    client,
-    request: {
-      projectId: input.projectId,
-      assetIds: input.assetIds,
-      ...understandingCredentials(input.config),
-    },
-  });
-  log.action('media warmup → done', {
-    projectId: input.projectId,
-    status: result.status,
-    indexed: result.last?.indexed ?? 0,
-  });
-  return result;
 }
 
 export interface EnsureProjectMediaUnderstandingInput {

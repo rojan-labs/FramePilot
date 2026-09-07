@@ -155,7 +155,19 @@ describe('cacheDerivedMedia', () => {
     const absent = join(root, 'media', 'p1', 'gone.mp4');
 
     expect(await cached(absent)).toBeNull();
-    expect(derive).toHaveBeenCalledWith(absent);
+    expect(derive).toHaveBeenCalledWith(absent, undefined);
+  });
+
+  it('forwards the asset identity, which is what makes a download indexable', async () => {
+    // `/asset-media` is the only writer of the brain's asset row, and the visual index
+    // answers `asset not known to brain` for anything that has none. Sourced downloads
+    // derived without these ids, so every stock clip was unindexable (ADR 0175).
+    const derive = stub(async () => DERIVED);
+    const cached = cacheDerivedMedia(derive, { projectsRoot: root });
+    const identity = { projectId: 'p1', assetId: 'stock_pexels_1' };
+
+    await cached(source, identity);
+    expect(derive).toHaveBeenCalledWith(source, identity);
   });
 
   it('evicts oldest-first so a long session cannot grow it without bound', async () => {

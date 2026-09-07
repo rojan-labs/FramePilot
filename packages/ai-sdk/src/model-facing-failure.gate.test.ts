@@ -414,7 +414,7 @@ describe('every model-facing failure names a next action', () => {
   it('for every terminal state of the paced index job', () => {
     const statuses: readonly VisualIndexLoopResult['status'][] = [
       'done',
-      'no-key',
+      'nothing-to-index',
       'unavailable',
       'unreachable',
       'cancelled',

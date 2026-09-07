@@ -1,7 +1,7 @@
 /**
  * Tests for the visual-index client (plan MI4.2): schema parsing, the
  * injectable-fetch client's honest degradation on every failure path, and the
- * paced-loop driver's terminal-signal handling (done, no-key, cancelled, keys
+ * paced-loop driver's terminal-signal handling (done, nothing-to-index, cancelled, keys
  * failing, unreachable, abort). Fully offline — no sidecar, no NVIDIA.
  */
 import { describe, expect, it, vi } from 'vitest';
@@ -348,7 +348,7 @@ describe('runVisualIndexLoop', () => {
     expect(JSON.parse(String(calls[1]?.body)).jobId).toBe('j1');
   });
 
-  it('reports no-key when the engine returns available with no jobId (one iteration)', async () => {
+  it('reports nothing-to-index when the engine returns available with no jobId', async () => {
     const { fetchFn, calls } = fetchQueue([
       { available: true, reason: 'no NVIDIA embedding key configured' },
     ]);
@@ -356,7 +356,7 @@ describe('runVisualIndexLoop', () => {
       client: new VisualIndexClient({ baseUrl: BASE, fetchFn }),
       request,
     });
-    expect(result.status).toBe('no-key');
+    expect(result.status).toBe('nothing-to-index');
     expect(calls).toHaveLength(1);
   });
 

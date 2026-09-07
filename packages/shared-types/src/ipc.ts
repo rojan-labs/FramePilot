@@ -498,11 +498,6 @@ export interface AiConfig {
    * the sidecar in `/brain/visual/*` request bodies. Absent when no key is configured.
    */
   readonly twelveLabs?: string;
-  /**
-   * Auto-index media on import when an embeddings key exists (plan
-   * MEDIA-INTELLIGENCE D3). Defaults to `true` when never set.
-   */
-  readonly embeddingsAutoIndex?: boolean;
   /** Provider used to write per-scene visual descriptions during media indexing. */
   readonly visualCaptionProvider?: AiProviderName;
   /**
@@ -572,8 +567,6 @@ export interface AiConfigUpdate {
    * {@link AiConfig.twelveLabs} for WHY.
    */
   readonly twelveLabs?: string | null;
-  /** Toggle background auto-indexing of imported media (default on). */
-  readonly embeddingsAutoIndex?: boolean;
   /** Select the saved AI provider that captions indexed scenes. */
   readonly visualCaptionProvider?: AiProviderName;
   /**
@@ -618,6 +611,12 @@ export interface VisualIndexItemResult {
   readonly indexed: number;
   readonly captioned: number;
   readonly reason?: string | null | undefined;
+  /**
+   * Per-tier disposition for this asset — `ok`, `skipped: <why>` or `failed: <why>` for
+   * each of the shot ledger's three provenance groups (ADR 0175). Absent on an engine
+   * that predates the ledger, which is not the same fact as "no tier ran".
+   */
+  readonly tiers?: Record<string, string>;
 }
 
 export interface VisualIndexResult {
@@ -630,7 +629,25 @@ export interface VisualIndexResult {
   readonly indexed: number;
   readonly captioned: number;
   readonly captionsReason?: string | null | undefined;
+  /** Per-tier disposition for the whole slice; see {@link VisualIndexItemResult.tiers}. */
+  readonly tiers?: Record<string, string>;
+  /** Shot-ledger coverage across the job's worklist, in SHOTS. */
+  readonly coverage?: VisualTierCoverageResult | null | undefined;
   readonly items: VisualIndexItemResult[];
+}
+
+/**
+ * Shot-ledger coverage as counts of shots, per tier, out of `total` (ADR 0175).
+ *
+ * The three tiers degrade independently: `measured` is the keyless ffmpeg floor,
+ * `labelled` needs an embedding key or the local pack, `described` needs a vision
+ * provider. Reporting one of them as "indexed" is the misreport this shape prevents.
+ */
+export interface VisualTierCoverageResult {
+  readonly measured: number;
+  readonly labelled: number;
+  readonly described: number;
+  readonly total: number;
 }
 
 /**

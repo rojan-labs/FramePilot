@@ -6,7 +6,28 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Your footage is measured on import, with no key and no setting.** Media understanding
+  used to start only if you had configured an NVIDIA or TwelveLabs key, so on a fresh
+  install nothing was ever looked at and the AI knew nothing about any picture on the
+  timeline. Every imported clip, every stock download and every photo is now measured
+  locally — where the shots start and end, how bright, how warm, how sharp, how much it
+  moves — and a key buys only the extra layers on top. Nothing leaves your machine for
+  that, and the "Automatic preparation" toggle is gone because there is nothing left to
+  turn off.
+- **Settings says which layer actually ran.** The media-intelligence panel reported one
+  number that could mean three different things. It now reads
+  `measured 61/61 · labelled 0/61 · described 0/61 — described needs a vision provider`,
+  so "your footage has been looked at" and "your footage has been described" are never
+  the same sentence again.
+
 ### Fixed
+
+- **Clips the AI downloads are indexed like the ones you import.** Stock clips added by
+  the AI or from the Stock panel were never registered with the media engine, so the AI
+  went back to a montage it had just built and was told it knew nothing about any of it.
+  Every acquired clip now takes the same path an imported one does.
 
 - **Stock cutaways are held to the number you asked for.** A brief that said "two cutaways I
   never shot" came back with eight stock clips covering fifty of its sixty seconds and six

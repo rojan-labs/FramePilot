@@ -561,7 +561,7 @@ function packetT0(packet: unknown): number {
  *
  * The engine's honest contract is preserved verbatim: `available:false` (no sandbox
  * root / unusable brain) is a real FAILURE with the reason; `available:true` WITH a
- * reason and no packets is the no-key / key-exhaustion no-op — a `warning`, not a
+ * reason and no packets is the empty-worklist / key-exhaustion no-op — a `warning`, not a
  * fabricated ranking; `available:true` with no reason and no packets is a legitimate
  * empty result (nothing on screen matched, or the footage is not indexed yet). Packets
  * are handed back verbatim — the model reads captions/spans and cites them.
@@ -989,18 +989,16 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
         summary: `Indexed the footage — ${indexed} span${indexed === 1 ? '' : 's'} across ${total} asset${total === 1 ? '' : 's'}. You can search_visual now.`,
         data: result.last,
       };
-    case 'no-key':
+    case 'nothing-to-index':
       return {
         status: 'warning',
-        // The key has to be added by a person in Settings, so the caller's move is not to
-        // fix it — it is to stop asking and work without an index. Naming only the human's
-        // move is the `Place it from the bin` mistake of run `369e8c82`.
+        // Not a missing key: measurement needs none (ADR 0175). An empty worklist means
+        // this project has no media the engine can look at, so the caller's move is to
+        // stop asking rather than to fix a setting.
         summary:
-          '"index_media": no embedding key is configured, so the footage cannot be indexed ' +
-          'and search_visual, describe_footage and map_footage have nothing to answer from. ' +
-          'Do not call it again in this run. Look at moments directly with get_frame, and ' +
-          'tell the editor to add an NVIDIA embeddings key in Settings → AI → Embeddings if ' +
-          'they want content search.',
+          '"index_media": there is no media in this project for the engine to index, so ' +
+          'search_visual, describe_footage and map_footage have nothing to answer from. ' +
+          'Do not call it again in this run — import or add footage first.',
         data: result.last,
       };
     case 'unavailable':

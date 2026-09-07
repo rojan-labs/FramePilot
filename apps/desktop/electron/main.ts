@@ -198,6 +198,7 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { sourcedAssetId } from './media/sourced-asset-id.js';
 import { cacheDerivedMedia } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
@@ -209,7 +210,7 @@ import {
   sourcingFailureNote,
   unusableHostPayload,
 } from '@framepilot/ai-sdk';
-import { createAssetEnroller } from './ai/asset-enrolment.js';
+import { createAssetEnroller, enrolmentTargetFor } from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
@@ -1185,7 +1186,7 @@ function registerIpcHandlers(): void {
       ) {
         return { ok: false, error: 'download_failed', detail: 'invalid download request' };
       }
-      return await stockService.download(req);
+      return await downloadStockAsset(req);
     },
   );
   ipcMain.on(IpcChannels.stockDownloadCancel, (_event, operationId: unknown) => {
@@ -1618,11 +1619,22 @@ function registerIpcHandlers(): void {
         const request = req as ImportAssetRequest;
         const guard = sandboxProjectPath(await ensureProjectsDir(), request?.inputPath);
         if (!guard.ok) return guard;
-        return await importAssetViaSidecar(
+        const derived = await importAssetViaSidecar(
           engineBaseUrl,
           { ...request, inputPath: guard.path },
           electronFetch,
         );
+        // The human import path's one enrolment hook (ADR 0175 / VU1.5). It is here, and
+        // not in the renderer where it used to be, because this is where an acquired file
+        // becomes a KNOWN asset: the call above is the only writer of the brain row the
+        // shot ledger reads, so enrolling anywhere else can only ask the engine about an
+        // asset it has never heard of.
+        //
+        // The conditions live in `enrolmentTargetFor` beside the enroller, where they can
+        // be tested; there is nothing else in this handler worth a test.
+        const target = enrolmentTargetFor(request, derived);
+        if (target) enrolAcquiredAsset(target.projectId, target.assetId);
+        return derived;
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
@@ -2295,23 +2307,6 @@ function registerIpcHandlers(): void {
   };
 
   /**
-   * `add_stock` for the agent. The decision it carries — what an absent
-   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
-   * against the orchestrator's matching rule.
-   */
-  /**
-   * Enrol agent-downloaded stock into the visual index (D1).
-   *
-   * `describe_footage` answered `not_indexed` for every clip captured run `e36235cc`
-   * downloaded, because the only automatic enrolment is `autoIndexImportedAssets` on the
-   * renderer's HUMAN import path — the agent's acquisition path had no hook at all. So a
-   * montage judged on visual variety was assembled blind.
-   *
-   * Fire-and-forget and never awaited by the download: enrolment is an optimization, it
-   * needs a configured key, and a run that cannot index must still be able to place
-   * footage. The same contract `autoIndexImportedAssets` has.
-   */
-  /**
    * Ends all background enrolment at quit. Held here, beside the enroller, because
    * `before-quit` is registered a long way below and both halves have to name the same
    * controller for the abort to reach anything.
@@ -2326,33 +2321,88 @@ function registerIpcHandlers(): void {
     enrol: async ({ projectId, assetIds, signal }) => {
       const result = await runVisualIndexLoop({
         client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
+        // Credentials still ride along, but they no longer decide WHETHER this runs:
+        // they decide which tiers the engine can add on top of the keyless measurement
+        // (ADR 0175). `tiers`/`priority` are left at the engine's defaults — all three
+        // tiers, the brain's own order — because an import batch wants everything it can
+        // get for exactly the assets it names.
         request: { projectId, assetIds: [...assetIds], ...visualIndexCredentials() },
         signal,
       });
-      aiLog.debug('stock asset enrolment settled', {
+      aiLog.debug('asset enrolment settled', {
         projectId,
         assets: assetIds.length,
         status: result.status,
+        // Which tiers actually reached the footage. "Enrolled" and "described" are
+        // different facts and a log that conflates them cannot diagnose a blind run.
+        ...(result.last?.tiers && Object.keys(result.last.tiers).length > 0
+          ? { tiers: result.last.tiers }
+          : {}),
       });
+      // A batch that did not finish must not leave its ids remembered as enrolled: the
+      // realistic failure is a sidecar that was still starting, and the asset would then
+      // never be measured for the rest of the session. Throwing hands the ids back to the
+      // enroller, which forgets them; the rejection itself is only logged.
+      if (result.status !== 'done') {
+        throw new Error(`visual index did not complete: ${result.status}`);
+      }
     },
   });
 
-  const enrolStockAsset = ({
-    projectId,
-    assetId,
-  }: {
-    readonly projectId: string;
-    readonly assetId: string;
-  }): void => {
-    // Checked before queueing, not inside the batch: without a key there is nothing to
-    // enrol into, and remembering the id anyway would suppress a real enrolment after the
-    // user adds one in Settings.
-    const credentials = visualIndexCredentials();
-    if (!credentials.twelveLabsKey && !credentials.nvidiaKeys) return;
+  /**
+   * Enrol ONE acquired asset into the shot ledger, in the background.
+   *
+   * This is the only enrolment entry point in the app (ADR 0175 / VU1.5). It used to be
+   * three: the renderer warmed human imports when a key was configured, `enrolStockAsset`
+   * warmed agent downloads under the same key check, and the Stock and Sounds panels
+   * warmed nothing at all. So on a default install nothing was ever indexed, and across
+   * ten recorded golden runs the agent never called a footage surface.
+   *
+   * There is no key check. Tier 0 — scene cuts, exposure, warmth, motion, sharpness — is
+   * one local ffmpeg pass; a key only buys the labelled and described tiers on top. There
+   * is no sidecar-reachability check either: the client already degrades honestly, and a
+   * second opinion about whether the engine is up could only disagree with it.
+   *
+   * Fire-and-forget, never awaited by the acquisition it follows.
+   *
+   * @param projectId - The project the asset belongs to.
+   * @param assetId - The asset id used by BOTH the project document and the brain row.
+   */
+  const enrolAcquiredAsset = (projectId: string, assetId: string): void => {
     assetEnroller.request(projectId, assetId);
   };
 
-  const hostAddStock = createStockHost(stockService, enrolStockAsset);
+  /**
+   * Download a stock item and enrol it — the one path both the agent's `add_stock` and
+   * the renderer's Stock panel take.
+   *
+   * The enrolment sits HERE rather than in either caller because the panel path had none
+   * and the agent path had its own, so a clip acquired by hand was measurable and the
+   * same clip acquired by the agent was not (or, after the key gate, neither was).
+   */
+  const downloadStockAsset = async (
+    request: StockDownloadRequest,
+  ): Promise<StockDownloadResult> => {
+    const result = await stockService.download(request);
+    if (result.ok) {
+      enrolAcquiredAsset(
+        request.projectId,
+        sourcedAssetId('stock', result.asset.source.provider, result.asset.source.remoteId),
+      );
+    }
+    return result;
+  };
+
+  /**
+   * `add_stock` for the agent. The decision it carries — what an absent
+   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
+   * against the orchestrator's matching rule.
+   */
+  const hostAddStock = createStockHost({
+    unresolvableReason: (remoteId) => stockService.unresolvableReason(remoteId),
+    knownItem: (remoteId) => stockService.knownItem(remoteId),
+    download: downloadStockAsset,
+  });
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,

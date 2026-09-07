@@ -136,7 +136,13 @@ builder injects one compact line — the `/brain/visual/status` coverage summary
 
 ## Configuration
 
-Everything is opt-in behind a key.
+**Measurement is not opt-in and needs no key.** Every imported or acquired asset is
+measured locally by one ffmpeg pass — shot boundaries, exposure, warmth, motion,
+sharpness ([ADR 0175](../adr/0175-perception-is-a-compiled-shot-ledger.md)). The keys
+below buy the tiers ABOVE that floor: labelled (embeddings) and described (captions).
+The Settings panel reports the three separately, e.g.
+`measured 61/61 · labelled 0/61 · described 0/61 — labelled needs an embedding key ·
+described needs a vision provider`.
 
 - **Settings → AI → Embeddings.** A plain-text input (`type="text"`, value always
   visible — an explicit user requirement, [ADR 0067](../adr/0067-plaintext-key-storage-multi-key-failover.md))
@@ -167,9 +173,14 @@ Everything is opt-in behind a key.
   encoder-tower value per `input`. The client constructs both arrays together
   (`["image", ...]` for stored frames, `["text"]` for a query), so a batch can
   never rely on unsupported single-value broadcasting.
-- **Auto-index on import.** When a key is set, importing an asset triggers a
-  low-priority background index job (journaled, resumable, cancellable) — zero
-  friction. It never blocks import or preview.
+- **Enrolment on acquisition.** Every acquired asset — a human import, an agent
+  `add_stock` download, a Stock-panel download — is queued by ONE batching enroller in
+  the desktop main process (`apps/desktop/electron/ai/asset-enrolment.ts`), which runs at
+  most one journaled, resumable, cancellable index job per project at a time. No key is
+  required and no setting turns it off; it never blocks import or preview. It is keyed on
+  the asset id the sidecar wrote into the brain during derivation, so an asset the brain
+  does not know is never enrolled. There is no browser-build equivalent: no sidecar, no
+  main process, honest `unavailable`.
 - **Status line.** `GET /brain/visual/status` reports coverage per asset, vector
   count, the active vector backend (sqlite-vec vs brute-force fallback), key
   health, and the last error. Settings → AI → Media intelligence renders live job
@@ -232,8 +243,10 @@ to NVIDIA's cloud API** (`integrate.api.nvidia.com`). Everything else in the
 brain is computed locally; visual embeddings are not. The frames are down-scaled
 and deduped, but content still leaves the machine.
 
-**Configuring a key IS the consent.** With no key, no frame is ever sent —
-indexing simply doesn't run. The engine never logs, echoes, or persists the key
+**Configuring a key IS the consent, and it is narrower than it used to be.** With no
+key, no frame is ever sent — the hosted tiers simply do not run. Local decode always
+runs: measurement reads your footage with ffmpeg on your own machine and writes numbers
+into the project's derived `brain.sqlite`. Nothing about that leaves the machine. The engine never logs, echoes, or persists the key
 itself; captioning reuses whichever provider you already configured. See
 [ADR 0066](../adr/0066-nvidia-cloud-visual-embeddings.md) for the full data-flow
 and consent model, and [ADR 0067](../adr/0067-plaintext-key-storage-multi-key-failover.md)

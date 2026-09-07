@@ -40,8 +40,24 @@ import type { DerivedAssetMedia } from './asset-media-client.js';
 
 const log = createLogger('desktop:derived-media-cache');
 
+/**
+ * Which project asset the file being derived IS.
+ *
+ * Carried through because `/asset-media` is the only route that writes an asset row into
+ * the project brain, and nothing that is not in the brain can be indexed — the visual
+ * index answers `asset not known to brain`. Sourced downloads used to derive without
+ * these ids, so every stock clip the agent acquired was unindexable no matter who asked.
+ */
+export interface DerivedAssetIdentity {
+  readonly projectId: string;
+  readonly assetId: string;
+}
+
 /** One derivation function: absolute source path in, derived media (or failure) out. */
-export type DeriveAssetMedia = (absolutePath: string) => Promise<DerivedAssetMedia | null>;
+export type DeriveAssetMedia = (
+  absolutePath: string,
+  identity?: DerivedAssetIdentity,
+) => Promise<DerivedAssetMedia | null>;
 
 /** The identity of a file's bytes, as cheaply as the filesystem will tell us. */
 interface SourceStamp {
@@ -126,12 +142,15 @@ export function cacheDerivedMedia(
     }
   };
 
-  return async (absolutePath: string): Promise<DerivedAssetMedia | null> => {
+  return async (
+    absolutePath: string,
+    identity?: DerivedAssetIdentity,
+  ): Promise<DerivedAssetMedia | null> => {
     const stamp = await statOrNull(absolutePath);
     if (stamp === null) {
       // The source is gone. Let the real derivation report that, rather than inventing
       // an answer here — the caller's error handling is the one that has been reviewed.
-      return derive(absolutePath);
+      return derive(absolutePath, identity);
     }
 
     const cached = entries.get(absolutePath);
@@ -142,6 +161,9 @@ export function cacheDerivedMedia(
       (await artefactsIntact(cached.derived))
     ) {
       // Refresh recency so a file being worked on is not the one evicted.
+      // A hit skips the brain write, and that is correct: the media path contains the
+      // project id, so the same absolute path in this process is the same asset row that
+      // the derivation which populated this entry already wrote.
       remember(absolutePath, cached.stamp, cached.derived);
       log.debug('derived media reused', { path: absolutePath });
       return cached.derived;
@@ -152,7 +174,7 @@ export function cacheDerivedMedia(
     if (running) return running;
 
     const flight = (async () => {
-      const derived = await derive(absolutePath);
+      const derived = await derive(absolutePath, identity);
       // Only a SUCCESS is remembered, and only against the stamp we validated above.
       if (derived !== null) remember(absolutePath, stamp, derived);
       return derived;
