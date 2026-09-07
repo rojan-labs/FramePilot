@@ -32,6 +32,7 @@ import type { Asset, TranscriptWord } from '@framepilot/timeline-schema';
 import { secondsToFrame } from '../frame-grid.js';
 import {
   TIME_EPSILON,
+  spanIsFrozen,
   spanSourceToSequence,
   type ClipSpan,
   type TimelineMap,
@@ -260,6 +261,11 @@ const EMPTY_GROUP: SourceSpanGroup = { spans: [], longestSource: 0 };
 function indexSpansBySource(spans: readonly ClipSpan[]): SourceSpanIndex {
   const grouped = new Map<string, ClipSpan[]>();
   for (const span of spans) {
+    // A freeze holds ONE frame and the render engine drops its audio, so no word is
+    // spoken over it however long it is held. Indexing its source range would caption
+    // the whole range onto the held frame — every one of those words at the same
+    // instant, none of them audible.
+    if (spanIsFrozen(span)) continue;
     const list = grouped.get(span.assetId);
     if (list === undefined) grouped.set(span.assetId, [span]);
     else list.push(span);
@@ -311,8 +317,14 @@ function candidatesIn(group: SourceSpanGroup, word: TranscriptWord): ClipSpan[] 
  * extend past the cut.
  */
 function mapWord(span: ClipSpan, word: TranscriptWord): MappedWord {
-  const rawStart = spanSourceToSequence(span, Math.max(word.start, span.sourceStart));
-  const rawEnd = spanSourceToSequence(span, Math.min(word.end, span.sourceEnd));
+  const a = spanSourceToSequence(span, Math.max(word.start, span.sourceStart));
+  const b = spanSourceToSequence(span, Math.min(word.end, span.sourceEnd));
+  // On a REVERSED clip (schema v15) source time runs backwards as the sequence runs
+  // forwards, so the word's source in-point maps to the LATER sequence instant. A cue
+  // is an interval, not a direction, so order the pair rather than emitting end < start
+  // — which would read as a zero- or negative-length cue everywhere downstream.
+  const rawStart = Math.min(a, b);
+  const rawEnd = Math.max(a, b);
   return {
     word: word.word,
     start: Math.min(Math.max(rawStart, span.start), span.end),

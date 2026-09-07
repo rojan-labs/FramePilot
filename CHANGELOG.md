@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Reversed and freeze-frame clips keep their real timing.** The one map that relates a
+  moment of your footage to a moment of the edit treated any reversed clip as playing
+  forwards at normal speed, and a held frame as a normal-speed walk through its source
+  range. Everything that reads that map — captions, the transcript as it plays, the "where
+  did this moment end up" answer, and the AI's own verification — was therefore wrong for
+  those clips. Reversed footage now maps backwards at its real rate, a freeze holds the
+  frame it is holding, and speech is no longer captioned over a silent held frame.
+
 - **The agent stops when the request is met.** A run that read the timeline and made its
   edit in one step was treated as still "inspecting", told to keep reading, and re-applied
   a position-relative request ("move the last clip to the front") against the timeline it

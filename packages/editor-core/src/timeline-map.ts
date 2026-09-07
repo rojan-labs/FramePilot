@@ -82,9 +82,19 @@ export interface ClipSpan {
   /** Asset out-point, seconds. */
   readonly sourceEnd: number;
   /**
-   * Constant playback rate. Always a positive number here — an absent or
-   * non-positive `Clip.speed` is normalised to `1` so consumers never divide by
-   * zero or branch on `undefined`.
+   * Constant playback rate, **signed**, exactly as schema v15 defines it
+   * (ADR 0090):
+   *
+   * - `> 0` — forward at that rate;
+   * - `< 0` — the source range is consumed backwards at `|speed|`;
+   * - `0` — a freeze: the frame at {@link sourceStart} is held for the span.
+   *
+   * Only an absent or non-finite `Clip.speed` is normalised, to `1`, so
+   * consumers never branch on `undefined`. Do **not** do offset arithmetic with
+   * this value directly — a division by a zero speed, or by a negative one, is
+   * the bug this field's sign exists to prevent. Go through
+   * {@link spanSequenceToSource} / {@link spanSourceToSequence}, which handle
+   * all three cases.
    */
   readonly speed: number;
 }
@@ -125,16 +135,36 @@ export interface SequenceHit {
 // ---------------------------------------------------------------------------
 
 /**
- * Normalise a clip's speed. Absent, zero, and negative all become `1`.
+ * Normalise a clip's speed to a finite number, preserving its SIGN.
  *
- * Reverse playback is not representable in schema v12 (`speed` is
- * `z.number().positive()`), so a non-positive value can only arrive from
- * hand-edited or corrupted project JSON. Coercing to `1` keeps the map total —
- * every clip gets a span — rather than throwing during what is fundamentally a
- * read operation.
+ * Schema v15 (`speed: z.number().finite().optional()`, ADR 0090) makes zero and
+ * negative rates first-class: `0` is a freeze, `< 0` is reverse, and both are
+ * reachable from the product — `set_clip_playback_mode` emits them, the
+ * validator accepts them, and the Python compiler renders them (`TimeMirror` for
+ * reverse, a held frame for a freeze). This module used to coerce every
+ * non-positive speed to `1` on the since-falsified premise that schema v12's
+ * `z.number().positive()` made them unreachable, which mapped a reversed clip
+ * forwards and a freeze as a full 1x walk of its source range — wrong times for
+ * captions, verification, the critic and the map tools alike.
+ *
+ * Only genuinely unusable values are coerced: an absent speed (the overwhelming
+ * common case — 1x is stored as absent) and a non-finite one, which can arrive
+ * only from hand-edited or corrupted project JSON. Coercing those keeps the map
+ * total — every clip gets a span — rather than throwing during what is
+ * fundamentally a read operation.
  */
 const normalizeSpeed = (speed: number | undefined): number =>
-  speed !== undefined && speed > 0 ? speed : 1;
+  speed !== undefined && Number.isFinite(speed) ? speed : 1;
+
+/**
+ * Is this span a freeze — a single held frame rather than a consumed range?
+ *
+ * Exposed because a freeze is genuinely a different *kind* of span, not a slow
+ * one: its source range names the held frame instead of a range that plays, it
+ * carries no audio, and the source→sequence direction is not a function on it.
+ * Consumers that walk source ranges (transcript mapping, above all) have to ask.
+ */
+export const spanIsFrozen = (span: ClipSpan): boolean => span.speed === 0;
 
 /**
  * Read a timeline's clip timing into the canonical map.
@@ -180,38 +210,82 @@ export function buildTimelineMap(timeline: Timeline): TimelineMap {
 /**
  * Convert a sequence instant inside `span` to its asset time.
  *
- * `sourceStart + elapsed * speed`: at 2x, one second of sequence consumes two
- * seconds of source. The caller is responsible for the instant actually lying in
- * the span — see {@link mapSequenceTime} for the checked entry point.
+ * Forward (`speed > 0`): `sourceStart + elapsed * speed` — at 2x, one second of
+ * sequence consumes two seconds of source.
+ *
+ * Reverse (`speed < 0`): the range is consumed from its OUT point backwards, so
+ * the clip's first frame is `sourceEnd` and the arithmetic is
+ * `sourceEnd + elapsed * speed` (the negative sign walks it down). This mirrors
+ * the render engine exactly: it subclips `[sourceStart, sourceEnd)`, reverses
+ * that with `TimeMirror`, then scales by `|speed|`.
+ *
+ * Freeze (`speed === 0`): every instant of the span shows the same frame, the
+ * one at `sourceStart`.
+ *
+ * The caller is responsible for the instant actually lying in the span — see
+ * {@link mapSequenceTime} for the checked entry point.
  */
 export function spanSequenceToSource(span: ClipSpan, sequenceTime: number): number {
-  return span.sourceStart + (sequenceTime - span.start) * span.speed;
+  if (spanIsFrozen(span)) return span.sourceStart;
+  const elapsed = sequenceTime - span.start;
+  return span.speed < 0
+    ? span.sourceEnd + elapsed * span.speed
+    : span.sourceStart + elapsed * span.speed;
 }
 
 /**
  * Convert an asset instant inside `span` to its sequence time.
  *
- * The exact inverse of {@link spanSequenceToSource}: at 2x, two seconds of
- * source occupy one second of sequence.
+ * The exact inverse of {@link spanSequenceToSource} wherever one exists: at 2x,
+ * two seconds of source occupy one second of sequence; reversed, source time
+ * runs backwards as sequence time runs forwards, so a LATER source instant maps
+ * EARLIER on the sequence.
+ *
+ * A freeze has no inverse — the whole span shows one frame, so the mapping is
+ * many-to-one and only `sourceStart` is present at all. It answers `span.start`,
+ * the one sequence instant the held frame can honestly be pinned to. Callers
+ * that must not treat a range as retained should test {@link spanIsFrozen};
+ * {@link spanCoversSource} already refuses everything but the held frame.
  */
 export function spanSourceToSequence(span: ClipSpan, sourceTime: number): number {
-  return span.start + (sourceTime - span.sourceStart) / span.speed;
+  if (spanIsFrozen(span)) return span.start;
+  return span.speed < 0
+    ? span.start + (sourceTime - span.sourceEnd) / span.speed
+    : span.start + (sourceTime - span.sourceStart) / span.speed;
 }
 
-/** Does `span` read this asset instant? Half-open, epsilon-tolerant. */
+/**
+ * Does `span` read this asset instant? Half-open, epsilon-tolerant.
+ *
+ * The half-open end is the one that maps to the span's EXCLUSIVE sequence end,
+ * which is a different end depending on direction: forward, the source out-point
+ * plays last and the range is `[sourceStart, sourceEnd)`; reversed, the clip
+ * *opens* on `sourceEnd` and runs down to `sourceStart`, so the range is
+ * `(sourceStart, sourceEnd]`. Getting this backwards makes the round trip
+ * partial at exactly one boundary — the reversed clip's own first frame reported
+ * as cut.
+ *
+ * A freeze reads exactly ONE instant however long it is held: claiming its whole
+ * source range would report footage as retained that the render never plays, and
+ * would place words the viewer never hears (the engine drops a frozen clip's
+ * audio) all over the held frame.
+ */
 export function spanCoversSource(span: ClipSpan, assetId: string, sourceTime: number): boolean {
+  if (span.assetId !== assetId) return false;
+  if (spanIsFrozen(span)) return Math.abs(sourceTime - span.sourceStart) < TIME_EPSILON;
+  if (span.speed < 0) {
+    return (
+      sourceTime > span.sourceStart + TIME_EPSILON && sourceTime <= span.sourceEnd + TIME_EPSILON
+    );
+  }
   return (
-    span.assetId === assetId &&
-    sourceTime >= span.sourceStart - TIME_EPSILON &&
-    sourceTime < span.sourceEnd - TIME_EPSILON
+    sourceTime >= span.sourceStart - TIME_EPSILON && sourceTime < span.sourceEnd - TIME_EPSILON
   );
 }
 
 /** Does `span` play at this sequence instant? Half-open, epsilon-tolerant. */
 export function spanCoversSequence(span: ClipSpan, sequenceTime: number): boolean {
-  return (
-    sequenceTime >= span.start - TIME_EPSILON && sequenceTime < span.end - TIME_EPSILON
-  );
+  return sequenceTime >= span.start - TIME_EPSILON && sequenceTime < span.end - TIME_EPSILON;
 }
 
 // ---------------------------------------------------------------------------
@@ -274,11 +348,6 @@ export function mapSequenceTime(map: TimelineMap, sequenceTime: number): Sequenc
  * timeline is the source of truth, because snapping, merge behaviour, transition
  * overlap and rounding all mean the applied result may differ from the plan.
  */
-export function retainedSourceRanges(
-  map: TimelineMap,
-  assetId?: string,
-): readonly ClipSpan[] {
-  return assetId === undefined
-    ? map.spans
-    : map.spans.filter((span) => span.assetId === assetId);
+export function retainedSourceRanges(map: TimelineMap, assetId?: string): readonly ClipSpan[] {
+  return assetId === undefined ? map.spans : map.spans.filter((span) => span.assetId === assetId);
 }
