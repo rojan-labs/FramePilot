@@ -46,6 +46,42 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-reorder-cache` — 2026-09-07 (session 9) — **the Claude-login provider's system-prompt prefix, measured: uncached input per call 5.5k → 2.0k tokens, $0.049 → $0.022 per accepted edit, still 6 of 6**
+
+| | |
+| --- | --- |
+| commit | `b0fab26` (+ `9295303`'s dist) on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 2 min; **$0.022** per accepted edit |
+
+### Same cases, same model, per model call (from the case files' `perCall`)
+
+| | `s9-live-reorder-fix2` (before) | `s9-live-reorder-cache` (after) |
+| --- | --- | --- |
+| uncached input tokens per call p50 (min–max) | 5,519 (5,384–5,708) | **2,009 (1,874–2,193)** |
+| cached input tokens per call (avg) | 21,866 | 18,500 |
+| model calls per run | 3 · 2 · 3 · 3 · 3 · 2 | 2 · 3 · 3 · 3 · 3 · 3 |
+| first-pass | 6/6 | **6/6** |
+| operations per run | 1 each | **1 each** |
+| tokens / accepted edit | 73,362 | **58,478** |
+| tier-priced cost / accepted edit | $0.049 | **$0.022** |
+| done p50 · p95 | 11.4s · 22.6s | **12.5s · 14.2s** |
+
+What moved is exactly the run-stable prefix — skills manifest, request, agent contract
+(~3.5k tokens) — which the SDK caches once it is the system prompt. What stays uncached is
+the per-turn tail: project state, briefing, action log (~2k here; larger on a long
+project, which is the next lever).
+
+### Not evidence of
+- Any behaviour change: the prompts' content and order are byte-identical to before; only
+  which SDK field carries the prefix changed. The model's answers happen to be the same
+  three calls.
+- Providers other than `claude-agent-sdk` (the LangChain adapters already placed a cache
+  breakpoint at this boundary).
+
 ## `s9-live-all` — 2026-09-07 (session 9) — **the first complete 21-case live run since the harness was built: 18 of 21 first-pass, silent successes 0, reversibility 21/21, $0.232 per accepted edit**
 
 | | |
