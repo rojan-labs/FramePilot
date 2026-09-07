@@ -9743,20 +9743,38 @@ already exist, and verified with pixels only at flagged cuts. No `project.fp.jso
 brain migration v4. Order: VU0 baseline metrics first, then VU1–VU3 (keyless ledger → model
 surfaces → color solver) as the first vertical slice before any pack work.
 
-- [~] VU0 — **VU0.1 metrics + measured floor `[x]`** (318 turns, 210 accepted edits, ten
+- [x] VU0 — **VU0.1 metrics + the measured floor** (318 turns, 210 accepted edits, ten
   recorded runs: `get_frame` **0**, footage surfaces **0**, guess rate **1.00** —
-  `reports/golden/BASELINE.md`, no run re-run for it); **VU0.4 contracts `[x]`** (ADR 0175 +
-  the Zod↔Pydantic ledger with an 11-test parity guard). VU0.2 labelled fixtures and VU0.3
-  new cases need a human eye on a contact sheet and run alongside VU2; tier 0's own
-  accuracy gate is machine-checkable (full-res vs 160 px).
-- [ ] VU1 — tier 0 shot ledger: one ffmpeg pass per asset, brain v4, keyless index route, one import hook
-- [ ] VU2 — model surfaces: ledger snapshot, `picture` slice with cut-pair deltas, clip-row facts, digest, briefing PICTURE line, tool facts
-- [ ] VU3 — deterministic color: fitted response curves, `match_color` / `normalize_exposure` / `apply_look`, `shot_match` verification
-- [ ] VU4 — transition policy by reason; `add_transitions` auto from boundary flags; b-roll ranking
+  `reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4**
+  ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. **VU0.2/VU0.3** 8 golden cases (5
+  edit-state rubrics, 3 answer-scored), 558 machine-PROPOSED labels marked unverified, and
+  a contact-sheet generator for the human pass. Semantic labels are still owed.
+- [x] VU1 — tier 0 shot ledger. One ffmpeg pass, two chains, ONE decode; brain schema v4;
+  the keyless route (the embedder short-circuit is deleted, tier 0 runs first on both arms);
+  one enrolment path. Measured: 160 px lossless vs full res (YAVG **74.0424 vs 74.0471**),
+  **29.4× real-time** ⇒ a 10-hour library in ~20 min. Fixed along the way: **every still was
+  silently unmeasured** (all 60 photo fixtures), found only by sweeping the whole directory.
+- [x] VU2 — model surfaces: ledger client, `picture` slice with cut-pair deltas, clip-row
+  words, PICTURE digest, facts on `get_clips`/`list_edit_boundaries`. **Zero token delta on
+  an unindexed project** (goldens pass unregenerated); opt-in ~108 tokens/turn for the digest
+  and ~10 per covered row. `[~]` VU2.6's briefing module is built and tested but **not wired**.
+- [x] VU3 — `match_color` / `normalize_exposure` / `apply_look`, inverted from
+  `render/color.py`'s actual pass, emitting the existing `apply_color_grade` operation; the
+  model supplies no value on any of them. **Coefficients UNFITTED** — `fit-color-response.mjs`
+  runs the real fit; no test asserts a fitted number. `[~]` VU3.3's re-measure loop is VU7's.
+- [x] VU4 — transition policy by reason; `add_transitions` `auto` reads the boundary flags
+  and NAMES every cut it leaves as a hard cut. Families resolve through catalog data, never an
+  id literal; `continuity` returns null at any delta.
 - [ ] VU5 — tier 1 pack `framepilot.visual-embed` + identity in `subject-intelligence`; offline `search_visual`
 - [ ] VU6 — tier 2 pack `framepilot.visual-describe` (llama.cpp + SmolVLM2), structured captions, hosted parity, scheduling
-- [ ] VU7 — sampled verification: deterministic cut checks, `vision-review` gets its first caller
-- [ ] VU8 — scale: 10-hour library, 1,000-asset project, governor, resume, eviction, observability
+- [~] VU7 — deterministic cut checks + bounded vision escalation, built and tested (28
+  tests), **not wired**: the conductor is a pure reducer with no project, and the only seam
+  with the right inputs is the steering/repair channel a verification must never enter.
+- [x] VU8 — governor (indexing yields to render/export/frame/evidence), tier-0-first
+  scheduling, preemption on import, per-tier invalidation. Measured: **643 B/row** ⇒ a 10-hour
+  library ≈ **6.3 MB** (no eviction needed), `tier_coverage` 3.3 ms over 12,000 rows, and a
+  real **SIGKILL mid-slice resumed to 272 rows identical to a clean run**. Three §7 claims
+  corrected, incl. an LRU cache refused for an artifact with **no producer**.
 - [ ] VU9 — closure: docs, ADRs, changelog, golden gate carries the new metrics
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
