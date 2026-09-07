@@ -76,9 +76,13 @@ export type CameraMovement = (typeof CAMERA_MOVEMENTS)[number];
 export const LumaStatsSchema = z.object({
   mean: z.number(),
   std: z.number(),
-  /** Percentiles, not min/max: one blown highlight must not decide a shot is bright. */
-  p5: z.number(),
-  p95: z.number(),
+  /**
+   * The 10th and 90th percentiles — signalstats' own `YLOW`/`YHIGH`, named for what they
+   * actually are. Percentiles, not min/max: one blown highlight or a black border must not
+   * decide that a shot is bright.
+   */
+  p10: z.number(),
+  p90: z.number(),
 });
 export type LumaStats = z.infer<typeof LumaStatsSchema>;
 
@@ -105,7 +109,7 @@ export const MeasuredFactsSchema = z.object({
   chroma: ChromaStatsSchema,
   /** (V−U) normalised to −1..1, calibrated so a neutral chart reads 0. Positive is warm. */
   warmth: z.number(),
-  /** p95 − p5 of luma: "flat" vs "punchy" as one printable number. */
+  /** p90 − p10 of luma: "flat" vs "punchy" as one printable number. */
   contrastIdx: z.number(),
   motion: MotionStatsSchema,
   /** scdet score at the shot's start — how hard it begins. */

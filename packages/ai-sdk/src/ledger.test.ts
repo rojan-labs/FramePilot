@@ -12,7 +12,7 @@ import {
 
 const measured = {
   tier0Version: TIER0_VERSION,
-  luma: { mean: 0.47, std: 0.18, p5: 0.08, p95: 0.86 },
+  luma: { mean: 0.47, std: 0.18, p10: 0.08, p90: 0.86 },
   chroma: { uMean: 124.1, vMean: 133.8, satMean: 0.31 },
   warmth: 0.14,
   contrastIdx: 0.62,

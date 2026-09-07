@@ -121,15 +121,16 @@ class CameraMovement(StrEnum):
 class LumaStats(BaseModel):
     """Brightness distribution over the shot, normalised 0..1 from the Y plane.
 
-    Percentiles rather than min/max: a single blown highlight or a black border must not
-    decide that a shot is bright, and ``p5``/``p95`` are also what the contrast index and
-    the shadow/highlight half of a colour match are computed from.
+    ``p10``/``p90`` are signalstats' own ``YLOW``/``YHIGH`` — named for what they actually
+    are. Percentiles rather than min/max: a single blown highlight or a black border must
+    not decide that a shot is bright, and they are also what the contrast index and the
+    shadow/highlight half of a colour match are computed from.
     """
 
     mean: float
     std: float
-    p5: float
-    p95: float
+    p10: float
+    p90: float
 
 
 class ChromaStats(BaseModel):
@@ -164,7 +165,7 @@ class MeasuredFacts(BaseModel):
     )
     contrast_idx: float = Field(
         alias="contrastIdx",
-        description="p95 - p5 of luma: 'flat' vs 'punchy' as one printable number.",
+        description="p90 - p10 of luma: 'flat' vs 'punchy' as one printable number.",
     )
     motion: MotionStats
     cut_score: float = Field(
