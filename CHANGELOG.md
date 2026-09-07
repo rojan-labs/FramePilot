@@ -8,6 +8,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The AI can see what is on each clip.** Ask it to "match the third clip to the first" or
+  "drop the duplicate takes" and it works from what the footage actually looks like —
+  framing, brightness, warmth, movement, sharpness — instead of guessing from clip names and
+  timings. It reads that as words it already has, so it costs you nothing per request and
+  never has to stop and look at a frame.
+- **Colour is measured, not invented.** Three new things to ask for: match one clip's colour
+  to another, even out the exposure across a track, or apply a look — warmer, cooler,
+  punchier, flatter, brighter, darker, cinematic, clean — at a subtle, medium or strong
+  amount. The AI decides what you want; the numbers come from measuring both shots, so
+  "a bit warmer" means the same amount of warmer on dark footage as on bright. When a shot
+  cannot be matched all the way, it says so and says why, rather than reporting success.
+- **Transitions are chosen for a reason, not picked from a list.** Ask for transitions
+  "where they belong" and the AI reads each cut: a jump cut gets softened, a change of place
+  gets a dissolve, and a cut that simply continues the action is **left as a cut** — an
+  unmotivated dissolve is the classic amateur tell. It tells you every cut it deliberately
+  left alone, so silence is never mistaken for an oversight.
+- **After an edit, the AI tells you what changed on screen.** "New cut at 0:12, now a wide
+  shot, a stop brighter" — and if a problem was already in your footage before it started, it
+  says so and leaves it alone unless you asked.
 - **What the AI knows about a shot is now a structured record, not a sentence.** Every
   described shot carries its subject, what is happening, where it is, the framing and
   camera move, the mood, any on-screen text transcribed word for word, and a short
@@ -50,6 +69,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Photos are looked at like every other clip.** Every still in every project was silently
+  skipped when footage was measured — sixty photos in a test project came back with nothing
+  at all, and nothing said so. Stills are now measured like video.
 - **Clips the AI downloads are indexed like the ones you import.** Stock clips added by
   the AI or from the Stock panel were never registered with the media engine, so the AI
   went back to a montage it had just built and was told it knew nothing about any of it.
