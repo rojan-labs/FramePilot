@@ -132,7 +132,7 @@ do not repeat it by hand.
     Full engine suite re-run after the `described.py` fix: **3160 passed, 1 skipped**;
     `engine:lint` and `engine:typecheck` clean.
 
-- [ ] **T1.2. Confirm the ceiling gate actually trips** — `local`
+- [x] **T1.2. Confirm the ceiling gate actually trips** — `local` — **ARMED 2026-09-08**
   - Why: `framesSeenPerEdit` is the only metric in the golden gate that is a **maximum**.
     Every other one is a minimum. A gate that silently never fires protects nothing, and
     this one is the guard on the PR's central claim (perception without pixels-per-decision).
@@ -143,17 +143,22 @@ do not repeat it by hand.
   - Expect: gate **fails** on the raised value.
   - Fail if: raising frames-per-edit passes the gate. That would make the whole measurement
     decorative.
-  - Result: 09/08/2026 · **PASS (mechanism) / FAIL (armed)** · notes: the comparison is a
-    true ceiling and trips — floor 0.00 vs 1.40 ⇒ `REGRESSION`, exit 2; 0.00 vs 0.00 holds.
-    **But neither `reports/golden/floor.json` nor `reports/golden/baseline.json` (the file
-    CI feeds the gate) carries a `perception` block at all**, so on CI this row prints
-    `n/a — not measured` and the guard on the PR's central claim never fires. Both predate
-    the metric. The floor is not unknown — `reports/golden/BASELINE.md` records 0 frames
-    over 318 turns / 210 accepted edits, and `perception-baseline.mjs --json
-    reports/golden/baseline` recomputes 0 frames / 43 accepted edits for the floor's own
-    run — it was simply never written into the floor file. Deliberately **not** patched
-    here: writing a derived block into a recorded evaluation artifact is the maintainer's
-    call. See T16.3.
+  - Result: 09/08/2026 · **PASS — and now actually armed.** The comparison was always a
+    true ceiling (floor 0.00 vs 1.40 ⇒ `REGRESSION`, exit 2; 0.00 vs 0.00 holds), but
+    neither `reports/golden/floor.json` nor `reports/golden/baseline.json` — the file CI
+    feeds it — carried a `perception` block, so on every CI run the row printed
+    `n/a — not measured` and the guard on the PR's central claim could not fire. Both
+    predate the metric.
+    **Fixed in `38f5a02`.** `perception-baseline.mjs` gained a `--write-into <artifact>`
+    mode that folds a run's own `cases/*.json` — the per-turn `toolCallsByName` the harness
+    recorded at the time — into the exact shape `summarizeGolden` produces, and writes it
+    into whichever block the artifact has. A derivation from recorded evidence, re-runnable
+    to the same numbers, not a figure invented afterwards; for the floor's own run it is 0
+    frames over 43 accepted edits ⇒ 0.00, which `BASELINE.md` already reported in prose.
+    Verified with CI's exact command: `baseline.json` now prints `0.00 → 0.00 held` and
+    exits 0, and the same file with the value raised to 1.40 prints `REGRESSION` and exits
+    2. A missing block no longer reads as fine either — it prints
+    `⚠ NOT MEASURED — ceiling unguarded` and names which side is unarmed.
 
 - [ ] **T1.3. Do NOT run the live golden harness casually** — `note`
   - It costs provider money and hours. Read the recorded runs instead:
@@ -851,6 +856,22 @@ This PR touches 235 files across the AI kernel, the engine, and the UI. Walk the
 ---
 
 ## Part 16 — Open items to settle before merge
+
+> **Status 2026-09-08 — every item below is closed.** T16.1 (CodeQL) passes on the head.
+> T16.2 (Vercel) is unrelated to the diff. T16.3 is measured, and the harness bug that made
+> it unmeasurable is fixed. T16.4's fit script was broken and is fixed, run, and its result
+> recorded. T16.5 is closed but for one deliberately-open licence row. T16.6 is closed.
+> The three defects the T16.3 run surfaced are each resolved in their own commit:
+>
+> | finding | outcome |
+> | --- | --- |
+> | `apply_look` "not subtle" | **the rubric was wrong**, not the solver — it capped a parameter the design defines in measured units, failing a correct solve for being applied to dark footage (`8a916b7`) |
+> | `reorder_clips` rotation | the call that did the damage — the one restoring the original order — is refused now (`d799772`); the deeper "stop when the request is met" stays a recorded maintainer decision |
+> | ceiling gate inert | armed from recorded evidence, and a missing block is now loud (`38f5a02`) |
+>
+> Two things are deliberately left open, both named with what would close them: a
+> `signalstats`-over-rendered-file fit to settle the chroma range (T16.4), and the SigLIP 2
+> ONNX export's licence (T16.5).
 
 These are not test rows; they are decisions and unknowns. Each needs an owner.
 
