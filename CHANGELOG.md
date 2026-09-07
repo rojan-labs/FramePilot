@@ -92,6 +92,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   the AI or from the Stock panel were never registered with the media engine, so the AI
   went back to a montage it had just built and was told it knew nothing about any of it.
   Every acquired clip now takes the same path an imported one does.
+- **The monitor's volume slider and mute work on every clip.** On projects the preview
+  plays through the streaming engine — freshly imported footage, or a timeline too long
+  to decode ahead — dragging the volume down or hitting mute changed nothing you could
+  hear. One control now governs both preview engines, footage and music alike.
 - **The agent stops when the request is met.** A run that read the timeline and made its
   edit in one step was treated as still "inspecting", told to keep reading, and re-applied
   a position-relative request ("move the last clip to the front") against the timeline it
