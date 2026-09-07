@@ -9726,6 +9726,34 @@ decision in **ADR 0157**.
       decides to rebuild can now clear a track, and the user's recourse is undo rather than
       prevention. Other progress guards untouched.
 
+## Phase VU — Visual Understanding: the agent knows the footage, the edit, and the screen — `[ ]` proposed (2026-09-07)
+
+Sub-plan: [`plan/visual-understanding/README.md`](./visual-understanding/README.md) (nine files:
+diagnosis, architecture, phases VU0–VU9). **Root cause, measured:** across every golden run the
+model read the timeline 713 times and looked at a frame 13 times; nothing is ever indexed
+unless an NVIDIA or TwelveLabs key is configured (`visualIndex.ts:74`, the `/brain/visual/index`
+embedder short-circuit), and a clip row the model reads is `c12[0–4.2s]` and nothing else.
+**Decision:** a per-shot **ledger** compiled at import in three tiers — tier 0 measured facts
+from one ffmpeg pass with no key and no model; tier 1 local SigLIP/SFace embeddings, labels and
+person clusters as a capability pack; tier 2 structured captions from a local llama.cpp VLM pack
+with hosted parity — joined into the semantic index as a `picture` slice, printed as words in
+the clip rows and a ≤600-token digest, consumed by deterministic solvers (`match_color`,
+`normalize_exposure`, `apply_look`, transition policy by `reason`) that emit the operations that
+already exist, and verified with pixels only at flagged cuts. No `project.fp.json` schema change;
+brain migration v4. Order: VU0 baseline metrics first, then VU1–VU3 (keyless ledger → model
+surfaces → color solver) as the first vertical slice before any pack work.
+
+- [ ] VU0 — blindness metrics in the golden harness, labelled fixture set, 8 new golden cases, ledger ADR, ask-list resolved
+- [ ] VU1 — tier 0 shot ledger: one ffmpeg pass per asset, brain v4, keyless index route, one import hook
+- [ ] VU2 — model surfaces: ledger snapshot, `picture` slice with cut-pair deltas, clip-row facts, digest, briefing PICTURE line, tool facts
+- [ ] VU3 — deterministic color: fitted response curves, `match_color` / `normalize_exposure` / `apply_look`, `shot_match` verification
+- [ ] VU4 — transition policy by reason; `add_transitions` auto from boundary flags; b-roll ranking
+- [ ] VU5 — tier 1 pack `framepilot.visual-embed` + identity in `subject-intelligence`; offline `search_visual`
+- [ ] VU6 — tier 2 pack `framepilot.visual-describe` (llama.cpp + SmolVLM2), structured captions, hosted parity, scheduling
+- [ ] VU7 — sampled verification: deterministic cut checks, `vision-review` gets its first caller
+- [ ] VU8 — scale: 10-hour library, 1,000-asset project, governor, resume, eviction, observability
+- [ ] VU9 — closure: docs, ADRs, changelog, golden gate carries the new metrics
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)
