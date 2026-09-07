@@ -66,7 +66,10 @@ export function renderIndex(manifest) {
 
 const { AUTONOMOUS_TOOL_MANIFEST } = await import(join(pkgRoot, 'dist', 'autonomous-tool-contract.js'));
 const source = readFileSync(MIRROR_PATH, 'utf8');
-const marker = /AUTONOMOUS_TOOL_INDEX_JSON = r'''[\s\S]*?'''/;
+// Either triple-quote: `ruff format` rewrites r'''…''' as r"""…""" when it touches the
+// mirror, and a generator that only recognised one spelling then failed CI's typecheck
+// step ("could not locate AUTONOMOUS_TOOL_INDEX_JSON") on a file it had itself written.
+const marker = /AUTONOMOUS_TOOL_INDEX_JSON = r(?:'''|""")[\s\S]*?(?:'''|""")/;
 if (!marker.test(source)) {
   throw new Error(`could not locate AUTONOMOUS_TOOL_INDEX_JSON in ${MIRROR_PATH}`);
 }

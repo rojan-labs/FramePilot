@@ -9,7 +9,7 @@ from __future__ import annotations
 import json
 from typing import Any
 
-AUTONOMOUS_TOOL_INDEX_JSON = r"""{
+AUTONOMOUS_TOOL_INDEX_JSON = r'''{
   "version": 2,
   "tools": [
     {
@@ -173,7 +173,7 @@ AUTONOMOUS_TOOL_INDEX_JSON = r"""{
       "internalRoutes": []
     }
   ]
-}"""
+}'''
 AUTONOMOUS_TOOL_INDEX: dict[str, Any] = json.loads(AUTONOMOUS_TOOL_INDEX_JSON)
 AUTONOMOUS_TOOL_VERSION: int = int(AUTONOMOUS_TOOL_INDEX["version"])
 AUTONOMOUS_TOOL_NAMES: tuple[str, ...] = tuple(
