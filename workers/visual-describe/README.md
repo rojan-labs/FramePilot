@@ -9,38 +9,63 @@ the root workspace, and never imported by `framepilot_engine`.
 
 Capability: `visual.describe`.
 
-## Status: complete except the weights, and no caption quality is claimed
+## Status: live, and no caption quality is claimed
 
-**No model file and no llama.cpp binary has been downloaded, and this pack cannot run
-inference today.** That is deliberate, and it is the same posture Visual Embed shipped in:
-everything around the weights is finished and tested against a fake backend — the protocol
-mirror, the schema, the keyframe choice, the normalisation, the runtime, the identity and
-health checks, the pinning and refusal machinery — so that adding the weights is a
-mechanical step rather than a design step.
+The artifacts are pinned, the pack registers and passes its health check, and
+`llama_backend.py` has been run end to end against the real runtime and weights: one
+keyframe in, one complete schema-conformant object out.
 
-Two honest consequences:
+Getting there cost two fixes that only a real run could have surfaced, both recorded here
+because they are the shape of bug this pack invites:
 
-- **`llama_backend.py` has never run.** Its argument names, its stdout shape and its
-  OpenCV decode are transcribed from upstream documentation, not observed.
+- **`--no-display-prompt` is not a `llama-mtmd-cli` flag.** It had been transcribed from
+  `llama-cli`'s options. The CLI rejects it outright, so every describe call would have
+  failed with an unreadable returncode.
+- **An unbounded array in the JSON schema is a decoder trap.** With no `maxItems`, the
+  grammar always permits another item, and SmolVLM2-2.2B filled `onScreenText` with empty
+  strings until `--n-predict` ran out — leaving the object unterminated and every call
+  failing as "not valid JSON". Both arrays are bounded now, and `onScreenText` items
+  require `minLength: 1`.
+
+One honest consequence remains:
+
 - **No caption-quality figure in `plan/visual-understanding/05` §VU6.5 has been measured.**
-  Those targets need real weights and human labels; nothing here asserts them.
+  Those targets need human labels; nothing here asserts them. That one run proves the
+  plumbing carries a valid object, not that the description is any good.
 
-To make it live:
+The artifacts are pinned and this pack registers and passes its health check. Every
+licence row in `LICENSES.md` is verified against the artifact itself.
 
-1. Verify each licence in `LICENSES.md` — in particular the SmolVLM2 **GGUF quantisation
-   and mmproj export** (not only the upstream model card), and the llama.cpp **release
-   artifact**.
-2. `python tools/fetch_models.py --record` — downloads each artifact, prints its SHA-256
-   and byte count, and writes them back into `pack/models.lock.toml` with the resolved
-   upstream revision.
+```sh
+uv sync --extra cv
+python tools/fetch_models.py     # ~2.6 GiB on the first run; verifies every file after
+```
+
+`bash scripts/dev-register-visual-describe.sh` from the repo root does that and registers
+the pack into the desktop store.
+
+**How the runtime arrives.** llama.cpp publishes no bare `llama-mtmd-cli`; each release
+ships one platform tarball. That tarball is pinned by a single digest — one artifact, one
+licence, one approval — and the CLI plus the nine dylibs it links against are extracted
+from it and pinned individually. The unversioned `libfoo.0.dylib` names the loader asks
+for are recreated as symlinks, because the CLI's only `LC_RPATH` is `@loader_path` and
+everything must be its directory sibling.
+
+**Re-pinning to a newer release or revision** is a deliberate, human-run step:
+
+1. Re-verify each licence in `LICENSES.md` — the SmolVLM2 **GGUF quantisation and mmproj
+   export** (not only the upstream model card), and the `LICENSE` inside the llama.cpp
+   **release tarball**.
+2. `python tools/fetch_models.py --record` — resolves any `PENDING` release or revision,
+   downloads each artifact, prints its SHA-256 and byte count, and writes all of it back
+   into `pack/models.lock.toml`.
 3. Copy the same digests into `src/framepilot_visual_describe/models.py`. That copy is the
    one the **signed wheel** enforces at load time; the lock file is the human record.
-4. `uv sync --extra cv` and run `pytest -m decoded_media`, which is the first evidence any
-   of this produces a description.
+4. `pytest -m decoded_media`, which is the evidence the new artifacts produce a description.
 
-Until step 3 lands, `models.py` refuses every placeholder pin by name and the health check
-fails. A pack that cannot say which model it is about to run over a customer's footage must
-not pass its own health check.
+`models.py` refuses a placeholder pin by name and the health check fails while any remains.
+A pack that cannot say which model it is about to run over a customer's footage must not
+pass its own health check.
 
 ## What it returns
 

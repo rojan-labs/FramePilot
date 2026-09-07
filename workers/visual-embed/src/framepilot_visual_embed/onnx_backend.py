@@ -45,12 +45,35 @@ IMAGE_MEAN: Final = 0.5
 IMAGE_STD: Final = 0.5
 #: The text tower's fixed context length for this checkpoint.
 TEXT_CONTEXT_LENGTH: Final = 64
+#: The graph output that IS the embedding.
+#:
+#: Both towers publish two outputs, and `pooler_output` is the second. Taking `run(...)[0]`
+#: silently returns `last_hidden_state` — the per-patch tokens, `(batch, 196, 768)` for the
+#: vision tower — which is not a vector at all. Selecting by name means a re-export that
+#: reorders its outputs cannot quietly change what this pack embeds.
+EMBEDDING_OUTPUT: Final = "pooler_output"
 #: YuNet's own score floor. Below this a "face" is texture, and counting it would put a
 #: phantom person in the ledger.
 FACE_SCORE_THRESHOLD: Final = 0.9
 FACE_NMS_THRESHOLD: Final = 0.3
 #: Execution providers in preference order; missing ones are dropped by onnxruntime.
 EXECUTION_PROVIDERS: Final = ("CoreMLExecutionProvider", "CPUExecutionProvider")
+
+
+def _embedding_output(session: Any, tower: str) -> str:
+    """The name of the tower's pooled-embedding output, or refuse to load.
+
+    An export that does not publish :data:`EMBEDDING_OUTPUT` is not one this pack can use,
+    and finding that out here — rather than by silently embedding per-patch tokens — is
+    the difference between a failed load and a shot ledger full of meaningless vectors.
+    """
+    names = [output.name for output in session.get_outputs()]
+    if EMBEDDING_OUTPUT not in names:
+        raise BackendUnavailableError(
+            f"the {tower} tower publishes {names}, with no '{EMBEDDING_OUTPUT}'; "
+            "this export cannot be used for embeddings."
+        )
+    return EMBEDDING_OUTPUT
 
 
 class OnnxVisualEmbedBackend:
@@ -100,7 +123,15 @@ class OnnxVisualEmbedBackend:
             FACE_NMS_THRESHOLD,
         )
         self._identity = cv2.FaceRecognizerSF.create(str(resolve_model("identity", models)), "")
-        self._image_dim = int(self._vision.get_outputs()[0].shape[-1])
+        self._vision_output = _embedding_output(self._vision, "vision")
+        self._text_output = _embedding_output(self._text, "text")
+        self._image_dim = int(
+            next(
+                output
+                for output in self._vision.get_outputs()
+                if output.name == self._vision_output
+            ).shape[-1]
+        )
         self._face_dim = 128
 
     @property
@@ -151,12 +182,31 @@ class OnnxVisualEmbedBackend:
         return numpy.transpose(normalized, (2, 0, 1))
 
     def encode_images(self, frames: Sequence[Frame]) -> Sequence[Vector]:
+        """Embed each keyframe, ONE AT A TIME.
+
+        WHY NOT ONE BATCHED RUN: this export's vision output shape is expressed as
+        ``floor(batch_size * floor(height/16) * floor(width/16) / 196)``, and CoreML
+        cannot execute that graph for any batch above one — measured on macOS/arm64, it
+        fails the whole run with "Unable to compute the prediction using a neural network
+        model". A request carries up to 64 keyframes, so batching here meant every real
+        indexing call failed while the health check, which embeds nothing, passed.
+
+        The cost of looping is small and the cost of being wrong is total: ~186 ms per
+        frame on an M-series laptop, and CoreML has no batch speed-up to give up here
+        because it could not run a batch at all. The text tower still batches — it is a
+        different graph and it works.
+        """
         if not frames:
             return []
-        batch = self._numpy.stack([self._preprocess(frame) for frame in frames])
+        numpy = self._numpy
         name = self._vision.get_inputs()[0].name
-        output = self._vision.run(None, {name: batch})[0]
-        return self._normalize(output)
+        pooled = [
+            self._vision.run(
+                [self._vision_output], {name: numpy.expand_dims(self._preprocess(frame), 0)}
+            )[0]
+            for frame in frames
+        ]
+        return self._normalize(numpy.concatenate(pooled, axis=0))
 
     def encode_texts(self, texts: Sequence[str]) -> Sequence[Vector]:
         if not texts:
@@ -165,7 +215,7 @@ class OnnxVisualEmbedBackend:
         encodings = self._tokenizer.encode_batch(list(texts))
         ids = numpy.array([encoding.ids for encoding in encodings], dtype=numpy.int64)
         name = self._text.get_inputs()[0].name
-        output = self._text.run(None, {name: ids})[0]
+        output = self._text.run([self._text_output], {name: ids})[0]
         return self._normalize(output)
 
     def _normalize(self, matrix: Any) -> list[list[float]]:

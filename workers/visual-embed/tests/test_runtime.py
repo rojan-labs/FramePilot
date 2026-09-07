@@ -5,6 +5,7 @@ from __future__ import annotations
 import io
 import json
 import tomllib
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
@@ -13,7 +14,12 @@ from conftest import DIM, FakeBackend
 from framepilot_visual_embed import PACK_CAPABILITIES, PACK_ID, PACK_VERSION
 from framepilot_visual_embed.backend import BackendUnavailableError, ModelUnavailableError
 from framepilot_visual_embed.identity import HealthCheckError, build_handshake
-from framepilot_visual_embed.models import PINNED_MODELS, UNPINNED_DIGEST, resolve_model
+from framepilot_visual_embed.models import (
+    MODELS_BY_ID,
+    PINNED_MODELS,
+    UNPINNED_DIGEST,
+    resolve_model,
+)
 from framepilot_visual_embed.prompt_bank import PROMPT_BANK_VERSION, all_prompts, bank_digest
 from framepilot_visual_embed.prompt_vectors import cache_path, load_or_compute
 from framepilot_visual_embed.protocol import unpack_fp16
@@ -208,12 +214,25 @@ class TestIdentityAndPins:
                 self._environment(FRAMEPILOT_CAPABILITY_PACK_ID="framepilot.tracking-lite"),
             )
 
-    def test_a_placeholder_pin_refuses_to_load_by_name(self, tmp_path: Path) -> None:
-        # The intended state today: no weight has been fetched, so nothing may load.
-        unpinned = [model for model in PINNED_MODELS if model.sha256 == UNPINNED_DIGEST]
-        assert unpinned, "this test is meaningless once every weight is pinned"
+    def test_every_shipped_weight_carries_a_real_pin(self) -> None:
+        # The intended state today: every weight has been fetched and approved. This is
+        # the assertion that turns "the pack is live" into something a test can fail on.
+        assert [model.id for model in PINNED_MODELS if model.sha256 == UNPINNED_DIGEST] == []
+
+    def test_a_placeholder_pin_refuses_to_load_by_name(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No shipped weight carries the sentinel any more, so the refusal is exercised
+        # against an injected one. It still has to fire: the sentinel is what stands
+        # between a future unfetched weight and a silent "hash matched".
+        pinned = PINNED_MODELS[0]
+        monkeypatch.setitem(
+            MODELS_BY_ID,
+            pinned.id,
+            replace(pinned, sha256=UNPINNED_DIGEST),
+        )
         with pytest.raises(ModelUnavailableError, match="no approved digest yet"):
-            resolve_model(unpinned[0].id, tmp_path)
+            resolve_model(pinned.id, tmp_path)
 
     def test_a_tampered_weight_is_refused(self, tmp_path: Path) -> None:
         pinned = next(model for model in PINNED_MODELS if model.sha256 != UNPINNED_DIGEST)

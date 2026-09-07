@@ -4,13 +4,13 @@
 # zero-shot labels, face identity) is testable end to end without a signed catalog
 # (ADR 0114, ADR 0175).
 #
-# THIS SCRIPT CANNOT SUCCEED YET, AND SAYS SO RATHER THAN PRETENDING.
+# The weights are pinned and this script registers the pack. The first run downloads
+# ~1.5 GiB into workers/visual-embed/models/ and verifies every file against
+# pack/models.lock.toml; later runs re-hash what is already there.
 #
-# No model weight has been fetched for this pack, so `pack/models.lock.toml` still
-# carries placeholder digests and `tools/fetch_models.py --check` fails by design. The
-# steps below are the real ones; the fetch is the only missing piece, and it is gated on
-# the licence verification recorded in workers/visual-embed/LICENSES.md (the SigLIP 2
-# ONNX EXPORT's licence, and SFace's at the pinned OpenCV Zoo commit).
+# One licence row is still open, deliberately and in the open: the SigLIP 2 ONNX export
+# declares no licence of its own (workers/visual-embed/LICENSES.md says where that stands
+# and what replaces it if the answer comes back negative). It does not block registration.
 #
 # Gated the same way the other packs are: FRAMEPILOT_DEV_PACK_REGISTRATION=1 is set only
 # for the registration call itself. Never set that env var in a packaged build.
@@ -42,13 +42,17 @@ echo "Fetching pinned model weights (verified against pack/models.lock.toml)..."
 if ! (cd "$WORKER_DIR" && .venv/bin/python3 tools/fetch_models.py); then
   cat >&2 <<'MSG'
 
-The weights are not pinned yet, so this pack cannot be registered.
+A weight did not match its pin, so this pack was not registered.
 
-To make it live:
-  1. Verify each licence in workers/visual-embed/LICENSES.md — in particular the
-     SigLIP 2 ONNX EXPORT (not only the upstream model card) and SFace at the
-     pinned OpenCV Zoo commit.
+That is the pin doing its job: the message above names the file and both digests.
+Either the download was interrupted (delete the file in workers/visual-embed/models/
+and re-run), or the bytes upstream are not the ones that were approved — which is a
+licence and provenance question, not something to re-record away.
+
+To move to a NEW pinned revision, deliberately:
+  1. Re-verify the licences in workers/visual-embed/LICENSES.md for the new artifacts.
   2. cd workers/visual-embed && .venv/bin/python3 tools/fetch_models.py --record
+     (this resolves any PENDING revision and rewrites every digest).
   3. Copy the recorded digests into src/framepilot_visual_embed/models.py — that
      copy is the one the signed wheel enforces at load time.
   4. Re-run this script.

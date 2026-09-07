@@ -9,13 +9,16 @@ the pack declines to run rather than embed with something nobody approved.
 ``pack/models.lock.toml`` is the human-readable record of the same pins, and a unit test
 fails if the two ever disagree.
 
-**The digests below are PLACEHOLDERS.** No weight has been fetched: this pack was built
-without downloading a model, so the SHA-256 of each artifact is not yet known. A
-placeholder is stored as the sentinel :data:`UNPINNED_DIGEST` and
-:func:`resolve_model` refuses it explicitly, with the reason spelled out — a pack whose
-pins are unknown must fail loudly, never fall through to "hash matched" by accident. The
-one mechanical step that makes this pack live is replacing every sentinel here and in
-``pack/models.lock.toml`` with the real digest of the fetched file.
+**Every digest below is real.** The weights were fetched and recorded on 2026-09-07 from
+the revisions pinned in ``pack/models.lock.toml``. The sentinel :data:`UNPINNED_DIGEST`
+remains, and :func:`resolve_model` still refuses it explicitly with the reason spelled
+out — a pack whose pins are unknown must fail loudly, never fall through to "hash
+matched" by accident — but nothing carries it any more. Re-pinning is
+``tools/fetch_models.py --record`` followed by copying its digests here.
+
+YuNet is worth a note: it hashed to the digest this file already carried, which is the
+evidence that the fetch resolves the same bytes ``workers/subject-intelligence`` verified
+at the same OpenCV Zoo commit.
 """
 
 from __future__ import annotations
@@ -54,19 +57,19 @@ PINNED_MODELS: Final = (
     PinnedModel(
         id="image",
         file="siglip2_base_patch16_224_vision.onnx",
-        sha256=UNPINNED_DIGEST,
+        sha256="c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad",
         license="Apache-2.0",
     ),
     PinnedModel(
         id="text",
         file="siglip2_base_patch16_224_text.onnx",
-        sha256=UNPINNED_DIGEST,
+        sha256="baf12d941beabafafb14f7b4adb38dc15be18681b964a84410ec53d9d65e6293",
         license="Apache-2.0",
     ),
     PinnedModel(
         id="tokenizer",
         file="siglip2_tokenizer.json",
-        sha256=UNPINNED_DIGEST,
+        sha256="cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322",
         license="Apache-2.0",
     ),
     PinnedModel(
@@ -78,7 +81,7 @@ PINNED_MODELS: Final = (
     PinnedModel(
         id="identity",
         file="face_recognition_sface_2021dec.onnx",
-        sha256=UNPINNED_DIGEST,
+        sha256="0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79",
         license="Apache-2.0",
     ),
 )

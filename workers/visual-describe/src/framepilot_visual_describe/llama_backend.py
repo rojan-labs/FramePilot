@@ -199,8 +199,11 @@ class LlamaDescribeBackend:
                 str(MAX_TOKENS),
                 "--threads",
                 str(_thread_count()),
-                "--no-display-prompt",
             ]
+            # NOT `--no-display-prompt`: llama-mtmd-cli rejects it outright ("error:
+            # invalid argument"), so every describe call would have failed with a
+            # returncode nobody could read. It does not echo the prompt on stdout anyway,
+            # and `_parse_object` takes the first balanced object regardless.
             try:
                 completed = subprocess.run(
                     command,

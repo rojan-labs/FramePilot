@@ -8,14 +8,14 @@
 # here. A weight file that does not hash to its pin is refused, so a silently re-uploaded
 # or tampered model cannot enter a signed pack.
 #
-# THE DIGESTS BELOW ARE PLACEHOLDERS AND THIS PACK CANNOT LOAD A MODEL.
+# EVERY DIGEST BELOW IS REAL AND THIS PACK LOADS.
 #
-# Nothing here has been downloaded: this worker was built without fetching a weight, on
-# purpose, so the pack machinery could be reviewed before ~410 MiB of binaries entered the
-# picture. `sha256 = "000…0"` is the sentinel for "not yet fetched"; the worker's
-# `models.py` refuses it by name and the health check fails while any remains. Making this
-# pack live is one mechanical step: run `tools/fetch_models.py --record`, which downloads
-# each URL, prints its digest, and writes it back here — then copy the same digests into
+# The weights were fetched and recorded on 2026-09-07. `sha256 = "000…0"` remains the
+# sentinel for "not yet fetched" — the worker's `models.py` refuses it by name and the
+# health check fails while any remains — but nothing carries it any more. Re-pinning (a
+# newer export, a different revision) is one command: `tools/fetch_models.py --record`
+# resolves any `PENDING` revision, downloads each URL, prints its digest, and writes all
+# of it back here. Then copy the same digests into
 # `src/framepilot_visual_embed/models.py`, which is the copy the SIGNED WHEEL enforces.
 #
 # WHY THESE MODELS (licence table: plan/visual-understanding/08-REMOVE-DEFER-RISKS.md)
@@ -29,18 +29,31 @@
 #  2. Runtime. The two towers run on onnxruntime; the two face models run on OpenCV's
 #     `dnn` module, which this project has already licence-audited and shipped for
 #     Tracking Lite and Subject Intelligence. So this pack adds exactly ONE new runtime.
-#  3. Size. ~410 MiB of weights against a pack budget that anticipated 150 MiB–1.5 GiB.
+#  3. Size. ~1.5 GiB of weights, against a pack budget that anticipated 150 MiB–1.5 GiB.
+#     The fp32 text tower is the bulk of it (~1.05 GiB); an earlier note in this file
+#     guessed ~410 MiB from the fp16 exports, which the float32 backend cannot load.
 #     Nothing enters the base installer either way.
 
 schemaVersion = 1
 
 [source]
-# SigLIP 2 is fetched from the Hugging Face repository at a pinned revision. The revision
-# below is a PLACEHOLDER for the same reason the digests are: no fetch has happened, so no
-# commit has been observed. `--record` writes the resolved revision back here.
-repository = "https://huggingface.co/google/siglip2-base-patch16-224"
-revision = "PENDING"
-baseUrl = "https://huggingface.co/google/siglip2-base-patch16-224/resolve/PENDING"
+# SigLIP 2 is fetched from the Hugging Face repository at a pinned revision.
+#
+# WHY NOT `google/siglip2-base-patch16-224`: that repository — the Apache-2.0 upstream —
+# publishes safetensors ONLY. It hosts no `onnx/` directory at all, so every URL built
+# from it 404s no matter which revision is pinned. The ONNX export this pack's
+# onnxruntime backend needs is published separately, by the transformers.js team, at the
+# repository below.
+#
+# THE COST OF THAT, STATED PLAINLY: the export's model card declares NO licence of its
+# own. It records `base_model: google/siglip2-base-patch16-224` and nothing more, so the
+# Apache-2.0 above is INHERITED, not asserted by the publisher of these bytes. That is
+# exactly the "verify the export, not the model card" risk LICENSES.md names, and it is
+# why `licenseVerified` stays false on the three SigLIP rows below. CLIP ViT-B/32 (MIT)
+# remains the recorded replacement if that verification ever comes back negative.
+repository = "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX"
+revision = "ba1f3b0843f24bc5417d38e19c37b287d719b2f4"
+baseUrl = "https://huggingface.co/onnx-community/siglip2-base-patch16-224-ONNX/resolve/ba1f3b0843f24bc5417d38e19c37b287d719b2f4"
 
 [faceSource]
 # The face pair comes from the same immutable OpenCV Zoo commit Subject Intelligence
@@ -55,12 +68,12 @@ role = "visual.embed/image-tower"
 name = "SigLIP 2 base patch16-224 (ONNX vision tower)"
 file = "siglip2_base_patch16_224_vision.onnx"
 path = "onnx/vision_model.onnx"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad"
+bytes = 371807752
 license = "Apache-2.0"
 licenseVerified = false
 copyright = "Google LLC"
-notes = "Verify the EXPORT's licence, not only the upstream model card. fp16 export preferred (~185 MiB); preprocessing constants are transcribed in onnx_backend.py and must be confirmed against the exported config."
+notes = "The fp32 export, NOT the fp16 one: onnx_backend.py feeds float32 arrays (rescale to [0,1], then mean/std 0.5), and an fp16 graph rejects them. ~355 MiB. Preprocessing constants are transcribed in onnx_backend.py and must be confirmed against the exported config."
 
 [[model]]
 id = "text"
@@ -68,8 +81,8 @@ role = "visual.embed/text-tower"
 name = "SigLIP 2 base patch16-224 (ONNX text tower)"
 file = "siglip2_base_patch16_224_text.onnx"
 path = "onnx/text_model.onnx"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "baf12d941beabafafb14f7b4adb38dc15be18681b964a84410ec53d9d65e6293"
+bytes = 1129469657
 license = "Apache-2.0"
 licenseVerified = false
 copyright = "Google LLC"
@@ -81,8 +94,8 @@ role = "visual.embed/tokenizer"
 name = "SigLIP 2 tokenizer"
 file = "siglip2_tokenizer.json"
 path = "tokenizer.json"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322"
+bytes = 34363039
 license = "Apache-2.0"
 licenseVerified = false
 copyright = "Google LLC"
@@ -110,10 +123,10 @@ name = "SFace"
 file = "face_recognition_sface_2021dec.onnx"
 path = "face_recognition_sface/face_recognition_sface_2021dec.onnx"
 source = "faceSource"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79"
+bytes = 38696353
 license = "Apache-2.0"
-licenseVerified = false
+licenseVerified = true
 licensePath = "face_recognition_sface/LICENSE"
 copyright = "Zhong Yaoyao and contributors; OpenCV Zoo"
 notes = "128-d identity vectors; the host clusters them into person_NN entities. ~37 MiB."

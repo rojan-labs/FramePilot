@@ -84,6 +84,11 @@ DESCRIBE_INSTRUCTION: Final = (
 )
 
 
+#: Most legible text lines one keyframe can carry before the list stops being useful.
+#: It is also the grammar's stop condition — see the note on `onScreenText` below.
+MAX_ON_SCREEN_TEXT: Final = 12
+
+
 def _enum(values: tuple[str, ...]) -> list[str]:
     return [*values, UNKNOWN]
 
@@ -121,14 +126,23 @@ DESCRIBED_JSON_SCHEMA: Final[dict[str, Any]] = {
             },
         },
         "mood": {"type": "string", "description": "The visual feel of the frame."},
+        # WHY BOTH ARRAYS ARE BOUNDED, AND WHY onScreenText FORBIDS AN EMPTY STRING:
+        # these are grammar constraints, not documentation. An unbounded array of strings
+        # lets a decoder that has run out of things to say keep emitting `""`, forever,
+        # because the grammar says another item is always legal. Measured on
+        # SmolVLM2-2.2B: it filled `onScreenText` with empty strings until `--n-predict`
+        # ran out, leaving the object unterminated and every describe call failing as
+        # "not valid JSON". The bound is what makes closing the array reachable.
         "onScreenText": {
             "type": "array",
-            "items": {"type": "string"},
+            "items": {"type": "string", "minLength": 1},
+            "maxItems": MAX_ON_SCREEN_TEXT,
             "description": "Text legible in frame, verbatim. Empty when there is none.",
         },
         "quality": {
             "type": "array",
             "items": {"type": "string", "enum": list(QUALITY_VOCABULARY)},
+            "maxItems": len(QUALITY_VOCABULARY),
             "description": "Observable defects or virtues, from the closed list only.",
         },
         "confidence": {"type": "string", "enum": list(CONFIDENCE_LEVELS)},

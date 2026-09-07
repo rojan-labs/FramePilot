@@ -56,3 +56,23 @@ def test_the_instruction_keeps_the_visible_only_discipline() -> None:
     assert "only what is visibly on screen" in DESCRIBE_INSTRUCTION
     assert "VERBATIM" in DESCRIBE_INSTRUCTION
     assert "no narration" in DESCRIBE_INSTRUCTION
+
+
+def test_every_array_is_bounded_so_the_grammar_can_reach_its_closing_bracket() -> None:
+    # Not style — a stop condition. An unbounded array of strings lets a decoder that has
+    # run out of things to say keep emitting a legal next item forever. Measured on
+    # SmolVLM2-2.2B: it filled `onScreenText` with empty strings until `--n-predict` ran
+    # out and every describe call failed as "not valid JSON".
+    properties = _properties(DESCRIBED_JSON_SCHEMA)
+    arrays = {name: schema for name, schema in properties.items() if schema.get("type") == "array"}
+    assert set(arrays) == {"onScreenText", "quality"}
+    for name, schema in arrays.items():
+        assert isinstance(schema.get("maxItems"), int), f"{name} is unbounded"
+        assert schema["maxItems"] > 0
+
+
+def test_on_screen_text_cannot_be_a_list_of_empty_strings() -> None:
+    # The empty string is what the model reached for when it had nothing left to say.
+    # Forbidding it at the item level is what makes closing the array the only move.
+    items = _properties(DESCRIBED_JSON_SCHEMA)["onScreenText"]["items"]
+    assert items["minLength"] == 1

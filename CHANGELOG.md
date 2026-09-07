@@ -69,6 +69,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Local visual understanding actually installs.** The two packs that let FramePilot
+  recognise and describe your footage on your own machine — no key, no upload — could not
+  be installed at all. Every attempt failed while downloading, because the models were
+  pointed at addresses that had never held them. They install now, and the first run
+  fetches what they need and checks every file against a recorded fingerprint before it
+  is allowed to load.
 - **Photos are looked at like every other clip.** Every still in every project was silently
   skipped when footage was measured — sixty photos in a test project came back with nothing
   at all, and nothing said so. Stills are now measured like video.

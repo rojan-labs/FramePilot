@@ -1,10 +1,10 @@
 # Visual Embed — third-party licenses
 
-**Status: hand review, PARTIALLY COMPLETE.** Only YuNet's licence and digest are carried
-over from a verified pin (`workers/subject-intelligence`). Every other row below records
-the licence the model card *states*, with the verification still owed — and the digests
-that would prove which artifact the licence applies to are still placeholders. No weight
-has been downloaded for this pack.
+**Status: hand review, ONE ROW OUTSTANDING.** Every weight has now been fetched and
+pinned, so each row below names the exact artifact its licence applies to. YuNet and SFace
+are verified against the `LICENSE` files at the pinned OpenCV Zoo commit. The three SigLIP
+rows are **not** cleared: see "The SigLIP 2 export declares no licence" below, which is a
+decision recorded openly rather than a box ticked.
 
 `pnpm license:scan` was run on this tree and reported **7 packages checked, no denylisted
 licences**. That result does **not** clear anything on this page: `scripts/license-scan.mjs`
@@ -21,11 +21,34 @@ and never enter the base installer.
 
 | Model | File | License | Verified | SHA-256 |
 | --- | --- | --- | --- | --- |
-| SigLIP 2 base patch16-224 — vision tower (ONNX) | `siglip2_base_patch16_224_vision.onnx` | Apache-2.0 (stated) | ❌ pending | pending |
-| SigLIP 2 base patch16-224 — text tower (ONNX) | `siglip2_base_patch16_224_text.onnx` | Apache-2.0 (stated) | ❌ pending | pending |
-| SigLIP 2 tokenizer | `siglip2_tokenizer.json` | Apache-2.0 (stated) | ❌ pending | pending |
+| SigLIP 2 base patch16-224 — vision tower (ONNX) | `siglip2_base_patch16_224_vision.onnx` | Apache-2.0 **inherited**, export asserts none | ❌ open — see below | `c0573e3f4140c3a7c4e9cc5912bd6b26a033b46a6a8e8af26cbea262b163bcad` |
+| SigLIP 2 base patch16-224 — text tower (ONNX) | `siglip2_base_patch16_224_text.onnx` | Apache-2.0 **inherited**, export asserts none | ❌ open — see below | `baf12d941beabafafb14f7b4adb38dc15be18681b964a84410ec53d9d65e6293` |
+| SigLIP 2 tokenizer | `siglip2_tokenizer.json` | Apache-2.0 **inherited**, export asserts none | ❌ open — see below | `cb9140fae3ac5122c972d37adf83e1248471a38147ad76f8215c8872c6fd8322` |
 | YuNet | `face_detection_yunet_2023mar.onnx` | MIT | ✅ verified for `workers/subject-intelligence`, same pinned commit and digest | `8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4` |
-| SFace | `face_recognition_sface_2021dec.onnx` | Apache-2.0 (stated) | ❌ pending | pending |
+| SFace | `face_recognition_sface_2021dec.onnx` | Apache-2.0 | ✅ verified — `models/face_recognition_sface/LICENSE` at OpenCV Zoo `47534e2` is the Apache-2.0 text | `0ba9fbfa01b5270c96627c4ef784da859931e02f04419c829e83484087c34e79` |
+
+### The SigLIP 2 export declares no licence
+
+This is the row that must not be waved through, so here is exactly where it stands.
+
+`google/siglip2-base-patch16-224` — the Apache-2.0 upstream — publishes **safetensors
+only**. It hosts no `onnx/` directory, so the URL this pack used to carry could never have
+resolved against any revision. The ONNX export the onnxruntime backend needs is published
+separately, by the transformers.js team, at
+`onnx-community/siglip2-base-patch16-224-ONNX`, pinned here at commit
+`ba1f3b0843f24bc5417d38e19c37b287d719b2f4`.
+
+That export's model card declares **no licence of its own**. It records
+`base_model: google/siglip2-base-patch16-224` and nothing else. So the Apache-2.0 in the
+table is inherited from the weights that were converted, not asserted by the party
+publishing these bytes — which is precisely the distinction this page insists on.
+
+The maintainer's decision (2026-09-07) was to pin this export and record the gap in the
+open rather than block the pack on it, on the grounds that a re-export from an unknown
+individual's repository that *does* declare Apache-2.0 is worse provenance, not better.
+The row stays ❌ until the export's terms are confirmed with the publisher. **CLIP
+ViT-B/32 (MIT) remains the recorded replacement** if that confirmation comes back
+negative — a swap, never a second shipped model.
 
 Copyright holders:
 
@@ -33,19 +56,13 @@ Copyright holders:
 - **YuNet** — Shiqi Yu and contributors; OpenCV Zoo
 - **SFace** — Zhong Yaoyao and contributors; OpenCV Zoo
 
-Two verifications matter more than the rest and must not be waved through:
-
-1. **The SigLIP 2 ONNX export, not just the upstream model card.** A re-export published
-   by a third party can carry different terms from the weights it was converted from. The
-   licence that governs this pack is the one on the artifact the build job downloads.
-2. **SFace's licence file at the pinned commit.** It is recorded as Apache-2.0; the
-   `LICENSE` at `face_recognition_sface/` in the pinned OpenCV Zoo commit is what settles
-   it, exactly as YuNet's did.
+Two verifications mattered more than the rest and were not waved through. SFace's is now
+settled — the `LICENSE` at `face_recognition_sface/` in the pinned OpenCV Zoo commit is
+the Apache-2.0 text, exactly as YuNet's was. The SigLIP 2 export's is not, and has its own
+section above.
 
 **Excluded on licence grounds, decided and closed:** Qwen2.5-VL (research-only terms) and
-Gemma 3 (Gemma terms). Neither may be the default nor an option. CLIP ViT-B/32 (MIT) is
-the recorded fallback if the SigLIP 2 export proves unusable — a replacement, never a
-second shipped model.
+Gemma 3 (Gemma terms). Neither may be the default nor an option.
 
 ## Python distributions
 

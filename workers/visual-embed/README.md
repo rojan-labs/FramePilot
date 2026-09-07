@@ -8,26 +8,38 @@ installer, not a member of the root workspace, and never imported by `framepilot
 
 Capabilities: `visual.embed`, `visual.text`.
 
-## Status: complete except the weights
+## Status: live
 
-**No model file has been downloaded, and this pack cannot run inference today.** That is
-deliberate. Everything around the weights is finished and tested — the protocol mirror,
-the prompt bank, the labelling policy, the vector packing, the runtime, the identity and
-health checks, the pinning and refusal machinery — so that adding the weights is a
-mechanical step rather than a design step:
+The weights are pinned and this pack registers and passes its health check. One licence
+row is still open, in the open: the SigLIP 2 ONNX export declares no licence of its own —
+see `LICENSES.md`, which records where that stands and what replaces it if the answer
+comes back negative.
 
-1. Verify each licence in `LICENSES.md` (the SigLIP 2 **export**, and SFace at the pinned
-   OpenCV Zoo commit).
-2. `python tools/fetch_models.py --record` — downloads each artifact, prints its SHA-256
-   and byte count, and writes them back into `pack/models.lock.toml` with the resolved
-   upstream revision.
+```sh
+uv sync --extra cv
+python tools/fetch_models.py     # ~1.5 GiB on the first run; verifies every file after
+```
+
+`bash scripts/dev-register-visual-embed.sh` from the repo root does that and registers the
+pack into the desktop store.
+
+**Re-pinning to a newer export or revision** is a deliberate, human-run step, not something
+a build job does:
+
+1. Re-verify each licence in `LICENSES.md` for the new artifacts.
+2. `python tools/fetch_models.py --record` — resolves any `PENDING` revision to the commit
+   it currently points at, downloads each artifact, prints its SHA-256 and byte count, and
+   writes all of it back into `pack/models.lock.toml`.
 3. Copy the same digests into `src/framepilot_visual_embed/models.py`. That copy is the
    one the **signed wheel** enforces at load time; the lock file is the human record.
-4. `uv sync --extra cv` and run `pytest -m decoded_media`, which is the first evidence any
-   of this produces a vector.
+4. `pytest -m decoded_media`, which is the evidence the new weights produce a vector.
 
-Until step 3 lands, `models.py` refuses every placeholder pin by name and the health check
-fails. A pack that cannot say which weights it loads must not pass its own health check.
+`models.py` refuses a placeholder pin by name and the health check fails while any remains.
+A pack that cannot say which weights it loads must not pass its own health check.
+
+The health check hashes all ~1.5 GiB and lets CoreML compile both towers: ~48 s cold, ~21 s
+warm on an M-series laptop. That is why `healthCheckCapabilityPackWorker` carries a much
+larger bound than a probe command's.
 
 ## What it returns
 

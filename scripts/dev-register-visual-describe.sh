@@ -4,14 +4,14 @@
 # descriptions from a small local VLM under llama.cpp) is testable end to end without a
 # signed catalog (ADR 0114, ADR 0175).
 #
-# THIS SCRIPT CANNOT SUCCEED YET, AND SAYS SO RATHER THAN PRETENDING.
+# The weights and the llama.cpp runtime are pinned and this script registers the pack.
+# The first run downloads ~2.6 GiB into workers/visual-describe/models/ and verifies
+# every file against pack/models.lock.toml; later runs re-hash what is already there.
 #
-# No model weight and no llama.cpp binary has been fetched for this pack, so
-# `pack/models.lock.toml` still carries placeholder digests and `tools/fetch_models.py
-# --check` fails by design. The steps below are the real ones; the fetch is the only
-# missing piece, and it is gated on the licence verification recorded in
-# workers/visual-describe/LICENSES.md (the SmolVLM2 GGUF QUANTISATION and mmproj export,
-# and the llama.cpp RELEASE artifact — not just their upstream repositories).
+# The runtime arrives as ONE release tarball, pinned by a single digest, out of which the
+# CLI and the nine dylibs it links against are extracted and pinned individually. The
+# unversioned `libfoo.0.dylib` names the loader asks for are recreated as symlinks — the
+# CLI's only RPATH is `@loader_path`, so they must all be siblings in models/.
 #
 # Gated the same way the other packs are: FRAMEPILOT_DEV_PACK_REGISTRATION=1 is set only
 # for the registration call itself. Never set that env var in a packaged build.
@@ -43,13 +43,19 @@ echo "Fetching pinned weights + llama.cpp runtime (verified against models.lock.
 if ! (cd "$WORKER_DIR" && .venv/bin/python3 tools/fetch_models.py); then
   cat >&2 <<'MSG'
 
-The weights are not pinned yet, so this pack cannot be registered.
+An artifact did not match its pin, so this pack was not registered.
 
-To make it live:
-  1. Verify each licence in workers/visual-describe/LICENSES.md — in particular the
-     SmolVLM2 GGUF quantisation and mmproj export (not only the upstream model
-     card), and the llama.cpp release artifact you download.
+That is the pin doing its job: the message above names the file and both digests.
+Either a download was interrupted (delete the file in workers/visual-describe/models/
+and re-run), or the bytes upstream are not the ones that were approved — which is a
+licence and provenance question, not something to re-record away.
+
+To move to a NEW pinned release or revision, deliberately:
+  1. Re-verify the licences in workers/visual-describe/LICENSES.md for the new
+     artifacts — the GGUF quantisation and mmproj export, and the LICENSE inside the
+     llama.cpp release tarball, not just their upstream repositories.
   2. cd workers/visual-describe && .venv/bin/python3 tools/fetch_models.py --record
+     (this resolves any PENDING release/revision and rewrites every digest).
   3. Copy the recorded digests into src/framepilot_visual_describe/models.py — that
      copy is the one the signed wheel enforces at load time.
   4. Re-run this script.

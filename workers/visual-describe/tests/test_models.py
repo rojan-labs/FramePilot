@@ -23,10 +23,21 @@ from framepilot_visual_describe.models import (
 LOCK_PATH = Path(__file__).resolve().parent.parent / "pack" / "models.lock.toml"
 
 
-def test_every_pin_is_still_a_placeholder_and_says_so() -> None:
-    # This test is the record of the pack's actual state. When the weights are fetched and
-    # recorded it must be replaced by real digests, not deleted.
-    assert all(not model.pinned for model in PINNED_MODELS)
+def test_every_shipped_artifact_carries_a_real_pin() -> None:
+    # This test is the record of the pack's actual state. It used to assert the opposite —
+    # that nothing had been fetched — and was replaced, as its own comment required, when
+    # the artifacts were recorded on 2026-09-07.
+    assert [model.id for model in PINNED_MODELS if not model.pinned] == []
+
+
+def test_the_runtime_libraries_are_pinned_alongside_the_binary() -> None:
+    # `llama-mtmd-cli` is an 83 KiB shim; the dylibs beside it are what actually decode a
+    # frame and run the model in the same process. Pinning only the executable would hash
+    # the least interesting part of the runtime.
+    libraries = [model.id for model in PINNED_MODELS if model.id.startswith("runtime-lib-")]
+    assert len(libraries) == 9
+    assert MODELS_BY_ID["runtime"].executable
+    assert not any(MODELS_BY_ID[library].executable for library in libraries)
 
 
 def test_the_lock_file_and_the_compiled_in_pins_agree() -> None:
@@ -36,7 +47,18 @@ def test_the_lock_file_and_the_compiled_in_pins_agree() -> None:
     assert recorded == {model.file: model.sha256 for model in PINNED_MODELS}
 
 
-def test_a_placeholder_pin_is_refused_by_name(tmp_path: Path) -> None:
+def test_a_placeholder_pin_is_refused_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No shipped artifact carries the sentinel any more, so the refusal is exercised
+    # against an injected one. It still has to fire: the sentinel is what stands between a
+    # future unfetched artifact and a silent "hash matched".
+    pinned = MODELS_BY_ID["vlm"]
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256=UNPINNED_DIGEST, license="Apache-2.0"),
+    )
     with pytest.raises(ModelUnavailableError, match="placeholder pin"):
         resolve_model("vlm", tmp_path)
 
@@ -99,8 +121,23 @@ def test_models_directory_follows_the_installer_root(tmp_path: Path) -> None:
     assert models_directory({}).name == "models"
 
 
-def test_verify_all_refuses_while_any_pin_is_a_placeholder(tmp_path: Path) -> None:
+def test_verify_all_refuses_while_any_pin_is_a_placeholder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinned = MODELS_BY_ID["vlm"]
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256=UNPINNED_DIGEST, license="Apache-2.0"),
+    )
     with pytest.raises(ModelUnavailableError):
+        verify_all(tmp_path)
+
+
+def test_verify_all_refuses_an_artifact_that_is_merely_absent(tmp_path: Path) -> None:
+    # Every pin is real now, so an empty directory must still fail — a pack that verified
+    # nothing because nothing was installed would be the worst possible pass.
+    with pytest.raises(ModelUnavailableError, match="is not installed"):
         verify_all(tmp_path)
 
 
