@@ -68,18 +68,24 @@ one operation per run, $0.499 → $0.049 per accepted edit, done p95 107s → 23
   says edits land and undo; the skills name `caption_the_edit`, `set_clip_speed_ramp`,
   `reorder_clips`; the repair pass advertises its stage's surface; the runner's merged file
   describes the label. Commits `c4721a6`, `1a950ec`, `fe48ee3`, `424075c`, `f1f8237`.
-- `[ ]` GOLDEN-C.33 — `refine-tighten` t2 rebuilt the middle section three times (184 ops,
-  $0.65, 308s) for a 1.00. Needs the replayed prompts read.
+- `[x]` GOLDEN-C.33 — `refine-tighten` t2 rebuilt the middle section three times (184 ops,
+  $0.65, 308s): read with a two-turn replay — the model's own delete-then-re-add workflow,
+  re-run at three cadences, because no tool shortened shots in place. Closed by C.36.
 - `[x]` GOLDEN-0.5 — **the desktop's default path measured** (`s9-live-reorder-planfirst`):
   every correct one-op edit settled `failed` ("The committed plan still has incomplete
   deliverables") because the drafted plan lists reads and reports as steps and only an
   applied patch completes a step. GOLDEN-C.34: the plan ledger is advisory at
   verification; unreached steps are a notice + "Not done". After: 6/6 `completed`,
   $0.024/accepted edit (`…-planfirst-fix`).
-- `[ ]` UX-S9.1 — **the pinned plan card outlives its run**: after "Made 1 edit" it still
-  reads "Plan 1/2" with a hollow step, and it stays pinned when the mode switches to Chat
-  (`reports/golden/s9-ui-walk/04-cards-expanded.png`). A finished run's plan should settle
-  (done steps ticked, undone steps named as not done) and a new mode should not carry it.
+- `[x]` UX-S9.1 — **the pinned plan card settles when its run ends** (unreached steps
+  marked with the reason) and belongs to the turn that drafted it. Commit after `e7410f4`.
+- `[x]` GOLDEN-C.35 — **an objective's delivery follows the run's verdict**: plan-first
+  montage/dead-air applied 17 and 116 changes, passed every check, and settled `failed`
+  ("This deliverable was not completed"). Commit `cb83bc9`.
+- `[x]` GOLDEN-C.36 — **`tighten_clips`**: shorten every shot in a window and close the
+  gaps in one patch (trim_clip + reorder_clips) — the pacing gap behind refine-tighten's
+  184-op, three-rebuild turn. Core set, Python mirror, tests. Commit `4cd3084`. Measured
+  live in `s9-live-all-planfirst-2` (pending).
 - `[ ]` UX-S9.2 — **review findings show the model's remedy sentence to the editor**
   ("ripple_delete the head/tail range", "Look at a rendered frame before treating the
   framing as correct"), and a check that could not run ("Not checked: … never measured")
