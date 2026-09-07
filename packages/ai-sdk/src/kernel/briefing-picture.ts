@@ -22,7 +22,12 @@ import { SHOT_SIZE_LADDER, type ShotSize } from '../ledger.js';
 import type { PictureCut, PictureCutFlag, PictureSlice } from './semantic-index/picture.js';
 
 /** How a cut differs from how it was before the apply. */
-export type PictureChangeKind = 'added' | 'removed' | 'worsened' | 'unchanged';
+export type PictureChangeKind =
+  | 'added'
+  | 'removed'
+  | 'worsened'
+  | 'transitioned'
+  | 'unchanged';
 
 export interface PictureChange {
   readonly kind: PictureChangeKind;
@@ -107,9 +112,15 @@ export function diffPicture(
     const had = new Set<PictureCutFlag>(was.flags);
     const newFlags = cut.flags.filter((flag) => !had.has(flag));
     const inherited = cut.flags.filter((flag) => had.has(flag));
-    if (newFlags.length > 0) {
+    // A transition placed on a cut that already existed changes nothing about the FLAGS,
+    // so keying on flags alone dropped it silently: `add_transitions` over an existing
+    // sequence produced no picture line and nothing to verify, which is precisely the
+    // edit most worth reporting. The transition itself is part of what changed on screen.
+    const transitionChanged = was.delta.transition !== cut.delta.transition;
+    if (newFlags.length > 0 || transitionChanged) {
       changes.push({
-        kind: 'worsened',
+        // A cut that only gained or lost a transition is not "worse" — it is different.
+        kind: newFlags.length > 0 ? 'worsened' : 'transitioned',
         at: cut.at,
         fromClipId: cut.fromClipId,
         toClipId: cut.toClipId,
@@ -217,8 +228,9 @@ export function renderPictureBriefing(
   const rank: Record<PictureChangeKind, number> = {
     worsened: 0,
     added: 1,
-    removed: 2,
-    unchanged: 3,
+    transitioned: 2,
+    removed: 3,
+    unchanged: 4,
   };
   const ordered = [...changes].sort((a, b) => rank[a.kind] - rank[b.kind] || a.at - b.at);
   const worth = ordered.filter(
@@ -238,6 +250,9 @@ export function renderPictureBriefing(
     if (change.kind === 'added') {
       const problem = change.newFlags.length > 0 ? ` ⚑ ${describeFlags(change.newFlags)}` : '';
       lines.push(`- ${where} new cut${detail ? ` — ${detail}` : ''}${problem}`);
+    } else if (change.kind === 'transitioned') {
+      const kind = cut?.delta.transition;
+      lines.push(`- ${where} ${kind ? `now a ${kind}` : 'transition removed — now a hard cut'}`);
     } else if (change.kind === 'worsened') {
       lines.push(`- ${where} ⚑ ${describeFlags(change.newFlags)}${detail ? ` (${detail})` : ''}`);
     } else {

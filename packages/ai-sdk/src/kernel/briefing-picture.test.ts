@@ -241,3 +241,63 @@ describe('renderPictureBriefing', () => {
     }
   });
 });
+
+describe('a transition on a cut that already existed', () => {
+  it('is reported, even though no flag changed', () => {
+    // Keying on flags alone dropped this silently: `add_transitions` over an existing
+    // sequence produced no picture line at all, which is the edit most worth reporting.
+    const before = slice([cut({ fromClipId: 'a', toClipId: 'b', at: 12 })]);
+    const after = slice([
+      cut({
+        fromClipId: 'a',
+        toClipId: 'b',
+        at: 12,
+        delta: {
+          luma: null,
+          warmth: null,
+          sat: null,
+          contrast: null,
+          shotSizeSteps: null,
+          sameSetting: null,
+          sameEntities: [],
+          motionChange: null,
+          duplicate: null,
+          transition: 'cross-dissolve',
+        },
+      }),
+    ]);
+    const change = diffPicture(before, after)[0];
+    expect(change?.kind).toBe('transitioned');
+    expect(renderPictureBriefing(before, after)).toContain('now a cross-dissolve');
+  });
+
+  it('reports a transition that was removed as a return to a hard cut', () => {
+    const withTransition = cut({
+      fromClipId: 'a',
+      toClipId: 'b',
+      delta: {
+        luma: null,
+        warmth: null,
+        sat: null,
+        contrast: null,
+        shotSizeSteps: null,
+        sameSetting: null,
+        sameEntities: [],
+        motionChange: null,
+        duplicate: null,
+        transition: 'fade',
+      },
+    });
+    const text = renderPictureBriefing(
+      slice([withTransition]),
+      slice([cut({ fromClipId: 'a', toClipId: 'b' })]),
+    );
+    expect(text).toContain('hard cut');
+  });
+
+  it('still calls a new FLAG worse, not merely different', () => {
+    const before = slice([cut({ fromClipId: 'a', toClipId: 'b' })]);
+    const after = slice([cut({ fromClipId: 'a', toClipId: 'b', flags: ['jump_cut'] })]);
+    expect(diffPicture(before, after)[0]?.kind).toBe('worsened');
+  });
+});

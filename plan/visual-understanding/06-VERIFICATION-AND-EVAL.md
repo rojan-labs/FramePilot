@@ -86,16 +86,16 @@ prose, so they score `unchanged` under a new `intent: 'answer'`, and the claim t
 cost no frame is measured by `perception-metrics.framesSeen`, not by the rubric. Their
 correctness is the operator's call against VU0.2's labels, and each case's `why` says so.
 
-| id | fixture | rubric | what it checks |
-| --- | --- | --- | --- |
-| `match-color-to-first-clip` | `mission-montage` | `match-color-to-reference` | the THIRD clip gained a grade and the first did not (the inverted edit is the plausible wrong answer); every parameter inside `COLOR_GRADE_PARAMETER_CONTRACTS` and actually moving; nothing else on the timeline touched |
-| `warmer-subtle` | `mission-montage` | `warmer-subtle` | every picture clip carries a positive `temperature` under 0.5 and moves no exposure/contrast/saturation — the look table's own content (`LOOK_DELTAS.warmer` is a warmth delta and nothing else); no clip may move |
-| `transitions-where-they-belong` | `mission-montage`, 2 turns | `transitions-where-they-belong` | turn 1 builds the montage so the timeline has BOTH kinds of cut; then ≥1 source-change cut carries a transition and NO continuity cut does — the rule `chooseTransition` enforces by returning `null` |
-| `broll-over-sentence` | `mission-talk` + montage bin | `broll-over-sentence` | the cutaway covers the transcript span of the line the request named (target resolution by sentence, which `broll-first-20s` cannot test); duration kept; content away from the line preserved |
-| `remove-duplicate-takes` | `mission-montage`, 2 turns | `remove-duplicate-takes` | turn 1 is asked for repeats, because no fixture ships duplicate takes; then no two clips play overlapping source of one asset AND every un-repeated shot survives |
-| `which-clips-show-host` | `mission-montage` | `unchanged` (answer) | answered, nothing edited, no frame rendered. Correctness → operator, against `tier1.json` |
-| `whats-on-screen-at` | `mission-montage` | `unchanged` (answer) | same; correctness → operator, against `tier2.json` |
-| `find-dark-clips` | `mission-montage` | `unchanged` (answer) | same; correctness → operator, against `tier0.json`'s PROPOSED exposure classes |
+| id                              | fixture                      | rubric                          | what it checks                                                                                                                                                                                                            |
+| ------------------------------- | ---------------------------- | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `match-color-to-first-clip`     | `mission-montage`            | `match-color-to-reference`      | the THIRD clip gained a grade and the first did not (the inverted edit is the plausible wrong answer); every parameter inside `COLOR_GRADE_PARAMETER_CONTRACTS` and actually moving; nothing else on the timeline touched |
+| `warmer-subtle`                 | `mission-montage`            | `warmer-subtle`                 | every picture clip carries a positive `temperature` under 0.5 and moves no exposure/contrast/saturation — the look table's own content (`LOOK_DELTAS.warmer` is a warmth delta and nothing else); no clip may move        |
+| `transitions-where-they-belong` | `mission-montage`, 2 turns   | `transitions-where-they-belong` | turn 1 builds the montage so the timeline has BOTH kinds of cut; then ≥1 source-change cut carries a transition and NO continuity cut does — the rule `chooseTransition` enforces by returning `null`                     |
+| `broll-over-sentence`           | `mission-talk` + montage bin | `broll-over-sentence`           | the cutaway covers the transcript span of the line the request named (target resolution by sentence, which `broll-first-20s` cannot test); duration kept; content away from the line preserved                            |
+| `remove-duplicate-takes`        | `mission-montage`, 2 turns   | `remove-duplicate-takes`        | turn 1 is asked for repeats, because no fixture ships duplicate takes; then no two clips play overlapping source of one asset AND every un-repeated shot survives                                                         |
+| `which-clips-show-host`         | `mission-montage`            | `unchanged` (answer)            | answered, nothing edited, no frame rendered. Correctness → operator, against `tier1.json`                                                                                                                                 |
+| `whats-on-screen-at`            | `mission-montage`            | `unchanged` (answer)            | same; correctness → operator, against `tier2.json`                                                                                                                                                                        |
+| `find-dark-clips`               | `mission-montage`            | `unchanged` (answer)            | same; correctness → operator, against `tier0.json`'s PROPOSED exposure classes                                                                                                                                            |
 
 Three honest departures from the table above as it was written:
 
@@ -147,7 +147,7 @@ test) → the labelled set and the new cases alongside VU2.
 
 ## VU7 Sampled verification after apply
 
-### VU7.1 Deterministic first `[ ]`
+### VU7.1 Deterministic first `[~]` — built, NOT wired (2026-09-07)
 
 After an apply that touched picture clips, the conductor takes `picture.cuts` whose flags
 changed (new or worsened; inherited flags are advisories) and requests, through the existing
@@ -160,7 +160,7 @@ changed (new or worsened; inherited flags are advisories) and requests, through 
 Bounded to 4 pairs per apply, one batch, cancellable (the route already watches disconnect).
 Results become working-state facts (`kind: verification`) and the briefing's PICTURE line.
 
-### VU7.2 Vision only when numbers cannot decide `[ ]`
+### VU7.2 Vision only when numbers cannot decide `[~]` — built, NOT wired (2026-09-07)
 
 `vision-review.ts` gets its first caller. Trigger conditions, all required:
 
@@ -174,7 +174,7 @@ At most 2 pairs × 2 frames per apply, 512 px, one call, `cannot_tell` is not a 
 module's own rules). The verdict is a fact and an advisory. It never blocks the apply and
 never triggers a repair loop by itself.
 
-### VU7.3 Offline judge for the harness `[ ]`
+### VU7.3 Offline judge for the harness `[ ]` — deliberately skipped (dev-only script)
 
 A vision judge (`scripts/golden-vision-judge.mjs`, dev only) scores exported goldens at cut
 points for the visual cases and writes a score per case into the report. It is evidence for
@@ -187,6 +187,30 @@ this plan's exit, not a production path.
   stays under 0.5 across the 29 cases (verification frames included).
 - A/B: the visual cases with and without VU7 — verification must not lower first-pass
   acceptance (it adds facts, never retries).
+
+### The wiring gap — read this before marking VU7 done
+
+`kernel/picture-verification.ts` is complete and tested (28 tests) and **nothing calls it**.
+So is `kernel/briefing-picture.ts` from VU2.6 (17 tests, no caller). Both are dead code
+today, and neither phase is honestly `[x]` until that changes.
+
+**Why it was not wired here.** Both need the before/after project AND the ledger live at the
+same moment. The conductor is a pure reducer over operations with no project in scope
+(`ConductorState`), so it cannot run `diffPicture`. The only seam with the right inputs is
+`Orchestrator.reviewTurn`, and it is the wrong shape twice: it returns `ReviewFinding[]`,
+which is the **steering/repair** channel VU7 must never enter (a verification must add facts,
+never turn a good apply into a failed one), and it runs inside `ReviewFindingQueue` where the
+run's `RunWorkingState` is not reachable, so facts have no route home.
+
+**What wiring it actually needs**, so the next agent does not rediscover this: a non-steering
+fact channel from the effect layer into `state.working`, carrying the before/after picture
+slices. `recordPictureVerification(state, report)` is the seam that already exists on the
+working-state side. It is a deliberate, separate change in a 9k-line file, not a line to
+slip into another commit.
+
+Until then the honest reading is: the deterministic cut checks and the bounded vision
+escalation are **implemented and provably correct in isolation**, and the agent does not yet
+run them.
 
 ## Definition of done
 

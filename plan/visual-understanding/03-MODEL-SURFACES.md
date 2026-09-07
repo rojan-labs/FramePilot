@@ -83,7 +83,7 @@ footage" looks like in 600 tokens.
 - Tool descriptions updated by the lead-prompt-engineer pass; the shape test in
   `tool-domains` must pass (a tool needs a domain).
 
-## VU2.6 Briefing PICTURE line `[x]` (2026-09-07)
+## VU2.6 Briefing PICTURE line `[~]` — built and tested, NOT wired (2026-09-07)
 
 `kernel/briefing.ts` `buildStateBriefing`: after an apply that changed picture clips, render
 ≤ 3 lines from the diff of `picture.cuts` before/after:
