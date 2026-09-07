@@ -84,10 +84,8 @@ from framepilot_engine.analysis.tiers import (
     kinds_for,
 )
 from framepilot_engine.analysis.visual_sampler import (
-    DEFAULT_HAMMING_THRESHOLD,
     SAMPLER_VERSION,
     VisualSpan,
-    hamming,
 )
 from framepilot_engine.audio.asr import (
     DEFAULT_ASR_MODEL,
@@ -113,7 +111,13 @@ from framepilot_engine.brain.captioner import (
     is_informative_caption,
     resolve_captioner,
 )
+from framepilot_engine.brain.duplicates import duplicate_groups, duplicate_of
 from framepilot_engine.brain.embeddings import EmbedderResolution, resolve_embedder
+from framepilot_engine.brain.entities import (
+    FaceObservation,
+    cluster_faces,
+    seed_from_centroid,
+)
 from framepilot_engine.brain.fts import segment_utterances
 from framepilot_engine.brain.governor import IndexGovernor
 from framepilot_engine.brain.keyring import EXHAUSTED_REASON, KeyRingExhaustedError, parse_keys
@@ -121,12 +125,21 @@ from framepilot_engine.brain.ledger_models import (
     TIER0_VERSION,
     TIER1_VERSION,
     TIER2_VERSION,
+    EntityRef,
+    LabelledFacts,
     LedgerSnapshot,
     ShotRecord,
 )
 from framepilot_engine.brain.ledger_models import AssetDigest as LedgerAssetDigest
 from framepilot_engine.brain.ledger_models import TierCoverage as LedgerCoverage
 from framepilot_engine.brain.ledger_store import digest_from_shots, shots_from_stats
+from framepilot_engine.brain.local_visual_embed import (
+    CAPABILITY_EMBED,
+    CAPABILITY_TEXT,
+    LOCAL_MODEL_ID,
+    LocalVisualEmbedClient,
+    ShotLabelling,
+)
 from framepilot_engine.brain.memory import (
     append_memory_entry,
     asset_section,
@@ -140,6 +153,7 @@ from framepilot_engine.brain.models import (
     AnalysisResultRow,
     AssetRow,
     BrainStatus,
+    EntityRow,
     JobRow,
     JobState,
     MemoryEntry,
@@ -150,6 +164,7 @@ from framepilot_engine.brain.models import (
     VisualSpanRow,
     VisualVectorRow,
 )
+from framepilot_engine.brain.pack_worker import PackWorkerError, parse_pack_handle
 from framepilot_engine.brain.sidecars import export_asset_sidecar, import_sidecars
 from framepilot_engine.brain.similar import (
     AssetDigest,
@@ -873,12 +888,6 @@ DEFAULT_LEDGER_PAGE = 500
 #: response.
 MAX_LEDGER_PAGE = 5000
 
-#: Above this many spans the pairwise near-duplicate comparison behind
-#: `similarGroup` stops earning its cost, and the signal is omitted rather than
-#: approximated. Comfortably above a real photo dump or a multi-take shoot.
-_SIMILAR_GROUP_SPAN_CAP = 1200
-
-
 class VisualCaptionProviderPayload(BaseModel):
     """The host-resolved vision provider for captioning, in the request body.
 
@@ -927,6 +936,15 @@ class VisualIndexRequest(BaseModel):
         default=None,
         alias="nvidiaKeys",
         description="Comma-separated NVIDIA embedding keys; falls back to the env setting.",
+    )
+    visual_embed_pack: str | None = Field(
+        default=None,
+        alias="visualEmbedPack",
+        description="JSON handle for an installed, host-verified framepilot.visual-embed "
+        "Capability Pack. When present and healthy the LOCAL tier-1 arm is used in "
+        "preference to the hosted NVIDIA one: no key, no frames leaving the machine, and "
+        "queries embedded in the same space as the stored vectors. Falls back to "
+        "FRAMEPILOT_PACK_VISUAL_EMBED. Never logged beyond its pack id.",
     )
     twelve_labs_key: str | None = Field(
         default=None,
@@ -2809,6 +2827,281 @@ def create_app(
             return _TierOutcome("failed", str(exc))
         return _TierOutcome("ok", shots=len(rows))
 
+    #: Nudge a keyframe that lands exactly on the asset's last second back inside the
+    #: media handle. The worker refuses a keyframe outside the approved range rather than
+    #: clamping it (a clamped timestamp labels the wrong picture), and a shot whose span
+    #: ends at the duration would otherwise be refused for a rounding difference between
+    #: the probe's duration and the measurement pass's last boundary.
+    _KEYFRAME_EPSILON = 0.05
+
+    def _shot_phash(shot: ShotRecord) -> int:
+        """The shot's keyframe dHash as an integer for its ``visual_spans`` row.
+
+        Zero when tier 0 computed no hash. That is a placeholder in a NOT NULL column, and
+        it is safe here only because the local space's duplicate detection reads
+        ``MeasuredFacts.phash`` directly — where ``None`` is preserved and skipped — rather
+        than this column. Nothing may start comparing local span hashes without fixing
+        that: every unhashed shot would be a duplicate of every other.
+        """
+        return int(shot.measured.phash) if shot.measured and shot.measured.phash else 0
+
+    def _label_tier1_local(
+        store: BrainStore,
+        client: LocalVisualEmbedClient,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+    ) -> _TierOutcome:
+        """Run tier 1 for one asset through the local Capability Pack (VU5.3).
+
+        The local arm of tier 1, and the reason a default install has labels at all. It
+        labels the shots tier 0 already found: no sampler, no second scene detection, one
+        keyframe decode per shot inside the pack.
+
+        Four things are written, in one transaction each:
+
+        - ``shots.labelled`` — the shot size / subject / setting / screen content and the
+          face count, under :data:`TIER1_VERSION`;
+        - ``visual_spans`` + ``visual_vectors`` under :data:`LOCAL_MODEL_ID` — the local
+          vector space, never mixed with NVIDIA's (the spans row exists because the vector
+          table is foreign-keyed onto it, and because ``search_visual`` reads spans);
+        - ``entities`` — identity clusters, seeded from the ones already stored so a
+          person keeps their id and their human-authored name across passes;
+        - the asset digest, rebuilt from the whole ledger.
+
+        Idempotent on the same rule tier 0 uses: shots already carrying the current
+        ``TIER1_VERSION`` for the current bytes are a resume, not repeated work. Bumping
+        the prompt bank version is what re-labels a library without re-measuring it.
+
+        :returns: The tier's disposition; ``shots`` counts rows written THIS call.
+        """
+        asset = store.get_asset(asset_id)
+        if asset is None:
+            return _TierOutcome("failed", "asset not known to brain")
+        try:
+            media_path = resolve_within(resolved_root, asset.path)
+        except PathTraversalError as exc:
+            return _TierOutcome("failed", str(exc))
+        try:
+            info = (
+                MediaInfo.model_validate(asset.probe)
+                if asset.probe is not None
+                else inspect_media(media_path, timeout=timeout)
+            )
+        except (PydanticValidationError, FFmpegError, OSError) as exc:
+            return _TierOutcome("failed", str(exc))
+        if not info.has_video:
+            return _TierOutcome("skipped", "asset has no video frames")
+        try:
+            content_hash = asset.content_sha256 or _sha256_file(media_path)
+        except OSError as exc:
+            return _TierOutcome("failed", str(exc))
+        shots = [
+            shot for shot in _asset_shots(store, asset_id) if shot.content_hash == content_hash
+        ]
+        if not shots:
+            # Tier 0 is the floor under tier 1: without measured shots there is no shot
+            # list to label. Said plainly rather than silently producing nothing.
+            return _TierOutcome("skipped", "no measured shots for the current bytes")
+        try:
+            done = store.existing_shot_tier_keys(asset_id, content_hash, "labelled", TIER1_VERSION)
+        except BrainError as exc:
+            return _TierOutcome("failed", str(exc))
+        pending = [shot for shot in shots if shot.shot_index not in done]
+        if not pending:
+            return _TierOutcome("ok")
+        # A still has no duration; the handle still needs a positive span, and one frame is
+        # what the pack will decode from it.
+        duration = info.duration_seconds or (1.0 if info.is_image else 0.0)
+        if duration <= 0.0:
+            return _TierOutcome("skipped", "asset has no duration")
+        fps = info.fps or 1.0
+        try:
+            labelled = client.embed_shots(
+                asset_id=asset_id,
+                media_path=str(media_path),
+                shots=[
+                    (shot.shot_index, min(shot.keyframe_t, max(duration - _KEYFRAME_EPSILON, 0.0)))
+                    for shot in pending
+                ],
+                duration_seconds=duration,
+                fps=fps,
+            )
+        except PackWorkerError as exc:
+            _log.warning(
+                "tier 1 labelling failed: asset=%s code=%s reason=%s", asset_id, exc.code, exc
+            )
+            return _TierOutcome("failed", f"{exc.code}: {exc}")
+        by_index = {shot.shot_index: shot for shot in pending}
+        entities_by_shot = _cluster_local_entities(store, asset_id, labelled)
+        rows = [
+            by_index[item.shot_index].model_copy(
+                update={
+                    "labelled": LabelledFacts(
+                        tier1_version=TIER1_VERSION,
+                        model=LOCAL_MODEL_ID,
+                        shot_size=item.labels.get("shotSize"),
+                        subject_kind=item.labels.get("subjectKind"),
+                        setting=item.labels.get("setting"),
+                        screen_content=item.labels.get("screenContent"),
+                        faces=item.faces,
+                        entities=entities_by_shot.get(item.shot_index, []),
+                    )
+                }
+            )
+            for item in labelled
+        ]
+        dimension = client.dim or (len(labelled[0].vector) if labelled else 0)
+        try:
+            store.upsert_shots(asset_id, content_hash, "labelled", rows)
+            store.upsert_visual_spans(
+                [
+                    VisualSpanRow(
+                        asset_id=asset_id,
+                        model=LOCAL_MODEL_ID,
+                        sampler_version=SAMPLER_VERSION,
+                        t0=by_index[item.shot_index].t0,
+                        t1=by_index[item.shot_index].t1,
+                        scene_index=item.shot_index,
+                        keyframe_t=by_index[item.shot_index].keyframe_t,
+                        phash=_shot_phash(by_index[item.shot_index]),
+                        content_hash=content_hash,
+                        frame_count=1,
+                    )
+                    for item in labelled
+                ]
+            )
+            store.upsert_visual_vectors(
+                [
+                    VisualVectorRow(
+                        asset_id=asset_id,
+                        model=LOCAL_MODEL_ID,
+                        sampler_version=SAMPLER_VERSION,
+                        t0=by_index[item.shot_index].t0,
+                        dim=dimension,
+                        vector=item.vector,
+                    )
+                    for item in labelled
+                ]
+            )
+            store.upsert_asset_digest(
+                digest_from_shots(
+                    asset_id,
+                    content_hash,
+                    _asset_shots(store, asset_id),
+                    duration_s=duration,
+                    has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
+                )
+            )
+        except BrainError as exc:
+            return _TierOutcome("failed", str(exc))
+        return _TierOutcome("ok", shots=len(rows))
+
+    def _cluster_local_entities(
+        store: BrainStore, asset_id: str, labelled: Sequence[ShotLabelling]
+    ) -> dict[int, list[EntityRef]]:
+        """Fold this asset's faces into the project's identity clusters (VU5.3).
+
+        Incremental by construction: every stored cluster is fed back in as a SEED (its
+        centroid stands in for its members), so a face that matches one joins that person
+        and keeps their id — and therefore their human-authored label. A new face that
+        matches nobody starts a new ``person_NN``, numbered by first appearance.
+
+        Face vectors are NOT stored: the ledger keeps a count and an id per shot, and the
+        ``entities`` table keeps one centroid per person. So the merged centroid is a
+        running mean rather than an exact one. That trade is deliberate — keeping every
+        face vector of every shot would be a second vector table the size of the first, to
+        make a re-cluster marginally more accurate than a threshold that is itself a first
+        calibration.
+
+        :returns: ``{shot_index: [EntityRef]}`` for the shots that had faces.
+        """
+        observations: list[FaceObservation] = []
+        stored = store.list_entities(model=LOCAL_MODEL_ID, kind="person")
+        prior_counts = {row.id: row.shot_count for row in stored}
+        observations.extend(seed_from_centroid(row.id, row.centroid) for row in stored)
+        for item in labelled:
+            observations.extend(
+                FaceObservation(
+                    asset_id=asset_id, shot_index=item.shot_index, vector=tuple(vector)
+                )
+                for vector in item.face_vectors
+            )
+        if not any(observation.shot_index >= 0 for observation in observations):
+            return {}
+        clusters = cluster_faces(observations, kind="person")
+        refs: dict[int, list[EntityRef]] = {}
+        for cluster in clusters:
+            for _member_asset, shot_index in set(cluster.members):
+                # `p` is 1.0 by construction, not by measurement: membership here is a
+                # threshold decision, not a probability the model reported. It is recorded
+                # so the ledger's uniform "value plus confidence" shape holds, and it must
+                # never be read as "the model was certain".
+                refs.setdefault(shot_index, []).append(
+                    EntityRef(id=cluster.id, kind="person", p=1.0)
+                )
+        rows = [
+            EntityRow(
+                id=cluster.id,
+                kind="person",
+                centroid=list(cluster.centroid),
+                dim=len(cluster.centroid),
+                model=LOCAL_MODEL_ID,
+                shot_count=prior_counts.get(cluster.id, 0) + cluster.shot_count,
+            )
+            for cluster in clusters
+        ]
+        store.upsert_entities(rows, model=LOCAL_MODEL_ID)
+        return {index: sorted(items, key=lambda ref: ref.id) for index, items in refs.items()}
+
+    def _link_duplicate_shots(store: BrainStore, asset_ids: Sequence[str]) -> int:
+        """Populate ``labelled.duplicateOf`` across a project's labelled shots (VU5.3).
+
+        Run once per slice rather than per asset, because "this is a repeat of that" is a
+        statement about the whole project: the second take of a shot usually lives in a
+        different file from the first.
+
+        Only shots that already carry a ``labelled`` group participate — ``duplicateOf``
+        is a field of that group, and a measured-only shot has nowhere to put it. Shots
+        with no keyframe hash are skipped rather than treated as identical, which is the
+        whole reason ``MeasuredFacts.phash`` is nullable instead of defaulted.
+
+        :returns: The number of shots whose duplicate link changed.
+        """
+        shots: list[ShotRecord] = []
+        for asset_id in asset_ids:
+            shots.extend(_asset_shots(store, asset_id))
+        hashed = [
+            shot
+            for shot in shots
+            if shot.labelled is not None
+            and shot.measured is not None
+            and shot.measured.phash is not None
+        ]
+        if len(hashed) < 2:
+            return 0
+        keys = [
+            (f"{shot.asset_id}#{shot.shot_index}", int(measured.phash))
+            for shot in hashed
+            if (measured := shot.measured) is not None and measured.phash is not None
+        ]
+        links = duplicate_of(keys)
+        by_asset: dict[tuple[str, str], list[ShotRecord]] = {}
+        changed = 0
+        for shot in hashed:
+            assert shot.labelled is not None  # filtered above
+            target = links.get(f"{shot.asset_id}#{shot.shot_index}")
+            if shot.labelled.duplicate_of == target:
+                continue
+            changed += 1
+            updated = shot.model_copy(
+                update={"labelled": shot.labelled.model_copy(update={"duplicate_of": target})}
+            )
+            by_asset.setdefault((shot.asset_id, shot.content_hash), []).append(updated)
+        for (asset_id, content_hash), rows in by_asset.items():
+            store.upsert_shots(asset_id, content_hash, "labelled", rows)
+        return changed
+
     def _reindex_embeddings_with_captions(store: BrainStore, project: Project) -> None:
         """Rebuild the unified text-recall space including captions (plan MI3.2).
 
@@ -3626,8 +3919,18 @@ def create_app(
             want_measured = "measured" in req.tiers
             want_labelled = "labelled" in req.tiers
             want_described = "described" in req.tiers
+            # The local pack is resolved from the handle the host supplied (or the env
+            # fallback) and wins over the hosted arm — see `resolve_visual_embedder`. A
+            # malformed handle is "no pack", never a failed slice: a machine WITH a pack
+            # must never index less than a machine without one.
+            visual_pack = parse_pack_handle(
+                req.visual_embed_pack or settings.visual_embed_pack,
+                require=(CAPABILITY_EMBED, CAPABILITY_TEXT),
+            )
             embedder_res = (
-                resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys)
+                resolve_visual_embedder(
+                    req.nvidia_keys or settings.nvidia_embeddings_keys, pack=visual_pack
+                )
                 if want_labelled
                 else VisualEmbedderResolution(client=None, reason=NOT_REQUESTED_REASON)
             )
@@ -3655,9 +3958,14 @@ def create_app(
                 "measured": "ok" if want_measured else f"skipped: {NOT_REQUESTED_REASON}",
                 "labelled": (
                     "ok"
-                    if embedder_res.client is not None
+                    if embedder_res.available
                     else f"skipped: {embedder_res.reason or 'no embedder'}"
                 ),
+                # Captions still ride on the HOSTED embed pass (`_index_one_asset` embeds
+                # spans before it captions them), so a local-only machine describes
+                # nothing yet. Said plainly rather than reported as "ok": tier 2's local
+                # producer is VU6, and claiming coverage it does not have is exactly the
+                # failure this phase removed from tier 1.
                 "described": (
                     "ok"
                     if captioner_res.captioner is not None and embedder_res.client is not None
@@ -3699,7 +4007,7 @@ def create_app(
                     plan = _plan_slice(
                         store,
                         job,
-                        deep_possible=embedder_res.client is not None,
+                        deep_possible=embedder_res.available,
                         want_measured=want_measured,
                         max_assets=req.max_assets,
                     )
@@ -3755,6 +4063,7 @@ def create_app(
             # unprocessed asset, and the cursor only ever advances over a prefix.
             timeout = float(settings.asset_media_timeout_seconds)
             embed_client: VisualEmbedClient | None = embedder_res.client
+            local_client: LocalVisualEmbedClient | None = embedder_res.local
             base_states = dict(tier_states)
             current = plan
             slice_captioner: SceneCaptioner | None = None
@@ -3771,6 +4080,24 @@ def create_app(
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
                 tiers = {**tier_states, "measured": tier0.label()}
+                if local_client is not None and current.phase != MEASURED_PHASE:
+                    # The local arm labels the shots tier 0 just found, in the same slice
+                    # and the same brain connection. It never touches the hosted span
+                    # pipeline: two vector spaces, two code paths, one project.
+                    tier1 = _label_tier1_local(
+                        store, local_client, asset_id, resolved_root, timeout
+                    )
+                    tiers = {**tiers, "labelled": tier1.label()}
+                    return _AssetOutcome(
+                        item=VisualIndexItem(
+                            asset_id=asset_id,
+                            ok=tier0.ok and tier1.ok,
+                            reason=None if tier1.ok else tier1.reason,
+                            indexed=tier1.shots,
+                            tiers=tiers,
+                        ),
+                        advanced=True,
+                    )
                 if embed_client is None or current.phase == MEASURED_PHASE:
                     # No embedder, or the tier-0 pass: tiers 1 and 2 are absent coverage,
                     # not a dead job. The cursor still advances, so a keyless project
@@ -3929,6 +4256,11 @@ def create_app(
                         captions_reason = (
                             "no project document supplied; caption text-embeddings skipped"
                         )
+                    if indexed and embedder_res.local is not None:
+                        # "This is a repeat of that" is a statement about the whole
+                        # project, not one asset, so it is linked once per slice over
+                        # everything labelled so far.
+                        _link_duplicate_shots(store, asset_ids)
                     coverage = store.tier_coverage(asset_ids)
             except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
                 return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
@@ -4550,54 +4882,23 @@ def create_app(
     def _similar_groups(spans: Sequence[VisualSpanRow]) -> dict[tuple[str, int], int]:
         """Group spans that LOOK the same, keyed by ``(asset_id, scene_index)``.
 
-        WHY this is worth having: the two situations where a montage repeats itself are
-        a photo dump of one moment and a multi-take shoot, and nothing in the index told
-        the model which of its candidates were the same picture twice. The signal costs
-        no new analysis — every span already stores the dHash of its keyframe
+        WHY this is worth having: the two situations where a montage repeats itself are a
+        photo dump of one moment and a multi-take shoot, and nothing in the index told the
+        model which of its candidates were the same picture twice. The signal costs no new
+        analysis — every span already stores the dHash of its keyframe
         (``visual_spans.phash``), computed at index time and, until now, read by nothing
         for this. Two spans within :data:`DEFAULT_HAMMING_THRESHOLD` bits are the same
         content; that is the same threshold the sampler uses to decide a span has not
         drifted, reused rather than invented.
 
-        Singletons get no group — a number that only ever appears once is noise in the
-        prompt. Above :data:`_SIMILAR_GROUP_SPAN_CAP` spans the pairwise comparison stops
-        earning its cost, so the signal is omitted rather than approximated.
+        The grouping itself is
+        :func:`~framepilot_engine.brain.duplicates.duplicate_groups` — a multi-index hash
+        bucket, exact and cheap. It replaced a pairwise scan that was bounded by GIVING UP
+        above 1,200 spans, which meant the projects with the most repeated takes were
+        exactly the ones that never got the signal. There is no cap here any more, and
+        nothing is approximated.
         """
-        if len(spans) > _SIMILAR_GROUP_SPAN_CAP:
-            _log.debug(
-                "similar-group signal skipped: %d spans exceeds the %d cap",
-                len(spans),
-                _SIMILAR_GROUP_SPAN_CAP,
-            )
-            return {}
-        # Union-find over the near-duplicate relation, so A~B and B~C put all three
-        # together even when A and C are just past the threshold.
-        parent = list(range(len(spans)))
-
-        def find(i: int) -> int:
-            while parent[i] != i:
-                parent[i] = parent[parent[i]]
-                i = parent[i]
-            return i
-
-        for i in range(len(spans)):
-            for j in range(i + 1, len(spans)):
-                if hamming(spans[i].phash, spans[j].phash) <= DEFAULT_HAMMING_THRESHOLD:
-                    parent[find(i)] = find(j)
-        members: dict[int, list[int]] = {}
-        for i in range(len(spans)):
-            members.setdefault(find(i), []).append(i)
-        groups: dict[tuple[str, int], int] = {}
-        # Numbered by first appearance so the same footage always reads the same way.
-        root_group: dict[int, int] = {}
-        for i, span in enumerate(spans):
-            root = find(i)
-            if len(members[root]) < 2:
-                continue
-            if root not in root_group:
-                root_group[root] = len(root_group) + 1
-            groups[(span.asset_id, span.scene_index)] = root_group[root]
-        return groups
+        return duplicate_groups([((span.asset_id, span.scene_index), span.phash) for span in spans])
 
     def _builtin_chapters_for(
         store: BrainStore,

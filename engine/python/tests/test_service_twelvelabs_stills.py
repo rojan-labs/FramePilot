@@ -130,7 +130,7 @@ def _client(
     monkeypatch.setattr(
         service_module,
         "resolve_visual_embedder",
-        lambda keys=None: (
+        lambda keys=None, **_pack: (
             VisualEmbedderResolution(client=embedder)  # type: ignore[arg-type]
             if embedder is not None
             else VisualEmbedderResolution(client=None, reason="no_api_key")

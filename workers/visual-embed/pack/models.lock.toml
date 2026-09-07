@@ -1,0 +1,119 @@
+# Pinned model weights for the Visual Embed Capability Pack.
+#
+# WHY THIS FILE EXISTS
+#
+# Weights are binaries with their own licences and their own provenance. They are
+# deliberately NOT committed to this repository: they are fetched at pack build time from
+# a URL pinned to an immutable revision and verified against the exact sha256 recorded
+# here. A weight file that does not hash to its pin is refused, so a silently re-uploaded
+# or tampered model cannot enter a signed pack.
+#
+# THE DIGESTS BELOW ARE PLACEHOLDERS AND THIS PACK CANNOT LOAD A MODEL.
+#
+# Nothing here has been downloaded: this worker was built without fetching a weight, on
+# purpose, so the pack machinery could be reviewed before ~410 MiB of binaries entered the
+# picture. `sha256 = "000…0"` is the sentinel for "not yet fetched"; the worker's
+# `models.py` refuses it by name and the health check fails while any remains. Making this
+# pack live is one mechanical step: run `tools/fetch_models.py --record`, which downloads
+# each URL, prints its digest, and writes it back here — then copy the same digests into
+# `src/framepilot_visual_embed/models.py`, which is the copy the SIGNED WHEEL enforces.
+#
+# WHY THESE MODELS (licence table: plan/visual-understanding/08-REMOVE-DEFER-RISKS.md)
+#
+#  1. Licence. Every model is Apache-2.0 or MIT. SigLIP 2 is Apache-2.0 upstream, and the
+#     EXPORT's licence must be verified as well as the model card's — a re-export can be
+#     published under other terms. CLIP ViT-B/32 (MIT) is the recorded fallback if the
+#     SigLIP 2 export turns out unusable; it is NOT a second shipped model.
+#     Excluded on licence grounds, decided and not to be re-opened: Qwen2.5-VL
+#     (research-only terms) and Gemma 3 (Gemma terms).
+#  2. Runtime. The two towers run on onnxruntime; the two face models run on OpenCV's
+#     `dnn` module, which this project has already licence-audited and shipped for
+#     Tracking Lite and Subject Intelligence. So this pack adds exactly ONE new runtime.
+#  3. Size. ~410 MiB of weights against a pack budget that anticipated 150 MiB–1.5 GiB.
+#     Nothing enters the base installer either way.
+
+schemaVersion = 1
+
+[source]
+# SigLIP 2 is fetched from the Hugging Face repository at a pinned revision. The revision
+# below is a PLACEHOLDER for the same reason the digests are: no fetch has happened, so no
+# commit has been observed. `--record` writes the resolved revision back here.
+repository = "https://huggingface.co/google/siglip2-base-patch16-224"
+revision = "PENDING"
+baseUrl = "https://huggingface.co/google/siglip2-base-patch16-224/resolve/PENDING"
+
+[faceSource]
+# The face pair comes from the same immutable OpenCV Zoo commit Subject Intelligence
+# already pins, so the two packs can never disagree about which YuNet they mean.
+repository = "https://github.com/opencv/opencv_zoo"
+commit = "47534e27c9851bb1128ccc0102f1145e27f23f98"
+baseUrl = "https://media.githubusercontent.com/media/opencv/opencv_zoo/47534e27c9851bb1128ccc0102f1145e27f23f98/models"
+
+[[model]]
+id = "image"
+role = "visual.embed/image-tower"
+name = "SigLIP 2 base patch16-224 (ONNX vision tower)"
+file = "siglip2_base_patch16_224_vision.onnx"
+path = "onnx/vision_model.onnx"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+bytes = 0
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Google LLC"
+notes = "Verify the EXPORT's licence, not only the upstream model card. fp16 export preferred (~185 MiB); preprocessing constants are transcribed in onnx_backend.py and must be confirmed against the exported config."
+
+[[model]]
+id = "text"
+role = "visual.embed/text-tower"
+name = "SigLIP 2 base patch16-224 (ONNX text tower)"
+file = "siglip2_base_patch16_224_text.onnx"
+path = "onnx/text_model.onnx"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+bytes = 0
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Google LLC"
+notes = "Embeds the prompt bank once per bank version, and every search_visual/find_similar query."
+
+[[model]]
+id = "tokenizer"
+role = "visual.embed/tokenizer"
+name = "SigLIP 2 tokenizer"
+file = "siglip2_tokenizer.json"
+path = "tokenizer.json"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+bytes = 0
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Google LLC"
+notes = "Gemma-family SentencePiece vocabulary in tokenizers' JSON form; context length 64."
+
+[[model]]
+id = "face"
+role = "visual.embed/face-detect"
+name = "YuNet"
+file = "face_detection_yunet_2023mar.onnx"
+path = "face_detection_yunet/face_detection_yunet_2023mar.onnx"
+source = "faceSource"
+sha256 = "8f2383e4dd3cfbb4553ea8718107fc0423210dc964f9f4280604804ed2552fa4"
+bytes = 232589
+license = "MIT"
+licenseVerified = true
+licensePath = "face_detection_yunet/LICENSE"
+copyright = "Shiqi Yu and contributors; OpenCV Zoo"
+notes = "The SAME revision and digest workers/subject-intelligence pins. Loaded through cv2.FaceDetectorYN."
+
+[[model]]
+id = "identity"
+role = "visual.embed/face-identity"
+name = "SFace"
+file = "face_recognition_sface_2021dec.onnx"
+path = "face_recognition_sface/face_recognition_sface_2021dec.onnx"
+source = "faceSource"
+sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
+bytes = 0
+license = "Apache-2.0"
+licenseVerified = false
+licensePath = "face_recognition_sface/LICENSE"
+copyright = "Zhong Yaoyao and contributors; OpenCV Zoo"
+notes = "128-d identity vectors; the host clusters them into person_NN entities. ~37 MiB."

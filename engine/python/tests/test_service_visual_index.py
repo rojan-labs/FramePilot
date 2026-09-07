@@ -127,7 +127,7 @@ def _client(
     monkeypatch.setattr(
         service_module,
         "resolve_visual_embedder",
-        lambda keys=None: VisualEmbedderResolution(client=embed_client),  # type: ignore[arg-type]
+        lambda keys=None, **_pack: VisualEmbedderResolution(client=embed_client),  # type: ignore[arg-type]
     )
     monkeypatch.setattr(
         service_module, "detect_scenes", lambda path, **kw: []
@@ -739,7 +739,7 @@ def _drill_client(
     monkeypatch.setattr(
         service_module,
         "resolve_visual_embedder",
-        lambda keys=None: VisualEmbedderResolution(client=embedder),  # type: ignore[arg-type]
+        lambda keys=None, **_pack: VisualEmbedderResolution(client=embedder),  # type: ignore[arg-type]
     )
     monkeypatch.setattr(service_module, "detect_scenes", lambda path, **kw: [])
 

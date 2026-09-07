@@ -10,6 +10,8 @@ test the parser against an idea of ffmpeg rather than against ffmpeg.
 
 from __future__ import annotations
 
+from collections.abc import Sequence
+
 import pytest
 
 from framepilot_engine.analysis.shot_stats import (
@@ -152,7 +154,7 @@ def _samples(**over: object) -> Tier0Samples:
         FrameSample(t=0.0, y_avg=51.0, y_low=25.5, y_high=76.5, u_avg=128, v_avg=128, sat_avg=0),
         FrameSample(t=0.5, y_avg=51.0, y_low=25.5, y_high=76.5, u_avg=128, v_avg=128, sat_avg=0),
     ]
-    return Tier0Samples(frames=frames, motion=[MotionSample(t=0.0, si=10, ti=1.0)], **over)  # type: ignore[arg-type]
+    return Tier0Samples(frames=frames, motion=[MotionSample(t=0.0, si=10, ti=1.0)], **over)
 
 
 class TestFold:
@@ -304,8 +306,8 @@ class TestCommand:
     def test_measure_asset_uses_the_injected_runner(self) -> None:
         seen: list[list[str]] = []
 
-        def runner(argv: object) -> str:
-            seen.append(list(argv))  # type: ignore[arg-type]
+        def runner(argv: Sequence[str]) -> str:
+            seen.append(list(argv))
             return REAL_LOGS
 
         shots = measure_asset(__import__("pathlib").Path("/tmp/a.mp4"), duration=4.0, runner=runner)
@@ -344,8 +346,8 @@ class TestStills:
     def test_measure_asset_routes_a_still_to_the_still_command(self) -> None:
         seen: list[list[str]] = []
 
-        def runner(argv: object) -> str:
-            seen.append(list(argv))  # type: ignore[arg-type]
+        def runner(argv: Sequence[str]) -> str:
+            seen.append(list(argv))
             return (
                 "[metadata@st @ 0x0] frame:0 pts:0 pts_time:0\n"
                 "[metadata@st @ 0x0] lavfi.signalstats.YAVG=76.0\n"

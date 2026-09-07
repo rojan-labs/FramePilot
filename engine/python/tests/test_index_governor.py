@@ -34,6 +34,7 @@ from framepilot_engine.brain.ledger_models import (
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.config import Settings
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
+from framepilot_engine.render.frame_grab import FrameGrabError
 from framepilot_engine.service import create_app
 
 # --- The governor, on an injected machine ---------------------------------------
@@ -268,7 +269,7 @@ def test_a_slice_defers_while_a_frame_grab_is_in_flight(
     def _blocking_grab(*args: Any, **kwargs: Any) -> Any:
         holding.set()
         release.wait(timeout=10)
-        raise service_module.FrameGrabError("held open by the test")
+        raise FrameGrabError("held open by the test")
 
     monkeypatch.setattr(service_module, "grab_frame", _blocking_grab)
     client = _client(root, monkeypatch)

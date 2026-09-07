@@ -37,6 +37,8 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field
 
+from framepilot_engine.analysis.prompt_bank import PROMPT_BANK_VERSION
+
 # ── Versions ────────────────────────────────────────────────────────────────────────
 #
 # Each tier's version is stored on its row. Bumping one nulls THAT column and re-queues
@@ -44,7 +46,13 @@ from pydantic import BaseModel, Field
 # meaning of a field changes, not when a threshold moves in the renderer.
 
 TIER0_VERSION = 1
-TIER1_VERSION = 1
+#: Tier 1's meaning IS the zero-shot prompt bank's phrasing: re-word a prompt and every
+#: stored label is an answer to a different question. So the bank's version is this
+#: version rather than a second number that could disagree with it — bumping
+#: `PROMPT_BANK_VERSION` re-queues labelling and nothing else. The TypeScript mirror in
+#: `packages/ai-sdk/src/ledger.ts` holds the resulting VALUE and its parity test fails if
+#: a bank bump is not mirrored there.
+TIER1_VERSION = PROMPT_BANK_VERSION
 TIER2_VERSION = 1
 
 

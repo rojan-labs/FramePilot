@@ -21,7 +21,7 @@ size and the GPU matrix would sink the desktop build.
 
 ## VU5 Tier 1: `framepilot.visual-embed`
 
-### VU5.1 Models (verify licences before adding; CLAUDE.md §5) `[ ]`
+### VU5.1 Models (verify licences before adding; CLAUDE.md §5) `[~]`
 
 | Purpose                                   | Model                                                                            | Runtime                                             | Size         | Licence to verify                 |
 | ----------------------------------------- | -------------------------------------------------------------------------------- | --------------------------------------------------- | ------------ | --------------------------------- |
@@ -34,7 +34,7 @@ The `subject-intelligence` worker already carries OpenCV headless (`workers/subj
 rather than a third pack. The embedding model ships in a new `workers/visual-embed` worker.
 Run `pnpm license:scan` and record the result in `LICENSES.md` of each worker.
 
-### VU5.2 Worker contract `[ ]`
+### VU5.2 Worker contract `[x]`
 
 Request (JSON line, per `worker-protocol.ts`): a media handle, a list of `(shotIndex, keyframeT)`
 and the text prompt bank version. Response per shot: `vector` (base64 fp16, `dim`), `labels`
@@ -47,7 +47,7 @@ as "a photo of …". Text vectors are computed once per bank version and cached 
 store; a label is the softmax over its class group; `p` is that probability. Bank changes bump
 `tier1_version`.
 
-### VU5.3 Engine integration `[ ]`
+### VU5.3 Engine integration `[x]`
 
 - `resolve_visual_embedder` gains a `local` arm: when the pack is installed and healthy
   (`worker-health.ts` → engine sees a `FRAMEPILOT_PACK_VISUAL_EMBED` handle passed by the
@@ -64,7 +64,7 @@ store; a label is the softmax over its class group; `p` is that probability. Ban
   pairwise bound exists; replace pairwise with a 64-bit multi-index bucket so 7,200 shots is
   cheap).
 
-### VU5.4 Evidence `[ ]`
+### VU5.4 Evidence `[ ]` — NOT MEASURED
 
 - Worker tests on captured keyframes (decoded_media marker, pack build job only); protocol
   tests without media.
@@ -75,6 +75,43 @@ store; a label is the softmax over its class group; `p` is that probability. Ban
 - Offline: `search_visual "street"` on `mission-montage` with no key and Wi-Fi off returns the
   street shots.
 - Speed on the M1 Pro: ms per shot, batch of 64; record.
+
+### VU5 state, 2026-09-07 — everything except the weights
+
+`workers/visual-embed/` exists and is complete around a model that has **not been
+downloaded**. No weight was fetched (deliberately: the pack machinery is reviewable before
+~410 MiB of binaries are), so `pack/models.lock.toml` carries placeholder digests,
+`models.py` refuses them by name, and the health check fails while any remains. Nothing in
+this repository has produced a SigLIP vector, and no accuracy figure in VU5.4 has been
+measured — the targets there stand untouched.
+
+What IS done and tested against a fake backend:
+
+- the worker: protocol mirror (`visual.embed` + the media-free `visual.text`), prompt-bank
+  mirror, labelling policy, fp16 packing, prompt-vector cache, one-shot runtime, identity
+  and pin verification — 64 tests, no ML runtime installed;
+- the protocol: two capabilities added to `packages/capability-packs`'s frozen union
+  (`worker-protocol.ts`), still version 1, additive;
+- the prompt bank: `engine/.../analysis/prompt_bank.py`, 43 phrases in 4 groups,
+  `PROMPT_BANK_VERSION` IS `TIER1_VERSION`, with a drift test against the pack's mirror;
+- the engine: `pack_worker.py` (JSON-line subprocess client), `local_visual_embed.py`,
+  the `local` arm of `resolve_visual_embedder` (preferred over NVIDIA), and tier-1 writes
+  through `upsert_shots(tier="labelled")` + `visual_spans`/`visual_vectors` under the LOCAL
+  model id;
+- `duplicates.py`: the 64-bit multi-index bucket, proved equal to an all-pairs scan on
+  random hashes. **The pairwise `_SIMILAR_GROUP_SPAN_CAP` scan is deleted**, cap and all —
+  the VU5 deprecation row in `08` is discharged;
+- `entities.py` + the `entities` table accessors: agglomerative clustering at SFace's own
+  0.363 cosine, `person_NN` by first appearance, centroids stored, human labels preserved
+  across a re-cluster.
+
+Remaining, in order: verify the SigLIP 2 **export**'s licence and SFace's; fetch and pin
+(`tools/fetch_models.py --record`, then copy the digests into `models.py`); run
+`pytest -m decoded_media`; register with `scripts/dev-register-visual-embed.sh`; then and
+only then measure VU5.4 against VU0.2's labels. Two smaller pieces are also open: the
+desktop host does not yet pass a `visualEmbedPack` handle (the env var is the only route
+today), and `search_visual`/`find_similar` still query the hosted space — the local text
+arm exists and is tested, but nothing selects the space with coverage yet.
 
 ## VU6 Tier 2: `framepilot.visual-describe`
 

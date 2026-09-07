@@ -149,6 +149,14 @@ class Settings(BaseModel):
     # NEVER log or echo this value.
     nvidia_embeddings_keys: str | None = None
 
+    # The installed `framepilot.visual-embed` Capability Pack, as a JSON handle
+    # (ADR 0114 / ADR 0175 tier 1). The engine never discovers, installs or verifies a
+    # pack: the desktop host does all of that and hands the resolved entrypoint over on
+    # the same channel the keys arrive on. Env fallback only, for dev and for the
+    # `framepilot-pack register-local` flow. Absent (the shipped default) simply means no
+    # local tier 1.
+    visual_embed_pack: str | None = None
+
     # TwelveLabs media-understanding key (optional backend). When set, the
     # ``/brain/visual/*`` routes delegate video/image/audio understanding to
     # TwelveLabs' hosted Marengo index instead of the built-in NVIDIA-embed +
@@ -219,6 +227,7 @@ class Settings(BaseModel):
             nvidia_model=value("NVIDIA_MODEL") or DEFAULT_NVIDIA_MODEL,
             nvidia_base_url=value("NVIDIA_BASE_URL") or DEFAULT_NVIDIA_BASE_URL,
             nvidia_embeddings_keys=value("FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS"),
+            visual_embed_pack=value("FRAMEPILOT_PACK_VISUAL_EMBED"),
             twelvelabs_api_key=value("TWELVELABS_API_KEY"),
             python_api_host=value("FRAMEPILOT_PYTHON_API_HOST") or DEFAULT_API_HOST,
             python_api_port=int(value("FRAMEPILOT_PYTHON_API_PORT") or DEFAULT_API_PORT),

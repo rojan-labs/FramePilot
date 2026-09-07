@@ -49,6 +49,7 @@ from framepilot_engine.brain.models import (
     AssetRow,
     BrainStatus,
     EmbeddingRow,
+    EntityRow,
     FieldChangeRow,
     FieldConflict,
     FieldRow,
@@ -1301,6 +1302,94 @@ class BrainStore:
             ).rowcount
         return int(cleared)
 
+    def upsert_entities(self, rows: Sequence[EntityRow], *, model: str) -> int:
+        """Replace this model's identity clusters, preserving human-authored labels.
+
+        A re-cluster is authoritative for the WHOLE space it produced: a person who no
+        longer has any faces (their only asset was removed) must disappear rather than
+        linger as a name the digest still counts. So rows of ``model`` that this batch does
+        not name are deleted, and other models' rows are untouched — a NVIDIA-space cluster
+        and a local-pack cluster are different identities and must not overwrite each other.
+
+        ``label`` is the exception. It is the one value a human sets, and a re-cluster is a
+        model's work, so an incoming ``None`` keeps whatever label is already stored; only
+        a caller that explicitly passes a label changes one.
+
+        :param rows: The clusters this pass produced. Empty deletes the model's clusters.
+        :param model: The identity space these clusters live in.
+        :returns: The number of rows written.
+        """
+        now = self._now()
+        keep = [row.id for row in rows]
+        with self._conn:
+            if keep:
+                placeholders = ",".join("?" for _ in keep)
+                self._conn.execute(
+                    f"DELETE FROM entities WHERE model = ? AND id NOT IN ({placeholders})",
+                    [model, *keep],
+                )
+            else:
+                self._conn.execute("DELETE FROM entities WHERE model = ?", (model,))
+            self._conn.executemany(
+                """
+                INSERT INTO entities (id, kind, label, centroid, dim, model, shot_count,
+                                      updated_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                ON CONFLICT(id) DO UPDATE SET
+                    kind = excluded.kind,
+                    label = COALESCE(excluded.label, entities.label),
+                    centroid = excluded.centroid,
+                    dim = excluded.dim,
+                    model = excluded.model,
+                    shot_count = excluded.shot_count,
+                    updated_at = excluded.updated_at
+                """,
+                [
+                    (
+                        row.id,
+                        row.kind,
+                        row.label,
+                        pack_vector(row.centroid),
+                        row.dim,
+                        model,
+                        row.shot_count,
+                        now,
+                    )
+                    for row in rows
+                ],
+            )
+        return len(rows)
+
+    def list_entities(
+        self, *, model: str | None = None, kind: str | None = None
+    ) -> list[EntityRow]:
+        """Identity clusters, optionally filtered, in id order."""
+        clauses: list[str] = []
+        params: list[str] = []
+        if model is not None:
+            clauses.append("model = ?")
+            params.append(model)
+        if kind is not None:
+            clauses.append("kind = ?")
+            params.append(kind)
+        where = f"WHERE {' AND '.join(clauses)}" if clauses else ""
+        rows = self._conn.execute(
+            f"SELECT * FROM entities {where} ORDER BY id", params
+        ).fetchall()
+        return [_entity_from(r) for r in rows]
+
+    def set_entity_label(self, entity_id: str, label: str | None) -> bool:
+        """Name a cluster. The only write to the ledger a human makes directly.
+
+        :returns: Whether a row was updated.
+        """
+        with self._conn:
+            changed = self._conn.execute(
+                "UPDATE entities SET label = ?, updated_at = ? WHERE id = ?",
+                (label, self._now(), entity_id),
+            ).rowcount
+        return bool(changed)
+
     def upsert_asset_digest(self, digest: AssetDigest) -> None:
         """Store the pre-aggregated per-asset summary (one row per asset).
 
@@ -1581,6 +1670,18 @@ def _visual_vector_from(r: sqlite3.Row) -> VisualVectorRow:
         t0=r["t0"],
         dim=r["dim"],
         vector=unpack_vector(r["vector"]),
+    )
+
+
+def _entity_from(r: sqlite3.Row) -> EntityRow:
+    return EntityRow(
+        id=r["id"],
+        kind=r["kind"],
+        label=r["label"],
+        centroid=unpack_vector(r["centroid"]),
+        dim=r["dim"],
+        model=r["model"],
+        shot_count=r["shot_count"],
     )
 
 

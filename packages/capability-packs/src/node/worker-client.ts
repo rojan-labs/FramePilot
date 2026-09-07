@@ -101,6 +101,15 @@ async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Prom
   );
 }
 
+/** How many items a terminal result carried, for the completion log line only. */
+function terminalSampleCount(terminal: CapabilityPackWorkerResult): number {
+  if ('samples' in terminal) return terminal.samples.length;
+  if ('detections' in terminal) return terminal.detections.length;
+  if ('masks' in terminal) return terminal.masks.length;
+  if ('shots' in terminal) return terminal.shots.length;
+  return terminal.vectors.length;
+}
+
 function protocolError(message: string): CapabilityPackWorkerRuntimeError {
   return new CapabilityPackWorkerRuntimeError('protocol_error', message);
 }
@@ -114,7 +123,11 @@ export async function runCapabilityPackWorker(
   options: CapabilityPackWorkerRunOptions,
 ): Promise<CapabilityPackWorkerResult> {
   const request = CapabilityPackWorkerRequestSchema.parse(options.request);
-  await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
+  // `visual.text` embeds a query string and carries no media handle at all, so there is
+  // nothing to sandbox-check; every other capability must name media inside the root.
+  if ('media' in request) {
+    await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
+  }
   if (options.signal?.aborted === true) {
     throw new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.');
   }
@@ -277,12 +290,7 @@ export async function runCapabilityPackWorker(
       log.action('workerComplete', {
         requestId: request.requestId,
         capability: request.capability,
-        samples:
-          'samples' in terminal
-            ? terminal.samples.length
-            : 'detections' in terminal
-              ? terminal.detections.length
-              : terminal.masks.length,
+        samples: terminalSampleCount(terminal),
       });
       finish(undefined, terminal);
     });

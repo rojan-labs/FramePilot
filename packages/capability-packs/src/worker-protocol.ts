@@ -7,6 +7,10 @@ import {
 
 export const CAPABILITY_PACK_WORKER_MAX_LINE_BYTES = 1024 * 1024;
 export const CAPABILITY_PACK_WORKER_MAX_SAMPLES = 18_000;
+/** Shots one `visual.embed` request may carry. Bounded so a batch stays inside the line cap. */
+export const CAPABILITY_PACK_WORKER_MAX_SHOTS = 64;
+/** Texts one `visual.text` request may carry (prompt-bank warm-up is the largest caller). */
+export const CAPABILITY_PACK_WORKER_MAX_TEXTS = 64;
 
 const RequestIdSchema = z.string().min(1).max(256).regex(/^[A-Za-z0-9._:-]+$/);
 const UnitCoordinateSchema = z.number().finite().min(0).max(1);
@@ -45,6 +49,23 @@ export const CapabilityPackMediaHandleSchema = z
     message: 'media frame range must be positive',
   });
 
+/** A packed fp16 vector, base64. Text, not numbers: 64 x 768 floats as JSON would not fit. */
+const PackedVectorSchema = z
+  .string()
+  .min(4)
+  .max(1_000_000)
+  .regex(/^[A-Za-z0-9+/]+={0,2}$/, 'packed vector must be base64');
+const ConfidentLabelSchema = z
+  .object({ value: z.string().min(1).max(64), p: z.number().finite().min(0).max(1) })
+  .strict();
+/** One shot to embed: which shot it is, and the source second to decode for it. */
+const ShotPromptSchema = z
+  .object({
+    shotIndex: z.number().int().nonnegative(),
+    keyframeT: z.number().finite().nonnegative(),
+  })
+  .strict();
+
 const RequestBaseSchema = z.object({
   type: z.literal('request'),
   protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
@@ -78,6 +99,46 @@ export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capabilit
       .strict(),
   }).strict(),
   RequestBaseSchema.extend({
+    capability: z.literal('visual.embed'),
+    parameters: z
+      .object({
+        /**
+         * The bank version the HOST believes is current. The worker owns the phrases and
+         * refuses a version it does not speak, so a pack and an engine that disagree fail
+         * loudly instead of labelling footage against sentences nobody chose.
+         */
+        promptBankVersion: z.number().int().positive(),
+        shots: z.array(ShotPromptSchema).min(1).max(CAPABILITY_PACK_WORKER_MAX_SHOTS),
+      })
+      .strict()
+      .refine(
+        (value) => new Set(value.shots.map((shot) => shot.shotIndex)).size === value.shots.length,
+        { message: 'visual.embed shots must be distinct' },
+      ),
+  }).strict(),
+  /**
+   * Text embedding carries NO media handle: a query ("wide shots of the street") has no
+   * frames. It is the one capability whose request is media-free, which is why it extends
+   * the bare message shape rather than `RequestBaseSchema`.
+   */
+  z
+    .object({
+      type: z.literal('request'),
+      protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
+      requestId: RequestIdSchema,
+      projectRevision: z.number().int().nonnegative(),
+      capability: z.literal('visual.text'),
+      parameters: z
+        .object({
+          texts: z
+            .array(z.string().min(1).max(512))
+            .min(1)
+            .max(CAPABILITY_PACK_WORKER_MAX_TEXTS),
+        })
+        .strict(),
+    })
+    .strict(),
+  RequestBaseSchema.extend({
     capability: z.literal('subject.segment'),
     parameters: z
       .object({
@@ -104,7 +165,7 @@ export const CapabilityPackWorkerProgressSchema = z
     type: z.literal('progress'),
     protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
     requestId: RequestIdSchema,
-    phase: z.enum(['decode', 'initialize', 'track', 'detect', 'segment', 'encode']),
+    phase: z.enum(['decode', 'initialize', 'track', 'detect', 'segment', 'embed', 'encode']),
     completed: z.number().int().nonnegative(),
     total: z.number().int().positive(),
     detail: z.string().max(512).optional(),
@@ -141,6 +202,32 @@ const MaskSampleSchema = z
   })
   .strict();
 
+/** One shot's tier-1 product: a vector, closed-vocabulary labels with `p`, and faces. */
+const ShotEmbeddingSchema = z
+  .object({
+    shotIndex: z.number().int().nonnegative(),
+    vector: PackedVectorSchema,
+    /**
+     * Absent groups are absent, never a zero-probability guess: a backend that could not
+     * score a group has said nothing about it, and the ledger stores that as `null`.
+     */
+    labels: z
+      .object({
+        shotSize: ConfidentLabelSchema.optional(),
+        subjectKind: ConfidentLabelSchema.optional(),
+        setting: ConfidentLabelSchema.optional(),
+        screenContent: ConfidentLabelSchema.optional(),
+      })
+      .strict(),
+    faces: z.number().int().nonnegative().max(1_000),
+    /** Identity embeddings, one per counted face, for the host's entity clustering. */
+    faceVectors: z.array(PackedVectorSchema).max(1_000),
+  })
+  .strict()
+  .refine((shot) => shot.faceVectors.length === 0 || shot.faceVectors.length === shot.faces, {
+    message: 'faceVectors must be empty or carry one vector per counted face',
+  });
+
 const ResultBaseSchema = z.object({
   type: z.literal('result'),
   protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
@@ -158,6 +245,18 @@ export const CapabilityPackWorkerResultSchema = z.discriminatedUnion('capability
   ResultBaseSchema.extend({
     capability: z.literal('subject.detect'),
     detections: z.array(DetectionSchema).max(CAPABILITY_PACK_WORKER_MAX_SAMPLES),
+  }).strict(),
+  ResultBaseSchema.extend({
+    capability: z.literal('visual.embed'),
+    promptBankVersion: z.number().int().positive(),
+    dim: z.number().int().positive().max(8192),
+    faceDim: z.number().int().positive().max(8192).optional(),
+    shots: z.array(ShotEmbeddingSchema).min(1).max(CAPABILITY_PACK_WORKER_MAX_SHOTS),
+  }).strict(),
+  ResultBaseSchema.extend({
+    capability: z.literal('visual.text'),
+    dim: z.number().int().positive().max(8192),
+    vectors: z.array(PackedVectorSchema).min(1).max(CAPABILITY_PACK_WORKER_MAX_TEXTS),
   }).strict(),
   ResultBaseSchema.extend({
     capability: z.literal('subject.segment'),

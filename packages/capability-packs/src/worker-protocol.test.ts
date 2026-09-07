@@ -134,4 +134,113 @@ describe('Capability Pack worker protocol', () => {
       }),
     ).toMatchObject({ code: 'target_lost', retryable: false });
   });
+
+  describe('visual.embed and visual.text', () => {
+    const vector = Buffer.alloc(8).toString('base64');
+    const embedResult = {
+      type: 'result',
+      protocolVersion: 1,
+      requestId: base.requestId,
+      projectRevision: base.projectRevision,
+      capability: 'visual.embed',
+      backend: 'onnxruntime-cpu',
+      modelDigests: { image: 'a'.repeat(64) },
+      promptBankVersion: 1,
+      dim: 4,
+      shots: [
+        {
+          shotIndex: 0,
+          vector,
+          labels: { shotSize: { value: 'MS', p: 0.81 } },
+          faces: 1,
+          faceVectors: [vector],
+        },
+      ],
+    } as const;
+
+    it('accepts a bounded batch of shots against a media handle', () => {
+      const parsed = CapabilityPackWorkerRequestSchema.parse({
+        ...base,
+        capability: 'visual.embed',
+        parameters: {
+          promptBankVersion: 1,
+          shots: [
+            { shotIndex: 0, keyframeT: 1.5 },
+            { shotIndex: 1, keyframeT: 9 },
+          ],
+        },
+      });
+      expect(parsed.capability).toBe('visual.embed');
+    });
+
+    it('refuses a repeated shot index and an oversized batch', () => {
+      const shots = (count: number, index = (i: number) => i) =>
+        Array.from({ length: count }, (_, i) => ({ shotIndex: index(i), keyframeT: i }));
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...base,
+          capability: 'visual.embed',
+          parameters: { promptBankVersion: 1, shots: shots(2, () => 3) },
+        }),
+      ).toThrow(/distinct/);
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...base,
+          capability: 'visual.embed',
+          parameters: { promptBankVersion: 1, shots: shots(65) },
+        }),
+      ).toThrow();
+    });
+
+    it('embeds text with no media handle at all', () => {
+      const parsed = CapabilityPackWorkerRequestSchema.parse({
+        type: 'request',
+        protocolVersion: 1,
+        requestId: 'query:1',
+        projectRevision: 0,
+        capability: 'visual.text',
+        parameters: { texts: ['a photo of a city street'] },
+      });
+      expect('media' in parsed).toBe(false);
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse({
+          ...base,
+          capability: 'visual.text',
+          parameters: { texts: ['x'] },
+        }),
+      ).toThrow();
+    });
+
+    it('accepts a labelled shot result and refuses a face-vector count mismatch', () => {
+      expect(CapabilityPackWorkerResultSchema.parse(embedResult)).toMatchObject({ dim: 4 });
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...embedResult,
+          shots: [{ ...embedResult.shots[0], faces: 2 }],
+        }),
+      ).toThrow(/one vector per counted face/);
+    });
+
+    it('refuses a vector that is not base64', () => {
+      expect(() =>
+        CapabilityPackWorkerResultSchema.parse({
+          ...embedResult,
+          shots: [{ ...embedResult.shots[0], vector: 'not base64!' }],
+        }),
+      ).toThrow(/base64/);
+    });
+
+    it('carries an embed progress phase', () => {
+      expect(
+        CapabilityPackWorkerProgressSchema.parse({
+          type: 'progress',
+          protocolVersion: 1,
+          requestId: base.requestId,
+          phase: 'embed',
+          completed: 8,
+          total: 64,
+        }).phase,
+      ).toBe('embed');
+    });
+  });
 });

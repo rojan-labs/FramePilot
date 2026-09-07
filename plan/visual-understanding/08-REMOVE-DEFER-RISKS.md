@@ -8,7 +8,7 @@
 | Free-text `CAPTION_INSTRUCTION`                                                                                          | replaced by one structured schema for local, hosted and TL                                                   | VU6  |
 | Per-path enrolment (renderer hook + stock enroller with separate rules)                                                  | one import hook, one enroller                                                                                | VU1  |
 | `get_frame` as a planning habit in skills and the contract                                                               | it stays as a verification/dev tool; skills stop suggesting it for "see what is there" once rows carry facts | VU2  |
-| `_SIMILAR_GROUP_SPAN_CAP` pairwise duplicate scan                                                                        | replaced by a multi-index bucket that scales                                                                 | VU5  |
+| ~~`_SIMILAR_GROUP_SPAN_CAP` pairwise duplicate scan~~ **DONE 2026-09-07**                                                | replaced by `brain/duplicates.py`, a 64-bit multi-index bucket; the cap is gone, nothing is approximated      | VU5  |
 
 ## Deprecate (maintainer decision)
 
@@ -106,7 +106,7 @@ above has a real licence and must keep one.
 | ------------------------------------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------- |
 | The NVIDIA hosted-embeddings arm (ADR 0066)             | **VU5**  | Removing it before the local pack ships would delete the only tier-1 producer and leave the product with no labels at all. |
 | Free-text captions (`CAPTION_INSTRUCTION`)              | **VU6**  | The structured schema needs a producer. Deleting the prose captioner first leaves `describe_footage` with nothing.         |
-| The pairwise duplicate scan (`_SIMILAR_GROUP_SPAN_CAP`) | **VU5**  | Its replacement is the phash multi-index bucket that tier 1 populates.                                                     |
+| ~~The pairwise duplicate scan (`_SIMILAR_GROUP_SPAN_CAP`)~~ **DONE 2026-09-07** | **VU5** | Deleted along with its cap, replaced by `brain/duplicates.py`. `duplicateOf` is populated by the local tier-1 arm. |
 
 The two deprecations that were NOT gated — the key gate and the per-path enrolment hooks —
 are **deleted** as of `dc5809f`: implementation, settings surface, config key (with a
