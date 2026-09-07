@@ -198,7 +198,6 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
-import { sourcedAssetId } from './media/sourced-asset-id.js';
 import { cacheDerivedMedia } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
@@ -210,7 +209,11 @@ import {
   sourcingFailureNote,
   unusableHostPayload,
 } from '@framepilot/ai-sdk';
-import { createAssetEnroller, enrolmentTargetFor } from './ai/asset-enrolment.js';
+import {
+  createAssetEnroller,
+  enrolmentTargetFor,
+  stockEnrolmentTargetFor,
+} from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
@@ -2413,12 +2416,11 @@ function registerIpcHandlers(): void {
     request: StockDownloadRequest,
   ): Promise<StockDownloadResult> => {
     const result = await stockService.download(request);
-    if (result.ok) {
-      enrolAcquiredAsset(
-        request.projectId,
-        sourcedAssetId('stock', result.asset.source.provider, result.asset.source.remoteId),
-      );
-    }
+    // The decision and the id live in `stockEnrolmentTargetFor`, beside the import path's,
+    // where both can be tested. A missing call site is what caused the original bug and is
+    // invisible to any test of the enroller itself.
+    const target = stockEnrolmentTargetFor(request, result);
+    if (target) enrolAcquiredAsset(target.projectId, target.assetId);
     return result;
   };
 

@@ -35,8 +35,16 @@ function gate(runFile: string, ...flags: string[]): number {
   }
 }
 
-function writeVariant(mutate: (doc: Record<string, any>) => void): string {
-  const doc = JSON.parse(readFileSync(BASELINE, 'utf8')) as Record<string, any>;
+/** The shape these tests reach into: the run's golden block and its perception figures. */
+interface GoldenRunDoc {
+  golden: { perception?: { framesSeenPerEdit?: number } & Record<string, unknown> } & Record<
+    string,
+    unknown
+  >;
+}
+
+function writeVariant(mutate: (doc: GoldenRunDoc) => void): string {
+  const doc = JSON.parse(readFileSync(BASELINE, 'utf8')) as GoldenRunDoc;
   mutate(doc);
   const file = join(mkdtempSync(join(tmpdir(), 'framepilot-gate-')), 'run.json');
   writeFileSync(file, JSON.stringify(doc, null, 2));
@@ -68,7 +76,7 @@ describe('golden gate — the perception ceiling', () => {
 
   it('fails a run that spent frames the floor did not', () => {
     const raised = writeVariant((doc) => {
-      doc.golden.perception.framesSeenPerEdit = 1.4;
+      if (doc.golden.perception) doc.golden.perception.framesSeenPerEdit = 1.4;
     });
     expect(gate(raised)).toBe(2);
   });
@@ -78,14 +86,14 @@ describe('golden gate — the perception ceiling', () => {
     // frame a change starts spending". At 0.4 frames per accepted edit — four frames on a
     // ten-edit run — it passed silently.
     const drift = writeVariant((doc) => {
-      doc.golden.perception.framesSeenPerEdit = 0.4;
+      if (doc.golden.perception) doc.golden.perception.framesSeenPerEdit = 0.4;
     });
     expect(gate(drift)).toBe(2);
   });
 
   it('holds when the run looked at nothing, which is the floor', () => {
     const held = writeVariant((doc) => {
-      doc.golden.perception.framesSeenPerEdit = 0;
+      if (doc.golden.perception) doc.golden.perception.framesSeenPerEdit = 0;
     });
     expect(gate(held)).toBe(0);
   });

@@ -44,6 +44,8 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
+import type { StockDownloadRequest, StockDownloadResult } from '@framepilot/shared-types';
+import { sourcedAssetId } from '../media/sourced-asset-id.js';
 
 const log = createLogger('desktop:asset-enrolment');
 
@@ -78,6 +80,41 @@ export function enrolmentTargetFor(
   // and simply has no shots; asking the engine to measure it is noise, not coverage.
   if (result.kind === 'audio') return null;
   return { projectId: request.projectId, assetId: request.assetId };
+}
+
+/**
+ * Whether a finished STOCK download should be enrolled, and as what.
+ *
+ * The sibling of {@link enrolmentTargetFor}, and it exists for the same reason: the
+ * decision is the whole policy, and leaving it inline in `main.ts` is what let the original
+ * bug happen. Acquired clips were never registered with the brain at all — the agent would
+ * build a montage and then be told it knew nothing about any of it — because enrolment was
+ * a per-surface hook that the Stock panel simply did not have. A missing CALL SITE is
+ * invisible to every test of the enroller itself, so the decision lives here where one can
+ * see it.
+ *
+ * The id is derived, not taken from the result: it must be the id the project document and
+ * the brain row both use, or the engine is asked about an asset it has never heard of.
+ *
+ * @param request - The download request, which names the project.
+ * @param result - What the stock service returned.
+ * @returns The target to enrol, or `null` when the download did not land.
+ */
+export function stockEnrolmentTargetFor(
+  request: StockDownloadRequest,
+  result: StockDownloadResult,
+): EnrolmentTarget | null {
+  // A failed download wrote no file and no brain row; enrolling would spend the id on a
+  // certain miss, exactly as it would for a failed import.
+  if (!result.ok) return null;
+  return {
+    projectId: request.projectId,
+    assetId: sourcedAssetId(
+      'stock',
+      result.asset.source.provider,
+      result.asset.source.remoteId,
+    ),
+  };
 }
 
 /**

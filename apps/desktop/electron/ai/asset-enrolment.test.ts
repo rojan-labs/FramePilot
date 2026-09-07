@@ -1,5 +1,10 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAssetEnroller, enrolmentTargetFor } from './asset-enrolment.js';
+import {
+  createAssetEnroller,
+  enrolmentTargetFor,
+  stockEnrolmentTargetFor,
+} from './asset-enrolment.js';
+import { sourcedAssetId } from '../media/sourced-asset-id.js';
 import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
 
 interface Call {
@@ -277,5 +282,35 @@ describe('enrolmentTargetFor', () => {
   it('does not enrol when the ids the brain write needs were not sent', () => {
     expect(enrolmentTargetFor({ inputPath: 'media/p1/clip.mov' }, derived())).toBeNull();
     expect(enrolmentTargetFor(request({ assetId: undefined }), derived())).toBeNull();
+  });
+});
+
+
+describe('stockEnrolmentTargetFor', () => {
+  const request = { projectId: 'p1', remoteId: '4321', operationId: 'op1' } as const;
+  const downloaded = {
+    ok: true,
+    asset: {
+      relativePath: 'media/p1/stock/pexels-4321.mp4',
+      source: { provider: 'pexels', remoteId: '4321' },
+    },
+  } as never;
+
+  it('enrols a downloaded stock clip under the id the project and brain share', () => {
+    // The bug this seam exists for: acquired clips were never registered with the brain at
+    // all, so the agent would build a montage from stock and then be told it knew nothing
+    // about any of it. Enrolment was a per-surface hook and the Stock panel had none — a
+    // missing CALL SITE, which no test of the enroller itself can see.
+    const target = stockEnrolmentTargetFor(request, downloaded);
+    expect(target?.projectId).toBe('p1');
+    // Derived, never taken from the result: an id the brain row does not use asks the
+    // engine about an asset it has never heard of.
+    expect(target?.assetId).toBe(sourcedAssetId('stock', 'pexels', '4321'));
+  });
+
+  it('does not enrol a failed download, which wrote no file and no brain row', () => {
+    expect(
+      stockEnrolmentTargetFor(request, { ok: false, error: 'network' } as never),
+    ).toBeNull();
   });
 });

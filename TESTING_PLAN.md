@@ -473,10 +473,19 @@ Three new AI tools: `match_color`, `normalize_exposure`, `apply_look`
     added — it must know something about it.
   - Fail if: any one of the three surfaces leaves a clip unmeasured. A per-surface hook in
     the renderer is exactly what caused the original bug, so check all three.
-  - Also: music downloads (`music-service.ts`) take the same path.
+  - **Correction (2026-09-08):** an earlier draft of this row said "music downloads take
+    the same path". They do NOT, and should not — `enrolmentTargetFor` returns `null` for
+    `kind === 'audio'` because the ledger is a ledger of PICTURES: a track is recorded in
+    the brain by the import call and simply has no shots, so asking the engine to measure
+    it is noise, not coverage. Do not file the absence of music enrolment as a bug.
+  - Covered by: `stockEnrolmentTargetFor` and `enrolmentTargetFor` (both in
+    `asset-enrolment.test.ts`, 19 tests) pin the DECISION and the derived id for the stock
+    and import paths — a missing call site was the original bug and no test of the enroller
+    itself can see one. Do (a)/(b)/(c) above still by hand: only the app proves the three
+    surfaces reach those helpers.
   - Result: __/__/____ · PASS / FAIL · notes:
 
-- [ ] **T8.3. Captions join to shots by time, not index** — `AI` · `desktop`
+- [x] **T8.3. Captions join to shots by time, not index** — `AI` · `desktop`
   - Why: tier 2 writes against the **shot ledger**; the hosted arm's spans come from the
     **sampler**. Two different segmentations, so "index 7" is not the same thing in each.
     Matching by index would attach shot 7's description to span 7 and call it fact.
@@ -486,7 +495,15 @@ Three new AI tools: `match_color`, `normalize_exposure`, `apply_look`
   - Fail if: descriptions are plausible but systematically offset. This one is dangerous
     precisely because the wrong answer looks right — check the *last* shot in a long clip,
     where an index drift is largest.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · **PASS (automated)** · notes: `test_service_caption_span_join.py`
+    seeds four 10s sampler spans against six shot-ledger captions over the same 40s — two
+    deliberately different segmentations, so "index 3" names different moments in each — and
+    asserts through the real `/brain/visual/footage-map` route that each span gets the
+    caption that actually covers it. The row's own advice is a test: the LAST span is
+    asserted NOT to carry caption index 3, which is exactly the answer index matching would
+    give and which describes a shot that had already ended before that span began. A third
+    case pins that a merely abutting caption is not attached. The hosted arm at scale is
+    still worth the manual pass.
 
 - [x] **T8.4. Semantic index on speed-changed clips — NOW FIXED** — `P1`
   - The semantic index placed times wrongly on clips with a speed ramp. Pre-existing,
