@@ -20,6 +20,7 @@ import {
   parseAgentPlan,
   parsePlanLines,
   summarizeReadResult,
+  summarizeOperations,
 } from './orchestrator.js';
 import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
@@ -2864,6 +2865,28 @@ describe('agent() diminishing-returns stop (E4 parity mirror)', () => {
  * route sends no tools at all — this scope is the enforced ceiling, locked by tests,
  * for the day it gains tool use.)
  */
+describe('summarizeOperations — the note a fan-out tool leaves in the action log', () => {
+  it('spells out a few operations and counts the rest by action', () => {
+    const ops = Array.from({ length: 40 }, (_, i) =>
+      i % 2 === 0
+        ? ({ type: 'delete_range', trackId: 'captions_1', start: i, end: i + 1 } as AnyOperation)
+        : ({
+            type: 'add_caption_layer',
+            trackId: 'captions_1',
+            text: `cue ${String(i)}`,
+            start: i,
+            end: i + 1,
+          } as unknown as AnyOperation),
+    );
+    const note = summarizeOperations(ops);
+    expect(note.split('; ').length).toBeLessThanOrEqual(9);
+    expect(note).toMatch(/…and 32 more \(/);
+    expect(note).toMatch(/×1[0-9]/);
+    // A short note is untouched.
+    expect(summarizeOperations(ops.slice(0, 3)).split('; ').length).toBe(3);
+  });
+});
+
 describe('route-scoped tool surface (E5)', () => {
   const orchestrator = new Orchestrator(new MockProvider());
 

@@ -1280,12 +1280,37 @@ export function captionStyleNote(project: Project, trackId: unknown): string {
   );
 }
 
-function summarizeOperations(
+/**
+ * How many operation lines a tool-result note spells out before the rest are counted.
+ *
+ * Unbounded, `caption_the_edit` on a nine-minute talk wrote a 1,399-operation note — every
+ * deleted cue and every added one, 44,570 characters — and the action log carried it into
+ * the next turns: `s9-live-all`'s `captions-plain` billed 23.6k then 41.4k uncached input
+ * tokens per call on the two calls after a re-caption, against 6.7k before it. The model
+ * needs what landed and how much; it cannot use seven hundred timestamps.
+ */
+const NOTE_OPERATION_LINES = 8;
+
+export function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
   call?: { readonly name: string; readonly arguments: unknown },
 ): string {
-  const outcome = ops.map((op) => operationLine(op, names)).join('; ');
+  const lines = ops.map((op) => operationLine(op, names));
+  let outcome: string;
+  if (lines.length <= NOTE_OPERATION_LINES) {
+    outcome = lines.join('; ');
+  } else {
+    // The rest by ACTION, so a re-caption reads "Added captions ×694, Deleted range ×700"
+    // rather than as a wall of cue times.
+    const rest = new Map<string, number>();
+    for (const op of ops.slice(NOTE_OPERATION_LINES)) {
+      const action = describeOperation(op, names).action;
+      rest.set(action, (rest.get(action) ?? 0) + 1);
+    }
+    const tally = [...rest.entries()].map(([action, n]) => `${action} ×${String(n)}`).join(', ');
+    outcome = `${lines.slice(0, NOTE_OPERATION_LINES).join('; ')}; …and ${String(ops.length - NOTE_OPERATION_LINES)} more (${tally})`;
+  }
   if (!call || outcome === '') return outcome;
   if (ops.some((op) => op.type === call.name)) return outcome;
   return `${describeToolCall(call, names)} → ${outcome}`;
