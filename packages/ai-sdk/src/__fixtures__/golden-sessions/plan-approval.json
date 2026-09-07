@@ -722,7 +722,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11535,
+      "usedTokens": 11567,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -804,7 +804,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 400,
+            "tokenEstimate": 432,
             "included": true
           },
           {
@@ -819,9 +819,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11535,
+          "estimatedInputTokensBeforeSend": 11567,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180273,
+          "estimatedRemainingCapacity": 180241,
           "toolSchemaTokensRebilled": 6970,
           "calculationSource": "local_estimate"
         },
@@ -839,7 +839,7 @@
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 2,
-          "nextAction": "Continue apply: Trim the dead air"
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },

@@ -158,7 +158,19 @@ function defaultActionFor(working: RunWorkingState): string {
   // reads as an instruction and carries none: the model already has the request, twice,
   // and this told it to start over on it. The per-stage default below says what the
   // stage actually owes.
-  if (owed && owed.description.trim() !== working.objective.request.trim()) {
+  // Only while PLANNING. An objective is one drafted plan step, and it is only ever
+  // satisfied at verification, so during execution the first "owed" objective is whatever
+  // the plan listed first — done or not. Turns map onto steps by position, so a turn that
+  // did three steps at once left the first objective owed for the rest of the run:
+  // `s9-live-all-planfirst-2` memory-captions read "Continue apply: Add a caption
+  // layer/track to the timeline" on every turn after the track existed, and restyled the
+  // captions twenty-nine times looking for something that would count. In execution the
+  // run knows what it applied (the briefing lists it); tell it to finish or go on.
+  if (
+    !EXECUTING.has(working.stage) &&
+    owed &&
+    owed.description.trim() !== working.objective.request.trim()
+  ) {
     return `Continue ${working.stage}: ${owed.description}`;
   }
   switch (working.stage) {

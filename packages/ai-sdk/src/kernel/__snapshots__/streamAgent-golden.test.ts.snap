@@ -8861,7 +8861,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           "committedDecisions": 2,
           "evidenceHandles": 0,
           "facts": 1,
-          "nextAction": "Continue apply: Trim the intro",
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call.",
           "objectiveKnown": true,
           "projectRevision": 1,
           "remainingObjectives": 2,
@@ -8946,7 +8946,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "id": "s11",
             "included": true,
             "label": "additional request content",
-            "tokenEstimate": 389,
+            "tokenEstimate": 422,
             "type": "system",
           },
           {
@@ -8960,8 +8960,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         ],
         "usage": {
           "calculationSource": "local_estimate",
-          "estimatedInputTokensBeforeSend": 11521,
-          "estimatedRemainingCapacity": 180287,
+          "estimatedInputTokensBeforeSend": 11554,
+          "estimatedRemainingCapacity": 180254,
           "limitAssumed": true,
           "modelContextLimit": 200000,
           "reservedOutputTokens": 8192,
@@ -8971,7 +8971,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "ts": 1000,
       "turnId": "turn_1",
       "type": "context_usage",
-      "usedTokens": 11521,
+      "usedTokens": 11554,
     },
     {
       "chunk": "done",
