@@ -1036,7 +1036,7 @@ function gridFps(context: ApplyContext | undefined): number | null {
  * never collapse the clip: at 60x on a 12-frame source the exact end rounds onto the
  * start's own frame, and a zero-length clip is a worse answer than a one-frame one.
  */
-function snapRetimedEnd(start: Seconds, end: Seconds, fps: number): Seconds {
+export function snapRetimedEnd(start: Seconds, end: Seconds, fps: number): Seconds {
   const startFrame = secondsToFrame(start, fps);
   const endFrame = Math.max(startFrame + 1, secondsToFrame(end, fps));
   return frameToSeconds(endFrame, fps);

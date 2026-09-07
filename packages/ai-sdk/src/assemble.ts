@@ -45,11 +45,16 @@ function validationContext(project: Project): {
   readonly assetIds: readonly string[];
   readonly folders: Project['folders'];
   readonly markers: Project['markers'];
+  readonly fps: number;
 } {
   return {
     assetIds: project.assets.map((asset) => asset.id),
     folders: project.folders,
     markers: project.markers,
+    // The patch is quantized to this grid before it is applied, so validation has to
+    // measure on the same grid — otherwise a previously committed fractional retime
+    // reads as a speed_duration_mismatch and blocks every later timed edit.
+    fps: project.fps,
   };
 }
 
