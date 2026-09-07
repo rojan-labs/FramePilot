@@ -47,3 +47,6 @@ export * from './frame-grid.js';
 // The model states why a transition belongs at a cut; this decides which one and
 // how long, from the cut's measured deltas (plan/visual-understanding §VU4.1).
 export * from './transition-policy.js';
+// Grade parameters solved from measured luma/chroma rather than guessed by the
+// model (plan/visual-understanding §VU3.1, ADR 0175).
+export * from './color-solver.js';
