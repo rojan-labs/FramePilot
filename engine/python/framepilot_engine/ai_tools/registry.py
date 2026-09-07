@@ -951,6 +951,22 @@ class FindSimilarArgs(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=100)
 
 
+class VisualFactsFilter(BaseModel):
+    """Ledger facts a visual search may filter on before it ranks (VU2.5, ADR 0175).
+
+    Every field is a LIST because the useful query is "any of these" — wide or very wide,
+    static or slow. Shot size and setting stay free strings rather than enums: the ladder is
+    already declared once in ``ledger_models`` and restating it here would make adding a rung
+    a change in two files, which is the drift this parity test exists to catch.
+    """
+
+    model_config = _STRICT
+    shot_size: list[str] | None = Field(default=None, alias="shotSize")
+    motion: list[Literal["static", "slow", "handheld", "fast"]] | None = None
+    entities: list[str] | None = None
+    setting: list[str] | None = None
+
+
 class SearchVisualArgs(BaseModel):
     """Visual grounding search over on-screen content (plan MI5.1/§3.4).
 
@@ -965,6 +981,10 @@ class SearchVisualArgs(BaseModel):
     k: int | None = Field(default=None, ge=1, le=50)
     asset_ids: list[str] | None = Field(default=None, alias="assetIds")
     time_range: tuple[float, float] | None = Field(default=None, alias="timeRange")
+    facts: VisualFactsFilter | None = Field(
+        default=None,
+        description="Narrow the search by measured facts before ranking (VU2.5, ADR 0175).",
+    )
 
     @model_validator(mode="after")
     def _ordered_range(self) -> SearchVisualArgs:

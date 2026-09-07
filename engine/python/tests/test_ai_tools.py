@@ -98,6 +98,12 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "set_effect_enabled": (True, True),
     "remove_effect": (True, True),
     "add_transition": (True, True),
+    # VU4.2/VU3.2 (ADR 0175): the model states a reason or an intent; the policy and the
+    # colour solver produce every number, and all four emit operations that already exist.
+    "add_transitions": (True, True),
+    "match_color": (True, True),
+    "normalize_exposure": (True, True),
+    "apply_look": (True, True),
     "add_mask": (True, True),
     "track_object": (True, True),
     "set_track_flags": (True, True),
