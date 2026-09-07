@@ -165,3 +165,25 @@ def test_one_pass_reads_both_chains_on_real_media() -> None:
     assert samples.frames, "the statistics chain produced nothing"
     assert samples.motion, "the motion chain produced nothing"
     assert samples.cuts, "a fast-cut clip must produce cuts"
+
+
+@requires_media
+def test_every_photo_fixture_measures() -> None:
+    """All 60 photo fixtures failed tier 0 until stills got their own command.
+
+    A whole-directory sweep rather than one sample: the failure was uniform, so a single
+    photo passing would have hidden it exactly as well as none passing.
+    """
+    photos = sorted((_MISSION / "photos").glob("*.jpg"))
+    if not photos:
+        pytest.skip("photo fixtures not fetched")
+    failed: list[str] = []
+    for photo in photos:
+        try:
+            shots = measure_asset(photo, duration=0.04, is_image=True)
+        except Exception as exc:
+            failed.append(f"{photo.name}: {type(exc).__name__}")
+            continue
+        if len(shots) != 1:
+            failed.append(f"{photo.name}: {len(shots)} shots, expected 1")
+    assert not failed, f"{len(failed)}/{len(photos)} photo fixtures unmeasured: {failed[:5]}"

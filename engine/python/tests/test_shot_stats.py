@@ -24,6 +24,7 @@ from framepilot_engine.analysis.shot_stats import (
     motion_class_for,
     parse_tier0_logs,
     shot_boundaries,
+    still_argv,
     tier0_argv,
 )
 
@@ -310,3 +311,72 @@ class TestCommand:
         shots = measure_asset(__import__("pathlib").Path("/tmp/a.mp4"), duration=4.0, runner=runner)
         assert len(seen) == 1
         assert len(shots) == 2
+
+
+class TestStills:
+    """A photo took the video path and measured nothing at all.
+
+    `measure_asset(is_image=True)` built the split graph, whose second `-f null` output
+    never receives a frame from a single-image input, so ffmpeg exited 234 having produced
+    no statistics. Every still in every project was silently unmeasured — found only when
+    the fixture labels were generated and all 60 photos came back empty.
+    """
+
+    def test_a_still_uses_one_chain_and_one_output(self) -> None:
+        argv = still_argv("ffmpeg", __import__("pathlib").Path("/tmp/p.jpg"))
+        assert argv.count("-f") == 1
+        assert "-filter_complex" not in argv
+        assert "split" not in " ".join(argv)
+
+    def test_a_still_asks_for_exactly_one_frame(self) -> None:
+        argv = still_argv("ffmpeg", __import__("pathlib").Path("/tmp/p.jpg"))
+        assert argv[argv.index("-frames:v") + 1] == "1"
+
+    def test_a_still_does_not_run_the_motion_filters(self) -> None:
+        """`scdet` and `siti` compare a frame with the one before it. A still has none."""
+        graph = still_argv("ffmpeg", __import__("pathlib").Path("/tmp/p.jpg"))[
+            still_argv("ffmpeg", __import__("pathlib").Path("/tmp/p.jpg")).index("-vf") + 1
+        ]
+        assert "scdet" not in graph
+        assert "siti" not in graph
+        assert "signalstats" in graph and "blurdetect" in graph
+
+    def test_measure_asset_routes_a_still_to_the_still_command(self) -> None:
+        seen: list[list[str]] = []
+
+        def runner(argv: object) -> str:
+            seen.append(list(argv))  # type: ignore[arg-type]
+            return (
+                "[metadata@st @ 0x0] frame:0 pts:0 pts_time:0\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YAVG=76.0\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YLOW=17\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YHIGH=170\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.UAVG=128\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.VAVG=128\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.SATAVG=10\n"
+                "[metadata@st @ 0x0] lavfi.blur=4.0\n"
+            )
+
+        shots = measure_asset(
+            __import__("pathlib").Path("/tmp/p.jpg"), duration=0.04, is_image=True, runner=runner
+        )
+        assert "-filter_complex" not in seen[0]
+        assert len(shots) == 1
+        assert shots[0].motion_class == "static"
+
+    def test_a_still_gets_a_real_span_not_the_container_duration(self) -> None:
+        """A JPEG often reports a nominal 0.04s. A zero-length shot divides by zero in
+        every downstream projection, so the span is floored at one sample interval."""
+
+        def runner(argv: object) -> str:
+            return (
+                "[metadata@st @ 0x0] frame:0 pts:0 pts_time:0\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YAVG=76.0\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YLOW=17\n"
+                "[metadata@st @ 0x0] lavfi.signalstats.YHIGH=170\n"
+            )
+
+        shots = measure_asset(
+            __import__("pathlib").Path("/tmp/p.jpg"), duration=0.04, is_image=True, runner=runner
+        )
+        assert shots[0].t1 - shots[0].t0 >= 1.0 / STATS_FPS

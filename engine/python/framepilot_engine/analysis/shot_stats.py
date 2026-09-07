@@ -51,6 +51,7 @@ __all__ = [
     "measure_asset",
     "motion_class_for",
     "parse_tier0_logs",
+    "still_argv",
     "tier0_argv",
 ]
 
@@ -447,6 +448,40 @@ def fold_shots(
     return out
 
 
+def still_argv(ffmpeg: str, path: Path, *, width: int = ANALYSIS_WIDTH) -> list[str]:
+    """The tier-0 command for a STILL — one chain, one output, one frame.
+
+    A photo has no scene cuts and no motion, so the split graph is wrong for it twice over:
+    in principle, because `scdet` and `siti` have nothing to compare against a previous
+    frame; and in practice, because an image2 input is a single frame and the second
+    ``-f null`` output never receives one, so ffmpeg exits 234 ("Could not open encoder
+    before EOF") having measured nothing.
+
+    That failure was silent in the product until the fixture labels were generated: all 60
+    photo fixtures — and every still in a real user's project — came back unmeasured.
+
+    :param ffmpeg: Resolved ffmpeg binary.
+    :param path: Image file, already sandbox-resolved.
+    :param width: Analysis frame width.
+    :returns: An argument vector writing one frame of statistics to stderr.
+    """
+    return [
+        ffmpeg,
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        str(path),
+        "-an",
+        "-vf",
+        f"scale={width}:-2,signalstats,blurdetect,metadata@st=mode=print",
+        "-frames:v",
+        "1",
+        "-f",
+        "null",
+        "-",
+    ]
+
+
 def tier0_argv(
     ffmpeg: str,
     path: Path,
@@ -515,5 +550,10 @@ def measure_asset(
     :raises FFmpegError: If the pass cannot run at all.
     """
     invoke = runner or (lambda argv: run_logs(argv, timeout=timeout))
-    logs = invoke(tier0_argv(find_ffmpeg(), path))
-    return fold_shots(parse_tier0_logs(logs), duration, is_image=is_image)
+    ffmpeg = find_ffmpeg()
+    argv = still_argv(ffmpeg, path) if is_image else tier0_argv(ffmpeg, path)
+    logs = invoke(argv)
+    # A still's duration is whatever the container claims (often a nominal 0.04s). The shot
+    # must still be a real span, or every downstream projection divides by zero.
+    span = duration if not is_image else max(duration, 1.0 / STATS_FPS)
+    return fold_shots(parse_tier0_logs(logs), span, is_image=is_image)
