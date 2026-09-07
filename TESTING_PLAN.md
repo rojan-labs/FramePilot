@@ -869,6 +869,45 @@ This PR touches 235 files across the AI kernel, the engine, and the UI. Walk the
 
 ---
 
+## Part 17 — The PR review's findings, and what became of them
+
+A full architecture review ran on 2026-09-08. Every finding it raised is closed in code or
+answered here; the two that are maintainer calls are recorded as such rather than quietly
+adopted.
+
+| # | Finding | Outcome |
+| --- | --- | --- |
+| **B1** | Too large to review as one PR (288 files) | **Maintainer call, not closed.** See below. |
+| **B2** | 9k lines of packs that never loaded a model | **Stale.** They load; the docs said otherwise and are corrected. The ship-or-hold decision is now recorded in ADR 0176. |
+| **B3** | Head never through CI | Closed — CI green on the head. |
+| **M1** | One blank frame denied tier 2 to 15 other shots | Fixed on both sides: the declined shot is skipped, its neighbours describe. |
+| **M2** | `duplicateOf` could never be populated | Fixed — `keyframe_dhashes` is the producer tier 0 never had. |
+| **M3** | The test injected data production never produced | Fixed — stubs the ffmpeg decode, drives the real producer. |
+| **M4** | Local tier-1 wrote a vector space nothing read | Fixed — reads resolve the space; the phash-0 trap is removed first. |
+| **M5** | The ceiling could not fail when unmeasured | Fixed — fails, with an explicit human waiver flag. Tested. |
+| **M6** | Tier 0 unpaced on the hosted route | Fixed — `wait_until_clear()` on the TL route too. |
+| **M7** | Governor treated a local subprocess as a round trip | Fixed — derived from the embedder client, not the phase name. |
+| **M8** | Unconsented paid VLM calls on import | Fixed — auto-enrolment names its tiers; `described` never runs unattended. |
+| **M9** | Sandbox check skipped structurally | Fixed — closed capability list, with a test over every non-exempt one. |
+| **M10** | Unknown `jobId` minted a job | Fixed on the hosted arm (409); the built-in idempotency-key pattern is kept. |
+| **N1–N8** | Stale header, cursor key, duplicate import, page cursor, tolerance, docstring markers, budget-vs-refusal, browser comment | All fixed. |
+
+**B1 — the split.** Not done, and it is the maintainer's call rather than an agent's. The
+review's own suggested first slice (migration + tier 0 + ledger read API + shot-words +
+perception metrics) is the plan's actual thesis, is keyless, and is about a fifth of the
+diff. Recorded here so a decision to land it whole is a decision, not an oversight.
+
+**The review's four questions, answered:**
+
+1. *Packs in this PR or held?* Recorded in ADR 0176 with the argument each way. They are
+   inert unless a pack handle is configured, and both are empty by default.
+2. *Was the billing consequence of deleting the key gate considered?* Evidently not — it was
+   a real new exposure. Closed by M8.
+3. *Is the local tier-1 arm meant to be queryable in this PR?* Yes, and now is (M4).
+4. *The duplicated row in the PR body's table* — a copy-paste slip, not lost rows.
+
+---
+
 ## Part 16 — Open items to settle before merge
 
 > **Status 2026-09-08 — every item below is closed.** T16.1 (CodeQL) passes on the head.
