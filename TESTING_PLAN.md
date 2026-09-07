@@ -63,7 +63,10 @@ Everything in `MANUAL_TESTING.md` §1 (S1–S8) still applies. These are the del
     handles, both **empty by default** — leave them empty unless you are on Part 12).
   - Do: confirm both also appear in `turbo.json` `globalEnv` (repo rule: one source of truth).
   - Expect: no var is in one file and missing from the other.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS (static) · notes: `FRAMEPILOT_PACK_VISUAL_EMBED`
+    (`.env.example:61`), `FRAMEPILOT_PACK_VISUAL_DESCRIBE` (`:74`) and
+    `TWELVELABS_API_KEY` (`:147`) all present, and all three in `turbo.json` `globalEnv`
+    (lines 14–16). Both pack handles are empty by default.
 
 - [ ] **T0.3. The three key states — you must test all three** — `desktop`
   - This PR's whole point is that tier 0 needs no key. A single-key test run proves nothing.
@@ -354,7 +357,8 @@ Three new AI tools: `match_color`, `normalize_exposure`, `apply_look`
 - [ ] **T5.6. Colour tool cards render** — `UI` · `desktop`
   - Expect: cards read "Match color to a reference", "Even out exposure", "Apply a look",
     each with the Palette icon (`toolMeta.ts`). No raw tool names in the UI.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS (static) · notes: `toolMeta.ts:125–127` — all three labels
+    exactly as specified, all three on the Palette icon.
 
 - [ ] **T5.7. Known gap — the coefficients are unfitted** — `P3` · `note`
   - The colour model in `color-solver.ts` was **derived from the renderer's source, not
@@ -563,7 +567,11 @@ they have separate causes.
   Both `tighten_clips` and `add_transitions` were newly added to their domains — per repo
   memory, a tool without a domain fails the shape test, so check `DOMAIN_SUMMARY` if a tool
   is not being found.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS (static) · notes: all three labels present in
+    `apps/web-editor/src/components/ai/toolMeta.ts` — `tighten_clips` → "Tighten pacing"
+    (Gauge), `remove_filler_words` → "Remove filler words" (AudioLines), `add_transitions`
+    → "Place transitions" (ArrowLeftRight). Domain/shape tests green:
+    `tool-domains.test.ts` + `tool-registry.test.ts`, 152 passed.
 
 ---
 
@@ -642,7 +650,11 @@ number is a constant, by design.
   - Do: hand the engine a brain at a **higher** user_version.
   - Expect: a clear "cannot be handled by this engine" error, not corruption. Migrations are
     forward-only and append-only.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS (code + test) · notes: `brain/migrations.py:294` raises
+    `BrainSchemaError` when `user_version > SCHEMA_VERSION`, naming both versions and
+    telling the user the brain is a derived cache they may delete. Covered by
+    `test_brain_store.py:90` and `test_brain_sidecars.py:177`. `SCHEMA_VERSION == 4`,
+    which is the v4 T11.1 expects.
 
 - [ ] **T11.4. New app against an OLD sidecar** — `desktop`
   - Why: `tiers` and `coverage` on the IPC result are optional precisely because a
@@ -658,7 +670,10 @@ number is a constant, by design.
     regenerated with the new tools, not hand-edited.
   - Per repo memory: the engine loader requires the envelope to equal `SCHEMA_VERSION`
     **exactly**, and fixtures must import the constant rather than hard-code it.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS · notes: `test_ledger_ts_parity.py` green. The fixture is
+    generated, not hand-edited: `pnpm --filter @framepilot/ai-sdk build` rewrote
+    `ts_tool_registry.json` (99 tools) and left the working tree **clean**, so what is
+    committed is exactly what the generator produces.
 
 ---
 
@@ -717,7 +732,13 @@ know** — and, unchanged, that a pack still cannot *half*-work.
     just the upstream repository's. Confirm `pnpm license:scan` is clean.
   - Related standing risk (repo memory): the TwelveLabs SDK is **UNLICENSED** and that is an
     accepted, recorded risk (ADR 0071) — not something this PR changes.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS · notes: `LICENSES.md` does ask the export question rather
+    than the repository one, and answers it honestly: YuNet and SFace are ✅ verified
+    against the `LICENSE` files at the pinned OpenCV Zoo commit, while all three SigLIP 2
+    rows are marked **❌ open** because that export's model card declares no licence of its
+    own. The file also states plainly that `pnpm license:scan` does **not** clear anything
+    on that page — it scans npm packages, not weights. `license:scan` itself: 7 packages,
+    no denylisted licences.
 
 - [ ] **T12.6. The NVIDIA hosted embedder survives on purpose** — `note`
   - Four of five named deprecations are **deleted**: the key gate, the per-path enrolment
@@ -788,7 +809,11 @@ know** — and, unchanged, that a pack still cannot *half*-work.
   - Expect: `FRAMEPILOT_DEV_PACK_REGISTRATION=1` is set **only** around the registration
     call in the dev scripts, never in a packaged build. Verify the packaged app has no path
     to local registration.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · PASS (static) · notes: the var is set inline on the single
+    `register-local` line of each of the four `scripts/dev-register-*.sh` and nowhere else.
+    `local-registration.ts:96` refuses without it, with a message that says never to enable
+    it in a packaged build. `apps/desktop/electron` contains **no** `register-local` or
+    `registerLocalCapabilityPack` call site, so the packaged app has no path to it.
 
 - [ ] **T14.5. Every AI edit is still a validated, reversible typed operation** — `AI`
   - Do: exercise the new solver tools, then ⌘Z each one.
@@ -842,9 +867,14 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     PR head (`Analyze (python)`, `Analyze (javascript-typescript)`, `Analyze (actions)` all
     green). The 42 alerts are no longer outstanding on this PR; no dismissal is needed.
 
-- [ ] **T16.2. Vercel deployment blocked** — check whether the website build is actually
+- [x] **T16.2. Vercel deployment blocked** — check whether the website build is actually
       affected by this PR or whether the block is unrelated to the diff.
-  - Owner: ______  Result: __/__/____
+  - Owner: —  Result: 09/08/2026 · **UNRELATED TO THE DIFF — not a merge blocker.**
+    `git diff main...HEAD -- apps/website` is **empty**; `apps/website/package.json` and
+    `pnpm-lock.yaml` are both unchanged; and the website declares **no** `@framepilot`
+    workspace dependency, so nothing in this PR can reach its build. The status text is
+    "Deployment was blocked", which is a project/account gate rather than a failed build.
+    Settle it in the Vercel dashboard; it is not evidence about this branch.
 
 - [ ] **T16.3. The behavioural payoff is unmeasured** — **the biggest open question**
   - Nothing here has been measured for its effect on **edit quality**. Whether first-pass
