@@ -2639,10 +2639,9 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
    * itself is worse than a terse one: the creator reading it cannot tell which half is
    * true, and neither can a later turn reading the briefing.
    */
-  const failureReason = (deliverableReached: boolean): string | undefined => {
+  const failureReason = (): string | undefined => {
     if (!deliveredWork) return 'No traceable project mutation for the committed plan.';
     if (!r.ok) return `Deterministic acceptance checks still fail — ${r.summary}`;
-    if (!deliverableReached) return 'This deliverable was not completed by the run.';
     return undefined;
   };
   // P4.3 — bounded verify loop. Only a run that landed work has something to fix, and
@@ -2695,12 +2694,19 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     }
   }
   for (const [index, objective] of working.objectives.entries()) {
-    const deliverableReached =
-      state.ledgerLength === 0 ? deliveredWork : state.planSteps[index]?.status === 'completed';
+    // One objective per drafted step, and a step completes only by an applied patch on
+    // its own turn — so a plan whose steps collapse into one turn (or list reads and
+    // reports) left objectives "not completed" and `complete` unenterable: the plan-first
+    // montage run applied 17 changes, passed every check, and settled `failed` with "This
+    // deliverable was not completed by the run." The verdict is the run's; the step that
+    // never got its own turn is said in the detail and in the "Not done" block.
+    const stepReached = state.ledgerLength === 0 || state.planSteps[index]?.status === 'completed';
     working = recordVerification(working, {
       criterion: objective.description,
-      passed: verificationPassed && deliverableReached,
-      detail: failureReason(deliverableReached) ?? r.summary,
+      passed: verificationPassed,
+      detail:
+        failureReason() ??
+        (stepReached ? r.summary : `${r.summary} (this planned step never had a turn of its own)`),
       objectiveId: objective.id,
     });
   }
@@ -2709,7 +2715,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   } else {
     working = addDiagnostic(working, {
       code: 'VERIFICATION_INCONCLUSIVE',
-      message: `Verification found: ${failureReason(false) ?? r.summary}`,
+      message: `Verification found: ${failureReason() ?? r.summary}`,
       stage: 'verify',
       blocking: true,
     });
@@ -2725,7 +2731,7 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
         failedAfterApplyMessage(
           appliedCount,
           r.ok
-            ? (failureReason(false) ?? r.summary)
+            ? (failureReason() ?? r.summary)
             : // The LABEL alone is a positive assertion of the property being checked, so
               // a card built from labels reads inside out: a montage that placed thirteen
               // landscape shots in a portrait frame was told "the self-check still fails —
