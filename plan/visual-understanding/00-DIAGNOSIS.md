@@ -5,22 +5,25 @@ Every claim cites a file read on 2026-09-07 at `03a2e31` (origin/main) or a repo
 
 ## 1. The symptom, measured
 
-Tool-name mentions across every golden run report under `reports/golden/` (all sessions,
-all replays):
+Read off the per-turn tool-call records in `reports/golden/*/cases/` — **318 scored turns
+and 210 accepted edits across ten recorded runs** (baseline, session3, session6, s7-gapfill,
+s8-replay, s8-replay-all, and four s9 runs). Reproduce with
+`node packages/ai-sdk/scripts/perception-baseline.mjs <runDir>...`; the full table is in
+[`reports/golden/BASELINE.md`](../../reports/golden/BASELINE.md).
 
-| Tool                                                 | Mentions | What it means                                                |
-| ---------------------------------------------------- | -------- | ------------------------------------------------------------ |
-| `get_timeline`                                       | 713      | the model re-reads clip geometry constantly                  |
-| `render_preview`                                     | 250      | it renders, but a preview is a file the model cannot see     |
-| `add_transition`                                     | 28       | it adds transitions without knowing the shots on either side |
-| `get_frame`                                          | 13       | it looked at a picture 13 times across ~30 runs              |
-| `verify_transitions`                                 | 11       |                                                              |
-| `search_visual` / `describe_footage` / `map_footage` | 10 each  | one per run at most, usually zero                            |
-| `measure_color`                                      | 0        | never                                                        |
-| `apply_color_grade`                                  | 0        | never                                                        |
+| Tool                                                                   | Calls | What it means                                         |
+| ---------------------------------------------------------------------- | ----- | ----------------------------------------------------- |
+| `get_timeline` / `get_timeline_summary`                                | 192   | clip geometry is the agent's only source of truth     |
+| `get_frame`                                                            | **0** | the agent has never looked at a frame                 |
+| `search_visual` / `describe_footage` / `map_footage` / `measure_color` | **0** | the footage surfaces exist and have never been called |
+| `apply_color_grade` / `add_transition`                                 | 3     | in one turn, none preceded by a measurement           |
 
-The ratio of geometry reads to picture reads is about 55:1. The agent is not choosing the
-wrong frames. It is not choosing frames.
+Guess rate on grade/transition numbers: **1.00**.
+
+An earlier reading of this repo counted 13 `get_frame` and ~10 `search_visual` "mentions" by
+grepping report prose. Those were words in summaries, not calls. The measured figure is zero,
+and it is zero in every run. The agent is not choosing the wrong frames — it is not choosing
+frames, and it never has.
 
 ## 2. The chain, hop by hop
 

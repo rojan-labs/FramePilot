@@ -2,21 +2,38 @@
 
 ## VU0 Baseline and contracts — do this before any code
 
-### VU0.1 Blindness metrics in the golden harness `[ ]`
+### VU0.1 Blindness metrics in the golden harness `[x]` (2026-09-07)
 
-Add to `packages/ai-sdk/src/eval/golden-metrics.ts` (pure functions over the event stream):
+`src/eval/perception-metrics.ts` — pure, 22 tests — plus the wiring into
+`measureGoldenTurn`/`summarizeGoldenRun`/`renderGoldenSummary` (3 more tests):
 
-| Metric                     | Definition                                                                                                                              |
-| -------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
-| `frames_seen_per_edit`     | `get_frame` calls + vision-review frames ÷ accepted edits                                                                               |
-| `perception_calls_per_run` | `search_visual + describe_footage + map_footage + measure_color`                                                                        |
-| `visual_target_resolution` | on cases whose target is defined by content ("the dark clip", "the street shot"), whether the resolved clip matches the labelled answer |
-| `numeric_guess_rate`       | grade/transition operations whose values did not come from a solver result in the same run                                              |
-| `picture_facts_in_prompt`  | count of clip rows with a fact suffix ÷ rows shown                                                                                      |
+| Metric                  | Definition                                                                     |
+| ----------------------- | ------------------------------------------------------------------------------ |
+| `framesSeenPerEdit`     | frames put in front of the model (`get_frame`, vision review) ÷ accepted edits |
+| `perceptionCallsPerRun` | `search_visual + describe_footage + map_footage + measure_color`               |
+| `numericGuessRate`      | grade/transition operations applied with no measurement or solver before them  |
+| `pictureFactsInPrompt`  | clip rows carrying a fact suffix ÷ rows shown, read from the rendered slice    |
+| per-tool counts         | which surface a run leaned on, so a change can be attributed                   |
 
-Run the 21 cases on `main` with the fixtures as they are (no ledger) and record the table in
-`reports/golden/BASELINE.md` under "visual-understanding floor". This is the number the whole
-plan is judged against.
+`GoldenTurnMetrics.perception` is **optional**: a result file written before this existed
+carries no such evidence, and the summary reports `measuredTurns` rather than a flattering
+zero. `framesSeen` is a ceiling — a change that raises it has not worked.
+
+**The baseline was NOT produced by re-running the golden set.** Every recorded run already
+stores `metrics.toolCallsByName` per turn, so `scripts/perception-baseline.mjs` folds the
+existing `reports/golden/*/cases/` files into the floor. 318 turns, 210 accepted edits, ten
+runs, no provider calls, no money. Result, in full in
+[`reports/golden/BASELINE.md`](../../reports/golden/BASELINE.md):
+
+|                             | floor                                           |
+| --------------------------- | ----------------------------------------------- |
+| frames seen / accepted edit | **0.00** (`get_frame` called zero times, ever)  |
+| footage-surface calls       | **0** in every run                              |
+| timeline reads              | 192                                             |
+| grade/transition guess rate | **1.00** (3 calls, 1 turn, none measured first) |
+
+Visual target resolution is deferred to VU0.3's new cases, which carry the labelled answers
+it needs; scoring it before those exist would measure nothing.
 
 ### VU0.2 Labelled fixture set `[ ]`
 

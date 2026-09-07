@@ -30,6 +30,12 @@ import { applyProjectPatch, invertProjectPatch, type Patch } from '@framepilot/e
 import type { AiEvent } from '../events.js';
 import type { ExpectedIntent, GoldenCategory } from './golden-cases.js';
 import type { RubricCheck, RubricScore } from './mission-rubric.js';
+import {
+  measurePerceptionTurn,
+  summarizePerception,
+  type PerceptionSummary,
+  type PerceptionTurnMetrics,
+} from './perception-metrics.js';
 
 /** What the run visibly did, read from its events and applied operations. */
 export type ObservedIntent = 'edit' | 'ask' | 'decline' | 'failed' | 'cancelled' | 'silent';
@@ -140,6 +146,16 @@ export interface GoldenTurnMetrics {
    */
   readonly harnessTimedOut?: boolean;
   readonly operations: number;
+  /**
+   * How much the turn LOOKED, and whether its grade/transition numbers were measured
+   * (plan/visual-understanding VU0.1).
+   *
+   * Optional because a result file written before these metrics existed carries no such
+   * field, and the summary must read those runs as "not measured" rather than as zero
+   * frames and a perfect guess rate. Every turn measured by {@link measureGoldenTurn}
+   * has it.
+   */
+  readonly perception?: PerceptionTurnMetrics;
 }
 
 function lastStatus(events: readonly AiEvent[]): string | null {
@@ -378,6 +394,7 @@ export function measureGoldenTurn(evidence: GoldenTurnEvidence): GoldenTurnMetri
     finalStatus: status,
     ...(evidence.harnessTimedOut === true ? { harnessTimedOut: true } : {}),
     operations,
+    perception: measurePerceptionTurn(events, evidence.appliedPatches),
   };
 }
 
@@ -452,6 +469,15 @@ export interface GoldenSummary {
     readonly loud: number;
     readonly explained: number;
   };
+  /**
+   * Frames looked at, footage surfaces called, and grade/transition numbers that had no
+   * measured basis — over the turns that recorded them (plan/visual-understanding VU0.1).
+   *
+   * `measuredTurns` is how many turns of `turns` carry the evidence: a run imported from
+   * an older result file scores here over nothing, and the report says so instead of
+   * printing a flattering zero.
+   */
+  readonly perception: PerceptionSummary & { readonly measuredTurns: number };
   readonly perCase: Readonly<Record<string, GoldenCaseSummary>>;
 }
 
@@ -518,6 +544,9 @@ export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary
   const failures = rows.filter((r) => r.metrics.failureQuality !== null);
   const diffs = rows.reduce((s, r) => s + r.metrics.validity.diffs, 0);
   const valid = rows.reduce((s, r) => s + r.metrics.validity.valid, 0);
+  const perceptionTurns = rows
+    .map((r) => r.metrics.perception)
+    .filter((p): p is PerceptionTurnMetrics => p !== undefined);
 
   const perCase: Record<string, GoldenCaseSummary> = {};
   const byCase = new Map<string, GoldenRow[]>();
@@ -595,6 +624,14 @@ export function summarizeGoldenRun(allRows: readonly GoldenRow[]): GoldenSummary
       failures: failures.length,
       loud: failures.filter((r) => r.metrics.failureQuality?.loud).length,
       explained: failures.filter((r) => r.metrics.failureQuality?.explained).length,
+    },
+    perception: {
+      ...summarizePerception(
+        perceptionTurns,
+        accepted.length,
+        new Set(rows.map((r) => `${r.caseId}#${String(r.run)}`)).size,
+      ),
+      measuredTurns: perceptionTurns.length,
     },
     perCase,
   };
@@ -696,6 +733,23 @@ export function renderGoldenSummary(
     lines.push(
       `| **turns the provider never answered** | **${String(summary.voidTurns)} — excluded from every rate above; re-run them** |`,
     );
+  }
+  // Perception (plan/visual-understanding VU0.1). Printed beside the editing metrics, not
+  // in a section of its own, because the argument is a trade: facts in the prompt should buy
+  // the same or better editing with FEWER frames, and only a table that shows both can say so.
+  if (summary.perception.measuredTurns > 0) {
+    lines.push(`| frames seen / accepted edit | ${num(summary.perception.framesSeenPerEdit, 2)} |`);
+    lines.push(
+      `| footage-surface calls / run | ${num(summary.perception.perceptionCallsPerRun, 2)} |`,
+    );
+    lines.push(
+      `| grade/transition numbers with no measured basis | ${pct(summary.perception.numericGuessRate)} of ${String(summary.perception.numericGuess.total)} |`,
+    );
+    if (summary.perception.measuredTurns < summary.turns) {
+      lines.push(
+        `| ↳ perception measured over | ${String(summary.perception.measuredTurns)} of ${String(summary.turns)} turns (older result files carry no such evidence) |`,
+      );
+    }
   }
   lines.push(`| tokens / accepted edit | ${num(summary.tokensPerAcceptedEdit)} |`);
   // Named for what it is. `cost-meter.ts` prices every call from a per-TIER table, not from
