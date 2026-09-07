@@ -1,0 +1,223 @@
+{
+  "scenario": "clarify-which-clip",
+  "category": "clarify",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Cut the clip a bit shorter.",
+      "rubric": "unchanged",
+      "expectedIntent": "ask",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "ask",
+          "observed": "cancelled",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 12855,
+          "output": 395,
+          "total": 13250
+        },
+        "usd": 0.011535,
+        "latency": {
+          "firstProgressMs": 3622,
+          "doneMs": 6651
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "cancelled",
+        "operations": 0
+      },
+      "asked": [
+        {
+          "question": "There are 5 clips on the timeline and nothing is currently selected — which one should I trim shorter?",
+          "options": [
+            "clip_001 (0–39.8s)",
+            "clip_002 (39.8–61.4s)",
+            "clip_003 (61.4–70.2s)",
+            "clip_004 (70.2–84.9s)",
+            "clip_005 (84.9–134.7s)"
+          ]
+        }
+      ],
+      "assistantText": "",
+      "recording": "reports/golden/s9-live-all/recordings/clarify-which-clip-r1-t1.json",
+      "calls": [
+        {
+          "tool": "ask_user",
+          "status": "cancelled",
+          "args": "question: \"There are 5 clips on th…, options: [{\"label\":\"clip_001 (0–3…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 6651,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 12855,
+          "input": 1870,
+          "output": 395,
+          "cacheRead": 10985,
+          "cacheCreate": 11365
+        },
+        "perCall": [
+          {
+            "ttftMs": 3617,
+            "wallMs": 6643,
+            "input": 1870,
+            "output": 395,
+            "cacheRead": 10985
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 3617,
+            "p95": 3617,
+            "min": 3617,
+            "max": 3617
+          },
+          "wallMs": {
+            "p50": 6643,
+            "p95": 6643,
+            "min": 6643,
+            "max": 6643
+          },
+          "inputTokensPerTurn": {
+            "p50": 1870,
+            "p95": 1870,
+            "min": 1870,
+            "max": 1870
+          },
+          "outputTokensPerTurn": {
+            "p50": 395,
+            "p95": 395,
+            "min": 395,
+            "max": 395
+          },
+          "cacheHitRate": 0.8545313107740179,
+          "cacheReportingTurns": 1
+        },
+        "usd": 0.011535,
+        "usageTokens": 2265,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 2,
+        "contextByType": [
+          {
+            "system": 2292,
+            "retrieved_evidence": 487,
+            "skill": 1670,
+            "latest_user_message": 11,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 2292,
+            "retrieved_evidence": 487,
+            "skill": 1670,
+            "latest_user_message": 11,
+            "tool_schemas": 6884
+          }
+        ],
+        "contextUsedTokens": [
+          11344,
+          1870
+        ],
+        "contextCachedTokens": [
+          null,
+          10985
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

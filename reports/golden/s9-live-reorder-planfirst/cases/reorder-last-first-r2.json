@@ -1,0 +1,298 @@
+{
+  "scenario": "reorder-last-first",
+  "category": "reorder",
+  "project": "mission-montage",
+  "run": 2,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Move the last clip to the very beginning of the timeline.",
+      "rubric": "reorder-last-first",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "last-moved-first",
+          "ok": true,
+          "detail": "order rotated as asked",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "content-preserved",
+          "ok": true,
+          "detail": "same clips, same source ranges",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-collateral-changes",
+          "ok": true,
+          "detail": "no clip restyled",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "no-gaps",
+          "ok": true,
+          "detail": "0 gap(s)"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "last-moved-first: order rotated as asked",
+            "content-preserved: same clips, same source ranges",
+            "no-collateral-changes: no clip restyled"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 4,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 39552,
+          "output": 690,
+          "total": 40242
+        },
+        "usd": 0.030393,
+        "latency": {
+          "firstProgressMs": 5560,
+          "doneMs": 19461
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 1
+      },
+      "asked": [],
+      "assistantText": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Reorder clips Video 1\n\n**Not done:**\n- Reorder video_1 so clip_005 moves to position 0, ahead of clip_001, using reorder_clips (single ordered op — no manual split/move sequencing needed). — pending\n- Verify via get_timeline that the new order is [clip_005, clip_001, clip_002, clip_003, clip_004], durations preserved, total timeline duration unchanged at 134.667s, and no gaps/overlaps introduced. — pending\n- Report the new clip boundaries (start/end times) to ",
+      "recording": "reports/golden/s9-live-reorder-planfirst/recordings/reorder-last-first-r2-t1.json",
+      "calls": [
+        {
+          "tool": "reorder_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", clipIds: [\"clip_005\",\"clip_001\",\"…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 19461,
+        "modelCalls": 4,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 39552,
+          "input": 11536,
+          "output": 690,
+          "cacheRead": 28016,
+          "cacheCreate": 38695
+        },
+        "perCall": [
+          {
+            "ttftMs": 5556,
+            "wallMs": 5556,
+            "input": 3560,
+            "output": 259,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 3220,
+            "wallMs": 3220,
+            "input": 2465,
+            "output": 128,
+            "cacheRead": 10985
+          },
+          {
+            "ttftMs": 3855,
+            "wallMs": 6023,
+            "input": 2624,
+            "output": 157,
+            "cacheRead": 10011
+          },
+          {
+            "ttftMs": 2855,
+            "wallMs": 4633,
+            "input": 2887,
+            "output": 146,
+            "cacheRead": 7020
+          }
+        ],
+        "summary": {
+          "turnCount": 4,
+          "ttftMs": {
+            "p50": 3220,
+            "p95": 5556,
+            "min": 2855,
+            "max": 5556
+          },
+          "wallMs": {
+            "p50": 4633,
+            "p95": 6023,
+            "min": 3220,
+            "max": 6023
+          },
+          "inputTokensPerTurn": {
+            "p50": 2624,
+            "p95": 3560,
+            "min": 2465,
+            "max": 3560
+          },
+          "outputTokensPerTurn": {
+            "p50": 146,
+            "p95": 259,
+            "min": 128,
+            "max": 259
+          },
+          "cacheHitRate": 0.7783951989330963,
+          "cacheReportingTurns": 3
+        },
+        "usd": 0.030393,
+        "usageTokens": 8407,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "reorder_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 6,
+        "contextByType": [
+          {
+            "system": 3003,
+            "retrieved_evidence": 487,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 3003,
+            "retrieved_evidence": 487,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 6884
+          },
+          {
+            "system": 3115,
+            "retrieved_evidence": 490,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 3115,
+            "retrieved_evidence": 490,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 6263
+          },
+          {
+            "system": 3368,
+            "retrieved_evidence": 490,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 4301
+          },
+          {
+            "system": 3368,
+            "retrieved_evidence": 490,
+            "latest_user_message": 60,
+            "skill": 1670,
+            "tool_schemas": 4301
+          }
+        ],
+        "contextUsedTokens": [
+          12104,
+          2465,
+          11598,
+          2624,
+          9889,
+          2887
+        ],
+        "contextCachedTokens": [
+          null,
+          10985,
+          null,
+          10011,
+          null,
+          7020
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 1,
+        "errors": [
+          "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

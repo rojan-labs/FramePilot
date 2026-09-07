@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11711,
+      "usedTokens": 12039,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -130,7 +130,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7481,
+            "tokenEstimate": 7734,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11711,
+          "estimatedInputTokensBeforeSend": 12039,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180097,
+          "estimatedRemainingCapacity": 179769,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -434,7 +434,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11910,
+      "usedTokens": 12238,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -446,7 +446,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -488,7 +488,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -502,7 +502,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -516,7 +516,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7481,
+            "tokenEstimate": 7734,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -524,9 +524,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11910,
+          "estimatedInputTokensBeforeSend": 12238,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179898,
+          "estimatedRemainingCapacity": 179570,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -878,7 +878,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11403,
+      "usedTokens": 11761,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -890,7 +890,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -932,7 +932,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -946,21 +946,21 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
             "id": "s10",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 468,
+            "tokenEstimate": 498,
             "included": true
           },
           {
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 6860,
+            "tokenEstimate": 7113,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -968,10 +968,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11403,
+          "estimatedInputTokensBeforeSend": 11761,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180405,
-          "toolSchemaTokensRebilled": 6860,
+          "estimatedRemainingCapacity": 180047,
+          "toolSchemaTokensRebilled": 7113,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -988,7 +988,7 @@
           "facts": 2,
           "evidenceHandles": 1,
           "remainingObjectives": 1,
-          "nextAction": "Continue apply: apply the committed plan."
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -1325,7 +1325,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — review the proposed change below.\n\n- Deleted range Video 1 · 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_golden:status:15",

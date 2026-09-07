@@ -213,6 +213,16 @@ describe('recoverWorkingState', () => {
     expect(outcome.state.nextAction?.action).toBe('Continue inspect: trim the dead air');
   });
 
+  it('never names an outstanding objective once the run is executing', () => {
+    // Objectives settle only at verification, so in `apply` the first "owed" one is
+    // whatever the plan listed first, done or not — the caption run that restyled 29 times.
+    let state = healthy();
+    state = recordObjective(state, { description: 'add a caption track', stage: 'inspect' });
+    const outcome = ensureContextInvariants({ ...state, stage: 'apply', nextAction: null });
+    expect(outcome.state.nextAction?.action).not.toContain('add a caption track');
+    expect(outcome.state.nextAction?.action).toMatch(/an edit has landed/);
+  });
+
   it('falls back to a stage-appropriate instruction when nothing is outstanding', () => {
     const outcome = ensureContextInvariants({ ...healthy(), nextAction: null });
     expect(outcome.state.nextAction).toMatchObject({

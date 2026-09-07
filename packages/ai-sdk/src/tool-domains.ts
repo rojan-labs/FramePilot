@@ -63,8 +63,9 @@ export type ToolDomain =
 export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string>> = {
   captions: 'write, restyle and emphasise captions; browse caption templates; check caption sync',
   audio:
-    'transcribe; adjust levels; find and cut silence; detect beats to cut to; add music; professional audio moves',
-  color: 'match shots to each other, even out exposure, apply a look; measure what is on screen now',
+    'transcribe; adjust levels; find and cut silence and filler words; detect beats to cut to; add music; professional audio moves',
+  color:
+    'match shots to each other, even out exposure, apply a look; grade directly; measure what is on screen now',
   motion: 'keyframes, punch-ins, camera moves and speed ramps',
   effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
   footage:
@@ -112,6 +113,7 @@ const CORE: readonly string[] = [
   'ripple_delete',
   'move_clip',
   'reorder_clips',
+  'tighten_clips',
   'add_track',
   'remove_track',
   'move_track',
@@ -158,7 +160,13 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'verify_captions',
     'discover_caption_styles',
   ],
-  audio: ['adjust_audio', 'analyze_silence', 'remove_silences', 'professional_audio'],
+  audio: [
+    'adjust_audio',
+    'analyze_silence',
+    'remove_silences',
+    'remove_filler_words',
+    'professional_audio',
+  ],
   color: [
     'apply_color_grade',
     'match_color',

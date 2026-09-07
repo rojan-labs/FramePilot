@@ -1,0 +1,659 @@
+{
+  "scenario": "memory-captions",
+  "category": "memory",
+  "project": "mission-talk",
+  "run": 3,
+  "replayed": true,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Cut this down to the best 45 seconds.",
+      "rubric": "podcast-highlight-60s",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "duration-within",
+          "ok": true,
+          "detail": "44.67s vs 45s ±10s",
+          "weight": 2
+        },
+        {
+          "id": "no-mid-word-cuts",
+          "ok": true,
+          "detail": "0 edge(s) inside a word",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "no-mid-word-cuts: 0 edge(s) inside a word",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 5,
+          "valid": 5,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 8,
+        "toolCalls": 8,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0.9849420000000002,
+        "latency": {
+          "firstProgressMs": 13,
+          "doneMs": 33
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 5 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it. — Replay over-ran the recording at effect #8 (kind \"model_stream\") — the run asked for more effects than were recorded (8)."
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 5
+      },
+      "asked": [],
+      "assistantText": "The current cut hooks with the World Cup's prestige, states the \"frequency\" thesis, and lands the rare-winner stat (471 players, 1-in-2000 odds), then jumps abruptly to a disconnected fragment about the tournament being \"so different\" and \"nothing guarantees success.\" That jump skips the reasoning entirely and reads as broken rather than punchy. Let me check the current timeline state before tightening the ending.",
+      "recording": "reports/golden/s9-baseline-replay/recordings/memory-captions-r3-t1.json",
+      "calls": [
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "ripple_delete",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 520.4, end: 528.733"
+        },
+        {
+          "tool": "ripple_delete",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 516.96, end: 520.4"
+        },
+        {
+          "tool": "ripple_delete",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 108.16, end: 508.06"
+        },
+        {
+          "tool": "ripple_delete",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 21.84, end: 92.36"
+        },
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "get_timeline",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "ripple_delete",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 37.633, end: 39.507"
+        }
+      ],
+      "metrics": {
+        "wallMs": 33,
+        "modelCalls": 8,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 0.9849420000000002,
+        "usageTokens": 270118,
+        "toolCalls": 8,
+        "toolCallsByName": {
+          "get_mapped_transcript": 2,
+          "ripple_delete": 5,
+          "get_timeline": 1
+        },
+        "repeatedToolCalls": 5,
+        "analysisFromCache": 0,
+        "contextRequests": 17,
+        "contextByType": [
+          {
+            "system": 2513,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 2513,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15258,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15258,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15285,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15285,
+            "retrieved_evidence": 2165,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15301,
+            "retrieved_evidence": 2167,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15301,
+            "retrieved_evidence": 2167,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15315,
+            "retrieved_evidence": 2177,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15315,
+            "retrieved_evidence": 2177,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15301,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 15301,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 16284,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 16284,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 16368,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 16368,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          },
+          {
+            "system": 16323,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "latest_user_message": 13,
+            "tool_schemas": 7342
+          }
+        ],
+        "contextUsedTokens": [
+          13682,
+          6786,
+          26427,
+          34779,
+          26454,
+          34833,
+          26472,
+          34865,
+          26496,
+          34912,
+          26491,
+          34923,
+          27474,
+          37155,
+          27558,
+          37316,
+          27513
+        ],
+        "contextCachedTokens": [
+          null,
+          23517,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null,
+          11055,
+          null
+        ],
+        "diffs": 5,
+        "validDiffs": 5,
+        "operations": 5,
+        "errors": [
+          "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    },
+    {
+      "turnIndex": 1,
+      "prompt": "Add captions in a bold, uppercase, centered style.",
+      "rubric": "memory-captions",
+      "expectedIntent": "edit",
+      "score": 0.42857142857142855,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": false,
+          "detail": "unchanged",
+          "weight": 2
+        },
+        {
+          "id": "has-captions",
+          "ok": false,
+          "detail": "0 caption clip(s)",
+          "weight": 2
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 0,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0,
+        "latency": {
+          "firstProgressMs": null,
+          "doneMs": 4
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it. — Replay over-ran the recording at effect #0 (kind \"model_stream\") — the run asked for more effects than were recorded (0)."
+        },
+        "score": 0.42857142857142855,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/s9-baseline-replay/recordings/memory-captions-r3-t2.json",
+      "calls": [],
+      "metrics": {
+        "wallMs": 4,
+        "modelCalls": 0,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 0,
+        "usageTokens": 0,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 1,
+        "contextByType": [
+          {
+            "system": 2521,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "conversation": 115,
+            "latest_user_message": 16,
+            "tool_schemas": 7342
+          }
+        ],
+        "contextUsedTokens": [
+          13829
+        ],
+        "contextCachedTokens": [
+          null
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [
+          "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    },
+    {
+      "turnIndex": 2,
+      "prompt": "Trim the last clip by two seconds and keep the captions in the same style.",
+      "rubric": "memory-captions",
+      "expectedIntent": "edit",
+      "score": 0.42857142857142855,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": false,
+          "detail": "unchanged",
+          "weight": 2
+        },
+        {
+          "id": "has-captions",
+          "ok": false,
+          "detail": "0 caption clip(s)",
+          "weight": 2
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": null,
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 0,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 0,
+          "output": 0,
+          "total": 0
+        },
+        "usd": 0,
+        "latency": {
+          "firstProgressMs": null,
+          "doneMs": 3
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it. — Replay over-ran the recording at effect #0 (kind \"model_stream\") — the run asked for more effects than were recorded (0)."
+        },
+        "score": 0.42857142857142855,
+        "finalStatus": "failed",
+        "operations": 0
+      },
+      "asked": [],
+      "assistantText": "",
+      "recording": "reports/golden/s9-baseline-replay/recordings/memory-captions-r3-t3.json",
+      "calls": [],
+      "metrics": {
+        "wallMs": 3,
+        "modelCalls": 0,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 0,
+          "input": 0,
+          "output": 0,
+          "cacheRead": null,
+          "cacheCreate": null
+        },
+        "perCall": [],
+        "summary": null,
+        "usd": 0,
+        "usageTokens": 0,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 1,
+        "contextByType": [
+          {
+            "system": 2558,
+            "retrieved_evidence": 2186,
+            "skill": 1649,
+            "conversation": 132,
+            "latest_user_message": 22,
+            "tool_schemas": 7342
+          }
+        ],
+        "contextUsedTokens": [
+          13889
+        ],
+        "contextCachedTokens": [
+          null
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [
+          "The AI run stopped unexpectedly. Try again; if it keeps happening, copy the details below when you report it."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 44.66666666666672,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 3
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "replay",
+  "model": "replay"
+}

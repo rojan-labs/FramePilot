@@ -46,6 +46,398 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-reorder-planfirst` / `…-planfirst-fix` — 2026-09-07 (session 9) — **the desktop's default path measured for the first time: every correct edit reported `failed`; after the fix 6 of 6 `completed`, $0.024 per accepted edit**
+
+| | |
+| --- | --- |
+| commit | before: `ed84844`'s `--plan-first` on the `d301dc2` dist; after: the advisory-plan-ledger change (this entry's commit) |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3, twice |
+| voidTurns | 0 / 0 |
+| wall clock / tier-priced cost | 4 min / 3 min; $0.033 → $0.024 per accepted edit |
+
+The desktop drafts a plan before every agent run unless the editor turns "Plan first" off
+(`AiSidebar.tsx#loadPlanFirst` defaults to true). No golden run had ever taken that path.
+
+| | before (`planfirst`) | after (`planfirst-fix`) |
+| --- | --- | --- |
+| intent accuracy | **0%** (6/6 settled `failed`) | 100% |
+| first-pass acceptance | 0% | **100%** |
+| rubric score | 1.00 ×6 — every edit was right | 1.00 ×6 |
+| operations per run | 1 each | 1 each |
+| model calls / turn p50 · p95 | 4 · 6 | 3 · 5 |
+| tier-priced cost / accepted edit | — (no run "accepted") | $0.024 |
+| done p50 · p95 | 21.9s · 35.6s | 20.2s · 36.8s |
+
+### What was wrong
+The drafted plan reads "1. Confirm current clip order via get_timeline … 2. Reorder … 3.
+Verify via get_timeline … 4. Report the new clip boundaries". A step is marked completed
+only by an applied patch, and steps are credited by turn position, so a run that reorders
+on its first turn completes step 1 ("Confirm"), leaves 2–4 pending, says it is done, is
+given one recovery turn, says so again, and settles **`failed`: "Applied 1 change, but the
+run could not finish: The committed plan still has incomplete deliverables."** — with the
+reorder it had made listed under "Not done — pending". Six of six.
+
+### What changed
+The plan ledger is advisory at verification: a run is graded on the request (the
+Critic's checks) and on a landed mutation; unreached steps are announced in a notice and
+listed under "Not done", never a `failed` verdict on their own. The plan-draft instruction
+now says every item is a change that lands on the timeline, not a read or a report (the
+"after" drafts still listed a verify step in 2 of 6 runs; the verdict no longer hangs on it).
+
+### Not evidence of
+- Long, genuinely multi-step plans: the case here collapses to one edit. A run that stops
+  after the first of five real edits is still caught by the acceptance shortfall and the
+  request checks, not by this ledger — that path was not re-sampled here.
+- The plan-approval gate (`requirePlanApproval`, plans over 10 steps): unexercised.
+
+## `s9-live-beat-scope` — 2026-09-07 (session 9) — **"a scope the request named is settled": `beat-sync` 3 of 3 first-pass, no question asked**
+
+| | |
+| --- | --- |
+| commit | the AMBIGUITY clause change (this entry's commit) on `fix/ai-editing-audit-2026-09-07`, dist otherwise at `d301dc2` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` + `beat-100bpm.wav` |
+| cases × runs | `beat-sync` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 5 min; $0.151 per run |
+
+| run | observed / expected | score | first-pass | calls | ops | USD | wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| r1 | edit / edit | 1.00 | ✓ | 5 | 35 | $0.16 | 95s |
+| r2 | edit / edit | 1.00 | ✓ | 4 | 28 | $0.13 | 80s |
+| r3 | edit / edit | 1.00 | ✓ | 5 | 27 | $0.16 | 95s |
+
+Before (`s9-live-all`): the one run asked "Your current cut runs 134.7s but the music bed is
+only 30s … Replace it / Append / Build as an alternate" and scored 0.33 when the operator
+dismissed it. The clause now reads: ask before a full re-cut "unless the request already
+named that scope ('cut it to 30 seconds', 'delete everything'): a scope the editor stated is
+settled, so do it." Three runs, three edits, cuts on the detected onsets.
+
+### Not evidence of
+- One run before, three after — variance is not excluded. session6's three `beat-sync`
+  runs never asked either; the ask in `s9-live-all` may have been a one-off the clause
+  merely makes less likely.
+- The clause's effect on the guard/clarify cases (unsampled after the change; the clause
+  names "delete everything" as settled, which is what ADR 0166 asks of `guard-wipe-timeline`).
+
+## `s9-live-reorder-cache` — 2026-09-07 (session 9) — **the Claude-login provider's system-prompt prefix, measured: uncached input per call 5.5k → 2.0k tokens, $0.049 → $0.022 per accepted edit, still 6 of 6**
+
+| | |
+| --- | --- |
+| commit | `b0fab26` (+ `9295303`'s dist) on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 2 min; **$0.022** per accepted edit |
+
+### Same cases, same model, per model call (from the case files' `perCall`)
+
+| | `s9-live-reorder-fix2` (before) | `s9-live-reorder-cache` (after) |
+| --- | --- | --- |
+| uncached input tokens per call p50 (min–max) | 5,519 (5,384–5,708) | **2,009 (1,874–2,193)** |
+| cached input tokens per call (avg) | 21,866 | 18,500 |
+| model calls per run | 3 · 2 · 3 · 3 · 3 · 2 | 2 · 3 · 3 · 3 · 3 · 3 |
+| first-pass | 6/6 | **6/6** |
+| operations per run | 1 each | **1 each** |
+| tokens / accepted edit | 73,362 | **58,478** |
+| tier-priced cost / accepted edit | $0.049 | **$0.022** |
+| done p50 · p95 | 11.4s · 22.6s | **12.5s · 14.2s** |
+
+What moved is exactly the run-stable prefix — skills manifest, request, agent contract
+(~3.5k tokens) — which the SDK caches once it is the system prompt. What stays uncached is
+the per-turn tail: project state, briefing, action log (~2k here; larger on a long
+project, which is the next lever).
+
+### Not evidence of
+- Any behaviour change: the prompts' content and order are byte-identical to before; only
+  which SDK field carries the prefix changed. The model's answers happen to be the same
+  three calls.
+- Providers other than `claude-agent-sdk` (the LangChain adapters already placed a cache
+  breakpoint at this boundary).
+
+## `s9-live-all` — 2026-09-07 (session 9) — **the first complete 21-case live run since the harness was built: 18 of 21 first-pass, silent successes 0, reversibility 21/21, $0.232 per accepted edit**
+
+| | |
+| --- | --- |
+| commit | cases 1–12 + `impossible-8k-drone` at `ed84844` (stage + delta fixes, recovery-turn disclosure); the 8 cases after a transport outage re-run at `9295303` (adds the SDK system-prompt prefix, note bound, caption cap) — `--force` on exactly the void cases |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | all four mission fixtures |
+| cases × runs | 21 × 1 (24 turns) |
+| voidTurns | 9 in the first pass (the SDK subprocess could not be reached: "FramePilot couldn't reach claude-agent-sdk"); all 9 re-run, 0 in the merged file |
+| wall clock / tier-priced cost | ~45 min of model time; $4.87 list for 21 accepted edits |
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 87.5% (21/24 turns) |
+| target resolution | 100% |
+| boundary precision | 100% |
+| operation validity | 100% |
+| first-pass acceptance | 87.5% (21/24) |
+| silent successes | **0** |
+| reversibility | **100%** (24/24) |
+| accepted edits | 21 |
+| tokens / accepted edit | 128,790 |
+| tier-priced cost / accepted edit | $0.232 |
+| model calls / turn p50 · p95 | 4 · 10 |
+| tool calls / turn p50 · p95 | 3 · 14 |
+| first progress p50 · p95 | 3.3s · 5.9s |
+| done p50 · p95 | 30.5s · 124.4s |
+| failure quality | 3 failures, 3 loud, 0 explained |
+
+### Per turn
+
+| case | observed / expected | score | first-pass | calls | ops | USD | wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| montage-30s | edit / edit | 1.00 | ✓ | 4 | 22 | $0.14 | 60s |
+| podcast-highlight-60s | edit / edit | 1.00 | ✓ | 7 | 4 | $0.29 | 111s |
+| remove-dead-air | edit / edit | 1.00 | ✓ | 4 | 116 | $0.15 | 20s |
+| **beat-sync** | **ask (dismissed) / edit** | 0.33 | ✗ | 2 | 0 | $0.07 | 27s |
+| refine-tighten t1 | edit / edit | 1.00 | ✓ | 5 | 38 | $0.22 | 100s |
+| refine-tighten t2 | edit / edit | 1.00 | ✓ | 8 | 184 | $0.65 | 308s |
+| memory-captions t1–t3 | edit ×3 | 1.00 | ✓ | 6 · 6 · 3 | 4 · 50 · 2 | $0.67 | 183s |
+| trim-first-clip-10s | edit / edit | 1.00 | ✓ | 2 | 1 | $0.04 | 8s |
+| trim-opening-10s | edit / edit | 1.00 | ✓ | 2 | 1 | $0.04 | 14s |
+| reorder-last-first | edit / edit | 1.00 | ✓ | 3 | 1 | $0.05 | 13s |
+| reorder-swap-first-two | edit / edit | 1.00 | ✓ | 4 | 1 | $0.10 | 31s |
+| captions-plain | edit / edit | 1.00 | ✓ | 8 | 1399 | $0.56 | 52s |
+| captions-uppercase-bottom | edit / edit | 1.00 | ✓ | 10 | 1400 | $0.74 | 62s |
+| hook-strongest-line | edit / edit | 1.00 | ✓ | 4 | 2 | $0.07 | 51s |
+| broll-first-20s | edit / edit | 1.00 | ✓ | 3 | 4 | $0.03 | 19s |
+| broll-empty-overlay-track | edit / edit | 1.00 | ✓ | 2 | 2 | $0.02 | 16s |
+| music-bed-quiet | edit / edit | 1.00 | ✓ | 6 | 38 | $0.10 | 54s |
+| compound-silence-captions | edit / edit | 1.00 | ✓ | 9 | 1305 | $0.68 | 55s |
+| vague-make-better | edit / ask-or-edit | 1.00 | ✓ | 10 | 5 | $0.21 | 124s |
+| **impossible-8k-drone** | **ask (dismissed) / decline** | 1.00 | ✗ | 1 | 0 | $0.01 | 11s |
+| guard-wipe-timeline | edit / edit | 1.00 | ✓ | 2 | 5 | $0.01 | 8s |
+| **clarify-which-clip** | **ask (dismissed) / ask** | 1.00 | ✗ | 1 | 0 | $0.01 | 7s |
+
+### What the three misses are
+
+- **`clarify-which-clip` is the instrument.** It asked exactly the question its rubric wants
+  ("which clip?"); the scripted operator dismisses (C.9), the run settles `cancelled`, and
+  `observeIntent` read the status before the question. Fixed in this session's next commit:
+  a dismissed question is still a question. Under that reading the run is 22/24.
+- **`beat-sync` asked a scope question the request had answered.** "Aim for about 30
+  seconds" on a 134.7s sequence → "How do you want me to handle the existing 134.7s
+  sequence? Replace it / Append / Build as an alternate." The AMBIGUITY clause tells it to ask
+  before "a full re-cut"; the request named the re-cut. Open: the clause needs "a request
+  that names the scope has answered it" (GOLDEN-C.26).
+- **`impossible-8k-drone` asked instead of declining.** It correctly said neither part
+  (8K upscale, drone footage) is possible, then offered alternatives through `ask_user`.
+  Arguably the better product behaviour; the case expects a plain decline. Left as is.
+
+### What this run also found (each fixed with a reproducing test, this session)
+
+- `captions-plain` / `captions-uppercase-bottom` / `compound-silence-captions`: **the
+  verifier failed the segmenter's own subtitle cues** (>12 words while `subtitle` segments
+  to 14), and the model re-captioned everything in another preset — ~700 operations and a
+  second verify per case for nothing (`9295303`). And `caption_the_edit`'s note listed all
+  1,399 operations: 44,570 characters in the action log, 41k uncached input tokens on the
+  calls after it (`e4ec8bc`).
+- `music-bed-quiet`: **`professional_audio duck_roles` was refused** — "requires a live
+  editor interaction snapshot" — after the model labelled both tracks exactly as the tool
+  asks; the harness never sent the snapshot the desktop always sends (runner fixed next
+  commit). The model fell back to **eighteen** one-clip `adjust_audio` calls, one per
+  30-second tile of the bed; `adjust_audio` now takes a `trackId` (`3e44ed4`).
+- `refine-tighten` t2: 184 operations, 29.5k output tokens, $0.65, 308s — the model
+  rebuilt the middle section three times (delete_clips + add_clips ×3). Scored 1.00. Open
+  (GOLDEN-C.27): a tighten that re-lays 30 clips three times is not a tighten.
+
+### Not evidence of
+- Run-to-run variance: one run per case. The two reorder cases are 3× elsewhere.
+- The plan-first path the desktop takes by default (`--plan-first`, unsampled).
+- The cache saving of `b0fab26` (measured separately, `s9-live-reorder-cache`).
+
+## `s9-live-reorder-fix1` / `s9-live-reorder-fix2` — 2026-09-07 (session 9) — **the two defects closed and measured live: 6 of 6 first-pass, one operation per run, a tenth of the cost**
+
+| | |
+| --- | --- |
+| commit | fix1: `5c36f92` + the standing half of `ee6b713`; fix2: `5c36f92` + `ee6b713` (shortfall reconciled). `ab06c68` (recovery-turn disclosure) landed after fix2 ran and no recovery turn fired in it, so it is unmeasured. |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3, twice (fix1, fix2) |
+| voidTurns | 0 / 0 |
+| wall clock / tier-priced cost | fix1: 5 min, $0.107/accepted edit · fix2: 2 min, **$0.049/accepted edit** |
+
+### Before → after, same two cases, same model
+
+| metric | `s9-live-reorder` (before) | fix1 (stage only) | **fix2 (stage + delta)** |
+| --- | --- | --- | --- |
+| intent accuracy | 83% | 100% | **100%** |
+| target resolution | 50% | 83% | **100%** |
+| first-pass acceptance | 33% | 83% | **100%** |
+| silent successes | 0 | 0 | **0** |
+| reversibility | 100% | 100% | **100%** |
+| operations per run | 6, 7, 5, 6, 2, 6 | 6, 6, 7, 6, 6, 6 | **1, 1, 1, 1, 1, 1** |
+| model calls / turn p50 · p95 | 5 · 11 | 5 · 7 | **3 · 3** |
+| tokens / accepted edit | 387,363 | 118,960 | **73,362** |
+| tier-priced cost / accepted edit | $0.499 | $0.107 | **$0.049** |
+| time to first progress p50 · p95 | 3.4s · 4.3s | — | **3.6s · 3.8s** |
+| time to done p50 · p95 | 48.8s · 107.1s | 30s · 45s | **11.4s · 22.6s** |
+
+### What each fix did, read off the replayed prompts
+
+- **fix1 (`5c36f92`)** — after the landed `reorder_clips` the briefing now reads `STAGE:
+  apply` and `DO THIS NOW: an edit has landed … if the request is now met, finish`. The
+  model finished after one reorder in all six runs ("The last clip is already at the
+  front … No further changes are needed"). Then the done-turn shortfall guard fired —
+  "The request is not met yet — continuing. 5 of 5 picture clips … Crop each to fill the
+  frame." — on a recovery turn with 62 tools, and every run cropped all five clips; r3 of
+  `last-first` also reordered a second time inside that forced turn.
+- **fix2 (`ee6b713`)** — the shortfall is a delta against the starting project, as the
+  verify pass already was. No recovery turn; every run is `reorder_clips` (+ one
+  `get_timeline` to confirm) and a one-line summary.
+
+### Not evidence of
+- The nineteen other cases. The stage defect affects any run that edits straight from
+  inspection, and the standing/shortfall defect any run on a project with an inherited
+  finding — so the whole set is expected to move, and is the next run.
+- The rubric's new `no-collateral-changes` check (`5084805`): both fix runs were scored by
+  the dist of the time, without it. Under it, fix1 would read 0/6 first-pass (every run
+  cropped) and fix2 6/6 — the numbers above already tell that story via `ops per run`.
+
+## `s9-live-reorder` — 2026-09-07 (session 9) — **`reorder_clips` sampled live for the first time: right on the first call in 6 of 6 runs, then 3 runs rotated the order again until it was wrong and 5 cropped or asked to crop every clip nobody mentioned**
+
+| | |
+| --- | --- |
+| commit | `03a2e31` (`main`) — code; evidence in this entry's commit on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` (5 landscape clips on `video_1`, 9:16 sequence) |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 6 min; $0.499 per accepted edit (list price, not billed) |
+
+The one run every session since 7 said was "worth credits": does the model reach for
+`reorder_clips` (ADR 0173) when it exists? **Yes, first call, every run** — the recorded
+session6 model deleted the track and asked; this one reorders in one operation. What it does
+NEXT is the finding.
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 83% (5/6 — r1 of last-first ended `cancelled` on an unasked question) |
+| target resolution | 50% |
+| boundary precision | 100% |
+| operation validity | 100% |
+| first-pass acceptance | 33% (2/6) |
+| silent successes | 0 |
+| reversibility | 100% |
+| accepted edits | 2 |
+| tokens / accepted edit | 387,363 |
+| model calls / turn p50 · p95 | 5 · 11 |
+| tool calls / turn p50 · p95 | 6 · 12 |
+| first progress p50 · p95 | 3.4s · 4.3s |
+| done p50 · p95 | 48.8s · 107.1s |
+
+### Per run — what each actually did
+
+| run | first call | then | final order | score | first-pass |
+| --- | --- | --- | --- | --- | --- |
+| last-first r1 | `reorder_clips` ✓ | asked "crop all 5 to a centred fill?" — operator declined, run cancelled | ✓ | 1.00 | no |
+| last-first r2 | `reorder_clips` ✓ | `get_timeline`, **`reorder_clips` again** (the NEW last clip to the front), then `vertical-reframe` skill + `set_clip_crop` ×5 | 004,005,001,002,003 ✗ | 0.80 | no |
+| last-first r3 | `reorder_clips` ✓ | `get_timeline` → `reorder_clips` → … **five rotations** | back to 001…005 ✗ | 0.80 | no |
+| swap r1 | `reorder_clips` ✓ | `vertical-reframe` skill, `load_tools motion`, `set_clip_crop` ×5 | ✓ | 1.00 | yes |
+| swap r2 | `reorder_clips` ✓ | **`reorder_clips` again** — swapped back | 001…005 ✗ | 0.80 | no |
+| swap r3 | `reorder_clips` ✓ | `set_clip_crop` ×5 | ✓ | 1.00 | yes |
+
+### Root causes, read off the replayed prompts (`kernel/replay`, zero model calls)
+
+1. **A run that edits straight from inspection is left at stage `inspect`.**
+   `stageAdvanceFor('inspect', ['mutation'], applied=true)` returns `null` — a test pinned it
+   ("a mutation alone earns nothing here"). So after the reorder LANDED, turn 2's briefing
+   read `STAGE: You are at "inspect"` and `DO THIS NOW: Continue inspect: read only what the
+   objective still needs.` — directly under `ALREADY APPLIED — do not repeat: Reorder clips`.
+   The model obeyed the instruction, read the timeline, found a different clip last, and
+   moved "the last clip" to the front again. Three of six runs.
+2. **`WHERE YOU STAND` carries an imperative the request never made.** Every turn's briefing
+   said "5 of 5 picture clips use a landscape source in a 1080x1920 portrait frame with no
+   crop, so they render with black bars: … **Crop each to fill the frame.**" That line is the
+   `reframe_coverage` health check's own detail — true of the fixture BEFORE the run — and
+   `standingAgainstAcceptance` never asked whether the run caused it. Five of six runs
+   treated it as part of the job. The rubric does not see the crops (`content-preserved`
+   checks source ranges, not crop), which is why two of those runs still score 1.00.
+
+### Not evidence of
+- The other nineteen cases under this code — unsampled this session.
+- Cost after the fix: the 387k tokens per accepted edit are mostly the re-reads and
+  re-reorders the two defects caused.
+
+## `s9-baseline-replay` — 2026-09-07 (session 9) — **the session-9 floor: every session6 recording replayed under `main` at `03a2e31`; the beat-grid deletion (ADR 0174) took `beat-sync` r1 from 0.56 to 1.00**
+
+| | |
+| --- | --- |
+| commit | `03a2e31` (`main`, PR #79 merged) — code; evidence in this entry's commit on `fix/ai-editing-audit-2026-09-07` |
+| provider / model | replay — none called; `session6` recordings copied under this label, sidecar up on :8799 |
+| media | `mission-montage`, `mission-talk`, `speech-9min-c` as `session6` recorded them |
+| cases × runs | 11 × 3 (40 turns) — every `session6` case whose recording is not the 14-byte outage stub |
+| voidTurns | 2 (`memory-captions` r3 t2/t3 — the outage stub; excluded from every rate) |
+| wall clock / tier-priced cost | ~3 min; $0.627 per accepted edit reproduced from the recordings, not re-billed |
+
+This is the **before** table for session 9. Every number here is a replay of session6's
+model answers under today's runtime, so a change to a prompt or tool description cannot
+move it; a change to a guard, a placer, a validator or a rubric can.
+
+### The ten metrics
+
+| metric | value |
+| --- | --- |
+| intent accuracy | 83% (33/40) |
+| target resolution | 72% |
+| boundary precision | 98% |
+| operation validity | 100% |
+| first-pass acceptance | 80% |
+| silent successes | 0 |
+| reversibility | 100% |
+| accepted edits | 32 |
+| tokens / accepted edit | 0 on replay (reproduced cost: $0.627 / accepted edit) |
+| model calls / turn p50 · p95 | 7 · 16 |
+| tool calls / turn p50 · p95 | 8 · 17 |
+| first progress / done | not meaningful on replay |
+| failure quality | 3 failures: 3 loud, 3 explained |
+
+### Per scenario
+
+| case | runs | score | intent | first-pass | undo | calls/run | USD/run |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| montage-30s | 3 | 1.00 | 100% | 100% | 100% | 7 | $0.28 |
+| podcast-highlight-60s | 3 | 1.00 | 67% | 67% | 100% | 5 | $0.32 |
+| remove-dead-air | 3 | 1.00 | 100% | 100% | 100% | 3 | $0.13 |
+| beat-sync | 3 | 1.00 | 100% | 100% | 100% | 16 | $0.57 |
+| refine-tighten | 3 | 1.00 | 100% | 100% | 100% | 8 | $0.74 |
+| memory-captions | 3 | 1.00 | 71% | 71% | 100% | 8 | $1.95 |
+| trim-first-clip-10s | 3 | 1.00 | 100% | 100% | 100% | 4 | $0.09 |
+| trim-opening-10s | 3 | 1.00 | 100% | 100% | 100% | 5 | $0.12 |
+| reorder-last-first | 3 | 0.60 | 67% | 33% | 100% | 7 | $0.32 |
+| reorder-swap-first-two | 3 | 0.60 | 0% | 0% | 100% | 10 | $0.35 |
+| captions-plain | 3 | 1.00 | 100% | 100% | 100% | 8 | $0.57 |
+
+### What moved since `s8-replay-all` (same recordings)
+
+- **`beat-sync` r1: 29 calls / 5 ops / 0.56 → 32 calls / 39 ops / 1.00.** The recording's
+  fourteenth response always had every interior cut on a detected onset; under s8 the
+  same-wall guard's reprieve was not enough and r1 stopped one call short. ADR 0174 deleted
+  the beat-grid refusal on 2026-09-06 (`fix/agent-reliability-2026-09-06`, merged as PR #79),
+  so there is no wall to be stopped at and the recorded edit lands. First measurement of
+  that deletion on a recorded run; it was merged unmeasured.
+- Everything else byte-identical to `s8-replay-all` / `session6`: the six reorder runs still
+  read 0.60 (the recorded model never had `reorder_clips`), `memory-captions` r2 t1 still
+  carries one mid-word edge, `podcast-highlight-60s` r3 still fails at 13 calls.
+
+### Not evidence of
+- Anything the model would do NOW. Every `reorder-*` failure is the recorded model deleting
+  the track and asking; `reorder_clips` (ADR 0173) has never been sampled live.
+- The ten `s7-gapfill` cases (their recordings are gone) — nothing in this table covers
+  `broll-*`, `captions-uppercase-bottom`, `clarify-which-clip`, `compound-silence-captions`,
+  `guard-wipe-timeline`, `hook-strongest-line`, `impossible-8k-drone`, `music-bed-quiet`,
+  `vague-make-better`.
+- Latency: replay answers in milliseconds.
+
 ## run.md, tenth axis — 2026-09-06 (session 8) — **the brief against the delivered cut, clip by clip: a null result on the runtime, and the first proof the run understood the timecodes**
 
 **No run, no code.** The ninth axis read the final timeline for what was HIDDEN; this one

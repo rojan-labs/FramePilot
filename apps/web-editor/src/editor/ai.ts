@@ -570,7 +570,10 @@ export class BrowserAiSession implements AiSession {
       ? createTemporalEvidenceAcquirer({ baseUrl })
       : async () => {
           throw new Error(
-            'Temporal review is unavailable because VITE_FRAMEPILOT_PYTHON_API_URL is not configured.',
+            // Editor-facing: the env var is the developer's business, the missing engine is
+            // the editor's. `runFailure.ts` keeps the raw text behind "Show details".
+            'The render engine is not connected, so the edit could not be reviewed against a render. ' +
+              'Open the project in the FramePilot desktop app, where the engine runs alongside the editor.',
           );
         };
     return {

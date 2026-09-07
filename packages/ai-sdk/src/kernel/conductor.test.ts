@@ -476,7 +476,14 @@ describe('onEffectResult — approval fold (P11.3)', () => {
     ]);
     expect(drafted.state.planSteps.every((step) => step.status === 'pending')).toBe(true);
     // No checkpoint event — `finalize`'s checkpoint only fires when cumulativeOps.length > 0.
-    expect(types(events)).toEqual(['notification']);
+    // The pinned ledger settles: every step the run never reached is marked so, with the
+    // reason on its mark, instead of staying a hollow dot under a finished run.
+    expect(types(events)).toEqual(['notification', 'plan']);
+    const settled = events[1];
+    expect(
+      settled?.type === 'plan' &&
+        settled.steps.every((step) => step.status === 'failed' && step.detail === 'Stopped before this step'),
+    ).toBe(true);
   });
 });
 

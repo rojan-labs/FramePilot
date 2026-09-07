@@ -158,7 +158,19 @@ function defaultActionFor(working: RunWorkingState): string {
   // reads as an instruction and carries none: the model already has the request, twice,
   // and this told it to start over on it. The per-stage default below says what the
   // stage actually owes.
-  if (owed && owed.description.trim() !== working.objective.request.trim()) {
+  // Only while PLANNING. An objective is one drafted plan step, and it is only ever
+  // satisfied at verification, so during execution the first "owed" objective is whatever
+  // the plan listed first — done or not. Turns map onto steps by position, so a turn that
+  // did three steps at once left the first objective owed for the rest of the run:
+  // `s9-live-all-planfirst-2` memory-captions read "Continue apply: Add a caption
+  // layer/track to the timeline" on every turn after the track existed, and restyled the
+  // captions twenty-nine times looking for something that would count. In execution the
+  // run knows what it applied (the briefing lists it); tell it to finish or go on.
+  if (
+    !EXECUTING.has(working.stage) &&
+    owed &&
+    owed.description.trim() !== working.objective.request.trim()
+  ) {
     return `Continue ${working.stage}: ${owed.description}`;
   }
   switch (working.stage) {
@@ -171,7 +183,15 @@ function defaultActionFor(working: RunWorkingState): string {
     case 'apply':
     case 'enhance':
     case 'repair':
-      return `Continue ${working.stage}: apply the committed plan.`;
+      // An execution stage is only ever reached by a landed edit, and the "committed
+      // plan" here is the request itself — so "apply the committed plan" told a run whose
+      // edit had just landed to make it again (`s9-live-reorder`: the same rotation, five
+      // times). Say what the stage actually owes: the rest of the request, or the end.
+      return (
+        `Continue ${working.stage}: an edit has landed. Make the next edit the request ` +
+        'still needs; if the request is now met, finish — reply with a short summary and ' +
+        'no tool call.'
+      );
     case 'verify':
       return 'Continue verify: check the applied edit against the acceptance criteria.';
     /* v8 ignore next 3 -- `interpret` and `complete` never reach here (guarded above) */

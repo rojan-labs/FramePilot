@@ -20,6 +20,7 @@ import {
   parseAgentPlan,
   parsePlanLines,
   summarizeReadResult,
+  summarizeOperations,
 } from './orchestrator.js';
 import { MockProvider } from './providers/mock.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
@@ -2864,6 +2865,28 @@ describe('agent() diminishing-returns stop (E4 parity mirror)', () => {
  * route sends no tools at all — this scope is the enforced ceiling, locked by tests,
  * for the day it gains tool use.)
  */
+describe('summarizeOperations — the note a fan-out tool leaves in the action log', () => {
+  it('spells out a few operations and counts the rest by action', () => {
+    const ops = Array.from({ length: 40 }, (_, i) =>
+      i % 2 === 0
+        ? ({ type: 'delete_range', trackId: 'captions_1', start: i, end: i + 1 } as AnyOperation)
+        : ({
+            type: 'add_caption_layer',
+            trackId: 'captions_1',
+            text: `cue ${String(i)}`,
+            start: i,
+            end: i + 1,
+          } as unknown as AnyOperation),
+    );
+    const note = summarizeOperations(ops);
+    expect(note.split('; ').length).toBeLessThanOrEqual(9);
+    expect(note).toMatch(/…and 32 more \(/);
+    expect(note).toMatch(/×1[0-9]/);
+    // A short note is untouched.
+    expect(summarizeOperations(ops.slice(0, 3)).split('; ').length).toBe(3);
+  });
+});
+
 describe('route-scoped tool surface (E5)', () => {
   const orchestrator = new Orchestrator(new MockProvider());
 
@@ -2931,8 +2954,13 @@ describe('route-scoped tool surface (E5)', () => {
     expect(names).not.toContain('detect_beats');
     expect(names).not.toContain('get_transcript');
     expect(names).not.toContain('map_footage');
+    // `load_tools` rides along: the recovery turn keeps progressive disclosure (a domain
+    // the run never loaded is as absent here as anywhere), so the one way to reach a
+    // withheld mutation has to stay open. It gathers nothing about the footage.
+    expect(names).toContain('load_tools');
     for (const name of names) {
-      if (name === 'recall_evidence' || EDIT_LOOK_TOOL_NAMES.has(name)) continue;
+      if (name === 'recall_evidence' || name === 'load_tools' || EDIT_LOOK_TOOL_NAMES.has(name))
+        continue;
       const tool = getTool(name)!;
       // The contract and the sourcing role, not the registry kind — that is the whole
       // correction, in its two halves (ADR 0143, then ADR 0147).

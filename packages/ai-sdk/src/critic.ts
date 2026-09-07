@@ -2380,10 +2380,44 @@ function wholeCutChecks(project: Project, options: CritiqueOptions): CriticCheck
 export function standingAgainstAcceptance(
   project: Project,
   options: CritiqueOptions = {},
+  /**
+   * The project the run STARTED from. Given, a health finding that was already true of it
+   * — the same check, the identical detail — is left out: the run did not cause it, and
+   * telling a run about it in flight reads as an instruction to fix it. Every turn of
+   * `s9-live-reorder` carried "5 of 5 picture clips use a landscape source in a 1080x1920
+   * portrait frame with no crop … Crop each to fill the frame." — true of the fixture
+   * before the run — and five of six runs asked to reframe or reframed every clip on a
+   * request that said "move the last clip to the beginning". Same rule as
+   * {@link reconcileInheritedFailures}, applied where it can still change the run: a
+   * request-derived check ({@link REQUEST_CHECKS}) is never excused, and a health finding
+   * whose detail changed is the run's.
+   */
+  before?: Project,
 ): readonly string[] {
-  return wholeCutChecks(project, options)
-    .filter((c) => c.status === 'fail' || c.status === 'warn')
+  const standing = wholeCutChecks(project, options).filter(
+    (c) => c.status === 'fail' || c.status === 'warn',
+  );
+  if (before === undefined || standing.length === 0) return standing.map((c) => c.detail);
+  const inherited = new Map(
+    wholeCutChecks(before, options)
+      .filter((c) => c.status === 'fail' || c.status === 'warn')
+      .map((c) => [c.id, inheritedKey(c.detail)] as const),
+  );
+  return standing
+    .filter((c) => REQUEST_CHECKS.has(c.id) || inherited.get(c.id) !== inheritedKey(c.detail))
     .map((c) => c.detail);
+}
+
+/**
+ * A finding's detail with the ids it names blanked, so the SAME finding survives a
+ * reorder. `checkReframeCoverage` lists the offending clips in timeline order — "clip_005,
+ * clip_001, clip_002, plus 2 more" — and a reorder permutes that list without changing
+ * the finding; an exact comparison would have called every one of `s9-live-reorder`'s
+ * standing lines new. The counts stay, so a finding the run made WORSE ("12s with no
+ * picture" → "35s") is still its own.
+ */
+function inheritedKey(detail: string): string {
+  return detail.replace(/\b[A-Za-z]+_[A-Za-z0-9_]+\b/g, '#');
 }
 
 /**
@@ -2427,12 +2461,17 @@ export function reconcileInheritedFailures(
   after: CritiqueReport,
 ): CritiqueReport {
   const priorFailures = new Map(
-    before.checks.filter((c) => c.status === 'fail').map((c) => [c.id, c.detail] as const),
+    before.checks
+      .filter((c) => c.status === 'fail')
+      .map((c) => [c.id, inheritedKey(c.detail)] as const),
   );
   let inherited = 0;
   const checks = after.checks.map((check): CriticCheck => {
     if (check.status !== 'fail' || REQUEST_CHECKS.has(check.id)) return check;
-    if (priorFailures.get(check.id) !== check.detail) return check;
+    // Compared with the named ids blanked (`inheritedKey`): a reorder permutes the clip
+    // list a finding names without changing the finding, and an exact comparison called
+    // "5 of 5 clips … clip_005, clip_001 …" a new failure after a correct reorder.
+    if (priorFailures.get(check.id) !== inheritedKey(check.detail)) return check;
     inherited += 1;
     return { ...check, status: 'warn', detail: `${INHERITED_PREFIX}${check.detail}` };
   });

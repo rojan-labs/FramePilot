@@ -1,0 +1,129 @@
+{
+  "label": "s9-live-all-planfirst",
+  "generatedAt": "2026-09-07T04:16:39.932Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "montage-30s",
+    "podcast-highlight-60s",
+    "remove-dead-air",
+    "beat-sync",
+    "refine-tighten",
+    "memory-captions",
+    "trim-first-clip-10s",
+    "trim-opening-10s",
+    "reorder-last-first",
+    "reorder-swap-first-two",
+    "captions-plain",
+    "captions-uppercase-bottom",
+    "hook-strongest-line",
+    "broll-first-20s",
+    "broll-empty-overlay-track",
+    "music-bed-quiet",
+    "compound-silence-captions",
+    "vague-make-better",
+    "impossible-8k-drone",
+    "guard-wipe-timeline",
+    "clarify-which-clip"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 4,
+    "turns": 4,
+    "intentAccuracy": 0.25,
+    "targetAccuracy": null,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.25,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 1,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 839655,
+    "usdPerAcceptedEdit": 1.537062,
+    "modelCallsPerTurn": {
+      "p50": 6,
+      "p95": 16,
+      "n": 4
+    },
+    "toolCallsPerTurn": {
+      "p50": 4,
+      "p95": 17,
+      "n": 4
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 16404,
+        "p95": 43567,
+        "n": 4
+      },
+      "doneMs": {
+        "p50": 110230,
+        "p95": 197393,
+        "n": 4
+      }
+    },
+    "failureQuality": {
+      "failures": 2,
+      "loud": 2,
+      "explained": 2
+    },
+    "perCase": {
+      "montage-30s": {
+        "category": "montage",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 91093,
+        "usdPerRun": 0.15981,
+        "wallMsPerRun": 124593,
+        "silentSuccesses": 0
+      },
+      "podcast-highlight-60s": {
+        "category": "highlight",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 16,
+        "tokens": 554038,
+        "usdPerRun": 1.005993,
+        "wallMsPerRun": 197393,
+        "silentSuccesses": 0
+      },
+      "remove-dead-air": {
+        "category": "silence",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 99275,
+        "usdPerRun": 0.192201,
+        "wallMsPerRun": 42357,
+        "silentSuccesses": 0
+      },
+      "beat-sync": {
+        "category": "beat",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 95249,
+        "usdPerRun": 0.179058,
+        "wallMsPerRun": 110230,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

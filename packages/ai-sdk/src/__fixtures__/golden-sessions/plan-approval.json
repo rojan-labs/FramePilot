@@ -233,7 +233,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11826,
+      "usedTokens": 12154,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -245,7 +245,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -287,7 +287,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -301,7 +301,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -322,7 +322,7 @@
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7481,
+            "tokenEstimate": 7734,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -330,9 +330,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11826,
+          "estimatedInputTokensBeforeSend": 12154,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179982,
+          "estimatedRemainingCapacity": 179654,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -582,7 +582,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 7,
+        "version": 10,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -594,9 +594,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -607,7 +610,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -719,7 +722,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11965,
+      "usedTokens": 11710,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -731,7 +734,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -773,7 +776,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -787,7 +790,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -801,14 +804,14 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 394,
+            "tokenEstimate": 432,
             "included": true
           },
           {
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7481,
+            "tokenEstimate": 7113,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -816,10 +819,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11965,
+          "estimatedInputTokensBeforeSend": 11710,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179843,
-          "toolSchemaTokensRebilled": 0,
+          "estimatedRemainingCapacity": 180098,
+          "toolSchemaTokensRebilled": 7113,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -829,14 +832,14 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
           "facts": 1,
           "evidenceHandles": 0,
           "remainingObjectives": 2,
-          "nextAction": "Continue inspect: Trim the dead air"
+          "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
         }
       }
     },
@@ -888,7 +891,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 8,
+        "version": 11,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -900,9 +903,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -913,7 +919,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -986,7 +992,7 @@
         ],
         "verifications": [],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },
@@ -1029,7 +1035,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 20541,
+      "usedTokens": 9722,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1041,7 +1047,7 @@
             "id": "s1",
             "type": "system",
             "label": "system contract",
-            "tokenEstimate": 135,
+            "tokenEstimate": 150,
             "included": true
           },
           {
@@ -1083,7 +1089,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1649,
+            "tokenEstimate": 1674,
             "included": true
           },
           {
@@ -1097,7 +1103,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -1111,14 +1117,14 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 565,
+            "tokenEstimate": 572,
             "included": true
           },
           {
             "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 15886,
+            "tokenEstimate": 4985,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1126,10 +1132,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 20541,
+          "estimatedInputTokensBeforeSend": 9722,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 171267,
-          "toolSchemaTokensRebilled": 15886,
+          "estimatedRemainingCapacity": 182086,
+          "toolSchemaTokensRebilled": 4985,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1139,7 +1145,7 @@
         },
         "memory": {
           "runId": "turn_golden",
-          "stage": "inspect",
+          "stage": "apply",
           "projectRevision": 1,
           "objectiveKnown": true,
           "committedDecisions": 2,
@@ -1190,7 +1196,7 @@
           "projectId": "proj_1",
           "attemptId": "turn_golden"
         },
-        "version": 8,
+        "version": 11,
         "objective": {
           "request": "tighten the intro",
           "outcome": "Plan: Trim the dead air; Tighten the intro",
@@ -1202,9 +1208,12 @@
             }
           ]
         },
-        "stage": "inspect",
+        "stage": "apply",
         "completedStages": [
-          "interpret"
+          "interpret",
+          "inspect",
+          "analyze",
+          "plan"
         ],
         "stageEnteredAtTurn": 1,
         "facts": [
@@ -1215,7 +1224,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1288,7 +1297,7 @@
         ],
         "verifications": [],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },
@@ -1329,9 +1338,29 @@
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
-      "type": "error",
-      "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
-      "retryable": false
+      "type": "notification",
+      "text": "1 planned step never reached an edit — listed under \"Not done\" in the summary."
+    },
+    {
+      "id": "turn_golden:plan",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "plan",
+      "steps": [
+        {
+          "id": "step-1",
+          "label": "Trim the dead air",
+          "status": "completed",
+          "detail": "Deleting a range on Video 1"
+        },
+        {
+          "id": "step-2",
+          "label": "Tighten the intro",
+          "status": "failed",
+          "detail": "The run ended before this step"
+        }
+      ]
     },
     {
       "id": "turn_golden:notice:17",
@@ -1367,14 +1396,15 @@
             }
           ]
         },
-        "stage": "verify",
+        "stage": "complete",
         "completedStages": [
           "interpret",
           "inspect",
           "analyze",
           "plan",
           "apply",
-          "enhance"
+          "enhance",
+          "verify"
         ],
         "stageEnteredAtTurn": 3,
         "facts": [
@@ -1385,7 +1415,7 @@
             "evidenceIds": [],
             "scope": "timeline_dependent",
             "observedAtRevision": 1,
-            "stage": "inspect"
+            "stage": "apply"
           }
         ],
         "decisions": [
@@ -1423,7 +1453,7 @@
           ]
         },
         "execution": {
-          "authorized": false
+          "authorized": true
         },
         "evidence": [],
         "objectives": [
@@ -1431,13 +1461,13 @@
             "id": "objective_1",
             "description": "Trim the dead air",
             "stage": "verify",
-            "status": "pending"
+            "status": "satisfied"
           },
           {
             "id": "objective_2",
             "description": "Tighten the intro",
             "stage": "verify",
-            "status": "pending"
+            "status": "satisfied"
           }
         ],
         "operations": [
@@ -1460,39 +1490,27 @@
           {
             "id": "verify_1",
             "criterion": "Trim the dead air",
-            "passed": false,
+            "passed": true,
             "atRevision": 1,
-            "detail": "The committed plan still has incomplete deliverables."
+            "detail": "Passed with 1 warning(s)."
           },
           {
             "id": "verify_2",
             "criterion": "Tighten the intro",
-            "passed": false,
+            "passed": true,
             "atRevision": 1,
-            "detail": "The committed plan still has incomplete deliverables."
+            "detail": "Passed with 1 warning(s). (this planned step never had a turn of its own)"
           }
         ],
         "nextAction": {
-          "stage": "inspect",
+          "stage": "apply",
           "action": "Tighten the intro",
           "objectiveId": "objective_2"
         },
-        "blockedOn": {
-          "reason": "Verification found: The committed plan still has incomplete deliverables.",
-          "missing": "VERIFICATION_INCONCLUSIVE",
-          "atStage": "verify"
-        },
+        "blockedOn": null,
         "integrity": {
-          "status": "needs_review",
-          "diagnostics": [
-            {
-              "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found: The committed plan still has incomplete deliverables.",
-              "stage": "verify",
-              "blocking": true,
-              "atVersion": 15
-            }
-          ]
+          "status": "valid",
+          "diagnostics": []
         },
         "baseProjectRevision": 0,
         "currentProjectRevision": 1,
@@ -1521,7 +1539,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not done:**\n- Tighten the intro — pending"
+      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not done:**\n- Tighten the intro — pending"
     },
     {
       "id": "turn_golden:status:19",
@@ -1529,7 +1547,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "status",
-      "status": "failed"
+      "status": "completed"
     }
   ],
   "operations": [
@@ -1540,5 +1558,5 @@
       "end": 3
     }
   ],
-  "terminalStatus": "failed"
+  "terminalStatus": "completed"
 }

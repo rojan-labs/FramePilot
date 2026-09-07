@@ -74,6 +74,8 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "delete_clips": (True, True),
     "move_clip": (True, True),
     "reorder_clips": (True, True),
+    "tighten_clips": (True, True),
+    "remove_filler_words": (True, True),
     "set_clip_speed_ramp": (True, True),
     "add_track": (True, True),
     "remove_track": (True, True),
@@ -1064,6 +1066,71 @@ def test_adjust_audio(ctx: ToolContext, project: Project) -> None:
     result = run_tool("adjust_audio", {"clipId": "AU", "gainDb": -6.0}, ctx)
     assert result.operations == [{"type": "adjust_audio", "clipId": "AU", "gainDb": -6.0}]
     _assert_patch_ok(result, project)
+
+
+def test_remove_filler_words(project: Project) -> None:
+    spoken = project.model_copy(
+        update={
+            "transcript": [
+                TranscriptWord(word="So", start=0.0, end=0.4),
+                TranscriptWord(word="um,", start=0.5, end=0.9),
+                TranscriptWord(word="we", start=1.0, end=1.2),
+                TranscriptWord(word="uh", start=2.0, end=2.3),
+                TranscriptWord(word="built", start=2.32, end=2.8),
+            ]
+        }
+    )
+    ctx = ToolContext(project=spoken)
+    result = run_tool("remove_filler_words", {"trackId": "v"}, ctx)
+    assert result.operations is not None
+    # Clips A (0-4) and B (5-9) on track v both play source 0-4, so each filler is cut in
+    # each of them: four ripple deletes, last to first.
+    assert [op["type"] for op in result.operations] == ["ripple_delete"] * 4
+    starts = [op["start"] for op in result.operations]
+    assert starts == sorted(starts, reverse=True)
+    # The "uh" cut stops short of "built" (source 2.32), padded on its open side only.
+    assert any(abs(op["end"] - 2.3) < 0.05 for op in result.operations)
+    _assert_patch_ok(result, spoken)
+    with pytest.raises(Exception, match="no filler words"):
+        run_tool("remove_filler_words", {"words": ["never"]}, ctx)
+    with pytest.raises(Exception, match="no transcript"):
+        run_tool(
+            "remove_filler_words",
+            {},
+            ToolContext(project=project.model_copy(update={"transcript": []})),
+        )
+
+
+def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
+    track = next(t for t in project.timeline.tracks if len(t.clips) > 1)
+    first = sorted(track.clips, key=lambda c: c.start)[0]
+    result = run_tool(
+        "tighten_clips",
+        {"trackId": track.id, "shotSeconds": 0.5, "keepClipIds": [first.id]},
+        ctx,
+    )
+    assert result.operations is not None
+    trims = [op for op in result.operations if op["type"] == "trim_clip"]
+    assert trims and all(op["clipId"] != first.id for op in trims)
+    assert result.operations[-1]["type"] == "reorder_clips"
+    _assert_patch_ok(result, project)
+    with pytest.raises(Exception, match="nothing to tighten"):
+        run_tool("tighten_clips", {"trackId": track.id, "shotSeconds": 60}, ctx)
+
+
+def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:
+    # Mirror of the TS tool: a trackId fans out to every clip on the track, exactly one
+    # of clipId/trackId is accepted, and an unknown track names the real ones.
+    track = next(t for t in project.timeline.tracks if any(c.id == "AU" for c in t.clips))
+    result = run_tool("adjust_audio", {"trackId": track.id, "gainDb": -18.0}, ctx)
+    assert result.operations is not None
+    assert [op["clipId"] for op in result.operations] == [c.id for c in track.clips]
+    assert all(op["gainDb"] == -18.0 for op in result.operations)
+    _assert_patch_ok(result, project)
+    with pytest.raises(Exception, match="exactly one"):
+        run_tool("adjust_audio", {"gainDb": -6.0}, ctx)
+    with pytest.raises(Exception, match="Track not found"):
+        run_tool("adjust_audio", {"trackId": "nope", "gainDb": -6.0}, ctx)
 
 
 def test_add_transition() -> None:

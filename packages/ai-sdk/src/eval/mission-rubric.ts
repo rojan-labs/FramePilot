@@ -574,6 +574,7 @@ export function checkContentPreserved(ctx: RubricContext): RubricCheck {
   };
 }
 
+
 /** The last picture clip (by content) is now first, and the rest keep their order. */
 export function checkLastClipMovedFirst(ctx: RubricContext): RubricCheck {
   const before = pictureClips(ctx.before).map(contentKey);
@@ -929,10 +930,17 @@ function geometryKey(clip: Clip): string {
   ].join('|');
 }
 
-/** The effects a clip carries, order-independent. */
+/**
+ * What a clip LOOKS like: its effects, plus the crop and keyframes that are equally part of
+ * the picture. `crop` was in the pre-merge check's key and in neither of the two keys that
+ * replaced it, so a stray reframe could slip past both — which is the exact defect
+ * `no-collateral-changes` exists to catch.
+ */
 function effectsKey(clip: Clip): string {
-  return JSON.stringify(
-    [...clip.effects]
+  return JSON.stringify({
+    crop: clip.crop ?? null,
+    keyframes: clip.keyframes ?? [],
+    effects: [...clip.effects]
       .map((effect) => ({
         id: effect.id,
         type: effect.type,
@@ -940,7 +948,7 @@ function effectsKey(clip: Clip): string {
         keyframes: effect.keyframes,
       }))
       .sort((a, b) => a.id.localeCompare(b.id)),
-  );
+  });
 }
 
 function allClips(project: Project): readonly Clip[] {
@@ -968,8 +976,13 @@ const ANY = 'any' as const;
  */
 export function checkNoCollateralChanges(
   ctx: RubricContext,
-  allowGeometryOn: readonly string[] | typeof ANY,
-  allowEffectsOn: readonly string[] | typeof ANY,
+  // Geometry defaults to ANY and effects to NOTHING, which is exactly what a bare
+  // `checkNoCollateralChanges(ctx)` meant before this grew allowances: it watched the LOOK
+  // and let position move, because on a reorder the movement IS the request. A caller that
+  // needs positions frozen too — a colour pass, a transition pass — names the clips it may
+  // touch and gets the strict reading.
+  allowGeometryOn: readonly string[] | typeof ANY = ANY,
+  allowEffectsOn: readonly string[] | typeof ANY = [],
 ): RubricCheck {
   const geometryOk = (id: string): boolean =>
     allowGeometryOn === ANY || allowGeometryOn.includes(id);
@@ -1530,6 +1543,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkChanged(ctx),
         checkLastClipMovedFirst(ctx),
         checkContentPreserved(ctx),
+        checkNoCollateralChanges(ctx),
         checkNoGaps(p),
         ...COMMON(ctx),
       ]);
@@ -1609,6 +1623,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkChanged(ctx),
         checkFirstTwoSwapped(ctx),
         checkContentPreserved(ctx),
+        checkNoCollateralChanges(ctx),
         checkNoGaps(p),
         ...COMMON(ctx),
       ]);

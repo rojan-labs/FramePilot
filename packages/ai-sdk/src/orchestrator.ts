@@ -1309,12 +1309,37 @@ export function captionStyleNote(project: Project, trackId: unknown): string {
   );
 }
 
-function summarizeOperations(
+/**
+ * How many operation lines a tool-result note spells out before the rest are counted.
+ *
+ * Unbounded, `caption_the_edit` on a nine-minute talk wrote a 1,399-operation note — every
+ * deleted cue and every added one, 44,570 characters — and the action log carried it into
+ * the next turns: `s9-live-all`'s `captions-plain` billed 23.6k then 41.4k uncached input
+ * tokens per call on the two calls after a re-caption, against 6.7k before it. The model
+ * needs what landed and how much; it cannot use seven hundred timestamps.
+ */
+const NOTE_OPERATION_LINES = 8;
+
+export function summarizeOperations(
   ops: readonly AnyOperation[],
   names?: ProjectNames,
   call?: { readonly name: string; readonly arguments: unknown },
 ): string {
-  const outcome = ops.map((op) => operationLine(op, names)).join('; ');
+  const lines = ops.map((op) => operationLine(op, names));
+  let outcome: string;
+  if (lines.length <= NOTE_OPERATION_LINES) {
+    outcome = lines.join('; ');
+  } else {
+    // The rest by ACTION, so a re-caption reads "Added captions ×694, Deleted range ×700"
+    // rather than as a wall of cue times.
+    const rest = new Map<string, number>();
+    for (const op of ops.slice(NOTE_OPERATION_LINES)) {
+      const action = describeOperation(op, names).action;
+      rest.set(action, (rest.get(action) ?? 0) + 1);
+    }
+    const tally = [...rest.entries()].map(([action, n]) => `${action} ×${String(n)}`).join(', ');
+    outcome = `${lines.slice(0, NOTE_OPERATION_LINES).join('; ')}; …and ${String(ops.length - NOTE_OPERATION_LINES)} more (${tally})`;
+  }
   if (!call || outcome === '') return outcome;
   if (ops.some((op) => op.type === call.name)) return outcome;
   return `${describeToolCall(call, names)} → ${outcome}`;
@@ -3861,10 +3886,23 @@ export class Orchestrator {
         // A look at the run's OWN edit is not reconnaissance either
         // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
         // `render_preview` on a recovery turn, and was told the turn was for acting.
+        //
+        // Progressive disclosure still holds here. This branch returned before the
+        // `loadedDomains` filter below, so a recovery turn advertised EVERY mutation in the
+        // registry — 62 tools against the 39 the run had been working with — which both
+        // re-billed the whole prompt prefix (the tool block sits above it in the cache) and
+        // handed a run that had loaded nothing the caption, colour, motion and tracking
+        // mutations it had never asked for. A domain the run has not loaded is as absent on
+        // a recovery turn as on any other, and `load_tools` rides along so a run that needs
+        // one can still ask for it — it costs no engine work and gathers nothing.
+        if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) {
+          return false;
+        }
         const effect = toolContract(tool).effectClass;
         return (
           effect === 'mutation' ||
           tool.kind === 'ask' ||
+          tool.name === 'load_tools' ||
           tool.name === 'recall_evidence' ||
           EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
           toolRole(tool.name, tool.mutates) === 'sourcing'
@@ -4173,12 +4211,17 @@ export class Orchestrator {
     // the briefing, which is bounded by construction rather than by truncation.
     // WHERE YOU STAND (GAP-014): the whole-cut conditions measured against the working
     // copy as it is now. Pure and render-free — the same checks the final self-check runs,
-    // consulted while the run can still act on them. Skipped when the request stated no
-    // checkable condition, in which case the list is empty anyway.
+    // consulted while the run can still act on them. A health finding the starting project
+    // already had is left out (`input.project` is the "before"): it is not the run's to fix,
+    // and stated in flight it read as an order — see `standingAgainstAcceptance`.
     const briefing = taskMemory
       ? buildStateBriefing(
           taskMemory,
-          standingAgainstAcceptance(working, this.critiqueOptions(input, agentOptions, true)),
+          standingAgainstAcceptance(
+            working,
+            this.critiqueOptions(input, agentOptions, true),
+            input.project,
+          ),
         )
       : '';
     const turnMessage: AiMessage = {
@@ -5530,10 +5573,12 @@ export class Orchestrator {
     ];
     const response = await this.completeModel(
       // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set
-      // that run's turns did. Advertising the full registry here would both hand the
-      // repair a surface no earlier turn had and break the prompt-prefix stability the
-      // tool block's cache key depends on (E3.3).
-      { messages, tools: this.agentTools('agent', undefined, args.loadedToolDomains) },
+      // that run's execution turns did — the `repair` stage's, which withholds fresh
+      // analysis of the footage exactly as `apply` does. Advertising the full registry
+      // here would both hand the repair a surface no earlier turn had (a run that edited
+      // on its first turn is at `apply` from then on) and break the prompt-prefix
+      // stability the tool block's cache key depends on (E3.3).
+      { messages, tools: this.agentTools('agent', 'repair', args.loadedToolDomains) },
       args.signal,
       args.effectRuntime,
       'large',
@@ -8422,11 +8467,20 @@ export class Orchestrator {
      *
      * Cheap by construction: pure, render-free, and computed once, on the single turn where
      * the model says it is done.
+     *
+     * Judged as a DELTA, exactly as the verify pass judges it (`reconcileInheritedFailures`):
+     * a health finding the starting project already had is not a shortfall of this run.
+     * Unreconciled, every `s9-live-reorder` run that finished correctly after one
+     * `reorder_clips` was told "The request is not met yet — continuing. 5 of 5 picture
+     * clips use a landscape source … Crop each to fill the frame." and cropped all five on
+     * a request that named none of them. A request-derived check is never excused.
      */
-    const acceptanceShortfall = (producedChanges: boolean): string[] =>
-      critique(working, self.critiqueOptions(input, agentOptions, producedChanges, evidence))
+    const acceptanceShortfall = (producedChanges: boolean): string[] => {
+      const options = self.critiqueOptions(input, agentOptions, producedChanges, evidence);
+      return reconcileInheritedFailures(critique(input.project, options), critique(working, options))
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
+    };
 
     const stepHandlers: ConductorHandlers = {
       // R3 C4: draft the up-front plan (a read-only model call). The reducer seeds the
@@ -9920,7 +9974,9 @@ export function agentCompletionReport(args: {
     ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
     : args.failed
       ? `${applied}, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.`
-      : `${applied} — review the proposed change below.`;
+      : // Present tense, no "proposed": the edits are on the timeline by the time this
+        // renders (edits apply as they land; the receipt card already says "Edited").
+        `${applied} — on your timeline now; each one can be undone.`;
   const skipped =
     args.rejectedOpCount > 0
       ? `\n\n**Skipped:** ${args.rejectedOpCount} proposed change${args.rejectedOpCount === 1 ? '' : 's'} did not validate (${args.rejectionReasons.join('; ')}).`
