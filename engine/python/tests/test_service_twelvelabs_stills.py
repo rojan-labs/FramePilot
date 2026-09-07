@@ -26,6 +26,16 @@ from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
 from framepilot_engine.analysis.visual_sampler import VisualSpan
+from framepilot_engine.brain.described import parse_described
+from framepilot_engine.brain.ledger_models import (
+    TIER0_VERSION,
+    ChromaStats,
+    LumaStats,
+    MeasuredFacts,
+    MotionClass,
+    MotionStats,
+    ShotRecord,
+)
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.brain.twelvelabs import (
     TaskStatus,
@@ -55,9 +65,26 @@ class _FakeEmbedder:
         return EmbedResult(model=MODEL_ID, dim=3, vectors=[[0.1, 0.2, 0.3]] * len(images))
 
 
-class _FakeCaptioner:
-    def caption_scene(self, frames_jpeg: list[bytes]) -> str:
-        return "Hikers on a ridge at golden hour."
+class _FakeDescriber:
+    """A hosted tier-2 describer, answering the structured schema (VU6.3)."""
+
+    model = "vision-x"
+
+    def describe_scene(self, frames_jpeg: list[bytes]) -> Any:
+        return parse_described(
+            {
+                "summary": "Hikers on a ridge at golden hour.",
+                "subject": "two hikers",
+                "action": "walking along a ridge",
+                "setting": "mountain ridge at sunset",
+                "camera": {"shotSize": "WS", "angle": "eye-level", "movement": "static"},
+                "mood": "warm",
+                "onScreenText": [],
+                "quality": ["backlit"],
+                "confidence": "medium",
+            },
+            model=self.model,
+        )
 
 
 class _RecordingTL:
@@ -106,6 +133,38 @@ def _video_probe(name: str) -> dict[str, Any]:
     ).model_dump(mode="json")
 
 
+def _seed_measured_shot(root: Path, asset_id: str, t0: float, t1: float) -> None:
+    """Give an asset a tier-0 shot without decoding anything."""
+    with open_brain(root, "p1") as store:
+        store.upsert_shots(
+            asset_id,
+            f"sha-{asset_id}",
+            "measured",
+            [
+                ShotRecord(
+                    asset_id=asset_id,
+                    content_hash=f"sha-{asset_id}",
+                    shot_index=0,
+                    t0=t0,
+                    t1=t1,
+                    keyframe_t=t0,
+                    measured=MeasuredFacts(
+                        tier0_version=TIER0_VERSION,
+                        luma=LumaStats(mean=0.5, std=0.1, p10=0.2, p90=0.8),
+                        chroma=ChromaStats(u_mean=128.0, v_mean=128.0, sat_mean=0.2),
+                        warmth=0.0,
+                        contrast_idx=0.6,
+                        motion=MotionStats(si=10.0, ti=0.0, motion_class=MotionClass.STATIC),
+                        cut_score=0.0,
+                        black=False,
+                        freeze=False,
+                        sharpness=0.8,
+                    ),
+                )
+            ],
+        )
+
+
 def _seed(root: Path, assets: list[tuple[str, str, dict[str, Any]]]) -> None:
     for _asset_id, name, _probe in assets:
         (root / name).write_bytes(b"\x00\x00fake\x00\x00")
@@ -120,7 +179,7 @@ def _client(
     tl: _RecordingTL,
     *,
     embedder: _FakeEmbedder | None,
-    captioner: object | None = None,
+    describer: object | None = None,
 ) -> TestClient:
     monkeypatch.setattr(
         service_module,
@@ -136,13 +195,13 @@ def _client(
             else VisualEmbedderResolution(client=None, reason="no_api_key")
         ),
     )
-    if captioner is not None:
-        from framepilot_engine.brain.captioner import CaptionerResolution
+    if describer is not None:
+        from framepilot_engine.brain.captioner import DescriberResolution
 
         monkeypatch.setattr(
             service_module,
-            "resolve_captioner",
-            lambda cfg, **kw: CaptionerResolution(captioner=captioner),  # type: ignore[arg-type]
+            "resolve_describer",
+            lambda cfg, **kw: DescriberResolution(describer=describer),  # type: ignore[arg-type]
         )
     monkeypatch.setattr(service_module, "detect_scenes", lambda path, **kw: [])
     monkeypatch.setattr(
@@ -318,17 +377,25 @@ def test_a_run_of_refusals_stops_the_slice_and_fails_the_job(
     assert "resource_not_exists" in status["lastJob"]["error"]
 
 
-def test_a_still_is_captioned_so_its_chapter_has_a_real_title(
+def test_a_still_is_described_so_its_chapter_has_a_real_title(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A map of sixty identical "Scene 1" rows is not a map the model can use."""
+    """A map of sixty identical "Scene 1" rows is not a map the model can use.
+
+    A still is the one asset TwelveLabs cannot describe at all, so tier 2 runs locally for
+    it — writing the same `shots.described` row and the same `visual_captions.summary` the
+    built-in route writes.
+    """
     _seed(tmp_path, [("img1", "photo1.jpg", _image_probe("photo1.jpg"))])
+    # Tier 2 describes SHOTS, so the tier-0 floor has to exist. The fixture's bytes are
+    # not decodable media, so it is seeded rather than measured.
+    _seed_measured_shot(tmp_path, "img1", 0.0, 0.04)
     client = _client(
         tmp_path,
         monkeypatch,
         _RecordingTL(),
         embedder=_FakeEmbedder(),
-        captioner=_FakeCaptioner(),
+        describer=_FakeDescriber(),
     )
     last = _run_to_completion(client)
     assert last["done"] is True

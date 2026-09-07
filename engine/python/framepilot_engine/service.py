@@ -85,7 +85,6 @@ from framepilot_engine.analysis.tiers import (
 )
 from framepilot_engine.analysis.visual_sampler import (
     SAMPLER_VERSION,
-    VisualSpan,
 )
 from framepilot_engine.audio.asr import (
     DEFAULT_ASR_MODEL,
@@ -103,14 +102,15 @@ from framepilot_engine.audio.asr import (
 )
 from framepilot_engine.audio.asr import get_status as get_status
 from framepilot_engine.brain.captioner import (
-    CaptionerResolution,
-    CaptionError,
     CaptionProviderConfig,
     CaptionProviderKind,
-    SceneCaptioner,
+    DescribeError,
+    DescriberResolution,
+    SceneDescriber,
     is_informative_caption,
-    resolve_captioner,
+    resolve_describer,
 )
+from framepilot_engine.brain.described import keyframe_times
 from framepilot_engine.brain.duplicates import duplicate_groups, duplicate_of
 from framepilot_engine.brain.embeddings import EmbedderResolution, resolve_embedder
 from framepilot_engine.brain.entities import (
@@ -125,6 +125,7 @@ from framepilot_engine.brain.ledger_models import (
     TIER0_VERSION,
     TIER1_VERSION,
     TIER2_VERSION,
+    DescribedFacts,
     EntityRef,
     LabelledFacts,
     LedgerSnapshot,
@@ -133,6 +134,13 @@ from framepilot_engine.brain.ledger_models import (
 from framepilot_engine.brain.ledger_models import AssetDigest as LedgerAssetDigest
 from framepilot_engine.brain.ledger_models import TierCoverage as LedgerCoverage
 from framepilot_engine.brain.ledger_store import digest_from_shots, shots_from_stats
+from framepilot_engine.brain.local_visual_describe import (
+    CAPABILITY_DESCRIBE,
+    LocalVisualDescribeClient,
+)
+from framepilot_engine.brain.local_visual_describe import (
+    MAX_SHOTS_PER_REQUEST as DESCRIBE_BATCH,
+)
 from framepilot_engine.brain.local_visual_embed import (
     CAPABILITY_EMBED,
     CAPABILITY_TEXT,
@@ -868,10 +876,11 @@ TL_CONSECUTIVE_FAILURE_LIMIT = 3
 #: Why a tier did not run when the CALLER left it out of ``tiers``. Distinct from every
 #: capability reason: "you did not ask for this" is not a missing key.
 NOT_REQUESTED_REASON = "tier not requested"
-#: Why captioning cannot run without an embedding key. Tier 2 is produced inside
-#: ``_index_one_asset``, which embeds before it captions, so a vision provider on its own
-#: describes nothing — reported rather than silently counted as covered.
-NO_EMBEDDER_FOR_CAPTIONS_REASON = "captioning needs an embedding key on the built-in path"
+#: Why tier 2 could not run when neither of its two producers resolved. It replaces the
+#: old "captioning needs an embedding key" reason, which described a coupling that no
+#: longer exists: descriptions are a tier of the shot ledger with their own producers
+#: (VU6), so a vision provider on its own — or a local pack on its own — is enough.
+NO_VISION_PRODUCER_REASON = "no local visual-describe pack and no vision provider"
 
 
 #: The ledger's three provenance groups, as a request may name them (ADR 0175,
@@ -953,10 +962,19 @@ class VisualIndexRequest(BaseModel):
         "instead of the built-in NVIDIA-embed pipeline. Falls back to TWELVELABS_API_KEY. "
         "Never logged.",
     )
+    visual_describe_pack: str | None = Field(
+        default=None,
+        alias="visualDescribePack",
+        description="JSON handle for an installed, host-verified framepilot.visual-describe "
+        "Capability Pack. When present and healthy the LOCAL tier-2 arm is used in "
+        "preference to the hosted vision provider: no key, no frames leaving the machine. "
+        "Falls back to FRAMEPILOT_PACK_VISUAL_DESCRIBE. Never logged beyond its pack id.",
+    )
     caption_provider: VisualCaptionProviderPayload | None = Field(
         default=None,
         alias="captionProvider",
-        description="Vision provider for per-scene captions; omit to skip captioning.",
+        description="Hosted vision provider for structured per-shot descriptions (tier 2). "
+        "Omit when a local visual-describe pack is installed, or to skip the tier.",
     )
     job_id: str | None = Field(
         default=None,
@@ -1041,7 +1059,7 @@ class VisualIndexResponse(BaseModel):
     tiers: dict[str, str] = Field(
         default_factory=dict,
         description="Per-tier disposition for this SLICE: 'ok', or 'skipped: <why>'. A "
-        "missing embedder or captioner shows up here instead of ending the job.",
+        "missing embedder or tier-2 producer shows up here instead of ending the job.",
     )
     coverage: LedgerCoverage | None = Field(
         default=None,
@@ -2521,53 +2539,21 @@ def create_app(
         )
         return [c.time for c in cuts]
 
-    def _caption_scenes(
-        captioner: SceneCaptioner,
-        spans: list[VisualSpan],
-        keyframes: dict[float, bytes],
-        asset_id: str,
-        caption_model: str,
-    ) -> list[VisualCaptionRow]:
-        """One caption per scene from its keyframe strip (best-effort, plan §3.3).
-
-        A per-scene caption failure is logged and the scene is left uncaptioned —
-        a caption is evidence, never truth, so it must never fail the index job.
-        """
-        by_scene: dict[int, list[VisualSpan]] = {}
-        for span in spans:
-            by_scene.setdefault(span.scene_index, []).append(span)
-        rows: list[VisualCaptionRow] = []
-        for scene_index, scene_spans in sorted(by_scene.items()):
-            ordered = sorted(scene_spans, key=lambda s: s.t0)
-            strip = [keyframes[s.t0] for s in ordered]
-            try:
-                text = captioner.caption_scene(strip)
-            except CaptionError as exc:
-                _log.warning("Caption skipped for %s scene %d: %s", asset_id, scene_index, exc)
-                continue
-            rows.append(
-                VisualCaptionRow(
-                    asset_id=asset_id,
-                    scene_index=scene_index,
-                    t0=ordered[0].t0,
-                    t1=ordered[-1].t1,
-                    text=text,
-                    model=caption_model,
-                )
-            )
-        return rows
-
     def _index_one_asset(
         store: BrainStore,
         vstore: VisualVectorStore,
         embedder: VisualEmbedClient,
-        captioner: SceneCaptioner | None,
-        caption_model: str,
         asset_id: str,
         resolved_root: Path,
         timeout: float,
     ) -> VisualIndexItem:
-        """Sample → embed → (caption) → store one asset's NEW spans (plan MI4.1).
+        """Sample → embed → store one asset's NEW spans (plan MI4.1).
+
+        Embedding ONLY. Tier 2 used to ride on this pass — the same keyframes were sent to
+        a vision provider for a prose caption — which is why a machine with a local tier-1
+        pack described nothing at all: it never reached this function. Descriptions are now
+        a tier of the shot LEDGER (``_describe_tier2``), keyed by shot rather than by
+        sampler span, and produced by either the local pack or the hosted describer.
 
         Idempotent: spans already embedded for the asset's current bytes are
         skipped (resume), and a changed ``content_hash`` wipes the stale index
@@ -2630,80 +2616,51 @@ def create_app(
         except (FrameExtractionError, FFmpegError) as exc:
             return VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc))
         todo = [s for s in spans if s.t0 not in existing_keys]
-        captioned_scenes = {
-            caption.scene_index
-            for caption in store.list_visual_captions(asset_id)
-            if is_informative_caption(caption.text)
-        }
-        # Captioning is independently resumable from embedding. An earlier agent
-        # `index_media` run could have indexed vectors without caption credentials;
-        # a later run with a provider must backfill those scenes instead of returning
-        # early merely because every vector already exists. Uninformative legacy
-        # status strings (for example "User Safety: safe") are treated as missing.
-        caption_todo = (
-            [s for s in spans if s.scene_index not in captioned_scenes]
-            if captioner is not None
-            else []
-        )
-        if not todo and not caption_todo:
+        if not todo:
             return VisualIndexItem(asset_id=asset_id, ok=True, indexed=0)
 
         try:
-            required_keyframes = {s.t0: s for s in [*todo, *caption_todo]}
             keyframes = {
                 s.t0: extract_keyframe_jpeg(media_path, s.keyframe_t, timeout=timeout)
-                for s in required_keyframes.values()
+                for s in todo
             }
         except (FrameExtractionError, FFmpegError) as exc:
             return VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc))
-        if todo:
-            result = embedder.embed_passages([keyframes[s.t0] for s in todo])
-            if result.dim is None:  # pragma: no cover - non-empty input always sets dim
-                return VisualIndexItem(
-                    asset_id=asset_id, ok=False, reason="embedder returned no dim"
+        result = embedder.embed_passages([keyframes[s.t0] for s in todo])
+        if result.dim is None:  # pragma: no cover - non-empty input always sets dim
+            return VisualIndexItem(asset_id=asset_id, ok=False, reason="embedder returned no dim")
+        dim = result.dim
+        store.upsert_visual_spans(
+            [
+                VisualSpanRow(
+                    asset_id=asset_id,
+                    model=MODEL_ID,
+                    sampler_version=SAMPLER_VERSION,
+                    t0=s.t0,
+                    t1=s.t1,
+                    scene_index=s.scene_index,
+                    keyframe_t=s.keyframe_t,
+                    phash=s.phash,
+                    content_hash=content_hash,
+                    frame_count=s.frame_count,
                 )
-            dim = result.dim
-            store.upsert_visual_spans(
-                [
-                    VisualSpanRow(
-                        asset_id=asset_id,
-                        model=MODEL_ID,
-                        sampler_version=SAMPLER_VERSION,
-                        t0=s.t0,
-                        t1=s.t1,
-                        scene_index=s.scene_index,
-                        keyframe_t=s.keyframe_t,
-                        phash=s.phash,
-                        content_hash=content_hash,
-                        frame_count=s.frame_count,
-                    )
-                    for s in todo
-                ]
-            )
-            vstore.upsert(
-                [
-                    VisualVectorRow(
-                        asset_id=asset_id,
-                        model=MODEL_ID,
-                        sampler_version=SAMPLER_VERSION,
-                        t0=s.t0,
-                        dim=dim,
-                        vector=vector,
-                    )
-                    for s, vector in zip(todo, result.vectors, strict=True)
-                ]
-            )
-
-        captioned = 0
-        if captioner is not None and caption_todo:
-            caption_rows = _caption_scenes(
-                captioner, caption_todo, keyframes, asset_id, caption_model
-            )
-            if caption_rows:
-                store.upsert_visual_captions(caption_rows)
-                store.reindex_captions(store.list_visual_captions(asset_id), asset_id=asset_id)
-                captioned = len(caption_rows)
-        return VisualIndexItem(asset_id=asset_id, ok=True, indexed=len(todo), captioned=captioned)
+                for s in todo
+            ]
+        )
+        vstore.upsert(
+            [
+                VisualVectorRow(
+                    asset_id=asset_id,
+                    model=MODEL_ID,
+                    sampler_version=SAMPLER_VERSION,
+                    t0=s.t0,
+                    dim=dim,
+                    vector=vector,
+                )
+                for s, vector in zip(todo, result.vectors, strict=True)
+            ]
+        )
+        return VisualIndexItem(asset_id=asset_id, ok=True, indexed=len(todo))
 
     @dataclass(frozen=True)
     class _TierOutcome:
@@ -2718,6 +2675,13 @@ def create_app(
         state: Literal["ok", "skipped", "failed"]
         reason: str | None = None
         shots: int = 0
+        #: False when the tier ran out of its per-asset time budget with work still to do.
+        #: Only tier 2 can set it: a VLM call is seconds, and an asset with sixty shots
+        #: would otherwise hold one HTTP slice open for minutes. The caller keeps the job
+        #: cursor on this asset so the next slice resumes it — exactly the mechanism the
+        #: hosted "still indexing" case already uses — rather than advancing past shots
+        #: nobody has described.
+        complete: bool = True
 
         @property
         def ok(self) -> bool:
@@ -3053,6 +3017,231 @@ def create_app(
         ]
         store.upsert_entities(rows, model=LOCAL_MODEL_ID)
         return {index: sorted(items, key=lambda ref: ref.id) for index, items in refs.items()}
+
+    #: Wall clock one asset's tier-2 pass may spend inside a single index slice. A VLM
+    #: call is seconds per shot, so a long asset is deliberately described across several
+    #: slices: the host's paced loop stays responsive, the governor keeps getting asked
+    #: whether foreground work has started, and `existing_shot_tier_keys` makes the resume
+    #: free. Nothing is lost when the budget expires — the shots already written are
+    #: written.
+    TIER2_ASSET_BUDGET_SECONDS = 90.0
+
+    Tier2Producer = LocalVisualDescribeClient | SceneDescriber
+
+    def _describe_tier2(
+        store: BrainStore,
+        producer: Tier2Producer,
+        asset_id: str,
+        resolved_root: Path,
+        timeout: float,
+    ) -> _TierOutcome:
+        """Run tier 2 for one asset — local pack or hosted provider, one schema (VU6).
+
+        Symmetric with :func:`_label_tier1_local`, and for the same reason: a description
+        is a fact about a SHOT, so it is produced against the shot list tier 0 already
+        measured rather than against the sampler's spans. That is the change VU6 makes.
+        Before it, descriptions rode on the hosted embed pass, which meant a machine with a
+        local tier-1 pack — the machine this whole plan exists to serve — described nothing
+        at all, and the prose it produced elsewhere had nowhere in the ledger to live.
+
+        Three things are written, in one transaction each:
+
+        - ``shots.described`` — the structured document, under :data:`TIER2_VERSION`;
+        - ``visual_captions`` + its FTS index — the ``summary`` only, keyed by the SHOT
+          (``scene_index`` is the shot index, ``t0`` the shot's own start), which is the
+          same geometry the local tier-1 arm writes its spans under;
+        - the asset digest, rebuilt from the whole ledger.
+
+        Idempotent on the rule tiers 0 and 1 use: shots already carrying the current
+        :data:`TIER2_VERSION` for the current bytes are a resume, not repeated work — and
+        repeated work here costs either money or minutes.
+
+        Best-effort per shot on the HOSTED arm only: a provider failure leaves that shot
+        undescribed and the pass continues, because a description is evidence, not truth.
+        The LOCAL arm has no such tolerance — a pack that cannot answer is not speaking its
+        contract, and a short answer would be written as coverage.
+
+        :returns: The tier's disposition; ``shots`` counts rows written THIS call, and
+            ``complete`` is False when the time budget expired with shots still pending.
+        """
+        asset = store.get_asset(asset_id)
+        if asset is None:
+            return _TierOutcome("failed", "asset not known to brain")
+        try:
+            media_path = resolve_within(resolved_root, asset.path)
+        except PathTraversalError as exc:
+            return _TierOutcome("failed", str(exc))
+        try:
+            info = (
+                MediaInfo.model_validate(asset.probe)
+                if asset.probe is not None
+                else inspect_media(media_path, timeout=timeout)
+            )
+        except (PydanticValidationError, FFmpegError, OSError) as exc:
+            return _TierOutcome("failed", str(exc))
+        if not info.has_video:
+            return _TierOutcome("skipped", "asset has no video frames")
+        try:
+            content_hash = asset.content_sha256 or _sha256_file(media_path)
+        except OSError as exc:
+            return _TierOutcome("failed", str(exc))
+        shots = [
+            shot for shot in _asset_shots(store, asset_id) if shot.content_hash == content_hash
+        ]
+        if not shots:
+            # Tier 0 is the floor under tier 2 as well: with no measured shots there is no
+            # shot list to describe. Said plainly rather than silently producing nothing.
+            return _TierOutcome("skipped", "no measured shots for the current bytes")
+        try:
+            done = store.existing_shot_tier_keys(asset_id, content_hash, "described", TIER2_VERSION)
+        except BrainError as exc:
+            return _TierOutcome("failed", str(exc))
+        pending = [shot for shot in shots if shot.shot_index not in done]
+        if not pending:
+            return _TierOutcome("ok")
+        duration = info.duration_seconds or (1.0 if info.is_image else 0.0)
+        if duration <= 0.0:
+            return _TierOutcome("skipped", "asset has no duration")
+        started = time.monotonic()
+        if isinstance(producer, LocalVisualDescribeClient):
+            outcome = _describe_local(
+                producer, media_path, asset_id, pending, duration, info.fps or 1.0, started
+            )
+        else:
+            outcome = _describe_hosted(producer, media_path, asset_id, pending, timeout, started)
+        described, complete, failure = outcome
+        if failure is not None:
+            return _TierOutcome("failed", failure)
+        if not described:
+            # Nothing written and nothing to write: the hosted provider refused every shot
+            # it was asked about. Reported as a failure of THIS tier for THIS asset, never
+            # as coverage, and never as a failure of the slice.
+            return _TierOutcome("failed", "the vision provider described no shot of this asset")
+        by_index = {shot.shot_index: shot for shot in pending}
+        rows = [
+            by_index[index].model_copy(update={"described": facts})
+            for index, facts in sorted(described.items())
+        ]
+        try:
+            store.upsert_shots(asset_id, content_hash, "described", rows)
+            store.upsert_visual_captions(
+                [
+                    VisualCaptionRow(
+                        asset_id=asset_id,
+                        # The SHOT is the caption's key now. `visual_captions.text` keeps
+                        # the summary for FTS (plan VU6.3); the structured document lives
+                        # in `shots.described` and is the thing a filter or a solver reads.
+                        scene_index=by_index[index].shot_index,
+                        t0=by_index[index].t0,
+                        t1=by_index[index].t1,
+                        text=facts.summary,
+                        model=facts.model,
+                    )
+                    for index, facts in sorted(described.items())
+                ]
+            )
+            store.reindex_captions(store.list_visual_captions(asset_id), asset_id=asset_id)
+            store.upsert_asset_digest(
+                digest_from_shots(
+                    asset_id,
+                    content_hash,
+                    _asset_shots(store, asset_id),
+                    duration_s=duration,
+                    has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
+                )
+            )
+        except BrainError as exc:
+            return _TierOutcome("failed", str(exc))
+        return _TierOutcome("ok", shots=len(rows), complete=complete)
+
+    def _describe_local(
+        client: LocalVisualDescribeClient,
+        media_path: Path,
+        asset_id: str,
+        pending: Sequence[ShotRecord],
+        duration: float,
+        fps: float,
+        started: float,
+    ) -> tuple[dict[int, DescribedFacts], bool, str | None]:
+        """Describe shots through the installed pack, in worker-sized batches.
+
+        The budget is honoured BETWEEN batches: one worker process describes up to
+        ``MAX_SHOTS_PER_REQUEST`` shots and cannot be interrupted from here without
+        discarding its whole answer.
+        """
+        described: dict[int, DescribedFacts] = {}
+        spans = [
+            (shot.shot_index, shot.t0, min(shot.t1, duration))
+            for shot in pending
+            if shot.t1 > shot.t0
+        ]
+        for start in range(0, len(spans), DESCRIBE_BATCH):
+            if start and time.monotonic() - started > TIER2_ASSET_BUDGET_SECONDS:
+                return described, False, None
+            batch = spans[start : start + DESCRIBE_BATCH]
+            try:
+                answers = client.describe_shots(
+                    asset_id=asset_id,
+                    media_path=str(media_path),
+                    shots=batch,
+                    duration_seconds=duration,
+                    fps=fps,
+                )
+            except PackWorkerError as exc:
+                _log.warning(
+                    "tier 2 description failed: asset=%s code=%s reason=%s", asset_id, exc.code, exc
+                )
+                return described, False, f"{exc.code}: {exc}"
+            for answer in answers:
+                described[answer.shot_index] = answer.facts
+        return described, True, None
+
+    def _describe_hosted(
+        describer: SceneDescriber,
+        media_path: Path,
+        asset_id: str,
+        pending: Sequence[ShotRecord],
+        timeout: float,
+        started: float,
+    ) -> tuple[dict[int, DescribedFacts], bool, str | None]:
+        """Describe shots through the configured hosted vision provider, one call each.
+
+        The keyframes are chosen by the SAME rule the local pack uses
+        (:func:`~framepilot_engine.brain.described.keyframe_times`), because "hosted and
+        local produce schema-identical rows on the same shots" (VU6.5) is only a testable
+        claim if both arms looked at the same pictures.
+        """
+        described: dict[int, DescribedFacts] = {}
+        for shot in pending:
+            if described and time.monotonic() - started > TIER2_ASSET_BUDGET_SECONDS:
+                return described, False, None
+            if shot.t1 <= shot.t0:
+                continue
+            try:
+                frames = [
+                    extract_keyframe_jpeg(media_path, moment, timeout=timeout)
+                    for moment in keyframe_times(shot.t0, shot.t1)
+                ]
+            except (FrameExtractionError, FFmpegError) as exc:
+                # One undecodable shot must not end the asset: the rest of it is still
+                # describable, and a hole is reported as a hole by the coverage counts.
+                _log.warning(
+                    "tier 2 keyframes unavailable: asset=%s shot=%d reason=%s",
+                    asset_id,
+                    shot.shot_index,
+                    exc,
+                )
+                continue
+            try:
+                described[shot.shot_index] = describer.describe_scene(frames)
+            except DescribeError as exc:
+                _log.warning(
+                    "tier 2 description skipped: asset=%s shot=%d reason=%s",
+                    asset_id,
+                    shot.shot_index,
+                    exc,
+                )
+        return described, True, None
 
     def _link_duplicate_shots(store: BrainStore, asset_ids: Sequence[str]) -> int:
         """Populate ``labelled.duplicateOf`` across a project's labelled shots (VU5.3).
@@ -3533,8 +3722,6 @@ def create_app(
         store: BrainStore,
         vstore: VisualVectorStore,
         still_res: VisualEmbedderResolution,
-        captioner: SceneCaptioner | None,
-        caption_model: str,
         asset_id: str,
         resolved_root: Path,
         timeout: float,
@@ -3545,9 +3732,11 @@ def create_app(
         would otherwise be understood by nothing at all even with both keys set.
         The built-in sampler already handles ``is_image``, so a still is embedded
         here and becomes searchable + mappable exactly like a built-in-indexed
-        video. The caption provider is passed through: a photo's caption IS its
-        chapter title in the footage map, and without one a photo project's map is
-        sixty identical "Scene 1" rows the model cannot tell apart.
+        video. Its DESCRIPTION is no longer produced here: tier 2 is a tier of the shot
+        ledger now (``_describe_tier2``, VU6), and the caller runs it for the same asset
+        immediately afterwards — a photo's summary IS its chapter title in the footage
+        map, and without one a photo project's map is sixty identical "Scene 1" rows the
+        model cannot tell apart.
 
         Honest-degrade: without an on-device embedding key the item reports why,
         and the cursor still advances — an unpreparable asset must never freeze
@@ -3567,8 +3756,6 @@ def create_app(
                 store,
                 vstore,
                 still_res.client,
-                captioner,
-                caption_model,
                 asset_id,
                 resolved_root,
                 timeout,
@@ -3656,22 +3843,29 @@ def create_app(
         # Stills never reach TwelveLabs (see `_asset_is_still_image`); they are
         # embedded on the built-in path instead, so the hosted key does not withdraw
         # image understanding from a photo project. Resolved lazily because
-        # `resolve_visual_embedder`/`resolve_captioner` each construct an HTTP client:
+        # `resolve_visual_embedder`/`resolve_describer` each construct an HTTP client:
         # a video-only project must not pay for one on every slice. Guarded because the
         # slice's assets are prepared concurrently and two photos would otherwise race
         # to build two clients.
-        still_backend: tuple[VisualEmbedderResolution, SceneCaptioner | None, str] | None = None
+        still_backend: tuple[VisualEmbedderResolution, Tier2Producer | None] | None = None
         still_backend_lock = threading.Lock()
 
-        def _still_backend() -> tuple[VisualEmbedderResolution, SceneCaptioner | None, str]:
+        def _still_backend() -> tuple[VisualEmbedderResolution, Tier2Producer | None]:
             nonlocal still_backend
             with still_backend_lock:
                 if still_backend is not None:
                     return still_backend
                 provider = req.caption_provider
-                still_backend = (
-                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
-                    resolve_captioner(
+                # Same preference order as the built-in route: an installed local pack
+                # beats a hosted key, because it needs neither the key nor the network.
+                pack = parse_pack_handle(
+                    req.visual_describe_pack or settings.visual_describe_pack,
+                    require=(CAPABILITY_DESCRIBE,),
+                )
+                producer: Tier2Producer | None = (
+                    LocalVisualDescribeClient(pack)
+                    if pack is not None
+                    else resolve_describer(
                         CaptionProviderConfig(
                             kind=provider.kind,
                             model=provider.model,
@@ -3680,8 +3874,11 @@ def create_app(
                         )
                         if provider is not None
                         else None
-                    ).captioner,
-                    provider.model if provider is not None else "",
+                    ).describer
+                )
+                still_backend = (
+                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
+                    producer,
                 )
                 return still_backend
 
@@ -3723,17 +3920,19 @@ def create_app(
                     "cannot index a photo)",
                     asset_id,
                 )
-                embed_res, still_captioner, still_caption_model = _still_backend()
+                embed_res, still_producer = _still_backend()
                 still_item = _tl_still_image_item(
-                    store,
-                    vstore,
-                    embed_res,
-                    still_captioner,
-                    still_caption_model,
-                    asset_id,
-                    resolved_root,
-                    timeout,
+                    store, vstore, embed_res, asset_id, resolved_root, timeout
                 )
+                # A still is the one asset the hosted backend cannot describe at all, so
+                # tier 2 runs locally for it — the same producer the built-in route uses,
+                # writing the same `shots.described` rows.
+                if still_producer is not None:
+                    tier2 = _describe_tier2(
+                        store, still_producer, asset_id, resolved_root, timeout
+                    )
+                    tiers = {**tiers, "described": tier2.label()}
+                    still_item.captioned = tier2.shots
                 still_item.tiers = tiers
                 return _AssetOutcome(item=still_item, advanced=True)
             try:
@@ -3944,16 +4143,41 @@ def create_app(
                 if req.caption_provider is not None and want_described
                 else None
             )
-            captioner_res = (
-                resolve_captioner(caption_config)
+            # The local tier-2 pack wins over the hosted provider for the same three
+            # reasons the tier-1 pack wins over NVIDIA: no key, no frame leaves the
+            # machine, and the answer is free. A malformed handle is "no pack", never a
+            # failed slice.
+            describe_pack = (
+                parse_pack_handle(
+                    req.visual_describe_pack or settings.visual_describe_pack,
+                    require=(CAPABILITY_DESCRIBE,),
+                )
                 if want_described
-                else CaptionerResolution(captioner=None, reason=NOT_REQUESTED_REASON)
+                else None
             )
-            caption_model = req.caption_provider.model if req.caption_provider is not None else ""
+            local_describer = (
+                LocalVisualDescribeClient(describe_pack) if describe_pack is not None else None
+            )
+            describer_res = (
+                DescriberResolution(describer=None, reason=NOT_REQUESTED_REASON)
+                if not want_described
+                else DescriberResolution(describer=None)
+                if local_describer is not None
+                else resolve_describer(caption_config)
+            )
+            if local_describer is not None:
+                _log.info(
+                    "ACT visual describer resolved: backend=local pack=%s",
+                    local_describer.pack_id,
+                )
+            describe_producer: Tier2Producer | None = (
+                local_describer if local_describer is not None else describer_res.describer
+            )
             resolved_root = root.resolve()
-            # Tiers 1 and 2 both go through `_index_one_asset`, which embeds before it
-            # captions, so a captioner without an embedding key cannot in fact describe
-            # anything. Said plainly rather than reported as "ok" and silently doing nothing.
+            # Tier 2 no longer rides on the hosted embed pass. It is a tier of the shot
+            # ledger with two producers of its own (VU6), so a machine with the local pack
+            # and no key describes its footage, and a machine with a vision key and no
+            # embedding key does too. Neither depends on tier 1 any more.
             tier_states = {
                 "measured": "ok" if want_measured else f"skipped: {NOT_REQUESTED_REASON}",
                 "labelled": (
@@ -3961,17 +4185,10 @@ def create_app(
                     if embedder_res.available
                     else f"skipped: {embedder_res.reason or 'no embedder'}"
                 ),
-                # Captions still ride on the HOSTED embed pass (`_index_one_asset` embeds
-                # spans before it captions them), so a local-only machine describes
-                # nothing yet. Said plainly rather than reported as "ok": tier 2's local
-                # producer is VU6, and claiming coverage it does not have is exactly the
-                # failure this phase removed from tier 1.
                 "described": (
                     "ok"
-                    if captioner_res.captioner is not None and embedder_res.client is not None
-                    else f"skipped: {captioner_res.reason or NO_EMBEDDER_FOR_CAPTIONS_REASON}"
-                    if captioner_res.captioner is None
-                    else f"skipped: {NO_EMBEDDER_FOR_CAPTIONS_REASON}"
+                    if describe_producer is not None
+                    else f"skipped: {describer_res.reason or NO_VISION_PRODUCER_REASON}"
                 ),
             }
 
@@ -4066,7 +4283,10 @@ def create_app(
             local_client: LocalVisualEmbedClient | None = embedder_res.local
             base_states = dict(tier_states)
             current = plan
-            slice_captioner: SceneCaptioner | None = None
+            #: The tier-2 producer for the CURRENT pass. None during the tier-0 sweep and
+            #: whenever the governor has stood tier 2 down for low memory (§8.3), which is
+            #: the whole of the scheduling rule as far as this route is concerned.
+            slice_describer: Tier2Producer | None = None
 
             def prepare_builtin(
                 store: BrainStore, vstore: VisualVectorStore, asset_id: str
@@ -4080,6 +4300,26 @@ def create_app(
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
                 tiers = {**tier_states, "measured": tier0.label()}
+
+                def _with_tier2(item: VisualIndexItem, advanced: bool) -> _AssetOutcome:
+                    """Run tier 2 for this asset, after whichever tier-1 arm ran.
+
+                    Tier 2 is INDEPENDENT of tier 1 now: it describes the shots tier 0
+                    measured, so it runs on a keyless machine with a local pack, on a
+                    machine with a vision key and no embedding key, and on one with both.
+                    An asset whose per-asset budget expired keeps the job cursor where it
+                    is, so the next slice resumes the same asset rather than advancing past
+                    shots nobody has described.
+                    """
+                    if slice_describer is None:
+                        return _AssetOutcome(item=item, advanced=advanced)
+                    tier2 = _describe_tier2(
+                        store, slice_describer, asset_id, resolved_root, timeout
+                    )
+                    item.tiers = {**item.tiers, "described": tier2.label()}
+                    item.captioned = tier2.shots
+                    return _AssetOutcome(item=item, advanced=advanced and tier2.complete)
+
                 if local_client is not None and current.phase != MEASURED_PHASE:
                     # The local arm labels the shots tier 0 just found, in the same slice
                     # and the same brain connection. It never touches the hosted span
@@ -4088,8 +4328,8 @@ def create_app(
                         store, local_client, asset_id, resolved_root, timeout
                     )
                     tiers = {**tiers, "labelled": tier1.label()}
-                    return _AssetOutcome(
-                        item=VisualIndexItem(
+                    return _with_tier2(
+                        VisualIndexItem(
                             asset_id=asset_id,
                             ok=tier0.ok and tier1.ok,
                             reason=None if tier1.ok else tier1.reason,
@@ -4099,11 +4339,11 @@ def create_app(
                         advanced=True,
                     )
                 if embed_client is None or current.phase == MEASURED_PHASE:
-                    # No embedder, or the tier-0 pass: tiers 1 and 2 are absent coverage,
-                    # not a dead job. The cursor still advances, so a keyless project
-                    # measures end to end.
-                    return _AssetOutcome(
-                        item=VisualIndexItem(
+                    # No embedder, or the tier-0 pass: tier 1 is absent coverage, not a
+                    # dead job. The cursor still advances, so a keyless project measures
+                    # end to end — and, with a local describe pack, describes too.
+                    return _with_tier2(
+                        VisualIndexItem(
                             asset_id=asset_id,
                             ok=tier0.ok,
                             reason=None if tier0.ok else tier0.reason,
@@ -4116,8 +4356,6 @@ def create_app(
                         store,
                         vstore,
                         embed_client,
-                        slice_captioner,
-                        caption_model,
                         asset_id,
                         resolved_root,
                         timeout,
@@ -4152,7 +4390,7 @@ def create_app(
                 # rewritten as a whole-asset failure. Where tier 0 is the ONLY tier that
                 # ran — the keyless and tier-0-pass paths above — its failure IS the asset's.
                 item.tiers = tiers
-                return _AssetOutcome(item=item, advanced=True)
+                return _with_tier2(item, advanced=True)
 
             slice_started = time.monotonic()
             budget = req.max_assets
@@ -4174,8 +4412,12 @@ def create_app(
                 if not slice_ids:
                     break
                 tier_states = _pass_states(base_states, current.phase)
-                slice_captioner = (
-                    captioner_res.captioner
+                # `_pass_states` is where §8.2 (tier 0 sweeps the worklist first) and §8.3
+                # (tier 2 stands down under the low-memory rule) are applied. Reading the
+                # disposition it produced, rather than re-deciding here, is what keeps the
+                # governor the single scheduling mechanism.
+                slice_describer = (
+                    describe_producer
                     if current.phase == DEEP_PHASE and tier_states["described"] == "ok"
                     else None
                 )
@@ -4229,7 +4471,11 @@ def create_app(
 
             # Phase 3 — persist the advanced cursors + terminal state; embed captions.
             done = current.done and exhausted is None
-            captions_reason = captioner_res.reason if captioner_res.captioner is None else None
+            captions_reason = (
+                None
+                if describe_producer is not None
+                else describer_res.reason or NO_VISION_PRODUCER_REASON
+            )
             coverage: LedgerCoverage | None = None
             try:
                 with open_brain(resolved_root, req.project_id) as store:
@@ -4900,6 +5146,51 @@ def create_app(
         """
         return duplicate_groups([((span.asset_id, span.scene_index), span.phash) for span in spans])
 
+    def _captions_by_asset(
+        rows: Sequence[VisualCaptionRow],
+    ) -> dict[str, list[VisualCaptionRow]]:
+        """Group informative caption rows per asset, dropping legacy status strings."""
+        grouped: dict[str, list[VisualCaptionRow]] = {}
+        for row in rows:
+            if is_informative_caption(row.text):
+                grouped.setdefault(row.asset_id, []).append(row)
+        return grouped
+
+    def _caption_for_span(
+        captions: Sequence[VisualCaptionRow], t0: float, t1: float
+    ) -> str | None:
+        """The stored summary that best covers ``[t0, t1)``, by TIME overlap.
+
+        Captions used to be joined to spans by ``scene_index``, which worked only while
+        one producer wrote both. Tier 2 now writes its rows against the SHOT ledger
+        (VU6.3) while the hosted NVIDIA arm's spans come from the sampler, so the two
+        index spaces are different numbers for different segmentations and matching them
+        by index would attach a description of shot 7 to span 7 — a confident, invisible
+        lie about the footage. Overlap is the only relation that holds across both
+        segmentations, and the local tier-1 arm (whose spans ARE shots) is unaffected
+        because its overlap is exact.
+
+        :returns: The most-overlapping caption's text, or ``None`` when nothing overlaps.
+        """
+        best: str | None = None
+        best_overlap = -1.0
+        for caption in captions:
+            low = max(t0, caption.t0)
+            high = min(t1, caption.t1)
+            if high < low:
+                continue
+            overlap = high - low
+            # A still is a ZERO-length span (`t0 == t1 == 0`) on both sides, so a
+            # positive-overlap rule would leave every photo project's chapters untitled —
+            # which is the exact defect the still-image routing fix existed to remove.
+            # Degenerate intervals therefore match on touching; real ones need real
+            # overlap, so a caption that merely abuts a span is not attached to it.
+            if overlap <= 0.0 and t1 > t0 and caption.t1 > caption.t0:
+                continue
+            if overlap > best_overlap:
+                best, best_overlap = caption.text, overlap
+        return best
+
     def _builtin_chapters_for(
         store: BrainStore,
         req: FootageMapRequest,
@@ -4921,11 +5212,7 @@ def create_app(
             if (req.asset_id is None or span.asset_id == req.asset_id)
             and (only_assets is None or span.asset_id in only_assets)
         ]
-        captions = {
-            (caption.asset_id, caption.scene_index): caption.text
-            for caption in store.list_visual_captions(req.asset_id)
-            if is_informative_caption(caption.text)
-        }
+        captions = _captions_by_asset(store.list_visual_captions(req.asset_id))
         similar = _similar_groups(spans)
         chapters: list[FootageChapter] = []
         for span in spans:
@@ -4937,7 +5224,7 @@ def create_app(
                     span.t0, span.t1, clips_by_asset.get(span.asset_id, [])
                 )
                 t0, t1 = (ranges[0][0], ranges[-1][1]) if ranges else (span.t0, span.t1)
-            caption = captions.get((span.asset_id, span.scene_index))
+            caption = _caption_for_span(captions.get(span.asset_id, []), span.t0, span.t1)
             chapters.append(
                 FootageChapter(
                     t0=t0,
@@ -5319,7 +5606,11 @@ def create_app(
         utterances = (
             segment_utterances(list(project_doc.transcript)) if project_doc is not None else []
         )
-        caption_by_scene = {caption.scene_index: caption.text for caption in captions}
+        described_spans = {
+            span.t0: text
+            for span in spans
+            if (text := _caption_for_span(captions, span.t0, span.t1)) is not None
+        }
         packets = [
             EvidencePacket(
                 asset_id=span.asset_id,
@@ -5329,7 +5620,7 @@ def create_app(
                 # Enumeration has no relevance ranking. A constant keeps the existing
                 # evidence-packet wire shape without pretending to be confidence.
                 score=1.0,
-                caption=caption_by_scene.get(span.scene_index),
+                caption=described_spans.get(span.t0),
                 transcript_overlap=transcript_overlap(
                     project_span_to_timeline(span.t0, span.t1, clips), utterances
                 ),
@@ -5350,7 +5641,12 @@ def create_app(
         # which is a claim about the footage rather than about our coverage. Say what is
         # actually true, and name what DOES work — `get_frame` renders any moment through
         # the export compiler and needs no index at all.
-        if packets and not caption_by_scene:
+        # The guard asks whether this ASSET has been described at all — not whether the
+        # filtered time range happens to overlap a description. A range with no
+        # description in it is a legitimately empty answer, not "this footage was never
+        # looked at", and conflating the two is how a filtered describe came to report
+        # that a fully described asset had nothing to read.
+        if packets and not captions:
             return VisualSearchResponse(
                 available=True,
                 backend=backend,

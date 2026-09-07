@@ -1,6 +1,6 @@
-"""Service tests for the visual-index routes (plan MI4.1, MI4.3).
+"""Service tests for the visual-index routes (plan MI4.1, MI4.3, VU6).
 
-The embedder, captioner, and frame decode are monkeypatched at the service seam
+The embedder, tier-2 describer, and frame decode are monkeypatched at the service seam
 (the same pattern the analyze/batch tests use) so pacing, cursor persistence,
 resume/idempotency, cancellation, key-exhaustion honesty, and status all run
 without ffmpeg or a live NVIDIA/vision API (plan §6 — no live calls in any tier).
@@ -9,6 +9,7 @@ The brain writes under test are real SQLite.
 
 from __future__ import annotations
 
+import json
 import threading
 import time
 from pathlib import Path
@@ -19,7 +20,17 @@ from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
 from framepilot_engine.analysis.visual_sampler import VisualSpan
+from framepilot_engine.brain.described import parse_described
 from framepilot_engine.brain.keyring import KeyRingExhaustedError
+from framepilot_engine.brain.ledger_models import (
+    TIER0_VERSION,
+    ChromaStats,
+    LumaStats,
+    MeasuredFacts,
+    MotionClass,
+    MotionStats,
+    ShotRecord,
+)
 from framepilot_engine.brain.sidecars import export_all_sidecars, import_sidecars
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.brain.visual_embed import (
@@ -63,16 +74,42 @@ class _MalformedResponseEmbedder:
         raise VisualEmbedError("NVIDIA embeddings request failed with HTTP 400: bad model id")
 
 
-class _FakeCaptioner:
-    def caption_scene(self, frames_jpeg: list[bytes]) -> str:
-        return "A person speaks to camera in a bright room."
+class _FakeDescriber:
+    """A hosted describer that answers the structured schema (VU6.3).
+
+    It funnels its answer through the SAME `parse_described` the real provider arms use,
+    so a fake cannot produce a row shape the real path could not.
+    """
+
+    def __init__(self, model: str = "claude-x") -> None:
+        self.model = model
+        self.calls: list[int] = []
+
+    def describe_scene(self, frames_jpeg: list[bytes]) -> Any:
+        self.calls.append(len(frames_jpeg))
+        return parse_described(
+            {
+                "summary": "A person speaks to camera in a bright room.",
+                "subject": "person",
+                "action": "speaking to camera",
+                "setting": "bright room",
+                "camera": {"shotSize": "MS", "angle": "eye-level", "movement": "static"},
+                "mood": "bright",
+                "onScreenText": [],
+                "quality": ["well-lit"],
+                "confidence": "medium",
+            },
+            model=self.model,
+        )
 
 
-class _FailingCaptioner:
-    def caption_scene(self, frames_jpeg: list[bytes]) -> str:
-        from framepilot_engine.brain.captioner import CaptionError
+class _FailingDescriber:
+    model = "gpt-v"
 
-        raise CaptionError("provider 500")
+    def describe_scene(self, frames_jpeg: list[bytes]) -> Any:
+        from framepilot_engine.brain.captioner import DescribeError
+
+        raise DescribeError("provider 500")
 
 
 class _FakeTextEmbedder:
@@ -114,15 +151,56 @@ def _seed_asset(
         store.upsert_asset(asset_id, path=path, content_sha256=f"hash-{asset_id}", probe=probe)
 
 
+def _measured_shot(asset_id: str, index: int, t0: float, t1: float) -> ShotRecord:
+    return ShotRecord(
+        asset_id=asset_id,
+        content_hash=f"hash-{asset_id}",
+        shot_index=index,
+        t0=t0,
+        t1=t1,
+        keyframe_t=t0,
+        measured=MeasuredFacts(
+            tier0_version=TIER0_VERSION,
+            luma=LumaStats(mean=0.5, std=0.1, p10=0.2, p90=0.8),
+            chroma=ChromaStats(u_mean=128.0, v_mean=128.0, sat_mean=0.2),
+            warmth=0.0,
+            contrast_idx=0.6,
+            motion=MotionStats(si=10.0, ti=2.0, motion_class=MotionClass.STATIC),
+            cut_score=0.0,
+            black=False,
+            freeze=False,
+            sharpness=0.8,
+        ),
+    )
+
+
+def _seed_measured_shots(
+    root: Path, project_id: str, asset_id: str, spans: list[tuple[float, float]]
+) -> None:
+    """Give an asset a tier-0 shot list without decoding anything.
+
+    Tier 2 describes SHOTS (VU6), so a describer test needs the ledger floor to exist.
+    Seeding it also makes `_measure_tier0` a no-op resume, which keeps these tests free of
+    ffmpeg exactly as they were before.
+    """
+    with open_brain(root, project_id) as store:
+        store.upsert_shots(
+            asset_id,
+            f"hash-{asset_id}",
+            "measured",
+            [_measured_shot(asset_id, i, t0, t1) for i, (t0, t1) in enumerate(spans)],
+        )
+
+
 def _client(
     tmp_path: Path,
     monkeypatch: pytest.MonkeyPatch,
     *,
     embedder: object | None = None,
-    captioner: object | None = None,
+    describer: object | None = None,
     with_key: bool = True,
 ) -> TestClient:
-    """A sandboxed client with the embedder/captioner/decode seams faked."""
+    """A sandboxed client with the embedder/describer/decode seams faked."""
     embed_client = embedder if embedder is not None else _FakeEmbedder()
     monkeypatch.setattr(
         service_module,
@@ -140,13 +218,13 @@ def _client(
     monkeypatch.setattr(
         service_module, "extract_keyframe_jpeg", lambda media_path, t, **kw: b"\xff\xd8jpeg"
     )
-    if captioner is not None:
-        from framepilot_engine.brain.captioner import CaptionerResolution
+    if describer is not None:
+        from framepilot_engine.brain.captioner import DescriberResolution
 
         monkeypatch.setattr(
             service_module,
-            "resolve_captioner",
-            lambda cfg, **kw: CaptionerResolution(captioner=captioner),  # type: ignore[arg-type]
+            "resolve_describer",
+            lambda cfg, **kw: DescriberResolution(describer=describer),  # type: ignore[arg-type]
         )
     settings = Settings(
         projects_root=tmp_path,
@@ -214,21 +292,35 @@ def test_index_embeds_and_stores_spans(tmp_path: Path, monkeypatch: pytest.Monke
         assert store.visual_index_counts()["vectors"] == 1
 
 
-def test_index_captions_when_provider_supplied(
+def test_index_describes_shots_when_provider_supplied(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = _client(tmp_path, monkeypatch, captioner=_FakeCaptioner())
+    """Tier 2 writes BOTH halves: the structured document and the FTS summary (VU6.3)."""
+    describer = _FakeDescriber()
+    client = _client(tmp_path, monkeypatch, describer=describer)
     _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
     body = _index(
         client,
         assetIds=["vid"],
         captionProvider={"kind": "anthropic", "model": "claude-x", "apiKey": "sk"},
     ).json()
     assert body["captioned"] == 1
+    assert body["items"][0]["tiers"]["described"] == "ok"
+    # First / middle / last of the span: a single keyframe cannot show what a shot does.
+    assert describer.calls == [3]
     with open_brain(tmp_path, "p1") as store:
         captions = store.list_visual_captions("vid")
         assert len(captions) == 1
         assert captions[0].model == "claude-x"
+        # Keyed by the SHOT, and carrying only the summary.
+        assert (captions[0].scene_index, captions[0].t0, captions[0].t1) == (0, 0.0, 3.0)
+        assert captions[0].text == "A person speaks to camera in a bright room."
+        shots = store.list_shots(["vid"])
+        assert shots[0].described is not None
+        assert shots[0].described.subject == "person"
+        assert shots[0].described.camera.shot_size is not None
+        assert shots[0].described.p == 0.7
 
 
 def test_index_without_provider_reports_captions_skipped(
@@ -523,19 +615,23 @@ def test_content_change_reindexes(tmp_path: Path, monkeypatch: pytest.MonkeyPatc
         assert len(spans) == 1 and spans[0].content_hash == "new-hash"
 
 
-def test_caption_error_leaves_scene_uncaptioned(
+def test_a_provider_failure_leaves_the_shot_undescribed(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    client = _client(tmp_path, monkeypatch, captioner=_FailingCaptioner())
+    client = _client(tmp_path, monkeypatch, describer=_FailingDescriber())
     _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
     body = _index(
         client,
         assetIds=["vid"],
         captionProvider={"kind": "openai", "model": "gpt-v", "apiKey": "sk"},
     ).json()
     assert body["indexed"] == 1 and body["captioned"] == 0
+    # Reported as this asset's tier-2 failure, never as coverage and never as a dead job.
+    assert body["items"][0]["tiers"]["described"].startswith("failed")
     with open_brain(tmp_path, "p1") as store:
         assert store.list_visual_captions("vid") == []
+        assert store.list_shots(["vid"])[0].described is None
 
 
 def test_caption_provider_backfills_an_already_embedded_asset(
@@ -549,7 +645,10 @@ def test_caption_provider_backfills_an_already_embedded_asset(
     first = _index(first_client, assetIds=["vid"]).json()
     assert first["indexed"] == 1 and first["captioned"] == 0
 
-    second_client = _client(tmp_path, monkeypatch, captioner=_FakeCaptioner())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    second_client = _client(
+        tmp_path, monkeypatch, describer=_FakeDescriber(model="vision-x")
+    )
     second = _index(
         second_client,
         assetIds=["vid"],
@@ -559,19 +658,29 @@ def test_caption_provider_backfills_an_already_embedded_asset(
     with open_brain(tmp_path, "p1") as store:
         assert store.list_visual_captions("vid")[0].text.startswith("A person speaks")
 
+    # And a THIRD run describes nothing again: `existing_shot_tier_keys` is the resume
+    # key, and re-describing costs either money or minutes.
+    third = _index(
+        _client(tmp_path, monkeypatch, describer=_FakeDescriber(model="vision-x")),
+        assetIds=["vid"],
+        captionProvider={"kind": "openai", "model": "vision-x", "apiKey": "sk"},
+    ).json()
+    assert third["captioned"] == 0
+
 
 def test_caption_text_embeddings_rebuilt_with_project_doc(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     from framepilot_engine.brain.embeddings import EmbedderResolution
 
-    client = _client(tmp_path, monkeypatch, captioner=_FakeCaptioner())
+    client = _client(tmp_path, monkeypatch, describer=_FakeDescriber())
     monkeypatch.setattr(
         service_module,
         "resolve_embedder",
         lambda model_dir: EmbedderResolution(embedder=_FakeTextEmbedder()),  # type: ignore[arg-type]
     )
     _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
     project = {"id": "p1", "name": "P", "timeline": {"tracks": []}, "assets": [], "transcript": []}
     body = _index(
         client,
@@ -617,9 +726,10 @@ def test_repoll_of_finished_job_is_idempotent(
 def test_caption_without_text_embedder_still_stores_caption(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    # captioner + project doc, but no ONNX text embedder → caption stored, not embedded.
-    client = _client(tmp_path, monkeypatch, captioner=_FakeCaptioner())
+    # describer + project doc, but no ONNX text embedder → summary stored, not embedded.
+    client = _client(tmp_path, monkeypatch, describer=_FakeDescriber())
     _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
     project = {"id": "p1", "name": "P", "timeline": {"tracks": []}, "assets": [], "transcript": []}
     body = _index(
         client,
@@ -930,3 +1040,191 @@ def test_concurrent_slices_for_the_same_job_do_not_double_process_or_clobber(
         # span per asset — never an asset embedded twice while another was skipped.
         assert job.payload["deepCursor"] == 3
         assert store.visual_index_counts()["spans"] == 3
+
+
+# --- Tier 2: the local Capability Pack arm (VU6) ---------------------------------
+
+
+class _FakePackClient:
+    """Stands in for ``LocalVisualDescribeClient`` at the service seam.
+
+    Constructed with a handle exactly as the real one is, so the route's resolution order
+    (pack beats hosted provider) is exercised rather than bypassed.
+    """
+
+    last: _FakePackClient | None = None
+
+    def __init__(self, handle: Any, **_kw: Any) -> None:
+        self.handle = handle
+        self.pack_id = "framepilot.visual-describe"
+        self.model_id = "framepilot/smolvlm2-2.2b-instruct-q4-k-m"
+        self.requests: list[list[tuple[int, float, float]]] = []
+        type(self).last = self
+
+    def describe_shots(self, **kwargs: Any) -> list[Any]:
+        from framepilot_engine.brain.local_visual_describe import ShotDescription
+
+        spans = list(kwargs["shots"])
+        self.requests.append(spans)
+        return [
+            ShotDescription(
+                shot_index=index,
+                facts=parse_described(
+                    {
+                        "summary": f"Shot {index}: a street at night.",
+                        "subject": "street",
+                        "action": "cars passing",
+                        "setting": "city street at night",
+                        "camera": {"shotSize": "WS", "angle": "eye-level", "movement": "static"},
+                        "mood": "dark",
+                        "onScreenText": [],
+                        "quality": ["dim"],
+                        "confidence": "low",
+                    },
+                    model=self.model_id,
+                ),
+            )
+            for index, _t0, _t1 in spans
+        ]
+
+
+def _pack_handle(tmp_path: Path) -> str:
+    """A host-resolved pack handle, as the desktop shell sends it on the request."""
+    entrypoint = tmp_path / "framepilot-visual-describe"
+    entrypoint.write_text("#!/bin/sh\nexit 0\n", encoding="utf-8")
+    return json.dumps(
+        {
+            "packId": "framepilot.visual-describe",
+            "version": "1.0.0",
+            "releaseDigest": "a" * 64,
+            "entrypoint": str(entrypoint),
+            "capabilities": ["visual.describe"],
+        }
+    )
+
+
+def _pack_client(tmp_path: Path, monkeypatch: pytest.MonkeyPatch, **kw: Any) -> TestClient:
+    """A client whose tier-2 producer is a (faked) installed local pack."""
+    monkeypatch.setattr(service_module, "LocalVisualDescribeClient", _FakePackClient)
+    return _client(tmp_path, monkeypatch, **kw)
+
+
+def test_a_keyless_machine_with_the_pack_describes_its_footage(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The defect VU6 removes: tier 2 used to ride on the hosted embed pass.
+
+    No embedding key and no vision provider — the shipped default plus one installed
+    pack — and every measured shot still gets a structured description.
+    """
+    client = _pack_client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 1.5), (1.5, 3.0)])
+    body = _index(
+        client, assetIds=["vid"], visualDescribePack=_pack_handle(tmp_path)
+    ).json()
+
+    # No vision provider on the request at all: the pack is the whole producer.
+    assert body["items"][0]["tiers"]["described"] == "ok"
+    assert body["captioned"] == 2
+    # No project document, so the summaries are stored and FTS-indexed but not
+    # text-embedded — a different fact from "tier 2 could not run".
+    assert body["captionsReason"] == (
+        "no project document supplied; caption text-embeddings skipped"
+    )
+    assert _FakePackClient.last is not None
+    assert _FakePackClient.last.requests == [[(0, 0.0, 1.5), (1, 1.5, 3.0)]]
+    with open_brain(tmp_path, "p1") as store:
+        shots = store.list_shots(["vid"])
+        assert [s.described.summary for s in shots if s.described] == [
+            "Shot 0: a street at night.",
+            "Shot 1: a street at night.",
+        ]
+        # The measured tier is untouched by a tier-2 write.
+        assert all(s.measured is not None for s in shots)
+        assert [c.text for c in store.list_visual_captions("vid")] == [
+            "Shot 0: a street at night.",
+            "Shot 1: a street at night.",
+        ]
+
+
+def test_the_pack_is_preferred_over_a_configured_vision_provider(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Same three reasons the tier-1 pack beats NVIDIA: no key, no frames leave the
+    # machine, and the answer is free.
+    describer = _FakeDescriber()
+    client = _pack_client(tmp_path, monkeypatch, describer=describer)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    _index(
+        client,
+        assetIds=["vid"],
+        visualDescribePack=_pack_handle(tmp_path),
+        captionProvider={"kind": "anthropic", "model": "claude-x", "apiKey": "sk"},
+    ).json()
+    assert describer.calls == []
+    with open_brain(tmp_path, "p1") as store:
+        described = store.list_shots(["vid"])[0].described
+        assert described is not None and described.model.startswith("framepilot/smolvlm2")
+
+
+def test_a_malformed_pack_handle_is_no_pack_not_a_failed_slice(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    body = _index(client, assetIds=["vid"], visualDescribePack="{not json").json()
+    assert body["available"] is True
+    assert body["tiers"]["described"].startswith("skipped:")
+    assert body["reason"] is None
+
+
+def test_tier2_stands_down_under_the_governors_low_memory_rule(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§8.3 is the ONLY scheduling mechanism tier 2 obeys — no second one was added."""
+    from framepilot_engine.brain import governor as governor_module
+
+    monkeypatch.setattr(governor_module, "free_memory_bytes", lambda: 100 * 1024 * 1024)
+    client = _pack_client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    body = _index(
+        client, assetIds=["vid"], visualDescribePack=_pack_handle(tmp_path)
+    ).json()
+    assert body["items"][0]["tiers"]["described"] == "skipped: low_memory"
+    with open_brain(tmp_path, "p1") as store:
+        assert store.list_shots(["vid"])[0].described is None
+
+
+def test_describing_is_resumed_not_repeated(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    client = _pack_client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    _seed_measured_shots(tmp_path, "p1", "vid", [(0.0, 3.0)])
+    handle = _pack_handle(tmp_path)
+    assert _index(client, assetIds=["vid"], visualDescribePack=handle).json()["captioned"] == 1
+    second = _index(
+        _pack_client(tmp_path, monkeypatch), assetIds=["vid"], visualDescribePack=handle
+    ).json()
+    assert second["captioned"] == 0
+    assert _FakePackClient.last is not None and _FakePackClient.last.requests == []
+
+
+def test_an_asset_with_no_measured_shots_reports_a_hole(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Tier 0 is the floor under tier 2 as well. The fixture's bytes are not decodable, so
+    # measurement fails and there is no shot list to describe — said plainly.
+    client = _pack_client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    body = _index(
+        client, assetIds=["vid"], visualDescribePack=_pack_handle(tmp_path)
+    ).json()
+    assert (
+        body["items"][0]["tiers"]["described"]
+        == "skipped: no measured shots for the current bytes"
+    )

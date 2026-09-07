@@ -115,7 +115,7 @@ arm exists and is tested, but nothing selects the space with coverage yet.
 
 ## VU6 Tier 2: `framepilot.visual-describe`
 
-### VU6.1 Runtime and model `[ ]`
+### VU6.1 Runtime and model `[~]`
 
 | Piece         | Choice                                                                                    | Why                                                                                                                |
 | ------------- | ----------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
@@ -128,7 +128,7 @@ Verify each licence and hash at pack build; `models.lock.toml` per worker as the
 pack does. Hosted fallback remains the existing captioner (`captioner.py`) with the same
 output schema (VU6.3).
 
-### VU6.2 Structured caption `[ ]`
+### VU6.2 Structured caption `[x]`
 
 One call per shot with 1–3 keyframes (first, middle, last of the span; stills get one).
 Output constrained with llama.cpp's JSON-schema grammar to the `described` object in
@@ -136,20 +136,20 @@ Output constrained with llama.cpp's JSON-schema grammar to the `described` objec
 no intent, no narration; `onScreenText` verbatim; `quality` from a closed list. `p` is the
 model's self-rated confidence bucketed to 0.5/0.7/0.9; it is a hint, never a gate.
 
-### VU6.3 Hosted parity `[ ]`
+### VU6.3 Hosted parity `[x]`
 
 `captioner.py` moves to the same structured prompt with JSON output (Anthropic and
 OpenAI-compatible wire formats both support it); `visual_captions.text` keeps `summary` for
 FTS. TwelveLabs's arm maps its span text into `summary` only. One schema, three producers.
 
-### VU6.4 Scheduling `[ ]`
+### VU6.4 Scheduling `[x]`
 
 Tier 2 is the slow tier. It runs one worker instance, lowest priority, `timeline` assets
 first, then `bin`, and yields to renders/exports and to any interactive `get_frame`
 (`07-SCALE-AND-OPERATIONS.md` governor). The media bin shows a small "describing 12/61" badge;
 Settings shows per-tier coverage. The agent reads coverage as a fact and never waits.
 
-### VU6.5 Evidence `[ ]`
+### VU6.5 Evidence `[ ]` — NOT MEASURED
 
 - Every mission fixture shot has a `described` row after a background run on the M1 Pro with
   the UI in use; record wall clock and peak RSS.
@@ -158,6 +158,58 @@ Settings shows per-tier coverage. The agent reads coverage as a fact and never w
 - Hosted and local produce schema-identical rows on the same 10 shots.
 - `describe_footage` output reads as a shot list an editor would recognise (reviewed by hand,
   pasted into this file).
+
+### VU6 state, 2026-09-07 — everything except the weights and the binary
+
+`workers/visual-describe/` exists and is complete around a model and a runtime that have
+**not been downloaded**. No weight and no `llama-mtmd-cli` was fetched (deliberately, the
+same call VU5 made): `pack/models.lock.toml` carries placeholder digests, `models.py`
+refuses them by name, and the health check fails while any remains. **Nothing in this
+repository has produced a local description**, and no figure in VU6.5 has been measured —
+those targets need real weights and human labels and are untouched.
+
+What IS done and tested against a fake backend:
+
+- the worker: protocol mirror (`visual.describe`), schema mirror, keyframe choice,
+  normalisation, one-shot runtime, identity and pin verification — 82 tests, no ML stack
+  and no binary installed;
+- the protocol: one capability added to `packages/capability-packs`'s frozen union
+  (`worker-protocol.ts`), still version 1, additive, plus a `describe` progress phase;
+- the schema: `engine/.../brain/described.py` — `DESCRIBED_JSON_SCHEMA`,
+  `DESCRIBE_INSTRUCTION`, the closed vocabularies, `parse_described` (the one funnel every
+  producer passes through) and `keyframe_times`, with a drift test against the pack's
+  mirror that compares the schema, the prompt, the bounds AND the chosen frames;
+- the engine: `local_visual_describe.py` (the pack client) and `_describe_tier2` — tier 2
+  is now a tier of the shot LEDGER with two producers, so a keyless machine with the pack
+  describes its footage and a machine with a vision key and no embedding key does too. It
+  writes `shots.described` via `upsert_shots(tier="described")` and the `summary` into
+  `visual_captions` for FTS, keyed by the SHOT;
+- scheduling: the VU8 governor is the only mechanism — one worker, deep pass only, stands
+  down under the low-memory rule — plus a 90 s per-asset budget that keeps the job cursor
+  on an unfinished asset instead of advancing past undescribed shots;
+- **the free-text `CAPTION_INSTRUCTION` and the whole prose path are DELETED**, with their
+  tests, and the `08` deprecation row is discharged. The hosted captioner now forces an
+  Anthropic tool call / an OpenAI `json_schema` against the same schema; `captioner.py` no
+  longer has a function that returns a string.
+
+Two things are NOT wired, and are named rather than implied:
+
+- **the TwelveLabs arm.** `described_from_summary` exists and is tested (prose into
+  `summary`, every other field left empty), but `_tl_index_slice` still records
+  `described: skipped` for videos. Mapping TL spans onto ledger shots is its own piece.
+- **the desktop host does not pass a `visualDescribePack` handle.** The request field and
+  `FRAMEPILOT_PACK_VISUAL_DESCRIBE` are the only routes today, exactly as VU5 left tier 1.
+
+One behaviour change worth reviewing: `visual_captions` rows are now keyed by SHOT, while
+the hosted NVIDIA span space is keyed by the sampler's scenes. The readers that joined the
+two by `scene_index` now join by **time overlap** (`_caption_for_span`), because index
+equality across two different segmentations is a confident, invisible lie.
+
+Remaining, in order: verify the SmolVLM2 GGUF **quantisation** and mmproj licences and the
+llama.cpp **release artifact**'s; fetch and pin (`tools/fetch_models.py --record`, then
+copy the digests into `models.py`); run `pytest -m decoded_media` — the first evidence
+`llama_backend.py` is correct at all; register with
+`scripts/dev-register-visual-describe.sh`; then and only then measure VU6.5.
 
 ## Definition of done
 

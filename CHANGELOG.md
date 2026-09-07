@@ -8,6 +8,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **What the AI knows about a shot is now a structured record, not a sentence.** Every
+  described shot carries its subject, what is happening, where it is, the framing and
+  camera move, the mood, any on-screen text transcribed word for word, and a short
+  summary. Before this it was two sentences of prose, which read well and could not be
+  used: you could not ask for "the wide shots outside", and nothing could read a title
+  card back to you. The summary is still what search matches on, so nothing you could
+  find before is harder to find now.
+- **Descriptions no longer need an embedding key.** They used to be produced as a
+  side-effect of the paid indexing pass, so a machine set up for local, keyless
+  understanding got none at all. They are now their own step over the shots FramePilot
+  measured itself, and they run from a configured vision provider *or* from a local
+  Describe pack — whichever is available, local first.
+- **Describing is polite about the machine.** It runs one clip at a time, lowest
+  priority, stands down when memory is short, and stops after about a minute and a half
+  on any one clip so it can check whether you have started working again. Whatever it
+  finished is kept; the next pass picks up where it left off.
+
 - **Background footage indexing gets out of your way.** It now pauses completely while an
   export, a preview render, a frame grab or a review batch is running, and picks up again
   a couple of seconds after the machine is quiet. It also measures every clip in your
