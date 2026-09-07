@@ -298,3 +298,44 @@ describe('LedgerClient.snapshot — honest failure', () => {
     expect(client.cacheKeyFor('a2')).toBeUndefined();
   });
 });
+
+describe('an unavailable brain is not an empty one', () => {
+  it('does not cache "no shots" when the engine says it could not look', async () => {
+    // The route answers 200 with `available: false` and no rows when there is no sandbox
+    // root. That body is also a valid empty snapshot, so a client reading only the snapshot
+    // shape would record a measured claim about the footage — "this asset has no shots" —
+    // when the truth is that nobody could look. It must degrade instead, and it must not
+    // poison the cache against a later, working call.
+    let calls = 0;
+    const fetchFn = vi.fn(async () => {
+      calls += 1;
+      return calls === 1
+        ? new Response(
+            JSON.stringify({
+              available: false,
+              reason: 'the shot ledger requires a configured sandbox root',
+              shots: [],
+              digests: [],
+              coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+            }),
+            { status: 200 },
+          )
+        : new Response(
+            JSON.stringify({
+              available: true,
+              shots: [],
+              digests: [],
+              coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+            }),
+            { status: 200 },
+          );
+    });
+    const client = new LedgerClient({ baseUrl: 'http://engine', fetchFn: fetchFn as never });
+
+    expect(await client.snapshot({ projectId: 'p', assetIds: ['a1'] })).toBeNull();
+    // Nothing was cached, so the next call really asks again rather than serving the lie.
+    const second = await client.snapshot({ projectId: 'p', assetIds: ['a1'] });
+    expect(second).not.toBeNull();
+    expect(fetchFn).toHaveBeenCalledTimes(2);
+  });
+});

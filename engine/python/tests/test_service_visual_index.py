@@ -168,10 +168,21 @@ def test_index_unavailable_without_projects_root() -> None:
     assert body["available"] is False and "sandbox root" in body["reason"]
 
 
-def test_index_reports_no_key(tmp_path: Path) -> None:
+def test_index_reports_no_key_as_a_skipped_tier(tmp_path: Path) -> None:
+    """No key is a SKIPPED tier now, not the end of the job (ADR 0175, VU1.4).
+
+    This used to be a bare ``reason='no_api_key'`` returned from an early short circuit
+    that ran nothing at all — the reason a default install indexed nothing and the agent
+    never called a footage surface. Tier 0 needs no key, so the job proceeds and the key
+    only decides which of the other two tiers run.
+    """
     client = TestClient(create_app(Settings(projects_root=tmp_path)))
     body = client.post("/brain/visual/index", json={"projectId": "p1"}).json()
-    assert body["available"] is True and body["reason"] == "no_api_key"
+    assert body["available"] is True
+    assert body["tiers"]["measured"] == "ok"
+    assert body["tiers"]["labelled"] == "skipped: no_api_key"
+    # NOT in `reason`: the host loop treats any reason as terminal and stops re-posting.
+    assert body["reason"] is None
     assert body["indexed"] == 0
 
 
@@ -186,13 +197,18 @@ def test_index_embeds_and_stores_spans(tmp_path: Path, monkeypatch: pytest.Monke
     assert body["done"] is True
     assert body["cursor"] == 1 and body["total"] == 1
     assert body["indexed"] == 1
-    assert body["items"][0] == {
+    item = body["items"][0]
+    assert {k: item[k] for k in ("assetId", "ok", "indexed", "captioned", "reason")} == {
         "assetId": "vid",
         "ok": True,
         "indexed": 1,
         "captioned": 0,
         "reason": None,
     }
+    # Tier 0 runs alongside tier 1 here; the fixture's bytes are not decodable media, so
+    # the measured tier reports its own failure without touching the embedding outcome.
+    assert set(item["tiers"]) == {"measured", "labelled", "described"}
+    assert item["tiers"]["labelled"] == "ok"
     with open_brain(tmp_path, "p1") as store:
         assert store.visual_index_counts()["spans"] == 1
         assert store.visual_index_counts()["vectors"] == 1

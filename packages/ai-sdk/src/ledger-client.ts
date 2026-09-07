@@ -332,7 +332,25 @@ export class LedgerClient {
         log.debug('shot ledger route → HTTP error; degrading', { status: response.status });
         return undefined;
       }
-      const parsed = parseLedgerSnapshot(await response.json());
+      const body: unknown = await response.json();
+      // The route answers 200 with `available: false` when it cannot read the brain at all
+      // (no sandbox root, an unopenable file). That body ALSO parses as a perfectly valid
+      // empty snapshot, so reading only the snapshot shape would cache "this asset has no
+      // shots" — a measured claim about the footage — when the truth is "nobody could look".
+      // That is the one lie this client exists to avoid, so the flag is checked first.
+      if (
+        typeof body === 'object' &&
+        body !== null &&
+        'available' in body &&
+        (body as { available?: unknown }).available === false
+      ) {
+        const detail = (body as { reason?: unknown }).reason;
+        log.warn('shot ledger route → unavailable; degrading', {
+          reason: typeof detail === 'string' ? detail : 'no reason given',
+        });
+        return undefined;
+      }
+      const parsed = parseLedgerSnapshot(body);
       if (!parsed) {
         log.warn('shot ledger route → payload did not match the ledger schema; degrading');
         return undefined;
