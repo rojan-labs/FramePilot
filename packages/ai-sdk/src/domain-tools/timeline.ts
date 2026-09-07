@@ -1137,6 +1137,63 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
   ),
   mutateTool(
     {
+      name: 'tighten_clips',
+      description:
+        'Tighten pacing in ONE call: every clip on a track (or inside a start/end window ' +
+        'of it) longer than shotSeconds is trimmed to that length — the opening of each ' +
+        'shot is kept, its tail cut — and the gaps are closed so the shots run end to end. ' +
+        'Pass keepClipIds for shots to leave exactly as they are (the first and last, a ' +
+        'hero shot). Use this for "tighten", "faster", "punchier", "shorter cuts" on footage ' +
+        'that is already in order, instead of deleting the section and re-adding it; ' +
+        'set_clip_speed is for playback speed, not shot length. One reversible patch.',
+    },
+    z
+      .object({
+        trackId: z.string().min(1),
+        shotSeconds: numeric(z.number().min(0.1).max(60)),
+        start: seconds.optional(),
+        end: seconds.optional(),
+        keepClipIds: z.array(z.string().min(1)).max(200).optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      const track = ctx.project.timeline.tracks.find((t) => t.id === a.trackId);
+      if (!track) {
+        throw new ToolRefusalError(
+          `tighten_clips: no track "${a.trackId}". The tracks in this timeline are: ` +
+            `${ctx.project.timeline.tracks.map((t) => t.id).join(', ')}.`,
+        );
+      }
+      if (a.start !== undefined && a.end !== undefined && a.end <= a.start) {
+        throw new ToolRefusalError('tighten_clips: end must be after start.');
+      }
+      const keep = new Set(a.keepClipIds ?? []);
+      const lo = a.start ?? Number.NEGATIVE_INFINITY;
+      const hi = a.end ?? Number.POSITIVE_INFINITY;
+      const inWindow = track.clips.filter((c) => c.start >= lo && c.end <= hi);
+      const targets = inWindow.filter((c) => !keep.has(c.id) && c.end - c.start > a.shotSeconds);
+      if (targets.length === 0) {
+        const longest = inWindow.reduce((m, c) => Math.max(m, c.end - c.start), 0);
+        throw new ToolRefusalError(
+          `tighten_clips: nothing to tighten on ${track.id}${a.start !== undefined || a.end !== undefined ? ' in that window' : ''} — ` +
+            `${String(inWindow.length)} clip(s) considered, the longest is ${longest.toFixed(2)}s, ` +
+            `and shotSeconds is ${String(a.shotSeconds)}. Lower shotSeconds, widen the window, or drop keepClipIds.`,
+        );
+      }
+      const trims: Operation[] = targets.map((c) => ({
+        type: 'trim_clip' as const,
+        clipId: c.id,
+        start: c.start,
+        end: c.start + a.shotSeconds,
+      }));
+      // Re-lay the whole track in its current order: `reorder_clips` closes every gap the
+      // trims opened without deleting or adding anything (ADR 0173).
+      const order = [...track.clips].sort((x, y) => x.start - y.start).map((c) => c.id);
+      return [...trims, { type: 'reorder_clips' as const, trackId: track.id, clipIds: order }];
+    },
+  ),
+  mutateTool(
+    {
       name: 'move_clip',
       description:
         'Move ONE clip to a track at a new timeline start time (duration unchanged). ' +

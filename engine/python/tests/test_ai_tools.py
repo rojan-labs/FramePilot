@@ -74,6 +74,7 @@ _EXPECTED_FLAGS: dict[str, tuple[bool, bool]] = {
     "delete_clips": (True, True),
     "move_clip": (True, True),
     "reorder_clips": (True, True),
+    "tighten_clips": (True, True),
     "set_clip_speed_ramp": (True, True),
     "add_track": (True, True),
     "remove_track": (True, True),
@@ -1058,6 +1059,23 @@ def test_adjust_audio(ctx: ToolContext, project: Project) -> None:
     result = run_tool("adjust_audio", {"clipId": "AU", "gainDb": -6.0}, ctx)
     assert result.operations == [{"type": "adjust_audio", "clipId": "AU", "gainDb": -6.0}]
     _assert_patch_ok(result, project)
+
+
+def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
+    track = next(t for t in project.timeline.tracks if len(t.clips) > 1)
+    first = sorted(track.clips, key=lambda c: c.start)[0]
+    result = run_tool(
+        "tighten_clips",
+        {"trackId": track.id, "shotSeconds": 0.5, "keepClipIds": [first.id]},
+        ctx,
+    )
+    assert result.operations is not None
+    trims = [op for op in result.operations if op["type"] == "trim_clip"]
+    assert trims and all(op["clipId"] != first.id for op in trims)
+    assert result.operations[-1]["type"] == "reorder_clips"
+    _assert_patch_ok(result, project)
+    with pytest.raises(Exception, match="nothing to tighten"):
+        run_tool("tighten_clips", {"trackId": track.id, "shotSeconds": 60}, ctx)
 
 
 def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:

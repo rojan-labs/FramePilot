@@ -60,6 +60,7 @@ from framepilot_engine.ai_tools.registry import (
     SetTrackCaptionStyleArgs,
     SetTrackFlagsArgs,
     SplitClipArgs,
+    TightenClipsArgs,
     TimelineWindowArgs,
     TrackObjectArgs,
     TranscriptWindowArgs,
@@ -278,6 +279,37 @@ def set_clip_speed_ramp(args: SetClipSpeedRampArgs, ctx: ToolContext) -> Operati
             ],
         }
     ]
+
+
+def tighten_clips(args: TightenClipsArgs, ctx: ToolContext) -> Operations:
+    """Mirror of ``domain-tools/timeline.ts#tighten_clips``: trims, then a gapless re-lay."""
+    track = _find_track(ctx.project, args.track_id)
+    if track is None:
+        known = ", ".join(t.id for t in ctx.project.timeline.tracks)
+        raise ValueError(
+            f'tighten_clips: no track "{args.track_id}". The tracks in this timeline are: {known}.'
+        )
+    if args.start is not None and args.end is not None and args.end <= args.start:
+        raise ValueError("tighten_clips: end must be after start.")
+    keep = set(args.keep_clip_ids or [])
+    lo = args.start if args.start is not None else float("-inf")
+    hi = args.end if args.end is not None else float("inf")
+    in_window = [c for c in track.clips if c.start >= lo and c.end <= hi]
+    targets = [c for c in in_window if c.id not in keep and c.end - c.start > args.shot_seconds]
+    if not targets:
+        longest = max((c.end - c.start for c in in_window), default=0.0)
+        raise ValueError(
+            f"tighten_clips: nothing to tighten on {track.id} — {len(in_window)} clip(s) "
+            f"considered, the longest is {longest:.2f}s, and shotSeconds is {args.shot_seconds}. "
+            "Lower shotSeconds, widen the window, or drop keepClipIds."
+        )
+    ops: Operations = [
+        {"type": "trim_clip", "clipId": c.id, "start": c.start, "end": c.start + args.shot_seconds}
+        for c in targets
+    ]
+    order = [c.id for c in sorted(track.clips, key=lambda c: c.start)]
+    ops.append({"type": "reorder_clips", "trackId": track.id, "clipIds": order})
+    return ops
 
 
 def reorder_clips(args: ReorderClipsArgs, ctx: ToolContext) -> Operations:

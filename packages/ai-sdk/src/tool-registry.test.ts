@@ -8,7 +8,9 @@ import {
   COLOR_GRADE_PARAMETER_CONTRACTS,
   validatePatch,
   type Operation,
+  applyProjectPatch,
 } from '@framepilot/editor-core';
+import { assembleEdit } from './assemble.js';
 import { ZodError } from 'zod/v4';
 import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
 import type { ToolContext } from './tool-context.js';
@@ -691,6 +693,31 @@ describe('discover_transitions', () => {
 });
 
 describe('mutating tools — build valid operations', () => {
+  it('tighten_clips trims every long shot in a window and re-lays the track gaplessly', () => {
+    // s9-live-all refine-tighten t2: 184 operations, three delete-then-re-add rebuilds, to
+    // shorten a section's shots. This is that job as one patch.
+    const tool = getTool('tighten_clips')!;
+    const track = ctx.project.timeline.tracks.find((t) => t.clips.length > 1)!;
+    const first = [...track.clips].sort((a, b) => a.start - b.start)[0]!;
+    const ops = tool.buildOps!(
+      { trackId: track.id, shotSeconds: 1, keepClipIds: [first.id] },
+      ctx,
+    );
+    const trims = ops.filter((op) => op.type === 'trim_clip') as { clipId: string; start: number; end: number }[];
+    expect(trims.length).toBeGreaterThan(0);
+    expect(trims.every((t) => t.end - t.start === 1)).toBe(true);
+    expect(trims.some((t) => t.clipId === first.id)).toBe(false);
+    const relay = ops.at(-1) as { type: string; clipIds: string[] };
+    expect(relay.type).toBe('reorder_clips');
+    expect(relay.clipIds).toHaveLength(track.clips.length);
+    // Applies and inverts like any other patch.
+    const applied = applyProjectPatch(ctx.project, assembleEdit(ctx.project, ops, 'tighten', 'agent').patch);
+    const laid = applied.timeline.tracks.find((t) => t.id === track.id)!.clips;
+    for (let i = 1; i < laid.length; i += 1) expect(laid[i]!.start).toBeCloseTo(laid[i - 1]!.end, 3);
+    expect(() => tool.buildOps!({ trackId: 'nope', shotSeconds: 1 }, ctx)).toThrow(/no track/);
+    expect(() => tool.buildOps!({ trackId: track.id, shotSeconds: 60 }, ctx)).toThrow(/nothing to tighten/);
+  });
+
   it('adjust_audio sets one clip, or every clip on a track in one call', () => {
     // s9-live-all music-bed-quiet: a bed tiled from a 30-second file took eighteen
     // one-clip calls. A trackId fans out to one op per clip; both targets at once, or

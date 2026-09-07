@@ -144,6 +144,17 @@ class SetClipSpeedRampArgs(BaseModel):
     keep_duration: bool | None = Field(default=None, alias="keepDuration")
 
 
+class TightenClipsArgs(BaseModel):
+    """Mirror of the TS ``tighten_clips``: trim clips in a window to a shot length, then re-lay."""
+
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId", min_length=1)
+    shot_seconds: float = Field(alias="shotSeconds", ge=0.1, le=60)
+    start: float | None = Field(default=None, ge=0)
+    end: float | None = Field(default=None, ge=0)
+    keep_clip_ids: list[str] | None = Field(default=None, alias="keepClipIds", max_length=200)
+
+
 class ReorderClipsArgs(BaseModel):
     """A track and ALL of its clip ids in the order they should play (ADR 0173)."""
 
@@ -1279,6 +1290,14 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "clips shift earlier. Prefer this for cutting dead air or tightening pacing.",
         kind="mutate",
         input_model=RangeOnTrackArgs,
+        mutating=True,
+    ),
+    "tighten_clips": _spec(
+        "tighten_clips",
+        "Trim every clip on a track (or in a window of it) longer than shotSeconds to that "
+        "length and close the gaps, in one reversible patch.",
+        kind="mutate",
+        input_model=TightenClipsArgs,
         mutating=True,
     ),
     "reorder_clips": _spec(

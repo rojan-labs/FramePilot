@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 93,
+  "toolCount": 94,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -4376,6 +4376,58 @@
             "minimum": 0
           },
           "clipId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "tighten_clips": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "shotSeconds",
+          "trackId"
+        ],
+        "properties": {
+          "end": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "keepClipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "shotSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0.1,
+            "maximum": 60
+          },
+          "start": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0
+          },
+          "trackId": {
             "type": [
               "string"
             ]
