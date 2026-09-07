@@ -44,3 +44,6 @@ export * from './audio-commands.js';
 // sits relative to the cut (plan/ADVANCED-TRANSITION-SYSTEM.md).
 export * from './transitions.js';
 export * from './frame-grid.js';
+// The model states why a transition belongs at a cut; this decides which one and
+// how long, from the cut's measured deltas (plan/visual-understanding §VU4.1).
+export * from './transition-policy.js';
