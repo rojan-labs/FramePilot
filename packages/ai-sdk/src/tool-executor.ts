@@ -25,6 +25,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import type { AnalysisBudget } from './kernel/cost/analysis-caps.js';
 import type { EditorInteractionContext } from './editor-context/interaction-context.js';
+import type { LedgerSnapshot } from './ledger.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { RefusalCause } from './tool-refusal.js';
 
@@ -66,6 +67,15 @@ export interface HostExecutionContext {
    * one-off MCP calls).
    */
   readonly analysisBudget?: AnalysisBudget;
+  /**
+   * The run's shot ledger (ADR 0175), when the host fetched one.
+   *
+   * Read by the visual reads only: it is what lets a `search_visual` packet carry the shot
+   * description for its span, and what makes the `facts` filter a filter rather than a
+   * hope. Absent ⇒ packets are returned exactly as the engine sent them and a facts filter
+   * is reported as ignored, never as satisfied.
+   */
+  readonly ledger?: LedgerSnapshot | null;
 }
 
 /** What actually happened when the host ran a tool call. */

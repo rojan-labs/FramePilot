@@ -43,7 +43,10 @@ export const COLOR_TOOLS: readonly ToolSpec[] = [
     {
       name: 'apply_color_grade',
       description:
-        'Grade ONE clip. Two kinds: `color_grade` (the default) takes signed offsets ' +
+        'Grade ONE clip with NUMBERS YOU SUPPLY. Reach for this only when the editor names ' +
+        'a value; otherwise match_color, normalize_exposure and apply_look solve the ' +
+        'numbers from what the shots measure and are right more often. ' +
+        'Two kinds: `color_grade` (the default) takes signed offsets ' +
         `where 0 changes nothing — ${GRADE_PARAMS}. A value outside its range, or a name ` +
         'not on that list, is refused rather than silently ignored, and every parameter ' +
         'you omit stays at 0, so a correction can name only the axis it fixes. ' +
@@ -82,7 +85,7 @@ export const COLOR_TOOLS: readonly ToolSpec[] = [
         'Measure one timeline shot through the deterministic render path before matching color. ' +
         'Returns a revision-bound evidence handle with RGB/luma/saturation distributions and ' +
         'whether another visible layer contaminated the sample. Call once for the target and once ' +
-        'for the reference, then pass both handles to professional_color match_reference. Never ' +
+        'for the reference, then match_color grades one to the other from those readings. Never ' +
         'invent or copy the numeric measurements.',
       capabilities: ['color', 'vision'],
       hostUiOnly: true,

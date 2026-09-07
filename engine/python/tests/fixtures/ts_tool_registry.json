@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 93,
+  "toolCount": 97,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -560,9 +560,7 @@
         ],
         "additionalProperties": false,
         "required": [
-          "durationSeconds",
           "fromClipId",
-          "kind",
           "toClipId",
           "trackId"
         ],
@@ -583,9 +581,106 @@
               "string"
             ]
           },
+          "reason": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "continuity",
+              "energy",
+              "location_change",
+              "montage",
+              "reveal",
+              "soften",
+              "time_jump"
+            ]
+          },
           "toClipId": {
             "type": [
               "string"
+            ]
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "add_transitions": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "cuts": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "object"
+              ],
+              "additionalProperties": false,
+              "required": [
+                "fromClipId",
+                "toClipId"
+              ],
+              "properties": {
+                "fromClipId": {
+                  "type": [
+                    "string"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string"
+                  ],
+                  "enum": [
+                    "continuity",
+                    "energy",
+                    "location_change",
+                    "montage",
+                    "reveal",
+                    "soften",
+                    "time_jump"
+                  ]
+                },
+                "toClipId": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
+            }
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": [
+                  "string"
+                ],
+                "enum": [
+                  "continuity",
+                  "energy",
+                  "location_change",
+                  "montage",
+                  "reveal",
+                  "soften",
+                  "time_jump"
+                ]
+              },
+              {
+                "type": [
+                  "string"
+                ]
+              }
             ]
           },
           "trackId": {
@@ -768,6 +863,63 @@
               "number"
             ],
             "minimum": 0
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "apply_look": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "look"
+        ],
+        "properties": {
+          "amount": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "medium",
+              "strong",
+              "subtle"
+            ]
+          },
+          "clipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          },
+          "look": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "brighter",
+              "cinematic",
+              "clean",
+              "cooler",
+              "darker",
+              "flatter",
+              "punchier",
+              "warmer"
+            ]
           },
           "trackId": {
             "type": [
@@ -1807,6 +1959,39 @@
         }
       }
     },
+    "match_color": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "referenceClipId",
+          "targetClipIds"
+        ],
+        "properties": {
+          "referenceClipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "targetClipIds": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
+          }
+        }
+      }
+    },
     "measure_color": {
       "kind": "analysis",
       "mutates": false,
@@ -1918,6 +2103,33 @@
               "integer"
             ],
             "minimum": 0
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          }
+        }
+      }
+    },
+    "normalize_exposure": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "trackId"
+        ],
+        "properties": {
+          "anchor": {
+            "type": [
+              "string"
+            ]
           },
           "trackId": {
             "type": [
@@ -3178,6 +3390,60 @@
               "type": [
                 "string"
               ]
+            }
+          },
+          "facts": {
+            "type": [
+              "object"
+            ],
+            "additionalProperties": false,
+            "properties": {
+              "entities": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "motion": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string"
+                  ],
+                  "enum": [
+                    "fast",
+                    "handheld",
+                    "slow",
+                    "static"
+                  ]
+                }
+              },
+              "setting": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              },
+              "shotSize": {
+                "type": [
+                  "array"
+                ],
+                "items": {
+                  "type": [
+                    "string"
+                  ]
+                }
+              }
             }
           },
           "k": {

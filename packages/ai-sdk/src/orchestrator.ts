@@ -39,6 +39,8 @@ import {
   automaticTrackingOpsFromMeasurement,
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
+import { colorSolveNote } from './domain-tools/solved-color.js';
+import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
   TranscriptWordSchema,
@@ -3484,6 +3486,11 @@ export class Orchestrator {
       // that passes history gets dated memory writes without changing its call.
       turn: (input.history ?? []).filter((m) => m.role === 'user').length + 1,
       ...(input.selection ? { selection: input.selection } : {}),
+      // The shot ledger the context builder renders clip rows from, handed to the tools as
+      // well (VU2.5). By reference, not copied: it is an immutable snapshot, and the
+      // picture slice derived from it is memoized per `(index, ledger)` — so a tool that
+      // returns facts costs a map lookup rather than a re-derivation.
+      ...(input.ledger === undefined ? {} : { ledger: input.ledger }),
       // Re-stamped, not passed through. The snapshot is captured once when the turn
       // starts, and in agent mode the agent's own first edit would otherwise make every
       // selection-authored tool refuse `stale_context` for the rest of the run — see
@@ -4412,6 +4419,8 @@ export class Orchestrator {
           project: ctx.project,
           ...(ctx.interaction === undefined ? {} : { interaction: ctx.interaction }),
           analysisBudget: host.analysisBudget,
+          // So a visual read can join its packets to the shot ledger (VU2.5).
+          ...(ctx.ledger === undefined ? {} : { ledger: ctx.ledger }),
         },
         host.signal,
       );
@@ -5292,6 +5301,13 @@ export class Orchestrator {
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
         autoReframeNote(call.name, normalized) +
+        // What the solve could NOT do, and which cuts were deliberately left hard. Both are
+        // decisions that leave no trace in the operations, so the summary of the patch
+        // cannot carry them — and a silence reads as "done exactly", which sends the run
+        // back to re-grade or to fill in the transitions it withheld on purpose. Computed
+        // against `ctx.project`, the pre-patch working copy the tool itself decided from.
+        colorSolveNote(call.name, ctx, call.arguments) +
+        transitionsNote(call.name, ctx, call.arguments) +
         (changed
           ? ''
           : ' — nothing moved: the project already said exactly this. Read the current ' +

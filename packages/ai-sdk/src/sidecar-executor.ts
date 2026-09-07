@@ -18,6 +18,12 @@ import type { Project } from '@framepilot/timeline-schema';
 import { toModelProject } from './model-view.js';
 import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
+import type { LedgerSnapshot } from './ledger.js';
+import {
+  type PacketFactsFilter,
+  applyPacketFacts,
+  filterIsEmpty,
+} from './packet-facts.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './tool-executor.js';
 import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
@@ -1086,6 +1092,54 @@ export function unwrapSessionContext(data: unknown): HostToolOutcome {
   return { status: 'completed', summary, data: { ...sections, status: record.status } };
 }
 
+/**
+ * Read the `facts` filter off a `search_visual` call's arguments.
+ *
+ * Tolerant rather than strict: the arguments were already validated against the tool's Zod
+ * schema before dispatch, and a filter that cannot be read here must degrade to "no
+ * filter" (which {@link applyPacketFacts} then reports honestly) rather than fail a search
+ * the model asked for correctly.
+ */
+export function readFactsFilter(args: Record<string, unknown>): PacketFactsFilter | undefined {
+  const facts = args.facts;
+  if (typeof facts !== 'object' || facts === null) return undefined;
+  const record = facts as Record<string, unknown>;
+  const list = (value: unknown): readonly string[] | undefined =>
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+      ? (value as string[])
+      : undefined;
+  const filter: PacketFactsFilter = {
+    shotSize: list(record.shotSize),
+    motion: list(record.motion),
+    entities: list(record.entities),
+    setting: list(record.setting),
+  };
+  return filterIsEmpty(filter) ? undefined : filter;
+}
+
+/**
+ * Join ledger facts onto a completed visual read's packets (VU2.5).
+ *
+ * Only a `completed` outcome carries packets; a failure or an honest no-op is returned
+ * untouched, because the sentence it already carries — "this footage is not indexed" — is
+ * the one the model needs, and appending a fact note to it would bury it.
+ */
+export function withPacketFacts(
+  outcome: HostToolOutcome,
+  ledger: LedgerSnapshot | null | undefined,
+  filter?: PacketFactsFilter,
+): HostToolOutcome {
+  if (outcome.status !== 'completed') return outcome;
+  const record = outcome.data as { packets?: unknown[] } | undefined;
+  if (!record || !Array.isArray(record.packets)) return outcome;
+  const result = applyPacketFacts(record.packets, ledger, filter);
+  return {
+    ...outcome,
+    summary: `${outcome.summary}${result.note}`,
+    data: { ...(record as Record<string, unknown>), packets: result.packets },
+  };
+}
+
 /** A resolved sidecar call: the relative route, its request body, and how to
  *  settle the response into a {@link HostToolOutcome}. */
 interface SidecarPlan {
@@ -1215,14 +1269,18 @@ export function planSidecarCall(
     return {
       route: VISUAL_SEARCH_ROUTE,
       body: visualSearchBody(project, args, credentials),
-      interpret: (data) => unwrapVisualSearch(name, data),
+      // The engine ranks; the ledger qualifies. Joining here rather than in the engine keeps
+      // the brain route free of a second notion of what a shot is — the packets and the
+      // shots are already keyed the same way, on `(assetId, asset seconds)`.
+      interpret: (data) =>
+        withPacketFacts(unwrapVisualSearch(name, data), ctx.ledger, readFactsFilter(args)),
     };
   }
   if (name === 'describe_footage') {
     return {
       route: VISUAL_DESCRIBE_ROUTE,
       body: describeFootageBody(project, args, credentials),
-      interpret: unwrapDescribeFootage,
+      interpret: (data) => withPacketFacts(unwrapDescribeFootage(data), ctx.ledger),
     };
   }
   if (name === 'map_footage') {

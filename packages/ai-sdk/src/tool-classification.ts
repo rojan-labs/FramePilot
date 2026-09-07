@@ -209,8 +209,14 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   add_text_layer: { role: 'mutation', scope: 'timeline_dependent' },
   add_track: { role: 'mutation', scope: 'timeline_dependent' },
   add_transition: { role: 'mutation', scope: 'timeline_dependent' },
+  add_transitions: { role: 'mutation', scope: 'timeline_dependent' },
   adjust_audio: { role: 'mutation', scope: 'timeline_dependent' },
   apply_color_grade: { role: 'mutation', scope: 'timeline_dependent' },
+  // Solved grades (VU3.2). Mutations like any other: the solve reads measurements the run
+  // already holds, so the call itself establishes nothing that outlives the patch.
+  match_color: { role: 'mutation', scope: 'timeline_dependent' },
+  normalize_exposure: { role: 'mutation', scope: 'timeline_dependent' },
+  apply_look: { role: 'mutation', scope: 'timeline_dependent' },
   delete_clip: { role: 'mutation', scope: 'timeline_dependent' },
   delete_clips: { role: 'mutation', scope: 'timeline_dependent' },
   delete_range: { role: 'mutation', scope: 'timeline_dependent' },

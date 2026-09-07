@@ -64,7 +64,7 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   captions: 'write, restyle and emphasise captions; browse caption templates; check caption sync',
   audio:
     'transcribe; adjust levels; find and cut silence; detect beats to cut to; add music; professional audio moves',
-  color: 'grade and correct colour; measure what is on screen now',
+  color: 'match shots to each other, even out exposure, apply a look; measure what is on screen now',
   motion: 'keyframes, punch-ins, camera moves and speed ramps',
   effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
   footage:
@@ -159,7 +159,13 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     'discover_caption_styles',
   ],
   audio: ['adjust_audio', 'analyze_silence', 'remove_silences', 'professional_audio'],
-  color: ['apply_color_grade', 'professional_color'],
+  color: [
+    'apply_color_grade',
+    'match_color',
+    'normalize_exposure',
+    'apply_look',
+    'professional_color',
+  ],
   motion: [
     'add_keyframes',
     'remove_keyframes',
@@ -172,6 +178,7 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
   effects: [
     'add_text_layer',
     'add_transition',
+    'add_transitions',
     'apply_effect',
     'adjust_effect',
     'move_effect',

@@ -87,4 +87,15 @@ export interface ColorEvidenceEntry {
 
 export interface ColorEvidenceReader {
   byHandle(id: string): ColorEvidenceEntry | undefined;
+  /**
+   * Everything the run has stored, so a tool can find a measurement it was not handed a
+   * handle for.
+   *
+   * Optional because the contract's original consumer (`professional_color`) is passed
+   * explicit handles by the model. The solved colour tools are not: the model states the
+   * intent — "match these to that" — and the tool has to find the readings itself, which
+   * means scanning for the `measure_color` entries this run produced. `EvidenceStore`
+   * already exposes exactly this, so nothing new is stored to support it.
+   */
+  entries?(): readonly ColorEvidenceEntry[];
 }

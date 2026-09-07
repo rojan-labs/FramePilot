@@ -27,6 +27,14 @@ import {
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
 import { createLaneAllocator } from '@framepilot/editor-core';
+import {
+  type PictureBlockView,
+  cutHasFacts,
+  cutIndexOf,
+  cutKey,
+  pictureBlockFor,
+  pictureOf,
+} from './picture-facts.js';
 
 /** The per-call lane bookkeeping `addClipOperation` needs; see `createLaneAllocator`. */
 type LaneAllocator = ReturnType<typeof createLaneAllocator>;
@@ -147,7 +155,10 @@ const clipDeleteOp = (
  * tool calls, which means it was never asked, which is why two captured runs reframed a
  * handful of shots, lost track, and reported the job done. A flag is one call.
  */
-const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
+const clipRow = (
+  clip: Track['clips'][number],
+  picture?: PictureBlockView,
+): Record<string, unknown> => ({
   id: clip.id,
   trackId: clip.trackId,
   assetId: clip.assetId,
@@ -160,6 +171,11 @@ const clipRow = (clip: Track['clips'][number]): Record<string, unknown> => ({
   graded: clip.effects.some((effect) => effect.type === 'color_grade'),
   effectCount: clip.effects.length,
   keyframeCount: clip.keyframes.length,
+  // The dominant shot's facts, when the ledger has any (VU2.5). Omitted entirely when it
+  // has none: a `picture: null` on every row of a 200-clip listing costs tokens to say
+  // what the key's absence already says, and "not measured" must not read as "measured
+  // and unremarkable".
+  ...(picture === undefined ? {} : { picture }),
 });
 
 const deleteSchema = z.object({ trackId: z.string(), start: seconds, end: seconds }).strict();
@@ -947,7 +963,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       description:
         'Every real cut in the sequence — where one clip ends and the next begins — ' +
         'with the two clip ids, the sequence time, and the longest transition each can ' +
-        'carry. A transition can only go at one of these. A narrative pivot INSIDE a ' +
+        'carry. Where the footage has been measured each cut also carries `delta` (how far ' +
+        'apart the two shots are: luma, warmth, shot size, setting, motion — signed to ' +
+        'minus from) and `flags` (jump_cut, exposure_jump, wb_jump, size_jump, black_in, ' +
+        'soft_in). A transition can only go at one of these. A narrative pivot INSIDE a ' +
         'continuous clip is not a boundary: split the clip there first, or the ' +
         'transition has nothing to happen at.',
     },
@@ -958,12 +977,21 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       // is one they can name in frames, and a transition's ceiling is a frame count
       // before it is a duration.
       const fps = ctx.project.fps;
-      return listEditBoundaries(ctx.project.timeline, ctx.project.assets).map((boundary) => ({
-        ...boundary,
-        frame: secondsToFrame(boundary.at, fps),
-        maxTransitionFrames: secondsToFrame(boundary.maxTransitionSeconds, fps),
-        fps,
-      }));
+      // VU2.5: the same cut, measured. `delta` is signed to − from throughout, and every
+      // field is `null` when the tier that answers it has not run — never 0, which would
+      // read as "no difference". This is the input `add_transitions` reads, so a model
+      // that wants to explain a choice can read exactly what the policy read.
+      const cuts = cutIndexOf(pictureOf(ctx));
+      return listEditBoundaries(ctx.project.timeline, ctx.project.assets).map((boundary) => {
+        const cut = cuts.get(cutKey(boundary.fromClipId, boundary.toClipId));
+        return {
+          ...boundary,
+          frame: secondsToFrame(boundary.at, fps),
+          maxTransitionFrames: secondsToFrame(boundary.maxTransitionSeconds, fps),
+          fps,
+          ...(cut === undefined || !cutHasFacts(cut) ? {} : { delta: cut.delta, flags: cut.flags }),
+        };
+      });
     },
   ),
   readTool(
@@ -976,7 +1004,10 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         '200). Returns { clips, total, hasMore }. `cropped` is how you check reframing ' +
         'coverage across a whole cut in ONE call: an uncropped clip whose source aspect ' +
         'differs from the sequence renders with black bars. Use this instead of ' +
-        'get_timeline on a long-form project; use get_clip for one clip in full detail.',
+        'get_timeline on a long-form project; use get_clip for one clip in full detail. ' +
+        'Where the footage has been measured each row also carries `picture` — the ' +
+        "dominant shot's framing, motion, exposure, warmth and description, with the tier " +
+        'that knows each and its confidence.',
     },
     getClipsSchema,
     (a, ctx) => {
@@ -990,8 +1021,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       const offset = a.offset ?? 0;
       const limit = a.limit ?? GET_CLIPS_DEFAULT_LIMIT;
       const page = matched.slice(offset, offset + limit);
+      const slice = pictureOf(ctx);
       return {
-        clips: page.map(clipRow),
+        clips: page.map((clip) => clipRow(clip, pictureBlockFor(slice, clip.id, 'compact'))),
         total: matched.length,
         hasMore: offset + page.length < matched.length,
       };
@@ -1002,7 +1034,9 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'get_clip',
       description:
         'Return one clip in full detail (effects, keyframes, styling) plus its ' +
-        'trackId. The precise deep read to pair with the compact get_clips listing.',
+        'trackId, and `picture` — every shot the clip shows and what is measured or ' +
+        'recognised about it. The precise deep read to pair with the compact get_clips ' +
+        'listing.',
     },
     z.object({ clipId: z.string() }).strict(),
     (a, ctx) => {
@@ -1010,7 +1044,15 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       if (!found) {
         return { error: `Unknown clip "${a.clipId}". ${clipCandidates(ctx.project, a.clipId)}` };
       }
-      return { trackId: found.track.id, clip: found.clip };
+      // The deep read carries every shot this clip shows, not just the dominant one: a
+      // clip spanning a scene change has two, and a decision about the second cannot be
+      // made from a summary of the first.
+      const picture = pictureBlockFor(pictureOf(ctx), a.clipId, 'full');
+      return {
+        trackId: found.track.id,
+        clip: found.clip,
+        ...(picture === undefined ? {} : { picture }),
+      };
     },
   ),
   readTool(

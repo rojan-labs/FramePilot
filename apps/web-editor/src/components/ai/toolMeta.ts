@@ -121,6 +121,9 @@ const TOOL_META: Record<string, ToolMeta> = {
   session_context: { label: 'Recall project memory', Icon: BookOpen },
   detect_faces: { label: 'Detect faces', Icon: Scan },
   measure_color: { label: 'Measure shot color', Icon: Palette },
+  match_color: { label: 'Match color to a reference', Icon: Palette },
+  normalize_exposure: { label: 'Even out exposure', Icon: Palette },
+  apply_look: { label: 'Apply a look', Icon: Palette },
 
   // Resolver-backed professional editor commands
   professional_edit: { label: 'Perform professional edit', Icon: Scissors },
@@ -153,6 +156,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   apply_color_grade: { label: 'Color grade', Icon: Palette },
   adjust_audio: { label: 'Adjust audio', Icon: Volume2 },
   add_transition: { label: 'Add transition', Icon: ArrowLeftRight },
+  add_transitions: { label: 'Place transitions', Icon: ArrowLeftRight },
   add_mask: { label: 'Add mask', Icon: Square },
   track_object: { label: 'Track object', Icon: Scan },
   set_track_flags: { label: 'Track settings', Icon: SlidersHorizontal },
