@@ -27,6 +27,16 @@ import {
   checkNoOverlaps,
   checkCutsFasterThanBefore,
   checkValidRefs,
+  checkNoCollateralChanges,
+  checkGradeLandedOnTarget,
+  checkGradesAreRealAndInRange,
+  checkWarmedEveryClip,
+  checkTransitionAtASceneChange,
+  checkNoTransitionOnContinuityCuts,
+  checkCutawayCoversPhrase,
+  checkDuplicateTakesRemoved,
+  checkUniqueTakesKept,
+  phraseSpan,
   scoreMissionScenario,
   projectDuration,
 } from './mission-rubric.js';
@@ -853,5 +863,236 @@ describe('checkNoMidWordCuts only judges footage the transcript could be on', ()
 
   it('still charges a cut on footage long enough to hold the transcript', () => {
     expect(checkNoMidWordCuts(project(60)).ok).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// plan/visual-understanding VU0.3 — the picture checks
+// ---------------------------------------------------------------------------
+
+/** A parametric grade, in the shape `apply_color_grade` writes. */
+const grade = (clipId: string, params: Record<string, number>) => ({
+  id: `${clipId}__grade`,
+  type: 'color_grade',
+  params,
+  keyframes: [],
+});
+
+describe('no-collateral-changes', () => {
+  const before = withClips([clip('c1', 0, 5), clip('c2', 5, 10), clip('c3', 10, 15)]);
+
+  it('passes when only the named clip gained an effect', () => {
+    const after = withClips([
+      clip('c1', 0, 5),
+      clip('c2', 5, 10),
+      clip('c3', 10, 15, { effects: [grade('c3', { temperature: 0.2 })] } as Partial<Clip>),
+    ]);
+    expect(checkNoCollateralChanges({ before, after }, [], ['c3']).ok).toBe(true);
+  });
+
+  it('fails when a clip nobody named was also cropped', () => {
+    const after = withClips([
+      clip('c1', 0, 3, { sourceEnd: 3 }),
+      clip('c2', 5, 10),
+      clip('c3', 10, 15, { effects: [grade('c3', { temperature: 0.2 })] } as Partial<Clip>),
+    ]);
+    const check = checkNoCollateralChanges({ before, after }, [], ['c3']);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('c1');
+  });
+
+  it('fails when a clip nobody named was also graded', () => {
+    const after = withClips([
+      clip('c1', 0, 5, { effects: [grade('c1', { exposure: 0.4 })] } as Partial<Clip>),
+      clip('c2', 5, 10),
+      clip('c3', 10, 15, { effects: [grade('c3', { temperature: 0.2 })] } as Partial<Clip>),
+    ]);
+    expect(checkNoCollateralChanges({ before, after }, [], ['c3']).ok).toBe(false);
+  });
+
+  it("'any' effects still refuses a clip that moved", () => {
+    const after = withClips([clip('c1', 0, 5), clip('c2', 5, 9, { sourceEnd: 9 }), clip('c3', 10, 15)]);
+    expect(checkNoCollateralChanges({ before, after }, [], 'any').ok).toBe(false);
+  });
+});
+
+describe('match-color: the grade lands on the target, not the reference', () => {
+  const before = withClips([clip('c1', 0, 5), clip('c2', 5, 10), clip('c3', 10, 15)]);
+  const graded = (id: string): Project =>
+    withClips(
+      ['c1', 'c2', 'c3'].map((each, i) =>
+        clip(each, i * 5, i * 5 + 5, each === id ? ({ effects: [grade(each, { temperature: -0.2 })] } as Partial<Clip>) : {}),
+      ),
+    );
+
+  it('passes when the third clip is graded and the first is not', () => {
+    expect(checkGradeLandedOnTarget({ before, after: graded('c3') }, 2, 0).ok).toBe(true);
+  });
+
+  it('fails the inverted edit — grading the reference to look like the target', () => {
+    const check = checkGradeLandedOnTarget({ before, after: graded('c1') }, 2, 0);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('c3');
+  });
+});
+
+describe('grades are real and inside the renderer contract', () => {
+  it('refuses a grade whose every parameter is zero', () => {
+    const p = withClips([clip('c1', 0, 5, { effects: [grade('c1', { temperature: 0 })] } as Partial<Clip>)]);
+    expect(checkGradesAreRealAndInRange(p).ok).toBe(false);
+  });
+
+  it('refuses a parameter outside its contract range', () => {
+    const p = withClips([clip('c1', 0, 5, { effects: [grade('c1', { temperature: 4 })] } as Partial<Clip>)]);
+    const check = checkGradesAreRealAndInRange(p);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('temperature');
+  });
+
+  it('accepts a grade inside the contract that moves something', () => {
+    const p = withClips([clip('c1', 0, 5, { effects: [grade('c1', { temperature: 0.2 })] } as Partial<Clip>)]);
+    expect(checkGradesAreRealAndInRange(p).ok).toBe(true);
+  });
+});
+
+describe('warmer-subtle: warmth, on every clip, and nothing else', () => {
+  const warmed = (params: Record<string, number>[]): Project =>
+    withClips(params.map((p, i) => clip(`c${String(i)}`, i * 5, i * 5 + 5, { effects: [grade(`c${String(i)}`, p)] } as Partial<Clip>)));
+
+  it('passes when every clip carries a small positive temperature', () => {
+    expect(checkWarmedEveryClip(warmed([{ temperature: 0.12 }, { temperature: 0.2 }]), 0.5).ok).toBe(true);
+  });
+
+  it('fails when one clip was left ungraded', () => {
+    const p = withClips([
+      clip('c0', 0, 5, { effects: [grade('c0', { temperature: 0.12 })] } as Partial<Clip>),
+      clip('c1', 5, 10),
+    ]);
+    const check = checkWarmedEveryClip(p, 0.5);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('c1');
+  });
+
+  it('fails a "warmer" that also brightened the shot', () => {
+    const check = checkWarmedEveryClip(warmed([{ temperature: 0.12, exposure: 0.6 }]), 0.5);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('exposure');
+  });
+
+  it('fails a cooler grade', () => {
+    expect(checkWarmedEveryClip(warmed([{ temperature: -0.2 }]), 0.5).ok).toBe(false);
+  });
+});
+
+describe('transitions land at source changes and never on a continuity cut', () => {
+  const transition = (clipId: string) => ({
+    id: `${clipId}__transition`,
+    type: 'transition',
+    params: { kind: 'dissolve', durationSeconds: 0.5 },
+    keyframes: [],
+  });
+  /** c0→c1 continues one asset; c1→c2 changes source. */
+  const timeline = (withTransitionOn: readonly string[]): Project =>
+    withClips([
+      clip('c0', 0, 5, { assetId: 'a', sourceStart: 0, sourceEnd: 5 }),
+      clip('c1', 5, 10, {
+        assetId: 'a',
+        sourceStart: 5,
+        sourceEnd: 10,
+        effects: withTransitionOn.includes('c1') ? [transition('c1')] : [],
+      } as Partial<Clip>),
+      clip('c2', 10, 15, {
+        assetId: 'b',
+        sourceStart: 0,
+        sourceEnd: 5,
+        effects: withTransitionOn.includes('c2') ? [transition('c2')] : [],
+      } as Partial<Clip>),
+    ]);
+
+  it('passes a transition on the source change', () => {
+    expect(checkTransitionAtASceneChange(timeline(['c2'])).ok).toBe(true);
+    expect(checkNoTransitionOnContinuityCuts(timeline(['c2'])).ok).toBe(true);
+  });
+
+  it('fails a dissolve on the continuity cut', () => {
+    const check = checkNoTransitionOnContinuityCuts(timeline(['c1', 'c2']));
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('c0→c1');
+  });
+
+  it('fails a pass that added no transition at all', () => {
+    expect(checkTransitionAtASceneChange(timeline([])).ok).toBe(false);
+  });
+
+  it('does not judge a timeline with no continuity cut', () => {
+    const onlyChanges = withClips([
+      clip('c0', 0, 5, { assetId: 'a' }),
+      clip('c1', 5, 10, { assetId: 'b' }),
+    ]);
+    expect(checkNoTransitionOnContinuityCuts(onlyChanges).skipped).toBe(true);
+  });
+});
+
+describe('a cutaway is resolved through the transcript, not a clock', () => {
+  const speech = [
+    { word: 'the', start: 10, end: 10.2 },
+    { word: 'champions', start: 10.2, end: 10.8 },
+    { word: 'league', start: 10.8, end: 11.4 },
+    { word: 'is', start: 11.4, end: 11.6 },
+  ];
+  const talk = (clips: Clip[]): Project =>
+    ({ ...withClips(clips), transcript: speech }) as Project;
+  const before = talk([clip('c1', 0, 60, { assetId: 'talk', sourceStart: 0, sourceEnd: 60 })]);
+
+  it('finds the phrase span in the transcript', () => {
+    expect(phraseSpan(speech, 'champions league')).toEqual([10.2, 11.4]);
+    expect(phraseSpan(speech, 'world cup')).toBeNull();
+  });
+
+  it('passes b-roll placed over the line', () => {
+    const after = talk([
+      clip('c1', 0, 10, { assetId: 'talk', sourceStart: 0, sourceEnd: 10 }),
+      clip('b1', 10, 12, { assetId: 'broll', sourceStart: 0, sourceEnd: 2 }),
+      clip('c1b', 12, 60, { assetId: 'talk', sourceStart: 12, sourceEnd: 60 }),
+    ]);
+    expect(checkCutawayCoversPhrase({ before, after }, ['broll'], 'champions league').ok).toBe(true);
+  });
+
+  it('fails b-roll placed somewhere else entirely', () => {
+    const after = talk([
+      clip('c1', 0, 40, { assetId: 'talk', sourceStart: 0, sourceEnd: 40 }),
+      clip('b1', 40, 42, { assetId: 'broll', sourceStart: 0, sourceEnd: 2 }),
+    ]);
+    expect(checkCutawayCoversPhrase({ before, after }, ['broll'], 'champions league').ok).toBe(false);
+  });
+});
+
+describe('duplicate takes', () => {
+  const repeated = withClips([
+    clip('c1', 0, 5, { assetId: 'a', sourceStart: 0, sourceEnd: 5 }),
+    clip('c2', 5, 10, { assetId: 'b', sourceStart: 0, sourceEnd: 5 }),
+    clip('c3', 10, 15, { assetId: 'a', sourceStart: 0, sourceEnd: 5 }),
+  ]);
+
+  it('sees the repeat and calls it gone once it is', () => {
+    const after = withClips([
+      clip('c1', 0, 5, { assetId: 'a', sourceStart: 0, sourceEnd: 5 }),
+      clip('c2', 5, 10, { assetId: 'b', sourceStart: 0, sourceEnd: 5 }),
+    ]);
+    expect(checkDuplicateTakesRemoved({ before: repeated, after }).ok).toBe(true);
+    expect(checkUniqueTakesKept({ before: repeated, after }).ok).toBe(true);
+  });
+
+  it('refuses the cheap answer of deleting the programme', () => {
+    const after = withClips([clip('c1', 0, 5, { assetId: 'a', sourceStart: 0, sourceEnd: 5 })]);
+    expect(checkDuplicateTakesRemoved({ before: repeated, after }).ok).toBe(true);
+    const kept = checkUniqueTakesKept({ before: repeated, after });
+    expect(kept.ok).toBe(false);
+    expect(kept.detail).toContain('c2');
+  });
+
+  it('has no verdict when nothing was repeated going in', () => {
+    const plain = withClips([clip('c1', 0, 5, { assetId: 'a' }), clip('c2', 5, 10, { assetId: 'b' })]);
+    expect(checkDuplicateTakesRemoved({ before: plain, after: plain }).skipped).toBe(true);
   });
 });

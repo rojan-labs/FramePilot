@@ -9,10 +9,13 @@
  * Subjective quality (does the montage *feel* good) is deliberately out of scope; the
  * Critic's advisory judgment covers that and never gates.
  */
-import type { Clip, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
+import type { Clip, Effect, Project, Track, TranscriptWord } from '@framepilot/timeline-schema';
 import {
   CAPTION_ASSET_ID,
+  COLOR_GRADE_PARAMETER_CONTRACTS,
   TEXT_OVERLAY_ASSET_ID,
+  TRANSITION_EFFECT_TYPE,
+  TRANSITION_OUT_EFFECT_TYPE,
   coverageVerdict,
   type ShapedClip,
   type SourceShape,
@@ -83,7 +86,15 @@ export type MissionScenarioId =
   // Second phrasings of the core verbs, so each has six samples at three runs.
   | 'trim-first-clip-head'
   | 'reorder-swap-first-two'
-  | 'captions-styled';
+  | 'captions-styled'
+  // plan/visual-understanding VU0.3 — the cases that need the agent to know what the
+  // picture LOOKS like. Every one is scored on the resulting edit state; the three
+  // question cases in the same batch reuse 'unchanged', because prose is not scorable here.
+  | 'match-color-to-reference'
+  | 'warmer-subtle'
+  | 'transitions-where-they-belong'
+  | 'broll-over-sentence'
+  | 'remove-duplicate-takes';
 
 export interface RubricContext {
   /** The project the run started from (needed for before/after checks). */
@@ -861,6 +872,581 @@ export function checkCaptionStyleMatches(
   };
 }
 
+// ---------------------------------------------------------------------------
+// Picture-understanding checks (plan/visual-understanding VU0.3)
+// ---------------------------------------------------------------------------
+
+/**
+ * WHY these read the timeline and not the reply.
+ *
+ * The visual cases exist because the agent has never looked at a frame and has never
+ * grounded a grade or a transition in a measurement (`reports/golden/BASELINE.md`, guess
+ * rate 1.00). What proves that changed is the EDIT: which clip gained a grade, on which
+ * axis it moved, which cuts carry a transition and which deliberately do not, whether the
+ * placed cutaway sits over the line the request named. None of that is a sentence, and a
+ * rubric that read the prose would be scoring the agent's self-description.
+ */
+
+/**
+ * Which clips `match-color-to-first-clip` names, as positions on the picture track.
+ *
+ * The prompt is "match clip 3's colour to clip 1", and the fixture's clips are numbered on
+ * screen from 1, so clip 3 is index 2. Positions rather than ids because the runner scores
+ * against whatever project the case composed, and an id would pin the rubric to one fixture.
+ */
+const MATCH_COLOR_TARGET_INDEX = 2;
+const MATCH_COLOR_REFERENCE_INDEX = 0;
+
+/**
+ * The most temperature "a little warmer" may reach before it is not a little any more.
+ *
+ * Half the renderer's contract range (temperature is -1..1). Not a tighter number, because
+ * how much temperature a +0.05 warmth move costs depends on the shot's measured luma — the
+ * solver decides that, and a rubric pinning it would be grading the arithmetic rather than
+ * the intent. What is scoreable is that the move is warm, is not extreme, and is alone.
+ */
+const WARMER_SUBTLE_MAX_TEMPERATURE = 0.5;
+
+/**
+ * The line `broll-over-sentence` asks for b-roll over, verbatim from the fixture transcript.
+ *
+ * The plan's example prompt is "the sentence about traffic"; `mission-talk`'s narration is
+ * about football, so the case asks for the line it actually contains. The phrase lives here
+ * rather than in the case because the rubric is what has to find it in the transcript, and
+ * the two must not be able to drift apart.
+ */
+const BROLL_SENTENCE_PHRASE = 'champions league';
+
+/** Where a clip sits and what it plays — everything except its effects. */
+function geometryKey(clip: Clip): string {
+  return [
+    clip.assetId,
+    clip.start.toFixed(4),
+    clip.end.toFixed(4),
+    clip.sourceStart.toFixed(4),
+    clip.sourceEnd.toFixed(4),
+    (clip.speed ?? 1).toFixed(4),
+  ].join('|');
+}
+
+/** The effects a clip carries, order-independent. */
+function effectsKey(clip: Clip): string {
+  return JSON.stringify(
+    [...clip.effects]
+      .map((effect) => ({
+        id: effect.id,
+        type: effect.type,
+        params: effect.params,
+        keyframes: effect.keyframes,
+      }))
+      .sort((a, b) => a.id.localeCompare(b.id)),
+  );
+}
+
+function allClips(project: Project): readonly Clip[] {
+  return project.timeline.tracks.flatMap((track) => track.clips);
+}
+
+const ANY = 'any' as const;
+
+/**
+ * Nothing changed that the request did not ask for.
+ *
+ * The facet every visual case carries, because the failure it catches has happened here
+ * before: a grade request that also reframed five clips, a caption request that re-cut the
+ * programme. `refine-tighten` scores the same idea for the clips a prompt names as "keep";
+ * this generalises it to "the request named ONE thing, so exactly one thing may differ",
+ * and it separates the two ways a clip can change — where it sits (`geometry`) and what is
+ * stacked on it (`effects`) — because a colour request legitimately changes the second and
+ * must never touch the first.
+ *
+ * @param ctx - Before/after.
+ * @param allowGeometryOn - Clip ids whose position or source range may move; `'any'` for a
+ *   request that is allowed to re-cut.
+ * @param allowEffectsOn - Clip ids that may gain, lose or change effects; `'any'` for a
+ *   request that legitimately touches every clip (a whole-sequence look, a transition pass).
+ */
+export function checkNoCollateralChanges(
+  ctx: RubricContext,
+  allowGeometryOn: readonly string[] | typeof ANY,
+  allowEffectsOn: readonly string[] | typeof ANY,
+): RubricCheck {
+  const geometryOk = (id: string): boolean =>
+    allowGeometryOn === ANY || allowGeometryOn.includes(id);
+  const effectsOk = (id: string): boolean => allowEffectsOn === ANY || allowEffectsOn.includes(id);
+  const before = new Map(allClips(ctx.before).map((clip) => [clip.id, clip]));
+  const after = new Map(allClips(ctx.after).map((clip) => [clip.id, clip]));
+  const strayed: string[] = [];
+  for (const [id, was] of before) {
+    const now = after.get(id);
+    if (!now) {
+      if (!geometryOk(id)) strayed.push(`${id} removed`);
+      continue;
+    }
+    if (!geometryOk(id) && geometryKey(now) !== geometryKey(was)) strayed.push(`${id} moved`);
+    if (!effectsOk(id) && effectsKey(now) !== effectsKey(was)) strayed.push(`${id} re-effected`);
+  }
+  for (const id of after.keys()) {
+    if (!before.has(id) && !geometryOk(id)) strayed.push(`${id} added`);
+  }
+  return {
+    id: 'no-collateral-changes',
+    ok: strayed.length === 0,
+    detail:
+      strayed.length === 0
+        ? 'nothing changed that the request did not name'
+        : `also changed: ${strayed.join(', ')}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Every parametric grade on a clip, newest definition last. */
+function colorGradeEffects(clip: Clip | undefined): readonly Effect[] {
+  return clip ? clip.effects.filter((effect) => effect.type === 'color_grade') : [];
+}
+
+/** A grade parameter as a number; `null` when the effect does not set it. */
+function gradeParam(effect: Effect, name: string): number | null {
+  const raw = effect.params[name];
+  return typeof raw === 'number' && Number.isFinite(raw) ? raw : null;
+}
+
+/** The largest absolute value the clip's grades set for one axis; `null` when unset. */
+function gradeAxis(clip: Clip | undefined, name: string): number | null {
+  let value: number | null = null;
+  for (const effect of colorGradeEffects(clip)) {
+    const found = gradeParam(effect, name);
+    if (found !== null && (value === null || Math.abs(found) > Math.abs(value))) value = found;
+  }
+  return value;
+}
+
+function pictureClipAt(project: Project, index: number): Clip | undefined {
+  return pictureClips(project)[index];
+}
+
+/**
+ * The clip the request named as the TARGET gained a grade, and the reference did not.
+ *
+ * "Match clip 3's colour to clip 1" has a direction, and getting it backwards — grading the
+ * reference to look like the target — is a plausible, silent, exactly-wrong answer. Both
+ * halves are asserted, in one check, because either alone passes the inverted edit.
+ */
+export function checkGradeLandedOnTarget(
+  ctx: RubricContext,
+  targetIndex: number,
+  referenceIndex: number,
+): RubricCheck {
+  const target = pictureClipAt(ctx.before, targetIndex);
+  const reference = pictureClipAt(ctx.before, referenceIndex);
+  if (!target || !reference) {
+    return {
+      id: 'grade-on-target',
+      ok: false,
+      detail: 'the project does not have the clips the request names',
+      weight: 2,
+      facet: 'target',
+      skipped: true,
+    };
+  }
+  const targetAfter = allClips(ctx.after).find((clip) => clip.id === target.id);
+  const referenceAfter = allClips(ctx.after).find((clip) => clip.id === reference.id);
+  const gainedGrade = colorGradeEffects(targetAfter).length > colorGradeEffects(target).length;
+  const referenceUntouched =
+    referenceAfter !== undefined && effectsKey(referenceAfter) === effectsKey(reference);
+  return {
+    id: 'grade-on-target',
+    ok: gainedGrade && referenceUntouched,
+    detail: gainedGrade
+      ? referenceUntouched
+        ? `${target.id} graded, reference ${reference.id} untouched`
+        : `${target.id} graded, but the reference ${reference.id} was graded too`
+      : `${target.id} carries no new grade`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Below this a grade parameter is a rounding artefact, not an edit. */
+const NEGLIGIBLE_GRADE = 0.005;
+
+/**
+ * Every grade the run applied stays inside the renderer's parameter contract, and moves
+ * something.
+ *
+ * The contract is imported rather than restated (`COLOR_GRADE_PARAMETER_CONTRACTS`): a
+ * second copy here is how a rubric starts grading bounds the product no longer has. A grade
+ * of all zeros is reported as a failure rather than a pass, because "applied a grade that
+ * changes nothing" is the shape a run takes when it wants the tool call on the record.
+ */
+export function checkGradesAreRealAndInRange(project: Project): RubricCheck {
+  const problems: string[] = [];
+  let moved = 0;
+  let grades = 0;
+  for (const clip of pictureClips(project)) {
+    for (const effect of colorGradeEffects(clip)) {
+      grades += 1;
+      let movesSomething = false;
+      for (const [name, raw] of Object.entries(effect.params)) {
+        const contract = COLOR_GRADE_PARAMETER_CONTRACTS[name];
+        if (!contract) continue;
+        if (typeof raw !== 'number' || !Number.isFinite(raw)) {
+          problems.push(`${clip.id}.${name} is not a number`);
+          continue;
+        }
+        if (raw < contract.min || raw > contract.max) {
+          problems.push(`${clip.id}.${name}=${raw.toFixed(3)} outside ${contract.min}..${contract.max}`);
+        }
+        if (Math.abs(raw) > NEGLIGIBLE_GRADE) movesSomething = true;
+      }
+      if (movesSomething) moved += 1;
+      else problems.push(`${clip.id} carries a grade that changes nothing`);
+    }
+  }
+  return {
+    id: 'grades-real-and-in-range',
+    ok: grades > 0 && problems.length === 0,
+    detail:
+      grades === 0
+        ? 'no grade applied'
+        : problems.length === 0
+          ? `${String(moved)} grade(s), every parameter inside its contract`
+          : problems.join('; '),
+    weight: 2,
+  };
+}
+
+/** How far a "warmer" look may move an axis it does not name before it is a different edit. */
+const WARMTH_ONLY_TOLERANCE = 0.1;
+
+/**
+ * A "make it warmer" moves warmth, on every picture clip, and moves nothing else.
+ *
+ * That is the look table's own content, not a number invented here: `LOOK_DELTAS.warmer` is
+ * `{ warmthDelta: 0.1 }` and the amount scale halves it for "a little" — exposure, contrast
+ * and saturation targets are carried through unchanged, so a solved warmer look comes back
+ * as temperature (and whatever tint it costs to hold green/magenta) and nothing else. What
+ * the rubric can therefore assert is the DIRECTION and the ABSENCE of the other axes; the
+ * exact temperature depends on each shot's measured luma and is the solver's business.
+ */
+export function checkWarmedEveryClip(project: Project, maxTemperature: number): RubricCheck {
+  const clips = pictureClips(project);
+  if (clips.length === 0) {
+    return { id: 'warmed-every-clip', ok: false, detail: 'no picture clip', weight: 2, facet: 'target' };
+  }
+  const cold: string[] = [];
+  const overshot: string[] = [];
+  const strayAxes: string[] = [];
+  for (const clip of clips) {
+    const temperature = gradeAxis(clip, 'temperature');
+    if (temperature === null || temperature <= NEGLIGIBLE_GRADE) cold.push(clip.id);
+    else if (temperature > maxTemperature) overshot.push(`${clip.id}=${temperature.toFixed(2)}`);
+    for (const axis of ['exposure', 'contrast', 'saturation'] as const) {
+      const value = gradeAxis(clip, axis);
+      if (value !== null && Math.abs(value) > WARMTH_ONLY_TOLERANCE) {
+        strayAxes.push(`${clip.id}.${axis}=${value.toFixed(2)}`);
+      }
+    }
+  }
+  const problems = [
+    ...(cold.length > 0 ? [`not warmed: ${cold.join(', ')}`] : []),
+    ...(overshot.length > 0 ? [`not subtle: ${overshot.join(', ')}`] : []),
+    ...(strayAxes.length > 0 ? [`moved axes nobody asked for: ${strayAxes.join(', ')}`] : []),
+  ];
+  return {
+    id: 'warmed-every-clip',
+    ok: problems.length === 0,
+    detail:
+      problems.length === 0
+        ? `${String(clips.length)} clip(s) warmed, warmth only, all under ${maxTemperature}`
+        : problems.join('; '),
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** One butt cut between two picture clips on the same track. */
+interface PictureCutPair {
+  readonly from: Clip;
+  readonly to: Clip;
+  /** The two clips come from different assets — a scene change by construction. */
+  readonly sceneChange: boolean;
+  /** Same asset, contiguous source — a continuity cut, where a dissolve is the amateur tell. */
+  readonly continuity: boolean;
+}
+
+/** Source seconds two cut halves may be apart and still count as contiguous. */
+const CONTINUITY_GAP_SECONDS = 0.5;
+
+/** Every butt cut on every picture track, in timeline order. */
+export function pictureCutPairs(project: Project): readonly PictureCutPair[] {
+  const pairs: PictureCutPair[] = [];
+  for (const track of pictureTracks(project)) {
+    const clips = [...track.clips].sort((a, b) => a.start - b.start);
+    for (let i = 1; i < clips.length; i++) {
+      const from = clips[i - 1]!;
+      const to = clips[i]!;
+      if (Math.abs(to.start - from.end) > 0.05) continue;
+      const sameAsset = from.assetId === to.assetId;
+      pairs.push({
+        from,
+        to,
+        sceneChange: !sameAsset,
+        continuity:
+          sameAsset && Math.abs(to.sourceStart - from.sourceEnd) <= CONTINUITY_GAP_SECONDS,
+      });
+    }
+  }
+  return pairs;
+}
+
+/** Does this cut carry a transition, on either side of it? */
+function cutHasTransition(pair: PictureCutPair): boolean {
+  return (
+    pair.to.effects.some((effect) => effect.type === TRANSITION_EFFECT_TYPE) ||
+    pair.from.effects.some((effect) => effect.type === TRANSITION_OUT_EFFECT_TYPE)
+  );
+}
+
+/**
+ * A transition landed at a cut that changes source — the cuts a transition belongs at.
+ *
+ * "Where they belong" is a claim about WHICH cuts, so it needs both halves; this is the
+ * positive one. Deliberately "at least one" rather than "at every one": the policy is
+ * allowed to leave a scene change hard (a montage that dissolves eight times is worse than
+ * one that dissolves twice), and a rubric demanding all of them would fail the better edit.
+ */
+export function checkTransitionAtASceneChange(project: Project): RubricCheck {
+  const pairs = pictureCutPairs(project);
+  const changes = pairs.filter((pair) => pair.sceneChange);
+  if (changes.length === 0) {
+    return {
+      id: 'transition-at-a-scene-change',
+      ok: false,
+      detail: 'no cut in this timeline changes source, so there is nothing to score',
+      weight: 2,
+      facet: 'target',
+      skipped: true,
+    };
+  }
+  const carried = changes.filter(cutHasTransition);
+  return {
+    id: 'transition-at-a-scene-change',
+    ok: carried.length > 0,
+    detail: `${String(carried.length)}/${String(changes.length)} source-change cut(s) carry a transition`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/**
+ * No transition on a continuity cut — the negative half, and the one that is actually hard.
+ *
+ * A dissolve where one shot simply continues into the next is the classic amateur tell, and
+ * it is exactly what a run that adds transitions everywhere produces. `chooseTransition`
+ * returns `null` for `continuity` no matter how large the measured deltas are; this is that
+ * rule read back off the timeline. Skipped when the timeline has no continuity cut, because
+ * then the check has nothing to be right or wrong about.
+ */
+export function checkNoTransitionOnContinuityCuts(project: Project): RubricCheck {
+  const continuity = pictureCutPairs(project).filter((pair) => pair.continuity);
+  if (continuity.length === 0) {
+    return {
+      id: 'no-transition-on-continuity-cuts',
+      ok: true,
+      detail: 'no continuity cut on this timeline',
+      weight: 2,
+      facet: 'target',
+      skipped: true,
+    };
+  }
+  const offenders = continuity.filter(cutHasTransition).map((pair) => `${pair.from.id}→${pair.to.id}`);
+  return {
+    id: 'no-transition-on-continuity-cuts',
+    ok: offenders.length === 0,
+    detail:
+      offenders.length === 0
+        ? `${String(continuity.length)} continuity cut(s) left hard`
+        : `dissolved a continuity cut: ${offenders.join(', ')}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Timeline seconds spanned by the first occurrence of a phrase in the transcript. */
+export function phraseSpan(
+  words: readonly TranscriptWord[] | undefined,
+  phrase: string,
+): readonly [number, number] | null {
+  const needle = phrase.toLowerCase().split(/\s+/).filter(Boolean);
+  if (!words || words.length === 0 || needle.length === 0) return null;
+  const clean = (word: TranscriptWord): string => word.word.toLowerCase().replace(/[^a-z0-9']/g, '');
+  for (let i = 0; i + needle.length <= words.length; i++) {
+    let hit = true;
+    for (let j = 0; j < needle.length; j++) {
+      if (clean(words[i + j]!) !== needle[j]) {
+        hit = false;
+        break;
+      }
+    }
+    if (hit) return [words[i]!.start, words[i + needle.length - 1]!.end];
+  }
+  return null;
+}
+
+/** How far off the named line a cutaway may sit and still be covering it. */
+const CUTAWAY_PHRASE_SLACK_SECONDS = 1;
+
+/**
+ * A b-roll clip covers the line the request named, resolved through the transcript.
+ *
+ * The target here is a SENTENCE, not a time window — that is the whole difference from
+ * `broll-cutaway`, whose prompt says "the first 20 seconds". Resolving "the line about X"
+ * means finding those words and covering them, and a run that placed a perfectly good
+ * cutaway 90 seconds away has failed at the thing this case measures.
+ *
+ * What this deliberately does NOT judge: whether the b-roll it chose is ABOUT the line.
+ * That needs a verified label on the footage, and the fixture b-roll has none (see
+ * `tests/fixtures/mission/labels/README.md`) — so the footage choice is left to the
+ * operator rather than faked with a filename match.
+ */
+export function checkCutawayCoversPhrase(
+  ctx: RubricContext,
+  brollAssetIds: readonly string[],
+  phrase: string,
+): RubricCheck {
+  const span = phraseSpan(ctx.before.transcript, phrase);
+  if (span === null) {
+    return {
+      id: 'cutaway-covers-the-line',
+      ok: false,
+      detail: `the phrase "${phrase}" is not in this project's transcript`,
+      weight: 2,
+      facet: 'target',
+      skipped: true,
+    };
+  }
+  const [from, to] = span;
+  const broll = new Set(brollAssetIds);
+  const covering = pictureClips(ctx.after).filter(
+    (clip) =>
+      broll.has(clip.assetId) &&
+      clip.start <= to + CUTAWAY_PHRASE_SLACK_SECONDS &&
+      clip.end >= from - CUTAWAY_PHRASE_SLACK_SECONDS,
+  );
+  return {
+    id: 'cutaway-covers-the-line',
+    ok: covering.length > 0,
+    detail: `${String(covering.length)} b-roll clip(s) over "${phrase}" (${from.toFixed(1)}–${to.toFixed(1)}s)`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/** Every clip whose source range is clear of a timeline window keeps its content. */
+export function checkContentPreservedOutside(
+  ctx: RubricContext,
+  window: readonly [number, number],
+): RubricCheck {
+  const [from, to] = window;
+  const untouched = pictureClips(ctx.before).filter(
+    (clip) => clip.end <= from - CUTAWAY_PHRASE_SLACK_SECONDS || clip.start >= to + CUTAWAY_PHRASE_SLACK_SECONDS,
+  );
+  const surviving = new Set(pictureClips(ctx.after).map(contentKey));
+  const lost = untouched.filter((clip) => !surviving.has(contentKey(clip))).map((clip) => clip.id);
+  return {
+    id: 'content-outside-the-line-preserved',
+    ok: lost.length === 0,
+    detail:
+      lost.length === 0
+        ? `${String(untouched.length)} clip(s) away from the line kept their content`
+        : `lost away from the line: ${lost.join(', ')}`,
+    facet: 'target',
+  };
+}
+
+/** Source seconds two clips of one asset must share before they are the same take twice. */
+const DUPLICATE_OVERLAP_SECONDS = 0.5;
+
+/** Pairs of picture clips that play the same material of the same asset twice. */
+export function duplicateTakePairs(project: Project): readonly (readonly [Clip, Clip])[] {
+  const clips = pictureClips(project);
+  const pairs: (readonly [Clip, Clip])[] = [];
+  for (let i = 0; i < clips.length; i++) {
+    for (let j = i + 1; j < clips.length; j++) {
+      const a = clips[i]!;
+      const b = clips[j]!;
+      if (a.assetId !== b.assetId) continue;
+      const overlap = Math.min(a.sourceEnd, b.sourceEnd) - Math.max(a.sourceStart, b.sourceStart);
+      if (overlap > DUPLICATE_OVERLAP_SECONDS) pairs.push([a, b]);
+    }
+  }
+  return pairs;
+}
+
+/**
+ * The repeated material is gone.
+ *
+ * A duplicate take is defined here as two clips playing OVERLAPPING SOURCE of the same
+ * asset — a fact the project file proves. It is deliberately not tier 1's `duplicateOf`,
+ * which is a phash cluster over two different recordings of the same action: no committed
+ * fixture ships two such takes, so a rubric that read `duplicateOf` would score nothing.
+ * See the case's `why`.
+ */
+export function checkDuplicateTakesRemoved(ctx: RubricContext): RubricCheck {
+  const was = duplicateTakePairs(ctx.before);
+  if (was.length === 0) {
+    return {
+      id: 'duplicate-takes-removed',
+      ok: false,
+      detail: 'the timeline going in had no repeated material, so there was nothing to drop',
+      weight: 2,
+      facet: 'target',
+      skipped: true,
+    };
+  }
+  const now = duplicateTakePairs(ctx.after);
+  return {
+    id: 'duplicate-takes-removed',
+    ok: now.length === 0,
+    detail: `${String(was.length)} repeated pair(s) before, ${String(now.length)} after`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
+/**
+ * Everything that was NOT a repeat is still on the timeline.
+ *
+ * The other half, and the one that fails the cheap answer: deleting most of the programme
+ * removes every duplicate too. A before-clip survives when the after timeline still plays
+ * some of the same source of the same asset.
+ */
+export function checkUniqueTakesKept(ctx: RubricContext): RubricCheck {
+  const duplicated = new Set(duplicateTakePairs(ctx.before).flatMap(([a, b]) => [a.id, b.id]));
+  const after = pictureClips(ctx.after);
+  const lost = pictureClips(ctx.before)
+    .filter((clip) => !duplicated.has(clip.id))
+    .filter(
+      (clip) =>
+        !after.some(
+          (kept) =>
+            kept.assetId === clip.assetId &&
+            Math.min(kept.sourceEnd, clip.sourceEnd) - Math.max(kept.sourceStart, clip.sourceStart) >
+              FRAME_EPSILON,
+        ),
+    )
+    .map((clip) => clip.id);
+  return {
+    id: 'unique-takes-kept',
+    ok: lost.length === 0,
+    detail: lost.length === 0 ? 'every un-repeated shot survived' : `also dropped: ${lost.join(', ')}`,
+    weight: 2,
+    facet: 'target',
+  };
+}
+
 const COMMON = (ctx: RubricContext): RubricCheck[] => [
   checkValidRefs(ctx.after),
   checkNoOverlaps(ctx.after),
@@ -1033,6 +1619,61 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
         checkCaptionsWellFormed(p),
         checkCaptionStyleMatches(p, ctx.captionStyle ?? {}),
         checkContentPreserved(ctx),
+        ...COMMON(ctx),
+      ]);
+
+    // ── plan/visual-understanding VU0.3 ──────────────────────────────────────────────
+    // The picture cases. Each one names the clips the request named, checks what the run
+    // did to THOSE, and carries `no-collateral-changes` so an edit that also re-cut the
+    // programme cannot score for the part it got right.
+    case 'match-color-to-reference': {
+      const target = pictureClips(ctx.before)[MATCH_COLOR_TARGET_INDEX];
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkGradeLandedOnTarget(ctx, MATCH_COLOR_TARGET_INDEX, MATCH_COLOR_REFERENCE_INDEX),
+        checkGradesAreRealAndInRange(p),
+        // Nothing may MOVE at all — a colour request re-cutting the timeline is the
+        // collateral failure — and only the target clip may gain an effect.
+        checkNoCollateralChanges(ctx, [], target ? [target.id] : []),
+        ...COMMON(ctx),
+      ]);
+    }
+    case 'warmer-subtle':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkWarmedEveryClip(p, WARMER_SUBTLE_MAX_TEMPERATURE),
+        checkGradesAreRealAndInRange(p),
+        // Every picture clip may legitimately be graded (a look is per clip), so the
+        // collateral guard here is geometry: a look must not cut anything.
+        checkNoCollateralChanges(ctx, [], 'any'),
+        ...COMMON(ctx),
+      ]);
+    case 'transitions-where-they-belong':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkTransitionAtASceneChange(p),
+        checkNoTransitionOnContinuityCuts(p),
+        // A transition is an effect on the incoming clip; it never moves a clip. So a run
+        // that also re-cut the programme did something it was not asked to do.
+        checkNoCollateralChanges(ctx, [], 'any'),
+        ...COMMON(ctx),
+      ]);
+    case 'broll-over-sentence': {
+      const span = phraseSpan(ctx.before.transcript, BROLL_SENTENCE_PHRASE);
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkCutawayCoversPhrase(ctx, ctx.brollAssetIds ?? [], BROLL_SENTENCE_PHRASE),
+        checkDurationKept(ctx),
+        ...(span === null ? [] : [checkContentPreservedOutside(ctx, span)]),
+        ...COMMON(ctx),
+      ]);
+    }
+    case 'remove-duplicate-takes':
+      return scored(scenario, [
+        checkChanged(ctx),
+        checkDuplicateTakesRemoved(ctx),
+        checkUniqueTakesKept(ctx),
+        checkNoGaps(p),
         ...COMMON(ctx),
       ]);
   }

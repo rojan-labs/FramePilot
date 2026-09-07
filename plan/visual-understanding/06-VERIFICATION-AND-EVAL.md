@@ -35,7 +35,7 @@ runs, no provider calls, no money. Result, in full in
 Visual target resolution is deferred to VU0.3's new cases, which carry the labelled answers
 it needs; scoring it before those exist would measure nothing.
 
-### VU0.2 Labelled fixture set `[ ]`
+### VU0.2 Labelled fixture set `[~]` (machine half done 2026-09-07; the human pass is open)
 
 `tests/fixtures/mission/labels/` (committed JSON, no media):
 
@@ -50,20 +50,66 @@ Labelling is one afternoon with a contact sheet; the sheet generator is a script
 `packages/ai-sdk/scripts/contact-sheet.mjs` that uses `/render/frame` (kept as a dev tool, not
 an agent tool).
 
-### VU0.3 New golden cases `[ ]`
+**What shipped, and what is still owed.** Two commands, both committed:
 
-Add to `golden-cases.ts` with rubrics on edit state or answer content:
+```bash
+node packages/ai-sdk/scripts/propose-fixture-labels.mjs   # regenerates all four files
+FRAMEPILOT_PROJECTS_ROOT="$PWD/tests/fixtures/mission/projects" uv run framepilot serve
+node packages/ai-sdk/scripts/contact-sheet.mjs            # a captioned thumbnail per shot
+```
 
-| id                              | request                                                    | what proves understanding                                     |
-| ------------------------------- | ---------------------------------------------------------- | ------------------------------------------------------------- |
-| `which-clips-show-host`         | "which clips show the host?"                               | answer names the labelled clips, zero frames                  |
-| `whats-on-screen-at`            | "what's on screen at 0:42?"                                | answer matches `tier2` label, zero frames                     |
-| `find-dark-clips`               | "which clips are underexposed?"                            | matches `tier0` exposure labels                               |
-| `match-color-to-first-clip`     | "match clip 3's color to clip 1"                           | solver params applied; residual measured under tolerance      |
-| `warmer-subtle`                 | "make it a little warmer"                                  | one `apply_color_grade` per clip with the look table's deltas |
-| `transitions-where-they-belong` | "add transitions where they belong"                        | dissolves at labelled setting changes, none elsewhere         |
-| `broll-over-sentence`           | "put b-roll of the street over the sentence about traffic" | placed shot has `setting: street`, not the speaker            |
-| `remove-duplicate-takes`        | "drop the duplicate takes"                                 | clips with `duplicateOf` removed, others intact               |
+`tier0.json` carries **498 shots over 12 assets**, every one `"source": "proposed"` — the
+shipped tier-0 pass measured them and the shipped word functions named them, which is the
+machine describing its own output. `cuts.json` carries `mission-montage`'s 4 cuts with their
+measured luma/warmth deltas. `tier1.json` (498 rows) and `tier2.json` (50 rows) are
+**scaffolds, not proposals**: shot size, subject, setting and on-screen text need the tier-1
+pack or a captioner, and a generated guess would be read as a label. The directory's
+`README.md` states the rule this all rests on — never tune a threshold against a label the
+machine proposed.
+
+Two things the machine could not do, recorded rather than papered over:
+
+- **60 photos are unmeasured.** The tier-0 ffmpeg pass exits 234 on every fixture JPEG
+  ("Could not open encoder before EOF"), through `measure_asset(is_image=True)` — the same
+  call the enroller makes, so this is a product defect and not a script one. They are listed
+  by name in `tier0.json`'s `unmeasured`, because an asset ffmpeg could not read must not
+  look like an asset with nothing to say.
+- **Nothing is verified.** The semantic half of VU0.2 is an afternoon with the contact sheet,
+  and no agent can do it.
+
+### VU0.3 New golden cases `[x]` (2026-09-07)
+
+Added to `golden-cases.ts`, split by what a rubric can actually decide. Five change the
+timeline and have a rubric each in `mission-rubric.ts`, reading the resulting edit state and
+every one carrying a `no-collateral-changes` facet. Three are QUESTIONS: a rubric cannot judge
+prose, so they score `unchanged` under a new `intent: 'answer'`, and the claim that the answer
+cost no frame is measured by `perception-metrics.framesSeen`, not by the rubric. Their
+correctness is the operator's call against VU0.2's labels, and each case's `why` says so.
+
+| id | fixture | rubric | what it checks |
+| --- | --- | --- | --- |
+| `match-color-to-first-clip` | `mission-montage` | `match-color-to-reference` | the THIRD clip gained a grade and the first did not (the inverted edit is the plausible wrong answer); every parameter inside `COLOR_GRADE_PARAMETER_CONTRACTS` and actually moving; nothing else on the timeline touched |
+| `warmer-subtle` | `mission-montage` | `warmer-subtle` | every picture clip carries a positive `temperature` under 0.5 and moves no exposure/contrast/saturation — the look table's own content (`LOOK_DELTAS.warmer` is a warmth delta and nothing else); no clip may move |
+| `transitions-where-they-belong` | `mission-montage`, 2 turns | `transitions-where-they-belong` | turn 1 builds the montage so the timeline has BOTH kinds of cut; then ≥1 source-change cut carries a transition and NO continuity cut does — the rule `chooseTransition` enforces by returning `null` |
+| `broll-over-sentence` | `mission-talk` + montage bin | `broll-over-sentence` | the cutaway covers the transcript span of the line the request named (target resolution by sentence, which `broll-first-20s` cannot test); duration kept; content away from the line preserved |
+| `remove-duplicate-takes` | `mission-montage`, 2 turns | `remove-duplicate-takes` | turn 1 is asked for repeats, because no fixture ships duplicate takes; then no two clips play overlapping source of one asset AND every un-repeated shot survives |
+| `which-clips-show-host` | `mission-montage` | `unchanged` (answer) | answered, nothing edited, no frame rendered. Correctness → operator, against `tier1.json` |
+| `whats-on-screen-at` | `mission-montage` | `unchanged` (answer) | same; correctness → operator, against `tier2.json` |
+| `find-dark-clips` | `mission-montage` | `unchanged` (answer) | same; correctness → operator, against `tier0.json`'s PROPOSED exposure classes |
+
+Three honest departures from the table above as it was written:
+
+- **`match-color`'s residual is not scored.** A rubric reads the project file, which carries
+  no measurement, so "residual under tolerance" is not expressible there. Direction,
+  containment and contract compliance are; the residual belongs to VU7's `shot_match` route.
+- **`broll-over-sentence` does not check `setting: street`.** No fixture b-roll is a street,
+  and no fixture footage carries a verified setting label. The case asks for the line
+  `mission-talk` actually contains, scores the PLACEMENT, and leaves the footage choice to
+  the operator rather than faking a content check.
+- **`remove-duplicate-takes` does not read tier 1's `duplicateOf`.** That is a phash cluster
+  over two separate recordings and no fixture has one, so the case builds repeats in turn 1
+  and the rubric defines a duplicate as overlapping source of one asset — a fact the project
+  file proves.
 
 ### VU0.4 Contracts and ask-list `[x]` (2026-09-07)
 

@@ -190,6 +190,12 @@ export function observeIntent(
 
 export function intentMatches(expected: ExpectedIntent, observed: ObservedIntent): boolean {
   if (expected === 'ask-or-edit') return observed === 'ask' || observed === 'edit';
+  // A question answered and a request declined are the SAME observation — text, no
+  // operation — because that is all the event stream can tell them apart by. The
+  // distinction lives in the case's expectation (`answer` vs `decline`) so that a report
+  // can say which behaviour was wanted; asking `observeIntent` to tell them apart would
+  // mean classifying prose, which is the thing this harness refuses to do.
+  if (expected === 'answer') return observed === 'decline';
   return expected === observed;
 }
 
