@@ -22,6 +22,48 @@
  * measurement chain that produces the facts
  * (`engine/python/framepilot_engine/analysis/shot_stats.py`).
  *
+ * ## FIRST MEASURED FIT — 2026-09-08, `mission-montage`, three clips
+ *
+ * `packages/ai-sdk/scripts/fit-color-response.mjs` has now been run against a live sidecar
+ * (it could not be before: it took `--clip` and `--time` independently and never checked
+ * the frame was on the graded clip, so it silently fitted every coefficient to 0.00000 and
+ * told you to paste that in). What three clips of one fixture measure:
+ *
+ * | constant | derived, in use | clip_002 (luma .544) | clip_004 (luma .078) | clip_001 (luma .406) |
+ * | --- | --- | --- | --- | --- |
+ * | `EXPOSURE_RESPONSE` | 1.0 | 0.755 | 0.964 | 0.793 |
+ * | `CONTRAST_RESPONSE` | 1.0 | 0.959 | −0.251 † | 0.788 |
+ * | `SATURATION_RESPONSE` | 1.0 | 0.689 | 0.807 | 0.633 |
+ * | `WARMTH_PER_TEMPERATURE` | 0.6936 | 0.567 | 0.633 | 0.576 |
+ * | `GREEN_MAGENTA_PER_TEMPERATURE` | −0.0411 | −0.005 | +0.021 | −0.060 |
+ * | `WARMTH_PER_TINT` | −0.0429 | −0.043 | −0.041 | −0.043 |
+ * | `GREEN_MAGENTA_PER_TINT` | −0.5236 | −0.524 | −0.497 | −0.519 |
+ *
+ * † a near-black frame (contrastIdx 0.137) has no spread for a ratio to scale, and the fit
+ * comes back with the wrong SIGN. The script warns on it now; it is not a measurement.
+ *
+ * What this says, and it is not "paste these in":
+ *
+ *  - **The tint coefficients are solid.** Three clips spanning 7× in luma agree to within
+ *    5%, and they match the derived numbers almost exactly. The BT.709 derivation is right
+ *    for tint.
+ *  - **`WARMTH_PER_TEMPERATURE` is consistently LOWER than derived** — 0.567/0.633/0.576,
+ *    mean ≈ 0.59 against 0.6936, so the solver currently under-shoots warmth by ~15%. That
+ *    is a real, repeatable disagreement and the most interesting result here.
+ *  - **It does not settle the range question.** The script reconstructs warmth from RGB
+ *    through the SAME BT.709 matrix this module assumes, so it cannot tell a wrong matrix
+ *    from a renderer whose temperature curve is simply shallower. Settling that needs a
+ *    `signalstats` pass over a rendered file — the ledger's own chain — which is a second
+ *    script that does not exist yet.
+ *  - **The `*_RESPONSE` terms are material-dependent by construction.** They are the
+ *    clipping efficiencies, and clipping depends on the shot: the darkest clip fits nearest
+ *    to 1.0 because it has the most headroom, exactly as this docstring predicted. One
+ *    number cannot be right for all footage, so 1.0 (no clipping) stays as the conservative
+ *    choice until there is a per-shot model.
+ *
+ * So the coefficients below are UNCHANGED, and now for a stated reason rather than for want
+ * of a measurement. TESTING_PLAN.md T16.4 carries the decision.
+ *
  * That derivation is exact for the arithmetic it covers and silent about three
  * things it cannot know without a render:
  *

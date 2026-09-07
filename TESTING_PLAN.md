@@ -921,10 +921,14 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     claim, not overall edit quality — see the three misses recorded in T5.4, T9.1 and the
     note below.
   - **Follow-ups this run surfaced** (none of them merge blockers, all recorded):
-    1. `warmer-subtle` — `apply_look(warmer, subtle, trackId)` was called correctly, once,
-       for the layer, but landed `temperature 0.56` on clip_004; the rubric called it "not
-       subtle". This is exactly the unfitted-coefficient risk T5.7 predicts, now with a
-       number against it. Feeds **T16.4**.
+    1. `warmer-subtle` — **investigated, and it was the rubric, not the solver.**
+       `apply_look(warmer, subtle, trackId)` was called correctly, once, for the layer, and
+       landed `temperature 0.56` on clip_004. clip_004 is asset_004, which the ledger
+       measures at luma_mean **0.1271** — the darkest clip in the fixture. Warmth response
+       scales with luma, so a +0.05 warmth target there solves to 0.05 / (0.6936 × 0.1271) ≈
+       **0.57**; the run produced 0.56. The solver was right to a hundredth, doing exactly
+       the scale-free thing T5.4 requires. The rubric's flat 0.5 parameter cap was failing a
+       correct solve for being applied to dark footage — fixed, see T16.4.
     2. `reorder-last-first` — failed **twice** on `openrouter/auto` in the T9.1 shape: the
        first `reorder_clips` was correct, then four more re-applied "move the last to the
        front" against the timeline it had just changed, rotating a 5-clip list back to its
@@ -950,9 +954,53 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     loop and wants its own slice and evidence.
   - Owner: ______
 
-- [ ] **T16.4. Colour coefficients unfitted** — see T5.7. Decide whether to fit before merge
+- [x] **T16.4. Colour coefficients unfitted** — see T5.7. Decide whether to fit before merge
       or ship the derived model and fit later. `fit-color-response.mjs` is ready.
-  - Owner: ______  Result: __/__/____
+  - Owner: —  Result: 09/08/2026 · **FIT RUN. DECISION: ship the derived model, and here is
+    the evidence for it.**
+
+    `fit-color-response.mjs` was **not** ready. It took `--clip` and `--time` independently
+    and never checked the frame was on the graded clip, so its own documented example
+    (`--clip c1 --time 1.0`) measured an ungraded frame in every grid cell and fitted
+    **0.00000 to every coefficient** — printed under "paste into color-solver.ts". A zero
+    response means the parameter does nothing; pasting it would have made the solver ask for
+    an unbounded parameter to move anything. It also read `fps` from `timeline` where it is
+    top-level, so every frame index was wrong off 30fps. Fixed: the time defaults to the
+    clip's midpoint, a time outside the clip is refused by name, a grid that moved nothing
+    is reported as a failed measurement rather than a fit, and the useless `<= 0`
+    low-contrast warning now fires at a threshold set from measurement.
+
+    Then it was run properly against a live sidecar on three clips of `mission-montage`:
+
+    | constant | derived, in use | clip_002 (luma .544) | clip_004 (luma .078) | clip_001 (luma .406) |
+    | --- | --- | --- | --- | --- |
+    | `EXPOSURE_RESPONSE` | 1.0 | 0.755 | 0.964 | 0.793 |
+    | `CONTRAST_RESPONSE` | 1.0 | 0.959 | −0.251 † | 0.788 |
+    | `SATURATION_RESPONSE` | 1.0 | 0.689 | 0.807 | 0.633 |
+    | `WARMTH_PER_TEMPERATURE` | 0.6936 | 0.567 | 0.633 | 0.576 |
+    | `GREEN_MAGENTA_PER_TEMPERATURE` | −0.0411 | −0.005 | +0.021 | −0.060 |
+    | `WARMTH_PER_TINT` | −0.0429 | −0.043 | −0.041 | −0.043 |
+    | `GREEN_MAGENTA_PER_TINT` | −0.5236 | −0.524 | −0.497 | −0.519 |
+
+    † near-black frame, no spread for a ratio to scale, fit returns the wrong SIGN. Warned
+    on now; not a measurement.
+
+    **The tint coefficients are confirmed** — three clips spanning 7× in luma agree within
+    5% and match the derivation. **`WARMTH_PER_TEMPERATURE` is consistently ~15% lower than
+    derived** (mean ≈ 0.59 vs 0.6936), so the solver under-shoots warmth slightly; that is a
+    real, repeatable disagreement. It is **not** adopted, for a stated reason: the script
+    reconstructs warmth from RGB through the same BT.709 matrix the solver assumes, so it
+    cannot separate a wrong matrix from a shallower renderer curve — the one question that
+    most deserves settling still needs a `signalstats` pass over a rendered file, a second
+    script that does not exist. And the `*_RESPONSE` terms are the CLIPPING efficiencies, so
+    they are material-dependent by construction (the darkest clip fits nearest 1.0, having
+    the most headroom); one number cannot be right for all footage.
+
+    So: coefficients unchanged, now by decision rather than for want of a measurement, with
+    the table recorded in `color-solver.ts` itself. **Not a merge blocker** — and T5.7's
+    "judge on direction and proportionality" advice is now backed by numbers.
+  - Follow-up for the maintainer: a `signalstats`-over-rendered-file fit to settle the
+    chroma range, then adopt `WARMTH_PER_TEMPERATURE ≈ 0.59` if it survives.
 
 - [ ] **T16.5. Pack weights and licences** — VU5/VU6 cannot go live until each pack's
       quantisation/export/release artifact licence is verified and `models.lock.toml` carries

@@ -62,6 +62,17 @@ const BT709_CR_DIVISOR = 1.5748;
 const CHROMA_SCALE = 255 / 128;
 
 /**
+ * Below these the frame has too little spread for a RATIO fit to mean anything.
+ *
+ * Both fits divide by the baseline, so a near-black, near-monochrome frame divides a small
+ * difference by a small number and returns noise — or a sign flip. Set from measurement,
+ * not taste: `mission-montage` clip_004 sits at contrastIdx 0.137 / satMean 0.042 and fits
+ * contrast at -0.251, while clip_001 and clip_002 (0.686 / 0.461) fit 0.79 and 0.96.
+ */
+const LOW_CONTRAST = 0.25;
+const LOW_SATURATION = 0.06;
+
+/**
  * The grid, per parameter.
  *
  * `axis` names the fact the parameter is supposed to move; `model` is what the
@@ -97,7 +108,7 @@ const GRID = {
 };
 
 function parseArgs(argv) {
-  const args = { sidecar: DEFAULT_SIDECAR, time: 1, json: false, params: Object.keys(GRID) };
+  const args = { sidecar: DEFAULT_SIDECAR, json: false, params: Object.keys(GRID) };
   for (let i = 0; i < argv.length; i += 1) {
     const flag = argv[i];
     const next = () => argv[(i += 1)];
@@ -133,10 +144,26 @@ function projectWithGrade(project, clipId, params) {
   return copy;
 }
 
-/** Timeline frame index for a time in seconds, from the project's own fps. */
+/**
+ * Timeline frame index for a time in seconds, from the project's own fps.
+ *
+ * `fps` is a TOP-LEVEL field of the project document, not a member of `timeline`. Reading
+ * it from `timeline` found nothing and silently fell back to 30, so on any project that is
+ * not 30fps every measured frame was the wrong one.
+ */
 function frameAt(project, seconds) {
-  const fps = project.timeline?.frameRate ?? project.timeline?.fps ?? 30;
+  const fps = project.fps ?? project.timeline?.frameRate ?? project.timeline?.fps ?? 30;
   return Math.max(0, Math.round(seconds * fps));
+}
+
+/** The clip's own timeline span, so a frame can be checked against the clip being graded. */
+function clipSpan(project, clipId) {
+  for (const track of project.timeline?.tracks ?? []) {
+    for (const clip of track.clips ?? []) {
+      if (clip.id === clipId) return { start: clip.start, end: clip.end };
+    }
+  }
+  return null;
 }
 
 async function measure(sidecar, project, frame, revision) {
@@ -233,7 +260,8 @@ async function main() {
   if (args.help || !args.project || !args.clip) {
     process.stdout.write(
       'usage: fit-color-response.mjs --project <project.fp.json> --clip <clipId>\n' +
-        '                             [--time 1.0] [--sidecar http://127.0.0.1:8799]\n' +
+        '                             [--time <s, default: the clip midpoint>]\n' +
+        '                             [--sidecar http://127.0.0.1:8799]\n' +
         '                             [--params exposure,contrast,...] [--json]\n',
     );
     process.exitCode = args.help ? 0 : 2;
@@ -242,15 +270,47 @@ async function main() {
 
   const project = JSON.parse(readFileSync(args.project, 'utf8'));
   const revision = project.timeline?.revision ?? 0;
-  const frame = frameAt(project, args.time);
+
+  // MEASURE A FRAME THE GRADED CLIP IS ACTUALLY ON.
+  //
+  // `--clip` and `--time` were independent, and nothing checked that the time fell inside
+  // the clip. Grade clip_002, measure t=1s while clip_001 is on screen, and every cell of
+  // the grid measures the same ungraded frame: identical numbers, a least-squares slope of
+  // exactly 0, and a confident instruction to paste `0.00000` into `color-solver.ts` as
+  // `EXPOSURE_RESPONSE`. A zero response means "this parameter does nothing", which would
+  // make the solver ask for an unbounded parameter to move anything. Measured on
+  // `mission-montage`: clip_002 runs 39.8–61.4s, and the documented example `--time 1.0`
+  // sits in clip_001. So the time now defaults to the clip's own midpoint and is refused
+  // when it falls outside.
+  const span = clipSpan(project, args.clip);
+  if (span === null) throw new Error(`Clip "${args.clip}" is not on this timeline.`);
+  const time = args.time ?? (span.start + span.end) / 2;
+  if (time < span.start || time >= span.end) {
+    throw new Error(
+      `--time ${String(time)}s is not on clip "${args.clip}", which runs ` +
+        `${span.start.toFixed(2)}–${span.end.toFixed(2)}s. Every grid cell would measure an ` +
+        'ungraded frame and fit a slope of zero. Omit --time to use the clip midpoint.',
+    );
+  }
+  const frame = frameAt(project, time);
 
   const baseline = facts(
     await measure(args.sidecar, projectWithGrade(project, args.clip, {}), frame, revision),
   );
-  if (baseline.contrastIdx <= 0 || baseline.satMean <= 0) {
+  // The old test was `<= 0`, which only fires on a frame with literally no contrast and no
+  // chroma at all — so it never fired. Measured on `mission-montage` clip_004 (luma_mean
+  // 0.078, contrastIdx 0.137): the contrast fit came back **-0.251**, a NEGATIVE response,
+  // meaning "more contrast makes the shot flatter". That is not a measurement, it is a
+  // near-black frame with no spread to scale, and it printed next to "paste into
+  // color-solver.ts" without a word of caution. These thresholds are where a fit stops
+  // being about the parameter and starts being about the material.
+  if (baseline.contrastIdx < LOW_CONTRAST || baseline.satMean < LOW_SATURATION) {
     process.stderr.write(
-      'WARNING: the ungraded frame has no contrast or no chroma. The contrast and\n' +
-        'saturation fits will be meaningless on this fixture — pick another frame.\n',
+      `WARNING: this frame measures contrastIdx=${baseline.contrastIdx.toFixed(3)} ` +
+        `satMean=${baseline.satMean.toFixed(3)}. Below ${String(LOW_CONTRAST)} / ` +
+        `${String(LOW_SATURATION)} there is too little spread for a ratio to mean anything, ` +
+        'and the contrast/saturation fits can come back negative. Trust the chroma fits, ' +
+        'not these, and pick a better-exposed frame before believing a number.\n',
     );
   }
 
@@ -263,10 +323,16 @@ async function main() {
       const graded = projectWithGrade(project, args.clip, { [parameter]: value });
       cells.push({ value, measured: facts(await measure(args.sidecar, graded, frame, revision)) });
     }
+    const fitted = fit(parameter, baseline, cells);
+    // A grid that moved nothing did not measure a response of zero — it failed to measure.
+    // Printing it next to "paste into color-solver.ts" is how a broken run becomes a broken
+    // solver, so it is named as a failure here instead.
+    const moved = cells.some(({ measured }) => Math.abs(measured.lumaMean - baseline.lumaMean) > 1e-6 || Math.abs(measured.satMean - baseline.satMean) > 1e-6 || Math.abs(measured.warmth - baseline.warmth) > 1e-6);
     report.fits[parameter] = {
-      ...fit(parameter, baseline, cells),
+      ...fitted,
       constant: grid.constant,
       axis: grid.axis,
+      ...(moved ? {} : { dead: true }),
     };
   }
 
@@ -284,6 +350,15 @@ async function main() {
   for (const [parameter, result] of Object.entries(report.fits)) {
     process.stdout.write(`${parameter}\n`);
     process.stdout.write(`  ${result.axis}\n`);
+    if (result.dead) {
+      process.stdout.write(
+        '  NOT MEASURED — every grid cell came back identical to the ungraded frame, so\n' +
+          '  this is a failed measurement, not a response of zero. Do NOT paste it. Check the\n' +
+          '  frame is on the graded clip and that the render honours the effect.\n\n',
+      );
+      process.exitCode = 1;
+      continue;
+    }
     process.stdout.write(`  fitted: ${result.primary.toFixed(5)}`);
     if (result.secondary !== undefined) process.stdout.write(` / ${result.secondary.toFixed(5)}`);
     process.stdout.write(`\n  paste into color-solver.ts as: ${result.constant}\n\n`);
