@@ -65,15 +65,39 @@ Add to `golden-cases.ts` with rubrics on edit state or answer content:
 | `broll-over-sentence`           | "put b-roll of the street over the sentence about traffic" | placed shot has `setting: street`, not the speaker            |
 | `remove-duplicate-takes`        | "drop the duplicate takes"                                 | clips with `duplicateOf` removed, others intact               |
 
-### VU0.4 Contracts and ask-list `[ ]`
+### VU0.4 Contracts and ask-list `[x]` (2026-09-07)
 
-- ADR: "Perception is a compiled shot ledger; tier 0 is keyless" (accepts §4 schema v4).
-- Ask-before-acting (CLAUDE.md §5) resolved with the maintainer and recorded in
-  `08-REMOVE-DEFER-RISKS.md`: brain migration v4; two new workers and their weights; the
-  `onnxruntime` optional extra promoted for the pack worker only; removal of the key gate;
-  deprecation path for the NVIDIA hosted arm.
-- Zod (`ledger.ts`) and Pydantic (`brain/ledger_models.py`) ledger schemas, byte-identical by
-  hand like `FootageMap`, drift-tested.
+- **[ADR 0175](../../docs/adr/0175-perception-is-a-compiled-shot-ledger.md) — accepted.**
+  "Perception is a compiled shot ledger, and tier 0 needs no key." Names the four causes
+  of the measured blindness, the three-tier decision, the cost model, and the rejected
+  alternatives (a frame per model call; a bigger hosted backend; facts in
+  `project.fp.json`; free-text captions; waiting for the scene-understanding service).
+- **The ledger contract exists in both languages.**
+  `engine/python/framepilot_engine/brain/ledger_models.py` (the writer) and
+  `packages/ai-sdk/src/ledger.ts` (the reader), byte-identical by hand, guarded by
+  `engine/python/tests/test_ledger_ts_parity.py` — 11 tests over every schema, both
+  enum vocabularies, the shot-size ladder's ORDER (a delta's sign depends on it), the
+  `class`/`motion_class` alias, and the three tier versions. Plus 13 TS tests on the
+  degradation rules: a tier that has not run is `undefined`, a malformed snapshot parses
+  to `null` rather than throwing into a run, and an empty snapshot is real and distinct
+  from a broken one.
+- **Ask-before-acting: all approved by the maintainer** (2026-09-07, standing decision
+  recorded in `08-REMOVE-DEFER-RISKS.md`) — brain migration v4, the two new workers and
+  their pinned weights, the pack dependencies subject to `pnpm license:scan`, removing
+  the key gate, `GET /brain/shots`, and every new model-facing tool. Where the plan
+  leaves a choice open, take the best option on the evidence and record it rather than
+  stopping. **Deprecated means deleted**: implementation, UI, config keys, env vars,
+  docs and tests go in the same change, with a migration when existing projects need one.
+
+### VU0.2 / VU0.3 — sequencing note (2026-09-07)
+
+VU0.2's _human-semantic_ labels (shot size, subject, setting) need an eye on a contact
+sheet, and VU0.3's new cases score against them, so neither can be finished by an agent
+alone. They do **not** gate VU1: the accuracy check that actually protects tier 0 is
+machine-checkable and independent — **full-resolution ffmpeg statistics versus the 160 px
+downscale tier 0 uses**, which is the real engineering risk in VU1.1 and needs the tier-0
+code to exist first. So the order is VU0.1 → VU0.4 → VU1 (with the full-res agreement
+test) → the labelled set and the new cases alongside VU2.
 
 ## VU7 Sampled verification after apply
 
