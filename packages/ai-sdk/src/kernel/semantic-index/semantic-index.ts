@@ -34,18 +34,23 @@
  * ingest. Nothing here is ever faked: an omitted `analysisResults` field reproduces the
  * exact K2.1 empty-array/null behavior.
  *
- * KNOWN LIMITATION — speed-changed clips. `speedRamp` HAS existed in the schema since v15
- * and `set_clip_speed_ramp` is a shipped tool, so this module's comments claiming
- * otherwise were wrong, and being wrong is why nothing was fixed: the `shots`, `silences`,
- * `beats`, `loudness` and `black` slices map source time to timeline time at a flat 1:1
- * and therefore place their times WRONG on any speed-changed or reversed clip. Pre-existing
- * and deliberately NOT patched by the visual-understanding work
- * (`plan/visual-understanding/08-REMOVE-DEFER-RISKS.md`); the `picture` slice already does
- * the speed-aware projection the others need, and VU2.5 converges them. Do not read the
- * empty `speedRamps` slice below as evidence the op is missing.
+ * ONE SOURCE→TIMELINE PROJECTION (VU2.5). The `shots`, `silences`, `beats`, `loudness` and
+ * `black` slices each used to map source time to timeline time at a flat 1:1, justified by
+ * a comment claiming no `speedRamps` op existed. It has existed since schema v15, and
+ * `set_clip_speed_ramp` ships, so every time those slices produced on a speed-changed or
+ * reversed clip was wrong — and the false justification is why it stayed wrong. They now
+ * delegate to `projectAssetSpan`, the `picture` slice's projection, which handles the trim,
+ * the speed curve (through `integrateRate`, the same arithmetic the validator and the
+ * render use), reverse, and freeze. There is no second mapping left to drift from it.
+ *
+ * Adding a slice that places an asset time on the timeline? Call `translateSourceRange` or
+ * `translateSourceTime`. Never `start + (clip.start - clip.sourceStart)`.
+ *
+ * Do not read the empty `speedRamps` slice below as evidence the op is missing.
  */
 import type { Clip, Effect, Project, Track } from '@framepilot/timeline-schema';
 import { clipKindOf, indexFor, type ProjectIndex } from '../../project-index.js';
+import { projectAssetSpan } from './picture.js';
 
 /**
  * Normalize raw beat timestamps into a clean grid: finite, non-negative, de-duplicated, and
@@ -419,29 +424,39 @@ function deriveMusic(tracks: readonly Track[], index: ProjectIndex): MusicEntry[
  * `null` when the span does not overlap this clip's source window at all - the honest
  * "this shot/silence isn't part of what's actually placed on the timeline" case.
  *
- * Assumes 1:1 playback speed, which is WRONG on a speed-changed or reversed clip. An
- * earlier version of this comment justified that with "no `speedRamps` op exists yet";
- * it does exist, and the false justification is why the gap survived. It is a recorded,
- * deferred limitation (module doc), not an invariant to rely on.
+ * Speed, reverse and freeze are handled by {@link projectAssetSpan}, the `picture` slice's
+ * projection, which this now delegates to. It used to do the mapping itself with a flat
+ * `start + (clip.start - clip.sourceStart)` and justify that with "no `speedRamps` op
+ * exists yet" - `speedRamp` has been in the schema since v15, so every time this produced
+ * on a ramped or reversed clip was wrong (VU2.5).
  */
 function translateSourceRange(
   clip: Clip,
   sourceStart: number,
   sourceEnd: number,
 ): TimeRange | null {
-  const start = Math.max(sourceStart, clip.sourceStart);
-  const end = Math.min(sourceEnd, clip.sourceEnd);
-  if (end <= start) return null;
-  const offset = clip.start - clip.sourceStart;
-  return { start: start + offset, end: end + offset };
+  return projectAssetSpan(clip, sourceStart, sourceEnd);
 }
 
 /** Translate one source-media-time point through `clip`, or `null` when it falls outside
- *  the clip's trimmed source window (see {@link translateSourceRange}). */
+ *  the clip's trimmed source window (see {@link translateSourceRange}).
+ *
+ *  A point is a zero-width span, and `projectAssetSpan` rejects those, so it is projected
+ *  as one frame-ish sliver and the START of the result is taken. Doing it through the same
+ *  function is the point: a cut time on a ramped clip now lands where the frame lands,
+ *  and there is no second mapping to drift from the first. */
 function translateSourceTime(clip: Clip, sourceTime: number): number | null {
   if (sourceTime < clip.sourceStart || sourceTime > clip.sourceEnd) return null;
-  return clip.start + (sourceTime - clip.sourceStart);
+  const span = projectAssetSpan(clip, sourceTime, Math.min(sourceTime + EPSILON, clip.sourceEnd));
+  if (span !== null) return span.start;
+  // The out-point itself: no span of positive width starts there, but the time is inside
+  // the window, so project the sliver that ENDS at it and take that edge instead.
+  const tail = projectAssetSpan(clip, Math.max(sourceTime - EPSILON, clip.sourceStart), sourceTime);
+  return tail === null ? null : tail.end;
 }
+
+/** A sliver narrow enough to read as a point, wide enough for a positive-width span. */
+const EPSILON = 1e-6;
 
 /** Read `record.assetId`, or `undefined` when the payload doesn't carry one honestly. */
 function readAssetId(record: Record<string, unknown>): string | undefined {

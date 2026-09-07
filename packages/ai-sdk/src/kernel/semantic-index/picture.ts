@@ -338,8 +338,14 @@ function timelineAtSourceOffset(clip: Clip, s: number): number {
  * {@link timelineAtSourceOffset}. The result is clamped to the clip's own timeline bounds:
  * quadrature error and a hand-authored duration can both put the computed edge a hair
  * outside the clip, and a shot must never be reported as visible where its clip is not.
+ *
+ * Exported because it is the ONE source→timeline projection in the semantic index. The
+ * `shots`, `silences`, `beats`, `loudness` and `black` slices used to carry their own flat
+ * 1:1 version, which placed every time wrongly on a speed-changed or reversed clip; they
+ * call this now (VU2.5). Adding a slice? Use this, never `start + (clip.start -
+ * clip.sourceStart)`.
  */
-function projectAssetSpan(clip: Clip, t0: number, t1: number): Span | null {
+export function projectAssetSpan(clip: Clip, t0: number, t1: number): Span | null {
   const from = Math.max(t0, clip.sourceStart);
   const to = Math.min(t1, clip.sourceEnd);
   if (to <= from) return null;

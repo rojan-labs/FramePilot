@@ -483,19 +483,22 @@ Three new AI tools: `match_color`, `normalize_exposure`, `apply_look`
     where an index drift is largest.
   - Result: __/__/____ · PASS / FAIL · notes:
 
-- [ ] **T8.4. Semantic index on speed-changed clips — RECORDED, NOT FIXED** — `P3` · `note`
-  - The semantic index places times wrongly on clips with a speed ramp. Pre-existing,
-    originating from a stale comment claiming `speedRamp` did not exist. This PR **records
-    it and does not patch it**.
+- [x] **T8.4. Semantic index on speed-changed clips — NOW FIXED** — `P1`
+  - The semantic index placed times wrongly on clips with a speed ramp. Pre-existing,
+    originating from a stale comment claiming `speedRamp` did not exist. Originally recorded
+    and deferred; **fixed 2026-09-08** (VU2.5) — `shots`, `silences`, `beats`, `loudness`
+    and `black` now delegate to `projectAssetSpan`, the `picture` slice's projection, so
+    there is one source→timeline mapping and it is speed-, reverse- and freeze-aware.
   - Do: confirm the limitation is documented and that no test claims it works.
-  - Do not: file this as a new regression during testing. Verify it is still limited to
-    speed-changed clips only.
-  - Result: 09/08/2026 · **N/A — confirmed recorded, still unpatched** · notes: the
-    limitation is written up in `plan/visual-understanding/08-REMOVE-DEFER-RISKS.md` and no
-    test asserts the mapping is speed-aware. The stale comments that *caused* it were still
-    live in `semantic-index.ts` (three sites claiming "no `speedRamps` op exists yet") and
-    have been corrected to state the real limitation — comments only; the 1:1 mapping is
-    untouched and still deferred to VU2.5.
+  - Do: confirm a ramped clip's shots land where its frames land.
+  - Result: 09/08/2026 · **PASS — closed, not deferred** · notes: the three stale comments
+    claiming "no `speedRamps` op exists yet" are gone, and so is the flat mapping they
+    justified. `translateSourceRange` and `translateSourceTime` both delegate to
+    `projectAssetSpan`. Two regression tests pin it — a 2× ramp (source 4s ⇒ timeline 2s,
+    where 1:1 would put the boundary past the end of the clip) and a reversed clip (source
+    [0,2) is the LAST 2s on screen, where 1:1 would report the opposite end). Both were
+    verified to FAIL against the old flat mapping and pass against the new one.
+    semantic-index 113 passed; `tsc` and `eslint` clean.
 
 ---
 
