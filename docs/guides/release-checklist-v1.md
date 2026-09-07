@@ -114,10 +114,9 @@ See [ci-cd.md](../runbooks/ci-cd.md) for what each gate enforces.
 
 ## 5. Samples & docs
 
-- [ ] **Sample projects open cleanly** in the editor —
-      [`examples/hello-world.fp.json`](../../examples/hello-world.fp.json) and
-      [`examples/product-demo-short.fp.json`](../../examples/product-demo-short.fp.json)
-      load and validate against the current schema (see
+- [ ] **Sample project opens cleanly** in the editor —
+      [`demo.project.fp.json`](../../packages/timeline-schema/src/__fixtures__/demo.project.fp.json)
+      loads and validates against the current schema (see
       [`examples/README.md`](../../examples/README.md)).
 - [ ] **Docs reviewed** and reflect shipped behavior — including the
       [onboarding guide](./onboarding.md) (commands match the current root +

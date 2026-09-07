@@ -3,11 +3,11 @@
 Status: **Accepted** · Date: 2026-08-06 · Phase M12 of
 [`plan/LANGCHAIN-MIGRATION.md`](../../plan/LANGCHAIN-MIGRATION.md)
 
-**Supersedes or amends:** [0012](./0012-ai-tool-boundary.md) (AI tool boundary +
-orchestrator), [0033](./0033-streaming-ai-sidebar.md), [0035](./0035-reliable-orchestration.md),
-[0042](./0042-orchestration-kernel.md), [0044](./0044-orchestration-kernel-graduated.md),
+**Supersedes or amends:** [0012](./0012-ai-tool-boundary-and-orchestrator.md) (AI tool boundary +
+orchestrator), [0033](./0033-streaming-ai-sidebar-architecture.md), [0035](./0035-reliable-agent-orchestration.md),
+[0042](./0042-conductor-cutover-orchestration-kernel.md), [0044](./0044-orchestration-kernel.md),
 [0073](./0073-durable-orchestration-runtime.md), [0075](./0075-durable-run-working-state.md),
-[0081](./0081-run-state-causal-integrity.md), [0082](./0082-dag-owned-leaf-bindings.md)
+[0081](./0081-run-state-causal-integrity.md), [0082](./0082-dag-owned-leaf-input-bindings.md)
 in the parts that describe _how the agent loop is driven_. Every invariant those ADRs
 establish is unchanged — see "What did not change".
 

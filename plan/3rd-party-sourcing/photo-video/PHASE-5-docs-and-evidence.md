@@ -20,7 +20,7 @@ this plan lands, a later agent reading it would find a direct contradiction with
 Add a status banner at the top of its "Stock video / B-roll" section:
 
 > **REOPENED 2026-08-24 by maintainer decision.** See
-> [`photo-video/README.md`](./photo-video/README.md) §D1, which records which of the four
+> [`README.md`](./README.md) §D1, which records which of the four
 > reasons below still hold. Reason #4 (`SUC-P1`) **still holds** and shapes the placement
 > design. The **SFX** deferral below is unchanged.
 

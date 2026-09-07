@@ -41,6 +41,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **The AI panel's copy stops promising a review step.** The contract, the receipt and the
   empty state all said the edit would be reviewed before it applied; edits apply as they
   land and undo takes them back, and the words now say so.
+- **The browser's unreviewed-edit notice names the missing engine, not an environment
+  variable.** The warning shown on a page without the Python sidecar now says the engine
+  is what is missing and how to start it, instead of pointing at a `FRAMEPILOT_PYTHON_API_URL`
+  that means nothing on its own in the browser.
+- **The new one-call editing tools have activity-card labels.** `remove_filler_words` and
+  `tighten_clips` get a human label on the activity cards in the AI panel instead of a raw
+  tool name.
 - **"Mute the music track" is only suggested when there is music** — a voice-over on an
   audio track no longer earns it.
 - **The editing playbooks name the tools that exist**: captions in one call
@@ -251,6 +258,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   rebuild it — and if the run stopped in between, the footage was gone. Four of six
   reorder runs in the last evaluation lost content this way. Undo restores the previous
   order exactly. ADR 0173.
+
+- **The AI can tighten a whole window of shots in one call.** `tighten_clips` shortens
+  every shot in a selection to a target length and closes the resulting gaps in a single
+  patch — "tighten this whole section to 3s a shot" is now one operation instead of a run
+  of per-clip trims, and one undo restores every previous timing exactly.
+
+- **The AI can cut the filler words out of a talk.** `remove_filler_words` ripple-deletes
+  the um's, uh's and other hesitations using the transcript's own timings, so what stays
+  is smooth and the empty pockets they left never open up. ADR 0174.
 
 - **A new framepilot.app.** The marketing site was rebuilt end to end around one idea: the
   editors you already use are ripple-deleted into a bin in the corner and FramePilot takes
@@ -4560,7 +4576,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   project brain with model provenance (a later human edit is never silently
   overwritten). To place an observation on the timeline, the AI follows up with
   `add_marker`. This supersedes the never-built `detect_faces`. See
-  [docs/guides/vision-protocol.md](docs/guides/vision-protocol.md).
+  [docs/adr/0096-model-vision-get-frame.md](docs/adr/0096-model-vision-get-frame.md).
   (`engine/python/framepilot_engine/analysis/frames.py`, `service.py`,
   `packages/ai-sdk/src/tool-registry.ts`, `sidecar-executor.ts`,
   `packages/mcp-server/src/analysis-client.ts`)
@@ -4624,7 +4640,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   like the other providers. Add a `DEEPSEEK_API_KEY` in Settings → AI (or the env) and pick a
   model (defaults to `deepseek-chat`); `deepseek-reasoner`'s chain-of-thought is surfaced
   separately from its answer, same as the other reasoning models. See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#deepseek-openai-compatible).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#deepseek).
 - **The AI agent now edits with the judgment of a senior editor, across the
   whole craft.** Fourteen new built-in playbooks cover the full professional
   workflow — prepping and logging footage, crafting hooks, cutting silence and
@@ -5409,7 +5425,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   GPT-OSS, Kimi, … on Groq's LPU hardware) behind the shared OpenAI-compatible adapter, so
   it streams and tool-calls exactly like the other providers. Add a `GROQ_API_KEY` in
   Settings → AI (or the env) and pick a model (defaults to `llama-3.3-70b-versatile`). See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#groq-openai-compatible).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#groq).
 - **`list_assets` AI/MCP tool — a focused read of the media bin.** Returns the project's
   `{ assets, folders }`, optionally filtered by `kind` (video/audio/image) and/or
   `folderId`. A cheaper, targeted alternative to `get_project_state` when an agent only
@@ -5421,7 +5437,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GOOGLE_API_KEY` in the `x-goog-api-key` header; streams and tool-calls like the other
   providers. Optional `GOOGLE_BASE_URL` overrides the endpoint. Defaults to
   `gemini-2.5-flash`. See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#google-gemini-developer-api--ai-studio).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#google-gemini).
 
 ### Changed
 - **AI runs are no longer bounded by a clock.** The 60-second connect timeout, the
