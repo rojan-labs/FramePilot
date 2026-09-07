@@ -279,6 +279,39 @@ def _closed(value: Any, vocabulary: Sequence[str]) -> str | None:
     return candidate if candidate in vocabulary else None
 
 
+
+def _on_screen_text(raw: Any) -> list[str]:
+    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded.
+
+    Verbatim: only whitespace is collapsed and the length capped. Nothing here may "tidy" a
+    rendered lower-third, or a solver reading a title would be reading our paraphrase of it.
+
+    Deduplicated, first occurrence winning, for the same reason ``quality`` is: a
+    constrained decoder that has said everything it has to say fills the array to its bound
+    with the SAME line rather than closing it. Measured on SmolVLM2-2.2B against
+    ``workers/visual-describe/eval/media/slate.mp4``, a card reading "SCENE 4 TAKE 2":
+    sixteen identical copies, exactly :data:`MAX_ON_SCREEN_TEXT_ITEMS`. The bound stops the
+    runaway; it does not make the value useful. Verbatim is a promise about each line's
+    CONTENT — never to tidy or paraphrase it — not a promise to repeat a decoder's stutter
+    back to the editor as sixteen separate readings.
+
+    :param raw: The model's ``onScreenText`` value, of any shape.
+    :returns: The distinct legible lines, in the order first seen, at most
+        :data:`MAX_ON_SCREEN_TEXT_ITEMS`.
+    """
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return []
+    seen: list[str] = []
+    for item in raw:
+        text = _text(item, MAX_ON_SCREEN_TEXT_CHARS)
+        if not text or text in seen:
+            continue
+        seen.append(text)
+        if len(seen) >= MAX_ON_SCREEN_TEXT_ITEMS:
+            break
+    return seen
+
+
 def parse_described(
     payload: Mapping[str, Any] | Any, *, model: str, tier2_version: int = TIER2_VERSION
 ) -> DescribedFacts:
@@ -304,19 +337,7 @@ def parse_described(
     camera_map: Mapping[str, Any] = raw_camera if isinstance(raw_camera, Mapping) else {}
     shot_size = _closed(camera_map.get("shotSize"), [s.value for s in ShotSize])
     movement = _closed(camera_map.get("movement"), [m.value for m in CameraMovement])
-    on_screen_raw = payload.get("onScreenText")
-    on_screen = (
-        [
-            text
-            for item in list(on_screen_raw)[:MAX_ON_SCREEN_TEXT_ITEMS]
-            # Verbatim: only whitespace is collapsed and the length capped. Nothing here
-            # may "tidy" a rendered lower-third, or a solver reading a title would be
-            # reading our paraphrase of it.
-            if (text := _text(item, MAX_ON_SCREEN_TEXT_CHARS))
-        ]
-        if isinstance(on_screen_raw, Sequence) and not isinstance(on_screen_raw, (str, bytes))
-        else []
-    )
+    on_screen = _on_screen_text(payload.get("onScreenText"))
     quality_raw = payload.get("quality")
     quality: list[str] = []
     if isinstance(quality_raw, Sequence) and not isinstance(quality_raw, (str, bytes)):

@@ -80,6 +80,17 @@ class TestNormalise:
         described = normalise(answer(onScreenText=["Ship  it", "  ", 7]), 0)
         assert described.on_screen_text == ("Ship it",)
 
+    def test_on_screen_text_drops_a_decoder_stutter(self) -> None:
+        # Measured on SmolVLM2-2.2B against `workers/visual-describe/eval/media/slate.mp4`, a
+        # card reading "SCENE 4 TAKE 2": the constrained decoder filled the array to its bound
+        # with SIXTEEN identical copies rather than closing it. The bound stops the runaway; it
+        # does not make the value useful, and quoting a stutter back to the editor as sixteen
+        # separate readings is not what "verbatim" promises.
+        described = normalise(answer(onScreenText=["SCENE 4 TAKE 2"] * 16), 0)
+        assert described.on_screen_text == ("SCENE 4 TAKE 2",)
+        keeps_both = normalise(answer(onScreenText=["TOP", "TOP", "BOTTOM", "TOP"]), 0)
+        assert keeps_both.on_screen_text == ("TOP", "BOTTOM")
+
     def test_a_missing_summary_is_not_a_description(self) -> None:
         with pytest.raises(DescribeFailedError, match="no summary"):
             normalise(answer(summary="   "), 0)
@@ -145,3 +156,19 @@ class TestDescribeShots:
         backend = FakeDescribeBackend(answers=[answer(summary="")])
         with pytest.raises(ProtocolError, match="no summary"):
             list(describe_shots(_request(), backend))
+
+    def test_a_summaryless_answer_is_NOT_retryable_because_the_frame_will_not_change(
+        self,
+    ) -> None:
+        # The distinction the two failures above and this one exist to draw. A malformed
+        # answer is a hiccup worth one more pass; an object that PARSED and simply has
+        # nothing in it is the model declining, and the cause is the frame. Measured on
+        # SmolVLM2-2.2B against `eval/media/flat-grey.mp4`: a featureless frame returns a
+        # parseable, summaryless object every single time. Marked retryable, that failed
+        # the whole batch on every pass forever, spending a model call each time to be told
+        # the same nothing.
+        backend = FakeDescribeBackend(answers=[answer(summary="")])
+        with pytest.raises(ProtocolError) as caught:
+            list(describe_shots(_request(), backend))
+        assert caught.value.code == "internal_error"
+        assert caught.value.retryable is False

@@ -26,7 +26,12 @@ from __future__ import annotations
 from collections.abc import Callable, Iterator, Mapping, Sequence
 from typing import Any, Final
 
-from .backend import DescribeBackend, DescribeFailedError, MediaUnreadableError
+from .backend import (
+    DescribeBackend,
+    DescribeFailedError,
+    MediaUnreadableError,
+    ShotNotDescribableError,
+)
 from .protocol import (
     MAX_KEYFRAMES_PER_SHOT,
     Camera,
@@ -124,21 +129,13 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
         raise DescribeFailedError(f"shot {shot_index}: the model did not return an object.")
     summary = _text(payload.get("summary"), MAX_SUMMARY_CHARS)
     if not summary:
-        raise DescribeFailedError(f"shot {shot_index}: the model returned no summary.")
+        # Parsed, but describes nothing. Distinguished from a malformed answer because only
+        # one of the two is worth trying again — see `ShotNotDescribableError`.
+        raise ShotNotDescribableError(f"shot {shot_index}: the model returned no summary.")
     raw_camera = payload.get("camera")
     camera_map: Mapping[str, Any] = raw_camera if isinstance(raw_camera, Mapping) else {}
     raw_text = payload.get("onScreenText")
-    on_screen = (
-        tuple(
-            text
-            for item in list(raw_text)[:MAX_ON_SCREEN_TEXT_ITEMS]
-            # Verbatim: whitespace collapsed, length capped, nothing else. Nothing here may
-            # "tidy" a lower-third, or a solver reading a title reads our paraphrase of it.
-            if (text := _text(item, MAX_ON_SCREEN_TEXT_CHARS))
-        )
-        if isinstance(raw_text, Sequence) and not isinstance(raw_text, (str, bytes))
-        else ()
-    )
+    on_screen = tuple(_on_screen_text(raw_text))
     raw_quality = payload.get("quality")
     quality: list[str] = []
     if isinstance(raw_quality, Sequence) and not isinstance(raw_quality, (str, bytes)):
@@ -166,6 +163,34 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
     )
 
 
+
+def _on_screen_text(raw: Any) -> list[str]:
+    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded.
+
+    Verbatim: whitespace collapsed, length capped, nothing else. Nothing here may "tidy" a
+    lower-third, or a solver reading a title reads our paraphrase of it.
+    # Deduplicated, first occurrence winning, for the same reason `quality` below
+    # is: a constrained decoder that has said everything it has to say fills the
+    # array to its bound with the SAME line rather than closing it. Measured on
+    # SmolVLM2-2.2B against `eval/media/slate.mp4`, a card reading "SCENE 4 TAKE 2":
+    # sixteen identical copies, exactly `MAX_ON_SCREEN_TEXT_ITEMS`. The bound stops
+    # the runaway; it does not make the value useful. Verbatim is a promise about
+    # each line's CONTENT — never to tidy or paraphrase it — not a promise to repeat
+    # a decoder's stutter back to the editor as sixteen separate readings.
+    """
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return []
+    seen: list[str] = []
+    for item in raw:
+        text = _text(item, MAX_ON_SCREEN_TEXT_CHARS)
+        if not text or text in seen:
+            continue
+        seen.append(text)
+        if len(seen) >= MAX_ON_SCREEN_TEXT_ITEMS:
+            break
+    return seen
+
+
 def describe_shots(
     request: DescribeRequest,
     backend: DescribeBackend,
@@ -180,9 +205,15 @@ def describe_shots(
     the only place tier 2 can honour it — a llama.cpp call is not interruptible mid-token
     from here.
 
+    A shot the model DECLINES to describe still fails the whole request — the protocol has
+    no partial answer, and the engine client rejects a short one — but it fails as NOT
+    retryable. See :class:`ShotNotDescribableError`: a featureless frame will decline again,
+    so retrying spends a model call to be told the same nothing.
+
     :raises ProtocolError: ``cancelled`` when the host cancels, ``media_unreadable`` when a
         keyframe cannot be decoded, ``internal_error`` when the model answered nothing
-        usable. Never a partial answer.
+        usable — retryable for a malformed answer, NOT retryable when the model simply had
+        nothing to say about the frame.
     """
     for span in request.shots:
         if should_cancel():
@@ -200,8 +231,14 @@ def describe_shots(
         try:
             payload = backend.describe(frames, DESCRIBED_JSON_SCHEMA)
             yield normalise(payload, span.shot_index)
+        except ShotNotDescribableError as error:
+            # NOT retryable. The model looked and had nothing to say, and it will have
+            # nothing to say next time: the cause is the frame, not the run. Marking this
+            # retryable made a fade to black or a lens cap fail its whole batch on every
+            # pass, forever, spending a model call each time to be told the same nothing.
+            raise ProtocolError("internal_error", str(error), retryable=False) from error
         except DescribeFailedError as error:
-            # Retryable: the same shot on a second pass usually answers. It still fails the
-            # whole request rather than being skipped — a described row that was never
-            # produced must not be counted as coverage.
+            # Retryable: a malformed answer IS a hiccup, and the same shot on a second pass
+            # usually answers. It still fails the whole request rather than being skipped —
+            # a described row that was never produced must not be counted as coverage.
             raise ProtocolError("internal_error", str(error), retryable=True) from error

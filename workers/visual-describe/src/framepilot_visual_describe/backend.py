@@ -41,6 +41,22 @@ class DescribeFailedError(Exception):
     """
 
 
+class ShotNotDescribableError(DescribeFailedError):
+    """The model answered with a well-formed object that describes nothing.
+
+    A SUBSET of :class:`DescribeFailedError`, and the distinction decides whether retrying
+    is worth anything. "The model printed no JSON object" is a hiccup: the same shot on a
+    second pass usually answers. An object that parsed and carries an EMPTY SUMMARY is the
+    model declining — it looked and had nothing to say — and it will decline again, because
+    the cause is the footage, not the run.
+
+    Measured on SmolVLM2-2.2B against ``eval/media/flat-grey.mp4``, a featureless grey
+    frame: a parseable object with no summary, every time. A fade to black, a lens cap, a
+    blank slate are all this shape, and treating them as retryable failures of the whole
+    request means one blank frame in a batch fails every shot beside it, forever.
+    """
+
+
 @runtime_checkable
 class DescribeBackend(Protocol):
     @property

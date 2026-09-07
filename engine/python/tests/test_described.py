@@ -127,6 +127,21 @@ def test_quality_and_on_screen_text_are_bounded() -> None:
     assert len(facts.on_screen_text) == MAX_ON_SCREEN_TEXT_ITEMS
 
 
+def test_on_screen_text_drops_a_decoder_stutter_but_keeps_each_line_verbatim() -> None:
+    # Measured on SmolVLM2-2.2B against `workers/visual-describe/eval/media/slate.mp4`, a
+    # card reading "SCENE 4 TAKE 2": the constrained decoder filled the array to its bound
+    # with SIXTEEN identical copies rather than closing it. The bound stops the runaway; it
+    # does not make the value useful, and quoting a stutter back to the editor as sixteen
+    # separate readings is not what "verbatim" promises.
+    facts = parse_described(answer(onScreenText=["SCENE 4 TAKE 2"] * 16), model="m")
+    assert facts.on_screen_text == ["SCENE 4 TAKE 2"]
+    # Order is first-seen, and a genuinely different second line survives.
+    facts = parse_described(
+        answer(onScreenText=["TOP", "TOP", "BOTTOM", "TOP"]), model="m"
+    )
+    assert facts.on_screen_text == ["TOP", "BOTTOM"]
+
+
 def test_on_screen_text_is_verbatim_apart_from_whitespace() -> None:
     facts = parse_described(answer(onScreenText=["  SALE   50%  ", "", 7]), model="m")
     assert facts.on_screen_text == ["SALE 50%"]
