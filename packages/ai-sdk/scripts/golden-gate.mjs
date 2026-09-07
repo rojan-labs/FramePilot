@@ -283,8 +283,14 @@ if (!now || !was) {
     const a = was.perception?.framesSeenPerEdit;
     const b = now.perception?.framesSeenPerEdit;
     let verdict = 'held';
-    if (a == null || b == null) verdict = 'n/a — not measured';
-    else if (b > a + FRAMES_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
+    // "Not measured" is NOT "fine", and it used to print like it was. Both artifacts
+    // predated the metric, so this row read `n/a` on every CI run while the plan's central
+    // claim went unguarded — a gate that cannot fire protects nothing. Both sides are armed
+    // now (`perception-baseline.mjs --write-into`), so an absent block means someone fed an
+    // artifact from before the metric, and the line has to say the ceiling is OFF.
+    if (a == null || b == null) {
+      verdict = `⚠ NOT MEASURED — ceiling unguarded (${a == null ? 'floor' : 'input'} has no perception block; arm it with perception-baseline.mjs --write-into)`;
+    } else if (b > a + FRAMES_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
     else if (b < a) verdict = 'fewer frames';
     console.log(`| frames seen / accepted edit | ${fmt(a, 2)} | ${fmt(b, 2)} | ${verdict} |`);
   }

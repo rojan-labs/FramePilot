@@ -23,8 +23,12 @@
  *   node scripts/perception-baseline.mjs <runDir> [runDir...]      # markdown table on stdout
  *   node scripts/perception-baseline.mjs --json <runDir>           # the same as JSON
  */
-import { readdirSync, readFileSync, statSync } from 'node:fs';
-import { join } from 'node:path';
+import { readdirSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { dirname, join, resolve } from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+/** Repository root, so a path argument reads the same from any working directory. */
+const REPO_FROM_HERE = resolve(dirname(fileURLToPath(import.meta.url)), '..', '..', '..');
 
 /** Kept in step with `src/eval/perception-metrics.ts` — the same names, by hand. */
 const FRAME_TOOLS = new Set(['get_frame']);
@@ -66,6 +70,7 @@ function foldRun(runDir) {
     byTool: {},
     timelineReads: 0,
     judgedCalls: 0,
+    guessedCalls: 0,
     groundedTurns: 0,
     judgedTurns: 0,
     acceptedEdits: 0,
@@ -93,6 +98,10 @@ function foldRun(runDir) {
         if (SOLVER_TOOLS.has(tool)) solverHere += count;
       }
       totals.judgedCalls += judgedHere;
+      // A judged call in a turn that measured NOTHING first was guessed by construction.
+      // Counted per CALL rather than per turn so it lands in `numericGuess` the same shape
+      // `summarizePerception` produces, and the two can be compared.
+      if (solverHere === 0) totals.guessedCalls += judgedHere;
       if (judgedHere > 0) {
         totals.judgedTurns += 1;
         if (solverHere > 0) totals.groundedTurns += 1;
@@ -112,9 +121,15 @@ function num(v, digits = 2) {
 
 const args = process.argv.slice(2);
 const asJson = args.includes('--json');
-const dirs = args.filter((a) => a !== '--json');
-if (dirs.length === 0) {
+const writeIntoAt = args.indexOf('--write-into');
+const writeInto = writeIntoAt === -1 ? null : args[writeIntoAt + 1];
+const dirs = args.filter(
+  (a, i) =>
+    a !== '--json' && a !== '--write-into' && !(writeIntoAt !== -1 && i === writeIntoAt + 1),
+);
+if (dirs.length === 0 || (writeIntoAt !== -1 && !writeInto)) {
   console.error('usage: perception-baseline.mjs [--json] <runDir> [runDir...]');
+  console.error('       perception-baseline.mjs --write-into <artifact.json> <runDir>');
   process.exit(2);
 }
 
@@ -128,6 +143,7 @@ const total = scored.reduce(
     perceptionCalls: acc.perceptionCalls + r.perceptionCalls,
     timelineReads: acc.timelineReads + r.timelineReads,
     judgedCalls: acc.judgedCalls + r.judgedCalls,
+    guessedCalls: acc.guessedCalls + r.guessedCalls,
     judgedTurns: acc.judgedTurns + r.judgedTurns,
     groundedTurns: acc.groundedTurns + r.groundedTurns,
     acceptedEdits: acc.acceptedEdits + r.acceptedEdits,
@@ -143,12 +159,58 @@ const total = scored.reduce(
     perceptionCalls: 0,
     timelineReads: 0,
     judgedCalls: 0,
+    guessedCalls: 0,
     judgedTurns: 0,
     groundedTurns: 0,
     acceptedEdits: 0,
     byTool: {},
   },
 );
+
+/**
+ * The `perception` block, in the exact shape `summarizePerception` produces.
+ *
+ * `runs` is the number of run directories folded, which is what `perceptionCallsPerRun`
+ * divides by. `numericGuess` is the per-CALL proxy this script can see (operation types are
+ * not recorded per turn), so it is a floor on the guess rate, never an overstatement.
+ */
+function perceptionBlock(totals, runs) {
+  return {
+    framesSeenPerEdit: ratio(totals.framesSeen, totals.acceptedEdits),
+    framesSeen: totals.framesSeen,
+    perceptionCallsPerRun: ratio(totals.perceptionCalls, runs),
+    perceptionCallsByTool: totals.byTool,
+    numericGuessRate: ratio(totals.guessedCalls, totals.judgedCalls),
+    numericGuess: { total: totals.judgedCalls, guessed: totals.guessedCalls },
+  };
+}
+
+if (writeInto) {
+  // ARMING THE GATE, from the run's own recorded evidence.
+  //
+  // `golden-gate.mjs` reads `framesSeenPerEdit` as its one CEILING. Both sides of that
+  // comparison come from an artifact's `perception` block, and every artifact recorded
+  // before the metric existed has none — so the row printed "n/a — not measured" and the
+  // guard on the plan's central claim never fired. This writes the block that was always
+  // derivable, from `cases/*.json` in the run the artifact was cut from. It is a
+  // DERIVATION, not a measurement made up after the fact: every input is a tool-call record
+  // the harness wrote at the time, and re-running this command reproduces the same numbers.
+  const target = resolve(REPO_FROM_HERE, writeInto);
+  const doc = JSON.parse(readFileSync(target, 'utf8'));
+  const block = perceptionBlock(total, scored.length);
+  // A run file keeps its summary under `golden`; a `summary.json` (and `floor.json`) under
+  // `summary`. Write whichever this artifact actually has rather than inventing a section.
+  const section = doc.golden?.perCase ? 'golden' : doc.summary ? 'summary' : null;
+  if (section === null) {
+    console.error(`${writeInto} has neither a \`golden\` nor a \`summary\` block to write into`);
+    process.exit(2);
+  }
+  doc[section] = { ...doc[section], perception: block };
+  writeFileSync(target, `${JSON.stringify(doc, null, 2)}\n`);
+  console.log(`wrote ${section}.perception into ${writeInto}:`);
+  console.log(JSON.stringify(block, null, 2));
+  process.exit(0);
+}
 
 if (asJson) {
   console.log(JSON.stringify({ runs: scored, total, skipped }, null, 2));
