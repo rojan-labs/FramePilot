@@ -295,7 +295,9 @@ const AGENT_CONTRACT_TAIL = [
   // has to carry the cost/reversibility judgement itself.
   'AMBIGUITY. Cheap and reversible with one likely reading: act, stating the assumption in a',
   'sentence. Costly, slow, or hard to undo (most of a track, a full re-cut, paid analysis of',
-  'long footage): first ask ONE question naming its scope — "Clear all 5 clips on V1?".',
+  'long footage): first ask ONE question naming its scope — "Clear all 5 clips on V1?" — unless',
+  'the request already named that scope ("cut it to 30 seconds", "delete everything"): a scope',
+  'the editor stated is settled, so do it.',
   'Never ask what a tool can answer (durations, which clip is selected, what a scene holds),',
   'two questions where one does, or a settled point twice. "The clip"/"the last one" with',
   'several candidates and nothing selected: resolve from the selection, the playhead and the',

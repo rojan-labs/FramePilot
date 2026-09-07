@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11608,
+      "usedTokens": 11643,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -186,7 +186,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11608,
+          "estimatedInputTokensBeforeSend": 11643,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180200,
+          "estimatedRemainingCapacity": 180165,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -434,7 +434,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11807,
+      "usedTokens": 11842,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -502,7 +502,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -524,9 +524,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11807,
+          "estimatedInputTokensBeforeSend": 11842,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180001,
+          "estimatedRemainingCapacity": 179966,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -878,7 +878,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11330,
+      "usedTokens": 11365,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -946,7 +946,7 @@
             "id": "s9",
             "type": "system",
             "label": "agent contract",
-            "tokenEstimate": 2122,
+            "tokenEstimate": 2157,
             "included": true
           },
           {
@@ -968,9 +968,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11330,
+          "estimatedInputTokensBeforeSend": 11365,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180478,
+          "estimatedRemainingCapacity": 180443,
           "toolSchemaTokensRebilled": 6721,
           "calculationSource": "local_estimate"
         },

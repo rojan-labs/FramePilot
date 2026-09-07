@@ -13,7 +13,7 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-07, session 9, GOLDEN-EVAL — goal.md Phase 0):** the session-9
+**Status snapshot (2026-09-07b, session 9, GOLDEN-EVAL — goal.md Phase 0):** the session-9
 floor is `s9-baseline-replay` (session6 recordings under `main`, 11 × 3: first-pass 80%,
 $0.627/accepted edit). `reorder_clips` was then **sampled live for the first time**
 (`s9-live-reorder`): right on the first call in 6 of 6 runs, then 3 runs rotated the order
@@ -41,8 +41,48 @@ one operation per run, $0.499 → $0.049 per accepted edit, done p95 107s → 23
   turn fired after C.23).
 - `[x]` GOLDEN-C.25 — **the reorder rubrics see an unasked crop.** `no-collateral-changes`:
   a moved clip keeps its crop, speed, effects and keyframes. Commit `5084805`.
-- `[ ]` GOLDEN-0.4 — the full 21-case live run under the session-9 code, to measure C.22/C.23
-  beyond the two reorder cases (label `s9-live-all`).
+- `[x]` GOLDEN-0.4 — **the full 21-case live run** (`s9-live-all`): first-pass 21/24
+  turns, silent successes 0, reversibility 24/24, $0.232 per accepted edit, done p50 30.5s.
+  Nine void turns from a transport outage were re-run with `--force`. Three misses, each
+  read: an instrument defect (C.28, fixed), a scope question the request had answered
+  (C.26), an ask where a decline was expected (left).
+- `[x]` GOLDEN-C.26 — **a scope the request named is settled.** `beat-sync` asked "Replace
+  it / Append / Build as an alternate" on "cut the picture to the beat … about 30 seconds".
+  The AMBIGUITY clause now says a scope the editor stated is not a question. Measured live
+  on `beat-sync` ×3 (`s9-live-beat-scope`).
+- `[x]` GOLDEN-C.27 — **the verifier failed the segmenter's own subtitle cues** (12 vs 14
+  words) and every caption case re-captioned itself for nothing; one `MAX_CAPTION_CUE_WORDS`
+  now. Commit `9295303`.
+- `[x]` GOLDEN-C.28 — **a dismissed question is still a question** (`observeIntent` read
+  `cancelled` first; `clarify-which-clip` asked right and scored intent 0). Commit `7c31a7d`.
+- `[x]` GOLDEN-C.29 — **`adjust_audio` takes a track.** Eighteen one-clip calls to lower
+  one tiled bed. Commit `3e44ed4`. Also: the harness never sent the editor interaction
+  snapshot the desktop always sends, so every `professional_*` tool was refused in it
+  (`7c31a7d`).
+- `[x]` GOLDEN-C.30 — **a fan-out tool's note is bounded** (1,399-line note, 41k uncached
+  tokens on the next calls). Commit `e4ec8bc`.
+- `[x]` GOLDEN-C.31 — **the Claude-login provider caches the run-stable prefix**: 5.5k →
+  2.0k uncached tokens per call, $0.049 → $0.022 per accepted edit on the reorder cases
+  (`s9-live-reorder-cache`). Commit `b0fab26`.
+- `[x]` GOLDEN-C.32 — **copy that promised a review step** (contract, receipt, empty state)
+  says edits land and undo; the skills name `caption_the_edit`, `set_clip_speed_ramp`,
+  `reorder_clips`; the repair pass advertises its stage's surface; the runner's merged file
+  describes the label. Commits `c4721a6`, `1a950ec`, `fe48ee3`, `424075c`, `f1f8237`.
+- `[ ]` GOLDEN-C.33 — `refine-tighten` t2 rebuilt the middle section three times (184 ops,
+  $0.65, 308s) for a 1.00. Needs the replayed prompts read.
+- `[ ]` GOLDEN-0.5 — the desktop's default path (`--plan-first`) has never been measured.
+- `[ ]` UX-S9.1 — **the pinned plan card outlives its run**: after "Made 1 edit" it still
+  reads "Plan 1/2" with a hollow step, and it stays pinned when the mode switches to Chat
+  (`reports/golden/s9-ui-walk/04-cards-expanded.png`). A finished run's plan should settle
+  (done steps ticked, undone steps named as not done) and a new mode should not carry it.
+- `[ ]` UX-S9.2 — **review findings show the model's remedy sentence to the editor**
+  ("ripple_delete the head/tail range", "Look at a rendered frame before treating the
+  framing as correct"), and a check that could not run ("Not checked: … never measured")
+  renders as a warning card. Findings need an editor-facing line; skipped checks need no
+  card.
+- `[ ]` UX-S9.3 — the browser build's "Review could not run" notice names an env var
+  (`VITE_FRAMEPILOT_PYTHON_API_URL`); say "the engine is not connected" and where to
+  connect it. Browser-only; desktop configures it.
 
 **Prior snapshot (2026-09-05c, GOLDEN-EVAL — goal.md Phase 0):** no run this session
 (credits conserved). A second, systematic sweep of the captured transcript `137d8fd0` —

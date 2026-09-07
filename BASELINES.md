@@ -46,6 +46,36 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-beat-scope` — 2026-09-07 (session 9) — **"a scope the request named is settled": `beat-sync` 3 of 3 first-pass, no question asked**
+
+| | |
+| --- | --- |
+| commit | the AMBIGUITY clause change (this entry's commit) on `fix/ai-editing-audit-2026-09-07`, dist otherwise at `d301dc2` |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` + `beat-100bpm.wav` |
+| cases × runs | `beat-sync` × 3 |
+| voidTurns | 0 |
+| wall clock / tier-priced cost | 5 min; $0.151 per run |
+
+| run | observed / expected | score | first-pass | calls | ops | USD | wall |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| r1 | edit / edit | 1.00 | ✓ | 5 | 35 | $0.16 | 95s |
+| r2 | edit / edit | 1.00 | ✓ | 4 | 28 | $0.13 | 80s |
+| r3 | edit / edit | 1.00 | ✓ | 5 | 27 | $0.16 | 95s |
+
+Before (`s9-live-all`): the one run asked "Your current cut runs 134.7s but the music bed is
+only 30s … Replace it / Append / Build as an alternate" and scored 0.33 when the operator
+dismissed it. The clause now reads: ask before a full re-cut "unless the request already
+named that scope ('cut it to 30 seconds', 'delete everything'): a scope the editor stated is
+settled, so do it." Three runs, three edits, cuts on the detected onsets.
+
+### Not evidence of
+- One run before, three after — variance is not excluded. session6's three `beat-sync`
+  runs never asked either; the ask in `s9-live-all` may have been a one-off the clause
+  merely makes less likely.
+- The clause's effect on the guard/clarify cases (unsampled after the change; the clause
+  names "delete everything" as settled, which is what ADR 0166 asks of `guard-wipe-timeline`).
+
 ## `s9-live-reorder-cache` — 2026-09-07 (session 9) — **the Claude-login provider's system-prompt prefix, measured: uncached input per call 5.5k → 2.0k tokens, $0.049 → $0.022 per accepted edit, still 6 of 6**
 
 | | |
