@@ -33,6 +33,7 @@ from framepilot_engine.timeline.operations import (
     apply_operation,
     invert_operation,
 )
+from framepilot_engine.validation.patch_validation import validate_patch
 
 
 def _clip(cid: str, start: float, end: float, **extra: object) -> Clip:
@@ -324,3 +325,34 @@ def test_a_text_overlay_trims_in_both_directions() -> None:
     t = _find(after, "t")
     assert (t.start, t.end) == (0, 4)
     assert (t.source_start, t.source_end) == (0, 4)
+
+
+# --- the consequence the engine's own validator used to report ----------------
+
+
+def test_the_engine_validator_now_accepts_an_ordinary_edit_of_a_retimed_clip() -> None:
+    # The observable failure: a 1:1 source shift leaves a clip whose source span
+    # contradicts its own speed, and ``_speed_consistency_checks`` then reported
+    # ``speed_duration_mismatch`` — the engine rejecting a patch the TS validator had
+    # already accepted. ``tighten_clips``, ``punch_in`` and ``trim_clip`` emit exactly
+    # these ops whenever the target clip is sped up.
+    for operations in (
+        [TrimClip(clip_id="a", start=1, end=4)],
+        [SplitClip(clip_id="a", at=2)],
+        [DeleteRange(track_id="video_1", start=1, end=2)],
+    ):
+        result = validate_patch(_sped(), operations)
+        assert result.valid, (operations[0].type, [i.message for i in result.issues])
+
+
+def test_the_engine_validator_accepts_a_split_of_a_ramped_clip() -> None:
+    ramped = _ramped(
+        [
+            {"id": "p1", "sourceTime": 0, "rate": 0.5, "easing": "linear"},
+            {"id": "p2", "sourceTime": 10, "rate": 4, "easing": "linear"},
+        ],
+        _clip("a", 0, 10, sourceStart=0, sourceEnd=10),
+    )
+    total = _find(ramped, "a")
+    result = validate_patch(ramped, [SplitClip(clip_id="a", at=(total.end - total.start) / 2)])
+    assert result.valid, [issue.message for issue in result.issues]
