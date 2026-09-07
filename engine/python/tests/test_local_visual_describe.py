@@ -214,6 +214,18 @@ class TestRefusals:
         described = run(handle, launcher, [(0, 0.0, 4.0), (1, 4.0, 9.0)])
         assert [d.shot_index for d in described] == [0]
 
+    def test_one_declined_shot_costs_only_itself_across_a_full_batch(
+        self, handle: PackHandle
+    ) -> None:
+        # The damage the old rule did, at the size it actually did it. A batch is
+        # MAX_SHOTS_PER_REQUEST = 16, and refusing a short answer meant a single
+        # featureless frame — a fade to black, a lens cap, a leader — threw away the
+        # fifteen describable shots beside it, on every pass.
+        spans = [(index, index * 2.0, index * 2.0 + 2.0) for index in range(16)]
+        answered = [shot(index) for index in range(16) if index != 7]
+        described = run(handle, Scripted(describe_reply(answered)), spans)
+        assert [d.shot_index for d in described] == [i for i in range(16) if i != 7]
+
     def test_an_answer_naming_a_shot_nobody_asked_for_is_still_refused(
         self, handle: PackHandle
     ) -> None:
