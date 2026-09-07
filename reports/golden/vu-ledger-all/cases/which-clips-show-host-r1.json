@@ -1,0 +1,297 @@
+{
+  "scenario": "which-clips-show-host",
+  "category": "question",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Which clips show the host?",
+      "rubric": "unchanged",
+      "expectedIntent": "answer",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "answer",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 3,
+        "toolCalls": 5,
+        "tokens": {
+          "prompt": 39698,
+          "output": 5582,
+          "total": 45280
+        },
+        "usd": 0.138312,
+        "latency": {
+          "firstProgressMs": 5349,
+          "doneMs": 47647
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": false,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 0,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 0,
+            "grounded": 0,
+            "guessed": 0,
+            "rate": null
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "Based on the roles of the source files in your bin, the host is in **clip_001** — the primary \"camera\" footage (asset_001, 0–39.8s) — while clips_002 through clip_005 use the b1–b4 files, which are b-roll cutaways, and clip_004 (asset_004) is your dark static shot. One honest caveat: this project has no visual index and no transcript, so I can't confirm the host's identity on screen from measured content — the split is inferred from what each file is named/used for.\n\nIf you'd like, I can treat clip_001 as the host section for a subsequent pass (e.g., cropping it to fit the portrait frame prope",
+      "recording": "reports/golden/vu-ledger-all/recordings/which-clips-show-host-r1-t1.json",
+      "calls": [
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "get_transcript",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "session_context",
+          "status": "completed",
+          "args": ""
+        },
+        {
+          "tool": "load_tools",
+          "status": "completed",
+          "args": "domains: [\"footage\"]"
+        },
+        {
+          "tool": "get_clips",
+          "status": "completed",
+          "args": ""
+        }
+      ],
+      "metrics": {
+        "wallMs": 47647,
+        "modelCalls": 3,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 39698,
+          "input": 18194,
+          "output": 5582,
+          "cacheRead": 21504,
+          "cacheCreate": 0
+        },
+        "perCall": [
+          {
+            "ttftMs": 5193,
+            "wallMs": 5492,
+            "input": 3351,
+            "output": 824,
+            "cacheRead": 9216
+          },
+          {
+            "ttftMs": 10408,
+            "wallMs": 10857,
+            "input": 448,
+            "output": 1548,
+            "cacheRead": 12288
+          },
+          {
+            "ttftMs": 29716,
+            "wallMs": 31273,
+            "input": 14395,
+            "output": 3210,
+            "cacheRead": 0
+          }
+        ],
+        "summary": {
+          "turnCount": 3,
+          "ttftMs": {
+            "p50": 10408,
+            "p95": 29716,
+            "min": 5193,
+            "max": 29716
+          },
+          "wallMs": {
+            "p50": 10857,
+            "p95": 31273,
+            "min": 5492,
+            "max": 31273
+          },
+          "inputTokensPerTurn": {
+            "p50": 3351,
+            "p95": 14395,
+            "min": 448,
+            "max": 14395
+          },
+          "outputTokensPerTurn": {
+            "p50": 1548,
+            "p95": 3210,
+            "min": 824,
+            "max": 3210
+          },
+          "cacheHitRate": 0.5416897576704116,
+          "cacheReportingTurns": 3
+        },
+        "usd": 0.138312,
+        "usageTokens": 23776,
+        "toolCalls": 5,
+        "toolCallsByName": {
+          "get_mapped_transcript": 1,
+          "get_transcript": 1,
+          "session_context": 1,
+          "load_tools": 1,
+          "get_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 6,
+        "contextByType": [
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2516,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2516,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2678,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 8587
+          },
+          {
+            "system": 2678,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1674,
+            "tool_schemas": 8587
+          }
+        ],
+        "contextUsedTokens": [
+          11912,
+          3351,
+          12101,
+          448,
+          13575,
+          14395
+        ],
+        "contextCachedTokens": [
+          null,
+          9216,
+          null,
+          12288,
+          null,
+          0
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "openrouter",
+  "model": "openrouter/auto"
+}

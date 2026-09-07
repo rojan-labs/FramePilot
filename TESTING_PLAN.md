@@ -884,7 +884,55 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
     suite; `reports/golden/s9-*` are this PR's own baselines.
   - The gate to watch: `framesSeenPerEdit` must **not** rise. A rubric improvement bought
     with frames is not the improvement this plan set out to make.
-  - Owner: ______  Result: __/__/____
+  - Owner: —  Result: 09/08/2026 · **MEASURED — and the central claim holds.**
+
+    First, why it had never been measured: the harness **never sent the shot ledger**, so
+    every perception case saw an unmeasured project and took its refusal path. Fixed in
+    `c884595`; that is also why no recorded run carries a `perception` block and why the
+    T1.2 gate row reads "not measured".
+
+    Live run `reports/golden/vu-ledger-all` — 9 cases, 11 turns, `openrouter/auto`, against
+    a `mission-montage` indexed keyless at tier 0:
+
+    | metric | baseline (`BASELINE.md`) | this run |
+    | --- | --- | --- |
+    | **frames seen / accepted edit** | 0.00 | **0.00** |
+    | footage-surface calls / run | 0.00 | 0.00 |
+    | grade/transition guess rate | **1.00** | **0.50** (6 of 12) |
+    | operation validity | — | 100% |
+    | reversibility | — | 100% |
+
+    **`framesSeenPerEdit` did not rise — it stayed at the floor of 0.00** across every new
+    colour, transition, duplicate and footage-question case. The agent answered "which
+    clips show the host", "what's on screen at", and "find the dark clips" **without
+    decoding a single frame for a model**, which is the plan's whole thesis. And the guess
+    rate halved from the 1.00 baseline: the solvers are computing numbers the model used to
+    invent.
+
+    The one-case before/after for the harness fix, same model and fixture:
+    `match-color-to-first-clip` went `score 0.45 / intent failed / 0 ops / $0.108` →
+    `score 1.00 / first-pass yes / 1 op / $0.021`.
+
+    Caveats, stated plainly: one run, one model, one fixture project, and `openrouter/auto`
+    is not the provider the PR's own figures were taken on. This measures the perception
+    claim, not overall edit quality — see the three misses recorded in T5.4, T9.1 and the
+    note below.
+  - **Follow-ups this run surfaced** (none of them merge blockers, all recorded):
+    1. `warmer-subtle` — `apply_look(warmer, subtle, trackId)` was called correctly, once,
+       for the layer, but landed `temperature 0.56` on clip_004; the rubric called it "not
+       subtle". This is exactly the unfitted-coefficient risk T5.7 predicts, now with a
+       number against it. Feeds **T16.4**.
+    2. `reorder-last-first` — failed **twice** on `openrouter/auto` in the T9.1 shape: the
+       first `reorder_clips` was correct, then four more re-applied "move the last to the
+       front" against the timeline it had just changed, rotating a 5-clip list back to its
+       original order, and the run reported "Applied 5 edits". It passes **4/4** on
+       `claude-sonnet-5` in the recorded s9 runs (1 op, 3–4 calls), so the T9.1 fix holds on
+       the measured provider and this is a weaker-model failure — but nothing in the kernel
+       *detects* that a position-relative request was already satisfied, so a weaker model
+       can rotate to identity and still report success.
+    3. The three `question` cases scored **1.00** on their checks while recording
+       `intent=failed`. Right answer, failure-shaped verdict — worth a look alongside T9.2.
+  - Owner: ______
 
 - [ ] **T16.4. Colour coefficients unfitted** — see T5.7. Decide whether to fit before merge
       or ship the derived model and fit later. `fit-color-response.mjs` is ready.
