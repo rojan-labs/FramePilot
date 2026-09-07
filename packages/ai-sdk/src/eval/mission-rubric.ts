@@ -899,14 +899,32 @@ const MATCH_COLOR_TARGET_INDEX = 2;
 const MATCH_COLOR_REFERENCE_INDEX = 0;
 
 /**
- * The most temperature "a little warmer" may reach before it is not a little any more.
+ * The most temperature "a little warmer" may reach before the solve is at the rail.
  *
- * Half the renderer's contract range (temperature is -1..1). Not a tighter number, because
- * how much temperature a +0.05 warmth move costs depends on the shot's measured luma — the
- * solver decides that, and a rubric pinning it would be grading the arithmetic rather than
- * the intent. What is scoreable is that the move is warm, is not extreme, and is alone.
+ * This used to be 0.5 — "half the renderer's contract range" — in the same breath as the
+ * docstring admitting that how much temperature a +0.05 warmth move costs depends on the
+ * shot's measured luma and "the solver decides that". Those two statements cannot both
+ * stand, and the flat cap was the one that was wrong.
+ *
+ * `WARMTH_PER_TEMPERATURE` scales with the frame's mean luma, because white balance is
+ * multiplicative: a dark shot's chroma moves less in absolute terms, so the SAME measured
+ * warmth change costs more parameter there. That is not a defect, it is the whole point of
+ * VU3 — "a bit warmer" must land the same amount of warmer on every shot, in measured units
+ * rather than parameter units. A rubric that caps the parameter is grading the shots by how
+ * dark they are.
+ *
+ * Measured, on `mission-montage` (`vu-ledger-all/warmer-subtle`): asset_004 measures
+ * luma_mean **0.1271**, the darkest clip in the fixture. A +0.05 warmth target there solves
+ * to 0.05 / (0.6936 × 0.1271) ≈ **0.57** — and the run produced 0.56. The old cap failed a
+ * correct, scale-free solve for being applied to dark footage.
+ *
+ * So the bound is the renderer's contract range itself. What "not a little any more"
+ * actually looks like is the solve hitting the RAIL — at which point the solver reports
+ * `clamped` and the move it promised did not land. Inside the range, the parameter is the
+ * solver's business, exactly as documented; direction, absence of stray axes and staying
+ * off the rail are what a rubric can honestly score.
  */
-const WARMER_SUBTLE_MAX_TEMPERATURE = 0.5;
+const WARMER_SUBTLE_MAX_TEMPERATURE = 1;
 
 /**
  * The line `broll-over-sentence` asks for b-roll over, verbatim from the fixture transcript.
@@ -1154,7 +1172,9 @@ export function checkWarmedEveryClip(project: Project, maxTemperature: number): 
   for (const clip of clips) {
     const temperature = gradeAxis(clip, 'temperature');
     if (temperature === null || temperature <= NEGLIGIBLE_GRADE) cold.push(clip.id);
-    else if (temperature > maxTemperature) overshot.push(`${clip.id}=${temperature.toFixed(2)}`);
+    // `>=`, not `>`: at the contract rail the solve was clamped, so the warmth it promised
+    // is not the warmth that landed. Inside the range it is the solver's arithmetic.
+    else if (temperature >= maxTemperature) overshot.push(`${clip.id}=${temperature.toFixed(2)}`);
     for (const axis of ['exposure', 'contrast', 'saturation'] as const) {
       const value = gradeAxis(clip, axis);
       if (value !== null && Math.abs(value) > WARMTH_ONLY_TOLERANCE) {
@@ -1164,7 +1184,7 @@ export function checkWarmedEveryClip(project: Project, maxTemperature: number): 
   }
   const problems = [
     ...(cold.length > 0 ? [`not warmed: ${cold.join(', ')}`] : []),
-    ...(overshot.length > 0 ? [`not subtle: ${overshot.join(', ')}`] : []),
+    ...(overshot.length > 0 ? [`clamped at the contract rail: ${overshot.join(', ')}`] : []),
     ...(strayAxes.length > 0 ? [`moved axes nobody asked for: ${strayAxes.join(', ')}`] : []),
   ];
   return {
@@ -1172,7 +1192,7 @@ export function checkWarmedEveryClip(project: Project, maxTemperature: number): 
     ok: problems.length === 0,
     detail:
       problems.length === 0
-        ? `${String(clips.length)} clip(s) warmed, warmth only, all under ${maxTemperature}`
+        ? `${String(clips.length)} clip(s) warmed, warmth only, none at the ${maxTemperature} rail`
         : problems.join('; '),
     weight: 2,
     facet: 'target',

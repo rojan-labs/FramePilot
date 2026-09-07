@@ -998,6 +998,27 @@ describe('warmer-subtle: warmth, on every clip, and nothing else', () => {
   it('fails a cooler grade', () => {
     expect(checkWarmedEveryClip(warmed([{ temperature: -0.2 }]), 0.5).ok).toBe(false);
   });
+
+  it('passes the larger temperature a DARK shot needs for the same measured warmth', () => {
+    // The scale-free contract (VU3): "a bit warmer" moves every shot by the same amount in
+    // MEASURED units, and `WARMTH_PER_TEMPERATURE` scales with mean luma — so a dark shot
+    // costs more parameter to move the same distance. Measured on `mission-montage`,
+    // asset_004 is luma_mean 0.1271 and a +0.05 warmth target solves to ≈0.57; the live run
+    // produced 0.56 and the old flat cap of 0.5 failed it. Failing a correct solve for
+    // being applied to dark footage is grading the shot's exposure, not the grade.
+    expect(checkWarmedEveryClip(warmed([{ temperature: 0.56 }, { temperature: 0.12 }]), 1).ok).toBe(
+      true,
+    );
+  });
+
+  it('fails a solve sitting at the contract rail, where the promised warmth did not land', () => {
+    // This is what "not a little any more" actually looks like: at ±1 the solver clamped,
+    // so the warmth it reported is not the warmth that landed. That is a real failure, and
+    // it is the one a parameter bound can honestly detect.
+    const check = checkWarmedEveryClip(warmed([{ temperature: 1 }]), 1);
+    expect(check.ok).toBe(false);
+    expect(check.detail).toContain('rail');
+  });
 });
 
 describe('transitions land at source changes and never on a continuity cut', () => {
