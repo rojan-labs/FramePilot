@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 94,
+  "toolCount": 95,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -2793,6 +2793,47 @@
             "type": [
               "string"
             ]
+          }
+        }
+      }
+    },
+    "remove_filler_words": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": false,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "assetId": {
+            "type": [
+              "string"
+            ]
+          },
+          "padSeconds": {
+            "type": [
+              "number"
+            ],
+            "minimum": 0,
+            "maximum": 0.5
+          },
+          "trackId": {
+            "type": [
+              "string"
+            ]
+          },
+          "words": {
+            "type": [
+              "array"
+            ],
+            "items": {
+              "type": [
+                "string"
+              ]
+            }
           }
         }
       }

@@ -144,6 +144,16 @@ class SetClipSpeedRampArgs(BaseModel):
     keep_duration: bool | None = Field(default=None, alias="keepDuration")
 
 
+class RemoveFillerWordsArgs(BaseModel):
+    """Mirror of the TS ``remove_filler_words``."""
+
+    model_config = _STRICT
+    asset_id: str | None = Field(default=None, alias="assetId", min_length=1)
+    track_id: str | None = Field(default=None, alias="trackId", min_length=1)
+    words: list[str] | None = Field(default=None, min_length=1, max_length=50)
+    pad_seconds: float | None = Field(default=None, alias="padSeconds", ge=0, le=0.5)
+
+
 class TightenClipsArgs(BaseModel):
     """Mirror of the TS ``tighten_clips``: trim clips in a window to a shot length, then re-lay."""
 
@@ -1290,6 +1300,14 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "clips shift earlier. Prefer this for cutting dead air or tightening pacing.",
         kind="mutate",
         input_model=RangeOnTrackArgs,
+        mutating=True,
+    ),
+    "remove_filler_words": _spec(
+        "remove_filler_words",
+        "Ripple-delete every hesitation word (um, uh, er, hmm…) from the clips that play "
+        "the transcript, keeping a little breath on each side, in one reversible patch.",
+        kind="mutate",
+        input_model=RemoveFillerWordsArgs,
         mutating=True,
     ),
     "tighten_clips": _spec(

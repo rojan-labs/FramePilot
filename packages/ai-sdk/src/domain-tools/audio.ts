@@ -12,8 +12,10 @@
  */
 import { z } from 'zod/v4';
 import type { ToolSpec } from '../tool-registry.js';
+import type { Operation } from '@framepilot/editor-core';
 import { analysisTool, mutateTool } from './tool-factories.js';
 import { filterString, numeric, seconds } from './tool-args.js';
+import { DEFAULT_FILLER_WORDS, fillerCutOps } from '../silence-cut.js';
 
 const transcribeSchema = z
   .object({
@@ -102,6 +104,54 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
         clipId: clip.id,
         gainDb: a.gainDb,
       }));
+    },
+  ),
+  mutateTool(
+    {
+      name: 'remove_filler_words',
+      description:
+        'Cut the "um"s and "uh"s out of a recording in ONE call: every hesitation word in ' +
+        'the transcript (um, uh, er, hmm and the like — pass words to use your own list) is ' +
+        'ripple-deleted from the clips that play it, with padSeconds (default 0.04) of ' +
+        'breath kept on each side so the neighbouring words are never touched. Needs a ' +
+        'transcript — run transcribe first. assetId limits it to one recording, trackId to ' +
+        'one track. Reports how many fillers were cut and the seconds removed; if the ' +
+        'transcript holds none it says so rather than cutting anything. Use ' +
+        'remove_silences for dead air, this for spoken filler. Returns a reversible patch.',
+      // One ripple_delete per filler word: the count is a fact about the transcript, not
+      // the model's choice — the same reasoning as remove_silences and caption_the_edit.
+      derivedFanOut: true,
+    },
+    z
+      .object({
+        assetId: z.string().min(1).optional(),
+        trackId: z.string().min(1).optional(),
+        words: z.array(z.string().min(1)).min(1).max(50).optional(),
+        padSeconds: numeric(z.number().min(0).max(0.5)).optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      if (ctx.project.transcript.length === 0) {
+        throw new Error(
+          'remove_filler_words: this project has no transcript yet, so there are no words ' +
+            'to find. Run transcribe first.',
+        );
+      }
+      const { ops, cuts } = fillerCutOps(ctx.project, {
+        ...(a.assetId === undefined ? {} : { assetId: a.assetId }),
+        ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
+        ...(a.words === undefined ? {} : { words: a.words }),
+        ...(a.padSeconds === undefined ? {} : { padSeconds: a.padSeconds }),
+      });
+      if (cuts.length === 0) {
+        throw new Error(
+          'remove_filler_words: no filler words on the timeline — the transcript has none ' +
+            `of ${(a.words ?? DEFAULT_FILLER_WORDS).join(', ')} inside a placed clip. Nothing to cut; ` +
+            'do not call this again with the same words.',
+        );
+      }
+      // `ripple_delete`s only — timeline operations.
+      return ops as Operation[];
     },
   ),
   analysisTool(

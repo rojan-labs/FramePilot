@@ -48,6 +48,7 @@ from framepilot_engine.ai_tools.registry import (
     PunchInArgs,
     RangeOnTrackArgs,
     RememberPreferenceArgs,
+    RemoveFillerWordsArgs,
     RemoveKeyframesArgs,
     RemoveMarkerArgs,
     RemoveTrackArgs,
@@ -279,6 +280,98 @@ def set_clip_speed_ramp(args: SetClipSpeedRampArgs, ctx: ToolContext) -> Operati
             ],
         }
     ]
+
+
+DEFAULT_FILLER_WORDS = (
+    "um",
+    "umm",
+    "uh",
+    "uhh",
+    "uhm",
+    "er",
+    "erm",
+    "ah",
+    "ahh",
+    "hmm",
+    "hm",
+    "mm",
+    "mhm",
+)
+DEFAULT_FILLER_PAD_SECONDS = 0.04
+_EPS = 1e-6
+
+
+def _normalise_word(word: str) -> str:
+    return re.sub(r"[^a-z]", "", word.lower())
+
+
+def _word_safe_range(start: float, end: float, words: list[Any]) -> tuple[float, float] | None:
+    """Mirror of ``silence-cut.ts#wordSafeRange``: keep a cut out of the words either side."""
+    s, e = start, end
+    for word in words:
+        if word.start + _EPS < s < word.end - _EPS:
+            s = word.end
+        if word.start + _EPS < e < word.end - _EPS:
+            e = word.start
+    return (s, e) if e - s > _EPS else None
+
+
+def remove_filler_words(args: RemoveFillerWordsArgs, ctx: ToolContext) -> Operations:
+    """Mirror of ``domain-tools/audio.ts#remove_filler_words`` (``silence-cut.ts#fillerCutOps``)."""
+    project = ctx.project
+    if not project.transcript:
+        raise ValueError(
+            "remove_filler_words: this project has no transcript yet, so there are no words "
+            "to find. Run transcribe first."
+        )
+    fillers = {_normalise_word(w) for w in (args.words or DEFAULT_FILLER_WORDS)}
+    pad = args.pad_seconds if args.pad_seconds is not None else DEFAULT_FILLER_PAD_SECONDS
+    fps = float(project.fps)
+    cuts: list[dict[str, Any]] = []
+    for track in project.timeline.tracks:
+        if args.track_id and track.id != args.track_id:
+            continue
+        for clip in track.clips:
+            if args.asset_id and clip.asset_id != args.asset_id:
+                continue
+            if (getattr(clip, "speed", None) or 1) != 1:
+                continue
+            words = [
+                w for w in project.transcript if w.asset_id is None or w.asset_id == clip.asset_id
+            ]
+            source_end = (
+                clip.source_end
+                if clip.source_end is not None
+                else clip.source_start + (clip.end - clip.start)
+            )
+            for word in words:
+                if _normalise_word(word.word) not in fillers:
+                    continue
+                if word.end <= clip.source_start or word.start >= source_end:
+                    continue
+                wide = (
+                    max(word.start - pad, clip.source_start),
+                    min(word.end + pad, source_end),
+                )
+                safe = _word_safe_range(wide[0], wide[1], [w for w in words if w is not word])
+                if safe is None:
+                    continue
+                start = round((clip.start + (safe[0] - clip.source_start)) * fps) / fps
+                end = round((clip.start + (safe[1] - clip.source_start)) * fps) / fps
+                if end - start <= _EPS:
+                    continue
+                cuts.append(
+                    {"type": "ripple_delete", "trackId": track.id, "start": start, "end": end}
+                )
+    if not cuts:
+        listed = ", ".join(args.words or DEFAULT_FILLER_WORDS)
+        raise ValueError(
+            f"remove_filler_words: no filler words on the timeline — the transcript has none of "
+            f"{listed} inside a placed clip. Nothing to cut; do not call this again with the "
+            "same words."
+        )
+    cuts.sort(key=lambda op: -float(op["start"]))
+    return cuts
 
 
 def tighten_clips(args: TightenClipsArgs, ctx: ToolContext) -> Operations:
