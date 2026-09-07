@@ -9765,8 +9765,16 @@ surfaces → color solver) as the first vertical slice before any pack work.
 - [x] VU4 — transition policy by reason; `add_transitions` `auto` reads the boundary flags
   and NAMES every cut it leaves as a hard cut. Families resolve through catalog data, never an
   id literal; `continuity` returns null at any delta.
-- [ ] VU5 — tier 1 pack `framepilot.visual-embed` + identity in `subject-intelligence`; offline `search_visual`
-- [ ] VU6 — tier 2 pack `framepilot.visual-describe` (llama.cpp + SmolVLM2), structured captions, hosted parity, scheduling
+- [x] VU5 — tier 1 pack `framepilot.visual-embed`: worker, protocol, versioned prompt bank,
+  local arm preferred over the hosted one, entity clustering. **The pairwise duplicate scan is
+  DELETED** (`_SIMILAR_GROUP_SPAN_CAP` returns nothing) for an exact multi-index bucket.
+  **No weights fetched** — every digest is a placeholder `resolve_model` refuses by name, the
+  ONNX backend has never executed, and no accuracy is claimed.
+- [x] VU6 — tier 2 pack `framepilot.visual-describe`: one STRUCTURED description per shot,
+  the same schema from the local pack, the hosted arm and TwelveLabs. **Free-text captions are
+  DELETED** — `CAPTION_INSTRUCTION` and the prose path are gone, and `captioner.py` no longer
+  has a function returning a string. Captions now join spans by TIME OVERLAP, because two
+  segmentations cannot share an index space. Same weight status as VU5.
 - [~] VU7 — deterministic cut checks + bounded vision escalation, built and tested (28
   tests), **not wired**: the conductor is a pure reducer with no project, and the only seam
   with the right inputs is the steering/repair channel a verification must never enter.
@@ -9775,7 +9783,12 @@ surfaces → color solver) as the first vertical slice before any pack work.
   library ≈ **6.3 MB** (no eviction needed), `tier_coverage` 3.3 ms over 12,000 rows, and a
   real **SIGKILL mid-slice resumed to 272 rows identical to a clean run**. Three §7 claims
   corrected, incl. an LRU cache refused for an artifact with **no producer**.
-- [ ] VU9 — closure: docs, ADRs, changelog, golden gate carries the new metrics
+- [x] VU9 — the golden gate carries the perception metrics, with `framesSeenPerEdit` gated as
+  a **CEILING** (proven to trip at 0.00 → 1.40) — every other metric is a floor, this one is
+  not, because a change that raises scores by spending frames has not done what this plan set
+  out to do. ADR 0175 (ledger) + ADR 0176 (packs); `docs/guides/media-intelligence.md`
+  rewritten around the tiers; CHANGELOG current; evidence consolidated in
+  `plan/visual-understanding/09-EVIDENCE.md`.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
