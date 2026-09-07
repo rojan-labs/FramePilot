@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Background footage indexing gets out of your way.** It now pauses completely while an
+  export, a preview render, a frame grab or a review batch is running, and picks up again
+  a couple of seconds after the machine is quiet. It also measures every clip in your
+  library before it starts describing any single one, so the AI knows something about all
+  of your footage within the first minute rather than everything about the first clip.
+  Importing while a job is running no longer means waiting for it to finish: a new clip is
+  measured next. Killing the app mid-index loses nothing — the next start resumes exactly
+  where it stopped, and never leaves a half-written clip behind.
+
 - **Your footage is measured on import, with no key and no setting.** Media understanding
   used to start only if you had configured an NVIDIA or TwelveLabs key, so on a fresh
   install nothing was ever looked at and the AI knew nothing about any picture on the

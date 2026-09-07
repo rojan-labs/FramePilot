@@ -254,13 +254,23 @@ def test_image_asset_indexes_single_span(
 
 
 def test_index_paces_across_calls(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """Two passes, each paced at ``maxAssets`` (plan VU8 §8.2).
+
+    Tier 0 sweeps the whole worklist before anything is embedded anywhere, so a
+    two-asset job at one asset per slice is: measure a, measure b (and, the tier-0 pass
+    having just finished the worklist, continue straight into embedding a), embed b.
+    """
     client = _client(tmp_path, monkeypatch)
     _seed_asset(tmp_path, "p1", "a", "a.mp4", _video_probe())
     _seed_asset(tmp_path, "p1", "b", "b.mp4", _video_probe())
     first = _index(client, assetIds=["a", "b"], maxAssets=1).json()
     assert first["done"] is False and first["cursor"] == 1 and first["total"] == 2
+    assert first["indexed"] == 0  # nothing is embedded while any asset is unmeasured
+    assert first["tiers"]["labelled"].startswith("skipped: tier 0 runs")
     second = _index(client, assetIds=["a", "b"], maxAssets=1, jobId=first["jobId"]).json()
-    assert second["done"] is True and second["cursor"] == 2
+    assert second["done"] is False and second["cursor"] == 1 and second["indexed"] == 1
+    third = _index(client, assetIds=["a", "b"], maxAssets=1, jobId=first["jobId"]).json()
+    assert third["done"] is True and third["cursor"] == 2 and third["indexed"] == 1
 
 
 def test_reindex_skips_already_embedded_spans(
@@ -773,8 +783,10 @@ def test_kill_midjob_resumes_from_journal_without_reembedding(
     _seed_asset(tmp_path, "p1", "a", "a.mp4", _video_probe())
     _seed_asset(tmp_path, "p1", "b", "b.mp4", _video_probe())
 
-    # One paced slice indexes asset a (3 spans) and stops at the cursor.
-    first = _index(client, assetIds=["a", "b"], maxAssets=1).json()
+    # The tier-0 pass sweeps both assets first (plan VU8 §8.2); the slice that finishes
+    # it continues into the embedding pass and indexes asset a (3 spans).
+    started = _index(client, assetIds=["a", "b"], maxAssets=1).json()
+    first = _index(client, assetIds=["a", "b"], maxAssets=1, jobId=started["jobId"]).json()
     assert first["done"] is False and first["cursor"] == 1
     a_frames = sorted(seen)
     assert len(a_frames) == 3  # a's three spans, embedded once
@@ -895,9 +907,13 @@ def test_concurrent_slices_for_the_same_job_do_not_double_process_or_clobber(
     _seed_asset(tmp_path, "p1", "b", "b.mp4", _video_probe())
     _seed_asset(tmp_path, "p1", "c", "c.mp4", _video_probe())
 
+    # Drive the tier-0 pass to its end first (plan VU8 §8.2) so the concurrent calls
+    # below race on the EMBEDDING pass, which is where the clobber cost money.
     first = _index(client, assetIds=["a", "b", "c"], maxAssets=1).json()
-    assert first["cursor"] == 1 and first["done"] is False
     job_id = first["jobId"]
+    while first["indexed"] == 0:
+        first = _index(client, assetIds=["a", "b", "c"], maxAssets=1, jobId=job_id).json()
+    assert first["done"] is False
 
     def worker() -> None:
         _index(client, assetIds=["a", "b", "c"], maxAssets=1, jobId=job_id)
@@ -910,7 +926,7 @@ def test_concurrent_slices_for_the_same_job_do_not_double_process_or_clobber(
 
     with open_brain(tmp_path, "p1") as store:
         job = next(j for j in store.list_jobs() if j.id == job_id)
-        # Every asset advanced exactly once: cursor at the total, and one span
-        # per asset — never an asset embedded twice while another was skipped.
-        assert job.payload["cursor"] == 3
+        # Every asset advanced exactly once: the embedding cursor at the total, and one
+        # span per asset — never an asset embedded twice while another was skipped.
+        assert job.payload["deepCursor"] == 3
         assert store.visual_index_counts()["spans"] == 3

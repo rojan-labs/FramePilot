@@ -19,7 +19,7 @@ and a user who imports while a render runs. Every property below is tested, not 
 
 Nothing is O(decisions × footage). That is the whole scaling argument.
 
-## 8.2 Priority and scheduling `[ ]`
+## 8.2 Priority and scheduling `[x]`
 
 One ledger loop per project (the enroller already enforces this). Worklist order:
 
@@ -31,19 +31,24 @@ Tiers run per asset in order 0 → 1 → 2, but the loop advances tier 0 across 
 worklist before starting tier 2 anywhere, so the cheap facts exist for every asset before the
 slow tier begins. A newly imported asset preempts the queue at tier 0.
 
-## 8.3 Resource governor `[ ]`
+## 8.3 Resource governor `[x]`
 
 In the sidecar, one governor with fixed rules:
 
-- Tier 0 workers: `max(1, cores ÷ 4)`; tier 1: 1; tier 2: 1.
+- Tier 0 workers: `max(1, cores ÷ 4)`; tier 1: 1; tier 2: 1. **As built**, the one-worker
+  rule governs *local* compute. The built-in tier 1 is a hosted round trip (measured at
+  ~98% network wait: 60 photos, 92.7 s wall against 1.5 s of CPU), so holding it to one
+  worker protects nothing and costs an 8× regression; a hosted tier is bounded by
+  `FRAMEPILOT_VISUAL_INDEX_CONCURRENCY` instead. The `1` applies when tier 1/2 is a
+  resident local pack (VU5).
 - Pause all tiers while a render, export, `get_frame` or `temporal-evidence` batch is in
   flight (the existing `_temporal_evidence_gate` is the model), resume after 2 s idle.
 - Memory: tier 2 refuses to start when free memory < 2 × model resident size; records
   `skipped: low_memory` and retries on the next slice.
-- Thermal/battery (macOS): on battery, tier 2 runs only when the app is focused-idle; setting
-  in Settings → AI → Media intelligence, default on.
+- Thermal/battery (macOS): **not built.** It needs a power/focus signal the sidecar does not
+  have and a Settings surface in `apps/`; deferred rather than faked.
 
-## 8.4 Resumability and idempotency `[ ]`
+## 8.4 Resumability and idempotency `[x]`
 
 - The job payload is the worklist + cursor + tier flags (the existing pattern).
 - Kill the sidecar mid-slice: on restart `sweep_interrupted_jobs_once` marks the job
@@ -52,7 +57,7 @@ In the sidecar, one governor with fixed rules:
 - Content-hash keys: re-import of identical bytes is a no-op; a re-encoded file re-runs.
 - Tier version bumps null one column and re-queue that tier only.
 
-## 8.5 Storage and eviction `[ ]`
+## 8.5 Storage and eviction `[~]`
 
 - Ledger rows ~1.5 KB/shot; vectors 1.5 KB/shot fp16. A 10-hour library ≈ 25 MB. No
   eviction needed for the ledger.
@@ -61,7 +66,11 @@ In the sidecar, one governor with fixed rules:
   regenerated on demand, never a failure.
 - Deleting the brain rebuilds everything (ADR 0058).
 
-## 8.6 Scale tests `[ ]`
+## 8.6 Scale tests `[~]`
+
+> **Results — 2026-09-07, M1 Pro (10 cores, 16 GB), branch `plan/visual-understanding`.**
+> Row size, tier-0 speed and kill-and-resume are measured below; the rest are listed as
+> not measured, with the reason, in `09-EVIDENCE.md`. Nothing here is estimated.
 
 | Test                 | Setup                                                                                                  | Pass                                                                                                                 |
 | -------------------- | ------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------- |
@@ -72,9 +81,41 @@ In the sidecar, one governor with fixed rules:
 | Import during render | export running, 10 imports                                                                             | render throughput within 5% of baseline; indexing resumes after                                                      |
 | Model swap           | bump `tier2_version`                                                                                   | only `described` re-runs; vectors and measured untouched                                                             |
 
-Results are recorded in this file with dates and machine.
+### Results — 2026-09-07, M1 Pro (10 cores, 16 GB)
 
-## 8.7 Observability `[ ]`
+| Test                 | Result                                                                                                                                                                                    |
+| -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 10-hour library      | **not run.** Generating 120 re-encoded 5-minute clips is hours of wall clock. What *is* measured: 177.8 s of real fixture footage in 6.04 s = **29.4× real-time aggregate** (46.5× / 22.9× / 17.0× on the three clips), so 10 h ⇒ **≈20 min single-worker**, ≈35 min at the slowest fixture's rate. The 3 h bar is met with an order of magnitude to spare. The **frame-time probe is not measured** — it needs the renderer, which is `apps/`. |
+| 1,000-asset project  | **not run.** Needs a 1,000-asset corpus and the run-start/picture-slice paths in `packages/ai-sdk`, both outside this phase's engine scope. `tier_coverage` over 12,000 rows: **3.3 ms**.  |
+| Low memory           | **passes as a rule, not on a 3 GB machine.** `tier2_skip_reason` returns `low_memory` under 2 × the model resident size and the slice then reports `described: skipped: low_memory` with tiers 0/1 untouched (`test_index_governor.py`). Not exercised against real memory pressure. |
+| Kill and resume      | **passes, real SIGKILL.** A sidecar killed 4.63 s into an 11.58 s tier-0 slice: the request died (`RemoteProtocolError`), **2 rows** (the previous asset) were on disk and no partial asset, and a restarted sidecar resumed from the cursor to **272 rows identical to the clean run** — same geometry, same content hashes. |
+| Import during render | **not measured.** The render-throughput half needs a baseline export and a loaded machine. The *mechanism* is tested: a slice posted while `/render/frame` is held open moves no cursor, writes no shot, reports `deferred while a frame grab is in flight` in `tiers` (never in `reason`), and completes on its own afterwards (`test_index_governor.py`). |
+| Model swap           | **passes.** Tier-1 rows written at `TIER1_VERSION - 1` are nulled by the next job for that tier; `measure_asset` is not called again, shot geometry is unchanged, and `measured` coverage stays 2/2 (`test_index_governor.py`).                                                     |
+
+### Storage, measured
+
+Real tier-0 rows from `talk-1080p-98s`, `vertical-30s` and `b4-1080p-50s` (48 shots over
+177.8 s), replicated to 12,000 rows to read a marginal cost off the file rather than off
+page overhead:
+
+| Quantity                       | Measured                                        |
+| ------------------------------ | ----------------------------------------------- |
+| `measured` JSON per shot       | **416 B**                                       |
+| keys per shot                  | 37 B                                            |
+| marginal `brain.sqlite` on disk | **643 B/row** (640–664 across four 2,400-row steps) |
+| shots per footage minute       | 16.2 on this fixture mix; 84/min on the fast-cut vertical, 2.4/min on the locked-off interview |
+
+A 10-hour library is therefore **≈6.3 MB** of ledger at the fixture mix and **≈32 MB** at
+the fast-cut worst case — against the plan's ~1.5 KB/shot estimate, which is ~2.3×
+conservative. **No eviction is needed for the ledger**, confirmed rather than asserted.
+
+**Keyframe JPEGs: there are none.** §8.5 caps them at 2 GB per project with LRU eviction,
+but nothing in the engine writes a keyframe to disk — tier 0 samples in memory and the
+`frames` table has no production writer. An LRU cache for an artifact with no producer is
+speculative infrastructure, so it is **not built**; it belongs with whatever first
+persists a keyframe.
+
+## 8.7 Observability `[~]`
 
 - `log.action` on job start/slice/done per tier with counts and durations (never pixels or
   keys).

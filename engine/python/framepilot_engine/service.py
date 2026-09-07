@@ -115,8 +115,15 @@ from framepilot_engine.brain.captioner import (
 )
 from framepilot_engine.brain.embeddings import EmbedderResolution, resolve_embedder
 from framepilot_engine.brain.fts import segment_utterances
+from framepilot_engine.brain.governor import IndexGovernor
 from framepilot_engine.brain.keyring import EXHAUSTED_REASON, KeyRingExhaustedError, parse_keys
-from framepilot_engine.brain.ledger_models import TIER0_VERSION, LedgerSnapshot, ShotRecord
+from framepilot_engine.brain.ledger_models import (
+    TIER0_VERSION,
+    TIER1_VERSION,
+    TIER2_VERSION,
+    LedgerSnapshot,
+    ShotRecord,
+)
 from framepilot_engine.brain.ledger_models import AssetDigest as LedgerAssetDigest
 from framepilot_engine.brain.ledger_models import TierCoverage as LedgerCoverage
 from framepilot_engine.brain.ledger_store import digest_from_shots, shots_from_stats
@@ -1847,6 +1854,25 @@ def create_app(
     # ORIGINAL source. Not keyed by project for the same reason — the contended
     # resource is the machine, not the project. See the route.
     _asset_media_gate = asyncio.Semaphore(settings.asset_media_concurrency)
+
+    def _render_queue_busy() -> str | None:
+        """The label for an export in flight, or ``None`` when the queue is idle.
+
+        The governor cannot bracket an export with a context manager the way it brackets
+        a preview or a frame grab: ``/render`` returns the moment the job is QUEUED and
+        the work happens on a queue worker thread, outliving the request by minutes. So
+        the queue is asked instead. Terminal tasks are retained for polling, hence the
+        explicit non-terminal filter rather than "any task exists".
+        """
+        for task in render_queue.list():
+            if task.status in (JobStatus.QUEUED, JobStatus.RUNNING):
+                return "an export"
+        return None
+
+    # The one resource governor for background footage indexing (plan VU8 §8.3). It hooks
+    # exactly the four foreground surfaces named there — export, preview, frame grab and
+    # the temporal-evidence batch — and its rules live in `brain/governor.py`, not here.
+    index_governor = IndexGovernor(external_busy=_render_queue_busy)
     # P5.4: identical requests that arrive while one is already running share its answer
     # instead of spawning their own ffmpeg. Keyed on the request's inputs; nothing cached.
     _asset_media_flight: AsyncSingleFlight[AssetMediaResponse] = AsyncSingleFlight()
@@ -2808,32 +2834,67 @@ def create_app(
         )
         store.replace_embeddings(resolution.embedder.model_id, rows)
 
-    def _prioritise_worklist(asset_ids: Sequence[str], req: VisualIndexRequest) -> list[str]:
-        """Order a NEW job's worklist so the assets that matter first are measured first.
+    def _timeline_order(req: VisualIndexRequest) -> dict[str, float] | None:
+        """Each timeline asset's first appearance in seconds, or ``None`` without a project.
 
-        Indexing is paced across calls, so the order is the only thing that decides what
-        the agent can see in the first minute of a session. ``timeline`` puts the assets
-        the supplied project actually cuts with ahead of the rest of the bin; ``bin`` is
-        the reverse, for a background sweep that must not delay the timeline. The order
-        within each group is preserved, so ``all`` — and the case where no project
-        document was supplied to tell the two apart — is exactly today's behaviour.
+        The FIRST appearance, over every track, because "in timeline order" is the order
+        the editor sees the footage in, not the order the tracks happen to be stored in.
         """
-        ordered = list(asset_ids)
-        if req.priority == "all" or (req.project is None and req.project_path is None):
-            return ordered
+        if req.project is None and req.project_path is None:
+            return None
         try:
             project = load_project_document(req.project_path, req.project)
         except HTTPException:
             # A worklist ORDER is not worth failing an index job over; a project that
             # cannot be loaded simply cannot say which assets are on its timeline.
+            return None
+        first: dict[str, float] = {}
+        for track in project.timeline.tracks:
+            for clip in track.clips:
+                start = float(clip.start)
+                if clip.asset_id not in first or start < first[clip.asset_id]:
+                    first[clip.asset_id] = start
+        return first
+
+    def _import_recency(store: BrainStore) -> dict[str, str]:
+        """Each asset's import timestamp, for "most recently imported first"."""
+        return {asset.id: asset.created_at for asset in store.list_assets()}
+
+    def _prioritise_worklist(
+        store: BrainStore, asset_ids: Sequence[str], req: VisualIndexRequest
+    ) -> list[str]:
+        """Order a NEW job's worklist so the assets that matter first are measured first.
+
+        Indexing is paced across calls, so the order is the only thing that decides what
+        the agent can see in the first minute of a session. The order
+        (``plan/visual-understanding/07-SCALE-AND-OPERATIONS.md`` §8.2) is:
+
+        1. assets the supplied project's timeline references, **in timeline order**;
+        2. the rest of the bin, **most recently imported first** — the clip someone just
+           dropped in is the one they are about to cut with;
+        3. anything whose import time the brain does not know, in the brain's own order.
+
+        ``priority='bin'`` reverses the first two groups, for a background sweep that must
+        not delay the timeline; ``priority='all'`` — and the case where no project document
+        was supplied to tell the two apart — keeps the brain's order untouched, which is
+        what an explicit ``assetIds`` list from a caller that already chose an order needs.
+        """
+        ordered = list(asset_ids)
+        if req.priority == "all":
             return ordered
-        on_timeline = {
-            clip.asset_id for track in project.timeline.tracks for clip in track.clips
-        }
-        first = req.priority == "timeline"
-        return [a for a in ordered if (a in on_timeline) is first] + [
-            a for a in ordered if (a in on_timeline) is not first
-        ]
+        timeline = _timeline_order(req)
+        if timeline is None:
+            return ordered
+        recency = _import_recency(store)
+        on_timeline = [a for a in ordered if a in timeline]
+        on_timeline.sort(key=lambda a: (timeline[a], a))
+        # Newest first, ties broken by id so two assets imported in the same millisecond
+        # never swap places between runs. Two passes because `sort` is stable and the two
+        # keys run in opposite directions; an unknown import time sorts last, which is the
+        # "brain's own order" group.
+        in_bin = sorted(a for a in ordered if a not in timeline)
+        in_bin.sort(key=lambda a: recency.get(a) or "", reverse=True)
+        return on_timeline + in_bin if req.priority == "timeline" else in_bin + on_timeline
 
     def _resolve_visual_job(store: BrainStore, req: VisualIndexRequest) -> JobRow:
         """Get the caller's in-flight index job, or create one with a fixed worklist.
@@ -2851,15 +2912,194 @@ def create_app(
                         f"Job {req.job_id!r} exists but is not a {VISUAL_JOB_KIND} job.",
                     )
                 return existing
+        explicit = req.asset_ids is not None
         if req.asset_ids is not None:
             asset_ids = list(dict.fromkeys(req.asset_ids))
         else:
             asset_ids = [a.id for a in store.list_assets() if _asset_is_visual(a)]
-        asset_ids = _prioritise_worklist(asset_ids, req)
+        asset_ids = _prioritise_worklist(store, asset_ids, req)
+        # A bumped tier version means that column was produced by a model whose fields
+        # mean something else. Nulling it at job creation — one UPDATE per tier, not one
+        # per slice — is what makes "bump the version to re-queue that tier" a mechanism
+        # rather than a claim (ADR 0175). The other two columns and the shot geometry are
+        # untouched, so a model swap never re-measures a frame.
+        _invalidate_stale_tiers(store, req.tiers)
         job_id = req.job_id or f"{VISUAL_JOB_KIND}-{uuid4().hex}"
-        return store.create_job(
-            job_id, kind=VISUAL_JOB_KIND, payload={"assetIds": asset_ids, "cursor": 0}
+        job = store.create_job(
+            job_id,
+            kind=VISUAL_JOB_KIND,
+            payload={
+                "assetIds": asset_ids,
+                "cursor": 0,
+                "deepCursor": 0,
+                "explicit": explicit,
+            },
         )
+        _log.info(
+            "ACT visual index job start: project=%s job=%s assets=%d order=%s tiers=%s",
+            req.project_id,
+            job.id,
+            len(asset_ids),
+            req.priority,
+            ",".join(req.tiers),
+        )
+        return job
+
+    def _invalidate_stale_tiers(store: BrainStore, tiers: Sequence[LedgerTierName]) -> None:
+        """Null every requested tier's column wherever an older version produced it.
+
+        Best-effort: a ledger that cannot be invalidated is a re-run that costs money, not
+        a job that must fail, and the tier's own resume check still refuses to trust a
+        version it does not recognise.
+        """
+        versions: dict[str, int] = {
+            "measured": TIER0_VERSION,
+            "labelled": TIER1_VERSION,
+            "described": TIER2_VERSION,
+        }
+        for tier in tiers:
+            try:
+                cleared = store.clear_stale_shot_tier(tier, versions[tier])
+            except BrainError as exc:  # pragma: no cover - unknown tier is a 422 upstream
+                _log.warning("could not invalidate stale %s rows: %s", tier, exc)
+                continue
+            if cleared:
+                _log.info(
+                    "ACT ledger tier re-queued: tier=%s version=%d cleared=%d",
+                    tier,
+                    versions[tier],
+                    cleared,
+                )
+
+    #: The two passes a built-in index job makes over its worklist. Tier 0 sweeps the WHOLE
+    #: worklist before the slow tiers start anywhere (plan §8.2), so cheap facts exist for
+    #: every asset before any single asset gets described.
+    MEASURED_PHASE = "measured"
+    DEEP_PHASE = "deep"
+    #: Why tiers 1 and 2 are skipped during the first pass. Said out loud, because a
+    #: coverage line reading "described 0/61" needs to distinguish "not yet" from "never".
+    TIER0_FIRST_REASON = "tier 0 runs across the whole worklist first"
+
+    @dataclass(frozen=True)
+    class _SlicePlan:
+        """Which pass this slice is, where in the worklist it starts, and what to persist.
+
+        Two cursors, one per pass, because a newly imported asset must preempt at tier 0
+        without throwing away how far the slow pass has already got. Appending the new
+        asset drops the measured cursor below the worklist length, which flips the job
+        back to the measured pass automatically — there is no separate preemption path to
+        get wrong, and the deep cursor is exactly where it was when the pass resumes.
+        """
+
+        asset_ids: list[str]
+        total: int
+        phase: str
+        cursor: int
+        done: bool
+        deep_possible: bool
+        payload: dict[str, Any]
+        progress: float
+
+    def _plan_slice(
+        store: BrainStore,
+        job: JobRow,
+        *,
+        deep_possible: bool,
+        want_measured: bool,
+        max_assets: int,
+    ) -> _SlicePlan:
+        """Decide this slice's pass and starting cursor, preempting for new imports.
+
+        :param deep_possible: Whether tiers 1/2 can run at all this slice (an embedder
+            resolved). A job whose slow tiers cannot run finishes at the end of the
+            measured pass rather than sweeping the worklist a second time doing nothing.
+        :param want_measured: Whether the caller asked for tier 0. A request for the slow
+            tiers alone skips the measured pass entirely.
+        """
+        payload = dict(job.payload)
+        asset_ids = [str(a) for a in payload.get("assetIds", [])]
+        measured_cursor = int(payload.get("cursor", 0))
+        # A legacy job (one pass, one cursor) has already run the slow tiers as far as its
+        # cursor; starting its deep pass at 0 would re-caption — and re-bill — that prefix.
+        deep_cursor = int(payload.get("deepCursor", measured_cursor))
+        if not payload.get("explicit"):
+            known = [a for a in store.list_assets() if _asset_is_visual(a)]
+            seen = set(asset_ids)
+            fresh = sorted(
+                (a for a in known if a.id not in seen), key=lambda a: (a.created_at, a.id)
+            )
+            # Most recently imported first, so a burst of imports is measured newest-first.
+            asset_ids += [a.id for a in reversed(fresh)]
+        payload["assetIds"] = asset_ids
+        payload["cursor"] = measured_cursor
+        payload["deepCursor"] = deep_cursor
+        return _plan_from_payload(
+            payload, deep_possible=deep_possible, want_measured=want_measured
+        )
+
+    def _plan_from_payload(
+        payload: dict[str, Any], *, deep_possible: bool, want_measured: bool
+    ) -> _SlicePlan:
+        """The same decision, from a payload alone — no store, so a slice can re-plan.
+
+        Pure, because a slice that finishes the tier-0 pass mid-call re-plans in place to
+        continue into the deep pass; going back to SQLite to ask "what now" would make
+        that continuation cost a second connection for an answer already in hand.
+        """
+        asset_ids = [str(a) for a in payload.get("assetIds", [])]
+        total = len(asset_ids)
+        measured_cursor = int(payload.get("cursor", 0))
+        deep_cursor = int(payload.get("deepCursor", measured_cursor))
+        measured_pending = want_measured and measured_cursor < total
+        deep_pending = deep_possible and deep_cursor < total
+        return _SlicePlan(
+            asset_ids=asset_ids,
+            total=total,
+            phase=MEASURED_PHASE if measured_pending else DEEP_PHASE,
+            cursor=measured_cursor if measured_pending else deep_cursor,
+            done=not measured_pending and not deep_pending,
+            deep_possible=deep_possible,
+            payload=payload,
+            progress=_job_progress(payload, total, deep_possible),
+        )
+
+    def _pass_states(base: dict[str, str], phase: str) -> dict[str, str]:
+        """This pass's per-tier disposition, from the job-wide one.
+
+        Two overrides, and they are the two rules a reader of a stalled coverage line
+        needs: during the tier-0 pass the slow tiers have not been reached yet (§8.2), and
+        tier 2 stands down when memory is short (§8.3). Both are ``skipped``, never
+        ``failed`` — neither is an error, and only ``reason`` ends a job.
+        """
+        states = dict(base)
+        if phase == MEASURED_PHASE:
+            for tier in ("labelled", "described"):
+                if states[tier] == "ok":
+                    states[tier] = f"skipped: {TIER0_FIRST_REASON}"
+        elif states["described"] == "ok":
+            low_memory = index_governor.tier2_skip_reason()
+            if low_memory is not None:
+                states["described"] = f"skipped: {low_memory}"
+        return states
+
+    def _advanced_payload(plan: _SlicePlan, new_cursor: int) -> dict[str, Any]:
+        """The job payload with THIS pass's cursor advanced and the other left alone."""
+        key = "cursor" if plan.phase == MEASURED_PHASE else "deepCursor"
+        return {**plan.payload, key: new_cursor}
+
+    def _job_progress(payload: dict[str, Any], total: int, deep_possible: bool) -> float:
+        """Fraction of the job's work done, counting BOTH passes as work.
+
+        A single-cursor progress would jump to 1.0 at the end of the measured pass and
+        then sit there for the whole (much longer) deep pass, which reads as a stall.
+        """
+        if total <= 0:
+            return 1.0
+        passes = 2 if deep_possible else 1
+        advanced = min(int(payload.get("cursor", 0)), total)
+        if deep_possible:
+            advanced += min(int(payload.get("deepCursor", 0)), total)
+        return advanced / (total * passes)
 
     def _asset_failures(store: BrainStore) -> list[VisualAssetFailure]:
         """Assets whose last preparation attempt failed, for their current bytes."""
@@ -2904,6 +3144,7 @@ def create_app(
         *,
         resolved_root: Path,
         project_id: str,
+        max_workers: int | None = None,
     ) -> tuple[list[VisualIndexItem], int, str | None]:
         """Prepare a slice's assets concurrently, then commit an ordered PREFIX.
 
@@ -2927,7 +3168,12 @@ def create_app(
 
         :returns: ``(items, advanced, stop_reason)`` — all three describe the prefix only.
         """
-        concurrency = max(1, min(settings.visual_index_concurrency, len(slice_ids)))
+        # The governor sizes the pool per tier (plan VU8 §8.3): a whole quarter of the
+        # machine for the ffmpeg-only tier 0, one worker for the tiers that are dominated
+        # by a provider round trip or a resident model. The configured concurrency stays
+        # the ceiling, so a machine that was told to index gently still does.
+        budget = settings.visual_index_concurrency if max_workers is None else max_workers
+        concurrency = max(1, min(budget, settings.visual_index_concurrency, len(slice_ids)))
         outcomes: dict[int, _AssetOutcome] = {}
 
         def run(index: int) -> tuple[int, _AssetOutcome]:
@@ -3421,7 +3667,9 @@ def create_app(
                 ),
             }
 
-            def _tiered(response: VisualIndexResponse) -> VisualIndexResponse:
+            def _tiered(
+                response: VisualIndexResponse, *, override: dict[str, str] | None = None
+            ) -> VisualIndexResponse:
                 """Attach this slice's per-tier disposition to any response it returns.
 
                 Deliberately NOT in ``reason``: on this route ``reason`` is a TERMINAL
@@ -3433,18 +3681,30 @@ def create_app(
                 task removes; writing "labelled skipped" there would reintroduce it under
                 a friendlier name.
                 """
-                response.tiers = tier_states
+                response.tiers = override if override is not None else tier_states
                 return response
 
-            # Phase 1 — resolve/create the job, read its worklist + cursor. Opened and
+            # The governor's pause (plan VU8 §8.3). Waited out BEFORE the brain is opened,
+            # so a slice deferred behind an export never holds a SQLite handle while it
+            # waits, and the host's delay-free paced loop is throttled to one poll every
+            # couple of seconds instead of spinning for the length of the render.
+            deferred = index_governor.wait_until_clear()
+
+            # Phase 1 — resolve/create the job, read its worklist + cursors. Opened and
             # CLOSED before any sampling so the per-slice connection never contends.
             try:
                 with open_brain(resolved_root, req.project_id) as store:
                     sweep_interrupted_jobs_once(store, req.project_id)
                     job = _resolve_visual_job(store, req)
-                    asset_ids = [str(a) for a in job.payload.get("assetIds", [])]
-                    cursor = int(job.payload.get("cursor", 0))
-                    total = len(asset_ids)
+                    plan = _plan_slice(
+                        store,
+                        job,
+                        deep_possible=embedder_res.client is not None,
+                        want_measured=want_measured,
+                        max_assets=req.max_assets,
+                    )
+                    asset_ids, total = plan.asset_ids, plan.total
+                    cursor = plan.cursor
                     if job.payload.get("cancelled"):
                         return _tiered(
                             VisualIndexResponse(
@@ -3456,7 +3716,23 @@ def create_app(
                                 coverage=store.tier_coverage(asset_ids),
                             )
                         )
-                    if cursor >= total:
+                    if deferred is not None:
+                        # NOT a `reason`: on this route `reason` is the host loop's
+                        # terminal signal, and "your export is running" is the opposite of
+                        # terminal. The pause is a per-tier skip, which is exactly what
+                        # `tiers` is for, and the cursors do not move.
+                        _log.debug("visual index slice deferred: %s", deferred)
+                        return _tiered(
+                            VisualIndexResponse(
+                                available=True,
+                                job_id=job.id,
+                                cursor=cursor,
+                                total=total,
+                                coverage=store.tier_coverage(asset_ids),
+                            ),
+                            override={tier: f"skipped: {deferred}" for tier in tier_states},
+                        )
+                    if plan.done:
                         store.update_job(job.id, state=JobState.DONE, progress=1.0)
                         return _tiered(
                             VisualIndexResponse(
@@ -3469,7 +3745,7 @@ def create_app(
                             )
                         )
                     store.update_job(
-                        job.id, state=JobState.RUNNING, progress=cursor / total if total else 1.0
+                        job.id, state=JobState.RUNNING, progress=plan.progress, payload=plan.payload
                     )
             except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
                 return VisualIndexResponse(available=False, reason=str(exc))
@@ -3477,9 +3753,11 @@ def create_app(
             # Phase 2 — index this slice. The assets go together (see `_prepare_slice`);
             # a key exhaustion stops the slice cleanly before advancing past the
             # unprocessed asset, and the cursor only ever advances over a prefix.
-            slice_ids = asset_ids[cursor : cursor + req.max_assets]
             timeout = float(settings.asset_media_timeout_seconds)
             embed_client: VisualEmbedClient | None = embedder_res.client
+            base_states = dict(tier_states)
+            current = plan
+            slice_captioner: SceneCaptioner | None = None
 
             def prepare_builtin(
                 store: BrainStore, vstore: VisualVectorStore, asset_id: str
@@ -3493,9 +3771,10 @@ def create_app(
                     else _TierOutcome("skipped", NOT_REQUESTED_REASON)
                 )
                 tiers = {**tier_states, "measured": tier0.label()}
-                if embed_client is None:
-                    # No embedder: tiers 1 and 2 are absent coverage, not a dead job. The
-                    # cursor still advances, so a keyless project measures end to end.
+                if embed_client is None or current.phase == MEASURED_PHASE:
+                    # No embedder, or the tier-0 pass: tiers 1 and 2 are absent coverage,
+                    # not a dead job. The cursor still advances, so a keyless project
+                    # measures end to end.
                     return _AssetOutcome(
                         item=VisualIndexItem(
                             asset_id=asset_id,
@@ -3510,7 +3789,7 @@ def create_app(
                         store,
                         vstore,
                         embed_client,
-                        captioner_res.captioner,
+                        slice_captioner,
                         caption_model,
                         asset_id,
                         resolved_root,
@@ -3544,26 +3823,85 @@ def create_app(
                 # degrade independently, and a measured hole is reported as a hole
                 # (`tiers`, journaled per asset, and the coverage counts) rather than
                 # rewritten as a whole-asset failure. Where tier 0 is the ONLY tier that
-                # ran — the keyless path above — its failure IS the asset's.
+                # ran — the keyless and tier-0-pass paths above — its failure IS the asset's.
                 item.tiers = tiers
                 return _AssetOutcome(item=item, advanced=True)
 
-            try:
-                items, completed, exhausted = _prepare_slice(
-                    slice_ids,
-                    prepare_builtin,
-                    resolved_root=resolved_root,
-                    project_id=req.project_id,
+            slice_started = time.monotonic()
+            budget = req.max_assets
+            payload = plan.payload
+            merged: dict[str, VisualIndexItem] = {}
+            order: list[str] = []
+            indexed = captioned = measured_ok = 0
+            exhausted: str | None = None
+            new_cursor, last_phase = plan.cursor, plan.phase
+            # A slice runs ONE bounded pass, and continues into the next pass only when
+            # this one has just finished the WHOLE worklist. §8.2 is a rule about ORDER,
+            # not about round trips: tier 0 has still covered every asset before the first
+            # description either way, and a two-asset project should not need a second
+            # HTTP call to be fully indexed. Each pass gets its own ``maxAssets`` budget,
+            # so a call still costs at most one pass's worth of wall clock per pass, and
+            # at most one transition — a long worklist paces exactly as it did.
+            while not current.done and exhausted is None:
+                slice_ids = current.asset_ids[current.cursor : current.cursor + budget]
+                if not slice_ids:
+                    break
+                tier_states = _pass_states(base_states, current.phase)
+                slice_captioner = (
+                    captioner_res.captioner
+                    if current.phase == DEEP_PHASE and tier_states["described"] == "ok"
+                    else None
                 )
-            except (BrainError, BrainSchemaError, PathTraversalError, OSError, FFmpegError) as exc:
-                return VisualIndexResponse(available=False, reason=str(exc))
-            _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
-            indexed = sum(item.indexed for item in items)
-            captioned = sum(item.captioned for item in items)
+                try:
+                    items, completed, exhausted = _prepare_slice(
+                        slice_ids,
+                        prepare_builtin,
+                        resolved_root=resolved_root,
+                        project_id=req.project_id,
+                        # The deep pass is a hosted round trip on this backend, not local
+                        # compute, so the governor leaves its bound to the configured
+                        # visual-index concurrency (see `tier_workers`).
+                        max_workers=index_governor.tier_workers(
+                            "measured" if current.phase == MEASURED_PHASE else "labelled",
+                            hosted=current.phase == DEEP_PHASE,
+                        ),
+                    )
+                except (
+                    BrainError,
+                    BrainSchemaError,
+                    PathTraversalError,
+                    OSError,
+                    FFmpegError,
+                ) as exc:
+                    return VisualIndexResponse(available=False, reason=str(exc))
+                _journal_outcomes(items, resolved_root=resolved_root, project_id=req.project_id)
+                indexed += sum(item.indexed for item in items)
+                captioned += sum(item.captioned for item in items)
+                measured_ok += sum(1 for item in items if item.tiers.get("measured") == "ok")
+                # `items` describes the pass whose cursor this response reports, so a
+                # call that ran two passes reports the second one's prefix — the same
+                # "items are the advanced prefix" contract resume depends on. The first
+                # pass's outcomes are journaled per asset, which is the durable record.
+                merged, order = {}, []
+                for item in items:
+                    if item.asset_id not in merged:
+                        order.append(item.asset_id)
+                    merged[item.asset_id] = item
+                new_cursor = current.cursor + completed
+                last_phase = current.phase
+                payload = _advanced_payload(current, new_cursor)
+                following = _plan_from_payload(
+                    payload, deep_possible=plan.deep_possible, want_measured=want_measured
+                )
+                same_pass = following.phase == current.phase
+                current = following
+                if completed == 0 or following.done or same_pass:
+                    break
+                budget = req.max_assets
+            items = [merged[asset_id] for asset_id in order]
 
-            # Phase 3 — persist the advanced cursor + terminal state; embed captions.
-            new_cursor = cursor + completed
-            done = new_cursor >= total and exhausted is None
+            # Phase 3 — persist the advanced cursors + terminal state; embed captions.
+            done = current.done and exhausted is None
             captions_reason = captioner_res.reason if captioner_res.captioner is None else None
             coverage: LedgerCoverage | None = None
             try:
@@ -3579,8 +3917,8 @@ def create_app(
                             if done
                             else JobState.RUNNING
                         ),
-                        progress=new_cursor / total if total else 1.0,
-                        payload={**job.payload, "cursor": new_cursor},
+                        progress=_job_progress(payload, total, plan.deep_possible),
+                        payload=payload,
                         error=EXHAUSTED_REASON if exhausted is not None else None,
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
@@ -3595,17 +3933,22 @@ def create_app(
             except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
                 return VisualIndexResponse(available=False, reason=f"cursor not persisted: {exc}")
 
+            # Per-tier counts and a duration, never pixels and never a key (§8.7). This is
+            # the line that answers "why has coverage not moved" from a log alone.
             _log.info(
-                "ACT visual index: project=%s job=%s cursor=%d/%d done=%s indexed=%d "
-                "captioned=%d failed=%d stopped=%s",
+                "ACT visual index slice: project=%s job=%s pass=%s cursor=%d/%d done=%s "
+                "measured=%d labelled=%d described=%d failed=%d elapsed=%.2fs stopped=%s",
                 req.project_id,
                 job.id,
+                last_phase,
                 new_cursor,
                 total,
                 done,
+                measured_ok,
                 indexed,
                 captioned,
                 sum(1 for item in items if not item.ok),
+                time.monotonic() - slice_started,
                 exhausted or "-",
             )
             return _tiered(
@@ -4798,9 +5141,15 @@ def create_app(
         where the caller wants an immediate result, not a job to poll. A full
         export has no such bound, which is why it moved to the async queue.
         """
-        return _run_render(
-            sandbox(req.project_path), req.settings, preview=True, burn_captions=req.burn_captions
-        )
+        # Foreground work: background indexing steps aside for it and stays aside for a
+        # short idle afterwards (plan VU8 §8.3).
+        with index_governor.foreground("a preview render"):
+            return _run_render(
+                sandbox(req.project_path),
+                req.settings,
+                preview=True,
+                burn_captions=req.burn_captions,
+            )
 
     @app.post("/render/frame", response_model=RenderFrameResponse)
     def render_frame_route(req: RenderFrameRequest) -> RenderFrameResponse:
@@ -4813,14 +5162,17 @@ def create_app(
         """
         project, media_base, label = resolve_project_source(req)
         try:
-            frame = grab_frame(
-                project,
-                media_base,
-                req.time_seconds,
-                max_dimension=req.max_dimension,
-                image_format=req.image_format,
-                burn_captions=req.burn_captions,
-            )
+            # Same bargain as `/render/preview`: this compiles the timeline and decodes at
+            # project resolution, so indexing pauses around it (plan VU8 §8.3).
+            with index_governor.foreground("a frame grab"):
+                frame = grab_frame(
+                    project,
+                    media_base,
+                    req.time_seconds,
+                    max_dimension=req.max_dimension,
+                    image_format=req.image_format,
+                    burn_captions=req.burn_captions,
+                )
         except FrameGrabError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         _log.info(
@@ -4869,13 +5221,17 @@ def create_app(
             # The client-side bound in `review-findings.ts` is the other half; this
             # one holds for every caller, including the MCP server.
             async with _temporal_evidence_gate:
-                batch = await run_in_threadpool(
-                    acquire_temporal_evidence,
-                    project,
-                    media_base,
-                    req.requests,
-                    cancelled.is_set,
-                )
+                # The gate says "one heavy batch at a time"; the governor says "and
+                # nothing cheap runs behind it". Same mechanism, one layer out, so the
+                # two never drift apart (plan VU8 §8.3).
+                with index_governor.foreground("a temporal-evidence batch"):
+                    batch = await run_in_threadpool(
+                        acquire_temporal_evidence,
+                        project,
+                        media_base,
+                        req.requests,
+                        cancelled.is_set,
+                    )
         except TemporalEvidenceError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
         finally:
