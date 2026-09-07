@@ -9466,7 +9466,15 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:16",
-      "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "text": "1 planned step never reached an edit — listed under "Not done" in the summary.",
+      "ts": 1000,
+      "turnId": "turn_1",
+      "type": "notification",
+    },
+    {
+      "conversationId": "conv_1",
+      "id": "turn_1:notice:17",
+      "message": "Applied 1 change, but the run could not finish: This deliverable was not completed by the run. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
       "retryable": false,
       "ts": 1000,
       "turnId": "turn_1",
@@ -9474,7 +9482,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:notice:17",
+      "id": "turn_1:notice:18",
       "text": "Not everything in the plan was done — 1 of 2 planned tasks completed.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9491,7 +9499,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         "blockedOn": {
           "atStage": "verify",
           "missing": "VERIFICATION_INCONCLUSIVE",
-          "reason": "Verification found: The committed plan still has incomplete deliverables.",
+          "reason": "Cannot complete: required objectives and verification evidence are incomplete.",
         },
         "completedStages": [
           "interpret",
@@ -9552,8 +9560,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
               "atVersion": 15,
               "blocking": true,
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found: The committed plan still has incomplete deliverables.",
-              "stage": "verify",
+              "message": "Cannot complete: required objectives and verification evidence are incomplete.",
+              "stage": "complete",
             },
           ],
           "status": "needs_review",
@@ -9586,7 +9594,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
             "description": "Trim the intro",
             "id": "objective_1",
             "stage": "verify",
-            "status": "pending",
+            "status": "satisfied",
           },
           {
             "description": "Wrap up",
@@ -9629,14 +9637,14 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
           {
             "atRevision": 1,
             "criterion": "Trim the intro",
-            "detail": "The committed plan still has incomplete deliverables.",
+            "detail": "Passed with 1 warning(s).",
             "id": "verify_1",
-            "passed": false,
+            "passed": true,
           },
           {
             "atRevision": 1,
             "criterion": "Wrap up",
-            "detail": "The committed plan still has incomplete deliverables.",
+            "detail": "This deliverable was not completed by the run.",
             "id": "verify_2",
             "passed": false,
           },
@@ -9646,7 +9654,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:usage:18",
+      "id": "turn_1:usage:19",
       "modelCalls": 3,
       "tokens": 0,
       "ts": 1000,
@@ -9669,7 +9677,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     },
     {
       "conversationId": "conv_1",
-      "id": "turn_1:status:19",
+      "id": "turn_1:status:20",
       "status": "failed",
       "ts": 1000,
       "turnId": "turn_1",

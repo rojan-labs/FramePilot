@@ -46,6 +46,52 @@ Sources of truth this file summarises:
 
 <!-- ENTRIES BELOW, NEWEST FIRST -->
 
+## `s9-live-reorder-planfirst` / `…-planfirst-fix` — 2026-09-07 (session 9) — **the desktop's default path measured for the first time: every correct edit reported `failed`; after the fix 6 of 6 `completed`, $0.024 per accepted edit**
+
+| | |
+| --- | --- |
+| commit | before: `ed84844`'s `--plan-first` on the `d301dc2` dist; after: the advisory-plan-ledger change (this entry's commit) |
+| provider / model | `claude-agent-sdk` / `claude-sonnet-5`, sidecar on :8799 |
+| media | `mission-montage` |
+| cases × runs | `reorder-last-first`, `reorder-swap-first-two` × 3, twice |
+| voidTurns | 0 / 0 |
+| wall clock / tier-priced cost | 4 min / 3 min; $0.033 → $0.024 per accepted edit |
+
+The desktop drafts a plan before every agent run unless the editor turns "Plan first" off
+(`AiSidebar.tsx#loadPlanFirst` defaults to true). No golden run had ever taken that path.
+
+| | before (`planfirst`) | after (`planfirst-fix`) |
+| --- | --- | --- |
+| intent accuracy | **0%** (6/6 settled `failed`) | 100% |
+| first-pass acceptance | 0% | **100%** |
+| rubric score | 1.00 ×6 — every edit was right | 1.00 ×6 |
+| operations per run | 1 each | 1 each |
+| model calls / turn p50 · p95 | 4 · 6 | 3 · 5 |
+| tier-priced cost / accepted edit | — (no run "accepted") | $0.024 |
+| done p50 · p95 | 21.9s · 35.6s | 20.2s · 36.8s |
+
+### What was wrong
+The drafted plan reads "1. Confirm current clip order via get_timeline … 2. Reorder … 3.
+Verify via get_timeline … 4. Report the new clip boundaries". A step is marked completed
+only by an applied patch, and steps are credited by turn position, so a run that reorders
+on its first turn completes step 1 ("Confirm"), leaves 2–4 pending, says it is done, is
+given one recovery turn, says so again, and settles **`failed`: "Applied 1 change, but the
+run could not finish: The committed plan still has incomplete deliverables."** — with the
+reorder it had made listed under "Not done — pending". Six of six.
+
+### What changed
+The plan ledger is advisory at verification: a run is graded on the request (the
+Critic's checks) and on a landed mutation; unreached steps are announced in a notice and
+listed under "Not done", never a `failed` verdict on their own. The plan-draft instruction
+now says every item is a change that lands on the timeline, not a read or a report (the
+"after" drafts still listed a verify step in 2 of 6 runs; the verdict no longer hangs on it).
+
+### Not evidence of
+- Long, genuinely multi-step plans: the case here collapses to one edit. A run that stops
+  after the first of five real edits is still caught by the acceptance shortfall and the
+  request checks, not by this ledger — that path was not re-sampled here.
+- The plan-approval gate (`requirePlanApproval`, plans over 10 steps): unexercised.
+
 ## `s9-live-beat-scope` — 2026-09-07 (session 9) — **"a scope the request named is settled": `beat-sync` 3 of 3 first-pass, no question asked**
 
 | | |

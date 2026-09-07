@@ -136,9 +136,11 @@ export function questionModeInstruction(options: { canSeeFrames?: boolean } = {}
  */
 export const AGENT_PLAN_DRAFT_INSTRUCTION =
   'Write a short numbered execution plan: one observable edit outcome per item, with ' +
-  'dependencies in working order. For long footage, divide outcomes into bounded sections ' +
-  'so progress can be verified incrementally. The numbered list becomes the run ledger; ' +
-  'keep questions and introductory prose outside it. Plan only — do not call tools.';
+  'dependencies in working order. Every item is a change that lands on the timeline; the ' +
+  'reads, checks and reporting around it are not items. For long footage, divide outcomes ' +
+  'into bounded sections so progress can be verified incrementally. The numbered list ' +
+  'becomes the run ledger; keep questions and introductory prose outside it. Plan only — ' +
+  'do not call tools.';
 
 // ---------------------------------------------------------------------------
 // Agent mode (PRD §7.4) — the multi-turn autonomous loop

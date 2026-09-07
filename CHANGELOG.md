@@ -19,6 +19,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   clips" came back with every clip cropped. Findings the footage already had are advisories
   for the review, never orders during the edit. Measured on the two reorder cases:
   first-pass 33% → 100%, one operation per run, a tenth of the cost.
+- **A run that made the edit no longer reports itself as failed.** With "Plan first" on
+  (the default), the drafted plan's read-and-report steps could never be ticked, so a
+  correct one-step edit ended "Applied 1 change, but the run could not finish". Steps the
+  run never reached are now listed under "Not done"; the verdict comes from the request
+  and the edit.
 - **A recovery turn offers only the tools the run has loaded**, not every mutation in the
   registry.
 - **Captions the subtitle preset wrote no longer fail their own check.** The verifier

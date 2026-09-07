@@ -1338,12 +1338,20 @@
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
-      "type": "error",
-      "message": "Applied 1 change, but the run could not finish: The committed plan still has incomplete deliverables. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
-      "retryable": false
+      "type": "notification",
+      "text": "1 planned step never reached an edit — listed under \"Not done\" in the summary."
     },
     {
       "id": "turn_golden:notice:17",
+      "conversationId": "conv_golden",
+      "ts": 1000,
+      "turnId": "turn_golden",
+      "type": "error",
+      "message": "Applied 1 change, but the run could not finish: This deliverable was not completed by the run. The changes are on your timeline; undo reverts them, or ask for the specific fix.",
+      "retryable": false
+    },
+    {
+      "id": "turn_golden:notice:18",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1440,7 +1448,7 @@
             "id": "objective_1",
             "description": "Trim the dead air",
             "stage": "verify",
-            "status": "pending"
+            "status": "satisfied"
           },
           {
             "id": "objective_2",
@@ -1469,16 +1477,16 @@
           {
             "id": "verify_1",
             "criterion": "Trim the dead air",
-            "passed": false,
+            "passed": true,
             "atRevision": 1,
-            "detail": "The committed plan still has incomplete deliverables."
+            "detail": "Passed with 1 warning(s)."
           },
           {
             "id": "verify_2",
             "criterion": "Tighten the intro",
             "passed": false,
             "atRevision": 1,
-            "detail": "The committed plan still has incomplete deliverables."
+            "detail": "This deliverable was not completed by the run."
           }
         ],
         "nextAction": {
@@ -1487,7 +1495,7 @@
           "objectiveId": "objective_2"
         },
         "blockedOn": {
-          "reason": "Verification found: The committed plan still has incomplete deliverables.",
+          "reason": "Cannot complete: required objectives and verification evidence are incomplete.",
           "missing": "VERIFICATION_INCONCLUSIVE",
           "atStage": "verify"
         },
@@ -1496,8 +1504,8 @@
           "diagnostics": [
             {
               "code": "VERIFICATION_INCONCLUSIVE",
-              "message": "Verification found: The committed plan still has incomplete deliverables.",
-              "stage": "verify",
+              "message": "Cannot complete: required objectives and verification evidence are incomplete.",
+              "stage": "complete",
               "blocking": true,
               "atVersion": 15
             }
@@ -1515,7 +1523,7 @@
       }
     },
     {
-      "id": "turn_golden:usage:18",
+      "id": "turn_golden:usage:19",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",
@@ -1533,7 +1541,7 @@
       "text": "**Applied 1 edit** in 1 step, but the run did not finish cleanly — see the error above. They are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Not done:**\n- Tighten the intro — pending"
     },
     {
-      "id": "turn_golden:status:19",
+      "id": "turn_golden:status:20",
       "conversationId": "conv_golden",
       "ts": 1000,
       "turnId": "turn_golden",

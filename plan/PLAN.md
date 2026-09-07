@@ -70,7 +70,12 @@ one operation per run, $0.499 → $0.049 per accepted edit, done p95 107s → 23
   describes the label. Commits `c4721a6`, `1a950ec`, `fe48ee3`, `424075c`, `f1f8237`.
 - `[ ]` GOLDEN-C.33 — `refine-tighten` t2 rebuilt the middle section three times (184 ops,
   $0.65, 308s) for a 1.00. Needs the replayed prompts read.
-- `[ ]` GOLDEN-0.5 — the desktop's default path (`--plan-first`) has never been measured.
+- `[x]` GOLDEN-0.5 — **the desktop's default path measured** (`s9-live-reorder-planfirst`):
+  every correct one-op edit settled `failed` ("The committed plan still has incomplete
+  deliverables") because the drafted plan lists reads and reports as steps and only an
+  applied patch completes a step. GOLDEN-C.34: the plan ledger is advisory at
+  verification; unreached steps are a notice + "Not done". After: 6/6 `completed`,
+  $0.024/accepted edit (`…-planfirst-fix`).
 - `[ ]` UX-S9.1 — **the pinned plan card outlives its run**: after "Made 1 edit" it still
   reads "Plan 1/2" with a hollow step, and it stays pinned when the mode switches to Chat
   (`reports/golden/s9-ui-walk/04-cards-expanded.png`). A finished run's plan should settle

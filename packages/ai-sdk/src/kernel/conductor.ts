@@ -2583,6 +2583,14 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   const planReconciled =
     state.ledgerLength === 0 ||
     (state.planSteps.length > 0 && state.planSteps.every((step) => step.status === 'completed'));
+  if (!planReconciled) {
+    const unreached = state.planSteps.filter((step) => step.status !== 'completed').length;
+    events.push(
+      em.notification(
+        `${String(unreached)} planned step${unreached === 1 ? '' : 's'} never reached an edit — listed under "Not done" in the summary.`,
+      ),
+    );
+  }
   // Causal completion (ADR 0081) asks a narrower question than the Critic's content
   // report (ADR 0022): did the run trace a real, successful mutation to the plan it
   // committed to? That is `deliveredWork` + `planReconciled` — NOT `r.ok`. The Critic's
@@ -2609,7 +2617,18 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // montage to finish a request for a full 30-second video. The bounded repair pass has
   // already had its chance before this fold; if a check still fails, keep the partial
   // validated edits reviewable but settle the run honestly as failed.
-  const verificationPassed = r.ok && planReconciled && deliveredWork;
+  // The plan ledger is ADVISORY here, not a gate. It is the model's own drafted list,
+  // and the model drafts reads, checks and reports as items ("Confirm current clip order
+  // via get_timeline", "Verify via get_timeline that…", "Report the new clip boundaries")
+  // however the draft instruction words it. A step is only ever marked completed by an
+  // applied patch, so such a plan can never reconcile: every plan-first run of
+  // `s9-live-reorder-planfirst` made its one correct edit, said so, and settled `failed`
+  // with "The committed plan still has incomplete deliverables" — the desktop's default
+  // path reporting a right edit as a failure, six of six. What the run is graded on is
+  // the REQUEST (`r.ok`, the Critic's request checks) and that a mutation landed
+  // (`deliveredWork`); steps the run never reached are still said, in the "Not done"
+  // block of the report, so nothing is hidden — only the verdict changes.
+  const verificationPassed = r.ok && deliveredWork;
   /**
    * Why this verification did not pass, or `undefined` when it did.
    *
@@ -2621,7 +2640,6 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
    * true, and neither can a later turn reading the briefing.
    */
   const failureReason = (deliverableReached: boolean): string | undefined => {
-    if (!planReconciled) return 'The committed plan still has incomplete deliverables.';
     if (!deliveredWork) return 'No traceable project mutation for the committed plan.';
     if (!r.ok) return `Deterministic acceptance checks still fail — ${r.summary}`;
     if (!deliverableReached) return 'This deliverable was not completed by the run.';
