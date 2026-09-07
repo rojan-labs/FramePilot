@@ -8,6 +8,16 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Retimed clips can be trimmed, split and cut again.** Tightening a sped-up shot, or
+  splitting one you had put in slow motion, could come back refused — the render engine
+  still moved the clip's in/out point by the same amount as its edges, which is only right
+  at normal speed, and then rejected the very edit it had just made. Freeze frames lost
+  their held frame, reversed clips gave up footage from the wrong end, and a split of a
+  speed ramp cut in the wrong place and left both halves playing the whole original curve.
+  All four now follow the speed, so a trim lands on the frame you asked for whatever the
+  clip's speed, and any animation or ramp on it stays anchored to the same footage.
+  (`engine/python`)
+
 - **The agent stops when the request is met.** A run that read the timeline and made its
   edit in one step was treated as still "inspecting", told to keep reading, and re-applied
   a position-relative request ("move the last clip to the front") against the timeline it

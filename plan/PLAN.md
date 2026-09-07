@@ -13,6 +13,28 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-08, CROSS-RUNTIME-PARITY — issue #86):** the Python engine's
+`trim_clip` / `split_clip` / `delete_range` / `ripple_delete` still implemented the pre-v15
+(ADR 0090) 1:1 source arithmetic that `editor-core` — the authority — replaced, so the two
+runtimes disagreed across the whole speed feature set and the engine rejected patches the TS
+validator accepted. Ported and covered. Branch `rjach/bug-python-engines-trim-split-delete-range-mirro`.
+
+- `[x]` PARITY-1 — **the Python edge ops are speed-aware.** `_truncate_clip` is now the port
+  of `operations.ts#truncateClip` and drives all four ops: the timeline delta maps through
+  `effects/speed_curve`, the speed ramp is re-based per piece, keyframes are re-based and
+  resampled on a head trim, freeze frames keep their held range, reversed clips consume from
+  the source END, and clips with no time-based source trim in both directions.
+  `invert_operation` on an animated clip mirrors TS and returns `restore_clips`, because the
+  resample is lossy. Commit `78dd2df`.
+- `[x]` PARITY-2 — **the parity fixture covers retimed clips.** It exercised trim and split
+  only at 1x, where the old and new arithmetic agree, which is why the divergence survived.
+  A `video_speed` track plus eight cases (sped-up, frozen, reversed, ramped × trim, split,
+  delete_range, and the re-based ramp); both harnesses take an optional `tolerance`, since a
+  curve is inverted numerically. 17 of the 20 new Python assertions fail on the old code.
+- `[x]` PARITY-3 — **`trim_clip`'s description stopped teaching the 1:1 contract.** "the
+  source in/out shifts by the same amount" was the bug. Frozen surfaces regenerated; the
+  whole diff is +3 tokens on the tool-schema section. Commit `46986e4`.
+
 **Status snapshot (2026-09-07b, session 9, GOLDEN-EVAL — goal.md Phase 0):** the session-9
 floor is `s9-baseline-replay` (session6 recordings under `main`, 11 × 3: first-pass 80%,
 $0.627/accepted edit). `reorder_clips` was then **sampled live for the first time**

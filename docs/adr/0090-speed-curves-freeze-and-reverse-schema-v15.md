@@ -137,6 +137,19 @@ which is right for a constant rate and wrong for a curve: on a clip that starts 
 and ends fast, halfway in *time* is nowhere near halfway in *footage*, so a split
 placed on a gesture cut somewhere else entirely.
 
+**Both runtimes, not one.** This decision shipped in `editor-core` alone; the Python
+mirror in `framepilot_engine/timeline/operations.py` kept the pre-v15 1:1 arithmetic
+(issue #86). The two then disagreed precisely across this
+feature set: a 1:1 trim of a 2x clip leaves a source span that contradicts its own
+speed, so `_speed_consistency_checks` reported `speed_duration_mismatch` on a patch
+the TS validator had already accepted — and `tighten_clips`, `punch_in` and
+`trim_clip` emit exactly that op whenever the target is sped up. It survived because
+the cross-runtime parity fixture exercised trim and split **only at 1x**, where the
+old and the new arithmetic agree. The fixture now carries a `video_speed` track and
+covers sped-up, frozen, reversed and ramped clips through trim, split and
+delete_range, including the re-based ramp itself; an operation that is speed-aware in
+one runtime and not the other can no longer pass.
+
 ### 7. Numerical method: fixed-step, in both languages
 
 `editor-core/src/speed-curve.ts` and `framepilot_engine/effects/speed_curve.py` are a
