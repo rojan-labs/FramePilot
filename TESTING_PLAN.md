@@ -761,6 +761,15 @@ know** — and, unchanged, that a pack still cannot *half*-work.
 
 ## Part 13 — Structured descriptions replace prose · **P1**
 
+> **Caption quality has a measured floor as of 2026-09-08.**
+> `workers/visual-describe/eval/` scores the local pack through its signed entrypoint on
+> frames whose content is true by construction: **9/9 checks** — no invented person, no
+> invented on-screen text, a title card read verbatim, a featureless frame declined
+> cleanly. Run it with `uv run --extra cv python eval/caption_quality.py`. It is a FLOOR:
+> it says nothing about a description of real footage, which still needs the VU6.5 human
+> labelling pass (T16.7). Two defects it caught are fixed — `onScreenText` returned as
+> sixteen identical copies, and a blank frame failing its batch as retryable forever.
+
 - [ ] **T13.1. A description is a record, not a sentence** — `AI` · `desktop` · key state C
   - Do: index a clip with recognisable content and on-screen text (a title card, a slate,
     a sign).
@@ -788,7 +797,12 @@ know** — and, unchanged, that a pack still cannot *half*-work.
 - [ ] **T13.4. On-screen text is verbatim** — `AI` · `desktop`
   - Do: point it at a slate or title card and ask what it says.
   - Expect: word for word, not paraphrased.
-  - Result: __/__/____ · PASS / FAIL · notes:
+  - Result: 09/08/2026 · **PASS (local pack, measured)** · notes:
+    `eval/caption_quality.py` renders a card reading `SCENE 4 TAKE 2` and asserts
+    `onScreenText` contains it verbatim — it does. Note what this row would have missed
+    before that eval existed: the first run returned the line **sixteen times**, once per
+    slot up to `MAX_ON_SCREEN_TEXT_ITEMS`. Verbatim was satisfied and the value was still
+    unusable. Deduplicated now. The hosted arm (key state C) is still a manual check.
 
 ---
 
@@ -1043,7 +1057,14 @@ These are not test rows; they are decisions and unknowns. Each needs an owner.
       score the answer cases. `packages/ai-sdk/scripts/contact-sheet.mjs` exists to make that
       pass possible in one sitting. Confirm the labels were actually eyeballed, not generated —
       a generated label set scores the model against itself.
-  - Owner: ______  Result: __/__/____
+  - Owner: ______  Result: 09/08/2026 · **CONFIRMED GENERATED, NOT EYEBALLED — still open.**
+    `tier2.json` says so itself: `"note": "SCAFFOLD for the first 50 shots... neither ran,
+    so every field is null"`, `source: "unlabelled"`, `verified: false` on every row. So it
+    cannot score anything today, and nothing currently claims it does. Partially mitigated
+    rather than closed: `workers/visual-describe/eval/` now measures a caption-quality floor
+    that needs no labels at all, because its fixtures' content is true by construction — but
+    VU6.5's ≥80% subject/setting agreement still needs the human pass, and
+    `packages/ai-sdk/scripts/contact-sheet.mjs` is what makes it possible in one sitting.
 
 ---
 

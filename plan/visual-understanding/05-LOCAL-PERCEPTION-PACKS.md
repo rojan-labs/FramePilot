@@ -149,7 +149,26 @@ first, then `bin`, and yields to renders/exports and to any interactive `get_fra
 (`07-SCALE-AND-OPERATIONS.md` governor). The media bin shows a small "describing 12/61" badge;
 Settings shows per-tier coverage. The agent reads coverage as a fact and never waits.
 
-### VU6.5 Evidence `[ ]` — NOT MEASURED
+### VU6.5 Evidence `[~]` — FLOOR MEASURED 2026-09-08, quality targets still open
+
+`workers/visual-describe/eval/` measures what needs no labeller: four fixtures whose content
+is true **by construction**, scored through the signed worker entrypoint. On
+SmolVLM2-2.2B-Instruct-Q4_K_M: **9/9 checks, ~11 s per shot** — no invented person on seeded
+noise or colour bars, no invented `onScreenText`, a title card read verbatim, and a
+featureless frame declined cleanly rather than guessed at.
+
+It found two defects a fake backend could not have: `onScreenText` returned as sixteen
+identical copies of one line (deduplicated now, in the pack and the engine mirror), and a
+featureless frame failing its whole batch as `retryable` forever (now
+`ShotNotDescribableError`, not retryable). Both fixed in `bfb58bc`.
+
+**Still open, and the floor does not touch it:** the ≥80% `subject`/`setting` agreement
+below needs human labels. `tests/fixtures/mission/labels/tier2.json` is a scaffold whose
+every field is `null`, and a generated label set scores the model against itself. Recorded
+from the same run and deliberately unscored: the model collapses `subject`, `action` and
+`setting` to one filler string.
+
+### VU6.5 Evidence — the original targets
 
 - Every mission fixture shot has a `described` row after a background run on the M1 Pro with
   the UI in use; record wall clock and peak RSS.
