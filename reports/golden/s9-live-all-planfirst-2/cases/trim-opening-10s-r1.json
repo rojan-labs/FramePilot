@@ -1,0 +1,355 @@
+{
+  "scenario": "trim-opening-10s",
+  "category": "trim",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Cut the first 10 seconds off the opening clip.",
+      "rubric": "trim-first-clip-head",
+      "expectedIntent": "edit",
+      "score": 0.7777777777777778,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "first-clip-head-trimmed",
+          "ok": true,
+          "detail": "opens at source 10.0000s, asked 10.0000s (0.00 frame(s) off)",
+          "weight": 2,
+          "facet": "boundary"
+        },
+        {
+          "id": "only-target-touched",
+          "ok": false,
+          "detail": "also changed: clip__video_1_asset_001_0",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "ask",
+          "ok": false
+        },
+        "target": {
+          "ok": false,
+          "checks": [
+            "only-target-touched: also changed: clip__video_1_asset_001_0"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "first-clip-head-trimmed: opens at source 10.0000s, asked 10.0000s (0.00 frame(s) off)",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 2,
+          "valid": 2,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 6,
+        "toolCalls": 4,
+        "tokens": {
+          "prompt": 77099,
+          "output": 3237,
+          "total": 80336
+        },
+        "usd": 0.08468400000000001,
+        "latency": {
+          "firstProgressMs": 3195,
+          "doneMs": 53944
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 2 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 0.7777777777777778,
+        "finalStatus": "cancelled",
+        "operations": 3
+      },
+      "asked": [
+        {
+          "question": "The 10s trim on the opening clip leaves a 10-second gap with no picture (29.8s–39.8s) before the next clip starts. How should I handle it?",
+          "options": [
+            "Close the gap",
+            "Leave it as is"
+          ]
+        }
+      ],
+      "assistantText": "**Applied 3 edits** in 2 steps before you stopped the run — they are on your timeline and can be undone.\n\n- Deleted range Video 1 · 0s–39.8s\n- Added clip camera-4k60-40s.mov · 0s–29.8s\n- Reframed clip camera-4k60-40s.mov\n\n**Not done:**\n- Get clips Video 1 — running\n- Asking you: The 10s trim on the opening clip leaves a 1… — failed",
+      "recording": "reports/golden/s9-live-all-planfirst-2/recordings/trim-opening-10s-r1-t1.json",
+      "calls": [
+        {
+          "tool": "delete_clip",
+          "status": "completed",
+          "args": "clipId: \"clip_001\", ripple: false"
+        },
+        {
+          "tool": "add_clip",
+          "status": "completed",
+          "args": "trackId: \"video_1\", assetId: \"asset_001\", start: 0, end: 29.8, sourceStart: 10"
+        },
+        {
+          "tool": "get_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\", start: 0, end: 30"
+        },
+        {
+          "tool": "ask_user",
+          "status": "cancelled",
+          "args": "question: \"The 10s trim on the ope…, options: [{\"label\":\"Close the gap…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 53944,
+        "modelCalls": 6,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 77099,
+          "input": 16027,
+          "output": 3237,
+          "cacheRead": 61072,
+          "cacheCreate": 51450
+        },
+        "perCall": [
+          {
+            "ttftMs": 3193,
+            "wallMs": 3193,
+            "input": 3589,
+            "output": 79,
+            "cacheRead": null
+          },
+          {
+            "ttftMs": 3821,
+            "wallMs": 19987,
+            "input": 2079,
+            "output": 1593,
+            "cacheRead": 11409
+          },
+          {
+            "ttftMs": 3656,
+            "wallMs": 11901,
+            "input": 2386,
+            "output": 901,
+            "cacheRead": 10435
+          },
+          {
+            "ttftMs": 2382,
+            "wallMs": 3532,
+            "input": 2521,
+            "output": 160,
+            "cacheRead": 15892
+          },
+          {
+            "ttftMs": 3244,
+            "wallMs": 5685,
+            "input": 2614,
+            "output": 160,
+            "cacheRead": 15892
+          },
+          {
+            "ttftMs": 5889,
+            "wallMs": 9608,
+            "input": 2838,
+            "output": 344,
+            "cacheRead": 7444
+          }
+        ],
+        "summary": {
+          "turnCount": 6,
+          "ttftMs": {
+            "p50": 3244,
+            "p95": 5889,
+            "min": 2382,
+            "max": 5889
+          },
+          "wallMs": {
+            "p50": 5685,
+            "p95": 19987,
+            "min": 3193,
+            "max": 19987
+          },
+          "inputTokensPerTurn": {
+            "p50": 2521,
+            "p95": 3589,
+            "min": 2079,
+            "max": 3589
+          },
+          "outputTokensPerTurn": {
+            "p50": 160,
+            "p95": 1593,
+            "min": 79,
+            "max": 1593
+          },
+          "cacheHitRate": 0.8307985308121344,
+          "cacheReportingTurns": 5
+        },
+        "usd": 0.08468400000000001,
+        "usageTokens": 15596,
+        "toolCalls": 4,
+        "toolCallsByName": {
+          "delete_clip": 1,
+          "add_clip": 1,
+          "get_clips": 1,
+          "ask_user": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 10,
+        "contextByType": [
+          {
+            "system": 2544,
+            "retrieved_evidence": 487,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 7128
+          },
+          {
+            "system": 2544,
+            "retrieved_evidence": 487,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 7128
+          },
+          {
+            "system": 2788,
+            "retrieved_evidence": 480,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 2788,
+            "retrieved_evidence": 480,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 2871,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 2871,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 2917,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 2917,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 6507
+          },
+          {
+            "system": 3155,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 4546
+          },
+          {
+            "system": 3155,
+            "retrieved_evidence": 491,
+            "latest_user_message": 57,
+            "skill": 1674,
+            "tool_schemas": 4546
+          }
+        ],
+        "contextUsedTokens": [
+          11890,
+          2079,
+          11506,
+          2386,
+          11600,
+          2521,
+          11646,
+          2614,
+          9923,
+          2838
+        ],
+        "contextCachedTokens": [
+          null,
+          11409,
+          null,
+          10435,
+          null,
+          15892,
+          null,
+          15892,
+          null,
+          7444
+        ],
+        "diffs": 2,
+        "validDiffs": 2,
+        "operations": 3,
+        "errors": [],
+        "finalStatus": "cancelled"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}
