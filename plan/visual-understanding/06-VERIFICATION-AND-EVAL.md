@@ -147,7 +147,7 @@ test) → the labelled set and the new cases alongside VU2.
 
 ## VU7 Sampled verification after apply
 
-### VU7.1 Deterministic first `[~]` — built, NOT wired (2026-09-07)
+### VU7.1 Deterministic first `[x]` — built and wired (2026-09-07)
 
 After an apply that touched picture clips, the conductor takes `picture.cuts` whose flags
 changed (new or worsened; inherited flags are advisories) and requests, through the existing
@@ -160,7 +160,7 @@ changed (new or worsened; inherited flags are advisories) and requests, through 
 Bounded to 4 pairs per apply, one batch, cancellable (the route already watches disconnect).
 Results become working-state facts (`kind: verification`) and the briefing's PICTURE line.
 
-### VU7.2 Vision only when numbers cannot decide `[~]` — built, NOT wired (2026-09-07)
+### VU7.2 Vision only when numbers cannot decide `[x]` — built and wired (2026-09-07)
 
 `vision-review.ts` gets its first caller. Trigger conditions, all required:
 
@@ -180,37 +180,50 @@ A vision judge (`scripts/golden-vision-judge.mjs`, dev only) scores exported gol
 points for the visual cases and writes a score per case into the report. It is evidence for
 this plan's exit, not a production path.
 
-### VU7.4 Evidence `[ ]`
+### VU7.4 Evidence `[~]`
 
 - Unit: trigger conditions; bound of 4/2; inherited-flag exclusion; cancellation.
+- Run level (`kernel/picture-verification.run.test.ts`, 4 tests): a real `streamAgent` run
+  that manufactures one new cut with an exposure jump records the verification fact and
+  shows it to the next turn; the same run with no ledger records none and emits a
+  byte-identical event sequence; an evidence route that throws leaves the apply standing
+  with an honest "could not be checked" fact; no route at all says so in words. Plus 4
+  reducer tests in `conductor.test.ts` for the fold itself.
 - Golden: `match-color-to-first-clip` produces a `verification` fact; `frames_seen_per_edit`
   stays under 0.5 across the 29 cases (verification frames included).
 - A/B: the visual cases with and without VU7 — verification must not lower first-pass
   acceptance (it adds facts, never retries).
 
-### The wiring gap — read this before marking VU7 done
+### The wiring gap — closed (2026-09-07)
 
-`kernel/picture-verification.ts` is complete and tested (28 tests) and **nothing calls it**.
-So is `kernel/briefing-picture.ts` from VU2.6 (17 tests, no caller). Both are dead code
-today, and neither phase is honestly `[x]` until that changes.
+Both modules now have a caller. The seam is **the agent loop's turn handler**, not
+`Orchestrator.reviewTurn`:
 
-**Why it was not wired here.** Both need the before/after project AND the ledger live at the
-same moment. The conductor is a pure reducer over operations with no project in scope
-(`ConductorState`), so it cannot run `diffPicture`. The only seam with the right inputs is
-`Orchestrator.reviewTurn`, and it is the wrong shape twice: it returns `ReviewFinding[]`,
-which is the **steering/repair** channel VU7 must never enter (a verification must add facts,
-never turn a good apply into a failed one), and it runs inside `ReviewFindingQueue` where the
-run's `RunWorkingState` is not reachable, so facts have no route home.
+- `orchestrator.ts#verifyAppliedPicture` runs after an apply that landed. It is the only
+  place that holds the project BEFORE the patch, the project AFTER it, and the run's shot
+  ledger at the same moment, so it derives both `PictureSlice`s with the memoized
+  `pictureFor` and calls `verifyPictureAfterApply`. The host's `EditorRunControls`
+  evidence routes reach it through a new `AgentReviewControls` argument threaded
+  `streamEditorRun → legacyEditorRun → streamAgent → agentRun`.
+- The finished report travels to the reducer on `AgentTurnResult.pictureVerification` —
+  the same "the runtime measures, the reducer folds" channel `arrangement`, `callFacts`
+  and `acceptanceShortfall` already use.
+- `conductor.ts` folds it with `recordPictureVerification`, immediately after
+  `onProjectRevisionChanged` and beside the arrangement fact, because these are
+  `timeline_dependent` facts about the revision this turn just produced.
 
-**What wiring it actually needs**, so the next agent does not rediscover this: a non-steering
-fact channel from the effect layer into `state.working`, carrying the before/after picture
-slices. `recordPictureVerification(state, report)` is the seam that already exists on the
-working-state side. It is a deliberate, separate change in a 9k-line file, not a line to
-slip into another commit.
+**It is a fact channel and nothing else.** It is read only inside the reducer's `applied`
+branch, nothing downstream reads it back, and every degradation — no ledger, no evidence
+route, a throw, a cancelled run — leaves the apply exactly as it was and says `unverified`
+in words. `ReviewFinding[]` is untouched: a verification never steers.
 
-Until then the honest reading is: the deterministic cut checks and the bounded vision
-escalation are **implemented and provably correct in isolation**, and the agent does not yet
-run them.
+**Facts, not a new briefing section.** `renderFact` already prints the statement and its
+evidence handle under `ESTABLISHED — do not gather again`, which is precisely what a
+verified cut is. Adding a PICTURE section to `buildStateBriefing` would mean threading two
+slices into a function that is pure over the ledger and holds no project, and the report's
+own `briefingLine` already covers the same cuts — shipping both prints every cut twice.
+So `renderPictureBriefing` remains an unused renderer; `diffPicture`, which is the part
+that draws the inherited/new line, is live through the verification pass.
 
 ## Definition of done
 

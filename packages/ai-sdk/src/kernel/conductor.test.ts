@@ -2853,3 +2853,88 @@ describe('failedAfterApplyMessage — the card an editor actually reads', () => 
     );
   });
 });
+
+/**
+ * VU7 — the reducer's half of the picture-verification seam.
+ *
+ * The effect layer computes the report (it holds the project and the shot ledger; the
+ * reducer holds neither). All the reducer owes is to fold it, on an applied turn only,
+ * AFTER the revision bump has invalidated the previous turn's timeline facts — and to
+ * change nothing else about the run when it is absent.
+ */
+describe('onEffectResult — picture verification facts', () => {
+  const report = {
+    checks: [],
+    facts: [
+      {
+        statement: 'Verified — the exposure jump at 0:10.0 is really there on screen.',
+        evidenceIds: ['picture:patch_1:0'],
+      },
+    ],
+    evidence: [
+      {
+        id: 'picture:patch_1:0',
+        source: 'review/temporal-evidence',
+        descriptor: 'shot_match across clip_a→clip_b at 0:10.0',
+      },
+    ],
+    framesShownToModel: 0,
+    framesDecoded: 2,
+    briefingLine: '',
+  } as const;
+
+  const applied = (over: Partial<AgentTurnResult> = {}): AgentTurnResult =>
+    turn({
+      applied: true,
+      turnOpCount: 1,
+      appliedOps: ops(1),
+      describedActions: [{ action: 'Trimmed a clip', detail: 'clip_a now runs to 10s' }],
+      patchId: 'patch_1',
+      ...over,
+    });
+
+  it('records the report as a fact with its evidence handle beside it', () => {
+    const step = onEffectResult(started(), applied({ pictureVerification: report }));
+    const state = step.state;
+
+    expect(state.working.facts.map((fact) => fact.statement)).toContain(
+      'Verified — the exposure jump at 0:10.0 is really there on screen.',
+    );
+    const fact = state.working.facts.find((entry) => entry.kind === 'verification');
+    expect(fact?.evidenceIds).toEqual(['picture:patch_1:0']);
+    // The handle is indexed too, or the citation in the briefing is a dangling reference.
+    expect(state.working.evidence.some((entry) => entry.id === 'picture:patch_1:0')).toBe(true);
+  });
+
+  it('survives the revision bump the same apply performs', () => {
+    // The facts are `timeline_dependent`, and the apply that produced them advances the
+    // revision — so folding them on the wrong side of `onProjectRevisionChanged` would
+    // drop every one of them on the way past.
+    const step = onEffectResult(started(), applied({ pictureVerification: report }));
+    const second = onEffectResult(step.state, applied({ patchId: 'patch_2' }));
+
+    expect(step.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(true);
+    // …and the NEXT apply retires them, exactly like every other timeline fact.
+    expect(second.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(false);
+  });
+
+  it('changes nothing when the report is absent', () => {
+    const withReport = onEffectResult(started(), applied({ pictureVerification: report }));
+    const without = onEffectResult(started(), applied());
+
+    expect(without.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(false);
+    expect(without.events.map((event) => event.type)).toEqual(
+      withReport.events.map((event) => event.type),
+    );
+    expect(without.state.appliedTurns).toBe(withReport.state.appliedTurns);
+    expect(without.state.cumulativeOps).toEqual(withReport.state.cumulativeOps);
+  });
+
+  it('never folds a report on a turn that applied nothing', () => {
+    const step = onEffectResult(
+      started(),
+      turn({ applied: false, pictureVerification: report }),
+    );
+    expect(step.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(false);
+  });
+});

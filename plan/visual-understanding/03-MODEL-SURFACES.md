@@ -83,7 +83,15 @@ footage" looks like in 600 tokens.
 - Tool descriptions updated by the lead-prompt-engineer pass; the shape test in
   `tool-domains` must pass (a tool needs a domain).
 
-## VU2.6 Briefing PICTURE line `[~]` — built and tested, NOT wired (2026-09-07)
+## VU2.6 Picture change reporting `[x]` (2026-09-07) — as facts, not a second renderer
+
+`diffPicture` is live: `verifyPictureAfterApply` runs it after every applied turn and turns
+the result into working-state facts, which the existing briefing already prints under
+ESTABLISHED. The `renderPictureBriefing` half was **deleted**. Two renderers of the same
+diff would have printed every cut twice, and a parallel implementation left beside the
+channel that won is exactly what this plan's standing rules forbid. What survives is the
+part that had to: the inherited-versus-new line, so a defect the footage already had is an
+advisory and never this run's shortfall.
 
 `kernel/briefing.ts` `buildStateBriefing`: after an apply that changed picture clips, render
 ≤ 3 lines from the diff of `picture.cuts` before/after:

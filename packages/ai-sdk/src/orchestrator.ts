@@ -221,6 +221,14 @@ import {
   unusableHostPayload,
 } from './reliability/refusal-notes.js';
 import type { AgentRunControls, AskUser, AskUserOption } from './run-controls.js';
+import type { LedgerSnapshot } from './ledger.js';
+import { indexFor } from './project-index.js';
+import { pictureFor } from './kernel/semantic-index/picture.js';
+import {
+  verifyPictureAfterApply,
+  type PictureVerificationReport,
+  type PictureVisionControls,
+} from './kernel/picture-verification.js';
 import { createSteeringQueue } from './run-controls.js';
 import { combineSignals } from './reliability/signals.js';
 import { createRunDeadline } from './reliability/deadline.js';
@@ -1009,6 +1017,25 @@ export interface VisionRunReviewControls {
   readonly judge: VisionJudge;
   readonly reviewer: VisionReviewerIdentity;
   readonly mediaEgressConsent?: VisionMediaEgressConsent;
+}
+
+/**
+ * The bounded evidence routes an agent run may use to VERIFY what it just applied
+ * (`kernel/picture-verification.ts`, VU7).
+ *
+ * The same live objects {@link EditorRunControls} already carries, threaded one level
+ * further down so the agent loop can reach them at the moment of an apply. They are
+ * deliberately not on {@link AgentRunControls}: that interface lives in `run-controls.ts`,
+ * and {@link VisionRunReviewControls} is declared here, so putting them there would make
+ * the two modules import each other.
+ *
+ * Absent on every route that wires nothing — and an absent route is not a failure. A
+ * verification with no way to look settles as `unverified`, which is a fact the model can
+ * read, never a reason the apply did not stand.
+ */
+export interface AgentReviewControls {
+  readonly temporalEvidence?: TemporalEvidenceAcquirer;
+  readonly visionReview?: VisionRunReviewControls;
 }
 
 export interface EditorRunControls {
@@ -7819,6 +7846,75 @@ export class Orchestrator {
     return found;
   }
 
+  /**
+   * Verify, with pixels, what an apply just did to the screen (VU7, ADR 0175 §4).
+   *
+   * This is the wiring the two finished modules were waiting for. The reducer is pure and
+   * holds no project, and `streamEditorRun`'s review queue returns `ReviewFinding[]` — the
+   * STEERING channel, which a verification must never enter. The agent loop's turn handler
+   * is the one place that holds the project before the patch, the project after it, and
+   * the run's shot ledger at the same moment, so the derivation happens here and the
+   * finished report travels to the reducer on {@link AgentTurnResult.pictureVerification}.
+   *
+   * **It cannot fail an apply.** Every degradation — no ledger, no evidence route, a
+   * throw, a cancelled run — returns `undefined` or a report of `unverified` checks, and
+   * the caller ignores the outcome when deciding whether the turn applied.
+   *
+   * @param args - The projects either side of the patch, the run's ledger, the patch id
+   *   that namespaces the evidence requests, and the host's bounded IO.
+   * @returns The report to fold as facts, or `undefined` when there is nothing to say.
+   */
+  private async verifyAppliedPicture(args: {
+    readonly before: Project;
+    readonly after: Project;
+    readonly ledger: LedgerSnapshot | null | undefined;
+    readonly patchId: string;
+    readonly review: AgentReviewControls;
+    readonly hasBudgetHeadroom: boolean;
+    readonly signal?: AbortSignal;
+  }): Promise<PictureVerificationReport | undefined> {
+    // No ledger means no shot facts, so every cut delta would be null and every candidate
+    // would be a guess. A keyless install simply records nothing here.
+    if (!args.ledger) return undefined;
+    try {
+      const before = pictureFor(args.before, indexFor(args.before), args.ledger);
+      const after = pictureFor(args.after, indexFor(args.after), args.ledger);
+      const vision: PictureVisionControls | undefined = args.review.visionReview
+        ? {
+            acquire: args.review.visionReview.acquire,
+            judge: args.review.visionReview.judge,
+            reviewer: args.review.visionReview.reviewer,
+            ...(args.review.visionReview.mediaEgressConsent === undefined
+              ? {}
+              : { mediaEgressConsent: args.review.visionReview.mediaEgressConsent }),
+            provider: this.provider.name,
+            ...(this.provider.modelId === undefined ? {} : { model: this.provider.modelId }),
+            hasBudgetHeadroom: args.hasBudgetHeadroom,
+          }
+        : undefined;
+      const report = await verifyPictureAfterApply({
+        project: args.after,
+        before,
+        after,
+        patchId: args.patchId,
+        ...(args.review.temporalEvidence === undefined
+          ? {}
+          : { acquireTemporal: args.review.temporalEvidence }),
+        ...(vision === undefined ? {} : { vision }),
+        ...(args.signal === undefined ? {} : { signal: args.signal }),
+      });
+      return report.checks.length > 0 ? report : undefined;
+    } catch (error) {
+      // Rule 4, enforced at the seam as well as inside the module: a verification that
+      // throws costs the run one log line, never its edit.
+      orchestratorLog.warn('picture verification failed — the apply stands, unverified', {
+        error: String(error),
+        patchId: args.patchId,
+      });
+      return undefined;
+    }
+  }
+
   private legacyEditorRun(
     input: ContextInput,
     options: StreamOptions,
@@ -7835,6 +7931,18 @@ export class Orchestrator {
           request.agentOptions ?? {},
           controls.agent ?? {},
           request.initialCost ?? { tokens: 0, usd: 0, modelCalls: 0 },
+          // VU7: the host's evidence routes reach the agent loop, which is the only place
+          // that holds the before/after project AND the shot ledger at the moment of an
+          // apply. `streamEditorRun`'s own review queue is a different channel with a
+          // different job — it STEERS, and a verification must never steer.
+          {
+            ...(controls.temporalEvidence === undefined
+              ? {}
+              : { temporalEvidence: controls.temporalEvidence }),
+            ...(controls.visionReview === undefined
+              ? {}
+              : { visionReview: controls.visionReview }),
+          },
         );
     }
   }
@@ -7984,6 +8092,7 @@ export class Orchestrator {
     agentOptions: AgentOptions = {},
     controls: AgentRunControls = {},
     initialCost: RunCostSeed = { tokens: 0, usd: 0, modelCalls: 0 },
+    review: AgentReviewControls = {},
   ): AsyncGenerator<AiEvent> {
     orchestratorLog.action('streamAgent start', {
       provider: this.provider.name,
@@ -7998,6 +8107,7 @@ export class Orchestrator {
       agentOptions,
       controls,
       initialCost,
+      review,
     );
     try {
       yield* runAgentGraph(command, handlers, options.signal);
@@ -8040,6 +8150,7 @@ export class Orchestrator {
     agentOptions: AgentOptions,
     controls: AgentRunControls = {},
     initialCost: RunCostSeed = { tokens: 0, usd: 0, modelCalls: 0 },
+    review: AgentReviewControls = {},
   ): {
     command: Command;
     handlers: ConductorHandlers;
@@ -8993,6 +9104,24 @@ export class Orchestrator {
             });
           }
         }
+        // VU7 — pixels verify, they do not plan. Runs only for an apply that landed, only
+        // over the cuts THIS patch is answerable for, and strictly after the diff has
+        // already been emitted above: the editor has the edit before anything is decoded.
+        // Its outcome is folded as facts by the reducer and reaches nothing else — the
+        // turn's `applied` flag below is computed without reference to it.
+        const pictureVerification = applied.applied
+          ? await self.verifyAppliedPicture({
+              before: workingBefore,
+              after: working,
+              ledger: input.ledger,
+              patchId: applied.edit?.patch.patchId ?? `step-${String(index)}`,
+              review,
+              // The same meter the reducer holds the run to. A run at its ceiling still
+              // verifies deterministically; it just does not buy image payloads.
+              hasBudgetHeadroom: usageUsd < state.config.maxUsd,
+              signal: runSignal,
+            })
+          : undefined;
         log.push(`Step ${index}: ${applied.record.note}`);
         return turnBase(index, emit.seq(), {
           ...common,
@@ -9013,6 +9142,7 @@ export class Orchestrator {
             ? {}
             : { rejectionScale: applied.rejectionScale }),
           ...(applied.satisfied === true ? { satisfied: true } : {}),
+          ...(pictureVerification === undefined ? {} : { pictureVerification }),
         });
       },
 
