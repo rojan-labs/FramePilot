@@ -58,3 +58,12 @@
 | Renderer changes silently break the color fit                     | the fit test re-derives coefficients from fixtures and fails on drift                                                                    |
 | Scope creep into scene understanding                              | this plan stops at shot-level facts; segmentation/depth are explicitly deferred                                                          |
 | The plan is written and not measured (the history of this area)   | VU0 baseline is the first task; every phase has a numeric exit recorded in its file                                                      |
+
+## Discovered while implementing (2026-09-07)
+
+| Finding | Where | Status |
+| --- | --- | --- |
+| **`translateSourceRange` assumes 1:1 playback speed**, and its comment says "no `speedRamps` op exists yet". `speedRamp` has been in the schema since v15 (`timeline-schema/src/index.ts:762`) and `set_clip_speed_ramp` is a shipped tool. So the semantic index's `shots`, `silences` and `beats` slices place their times WRONG on any speed-changed or reversed clip — a pre-existing bug, not one this plan introduced. | `packages/ai-sdk/src/kernel/semantic-index/semantic-index.ts:410–423` | Open. The `picture` slice does its own speed-aware projection (integrating `speedRamp` through `integrateRate`, mirroring reverse, holding a freeze), so the ledger is correct today while the older slices are not. Converge them onto one projection in VU2.5. |
+| **`brain/__init__.py` already exports an `AssetDigest`** from `brain/similar.py`, unrelated to the ledger's. The ledger models are therefore imported from `brain.ledger_models` directly and are NOT re-exported. | `engine/python/framepilot_engine/brain/__init__.py:93` | Decided: no re-export. The `GET /brain/shots` route imports from the module. Renaming a shipped public name to make a barrel tidier is not worth a migration. |
+| **`lowQualityShots` had no threshold anywhere in the plan.** `LOW_SHARPNESS = 0.4` was derived from the two blur measurements recorded in `shot_stats.py` (sharp 4.2 → 0.74, gblur sigma 6 → 0.18). | `brain/ledger_store.py` | First calibration; VU1.6's hand-labelled sharpness classes confirm or move it. |
+| **A pre-existing UI transition suggester picks by hardcoded id** (`suggest('cross-dissolve', …)`), timeline-only by design. | `apps/web-editor/src/components/transition-recommendations.ts` | Converge onto the policy in VU4.2, once the ledger is populated — not before, or the UI would suggest from facts that do not exist yet. |

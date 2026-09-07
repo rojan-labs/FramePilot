@@ -35,21 +35,21 @@ briefing can render them differently and a tier can be re-run without touching t
   "t0": 61.0,
   "t1": 66.4,
   "keyframeT": 62.5,
-  "durationS": 5.4,
+  "splitOf": false, // a duration split inside a take, not a scene cut
 
   "measured": {
     // tier 0 — ffmpeg, exact, keyless
     "tier0Version": 1,
-    "luma": { "mean": 0.47, "std": 0.18, "p5": 0.08, "p95": 0.86 }, // 0..1 from Y
+    "luma": { "mean": 0.47, "std": 0.18, "p10": 0.08, "p90": 0.86 }, // 0..1 (signalstats YLOW/YHIGH)
     "chroma": { "uMean": 124.1, "vMean": 133.8, "satMean": 0.31 }, // signalstats
-    "warmth": 0.14, // (V−U) normalised, calibrated on ref/colorchart.png
-    "contrastIdx": 0.62, // (p95−p5), a printable stand-in for "flat"/"punchy"
+    "warmth": 0.14, // (V−U) / half the 8-bit chroma range; ref/mood.png reads 0
+    "contrastIdx": 0.62, // (p90−p10), a printable stand-in for "flat"/"punchy"
     "motion": { "ti": 7.9, "si": 41.2, "class": "static|slow|handheld|fast" },
     "cutScore": 0.31, // scdet score at t0 (how hard the shot starts)
     "black": false,
     "freeze": false,
     "sharpness": 0.71, // blurdetect normalised; low = soft/out of focus
-    "phash": "9f2c…", // 64-bit dHash of the keyframe (already stored today)
+    "phash": "9f2c…", // 64-bit dHash, or ABSENT — never a placeholder
     "loudnessLufs": -18.2, // ebur128 over the shot, when the asset has audio
   },
 
@@ -99,6 +99,9 @@ CREATE TABLE shots (
   content_hash  TEXT NOT NULL,
   shot_index    INTEGER NOT NULL,
   t0 REAL NOT NULL, t1 REAL NOT NULL, keyframe_t REAL NOT NULL,
+  -- A duration split inside one continuous take, NOT a scene cut. Without this column the
+  -- flag dies on the round trip and a transition policy reads a 30s split as an edit point.
+  split_of INTEGER NOT NULL DEFAULT 0,
   tier0_version INTEGER, measured  TEXT,          -- JSON or NULL until the tier lands
   tier1_version INTEGER, labelled  TEXT,
   tier2_version INTEGER, described TEXT,
@@ -125,6 +128,12 @@ CREATE TABLE asset_digest (
 `described.summary`; the structured document lives in `shots.described`. Vectors for the
 local model use `visual_vectors.model = 'siglip2-base…'`; the existing "never mix models"
 rule holds. `captions_fts` indexes `summary + subject + action + setting + onScreenText`.
+
+**Absence is never a placeholder.** `phash` is nullable: the keyframe hash comes from the
+sampler's JPEG pass, not the statistics decode, so a shot can carry every other measured
+fact and no hash. Writing `""` instead would make every unhashed shot a duplicate of every
+other one — the exact "not measured collapses into a value" failure this design exists to
+avoid. The same rule governs every probabilistic field.
 
 Invalidation: a changed `content_hash` deletes the asset's shots (as `_index_one_asset`
 already does for spans). A bumped `tierN_version` nulls only column N and re-queues that
