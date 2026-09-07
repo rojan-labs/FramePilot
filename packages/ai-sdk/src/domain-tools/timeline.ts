@@ -1161,12 +1161,11 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'reorder_clips',
       description:
         'Reorder one track\'s clips — "put the last shot first", "swap these two". ' +
-        'Pass the track and ALL its clip ids in the ABSOLUTE new order; they are re-laid ' +
-        'end to end keeping each length and media. Nothing is deleted or added, so this ' +
-        'cannot lose footage; deleting and re-adding clips can. move_clip cannot reorder. ' +
-        'One call does it: the order you send is the final order, so do NOT re-apply a ' +
-        'positional instruction ("move the last first") to the result of your own reorder — ' +
-        'that rotates the track and can land it back where it started.',
+        'Pass the track and ALL its clip ids in the new order; they are re-laid end to ' +
+        'end keeping each length and media. Nothing is deleted or added, so this cannot ' +
+        'lose footage; deleting and re-adding clips can. move_clip cannot reorder. ' +
+        'One call is enough: the order you send is final, so never re-apply a positional ' +
+        'instruction to the result of your own reorder.',
     },
     z
       .object({
