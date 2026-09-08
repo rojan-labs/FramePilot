@@ -8,6 +8,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The AI's summary counts changes, not operations.** Restyling one caption track used to
+  close with "Applied 435 edits" over a list of deleted cue ranges — the engine rebuilds the
+  whole track to restyle it, and the report showed you that rebuild. It now reads as the one
+  edit it is, with the operation count kept beside it.
+
 - **Stock cutaways can go over your footage.** Asking the AI for b-roll during a talking-head
   take used to fail: stock could only land where the timeline was empty, so on a single
   continuous take the only place left was after the end of the edit. A stock clip now goes on

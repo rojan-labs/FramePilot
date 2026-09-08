@@ -1959,11 +1959,44 @@ describe('streamAgent', () => {
       rejectedOpCount: 0,
       rejectionReasons: [],
     });
-    expect(report).toMatch(/\*\*Applied 8 edits\*\* in 8 steps/);
+    // One outcome, so one edit — with the operation total kept beside it for anyone who
+    // wants to know what the engine actually did.
+    expect(report).toMatch(/\*\*Applied 1 edit\*\* \(8 operations\) in 8 steps/);
     expect(report).toContain('(×8)');
     // One row, not eight — and no line ends in a colon over nothing.
     expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
     expect(report).not.toMatch(/:\s*$/m);
+  });
+
+  /**
+   * Run `29eee2df` restyled ONE caption track and closed with "**Applied 435 edits** in 4
+   * steps" over ten rows of "Deleted range Caption 1 · 47.8s–49.467s (×2)" and "…and 194
+   * more". A restyle tears the cue range down and rebuilds it, so the report was an
+   * operation dump of internal churn with the outcome nowhere in it.
+   */
+  it('folds a caption track’s rebuild into one line the editor can read', () => {
+    const ops = [
+      ...Array.from({ length: 200 }, (_, i) => ({
+        type: 'delete_range',
+        trackId: 'caption_1',
+        start: i,
+        end: i + 0.5,
+      })),
+      { type: 'set_track_caption_style', trackId: 'caption_1' },
+      { type: 'trim_clip', clipId: 'clip_a', start: 0, end: 2 },
+    ] as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 4,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      captionTrackIds: new Set(['caption_1']),
+    });
+    // Two changes: the caption track, and the trim. 202 operations.
+    expect(report).toMatch(/\*\*Applied 2 edits\*\* \(202 operations\) in 4 steps/);
+    expect(report).toMatch(/Rewrote the captions on caption_1 · 201 caption edits/);
+    expect(report).not.toContain('…and 194 more');
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2);
   });
 
   it('points at Export when the request asked for a file the panel cannot render', () => {

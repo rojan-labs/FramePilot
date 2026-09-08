@@ -9378,6 +9378,13 @@ export class Orchestrator {
             agentCompletionReport({
               ops: reportedOps,
               names: projectNames(working),
+              // Caption tracks fold: a restyle is one edit to a person and two hundred
+              // operations to the engine (`operationLines`).
+              captionTrackIds: new Set(
+                working.timeline.tracks
+                  .filter((track) => track.type === 'caption')
+                  .map((track) => track.id),
+              ),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
@@ -9925,6 +9932,61 @@ function notDoneBlock(
   return `\n\n**Not done:**\n${shown.join('\n')}`;
 }
 
+/**
+ * The applied operations as lines an editor can read, and how many CHANGES they are.
+ *
+ * ## Why an operation is not an edit
+ *
+ * A caption restyle tears the cue range down and rebuilds it, so `set_track_caption_style`
+ * on a 200-cue track is 200 operations to the engine and one edit to a person. Run
+ * `29eee2df` restyled ONE track and reported:
+ *
+ *     **Applied 435 edits** in 4 steps
+ *     - Deleted range Caption 1 · 47.8s–49.467s (×2)
+ *     - Deleted range Caption 1 · 46.667s–47.367s (×3)
+ *     …and 194 more
+ *
+ * Nothing in that tells the editor what happened. So every operation on a CAPTION track
+ * folds into one line per track — the cue count kept, because "how many cues" is the part
+ * a person might check — and the headline counts folded changes, with the operation total
+ * beside it for anyone who wants it.
+ *
+ * Only caption tracks fold. A run that trims eleven clips did eleven things, and rolling
+ * those up would hide work rather than summarise it.
+ *
+ * @param ops - The applied operations, in order.
+ * @param names - Label resolver, so a track reads as "Caption 1".
+ * @param captionTrackIds - The project's caption tracks; empty ⇒ nothing folds.
+ * @returns Rendered lines (before truncation) and the change count for the headline.
+ */
+function operationLines(
+  ops: readonly AnyOperation[],
+  names: ReturnType<typeof projectNames> | undefined,
+  captionTrackIds: ReadonlySet<string>,
+): { readonly lines: readonly string[]; readonly changeCount: number } {
+  const counts = new Map<string, number>();
+  /** Operations per caption track, in first-seen order. */
+  const captionOps = new Map<string, number>();
+  for (const op of ops) {
+    const trackId = (op as { trackId?: unknown }).trackId;
+    if (typeof trackId === 'string' && captionTrackIds.has(trackId)) {
+      captionOps.set(trackId, (captionOps.get(trackId) ?? 0) + 1);
+      continue;
+    }
+    const line = operationLine(op, names);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  const lines: string[] = [];
+  for (const [trackId, count] of captionOps) {
+    const label = names?.track(trackId) ?? trackId;
+    lines.push(`- Rewrote the captions on ${label} · ${String(count)} caption edits`);
+  }
+  for (const [line, count] of counts) {
+    lines.push(`- ${line}${count > 1 ? ` (×${count})` : ''}`);
+  }
+  return { lines, changeCount: captionOps.size + counts.size };
+}
+
 /** Markdown completion report closing an agent run that applied edits (U3). Exported for tests. */
 export function agentCompletionReport(args: {
   ops: readonly AnyOperation[];
@@ -9973,25 +10035,27 @@ export function agentCompletionReport(args: {
   planSteps?: readonly PlanStep[];
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
+  /**
+   * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
+   * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
+   */
+  captionTrackIds?: ReadonlySet<string>;
 }): string {
   const maxLines = 10;
-  // Collapse lines that render identically. Eight successive restyles of one caption track
-  // describe ONE outcome to the person reviewing it — the last one is what they will see —
-  // and printing the same sentence eight times reads as a malfunction rather than a receipt.
-  // Only the RENDERED line is compared, so two edits that differ in any way the editor can
-  // see still get their own row; this hides repetition, never distinct work.
-  const counts = new Map<string, number>();
-  for (const op of args.ops) {
-    const line = operationLine(op, args.names);
-    counts.set(line, (counts.get(line) ?? 0) + 1);
-  }
-  const distinct = [...counts.entries()];
-  const lines = distinct
-    .slice(0, maxLines)
-    .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
-  const more = distinct.length - maxLines;
+  // Collapse lines that render identically, and fold a caption track's rebuild into one
+  // line (see `operationLines`). Only the RENDERED line is compared, so two edits that
+  // differ in any way the editor can see still get their own row; this hides repetition
+  // and internal churn, never distinct work.
+  const summarised = operationLines(args.ops, args.names, args.captionTrackIds ?? new Set());
+  const lines = [...summarised.lines.slice(0, maxLines)];
+  const more = summarised.lines.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
-  const applied = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
+  // The COUNT the editor is told is the count of changes, with the operation total beside
+  // it when the two differ — "435 edits" for one caption restyle is arithmetic, not a
+  // summary.
+  const changes = summarised.changeCount;
+  const opsNote = changes === args.ops.length ? '' : ` (${String(args.ops.length)} operations)`;
+  const applied = `**Applied ${String(changes)} edit${changes === 1 ? '' : 's'}**${opsNote} in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
   const head = args.cancelled
     ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
     : args.failed
