@@ -3978,8 +3978,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
     });
 
     // A refusal the model cannot act on is how the captured run stalled: it was
-    // told what was wrong and never where to go instead.
-    it('tells the model where the clip does fit when it refuses a placement', async () => {
+    // told what was wrong and never where to go instead. Since ADR 0169 reached
+    // `add_stock`, an occupied span is LIFTED where the clip can hide what it covers;
+    // this fixture's stock asset is unmeasured, which is one of the cases that cannot be,
+    // and the refusal has to name a move all the same.
+    it('tells the model what to do instead when it refuses a placement', async () => {
       const events = await drain(
         new Orchestrator(stockProvider(), {
           executor: hostRun({ asset: stockAsset, atSeconds: 2 }),
@@ -3987,9 +3990,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
       );
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
       const summary = result?.type === 'tool_result' ? result.summary : '';
-      expect(summary).toMatch(/already picture on the timeline/);
-      // A number it can pass straight back as `atSeconds`.
-      expect(summary).toMatch(/starts at \d+\.\ds/);
+      expect(summary).toMatch(/would sit on top of clip_a/);
+      expect(summary).toMatch(/has not been measured/);
+      // Two moves it can actually make, named.
+      expect(summary).toMatch(/split at 2s and 6s/);
+      expect(summary).toMatch(/once the engine has measured it/);
       expect(summary).not.toMatch(/pick an empty stretch/);
     });
 
@@ -4047,7 +4052,7 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(events.some((e) => e.type === 'diff')).toBe(false);
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
       expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
-        /already picture on the timeline/,
+        /would sit on top of clip_a/,
       );
     });
   });
