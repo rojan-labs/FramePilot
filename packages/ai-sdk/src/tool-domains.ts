@@ -64,8 +64,12 @@ export const DOMAIN_SUMMARY: Readonly<Record<Exclude<ToolDomain, 'core'>, string
   captions: 'write, restyle and emphasise captions; browse caption templates; check caption sync',
   audio:
     'transcribe; adjust levels; find and cut silence and filler words; detect beats to cut to; add music; professional audio moves',
+  // Named for the words a REQUEST uses, not only the moves. A run asked to "build a
+  // professional edit" never pinned this domain across 37 minutes and six `load_tools`
+  // calls, so three shipped tools were unreachable in practice — the summary is the whole
+  // discovery surface, and "match shots to each other" is not what that request sounds like.
   color:
-    'match shots to each other, even out exposure, apply a look; grade directly; measure what is on screen now',
+    'grade the picture — the colour and look pass of a professional edit: match shots to each other, even out exposure, apply a cinematic look, grade directly; measure what is on screen now',
   motion: 'keyframes, punch-ins, camera moves and speed ramps',
   effects: 'effects, transitions and on-screen text; browse what is available; verify fit',
   footage:
@@ -256,12 +260,42 @@ export function domainMembers(domain: Exclude<ToolDomain, 'core'>): readonly str
 }
 
 /**
- * Domains a loaded skill needs, so a playbook and the tools it tells the run to use
- * arrive together. Keyed by skill name; a skill absent from here pins nothing.
+ * Domains a loaded skill needs beyond the ones its own `tools:` list implies.
+ *
+ * Hand-written entries are for a playbook whose work needs a domain it does not name a
+ * tool from. Everything a skill DOES name is derived instead ({@link domainsForSkill}),
+ * because a hand-kept table drifts the moment a skill is edited — and it had: one entry
+ * for twenty-one skills, so `color-grading` pinned nothing and the colour domain went
+ * unpinned across a whole 37-minute "professional edit" run.
  */
 export const SKILL_DOMAINS: Readonly<Record<string, readonly Exclude<ToolDomain, 'core'>[]>> = {
   'caption-design': ['captions', 'audio'],
 };
+
+/**
+ * Every domain a skill's work needs — the domains of the tools it names, plus any extra
+ * this module records for it.
+ *
+ * A playbook and the tools it tells the run to use must arrive together: loading the
+ * colour playbook and then discovering `match_color` is not advertised is a round trip
+ * the run should never spend, and in practice does not spend — it edits without ever
+ * reaching the tool. This is a fact about the skill, not a judgement the model makes.
+ *
+ * @param skillName - The skill's `name` frontmatter.
+ * @param toolNames - The tools the skill's `tools:` frontmatter names.
+ * @returns The domains to pin, `core` never among them.
+ */
+export function domainsForSkill(
+  skillName: string,
+  toolNames: readonly string[],
+): readonly Exclude<ToolDomain, 'core'>[] {
+  const domains = new Set<Exclude<ToolDomain, 'core'>>(SKILL_DOMAINS[skillName] ?? []);
+  for (const toolName of toolNames) {
+    const domain = toolDomain(toolName);
+    if (domain !== undefined && domain !== 'core') domains.add(domain);
+  }
+  return [...domains];
+}
 
 /** The domain index the `load_tools` description carries, built once. */
 export const DOMAIN_INDEX = LOADABLE_DOMAINS.map(

@@ -482,7 +482,9 @@ describe('onEffectResult — approval fold (P11.3)', () => {
     const settled = events[1];
     expect(
       settled?.type === 'plan' &&
-        settled.steps.every((step) => step.status === 'failed' && step.detail === 'Stopped before this step'),
+        settled.steps.every(
+          (step) => step.status === 'failed' && step.detail === 'Stopped before this step',
+        ),
     ).toBe(true);
   });
 });
@@ -1180,9 +1182,64 @@ describe('onEffectResult — turn stop/continue decisions', () => {
     expect(refused.state.seenFailureKeys).toHaveLength(2);
     const landed = onEffectResult(
       { ...refused.state, noProgress: [] },
-      turn({ applied: true, turnOpCount: 1, appliedOps: ops(1), signature: 'sig-2' }),
+      turn({
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: ops(1),
+        signature: 'sig-2',
+        // This edit MOVED picture, which is what makes the placement verdict stale.
+        pictureArrangementChanged: true,
+      }),
     );
     expect(landed.state.seenFailureKeys).toEqual([]);
+  });
+
+  /**
+   * Run `19e20922` (2026-09-08, desktop): 35 of 38 `add_stock` calls refused
+   * `picture_over_picture`, the guard fired twice, and twenty of the refusals were the
+   * byte-identical call. The patches in between were caption restyles — hundreds of
+   * operations that cannot free picture at 0s — and each one wiped the key.
+   */
+  it('keeps a placement verdict across an edit that moved no picture', () => {
+    const refused = onEffectResult(
+      started(),
+      turn({
+        turnOpCount: 0,
+        anyToolFailed: true,
+        callFacts: [
+          {
+            key: 'add_stock:8348035@0',
+            status: 'failed',
+            role: 'mutation',
+            failureKey: 'add_stock:picture_over_picture',
+          },
+        ],
+      }),
+    );
+    expect(refused.state.seenFailureKeys).toContain('add_stock:picture_over_picture');
+    const captionPatch = onEffectResult(
+      { ...refused.state, noProgress: [] },
+      turn({
+        applied: true,
+        turnOpCount: 200,
+        appliedOps: ops(200),
+        signature: 'sig-2',
+        pictureArrangementChanged: false,
+      }),
+    );
+    expect(captionPatch.state.seenFailureKeys).toContain('add_stock:picture_over_picture');
+    // ...and a patch that DID move picture still clears it, so a corrected retry is free.
+    const movedPicture = onEffectResult(
+      { ...captionPatch.state, noProgress: [] },
+      turn({
+        applied: true,
+        turnOpCount: 1,
+        appliedOps: ops(1),
+        signature: 'sig-3',
+        pictureArrangementChanged: true,
+      }),
+    );
+    expect(movedPicture.state.seenFailureKeys).toEqual([]);
   });
 
   /**
@@ -2131,6 +2188,25 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       ...over,
     });
 
+  /**
+   * Run `29eee2df`, turn 3. The record read
+   * `{ criterion: "the captions doesnot seem right, can you make a better broll",
+   * passed: true }` — in the same turn whose summary said "Not done: Add stock — never
+   * succeeded". The verdict is `deliveredWork && r.ok`: 435 caption operations landed and
+   * validated, and neither half of it knows anything about b-roll. The next turn's
+   * briefing reads these records, so the false pass is inherited, not merely displayed.
+   */
+  it('does not label the whole-request verdict with the editor’s own words', () => {
+    const applied = onEffectResult(started(), landed()).state;
+    const step = onEffectResult(
+      { ...applied, phase: 'verifying' },
+      verify({ ok: true, summary: 'Passed with 1 warning(s).' }),
+    );
+    const criteria = step.state.working.verifications.map((v) => v.criterion);
+    expect(criteria).not.toContain('tighten the intro');
+    expect(criteria).toContain('A validated edit landed and the run’s deterministic checks passed');
+  });
+
   it('routes a failed self-check into a findings-scoped fix turn instead of failing outright', () => {
     const applied = onEffectResult(started(), landed()).state;
     const step = onEffectResult(
@@ -2938,10 +3014,7 @@ describe('onEffectResult — picture verification facts', () => {
   });
 
   it('never folds a report on a turn that applied nothing', () => {
-    const step = onEffectResult(
-      started(),
-      turn({ applied: false, pictureVerification: report }),
-    );
+    const step = onEffectResult(started(), turn({ applied: false, pictureVerification: report }));
     expect(step.state.working.facts.some((fact) => fact.kind === 'verification')).toBe(false);
   });
 });

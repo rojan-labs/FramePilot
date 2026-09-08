@@ -53,8 +53,18 @@
  *  - **It does not settle the range question.** The script reconstructs warmth from RGB
  *    through the SAME BT.709 matrix this module assumes, so it cannot tell a wrong matrix
  *    from a renderer whose temperature curve is simply shallower. Settling that needs a
- *    `signalstats` pass over a rendered file — the ledger's own chain — which is a second
- *    script that does not exist yet.
+ *    `signalstats` pass over a rendered file — the ledger's own chain.
+ *
+ *    That second script now exists: `packages/ai-sdk/scripts/measure-color-response.mjs`
+ *    renders each grid cell through `/render/preview` and measures the RESULTING FILE with
+ *    `analysis/shot_stats.py#measure_asset`, so the warmth it reports is the warmth the
+ *    facts carry, with no reconstruction in between. It has NOT been run — that needs a
+ *    live sidecar and real render time, the same reason the first script waited — so the
+ *    ~15% disagreement above is still open, and it is now open on a measurement someone
+ *    can take rather than on a tool nobody has written. Run it on the same clip as
+ *    `fit-color-response.mjs`: agreement means the renderer's curve is shallower than the
+ *    derivation and `WARMTH_PER_TEMPERATURE` should move; disagreement means the BT.709
+ *    reconstruction is what differs.
  *  - **The `*_RESPONSE` terms are material-dependent by construction.** They are the
  *    clipping efficiencies, and clipping depends on the shot: the darkest clip fits nearest
  *    to 1.0 because it has the most headroom, exactly as this docstring predicted. One

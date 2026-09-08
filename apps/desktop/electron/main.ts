@@ -2390,8 +2390,20 @@ function registerIpcHandlers(): void {
       // realistic failure is a sidecar that was still starting, and the asset would then
       // never be measured for the rest of the session. Throwing hands the ids back to the
       // enroller, which forgets them; the rejection itself is only logged.
-      if (result.status !== 'done') {
-        throw new Error(`visual index did not complete: ${result.status}`);
+      // ...and neither must a batch that finished having measured NOTHING. `done` is a
+      // statement about the cursor, not about the footage: five jobs in the captured
+      // project reported DONE at progress 1.0 in 14-20ms with zero shots written, and
+      // those assets were then remembered as enrolled for the life of the `seen` set.
+      // The engine no longer files an all-failed slice as done; this is the second lock
+      // on the same door, on the side that decides whether to retry.
+      const nothingIndexed =
+        result.last !== undefined && result.last.failed > 0 && result.last.indexed === 0;
+      if (result.status !== 'done' || nothingIndexed) {
+        throw new Error(
+          nothingIndexed
+            ? `visual index indexed nothing: ${String(result.last?.failed)} asset(s) failed`
+            : `visual index did not complete: ${result.status}`,
+        );
       }
       // THE LEDGER CACHE HAS TO BE TOLD, and this is the only place that can tell it.
       //
@@ -2759,15 +2771,35 @@ function registerIpcHandlers(): void {
     // (`LedgerClient` never throws), and the client caches per asset content hash, so a
     // ten-turn run costs one read and a second run on the same project costs none.
     shotLedgerFor: async (project) => {
+      // Only ids the BIN holds. A clip's `assetId` may be a pseudo-asset — `__caption__`,
+      // `__text__` — which resolves to no rows and is then cached as an empty entry: noise
+      // in the request, and a cache slot spent on an asset that can never have facts.
+      const inBin = new Set(project.assets.map((asset) => asset.id));
       const assetIds = [
         ...new Set(
           project.timeline.tracks.flatMap((track) =>
-            track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+            track.clips
+              .map((clip) => clip.assetId)
+              .filter((id): id is string => Boolean(id) && inBin.has(id)),
           ),
         ),
       ];
       if (assetIds.length === 0) return undefined;
       const snapshot = await shotLedgerClient.snapshot({ projectId: project.id, assetIds });
+      return snapshot ?? undefined;
+    },
+    // The within-run half of the same read (VU8). The run acquired footage of its own and
+    // the engine has since measured it; `refresh` drops exactly those cache entries so the
+    // re-read costs one request for them and nothing for the assets the run already knows.
+    refreshShotLedgerFor: async (project, assetIds) => {
+      const inBin = new Set([...project.assets.map((asset) => asset.id), ...assetIds]);
+      const wanted = [...new Set(assetIds.filter((id) => inBin.has(id)))];
+      if (wanted.length === 0) return undefined;
+      const snapshot = await shotLedgerClient.snapshot({
+        projectId: project.id,
+        assetIds: [...inBin],
+        refresh: wanted,
+      });
       return snapshot ?? undefined;
     },
     // What this project has LEARNED — the bin digest, the latest session note, and the

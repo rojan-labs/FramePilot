@@ -119,7 +119,12 @@ def test_a_job_that_prepared_nothing_says_so(
     ids = ["a", "b", "c"]
     _seed(tmp_path, ids)
     client = _client(tmp_path, monkeypatch, doomed=set(ids))
-    assert _run(client)["done"] is True  # the job really did finish its worklist
+    last = _run(client)
+    # It consumed its whole worklist and measured nothing, which is not "done": the
+    # enroller reads `done` as "these assets are enrolled" and would never look again.
+    assert last["done"] is False
+    assert last["failed"] == len(ids) and last["indexed"] == 0
+    assert last["reason"]
 
     status = _status(client)
     assert status["indexedAssets"] == 0

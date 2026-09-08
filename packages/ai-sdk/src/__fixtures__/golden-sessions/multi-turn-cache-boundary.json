@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12070,
+      "usedTokens": 12105,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12070,
+          "estimatedInputTokensBeforeSend": 12105,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179738,
+          "estimatedRemainingCapacity": 179703,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -541,7 +541,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11626,
+      "usedTokens": 11661,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -595,7 +595,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -623,7 +623,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7147,
+            "tokenEstimate": 7167,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -631,10 +631,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11626,
+          "estimatedInputTokensBeforeSend": 11661,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180182,
-          "toolSchemaTokensRebilled": 7147,
+          "estimatedRemainingCapacity": 180147,
+          "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -994,7 +994,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11644,
+      "usedTokens": 11679,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1048,7 +1048,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -1076,7 +1076,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7147,
+            "tokenEstimate": 7167,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -1084,9 +1084,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11644,
+          "estimatedInputTokensBeforeSend": 11679,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180164,
+          "estimatedRemainingCapacity": 180129,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1392,7 +1392,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "tighten the intro and the outro",
+            "criterion": "A validated edit landed and the run’s deterministic checks passed",
             "passed": true,
             "atRevision": 2,
             "detail": "Passed with 1 warning(s)."

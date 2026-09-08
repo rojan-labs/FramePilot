@@ -334,7 +334,11 @@ def remove_filler_words(args: RemoveFillerWordsArgs, ctx: ToolContext) -> Operat
         for clip in track.clips:
             if args.asset_id and clip.asset_id != args.asset_id:
                 continue
-            if (getattr(clip, "speed", None) or 1) != 1:
+            # `or 1` would collapse a freeze (speed 0.0) to 1x and cut it. A freeze pins a
+            # whole source window onto its span, so source-offset != timeline-offset and the
+            # cut would land in the wrong place; the TS mirror's `speed ?? 1` skips it.
+            speed = getattr(clip, "speed", None)
+            if (1 if speed is None else speed) != 1:
                 continue
             words = [
                 w for w in project.transcript if w.asset_id is None or w.asset_id == clip.asset_id

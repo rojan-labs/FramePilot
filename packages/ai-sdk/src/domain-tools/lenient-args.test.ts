@@ -249,3 +249,21 @@ describe('a title that cannot fit its box is refused with the size that would', 
     expect(call(8).some((op) => op.type === 'add_text_overlay')).toBe(true);
   });
 });
+
+describe('adjust_audio names the legal move when both targets are given', () => {
+  it('tells the model to leave the other argument out entirely', () => {
+    // A run spent five calls guessing a sentinel for the unwanted field — "__none__",
+    // "none", "x", "string" — because the old message stated the constraint without
+    // saying how to encode it.
+    expect(() =>
+      operationsForCall(
+        {
+          id: 'c',
+          name: 'adjust_audio',
+          arguments: { clipId: 'clip_a', trackId: 'v1', gainDb: -6 },
+        },
+        ctx(),
+      ),
+    ).toThrow(/leave the other argument out entirely/);
+  });
+});

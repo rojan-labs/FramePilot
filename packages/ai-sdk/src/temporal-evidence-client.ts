@@ -10,29 +10,91 @@ import {
 
 const log = createLogger('ai-sdk:temporal-evidence-client');
 /**
- * Long enough to cover the largest batch the engine will accept.
+ * The floor under every batch, and what the whole deadline used to be.
  *
- * This is the client half of one shared budget; the engine half is
- * `MAX_RENDERED_FRAMES` in `validation/temporal_evidence.py`, and the two are
- * only meaningful together. The old 120s was below the cost of even a *default*
- * 48-request plan on a real sequence (~134s), so temporal review timed out as a
- * matter of course on any project big enough to want reviewing, and every edit
- * came back "applied but not perceptually reviewed".
- *
- * Since ADR 0124 review measures at `REVIEW_MAX_DIMENSION` rather than the
- * project's resolution, and a sampled frame costs 38ms rather than 273ms
- * (measured, 8-clip 2160x3840 sequence). The worst-case batch is therefore
- * ~3 compiles + 400x38ms ≈ 30s, comfortably inside this. The timeout is kept at
- * 300s deliberately: it is headroom for a slow machine and a heavier sequence,
- * not a target, and lowering it would buy nothing except a new way to report a
- * healthy engine as unreachable.
+ * The old fixed 300s was set as headroom for the worst batch the engine will accept
+ * (~3 compiles + 400 frames x 38ms ≈ 30s of RENDER). What it did not cover is the
+ * WAITING: `/review/temporal-evidence` is serialized process-wide behind one semaphore
+ * and the index governor, so a batch queues behind another run's batch, an export and a
+ * preview before it renders a frame. On a ~110s project with 400+ caption cues and
+ * several overlay tracks, run `19e20922`'s final review — the run's only chance to look
+ * at what it had made — crossed the deadline and the whole acquisition was discarded.
  */
-const DEFAULT_TIMEOUT_MS = 300_000;
+const BASE_TIMEOUT_MS = 300_000;
+/**
+ * Per rendered frame, on top of {@link BASE_TIMEOUT_MS}.
+ *
+ * Deliberately far above the measured 38ms per sampled frame: this is not a render
+ * budget, it is a queueing one, and it must be wrong on the generous side. A full
+ * 400-frame batch is allowed 300s + 200s.
+ */
+const PER_FRAME_TIMEOUT_MS = 500;
+/** Nothing waits longer than this, however large the batch. */
+const MAX_TIMEOUT_MS = 900_000;
 const MAX_ERROR_CHARS = 400;
+
+/**
+ * How many frames this batch will make the engine render, counted the way the engine
+ * counts them (`validation/temporal_evidence.py#acquire_temporal_evidence`).
+ *
+ * Approximate on purpose — it does not de-duplicate frames two requests share, and the
+ * engine's own cap is the authority on what is acceptable. It only has to be
+ * proportional to the work, because it is scaling a deadline rather than enforcing one.
+ *
+ * @param requests - The batch about to be sent.
+ * @returns A frame count, at least 1.
+ */
+function estimatedFrames(requests: readonly TemporalEvidenceRequest[]): number {
+  let frames = 0;
+  for (const request of requests) {
+    switch (request.kind) {
+      case 'frame':
+        frames += 1;
+        break;
+      case 'comparison':
+        frames += 2;
+        break;
+      case 'range':
+        frames +=
+          Math.ceil((request.endFrame - request.startFrame) / request.sampleEveryFrames) + 1;
+        break;
+      case 'scope':
+        frames += request.endFrame - request.startFrame;
+        break;
+      default:
+        // Motion is derived from authored keyframes and audio is measured off the mix:
+        // neither renders picture, so neither buys the batch any more time.
+        break;
+    }
+  }
+  return Math.max(1, frames);
+}
+
+/**
+ * The deadline this batch gets, in milliseconds.
+ *
+ * Exported so the decision is testable on its own: it is the difference between a review
+ * that waits out a queue and one that throws away every frame it had already rendered.
+ *
+ * @param requests - The batch about to be sent.
+ * @returns A deadline of at least {@link BASE_TIMEOUT_MS} and at most {@link MAX_TIMEOUT_MS}.
+ */
+export function estimatedBatchDeadline(requests: readonly TemporalEvidenceRequest[]): number {
+  return Math.min(
+    MAX_TIMEOUT_MS,
+    BASE_TIMEOUT_MS + PER_FRAME_TIMEOUT_MS * estimatedFrames(requests),
+  );
+}
 
 export interface TemporalEvidenceClientOptions {
   readonly baseUrl: string;
   readonly fetchFn?: typeof fetch;
+  /**
+   * A fixed deadline for every batch, overriding the batch-scaled one.
+   *
+   * For tests and for a caller that knows its own budget. Absent — the default — the
+   * deadline grows with the frames the batch asks for.
+   */
   readonly timeoutMs?: number;
 }
 
@@ -68,13 +130,16 @@ export function createTemporalEvidenceAcquirer(
   options: TemporalEvidenceClientOptions,
 ): TemporalEvidenceAcquirer {
   const fetchFn = options.fetchFn ?? fetch;
-  const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return async (project, requests, signal) => {
     if (requests.length === 0) {
       throw new TemporalEvidenceClientError(
         'Temporal evidence acquisition requires a non-empty plan.',
       );
     }
+    // SCALED WITH THE BATCH, not fixed. The acquirer knows how many frames it is asking
+    // for and at what settings; the deadline that was right for a three-frame probe was
+    // the one that discarded a whole review of a long sequence.
+    const timeoutMs = options.timeoutMs ?? estimatedBatchDeadline(requests);
     const controller = new AbortController();
     let timedOut = false;
     const onAbort = (): void => controller.abort(signal?.reason);
@@ -147,7 +212,7 @@ export function createTemporalEvidenceAcquirer(
         cancelled
           ? 'Temporal evidence acquisition was cancelled.'
           : timedOut
-            ? `Temporal evidence acquisition timed out after ${timeoutMs}ms.`
+            ? `Temporal evidence acquisition timed out after ${timeoutMs}ms for ${requests.length} request(s). The engine serializes one batch at a time, so this may be a queue behind an export or another run rather than a slow render.`
             : 'Temporal evidence acquisition failed.',
         { cause: error },
       );

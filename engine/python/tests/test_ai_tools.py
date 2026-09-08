@@ -1101,6 +1101,38 @@ def test_remove_filler_words(project: Project) -> None:
         )
 
 
+def test_remove_filler_words_skips_freeze_clips(project: Project) -> None:
+    """A freeze (speed 0.0) has no 1:1 source->timeline mapping, so it is never cut."""
+    frozen = project.model_copy(
+        update={
+            "timeline": project.timeline.model_copy(
+                update={
+                    "tracks": [
+                        track.model_copy(
+                            update={
+                                "clips": [
+                                    clip.model_copy(update={"speed": 0.0})
+                                    for clip in track.clips
+                                ]
+                            }
+                        )
+                        if track.id == "v"
+                        else track
+                        for track in project.timeline.tracks
+                    ]
+                }
+            ),
+            "transcript": [
+                TranscriptWord(word="So", start=0.0, end=0.4),
+                TranscriptWord(word="um,", start=0.5, end=0.9),
+                TranscriptWord(word="we", start=1.0, end=1.2),
+            ],
+        }
+    )
+    with pytest.raises(Exception, match="no filler words"):
+        run_tool("remove_filler_words", {"trackId": "v"}, ToolContext(project=frozen))
+
+
 def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
     track = next(t for t in project.timeline.tracks if len(t.clips) > 1)
     first = sorted(track.clips, key=lambda c: c.start)[0]
@@ -1116,6 +1148,12 @@ def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
     _assert_patch_ok(result, project)
     with pytest.raises(Exception, match="nothing to tighten"):
         run_tool("tighten_clips", {"trackId": track.id, "shotSeconds": 60}, ctx)
+
+
+def test_adjust_audio_both_targets_names_the_legal_move(ctx: ToolContext) -> None:
+    """The refusal must say to omit the other field, not just that one is too many."""
+    with pytest.raises(Exception, match="leave the other argument out entirely"):
+        run_tool("adjust_audio", {"clipId": "AU", "trackId": "a", "gainDb": -6.0}, ctx)
 
 
 def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:

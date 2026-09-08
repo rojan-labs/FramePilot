@@ -499,10 +499,15 @@ export class BrowserAiSession implements AiSession {
   private async readShotLedger(input: AiSessionInput): Promise<LedgerSnapshot | undefined> {
     const baseUrl = configuredEngineBaseUrl();
     if (!baseUrl) return undefined;
+    // Bin ids only, like the desktop's: a clip may carry a pseudo-asset (`__caption__`,
+    // `__text__`) that resolves to no rows and is cached as an empty entry.
+    const inBin = new Set(input.project.assets.map((asset) => asset.id));
     const assetIds = [
       ...new Set(
         input.project.timeline.tracks.flatMap((track) =>
-          track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+          track.clips
+            .map((clip) => clip.assetId)
+            .filter((id): id is string => Boolean(id) && inBin.has(id)),
         ),
       ),
     ];
