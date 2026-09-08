@@ -1,5 +1,9 @@
 # ADR 0036 — Marketing website + Freemius licensing (100%-paid app)
 
+> **Superseded in part (2026-09-08):** the payment provider is now **Dodo Payments**,
+> not Freemius — see **ADR 0177**. Everything else here (the static marketing site,
+> the 100%-paid gate, the buy → key → activate flow) still holds.
+
 - **Status:** Accepted
 - **Date:** 2026-07-03
 - **Supersedes / relates to:** ADR 0023 (IPC contract), ADR 0025 (Electron

@@ -53,7 +53,7 @@ Before the visibility change:
 
 1. Scan the complete Git history with a dedicated secret scanner such as Gitleaks or TruffleHog.
 2. Search historical commits for provider keys, GitHub tokens, AWS credentials, signing material,
-   OAuth secrets, Freemius secrets, database URLs, private certificates, customer data, internal
+   OAuth secrets, Dodo Payments API keys, database URLs, private certificates, customer data, internal
    URLs, and user media.
 3. Rotate any credential that ever entered Git. Removing it from the latest commit does not make
    the old value safe.

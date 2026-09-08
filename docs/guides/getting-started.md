@@ -86,7 +86,8 @@ pnpm website:dev
 ```
 
 The marketing website has separate build and runtime behavior from the editor. Public
-checkout values use `NEXT_PUBLIC_*` variables, while Freemius secrets remain server-only.
+checkout values use `NEXT_PUBLIC_*` variables (Dodo product ids), while the Dodo API key stays
+server-only and is read at build time by the price fetch.
 
 ## Common commands
 

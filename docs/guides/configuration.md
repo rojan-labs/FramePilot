@@ -225,11 +225,14 @@ preserve DNS-rebinding and session protections. See [`mcp-server.md`](mcp-server
 
 ## Licensing
 
-| Variable                         | Exposure               | Purpose                                                                            |
-| -------------------------------- | ---------------------- | ---------------------------------------------------------------------------------- |
-| `FRAMEPILOT_FREEMIUS_PRODUCT_ID` | Desktop runtime        | Product id used by the license gate. Takes precedence over the generic product id. |
-| `FREEMIUS_PRODUCT_ID`            | Server/build context   | Generic Freemius product id and pricing sync value.                                |
-| `FRAMEPILOT_LICENSE_DEV_BYPASS`  | Local development only | Explicitly bypass the desktop license gate. Never enable in production builds.     |
+| Variable                        | Exposure               | Purpose                                                                                          |
+| ------------------------------- | ---------------------- | ------------------------------------------------------------------------------------------------ |
+| `FRAMEPILOT_DODO_PRODUCT_ID`    | Desktop runtime        | The Dodo product this build sells. Setting it turns the license gate on; empty means unlicensed. |
+| `FRAMEPILOT_DODO_ENVIRONMENT`   | Desktop runtime        | Which Dodo environment keys are verified against: `live` (default) or `test`.                    |
+| `FRAMEPILOT_LICENSE_DEV_BYPASS` | Local development only | Explicitly bypass the desktop license gate. Never enable in production builds.                   |
+
+Dodo's activate, validate, and deactivate endpoints are public — they authenticate with the
+license key itself — so the desktop app carries no merchant credential.
 
 When product configuration is absent, development behavior should be explicit. A production
 build must not accidentally inherit a local bypass.
@@ -238,14 +241,16 @@ build must not accidentally inherit a local bypass.
 
 ### Browser-visible values
 
-| Variable                               | Purpose                                     |
-| -------------------------------------- | ------------------------------------------- |
-| `NEXT_PUBLIC_FREEMIUS_PRODUCT_ID`      | Freemius product id exposed to the website. |
-| `NEXT_PUBLIC_FREEMIUS_PUBLIC_KEY`      | Public checkout key.                        |
-| `NEXT_PUBLIC_FREEMIUS_PLAN_ID_MONTHLY` | Optional monthly plan fallback.             |
-| `NEXT_PUBLIC_FREEMIUS_PLAN_ID_ANNUAL`  | Optional annual plan fallback.              |
-| `NEXT_PUBLIC_SITE_URL`                 | Canonical public website origin.            |
-| `NEXT_PUBLIC_DEMO_YOUTUBE_ID`          | Optional homepage demo video id.            |
+| Variable                              | Purpose                                                    |
+| ------------------------------------- | ---------------------------------------------------------- |
+| `NEXT_PUBLIC_DODO_PRODUCT_ID_MONTHLY` | Dodo product id for the monthly subscription.              |
+| `NEXT_PUBLIC_DODO_PRODUCT_ID_ANNUAL`  | Dodo product id for the annual subscription.               |
+| `NEXT_PUBLIC_DODO_ENVIRONMENT`        | Checkout host: `live` (default) or `test` for the sandbox. |
+| `NEXT_PUBLIC_SITE_URL`                | Canonical public website origin; also the return URL base. |
+| `NEXT_PUBLIC_DEMO_YOUTUBE_ID`         | Optional homepage demo video id.                           |
+
+Product ids are public by design (they appear in the checkout URL). Each billing cadence is a
+separate Dodo product, because a Dodo product carries exactly one recurring price.
 
 `NEXT_PUBLIC_*` values are bundled into browser assets. They must never contain secrets.
 They also need to be present in the deployment build environment because a local `.env`
@@ -253,11 +258,11 @@ does not automatically configure a hosted build.
 
 ### Server-only values
 
-| Variable                | Purpose                                             |
-| ----------------------- | --------------------------------------------------- |
-| `FREEMIUS_PUBLIC_KEY`   | Server-side pricing request value.                  |
-| `FREEMIUS_SECRET_KEY`   | Server-only Freemius secret.                        |
-| `FREEMIUS_BEARER_TOKEN` | Optional bearer-token alternative for pricing sync. |
+| Variable                    | Purpose                                                           |
+| --------------------------- | ----------------------------------------------------------------- |
+| `DODO_PAYMENTS_API_KEY`     | Merchant API key used by the build-time price fetch only.         |
+| `DODO_PAYMENTS_ENVIRONMENT` | Which Dodo API the price fetch reads: `live` (default) or `test`. |
+| `DODO_PAYMENTS_WEBHOOK_KEY` | Webhook signing key. Only needed if you run a webhook receiver.   |
 
 Keep server-only values out of `NEXT_PUBLIC_*`, client components, generated static JSON,
 logs, screenshots, and pull-request descriptions.

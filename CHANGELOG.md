@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Buying and activating FramePilot now runs on Dodo Payments.** Checkout, the receipt,
+  your invoice, and the license key that unlocks the app all come from Dodo Payments
+  instead of Freemius. Buying is one click from the pricing page to a hosted checkout —
+  no overlay to load, and nothing an ad blocker can break. Activation works the same way
+  it always did: paste the key from your email into the app on first launch. Signing a
+  machine out now frees its slot properly, so moving to a new computer no longer needs
+  support. Offline editing is more generous too — a license keeps working for 30 days
+  without a connection, up from 7.
+
 - **Automatic preparation on import no longer spends money without being asked.** Importing
   media always prepares the free, on-device part — the measurements the AI reads on every
   clip. The paid parts follow what you have set up: labelling runs only if you have added an

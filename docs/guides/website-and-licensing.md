@@ -1,7 +1,12 @@
-# Website & Freemius licensing
+# Website & Dodo Payments licensing
 
-How to run the marketing site (`apps/website`), configure Freemius, and how the
-100%-paid license gate works in the desktop app. See ADR 0036 for the rationale.
+How to run the marketing site (`apps/website`), how checkout works, and how the
+100%-paid license gate works in the desktop app. See ADR 0036 for the original
+rationale and **ADR 0177** for the move from Freemius to Dodo Payments.
+
+> **Setting payments up from scratch?** Follow **[`PAYMENTS_SETUP.md`](../../PAYMENTS_SETUP.md)**
+> at the repo root — dashboard products, env vars, test-mode purchase, go-live.
+> This guide explains how the code behaves once that is done.
 
 The visual system described in ADR 0036 (dark tokens ported from the editor) was replaced on
 2026-09-05 by the light, timeline-shaped "ripple delete" system in **ADR 0172**: paper canvas,
@@ -11,7 +16,7 @@ landing intro built on `framer-motion`. The design rules live in `apps/website/R
 ## Overview
 
 ```
-subscribe on the website  →  Freemius issues a license key (email)  →
+subscribe on the website  →  Dodo Payments issues a license key (email)  →
 paste it into FramePilot on first launch  →  app activates on the device  →  editor unlocks
 ```
 
@@ -19,7 +24,7 @@ paste it into FramePilot on first launch  →  app activates on the device  → 
   (≈ $16.58/mo, ~34% off) billed annually. Both cadences unlock the whole product;
   a contact-sales **Studio** plan covers volume/agency licensing.
 - **Website** (`apps/website`) — a statically-exported Next.js site: landing,
-  pricing (Freemius checkout with a Monthly/Annual toggle), a full docs site,
+  pricing (Dodo hosted checkout with a Monthly/Annual toggle), a full docs site,
   markdown blog, downloads, legal.
 - **License gate** (`apps/desktop/electron/license/`) — the app requires a valid
   subscription to run; a lapsed subscription shows a renew screen.
@@ -38,33 +43,35 @@ GitHub Pages, S3/CloudFront).
 
 ## Environment variables
 
-> Secret keys are **build/server-only** and must never appear in the client
+> The Dodo API key is **build/server-only** and must never appear in the client
 > bundle. The website enforces this: only `NEXT_PUBLIC_*` values are exposed to the
-> browser (the Freemius checkout needs only the **public** key + product id).
+> browser, and hosted checkout needs nothing but a **product id**, which is public
+> by design (it is visible in the checkout URL).
 
 ### Website (`apps/website`)
 
-| Variable                               | Scope      | Purpose                                              |
-| -------------------------------------- | ---------- | ---------------------------------------------------- |
-| `NEXT_PUBLIC_SITE_URL`                 | public     | Canonical origin (metadata, sitemap, OG, JSON-LD).   |
-| `NEXT_PUBLIC_FREEMIUS_PRODUCT_ID`      | public     | Freemius product id for the checkout overlay.        |
-| `NEXT_PUBLIC_FREEMIUS_PUBLIC_KEY`      | public     | Freemius public key (`pk_…`) for the overlay.        |
-| `NEXT_PUBLIC_FREEMIUS_PLAN_ID_MONTHLY` | public     | Monthly plan id pre-selected in the overlay.         |
-| `NEXT_PUBLIC_FREEMIUS_PLAN_ID_ANNUAL`  | public     | Annual plan id pre-selected in the overlay.          |
-| `NEXT_PUBLIC_FREEMIUS_PLAN_ID`         | public     | Legacy single plan-id fallback (optional).           |
-| `NEXT_PUBLIC_DEMO_YOUTUBE_ID`          | public     | Demo-section YouTube id (swap for the real video).   |
-| `FREEMIUS_PRODUCT_ID`                  | build only | Product id for the build-time live price fetch.      |
-| `FREEMIUS_PUBLIC_KEY`                  | build only | Public key used to sign the price-fetch request.     |
-| `FREEMIUS_SECRET_KEY`                  | build only | **Secret** key (`sk_…`) for the price-fetch request. |
+| Variable                              | Scope      | Purpose                                                       |
+| ------------------------------------- | ---------- | ------------------------------------------------------------- |
+| `NEXT_PUBLIC_SITE_URL`                | public     | Canonical origin (metadata, sitemap, OG, and the return URL). |
+| `NEXT_PUBLIC_DODO_PRODUCT_ID_MONTHLY` | public     | Dodo product id for the monthly subscription.                 |
+| `NEXT_PUBLIC_DODO_PRODUCT_ID_ANNUAL`  | public     | Dodo product id for the annual subscription.                  |
+| `NEXT_PUBLIC_DODO_ENVIRONMENT`        | public     | `live` (default) or `test` — picks the checkout host.         |
+| `NEXT_PUBLIC_DEMO_YOUTUBE_ID`         | public     | Demo-section YouTube id (swap for the real video).            |
+| `DODO_PAYMENTS_API_KEY`               | build only | Merchant API key for the build-time live price fetch.         |
+| `DODO_PAYMENTS_ENVIRONMENT`           | build only | Which Dodo API the price fetch reads: `live` or `test`.       |
+
+Each cadence is a **separate Dodo product**: a Dodo product carries exactly one
+recurring price, so "FramePilot Monthly" and "FramePilot Yearly" are two products,
+not one plan with two prices.
 
 > **Deploy gotcha (checkout CTAs go dead if you skip this):** `next build` only
 > inlines `NEXT_PUBLIC_*` values that are present in its environment, and Turborepo
 > **prunes any env var not declared in `turbo.json`** from a task's environment. So
-> every `NEXT_PUBLIC_FREEMIUS_*` name above is listed in `turbo.json` `globalEnv`,
+> every `NEXT_PUBLIC_DODO_*` name above is listed in `turbo.json` `globalEnv`,
 > and each must also be set in the **deploy host** (Vercel/CI) — not just the local
 > `.env`, which `next build` does not read. If they are missing at build time,
-> `isFreemiusConfigured()` is false and the CTA surfaces a visible "checkout
-> unavailable" error (it no longer silently reloads `/pricing`).
+> `checkoutUrl()` throws and the CTA renders a disabled button with a visible
+> "checkout unavailable" message rather than a dead click.
 
 If the price-fetch env is absent, the build logs a warning and uses the typed
 fallback prices in `apps/website/src/lib/pricing.ts` — `{ monthly: 25, annual: 199 }`
@@ -93,13 +100,15 @@ builds the on-page (scroll-spy) table of contents.
 
 ### Desktop (`apps/desktop`)
 
-| Variable                          | Purpose                                                                                                                                   |
-| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
-| `FRAMEPILOT_FREEMIUS_PRODUCT_ID`  | Enables the license gate. **When unset, the gate is off** (dev / unconfigured builds run freely). Packaged production builds must set it. |
-| `FRAMEPILOT_LICENSE_DEV_BYPASS=1` | Force-disable the gate during development.                                                                                                |
+| Variable                          | Purpose                                                                                                                                  |
+| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| `FRAMEPILOT_DODO_PRODUCT_ID`      | Enables the license gate. **When unset, the gate is off** (dev / unconfigured builds run freely). Packaged production builds must set it. |
+| `FRAMEPILOT_DODO_ENVIRONMENT`     | `live` (default) or `test` — which Dodo environment keys are verified against.                                                           |
+| `FRAMEPILOT_LICENSE_DEV_BYPASS=1` | Force-disable the gate during development.                                                                                               |
 
-The desktop uses only the **public** activate/validate endpoints, so no secret key
-ships in the app.
+The desktop uses only Dodo's **public** activate/validate/deactivate endpoints —
+they authenticate with the license key itself — so no merchant credential ships in
+the app.
 
 ## How the license gate works
 
@@ -109,15 +118,25 @@ ships in the app.
    - **`needs_activation` / `invalid`** → an activation card: paste the key,
      activate, or follow the buy link to the pricing page.
 2. Activation (`bridge.licenseActivate`) runs in the **main process**:
-   `POST /v1/products/{id}/licenses/activate.json` creates a Freemius install; the
-   `install_id` + token + key are stored in `license.json` (userData). Only a
+   `POST /licenses/activate` creates a license key instance named after this
+   machine; the `instanceId` + key are stored in `license.json` (userData). Only a
    masked, secret-free `LicenseStatus` ever crosses the bridge.
-3. On subsequent launches the service revalidates against Freemius when the cached
-   result is stale (daily), via `GET …/installs/{installId}/license.json`.
-   - Freemius says cancelled/expired → **invalid immediately** (no grace).
-   - Network error → the license stays valid within a **7-day offline-grace
+3. On subsequent launches the service revalidates when the cached result is stale
+   (daily), via `POST /licenses/validate` with the key + instance id.
+   - Dodo says `valid: false` (revoked, cancelled, lapsed), or answers 403/404 →
+     **invalid immediately** (no grace).
+   - Network error → the license stays valid within a **30-day offline-grace
      window** from the last successful validation, then requires reconnecting.
-4. Defense-in-depth: the AI and render/export IPC handlers refuse when unlicensed.
+4. Deactivation calls `POST /licenses/deactivate` first, so the customer's
+   activation slot is freed before the local record is cleared; a failed remote
+   call never blocks the local sign-out.
+5. Defense-in-depth: the AI and render/export IPC handlers refuse when unlicensed.
+
+**Why validity is grace-window based, not expiry based:** Dodo's public license API
+answers one question — `valid: true | false` — and never reports an expiry date. A
+subscription key's validity simply _follows the subscription_. So the app cannot
+reason about dates locally; a stale record is not trusted, it is re-checked, and
+the grace window is what keeps a paying customer editing on a plane.
 
 ### License at rest — encryption & anti-crack
 
@@ -137,26 +156,32 @@ make it robust:
 **Threat model (be honest):** this is anti-tamper, not absolute DRM. A determined
 attacker can still repack the app's `asar` to remove the gate — unavoidable for any
 JS/Electron app. The goal is to defeat the realistic, low-effort attack and keep
-**Freemius the authority** on validity. Where no OS keyring exists, the store
+**Dodo Payments the authority** on validity. Where no OS keyring exists, the store
 degrades to plaintext (as before) rather than bricking the app.
 
-## Freemius dashboard setup
+## Checkout
 
-1. Create a Freemius product; note the **product id**, **public key** (`pk_…`), and
-   **secret key** (`sk_…`).
-2. Create the paid **subscription** plan with **both** a monthly ($25) and an
-   annual ($199) price. Set the internal plan id mapping in
-   `scripts/fetch-pricing.ts` (`PLAN_NAME_BY_ID`) if your plan `name` differs from
-   `pro`. The fetch reads both cadences.
-3. Set the env vars above (website + desktop).
-4. Configure the checkout success redirect / email so subscribers receive their key.
+The buy CTA is a **link** to Dodo's hosted checkout, built by `checkoutUrl()` in
+`src/lib/dodo.ts`:
 
-The checkout overlay is opened with `billing_cycle: 'monthly' | 'annual'`
-(from the pricing toggle), so buyers land on the cadence they picked. If the
-in-page overlay can't run (script blocked by an ad/privacy blocker, CDN failure,
-or `window.FS.Checkout` missing), `openCheckout()` falls back to Freemius' **hosted
-full-page checkout** — `https://checkout.freemius.com/product/{productId}/plan/{planId}/`
-(see `hostedCheckoutUrl()` in `src/lib/freemius.ts`) — so the CTA never dead-ends.
+```
+https://checkout.dodopayments.com/buy/{productId}?quantity=1&redirect_url={site}/thank-you/
+```
+
+`https://test.checkout.dodopayments.com` is used instead when
+`NEXT_PUBLIC_DODO_ENVIRONMENT=test`. The pricing toggle decides which product id
+goes in the URL, so buyers land on the cadence they picked.
+
+**Why a link and not an embedded overlay:** the site is a static export
+(`output: 'export'`, no server runtime), and Dodo's overlay/inline checkout needs a
+server route to mint a Checkout Session — its session API must never be called from
+the browser with a merchant API key. A static payment link needs no server and no
+third-party script, so there is nothing for an ad blocker to break and the CTA
+cannot dead-end. It also behaves like a link should: middle-click, open in a new
+tab, copy the address.
+
+Dashboard setup (products, license-key entitlement, activation limit, emails) is in
+[`PAYMENTS_SETUP.md`](../../PAYMENTS_SETUP.md).
 
 ## Downloads
 

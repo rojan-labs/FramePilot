@@ -13,6 +13,31 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-08, PAYMENTS — Dodo Payments migration):** the payment
+provider moved from Freemius to Dodo Payments across the website and the desktop
+license gate, before launch and with nothing to migrate (no issued keys or installs
+exist). ADR 0177. Branch `rjach/Payment-with-Dodo-payments`.
+
+- `[x]` PAY-1 — **the desktop verifies against Dodo's public license endpoints.**
+  `dodo-client.ts` replaces `freemius-client.ts` (activate / validate / deactivate;
+  no merchant secret in the app). Deactivation now releases the activation slot at
+  Dodo before clearing locally, so moving machines is not a support ticket. The
+  stored record holds a `deviceId` + `instanceId`; it stays encrypted at rest per
+  ADR 0037.
+- `[x]` PAY-2 — **validity is grace-window based, because Dodo reports no expiry.**
+  Dodo answers `valid: true | false` only, so a cached "valid" is trusted for a
+  30-day offline window and re-checked daily online; an authoritative `false` (or
+  403/404) closes the gate with no grace. This is the one behaviour change — a
+  never-expiring key can no longer be trusted forever offline. 40 license tests.
+- `[x]` PAY-3 — **checkout is a static payment link.** The site is a static export,
+  and Dodo's overlay/inline checkout needs a server route to mint a session, so the
+  CTA links to Dodo hosted checkout with the cadence's product id. Monthly and
+  yearly are two Dodo products (one recurring price per product); the build-time
+  price fetch reads both. Copy, privacy, and terms name Dodo as merchant of record.
+- `[x]` PAY-4 — **setup is written down.** `PAYMENTS_SETUP.md` (products, env,
+  test-mode purchase, go-live), ADR 0177, the licensing guide, and the env
+  single-source pair (`.env.example` + `turbo.json` globalEnv).
+
 **Status snapshot (2026-09-08, CROSS-RUNTIME-PARITY — issue #86):** the Python engine's
 `trim_clip` / `split_clip` / `delete_range` / `ripple_delete` still implemented the pre-v15
 (ADR 0090) 1:1 source arithmetic that `editor-core` — the authority — replaced, so the two
