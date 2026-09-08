@@ -251,4 +251,13 @@ describe('readableErrorBody', () => {
     expect(result.endsWith('…')).toBe(true);
     expect(result.length).toBe(301);
   });
+  // A proxy's error page is attacker-shaped input. These are the exact strings CodeQL's
+  // js/polynomial-redos flagged; the assertion that matters is that they return at all.
+  it('reads a hostile error page without backtracking', () => {
+    const start = Date.now();
+    expect(readableErrorBody(`<html>${'<pre'.repeat(20_000)}`)).not.toBe('');
+    expect(readableErrorBody(`<html>${'<title>a'.repeat(20_000)}`)).not.toBe('');
+    expect(readableErrorBody(`<html><body>${'<'.repeat(50_000)}`)).not.toBe('');
+    expect(Date.now() - start).toBeLessThan(1_000);
+  });
 });

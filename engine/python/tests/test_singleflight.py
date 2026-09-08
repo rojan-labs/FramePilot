@@ -81,3 +81,44 @@ def test_async_flavour_coalesces_awaiters() -> None:
     assert results == [7] * 5
     assert calls == 1
     assert coalesced == 4
+
+
+def test_a_caller_arriving_in_the_hand_off_window_still_joins() -> None:
+    """The leader must signal completion before it releases the key.
+
+    A caller landing between those two steps used to see an empty ``_flights``, become a
+    second leader, and start a duplicate compute (issue #87).
+    """
+    flight: SingleFlight[int] = SingleFlight()
+    calls = 0
+    late_result: list[int] = []
+
+    def compute() -> int:
+        nonlocal calls
+        calls += 1
+        return 9
+
+    def late_caller() -> None:
+        late_result.append(flight.join("k", compute))
+
+    def arm_the_window() -> int:
+        # Drive a second caller through the exact instant between "leader done" and
+        # "key released" by hooking the leader's own completion signal.
+        pending = flight._flights["k"]
+        real_set = pending.done.set
+
+        def set_then_let_a_late_caller_in() -> None:
+            real_set()
+            late = threading.Thread(target=late_caller)
+            late.start()
+            late.join(timeout=1.0)
+            assert not late.is_alive()
+
+        pending.done.set = set_then_let_a_late_caller_in  # type: ignore[method-assign]
+        return compute()
+
+    assert flight.join("k", arm_the_window) == 9
+    assert late_result == [9]
+    assert calls == 1  # the late caller joined instead of computing again
+    assert flight.coalesced == 1
+    assert flight.in_flight() == 0

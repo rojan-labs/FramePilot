@@ -156,7 +156,7 @@ def _client(
         monkeypatch.setattr(
             service_module,
             "resolve_visual_embedder",
-            lambda keys=None: VisualEmbedderResolution(client=embedder),  # type: ignore[arg-type]
+            lambda keys=None, **_pack: VisualEmbedderResolution(client=embedder),  # type: ignore[arg-type]
         )
     settings = Settings(
         projects_root=tmp_path, nvidia_embeddings_keys="key-abc" if with_key else None

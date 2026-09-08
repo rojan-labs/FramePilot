@@ -6,6 +6,77 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **Automatic preparation on import no longer spends money without being asked.** Importing
+  media always prepares the free, on-device part — the measurements the AI reads on every
+  clip. The paid parts follow what you have set up: labelling runs only if you have added an
+  embeddings key, and written descriptions are never produced by an unattended import. Ask
+  for them and they run as before.
+- **Browser-only: the web editor no longer prepares media as you import it.** Preparation
+  moved into the desktop app, where it can see everything you add — files you drag in, stock
+  you download, and clips the AI acquires for you — rather than only some of them. In a
+  browser the understanding features report themselves as unavailable instead of filling in
+  the background, even when a local engine is reachable. The desktop app is unaffected.
+- **The AI can see what is on each clip.** Ask it to "match the third clip to the first" or
+  "drop the duplicate takes" and it works from what the footage actually looks like —
+  framing, brightness, warmth, movement, sharpness — instead of guessing from clip names and
+  timings. It reads that as words it already has, so it costs you nothing per request and
+  never has to stop and look at a frame.
+- **Colour is measured, not invented.** Three new things to ask for: match one clip's colour
+  to another, even out the exposure across a track, or apply a look — warmer, cooler,
+  punchier, flatter, brighter, darker, cinematic, clean — at a subtle, medium or strong
+  amount. The AI decides what you want; the numbers come from measuring both shots, so
+  "a bit warmer" means the same amount of warmer on dark footage as on bright. When a shot
+  cannot be matched all the way, it says so and says why, rather than reporting success.
+- **Transitions are chosen for a reason, not picked from a list.** Ask for transitions
+  "where they belong" and the AI reads each cut: a jump cut gets softened, a change of place
+  gets a dissolve, and a cut that simply continues the action is **left as a cut** — an
+  unmotivated dissolve is the classic amateur tell. It tells you every cut it deliberately
+  left alone, so silence is never mistaken for an oversight.
+- **After an edit, the AI tells you what changed on screen.** "New cut at 0:12, now a wide
+  shot, a stop brighter" — and if a problem was already in your footage before it started, it
+  says so and leaves it alone unless you asked.
+- **What the AI knows about a shot is now a structured record, not a sentence.** Every
+  described shot carries its subject, what is happening, where it is, the framing and
+  camera move, the mood, any on-screen text transcribed word for word, and a short
+  summary. Before this it was two sentences of prose, which read well and could not be
+  used: you could not ask for "the wide shots outside", and nothing could read a title
+  card back to you. The summary is still what search matches on, so nothing you could
+  find before is harder to find now.
+- **Descriptions no longer need an embedding key.** They used to be produced as a
+  side-effect of the paid indexing pass, so a machine set up for local, keyless
+  understanding got none at all. They are now their own step over the shots FramePilot
+  measured itself, and they run from a configured vision provider *or* from a local
+  Describe pack — whichever is available, local first.
+- **Describing is polite about the machine.** It runs one clip at a time, lowest
+  priority, stands down when memory is short, and stops after about a minute and a half
+  on any one clip so it can check whether you have started working again. Whatever it
+  finished is kept; the next pass picks up where it left off.
+
+- **Background footage indexing gets out of your way.** It now pauses completely while an
+  export, a preview render, a frame grab or a review batch is running, and picks up again
+  a couple of seconds after the machine is quiet. It also measures every clip in your
+  library before it starts describing any single one, so the AI knows something about all
+  of your footage within the first minute rather than everything about the first clip.
+  Importing while a job is running no longer means waiting for it to finish: a new clip is
+  measured next. Killing the app mid-index loses nothing — the next start resumes exactly
+  where it stopped, and never leaves a half-written clip behind.
+
+- **Your footage is measured on import, with no key and no setting.** Media understanding
+  used to start only if you had configured an NVIDIA or TwelveLabs key, so on a fresh
+  install nothing was ever looked at and the AI knew nothing about any picture on the
+  timeline. Every imported clip, every stock download and every photo is now measured
+  locally — where the shots start and end, how bright, how warm, how sharp, how much it
+  moves — and a key buys only the extra layers on top. Nothing leaves your machine for
+  that, and the "Automatic preparation" toggle is gone because there is nothing left to
+  turn off.
+- **Settings says which layer actually ran.** The media-intelligence panel reported one
+  number that could mean three different things. It now reads
+  `measured 61/61 · labelled 0/61 · described 0/61 — described needs a vision provider`,
+  so "your footage has been looked at" and "your footage has been described" are never
+  the same sentence again.
+
 ### Fixed
 
 - **One speed change no longer freezes the rest of the track.** After setting a clip to a
@@ -14,6 +85,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   retimed clip you had not touched. Speed changes land on your project's frame grid, and
   the check that guards them now measures on that same grid instead of demanding an exact
   fraction of a second no frame boundary can sit on.
+- **Local visual understanding actually installs.** The two packs that let FramePilot
+  recognise and describe your footage on your own machine — no key, no upload — could not
+  be installed at all. Every attempt failed while downloading, because the models were
+  pointed at addresses that had never held them. They install now, and the first run
+  fetches what they need and checks every file against a recorded fingerprint before it
+  is allowed to load.
+- **Photos are looked at like every other clip.** Every still in every project was silently
+  skipped when footage was measured — sixty photos in a test project came back with nothing
+  at all, and nothing said so. Stills are now measured like video.
+- **Clips the AI downloads are indexed like the ones you import.** Stock clips added by
+  the AI or from the Stock panel were never registered with the media engine, so the AI
+  went back to a montage it had just built and was told it knew nothing about any of it.
+  Every acquired clip now takes the same path an imported one does.
+- **The monitor's volume slider and mute work on every clip.** On projects the preview
+  plays through the streaming engine — freshly imported footage, or a timeline too long
+  to decode ahead — dragging the volume down or hitting mute changed nothing you could
+  hear. One control now governs both preview engines, footage and music alike.
 - **The agent stops when the request is met.** A run that read the timeline and made its
   edit in one step was treated as still "inspecting", told to keep reading, and re-applied
   a position-relative request ("move the last clip to the front") against the timeline it
@@ -41,6 +129,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **The AI panel's copy stops promising a review step.** The contract, the receipt and the
   empty state all said the edit would be reviewed before it applied; edits apply as they
   land and undo takes them back, and the words now say so.
+- **The browser's unreviewed-edit notice names the missing engine, not an environment
+  variable.** The warning shown on a page without the Python sidecar now says the engine
+  is what is missing and how to start it, instead of pointing at a `FRAMEPILOT_PYTHON_API_URL`
+  that means nothing on its own in the browser.
+- **The new one-call editing tools have activity-card labels.** `remove_filler_words` and
+  `tighten_clips` get a human label on the activity cards in the AI panel instead of a raw
+  tool name.
 - **"Mute the music track" is only suggested when there is music** — a voice-over on an
   audio track no longer earns it.
 - **The editing playbooks name the tools that exist**: captions in one call
@@ -251,6 +346,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   rebuild it — and if the run stopped in between, the footage was gone. Four of six
   reorder runs in the last evaluation lost content this way. Undo restores the previous
   order exactly. ADR 0173.
+
+- **The AI can tighten a whole window of shots in one call.** `tighten_clips` shortens
+  every shot in a selection to a target length and closes the resulting gaps in a single
+  patch — "tighten this whole section to 3s a shot" is now one operation instead of a run
+  of per-clip trims, and one undo restores every previous timing exactly.
+
+- **The AI can cut the filler words out of a talk.** `remove_filler_words` ripple-deletes
+  the um's, uh's and other hesitations using the transcript's own timings, so what stays
+  is smooth and the empty pockets they left never open up. ADR 0174.
 
 - **A new framepilot.app.** The marketing site was rebuilt end to end around one idea: the
   editors you already use are ripple-deleted into a bin in the corner and FramePilot takes
@@ -4560,7 +4664,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   project brain with model provenance (a later human edit is never silently
   overwritten). To place an observation on the timeline, the AI follows up with
   `add_marker`. This supersedes the never-built `detect_faces`. See
-  [docs/guides/vision-protocol.md](docs/guides/vision-protocol.md).
+  [docs/adr/0096-model-vision-get-frame.md](docs/adr/0096-model-vision-get-frame.md).
   (`engine/python/framepilot_engine/analysis/frames.py`, `service.py`,
   `packages/ai-sdk/src/tool-registry.ts`, `sidecar-executor.ts`,
   `packages/mcp-server/src/analysis-client.ts`)
@@ -4624,7 +4728,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   like the other providers. Add a `DEEPSEEK_API_KEY` in Settings → AI (or the env) and pick a
   model (defaults to `deepseek-chat`); `deepseek-reasoner`'s chain-of-thought is surfaced
   separately from its answer, same as the other reasoning models. See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#deepseek-openai-compatible).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#deepseek).
 - **The AI agent now edits with the judgment of a senior editor, across the
   whole craft.** Fourteen new built-in playbooks cover the full professional
   workflow — prepping and logging footage, crafting hooks, cutting silence and
@@ -5409,7 +5513,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   GPT-OSS, Kimi, … on Groq's LPU hardware) behind the shared OpenAI-compatible adapter, so
   it streams and tool-calls exactly like the other providers. Add a `GROQ_API_KEY` in
   Settings → AI (or the env) and pick a model (defaults to `llama-3.3-70b-versatile`). See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#groq-openai-compatible).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#groq).
 - **`list_assets` AI/MCP tool — a focused read of the media bin.** Returns the project's
   `{ assets, folders }`, optionally filtered by `kind` (video/audio/image) and/or
   `folderId`. A cheaper, targeted alternative to `get_project_state` when an agent only
@@ -5421,7 +5525,7 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   `GOOGLE_API_KEY` in the `x-goog-api-key` header; streams and tool-calls like the other
   providers. Optional `GOOGLE_BASE_URL` overrides the endpoint. Defaults to
   `gemini-2.5-flash`. See
-  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#google-gemini-developer-api--ai-studio).
+  [docs/guides/ai-providers.md](docs/guides/ai-providers.md#google-gemini).
 
 ### Changed
 - **AI runs are no longer bounded by a clock.** The 60-second connect timeout, the

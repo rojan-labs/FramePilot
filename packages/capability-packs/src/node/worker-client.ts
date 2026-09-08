@@ -91,6 +91,16 @@ function safeRuntimeEnvironment(
   return mergeExtraWorkerEnvironment(base, extraEnvironment);
 }
 
+/**
+ * The capabilities that legitimately carry NO media handle.
+ *
+ * Exhaustive and deliberately short: everything not named here must name media inside the
+ * approved project root, and a capability added to the frozen union without a media handle
+ * fails loudly rather than bypassing the sandbox. `CLAUDE.md` §5 lists broadening the path
+ * sandbox as ask-first, and a property-name test broadens it by accident.
+ */
+const MEDIA_FREE_CAPABILITIES: ReadonlySet<string> = new Set(['visual.text']);
+
 async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Promise<void> {
   const [root, media] = await Promise.all([realpath(mediaRoot), realpath(mediaPath)]);
   const relative = path.relative(root, media);
@@ -99,6 +109,15 @@ async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Prom
     'media_escape',
     'Capability Pack media handle escapes the approved project root.',
   );
+}
+
+/** How many items a terminal result carried, for the completion log line only. */
+function terminalSampleCount(terminal: CapabilityPackWorkerResult): number {
+  if ('samples' in terminal) return terminal.samples.length;
+  if ('detections' in terminal) return terminal.detections.length;
+  if ('masks' in terminal) return terminal.masks.length;
+  if ('shots' in terminal) return terminal.shots.length;
+  return terminal.vectors.length;
 }
 
 function protocolError(message: string): CapabilityPackWorkerRuntimeError {
@@ -114,7 +133,25 @@ export async function runCapabilityPackWorker(
   options: CapabilityPackWorkerRunOptions,
 ): Promise<CapabilityPackWorkerResult> {
   const request = CapabilityPackWorkerRequestSchema.parse(options.request);
-  await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
+  // THE SANDBOX EXEMPTION IS A CLOSED LIST, NOT A PROPERTY TEST.
+  //
+  // `visual.text` embeds a query string and carries no media handle at all, so there is
+  // nothing to sandbox-check; every other capability must name media inside the root. That
+  // used to be written as `if ('media' in request)`, which made the path-sandbox invariant
+  // conditional on a PROPERTY NAME: a future request type carrying a path under any other
+  // key — `mediaPath`, `source`, `frames` — would have skipped the check silently, with no
+  // compile error and no failing test. Naming the exempt capabilities instead means a new
+  // capability is checked by default and the type system objects when the union grows.
+  if (!MEDIA_FREE_CAPABILITIES.has(request.capability)) {
+    if (!('media' in request)) {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        `Capability "${request.capability}" carries no media handle to sandbox-check. Add it ` +
+          'to MEDIA_FREE_CAPABILITIES only if it genuinely reads no path.',
+      );
+    }
+    await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
+  }
   if (options.signal?.aborted === true) {
     throw new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.');
   }
@@ -277,12 +314,7 @@ export async function runCapabilityPackWorker(
       log.action('workerComplete', {
         requestId: request.requestId,
         capability: request.capability,
-        samples:
-          'samples' in terminal
-            ? terminal.samples.length
-            : 'detections' in terminal
-              ? terminal.detections.length
-              : terminal.masks.length,
+        samples: terminalSampleCount(terminal),
       });
       finish(undefined, terminal);
     });

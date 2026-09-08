@@ -25227,6 +25227,17 @@
         "wallMsPerRun": 31208,
         "silentSuccesses": 0
       }
+    },
+    "perception": {
+      "framesSeenPerEdit": 0,
+      "framesSeen": 0,
+      "perceptionCallsPerRun": 0,
+      "perceptionCallsByTool": {},
+      "numericGuessRate": 1,
+      "numericGuess": {
+        "total": 3,
+        "guessed": 3
+      }
     }
   }
 }

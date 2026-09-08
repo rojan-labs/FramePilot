@@ -98,7 +98,7 @@ describe('a cut aimed at a word lands on that word’s frame', () => {
   });
 
   /**
-   * The word-boundary trap (REMAINING §2.4). Three turns of the session-6 run were lost to
+   * The word-boundary trap (session-6 handoff). Three turns of the session-6 run were lost to
    * a cut landing one frame inside a word, and in every case the run had read the CORRECT
    * frame here and then passed seconds — because every cut tool takes seconds — which
    * `quantizePatch` rounded back across the word edge.

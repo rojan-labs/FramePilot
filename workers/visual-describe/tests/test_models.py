@@ -1,0 +1,149 @@
+"""Pinned artifacts: placeholders are refused by name, and digests are enforced."""
+
+from __future__ import annotations
+
+import hashlib
+import tomllib
+from pathlib import Path
+
+import pytest
+
+from framepilot_visual_describe.backend import ModelUnavailableError
+from framepilot_visual_describe.models import (
+    ENV_PACK_ROOT,
+    MODELS_BY_ID,
+    PINNED_MODELS,
+    UNPINNED_DIGEST,
+    file_digest,
+    models_directory,
+    resolve_model,
+    verify_all,
+)
+
+LOCK_PATH = Path(__file__).resolve().parent.parent / "pack" / "models.lock.toml"
+
+
+def test_every_shipped_artifact_carries_a_real_pin() -> None:
+    # This test is the record of the pack's actual state. It used to assert the opposite —
+    # that nothing had been fetched — and was replaced, as its own comment required, when
+    # the artifacts were recorded on 2026-09-07.
+    assert [model.id for model in PINNED_MODELS if not model.pinned] == []
+
+
+def test_the_runtime_libraries_are_pinned_alongside_the_binary() -> None:
+    # `llama-mtmd-cli` is an 83 KiB shim; the dylibs beside it are what actually decode a
+    # frame and run the model in the same process. Pinning only the executable would hash
+    # the least interesting part of the runtime.
+    libraries = [model.id for model in PINNED_MODELS if model.id.startswith("runtime-lib-")]
+    assert len(libraries) == 9
+    assert MODELS_BY_ID["runtime"].executable
+    assert not any(MODELS_BY_ID[library].executable for library in libraries)
+
+
+def test_the_lock_file_and_the_compiled_in_pins_agree() -> None:
+    with LOCK_PATH.open("rb") as handle:
+        lock = tomllib.load(handle)
+    recorded = {entry["file"]: entry["sha256"] for entry in lock["model"]}
+    assert recorded == {model.file: model.sha256 for model in PINNED_MODELS}
+
+
+def test_a_placeholder_pin_is_refused_by_name(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # No shipped artifact carries the sentinel any more, so the refusal is exercised
+    # against an injected one. It still has to fire: the sentinel is what stands between a
+    # future unfetched artifact and a silent "hash matched".
+    pinned = MODELS_BY_ID["vlm"]
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256=UNPINNED_DIGEST, license="Apache-2.0"),
+    )
+    with pytest.raises(ModelUnavailableError, match="placeholder pin"):
+        resolve_model("vlm", tmp_path)
+
+
+def test_an_unknown_artifact_id_is_refused(tmp_path: Path) -> None:
+    with pytest.raises(ModelUnavailableError, match="not an artifact of this pack"):
+        resolve_model("whisper", tmp_path)
+
+
+def test_a_missing_file_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pinned = MODELS_BY_ID["vlm"]
+    # Pin the artifact to a real digest without touching the shipped tuple.
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256="b" * 64, license="Apache-2.0"),
+    )
+    with pytest.raises(ModelUnavailableError, match="is not installed"):
+        resolve_model("vlm", tmp_path)
+
+
+def test_a_digest_mismatch_is_refused(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    pinned = MODELS_BY_ID["vlm"]
+    path = tmp_path / pinned.file
+    path.write_bytes(b"not the approved weights")
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256="b" * 64, license="Apache-2.0"),
+    )
+    with pytest.raises(ModelUnavailableError, match="hashes to"):
+        resolve_model("vlm", tmp_path)
+
+
+def test_a_runtime_binary_that_is_not_executable_is_refused(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinned = MODELS_BY_ID["runtime"]
+    path = tmp_path / pinned.file
+    path.write_bytes(b"#!/bin/sh\n")
+    path.chmod(0o644)
+    digest = file_digest(path)
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "runtime",
+        type(pinned)(id="runtime", file=pinned.file, sha256=digest, license="MIT", executable=True),
+    )
+    with pytest.raises(ModelUnavailableError, match="not executable"):
+        resolve_model("runtime", tmp_path)
+
+
+def test_file_digest_matches_hashlib(tmp_path: Path) -> None:
+    path = tmp_path / "blob"
+    path.write_bytes(b"framepilot")
+    assert file_digest(path) == hashlib.sha256(b"framepilot").hexdigest()
+
+
+def test_models_directory_follows_the_installer_root(tmp_path: Path) -> None:
+    assert models_directory({ENV_PACK_ROOT: str(tmp_path)}) == tmp_path / "models"
+    assert models_directory({}).name == "models"
+
+
+def test_verify_all_refuses_while_any_pin_is_a_placeholder(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    pinned = MODELS_BY_ID["vlm"]
+    monkeypatch.setitem(
+        MODELS_BY_ID,
+        "vlm",
+        type(pinned)(id="vlm", file=pinned.file, sha256=UNPINNED_DIGEST, license="Apache-2.0"),
+    )
+    with pytest.raises(ModelUnavailableError):
+        verify_all(tmp_path)
+
+
+def test_verify_all_refuses_an_artifact_that_is_merely_absent(tmp_path: Path) -> None:
+    # Every pin is real now, so an empty directory must still fail — a pack that verified
+    # nothing because nothing was installed would be the worst possible pass.
+    with pytest.raises(ModelUnavailableError, match="is not installed"):
+        verify_all(tmp_path)
+
+
+def test_the_unpinned_sentinel_cannot_collide_with_a_real_digest(tmp_path: Path) -> None:
+    # Sixty-four zeros is not the sha256 of anything, which is what makes "not fetched"
+    # safe to store in the same field as an approved digest.
+    path = tmp_path / "blob"
+    path.write_bytes(b"")
+    assert file_digest(path) != UNPINNED_DIGEST

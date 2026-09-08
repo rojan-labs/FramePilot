@@ -1,0 +1,300 @@
+# Pinned artifacts for the Visual Describe Capability Pack.
+#
+# WHY THIS FILE EXISTS
+#
+# Weights and native binaries have their own licences and their own provenance. They are
+# deliberately NOT committed to this repository: they are fetched at pack build time from
+# a URL pinned to an immutable revision and verified against the exact sha256 recorded
+# here. An artifact that does not hash to its pin is refused, so a silently re-uploaded or
+# tampered model — or a swapped runtime binary — cannot enter a signed pack.
+#
+# EVERY DIGEST BELOW IS A PLACEHOLDER AND THIS PACK CANNOT LOAD A MODEL.
+#
+# Nothing here has been downloaded: this worker was built without fetching an artifact, on
+# purpose, so the pack machinery could be reviewed before ~1.6 GiB of binaries entered the
+# picture. `sha256 = "000…0"` is the sentinel for "not yet fetched"; the worker's
+# `models.py` refuses it by name and the health check fails while any remains. Making this
+# pack live is one mechanical step: run `tools/fetch_models.py --record`, which downloads
+# each URL, prints its digest, and writes it back here — then copy the same digests into
+# `src/framepilot_visual_describe/models.py`, which is the copy the SIGNED WHEEL enforces.
+#
+# WHY THESE ARTIFACTS (licence table: plan/visual-understanding/08-REMOVE-DEFER-RISKS.md)
+#
+#  1. Licence. llama.cpp is MIT; SmolVLM2 is Apache-2.0. Both the GGUF QUANTISATION and
+#     the mmproj export must be licence-verified as well as the upstream model card — a
+#     re-quantised or re-exported artifact can be published under other terms, and the
+#     licence that governs this pack is the one on the file the build job downloads.
+#     Excluded on licence grounds, decided and not to be re-opened: Qwen2.5-VL
+#     (research-only terms) and Gemma 3 (Gemma terms). Neither may be the default nor an
+#     option.
+#  2. Runtime. `llama-mtmd-cli` is the same ggml family as the `whisper-cli` the ASR path
+#     already ships, so this pack adds NO new Python ML runtime — its only Python
+#     dependency is OpenCV, which this project has already licence-audited and shipped for
+#     Tracking Lite, Subject Intelligence and Visual Embed.
+#  3. Size. ~1.6 GiB against a pack budget that anticipated 150 MiB–1.5 GiB, and nothing
+#     enters the base installer either way. The 500 M pair exists so a machine under
+#     12 GB describes its footage slightly worse rather than not at all.
+
+schemaVersion = 1
+
+[runtimeSource]
+# The llama.cpp release the runtime is taken from.
+#
+# WHY AN ARCHIVE AND NOT A BINARY: llama.cpp publishes no bare `llama-mtmd-cli` asset —
+# never has. Each release ships one tarball per platform, and the CLI inside it is
+# dynamically linked against nine ggml/llama dylibs whose only search path is
+# `@loader_path`. A URL ending in `/llama-mtmd-cli` 404s on every release that exists.
+#
+# `release` is NOT `/releases/latest`: that tag on this repository is a version marker
+# carrying a single text file. The builds live on the rolling `bNNNNN` tags, and
+# `--record` resolves to the newest one that actually publishes this platform's asset.
+repository = "https://github.com/ggml-org/llama.cpp"
+release = "b10840"
+baseUrl = "https://github.com/ggml-org/llama.cpp/releases/download/b10840"
+
+[source]
+# SmolVLM2 GGUF artifacts, fetched from the Hugging Face repository at a pinned revision.
+repository = "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF"
+revision = "1bc3c9f74ceafd4c8d4411cc9cf188bba3798f91"
+baseUrl = "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/1bc3c9f74ceafd4c8d4411cc9cf188bba3798f91"
+
+[smallSource]
+repository = "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF"
+revision = "ccd7aae53bcb1997355c2f094959e72b3642ce17"
+baseUrl = "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/ccd7aae53bcb1997355c2f094959e72b3642ce17"
+
+[[archive]]
+# The whole release tarball is pinned by ONE digest before a single byte is unpacked. That
+# is the strongest form of this pin available: it covers the CLI, all nine dylibs and the
+# MIT LICENSE together, so no member can be swapped independently of the approval.
+id = "llama-runtime"
+name = "llama.cpp b10840 release build, macOS arm64"
+file = "llama-runtime-macos-arm64.tar.gz"
+path = "llama-{release}-bin-macos-arm64.tar.gz"
+source = "runtimeSource"
+sha256 = "848b6cc2817aa09e615fed0813b01fc3abbc43cd4d4773cc4aff4d7ef5733784"
+bytes = 11137156
+license = "MIT"
+licenseVerified = false
+licensePath = "llama-{release}/LICENSE"
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "The Metal build. Verify the LICENSE inside this artifact, not only the repository's."
+
+# The unversioned names `llama-mtmd-cli` asks its loader for. They are symlinks in the
+# tarball, so they hold no content and hash to nothing of their own; what makes them safe
+# is that the file each one points at IS pinned below.
+[archive.links]
+"libmtmd.0.dylib" = "libmtmd.0.4.0.dylib"
+"libllama.0.dylib" = "libllama.0.4.0.dylib"
+"libllama-common.0.dylib" = "libllama-common.0.4.0.dylib"
+"libggml.0.dylib" = "libggml.0.23.0.dylib"
+"libggml-base.0.dylib" = "libggml-base.0.23.0.dylib"
+"libggml-cpu.0.dylib" = "libggml-cpu.0.23.0.dylib"
+"libggml-blas.0.dylib" = "libggml-blas.0.23.0.dylib"
+"libggml-metal.0.dylib" = "libggml-metal.0.23.0.dylib"
+"libggml-rpc.0.dylib" = "libggml-rpc.0.23.0.dylib"
+
+[[model]]
+id = "runtime"
+role = "visual.describe/runtime"
+name = "llama.cpp multimodal CLI (llama-mtmd-cli)"
+file = "llama-mtmd-cli"
+path = "llama-{release}/llama-mtmd-cli"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "b61a6f2b996b6068f36399ac5b54503856071596aef5ff3e665d311ead7e7884"
+bytes = 85120
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+executable = true
+notes = "Executed as a subprocess over the user's footage, so it is a LARGER trust decision than the weights it loads and is pinned by the same rule."
+
+[[model]]
+id = "runtime-lib-mtmd"
+role = "visual.describe/runtime-library"
+name = "libmtmd.0.4.0.dylib"
+file = "libmtmd.0.4.0.dylib"
+path = "llama-{release}/libmtmd.0.4.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "6e902b5676376c466dc4a1ed66a3b2c675589b47a5292581a3bc7cec895516fa"
+bytes = 1378752
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the multimodal layer — image encoding and the projector bridge. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-llama"
+role = "visual.describe/runtime-library"
+name = "libllama.0.4.0.dylib"
+file = "libllama.0.4.0.dylib"
+path = "llama-{release}/libllama.0.4.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "5279dde6e366d797f31fe699985d089ee4dbbbd6d5fd33c02defbc7ede0a34fb"
+bytes = 3112080
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the inference engine itself. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-llama-common"
+role = "visual.describe/runtime-library"
+name = "libllama-common.0.4.0.dylib"
+file = "libllama-common.0.4.0.dylib"
+path = "llama-{release}/libllama-common.0.4.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "773df6d3afacf1b93bab1a5cad0bc327f537bdee959e9906a794cb9403f0b6e9"
+bytes = 7641000
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — argument parsing and sampling shared by the CLIs. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml"
+role = "visual.describe/runtime-library"
+name = "libggml.0.23.0.dylib"
+file = "libggml.0.23.0.dylib"
+path = "llama-{release}/libggml.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "98fa46f0bcd8c75a335f733c38cb79f911bc39412ba15ef52fee3ac051c14069"
+bytes = 60128
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the tensor library the engine is built on. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml-base"
+role = "visual.describe/runtime-library"
+name = "libggml-base.0.23.0.dylib"
+file = "libggml-base.0.23.0.dylib"
+path = "llama-{release}/libggml-base.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "40a133d388655a8826b298e244a083fcfc4cc219f4b51018b19e6d8ebb64d42c"
+bytes = 732776
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — ggml's own base layer; every other ggml module links it. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml-cpu"
+role = "visual.describe/runtime-library"
+name = "libggml-cpu.0.23.0.dylib"
+file = "libggml-cpu.0.23.0.dylib"
+path = "llama-{release}/libggml-cpu.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "e63a7b4f8eaa5bbd8e93e524d1a828de22a42bead57ae79cfab46e2339571fb2"
+bytes = 968688
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the CPU compute backend. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml-blas"
+role = "visual.describe/runtime-library"
+name = "libggml-blas.0.23.0.dylib"
+file = "libggml-blas.0.23.0.dylib"
+path = "llama-{release}/libggml-blas.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "414856968dcddae3a67e0f9c6dc012e5c4db13320c4d7ea5924dc1ad192dcfd6"
+bytes = 58776
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the Accelerate/BLAS compute backend. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml-metal"
+role = "visual.describe/runtime-library"
+name = "libggml-metal.0.23.0.dylib"
+file = "libggml-metal.0.23.0.dylib"
+path = "llama-{release}/libggml-metal.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "c23aa0bd992066b1bc81c2f4a58798fdc6b5384c1df9dba91812db72e95a1833"
+bytes = 2128584
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — the Metal GPU backend — this is what makes the pack usable on a laptop. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "runtime-lib-ggml-rpc"
+role = "visual.describe/runtime-library"
+name = "libggml-rpc.0.23.0.dylib"
+file = "libggml-rpc.0.23.0.dylib"
+path = "llama-{release}/libggml-rpc.0.23.0.dylib"
+source = "runtimeSource"
+archive = "llama-runtime"
+sha256 = "d998f743ae44021c8990a95765585d813bf161fcc8c7a527ed9f746e0f76d144"
+bytes = 191808
+license = "MIT"
+licenseVerified = false
+copyright = "Georgi Gerganov and the ggml authors"
+notes = "Loaded into the runtime's own process — ggml's RPC backend; linked by the engine whether or not it is used. It runs the user's footage exactly as the CLI does, so it is pinned by the same rule rather than trusted for sitting in the same tarball."
+
+[[model]]
+id = "vlm"
+role = "visual.describe/default-model"
+name = "SmolVLM2-2.2B-Instruct, Q4_K_M GGUF"
+file = "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
+path = "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
+sha256 = "0cf76814555b8665149075b74ab6b5c1d428ea1d3d01c1918c12012e8d7c9f58"
+bytes = 1112602656
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Hugging Face"
+notes = "~1.5 GiB resident. Verify the QUANTISATION's licence, not only the upstream model card."
+
+[[model]]
+id = "mmproj"
+role = "visual.describe/default-projector"
+name = "SmolVLM2-2.2B-Instruct multimodal projector, f16 GGUF"
+file = "mmproj-SmolVLM2-2.2B-Instruct-f16.gguf"
+path = "mmproj-SmolVLM2-2.2B-Instruct-f16.gguf"
+sha256 = "db9a3a1648cab1ebc3af4a2b0c8145dd8faebf6f7dd7b16e7dc1842229f14ac4"
+bytes = 872303680
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Hugging Face"
+notes = "The vision projector. Without it the model is text-only and this pack has nothing to describe."
+
+[[model]]
+id = "vlm-small"
+role = "visual.describe/low-memory-model"
+name = "SmolVLM2-500M-Video-Instruct, Q8_0 GGUF"
+file = "SmolVLM2-500M-Video-Instruct-Q8_0.gguf"
+path = "SmolVLM2-500M-Video-Instruct-Q8_0.gguf"
+source = "smallSource"
+sha256 = "6f67b8036b2469fcd71728702720c6b51aebd759b78137a8120733b4d66438bc"
+bytes = 436808704
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Hugging Face"
+notes = "Loaded instead of the default on machines under 12 GB. Recorded under its OWN model id, so a ledger row always names the weights that produced it."
+
+[[model]]
+id = "mmproj-small"
+role = "visual.describe/low-memory-projector"
+name = "SmolVLM2-500M-Video-Instruct multimodal projector, f16 GGUF"
+file = "mmproj-SmolVLM2-500M-Video-Instruct-f16.gguf"
+path = "mmproj-SmolVLM2-500M-Video-Instruct-f16.gguf"
+source = "smallSource"
+sha256 = "b5dc8ebe7cbeab66a5369693960a52515d7824f13d4063ceca78431f2a6b59b0"
+bytes = 199470624
+license = "Apache-2.0"
+licenseVerified = false
+copyright = "Hugging Face"
+notes = "Projector for the low-RAM pair."

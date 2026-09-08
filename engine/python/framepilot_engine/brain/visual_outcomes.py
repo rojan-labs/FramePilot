@@ -18,6 +18,7 @@ bytes are automatically a miss, and nothing accumulates.
 from __future__ import annotations
 
 import logging
+from collections.abc import Mapping
 
 from framepilot_engine.brain.store import BrainStore
 
@@ -40,12 +41,20 @@ VISUAL_OUTCOME_TOOL = "visual-index"
 class AssetOutcomeRecord:
     """One asset's last preparation outcome, as persisted."""
 
-    __slots__ = ("asset_id", "ok", "reason")
+    __slots__ = ("asset_id", "ok", "reason", "tiers")
 
-    def __init__(self, asset_id: str, *, ok: bool, reason: str | None) -> None:
+    def __init__(
+        self,
+        asset_id: str,
+        *,
+        ok: bool,
+        reason: str | None,
+        tiers: Mapping[str, str] | None = None,
+    ) -> None:
         self.asset_id = asset_id
         self.ok = ok
         self.reason = reason
+        self.tiers = dict(tiers or {})
 
     def __repr__(self) -> str:
         return f"AssetOutcomeRecord({self.asset_id!r}, ok={self.ok}, reason={self.reason!r})"
@@ -60,8 +69,16 @@ def record_asset_outcome(
     reason: str | None,
     indexed: int = 0,
     captioned: int = 0,
+    tiers: Mapping[str, str] | None = None,
 ) -> None:
-    """Persist what happened to one asset, keyed by the bytes it happened to."""
+    """Persist what happened to one asset, keyed by the bytes it happened to.
+
+    ``tiers`` is the shot ledger's per-tier disposition (ADR 0175): ``measured`` is the
+    keyless ffmpeg floor and the other two are the tiers a key or a pack unlocks. It is
+    stored alongside ``ok`` because "the asset was prepared" and "which of the three tiers
+    actually reached it" are different questions, and only the second one explains a
+    coverage line that reads ``described 12/61``.
+    """
     store.record_analysis(
         asset_id,
         kind=VISUAL_OUTCOME_KIND,
@@ -72,6 +89,7 @@ def record_asset_outcome(
             "reason": reason,
             "indexed": indexed,
             "captioned": captioned,
+            "tiers": dict(tiers or {}),
         },
         tool=VISUAL_OUTCOME_TOOL,
     )
@@ -95,9 +113,13 @@ def failed_outcomes(store: BrainStore) -> list[AssetOutcomeRecord]:
         if row.result.get("ok") is True:
             continue
         reason = row.result.get("reason")
+        tiers = row.result.get("tiers")
         failures.append(
             AssetOutcomeRecord(
-                row.asset_id, ok=False, reason=str(reason) if isinstance(reason, str) else None
+                row.asset_id,
+                ok=False,
+                reason=str(reason) if isinstance(reason, str) else None,
+                tiers=tiers if isinstance(tiers, dict) else None,
             )
         )
     return sorted(failures, key=lambda record: record.asset_id)

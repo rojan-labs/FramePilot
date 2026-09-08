@@ -46,12 +46,25 @@ const visualTimeRangeSchema = z
 // `search_visual` mirrors the Python `SearchVisualArgs`; the sidecar embeds the query
 // cross-modally, runs the vector KNN, and fuses it with caption/transcript recall into
 // ranked evidence packets (plan MI5.1/§3.4). `k` mirrors the engine's 1..50 bound.
+// `facts` (VU2.5) filters the ranked packets by what the shot ledger recorded, so
+// "wide shots of the street" is a filter rather than a hope about the ranker. Every clause
+// must hold on the same shot; a clause the footage has no fact for never matches, and a
+// filter over unmeasured footage is reported as ignored rather than silently satisfied.
+const visualFactsSchema = z
+  .object({
+    shotSize: z.array(z.string().trim().min(1)).min(1).optional(),
+    motion: z.array(z.enum(['static', 'slow', 'handheld', 'fast'])).min(1).optional(),
+    entities: z.array(z.string().trim().min(1)).min(1).optional(),
+    setting: z.array(z.string().trim().min(1)).min(1).optional(),
+  })
+  .strict();
 const searchVisualSchema = z
   .object({
     query: z.string().min(1),
     k: numeric(z.number().int().min(1).max(50)).optional(),
     assetIds: z.array(z.string()).optional(),
     timeRange: visualTimeRangeSchema.optional(),
+    facts: visualFactsSchema.optional(),
   })
   .strict();
 // `describe_footage` mirrors the Python `DescribeFootageArgs`; the host issues a
@@ -207,8 +220,10 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'sources } fusing visual-vector, caption, and transcript recall. Prefer this over ' +
         'guessing from dialogue: read the captions/spans and cite them. Honestly degrades ' +
         '(available with a reason, no packets) when the footage is not indexed or no ' +
-        'embedding key is set. Optional k (1-50), assetIds, and timeRange narrow recall. ' +
-        'Does not edit the timeline.',
+        'embedding key is set. Optional k (1-50), assetIds, and timeRange narrow recall; `facts` ' +
+        'filters the hits by what the footage measured — shotSize (CU/MS/WS…), motion ' +
+        '(static/slow/handheld/fast), entities, setting — and every packet comes back with ' +
+        'the description or the measured words for its span. Does not edit the timeline.',
       capabilities: ['analysis', 'visual'],
     },
     searchVisualSchema,
@@ -222,8 +237,9 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'evidence packets as search_visual, sorted by time rather than ranked by a query, ' +
         'so you can read the footage as a sequence. Use search_visual instead when you are ' +
         'looking for a specific thing across all footage. Free and fast: it reads the index ' +
-        'index_media already built. Optional timeRange limits the ' +
-        'walk. Honestly reports when the asset is not indexed yet. Does not edit the timeline.',
+        'index_media already built, and each packet carries the shot description where the ' +
+        'footage has one, or its measured words where it does not. Optional timeRange ' +
+        'limits the walk. Honestly reports when the asset is not indexed yet. Does not edit the timeline.',
       capabilities: ['analysis', 'visual'],
     },
     describeFootageSchema,

@@ -48,6 +48,9 @@ describe('healthCheckCapabilityPackWorker', () => {
     expect(runner).toHaveBeenCalledWith({
       executable: '/packs/subject-worker',
       args: ['--framepilot-health-check'],
+      // Far longer than a probe's bound: a weights-backed pack hashes gigabytes and opens
+      // an inference session before it answers.
+      timeoutMs: 180_000,
       env: {
         FRAMEPILOT_CAPABILITY_PACK_HEALTH_CHECK: '1',
         FRAMEPILOT_CAPABILITY_PACK_NETWORK: 'disabled',
@@ -57,6 +60,18 @@ describe('healthCheckCapabilityPackWorker', () => {
         FRAMEPILOT_CAPABILITY_PACK_CAPABILITIES: JSON.stringify([...capabilities].sort()),
       },
     });
+  });
+
+
+  it('says a killed worker was killed, not that it exited null', async () => {
+    // The bound firing used to surface as "exited null", which reads as a crash. It is
+    // the message a maintainer sees when a pack legitimately needs longer than it has.
+    const runner = vi
+      .fn<BoundedCommandRunner>()
+      .mockResolvedValue({ exitCode: null, stdout: '', stderr: '' });
+    await expect(
+      healthCheckCapabilityPackWorker('/packs/subject-worker', identity, capabilities, runner),
+    ).rejects.toThrow(/was killed before it answered \(bound: 180s\)/);
   });
 
   it.each([

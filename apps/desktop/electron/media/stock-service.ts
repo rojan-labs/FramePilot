@@ -61,7 +61,8 @@ import type {
   StockSearchResult,
 } from '../ipc/contract.js';
 import { dedupeName, mediaRelativeDir, safeFileName } from '../projects/media-import.js';
-import type { DerivedAssetMedia } from './asset-media-client.js';
+import type { DeriveAssetMedia } from './derived-media-cache.js';
+import { sourcedAssetId } from './sourced-asset-id.js';
 import type { StockQuotaStore } from './stock-quota.js';
 
 const log = createLogger('desktop:stock');
@@ -132,11 +133,12 @@ export interface StockServiceOptions {
   /**
    * Derive kind/duration/thumbnails/proxy for a downloaded file. Failure is non-fatal.
    *
-   * Typed as {@link DerivedAssetMedia} — the sidecar client's own result — so the derived
+   * Typed as {@link DeriveAssetMedia} — the sidecar client's own result — so the derived
    * media can only be read from where it actually lives (`media`), never from a flat shape
-   * that type-checks and reads `undefined`.
+   * that type-checks and reads `undefined`. It takes the asset's identity so the sidecar
+   * records the download in the project brain, which is what makes it indexable.
    */
-  readonly deriveAssetMedia: (absolutePath: string) => Promise<DerivedAssetMedia | null>;
+  readonly deriveAssetMedia: DeriveAssetMedia;
   /** Injected for tests. Defaults to the real Pexels adapter. */
   readonly provider?: StockProvider;
   /** Injected for tests; used for tile, preview and download bytes. */
@@ -639,7 +641,14 @@ export class StockService {
         log.action('download → deduped', { remoteId: item.remoteId, variantId: variant.id });
         return {
           ok: true,
-          asset: await this.materialize(item, variant, relativePath, absolutePath, true),
+          asset: await this.materialize(
+            item,
+            variant,
+            relativePath,
+            absolutePath,
+            true,
+            request.projectId,
+          ),
         };
       }
       // The ledger says we have it but the file is gone (the user deleted it).
@@ -679,7 +688,14 @@ export class StockService {
       log.action('download → installed', { remoteId: item.remoteId, bytes });
 
       this.emit(request, 'deriving', bytes, bytes);
-      const asset = await this.materialize(item, variant, relativePath, absolutePath, false);
+      const asset = await this.materialize(
+        item,
+        variant,
+        relativePath,
+        absolutePath,
+        false,
+        request.projectId,
+      );
       this.emit(request, 'installed', bytes, bytes);
       return { ok: true, asset };
     } catch (error) {
@@ -876,10 +892,20 @@ export class StockService {
     relativePath: string,
     absolutePath: string,
     deduped: boolean,
+    projectId: string,
   ): Promise<StockDownloadedAssetWire> {
     // A missing thumbnail is a degraded bin tile; a missing asset is a lost
     // download. So derivation failure never fails the add.
-    const derived = await this.options.deriveAssetMedia(absolutePath).catch(() => null);
+    //
+    // The identity rides along because `/asset-media` is the only writer of the brain's
+    // asset row, and an asset the brain does not know cannot be indexed. Downloading
+    // without it is why every stock clip the agent acquired answered `not_indexed`.
+    const derived = await this.options
+      .deriveAssetMedia(absolutePath, {
+        projectId,
+        assetId: sourcedAssetId('stock', item.provider, item.remoteId),
+      })
+      .catch(() => null);
     // Read the derived media from `derived.media`, which is where the sidecar client puts
     // it. Reading it off `derived` itself compiled and silently produced an all-null
     // `media` for every sourced asset — see `DerivedAssetMedia`.

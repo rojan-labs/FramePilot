@@ -30,6 +30,25 @@ import type { ContextBudget } from './reliability/types.js';
 import type { ReferenceProfile } from './references/profile.js';
 import { setPreference } from './memory-store.js';
 import { makeProject } from './__fixtures__/project.js';
+import {
+  TIER0_VERSION,
+  TIER1_VERSION,
+  TIER2_VERSION,
+  type AssetDigest,
+  type LedgerSnapshot,
+  type MeasuredFacts,
+  type ShotRecord,
+  type TierCoverage,
+} from './ledger.js';
+import { MAX_ROW_CHARS } from './kernel/context/shot-words.js';
+import { pictureFactsInPrompt } from './eval/perception-metrics.js';
+
+const EMPTY_TIER_COVERAGE: TierCoverage = {
+  measured: 0,
+  labelled: 0,
+  described: 0,
+  total: 0,
+};
 
 const mkClip = (id: string, trackId: string, assetId: string): Clip => ({
   id,
@@ -1200,4 +1219,174 @@ describe('no assembled block escapes the budgeter', () => {
       });
     },
   );
+});
+
+/**
+ * The picture surfaces (ADR 0175 / plan VU2.3, VU2.4): the clip row carries what the shot
+ * ledger knows, and the project gains a PICTURE digest — both without a tool call and
+ * without a frame. Across ten recorded golden runs the model read the timeline 192 times
+ * and looked at a frame zero times, so the timeline row is where a fact has to arrive.
+ */
+describe('picture facts on the timeline (VU2.3/VU2.4)', () => {
+  const measuredFacts = (over: Partial<MeasuredFacts> = {}): MeasuredFacts => ({
+    tier0Version: TIER0_VERSION,
+    luma: { mean: 0.7, std: 0.1, p10: 0.5, p90: 0.85 },
+    chroma: { uMean: 128, vMean: 140, satMean: 0.3 },
+    warmth: 0.3,
+    contrastIdx: 0.35,
+    motion: { si: 40, ti: 1, class: 'static' },
+    cutScore: 0.4,
+    black: false,
+    freeze: false,
+    sharpness: 0.8,
+    phash: '0000000000000000',
+    ...over,
+  });
+
+  const shotRecord = (over: Partial<ShotRecord> = {}): ShotRecord => ({
+    assetId: 'asset_1',
+    contentHash: 'h1',
+    shotIndex: 0,
+    t0: 0,
+    t1: 6,
+    keyframeT: 3,
+    splitOf: false,
+    measured: measuredFacts(),
+    labelled: {
+      tier1Version: TIER1_VERSION,
+      model: 'siglip',
+      shotSize: { value: 'MS', p: 0.9 },
+      subjectKind: { value: 'man at desk', p: 0.8 },
+      faces: 1,
+      entities: [],
+    },
+    ...over,
+  });
+
+  const digestRow = (over: Partial<AssetDigest> = {}): AssetDigest => ({
+    assetId: 'asset_1',
+    contentHash: 'h1',
+    durationS: 30,
+    shotCount: 1,
+    medianShotS: 6,
+    shotSizeMix: { MS: 1 },
+    settingMix: { 'indoor-office': 1 },
+    motionMix: { static: 1 },
+    people: ['person_01'],
+    exposureRange: [0.68, 0.72],
+    warmthRange: [0.3, 0.3],
+    hasSpeech: true,
+    lowQualityShots: [],
+    coverage: { measured: 1, labelled: 1, described: 0, total: 1 },
+    ...over,
+  });
+
+  /**
+   * A ledger covering only `clip_a` (source 0–6s). `clip_b` shows source 6–10s, which no
+   * shot record covers — so one row in the same layer has facts and one does not.
+   */
+  const ledger = (over: Partial<LedgerSnapshot> = {}): LedgerSnapshot => ({
+    shots: [shotRecord()],
+    digests: [digestRow()],
+    coverage: { measured: 1, labelled: 1, described: 0, total: 1 },
+    ...over,
+  });
+
+  const timelineTextOf = (input: Parameters<typeof assembleContext>[0]): string => {
+    const content = assembleContext(input).messages.at(-1)?.content ?? '';
+    const start = content.indexOf('Timeline (');
+    const end = content.indexOf('\n\n', start);
+    return content.slice(start, end === -1 ? undefined : end);
+  };
+
+  it('appends the shot words to a clip that has facts, and nothing to one that does not', () => {
+    const project = makeProject();
+    const text = timelineTextOf({ project, userPrompt: 'tighten this', ledger: ledger() });
+    // The row the plan is about: geometry, then what is on screen, in words only.
+    expect(text).toContain('clip_a[0–6s] · MS man at desk · static · bright warm');
+    // Same layer, no ledger rows: byte-for-byte the row it has always been.
+    expect(text).toContain('clip_b[6–10s]');
+    expect(text).not.toContain('clip_b[6–10s] ·');
+    // No number ever reaches a row (`shot-words.ts` rule 1).
+    expect(/·[^,\n]*\d/.test(text.split('clip_a')[1] ?? '')).toBe(false);
+  });
+
+  it('renders a prompt byte-identical to the no-ledger one when the ledger is empty', () => {
+    const project = makeProject();
+    const withoutLedger = buildContext({ project, userPrompt: 'tighten this' });
+    const withEmpty = buildContext({
+      project,
+      userPrompt: 'tighten this',
+      ledger: { shots: [], digests: [], coverage: EMPTY_TIER_COVERAGE },
+    });
+    const withNull = buildContext({ project, userPrompt: 'tighten this', ledger: null });
+    expect(withEmpty).toEqual(withoutLedger);
+    expect(withNull).toEqual(withoutLedger);
+  });
+
+  it('keeps every row within the per-row budget, however verbose the caption', () => {
+    const project = makeProject();
+    const wordy = ledger({
+      shots: [
+        shotRecord({
+          described: {
+            tier2Version: TIER2_VERSION,
+            model: 'smolvlm2',
+            summary: 'a '.repeat(400),
+            subject: 'an extremely long description of a man sitting at a desk in an office '.repeat(
+              4,
+            ),
+            action: '',
+            setting: '',
+            camera: {},
+            mood: '',
+            onScreenText: [],
+            quality: [],
+            p: 0.95,
+          },
+        }),
+      ],
+    });
+    const row = (timelineTextOf({ project, userPrompt: 'x', ledger: wordy }).match(
+      /clip_a\[[^\]]*\][^,]*/,
+    ) ?? [''])[0];
+    const suffix = row.slice(row.indexOf('] ·') + 3).trim();
+    expect(suffix.length).toBeLessThanOrEqual(MAX_ROW_CHARS);
+  });
+
+  it('reports the picture-facts rate the phase is measured on', () => {
+    const project = makeProject();
+    const text = timelineTextOf({ project, userPrompt: 'tighten this', ledger: ledger() });
+    // One of the two placed clips has ledger coverage, so half the rows carry facts —
+    // the metric `pictureFactsInPrompt` reads straight off the rendered slice.
+    expect(pictureFactsInPrompt(text)).toEqual({ rows: 2, withFacts: 1, rate: 0.5 });
+    const none = timelineTextOf({ project, userPrompt: 'tighten this' });
+    expect(pictureFactsInPrompt(none)).toEqual({ rows: 2, withFacts: 0, rate: 0 });
+  });
+
+  it('adds the PICTURE digest beside the footage map, and only when there is one', () => {
+    const project = makeProject();
+    const assembled = assembleContext({ project, userPrompt: 'x', ledger: ledger() });
+    const labels = assembled.sections.map((section) => section.label);
+    expect(labels).toContain('picture digest');
+    const content = assembled.messages.at(-1)?.content ?? '';
+    expect(content).toContain('PICTURE — 1 asset · 1 shots · typical shot 6s');
+    expect(content).toContain('People: person_01 (in 1 asset)');
+    // No ledger, no block — an unindexed project is not told anything about its picture.
+    const bare = assembleContext({ project, userPrompt: 'x' });
+    expect(bare.sections.map((section) => section.label)).not.toContain('picture digest');
+  });
+
+  it('names the picture digest for what it is when the budget drops it', () => {
+    const project = makeProject();
+    const assembled = assembleContext({
+      project,
+      userPrompt: 'x',
+      ledger: ledger(),
+      budget: { contextWindow: 200, maxOutputTokens: 0, headroom: 0 },
+    });
+    const content = assembled.messages.at(-1)?.content ?? '';
+    expect(assembled.trimmed).toContain('timeline');
+    expect(content).toContain('what the footage LOOKS like across its assets');
+  });
 });

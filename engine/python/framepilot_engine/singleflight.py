@@ -74,9 +74,12 @@ class SingleFlight(Generic[T]):
             flight.error = exc
             raise
         finally:
+            # Signal completion *before* releasing the key: a caller that arrives between
+            # the pop and the set would otherwise see no in-flight flight, become a second
+            # leader, and start a duplicate compute — the very thing this class prevents.
+            flight.done.set()
             with self._lock:
                 self._flights.pop(key, None)
-            flight.done.set()
 
 
 class AsyncSingleFlight(Generic[T]):

@@ -48,7 +48,12 @@ export type GoldenCategory =
   | 'montage'
   | 'highlight'
   | 'beat'
-  | 'memory';
+  | 'memory'
+  // plan/visual-understanding VU0.3: requests that cannot be answered from clip geometry.
+  | 'color'
+  | 'transitions'
+  | 'duplicates'
+  | 'question';
 
 /** The categories goal.md Phase 0 names; the shape test asserts each has a case. */
 export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
@@ -70,10 +75,16 @@ export const REQUIRED_CATEGORIES: readonly GoldenCategory[] = [
 /**
  * What the agent should decide to do. `edit` — apply a change; `ask` — one precise
  * question before anything is applied; `decline` — explain why it cannot, change nothing;
- * `ask-or-edit` — the ambiguity policy allows either a question or a cheap reversible
- * edit with the assumption stated.
+ * `answer` — the request was a QUESTION, so the right outcome is a reply and an untouched
+ * timeline (VU0.3); `ask-or-edit` — the ambiguity policy allows either a question or a
+ * cheap reversible edit with the assumption stated.
+ *
+ * `answer` and `decline` look identical to {@link observeIntent} — no operation, some
+ * text — and are kept apart here because they are different expectations of the agent, and
+ * a report that called "which clips are dark?" a refusal would be describing the wrong
+ * behaviour. `intentMatches` maps both onto the same observation.
  */
-export type ExpectedIntent = 'edit' | 'ask' | 'decline' | 'ask-or-edit';
+export type ExpectedIntent = 'edit' | 'ask' | 'decline' | 'answer' | 'ask-or-edit';
 
 export interface GoldenTurn {
   /** What the user types. */
@@ -442,6 +453,184 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     project: 'mission-montage',
     why: 'Five clips, no selection, "the clip": the reference is not resolvable from the media, so the agent must ask, never guess.',
     turns: [{ prompt: 'Cut the clip a bit shorter.', rubric: 'unchanged', intent: 'ask' }],
+  },
+  // ── plan/visual-understanding VU0.3 — the cases that need the agent to SEE ──────────
+  //
+  // Split honestly by what a rubric can decide. The five below change the timeline, so
+  // each has a rubric that reads the resulting edit state — which clip gained a grade and
+  // on which axis, which cuts carry a transition and which deliberately do not, whether
+  // the cutaway landed on the line the request named, whether the clips that went are the
+  // repeated ones. Every one carries `no-collateral-changes`: an edit that also crops five
+  // clips nobody mentioned is a failure, not a partial success.
+  //
+  // The three after them are QUESTIONS. A rubric cannot judge prose, so it does not try:
+  // it scores that the run answered and changed nothing. Whether the answer is CORRECT is
+  // the operator's call, against `tests/fixtures/mission/labels/` (VU0.2) — and the second
+  // half of each of those cases, that the answer came without looking at a frame, is
+  // already measured by `perception-metrics.ts` (`framesSeen`) rather than by the rubric.
+  {
+    id: 'match-color-to-first-clip',
+    category: 'color',
+    project: 'mission-montage',
+    why:
+      'Five clips from five different cameras, so clip 1 and clip 3 genuinely do not match — ' +
+      'the fixture where "match this to that" has a real answer. What is scored is direction ' +
+      'and containment: the named target gained the grade, the reference did NOT (grading the ' +
+      'reference to look like the target is the plausible, silent, exactly-wrong edit), every ' +
+      'parameter is inside the renderer contract and actually moves something, and nothing ' +
+      'else on the timeline changed. The residual — how close the two shots now measure — is ' +
+      'not scoreable from the project file, which carries no measurement; it is what the VU7 ' +
+      'shot_match evidence route and the operator judge.',
+    turns: [
+      {
+        prompt: "Match the third clip's color to the first clip.",
+        rubric: 'match-color-to-reference',
+        intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'warmer-subtle',
+    category: 'color',
+    project: 'mission-montage',
+    why:
+      'The vaguest colour request there is, and the one the look table exists for. The rubric ' +
+      'asserts what the table says rather than a number invented here: `warmer` is a warmth ' +
+      'delta and nothing else, so every picture clip must carry a positive temperature, no ' +
+      'clip may move exposure, contrast or saturation, and "a little" must stay well inside ' +
+      'the contract. How MUCH temperature each shot needs depends on its measured luma and ' +
+      'is the solver\'s business, so the rubric does not pin it. mission-montage rather than ' +
+      'a one-clip project because "make IT warmer" over five clips is where a run either ' +
+      'grades the sequence or grades one clip and reports success.',
+    turns: [
+      { prompt: 'Make it a little warmer.', rubric: 'warmer-subtle', intent: 'edit' },
+    ],
+  },
+  {
+    id: 'transitions-where-they-belong',
+    category: 'transitions',
+    project: 'mission-montage',
+    why:
+      'The whole request is about WHICH cuts, so the case needs a timeline with both kinds, ' +
+      'and the fixture as shipped has only one kind — its five cuts all change source. So the ' +
+      'first turn builds a montage, which produces continuity cuts (one shot carrying on into ' +
+      'the next) alongside source changes, and the second turn is the request under test. The ' +
+      'rubric then has an "elsewhere": a transition must land on at least one source change, ' +
+      'and none may land on a continuity cut — the classic amateur tell, and the case ' +
+      '`chooseTransition` returns null for no matter how large the measured deltas are. ' +
+      'Deliberately not "a transition at EVERY source change": a montage that dissolves eight ' +
+      'times is worse than one that dissolves twice, and a rubric demanding all of them would ' +
+      'fail the better edit.',
+    turns: [
+      {
+        prompt:
+          'Create a 30-second fast-paced social montage from the raw footage on the timeline.',
+        rubric: 'montage-30s',
+        intent: 'edit',
+      },
+      {
+        prompt: 'Add transitions where they belong.',
+        rubric: 'transitions-where-they-belong',
+        intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'broll-over-sentence',
+    category: 'broll',
+    project: 'mission-talk',
+    brollFrom: 'mission-montage',
+    why:
+      'Target resolution by SENTENCE, which is the one thing `broll-first-20s` cannot test — ' +
+      'that case names a time window ("the first 20 seconds") and this one names a line, so ' +
+      'the run has to find the words before it can place anything. mission-talk because it is ' +
+      'the fixture with a real transcript; the line is the one the narration actually ' +
+      'contains (the plan\'s example says "the sentence about traffic", and this footage is ' +
+      'about football). WHAT the rubric does not judge, and says so: whether the b-roll it ' +
+      'chose is ABOUT the line. That needs a verified label on the footage and the fixture ' +
+      'b-roll has none — see tests/fixtures/mission/labels/README.md. The operator judges the ' +
+      'footage choice; the harness judges the placement.',
+    turns: [
+      {
+        prompt: 'Put b-roll from the bin over the line about the Champions League.',
+        rubric: 'broll-over-sentence',
+        intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'remove-duplicate-takes',
+    category: 'duplicates',
+    project: 'mission-montage',
+    why:
+      'No committed fixture ships two takes of one action, so the repeats are BUILT by the ' +
+      'first turn, which asks for them in as many words. That makes the case honest about ' +
+      'what it measures: a duplicate here is two clips playing overlapping source of the same ' +
+      'asset — a fact the project file proves — not tier 1\'s phash `duplicateOf`, which ' +
+      'clusters two separate recordings and has no fixture to run against. Both halves are ' +
+      'scored, because deleting most of the programme also removes every duplicate: the ' +
+      'repeated material must be gone AND every un-repeated shot must survive.',
+    turns: [
+      {
+        prompt:
+          'Build a 30-second montage from this footage, and use the opening shot three times.',
+        rubric: 'montage-30s',
+        intent: 'edit',
+      },
+      {
+        prompt: 'Drop the duplicate takes.',
+        rubric: 'remove-duplicate-takes',
+        intent: 'edit',
+      },
+    ],
+  },
+  {
+    id: 'which-clips-show-host',
+    category: 'question',
+    project: 'mission-montage',
+    why:
+      'A question, not an edit: the right outcome is an answer and an untouched timeline. ' +
+      'mission-montage because it has five clips of different material, so "which ones show ' +
+      'the host" has an answer that is neither all of them nor none. THE ANSWER\'S ' +
+      'CORRECTNESS IS JUDGED BY THE OPERATOR against the tier-1 subject labels in ' +
+      'tests/fixtures/mission/labels/tier1.json — a rubric cannot read prose, and a keyword ' +
+      'match on the reply would score the agent\'s vocabulary, not its knowledge. What the ' +
+      'harness scores by itself is the other half of the claim, and the half this plan is ' +
+      'actually about: the timeline is unchanged, and `perception-metrics.framesSeen` says ' +
+      'whether the answer cost a frame. It must not.',
+    turns: [
+      { prompt: 'Which clips show the host?', rubric: 'unchanged', intent: 'answer' },
+    ],
+  },
+  {
+    id: 'whats-on-screen-at',
+    category: 'question',
+    project: 'mission-montage',
+    why:
+      'The narrowest form of the same claim: one moment, one shot. 0:42 falls inside the ' +
+      'second clip of the shipped fixture, so the question resolves to a specific piece of ' +
+      'footage rather than to the programme as a whole. Scored the same way and for the same ' +
+      'reason: unchanged timeline here, answer correctness by the operator against ' +
+      'tier2.json, frames seen by perception-metrics. A run that grabs a frame to answer this ' +
+      'has demonstrated exactly the failure the plan exists to remove.',
+    turns: [
+      { prompt: "What's on screen at 0:42?", rubric: 'unchanged', intent: 'answer' },
+    ],
+  },
+  {
+    id: 'find-dark-clips',
+    category: 'question',
+    project: 'mission-montage',
+    why:
+      'The tier-0 question — exposure is measured, needs no key, no model and no network, and ' +
+      'is the floor the whole ledger sits on. So this is the case that should pass first and ' +
+      'on a machine with nothing configured. The answer is judged by the operator against the ' +
+      'exposure classes in tier0.json (which are PROPOSED, not verified — see that ' +
+      'directory\'s README, and never tune a threshold against them). The harness scores that ' +
+      'nothing was edited and that no frame was rendered to find out.',
+    turns: [
+      { prompt: 'Which clips are underexposed?', rubric: 'unchanged', intent: 'answer' },
+    ],
   },
 ];
 

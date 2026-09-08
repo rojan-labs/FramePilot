@@ -56,6 +56,7 @@ const {
   createMemoryRecorder,
   createReplayEffectRuntime,
   VisualIndexClient,
+  LedgerClient,
   summarizeFootageMap,
   scoreMissionScenario,
   summarizeRunMetrics,
@@ -266,12 +267,32 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
   let visualStatus;
   let footageMap;
   let sessionContext;
+  let ledger;
   if (!REPLAY) {
     const visualIndex = new VisualIndexClient({ baseUrl: BASE_URL });
-    [visualStatus, footageMap, sessionContext] = await Promise.all([
+    // The SHOT LEDGER, on the same footing as the three above. Without it every tool that
+    // reads picture facts (`pictureOf` → `ctx.ledger`) sees an unmeasured project, so
+    // `match_color`, `normalize_exposure`, `apply_look`, `add_transitions` and the footage
+    // questions can only ever exercise their honest-refusal path — they are structurally
+    // incapable of passing, however well the feature works. The desktop always supplies
+    // this; a harness that does not is measuring a surface the product never shows, which
+    // is the same defect the `interaction` snapshot comment above records.
+    //
+    // Assets are the ones this timeline actually references, which is the bound the route
+    // is designed around: a run reads its own footage, never the library.
+    const timelineAssetIds = [
+      ...new Set(project.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId))),
+    ].filter((assetId) => assetId != null);
+    [visualStatus, footageMap, sessionContext, ledger] = await Promise.all([
       createVisualStatusDigester({ baseUrl: BASE_URL })(project.id, orchestrator.canSeeFrames()).catch(() => undefined),
       visualIndex.footageMap({ projectId: project.id, project, cachedOnly: true }).then(summarizeFootageMap).catch(() => undefined),
       createSessionContextDigester({ baseUrl: BASE_URL })(project.id).catch(() => undefined),
+      timelineAssetIds.length === 0
+        ? Promise.resolve(undefined)
+        : new LedgerClient({ baseUrl: BASE_URL })
+            .snapshot({ projectId: project.id, assetIds: timelineAssetIds })
+            .then((snapshot) => snapshot ?? undefined)
+            .catch(() => undefined),
     ]);
   }
   const rememberDecision = REPLAY
@@ -349,6 +370,7 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
         ...(visualStatus ? { visualStatus } : {}),
         ...(footageMap ? { footageMap } : {}),
         ...(sessionContext ? { sessionContext } : {}),
+        ...(ledger ? { ledger } : {}),
       },
       { conversationId: `mission-${scenarioId}`, turnId: `mission-${scenarioId}-t${turnIndex}`, signal: controller.signal },
       // The desktop hands the previous run's working state to the next request

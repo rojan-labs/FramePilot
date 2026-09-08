@@ -49,8 +49,6 @@ export interface AiConfigContextValue {
    * TwelveLabs instead of the built-in pipeline.
    */
   readonly setTwelveLabs: (key: string | null) => void;
-  /** Toggle background auto-indexing of imported media (default on — D3). */
-  readonly setEmbeddingsAutoIndex: (enabled: boolean) => void;
   /** Select the configured provider used to caption indexed scenes. */
   readonly setVisualCaptionProvider: (provider: AiProviderName) => void;
   /**
@@ -141,7 +139,6 @@ export function AiConfigProvider({ children }: AiConfigProviderProps): JSX.Eleme
       setBaseUrl: (name, baseUrl) => applyUpdate({ baseUrls: { [name]: baseUrl } }),
       setNvidiaEmbeddings: (keys) => applyUpdate({ nvidiaEmbeddings: keys }),
       setTwelveLabs: (key) => applyUpdate({ twelveLabs: key }),
-      setEmbeddingsAutoIndex: (enabled) => applyUpdate({ embeddingsAutoIndex: enabled }),
       setVisualCaptionProvider: (visualCaptionProvider) => applyUpdate({ visualCaptionProvider }),
       setAsrApiKey: (key) => applyUpdate({ asrApiKey: key }),
       setAsrProvider: (asrProvider) => applyUpdate({ asrProvider }),
@@ -177,8 +174,6 @@ export function useAiConfig(): AiConfigContextValue {
         setStandalone(browserToAiConfig(applyBrowserUpdate({ nvidiaEmbeddings: keys }))),
       setTwelveLabs: (key) =>
         setStandalone(browserToAiConfig(applyBrowserUpdate({ twelveLabs: key }))),
-      setEmbeddingsAutoIndex: (enabled) =>
-        setStandalone(browserToAiConfig(applyBrowserUpdate({ embeddingsAutoIndex: enabled }))),
       setVisualCaptionProvider: (visualCaptionProvider) =>
         setStandalone(browserToAiConfig(applyBrowserUpdate({ visualCaptionProvider }))),
       setAsrApiKey: (key) =>

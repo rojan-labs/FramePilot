@@ -1,7 +1,8 @@
 /**
  * Auto-transcribe-on-import (Settings → AI → Speech-to-text → "Automatically on
- * import"). Mirrors {@link ./visualIndex.ts autoIndexImportedAssets}: a fire-and-forget
- * background job the MediaBin import flow `void`s so it never blocks import or preview.
+ * import"). A fire-and-forget background job the MediaBin import flow `void`s so it never
+ * blocks import or preview. (Visual enrolment used to be its twin here; it now happens in
+ * the desktop main process at the media-import IPC — see `visualIndex.ts`.)
  *
  * WHY it's shaped this way:
  * - The project transcript is **project-wide and singular** (`set_transcript` replaces

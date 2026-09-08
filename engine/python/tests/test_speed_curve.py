@@ -127,6 +127,33 @@ def test_normalize_sorts_collapses_duplicates_and_drops_bad_rates() -> None:
     assert [p.id for p in normalize_ramp([_point("a", 0.0, 0.0), _point("b", 1.0, 2.0)])] == ["b"]
 
 
+class _LoosePoint:
+    """A duck-typed point, in whichever spelling of the field it arrives with."""
+
+    def __init__(self, id_: str, rate: float, **spellings: float) -> None:
+        self.id = id_
+        self.rate = rate
+        self.easing = "linear"
+        for name, value in spellings.items():
+            setattr(self, name, value)
+
+
+def test_source_time_is_read_by_presence_not_truthiness() -> None:
+    # 0.0 is falsy and it anchors nearly every curve, so reading the field with an
+    # `or` chain fell through a genuine zero to the next spelling — silently
+    # re-anchoring the curve on an unrelated value.
+    ramp = normalize_ramp(
+        [
+            _LoosePoint("late", 2.0, sourceTime=4.0),
+            _LoosePoint("zero", 0.5, source_time=0.0, sourceTime=9.0),
+        ]
+    )
+    assert [p.id for p in ramp] == ["zero", "late"]
+    assert rate_at(ramp, 0.0) == 0.5
+    # The camelCase spelling still answers when snake_case is absent.
+    assert rate_at(ramp, 4.0) == 2.0
+
+
 # ---------------------------------------------------------------------------
 # Inversion
 # ---------------------------------------------------------------------------

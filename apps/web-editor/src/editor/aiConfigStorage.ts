@@ -82,8 +82,6 @@ export interface BrowserAiConfig {
   nvidiaEmbeddings?: string;
   /** TwelveLabs media-understanding and native-transcription key. */
   twelveLabs?: string;
-  /** Optional eager warming after import. Semantic operations still index implicitly. */
-  embeddingsAutoIndex?: boolean;
   /** Legacy hosted STT key retained only until desktop migration removes old callers. */
   asrApiKey?: string;
   /** Exactly Local or TwelveLabs after load/update migration. */
@@ -134,9 +132,9 @@ export function loadBrowserAiConfig(): BrowserAiConfig {
       ...(typeof parsed.twelveLabs === 'string' && parsed.twelveLabs !== ''
         ? { twelveLabs: parsed.twelveLabs }
         : {}),
-      ...(typeof parsed.embeddingsAutoIndex === 'boolean'
-        ? { embeddingsAutoIndex: parsed.embeddingsAutoIndex }
-        : {}),
+      // `embeddingsAutoIndex` is deliberately dropped, not migrated forward: preparation
+      // is not optional any more (ADR 0175). Reading it would be the only thing keeping a
+      // retired toggle alive in browser storage.
       ...(parsed.asrProvider === undefined
         ? {}
         : { asrProvider: migrateAsrProviderName(parsed.asrProvider) }),
@@ -214,10 +212,6 @@ export function applyBrowserUpdate(update: AiConfigUpdate): BrowserAiConfig {
     else config.twelveLabs = key;
   }
 
-  if (typeof update.embeddingsAutoIndex === 'boolean') {
-    config.embeddingsAutoIndex = update.embeddingsAutoIndex;
-  }
-
   // `visualCaptionProvider` updates are deliberately ignored. The active provider
   // is the one source of captioning-model selection after this migration.
 
@@ -274,7 +268,6 @@ export function toAiConfig(config: BrowserAiConfig): AiConfig {
     providers,
     ...(config.nvidiaEmbeddings !== undefined ? { nvidiaEmbeddings: config.nvidiaEmbeddings } : {}),
     ...(config.twelveLabs !== undefined ? { twelveLabs: config.twelveLabs } : {}),
-    embeddingsAutoIndex: config.embeddingsAutoIndex ?? true,
     ...(config.asrApiKey !== undefined ? { asrApiKey: config.asrApiKey } : {}),
     ...(config.asrProvider !== undefined ? { asrProvider: config.asrProvider } : {}),
     ...(config.asrModel !== undefined ? { asrModel: config.asrModel } : {}),
