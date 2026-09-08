@@ -1070,8 +1070,8 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       name: 'trim_clip',
       description:
         "Set a clip's new start and/or end in timeline seconds (leave one out to keep " +
-        'it); the source in/out shifts by the same amount. Use to tighten or extend one ' +
-        "clip's edges. It cannot change " +
+        'it); the source in/out follows, scaled by the clip\'s speed. Use to tighten or ' +
+        "extend one clip's edges. It cannot change " +
         'WHERE IN THE ASSET a clip reads from while keeping its timeline position and ' +
         'length — to do that, delete_clip it and add_clip the same span with a different ' +
         'sourceStart.',

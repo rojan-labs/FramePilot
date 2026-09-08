@@ -85,6 +85,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   retimed clip you had not touched. Speed changes land on your project's frame grid, and
   the check that guards them now measures on that same grid instead of demanding an exact
   fraction of a second no frame boundary can sit on.
+- **Retimed clips can be trimmed, split and cut again.** Tightening a sped-up shot, or
+  splitting one you had put in slow motion, could come back refused — the render engine
+  still moved the clip's in/out point by the same amount as its edges, which is only right
+  at normal speed, and then rejected the very edit it had just made. Freeze frames lost
+  their held frame, reversed clips gave up footage from the wrong end, and a split of a
+  speed ramp cut in the wrong place and left both halves playing the whole original curve.
+  All four now follow the speed, so a trim lands on the frame you asked for whatever the
+  clip's speed, and any animation or ramp on it stays anchored to the same footage.
+  (`engine/python`)
 - **Reversed and freeze-frame clips keep their real timing.** The one map that relates a
   moment of your footage to a moment of the edit treated any reversed clip as playing
   forwards at normal speed, and a held frame as a normal-speed walk through its source
