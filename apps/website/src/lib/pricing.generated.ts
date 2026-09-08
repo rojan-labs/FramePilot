@@ -2,4 +2,16 @@
 /* eslint-disable */
 import type { GeneratedPricing } from './pricing-types';
 
-export const GENERATED_PRICING: GeneratedPricing | null = null;
+export const GENERATED_PRICING: GeneratedPricing = {
+  "fetchedAt": "2026-09-08T16:41:33.337Z",
+  "currency": "USD",
+  "plans": {
+    "pro": {
+      "price": null,
+      "dodoProductIds": {
+        "monthly": "pdt_0NnATBKXpVWP8y2UPg87c",
+        "annual": "pdt_0NnATUkOqjCVmT4Qka0wi"
+      }
+    }
+  }
+};
