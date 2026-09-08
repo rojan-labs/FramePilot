@@ -5284,6 +5284,19 @@ getting them wrong would have meant redoing the shaders and the AI tools.
   toggle deferred (ADR 0090 records that neither route is implemented, so the control
   would claim a capability the render lacks). **10d (visual ramp editor) remains.**
   editor-core 556, timeline-schema 153, engine 1951, web-editor 2162 green.
+  **Follow-up: the canonical map had not learned v15 (issue #84, DONE 2026-09-08).**
+  `buildTimelineMap` still coerced every non-positive `speed` to `1`, on ADR 0076's
+  schema-v12 premise that reverse was unrepresentable — so a reversed clip mapped
+  forwards at 1x and a freeze mapped as a full 1x walk of its source range, and every
+  consumer of the one authoritative source↔sequence mapping (caption derivation,
+  `verify_captions`, the critic, `map_time`/`get_timeline_map`) read wrong times for
+  those clips while reporting success. `ClipSpan.speed` now carries the sign; the
+  conversions branch on direction (reverse consumes from `sourceEnd` down, with the
+  half-open source range flipping to `(sourceStart, sourceEnd]`) and a freeze holds
+  `sourceStart`, covering only the held instant rather than claiming its whole range.
+  Transcript mapping skips frozen spans — the render drops their audio, so no word is
+  heard over one — and cue intervals are ordered so a reversed clip cannot emit
+  `end < start`. ADR 0076 amended; editor-core 1084 green.
   **Timeline selection fixes (reported bug, DONE 2026-07-31)** — two defects the
   revamp's heterogeneous lane heights exposed. (1) **Marquee row mapping:**
   `clipsIntersectingRect` took a single `rowHeight` and the view passed

@@ -85,6 +85,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   retimed clip you had not touched. Speed changes land on your project's frame grid, and
   the check that guards them now measures on that same grid instead of demanding an exact
   fraction of a second no frame boundary can sit on.
+- **Reversed and freeze-frame clips keep their real timing.** The one map that relates a
+  moment of your footage to a moment of the edit treated any reversed clip as playing
+  forwards at normal speed, and a held frame as a normal-speed walk through its source
+  range. Everything that reads that map — captions, the transcript as it plays, the "where
+  did this moment end up" answer, and the AI's own verification — was therefore wrong for
+  those clips. Reversed footage now maps backwards at its real rate, a freeze holds the
+  frame it is holding, and speech is no longer captioned over a silent held frame.
+
 - **Local visual understanding actually installs.** The two packs that let FramePilot
   recognise and describe your footage on your own machine — no key, no upload — could not
   be installed at all. Every attempt failed while downloading, because the models were
