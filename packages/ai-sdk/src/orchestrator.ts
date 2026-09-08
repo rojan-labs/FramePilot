@@ -16,6 +16,7 @@ import {
   SilenceRangesPayloadSchema,
   noCutsNote,
   silenceCutOps,
+  describeSilenceSkips,
 } from './silence-cut.js';
 import {
   type AnyOperation,
@@ -4663,7 +4664,11 @@ export class Orchestrator {
               : DEFAULT_SILENCE_CUT.keepSeconds,
           ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
         };
-        const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
+        const { ops, cuts, removedSeconds, skips } = silenceCutOps(
+          ctx.project,
+          parsed.data,
+          options,
+        );
         if (ops.length === 0) {
           // An empty cut list is NEVER evidence that the recording is tight — `ranges` is
           // filtered inside ffmpeg, so it is empty by construction whenever the threshold
@@ -4684,7 +4689,13 @@ export class Orchestrator {
         if (!probe.validation.valid) {
           return hostBackedValidatorRejection('remove_silences', probe.validation.issues, ops);
         }
-        const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
+        // "3 of 4": the count the measurement returned is the number the model read, and a
+        // summary that only names the cuts leaves it to guess where the rest went.
+        const skipped = describeSilenceSkips(skips);
+        const measured = parsed.data.ranges.length;
+        const summary =
+          `Removed ${String(cuts.length)}${measured > cuts.length ? ` of ${String(measured)} measured` : ''} ` +
+          `silence(s), ${removedSeconds.toFixed(1)}s in total${skipped ? ` (${skipped})` : ''}`;
         return {
           ops,
           note: `${summary}. Breath of ${String(options.keepSeconds)}s kept on each side; the timeline is ${removedSeconds.toFixed(1)}s shorter.`,

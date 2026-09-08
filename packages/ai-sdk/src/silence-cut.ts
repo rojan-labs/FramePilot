@@ -64,6 +64,37 @@ export interface SilenceCut {
   readonly end: number;
 }
 
+/**
+ * Why a measured silence did not become a cut. Reported, because a run told "Removed 3
+ * silence(s)" after a measurement that listed four had no way to know the fourth sat
+ * inside a spoken word (run `df81d58e`, the 16.0 s gap under "with one mission").
+ */
+export type SilenceSkipReason =
+  | 'below_threshold'
+  | 'inside_spoken_word'
+  | 'too_short_after_breath'
+  | 'speed_changed_clip';
+
+/** How many measured silences each reason kept out of the cut list. */
+export type SilenceSkips = Readonly<Partial<Record<SilenceSkipReason, number>>>;
+
+const SKIP_REASON_TEXT: Readonly<Record<SilenceSkipReason, string>> = {
+  below_threshold: 'shorter than minSilenceSeconds',
+  inside_spoken_word: 'inside a spoken word',
+  too_short_after_breath: 'too short once breath is kept on each side',
+  speed_changed_clip: 'on a speed-changed clip',
+};
+
+/** "1 skipped: inside a spoken word", or '' when nothing was skipped. */
+export function describeSilenceSkips(skips: SilenceSkips): string {
+  const parts = (Object.entries(skips) as [SilenceSkipReason, number][])
+    .filter(([, n]) => n > 0)
+    .map(([reason, n]) => `${String(n)} ${SKIP_REASON_TEXT[reason]}`);
+  if (parts.length === 0) return '';
+  const total = parts.reduce((sum, _p, i) => sum + Object.values(skips)[i]!, 0);
+  return `${String(total)} skipped: ${parts.join(', ')}`;
+}
+
 const EPS = 1e-6;
 
 /**
@@ -124,28 +155,49 @@ export function silenceCuts(
   project: Project,
   payload: SilenceRangesPayload,
   options: SilenceCutOptions = DEFAULT_SILENCE_CUT,
+  skips?: Partial<Record<SilenceSkipReason, number>>,
 ): SilenceCut[] {
   const cuts: SilenceCut[] = [];
+  const skip = (reason: SilenceSkipReason): void => {
+    if (skips) skips[reason] = (skips[reason] ?? 0) + 1;
+  };
   for (const track of project.timeline.tracks) {
     if (options.trackId && track.id !== options.trackId) continue;
     for (const clip of track.clips as readonly Clip[]) {
       if (clip.assetId !== payload.assetId) continue;
       const speed = (clip as { speed?: number }).speed ?? 1;
-      if (speed !== 1) continue;
+      if (speed !== 1) {
+        for (const range of payload.ranges) {
+          if (range.end > clip.sourceStart && range.start < clip.sourceEnd) skip('speed_changed_clip');
+        }
+        continue;
+      }
       for (const range of payload.ranges) {
         // Qualify on the MEASURED span, not the trimmed one. Testing the trimmed span
         // applied the threshold a second time — ffmpeg had already enforced it — making
         // the real floor `minSilenceSeconds + 2 * keepSeconds`: a run asking for 0.55s
         // was quietly cutting nothing under 0.85s. `keepSeconds` shrinks a cut; it must
         // never disqualify the silence.
-        if (range.end - range.start < options.minSilenceSeconds - EPS) continue;
+        if (range.end - range.start < options.minSilenceSeconds - EPS) {
+          skip('below_threshold');
+          continue;
+        }
         const trimmedStart = Math.max(range.start + options.keepSeconds, clip.sourceStart);
         const trimmedEnd = Math.min(range.end - options.keepSeconds, clip.sourceEnd);
+        // A silence that does not fall inside this clip's source window is another clip's
+        // business (or nobody's); it is not a skip of this clip.
+        if (trimmedEnd <= clip.sourceStart || trimmedStart >= clip.sourceEnd) continue;
         // Never open a cut inside a spoken word, whatever the energy said.
         const safe = wordSafeRange(trimmedStart, trimmedEnd, project.transcript);
-        if (safe === null) continue;
+        if (safe === null) {
+          skip('inside_spoken_word');
+          continue;
+        }
         const { start: s, end: e } = safe;
-        if (e - s < MIN_CUT_SECONDS) continue;
+        if (e - s < MIN_CUT_SECONDS) {
+          skip('too_short_after_breath');
+          continue;
+        }
         const start = frameSnap(clip.start + (s - clip.sourceStart), project.fps);
         const end = frameSnap(clip.start + (e - clip.sourceStart), project.fps);
         if (end - start <= EPS) continue;
@@ -164,8 +216,9 @@ export function silenceCutOps(
   project: Project,
   payload: SilenceRangesPayload,
   options: SilenceCutOptions = DEFAULT_SILENCE_CUT,
-): { ops: AnyOperation[]; cuts: SilenceCut[]; removedSeconds: number } {
-  const cuts = silenceCuts(project, payload, options).sort((a, b) => b.start - a.start);
+): { ops: AnyOperation[]; cuts: SilenceCut[]; removedSeconds: number; skips: SilenceSkips } {
+  const skips: Partial<Record<SilenceSkipReason, number>> = {};
+  const cuts = silenceCuts(project, payload, options, skips).sort((a, b) => b.start - a.start);
   const ops: AnyOperation[] = cuts.map((cut) => ({
     type: 'ripple_delete',
     trackId: cut.trackId,
@@ -173,7 +226,7 @@ export function silenceCutOps(
     end: cut.end,
   }));
   const removedSeconds = cuts.reduce((sum, c) => sum + (c.end - c.start), 0);
-  return { ops, cuts, removedSeconds };
+  return { ops, cuts, removedSeconds, skips };
 }
 
 /**

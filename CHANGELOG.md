@@ -6,6 +6,35 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Fixed
+
+- **Caption chips no longer swallow the picture.** Asking the AI for a white background
+  behind captions could produce a chip thousands of pixels wide — the padding was written
+  in the wrong unit and nothing checked it. The AI now sees each template's real chip
+  numbers when it browses styles, is refused a value in the wrong unit with the range it
+  should use, and `verify_captions` reports an oversized chip and a caption too short to
+  read. A style search that names a real template in the wrong category now returns it
+  instead of nothing.
+- **Reframing a landscape clip can no longer letterbox a vertical edit.** A crop whose
+  shape does not match the frame is refused with the black bars it would produce and the
+  frame-filling crop to move instead; pass `allowLetterbox` if the bars are the intent.
+- **The AI keeps its understanding tools after transcribing.** Writing a transcript or
+  adding a track no longer counts as starting the edit, so footage analysis stays available
+  until the first real cut lands.
+- **The end-of-run summary says what the AI never had.** If your request named stock,
+  b-roll, music or colour work and the AI never loaded that tool set, the summary now says
+  so, with the tools that were never offered. A run that stops because its next step was
+  already done says that, rather than ending silently.
+- **Markers are checked against the words.** A labelled marker whose words are not spoken
+  within two seconds of it is flagged in the self-check, so "Hook" cannot sit on the wrong
+  line.
+- **Usage counts cached tokens.** The session's token and cost readout now includes prompt
+  tokens served from the provider's cache — previously a cached run could read as a tenth
+  of its real size.
+- **A router alias is called out.** Choosing a model like `openrouter/auto` now warns at
+  the start of a run that the AI cannot look at frames or size its context, and suggests
+  pinning a model.
+
 ### Changed
 
 - **Buying and activating FramePilot now runs on Dodo Payments.** Checkout, the receipt,
