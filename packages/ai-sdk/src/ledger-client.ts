@@ -118,6 +118,24 @@ function tierVersionsOf(shots: readonly ShotRecord[]): [number, number, number] 
 }
 
 /**
+ * Where one asset's rows live in the cache: the PROJECT and the asset together.
+ *
+ * Asset ids are unique within a project, not across them — `stock_pexels_10374888` is the
+ * same id in every project that sources that clip, and a filename-derived id collides just
+ * as easily. Each project has its own brain and measures its own copy, so keyed on the
+ * asset alone one project served another's rows and the engine was never asked about the
+ * second at all: a project that had measured nothing reported full coverage of a clip it
+ * had never seen.
+ *
+ * Reachable wherever a client outlives a project switch, which is both hosts — the desktop
+ * client is per process (its cache is what makes the ledger free after the first read) and
+ * the browser's is per session.
+ */
+function cacheSlot(projectId: string, assetId: string): string {
+  return `${projectId}\u0000${assetId}`;
+}
+
+/**
  * The cache identity of one asset's rows.
  *
  * Content hash first because it is what makes the facts true: different bytes are a
@@ -192,22 +210,26 @@ export class LedgerClient {
     request: LedgerSnapshotRequest,
     signal?: AbortSignal,
   ): Promise<LedgerSnapshot | null> {
-    for (const assetId of request.refresh ?? []) this.cache.delete(assetId);
+    for (const assetId of request.refresh ?? []) {
+      this.cache.delete(cacheSlot(request.projectId, assetId));
+    }
 
     const wanted = [...new Set(request.assetIds)];
-    const missing = wanted.filter((assetId) => !this.cache.has(assetId));
+    const missing = wanted.filter(
+      (assetId) => !this.cache.has(cacheSlot(request.projectId, assetId)),
+    );
     let failed = false;
     if (missing.length > 0) {
       const pages = await this.fetchPages(request.projectId, missing, request.limit, signal);
       if (pages === null) failed = true;
-      else this.store(missing, pages);
+      else this.store(request.projectId, missing, pages);
     }
 
     const shots: ShotRecord[] = [];
     const digests: AssetDigest[] = [];
     const identity: string[] = [];
     for (const assetId of wanted) {
-      const entry = this.cache.get(assetId);
+      const entry = this.cache.get(cacheSlot(request.projectId, assetId));
       if (!entry) continue;
       identity.push(entry.key);
       shots.push(...entry.shots);
@@ -231,9 +253,17 @@ export class LedgerClient {
     return snapshot;
   }
 
-  /** Drop cached rows for these assets, so the next {@link snapshot} re-reads them. */
-  public invalidate(assetIds: readonly string[]): void {
-    for (const assetId of assetIds) this.cache.delete(assetId);
+  /**
+   * Drop cached rows for these assets of this project, so the next {@link snapshot} re-reads
+   * them.
+   *
+   * The caller is whatever knows an asset's facts have CHANGED — on desktop, the enroller,
+   * when a visual-index batch reports `done`. This matters most for the asset that returned
+   * no rows: "nothing has measured this" is cached like any other answer, so a clip read
+   * while it was still indexing would otherwise stay empty for the life of the client.
+   */
+  public invalidate(projectId: string, assetIds: readonly string[]): void {
+    for (const assetId of assetIds) this.cache.delete(cacheSlot(projectId, assetId));
   }
 
   /** Drop every cached asset. */
@@ -241,9 +271,12 @@ export class LedgerClient {
     this.cache.clear();
   }
 
-  /** The cache identity currently held for an asset, or `undefined` when it is not cached. */
-  public cacheKeyFor(assetId: string): string | undefined {
-    return this.cache.get(assetId)?.key;
+  /**
+   * The cache identity currently held for an asset of a project, or `undefined` when it is
+   * not cached.
+   */
+  public cacheKeyFor(projectId: string, assetId: string): string | undefined {
+    return this.cache.get(cacheSlot(projectId, assetId))?.key;
   }
 
   /**
@@ -295,7 +328,11 @@ export class LedgerClient {
    * "this asset has no shots yet" is an answer, and caching it is what stops a run re-asking
    * on every turn for footage that has not been analysed.
    */
-  private store(requested: readonly string[], pages: readonly LedgerSnapshot[]): void {
+  private store(
+    projectId: string,
+    requested: readonly string[],
+    pages: readonly LedgerSnapshot[],
+  ): void {
     const shotsByAsset = new Map<string, ShotRecord[]>();
     const digestByAsset = new Map<string, AssetDigest>();
     for (const page of pages) {
@@ -309,7 +346,11 @@ export class LedgerClient {
     for (const assetId of requested) {
       const shots = shotsByAsset.get(assetId) ?? [];
       const digest = digestByAsset.get(assetId) ?? null;
-      this.cache.set(assetId, { key: cacheKey(assetId, shots, digest), shots, digest });
+      this.cache.set(cacheSlot(projectId, assetId), {
+        key: cacheKey(assetId, shots, digest),
+        shots,
+        digest,
+      });
     }
   }
 

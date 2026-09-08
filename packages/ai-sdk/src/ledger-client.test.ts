@@ -216,7 +216,7 @@ describe('LedgerClient.snapshot — the cache', () => {
     expect(calls()).toBe(1);
     expect(snapshot?.shots).toEqual([]);
     // A distinguishable identity: asked, and told nothing.
-    expect(client.cacheKeyFor('a1')).toBe('a1|-|0.0.0');
+    expect(client.cacheKeyFor('p1', 'a1')).toBe('a1|-|0.0.0');
   });
 
   it('keys the cache on the content hash and the tier versions, and refetches on refresh', async () => {
@@ -232,11 +232,11 @@ describe('LedgerClient.snapshot — the cache', () => {
       ),
     ]);
     await client.snapshot(request());
-    expect(client.cacheKeyFor('a1')).toBe(`a1|h1|${String(TIER0_VERSION)}.0.0`);
+    expect(client.cacheKeyFor('p1', 'a1')).toBe(`a1|h1|${String(TIER0_VERSION)}.0.0`);
     // A tier finished indexing: the host says so, and the identity moves with it.
     const after = await client.snapshot(request({ refresh: ['a1'] }));
     expect(calls()).toBe(2);
-    expect(client.cacheKeyFor('a1')).toBe(
+    expect(client.cacheKeyFor('p1', 'a1')).toBe(
       `a1|h1|${String(TIER0_VERSION)}.${String(TIER1_VERSION)}.0`,
     );
     expect(after?.coverage).toEqual({ measured: 1, labelled: 1, described: 0, total: 1 });
@@ -245,14 +245,14 @@ describe('LedgerClient.snapshot — the cache', () => {
   it('invalidate() and clearCache() drop what they say they drop', async () => {
     const { client, calls } = clientFor([page([shot('a1', 0)], [digest('a1')])]);
     await client.snapshot(request());
-    client.invalidate(['a2']);
-    expect(client.cacheKeyFor('a1')).toBeDefined();
-    client.invalidate(['a1']);
-    expect(client.cacheKeyFor('a1')).toBeUndefined();
+    client.invalidate('p1', ['a2']);
+    expect(client.cacheKeyFor('p1', 'a1')).toBeDefined();
+    client.invalidate('p1', ['a1']);
+    expect(client.cacheKeyFor('p1', 'a1')).toBeUndefined();
     await client.snapshot(request());
     expect(calls()).toBe(2);
     client.clearCache();
-    expect(client.cacheKeyFor('a1')).toBeUndefined();
+    expect(client.cacheKeyFor('p1', 'a1')).toBeUndefined();
   });
 });
 
@@ -295,7 +295,7 @@ describe('LedgerClient.snapshot — honest failure', () => {
     const snapshot = (await client.snapshot(request({ assetIds: ['a1', 'a2'] }))) as LedgerSnapshot;
     expect(snapshot.shots.map((s) => s.assetId)).toEqual(['a1']);
     expect(snapshot.coverage.total).toBe(1);
-    expect(client.cacheKeyFor('a2')).toBeUndefined();
+    expect(client.cacheKeyFor('p1', 'a2')).toBeUndefined();
   });
 });
 
@@ -339,3 +339,57 @@ describe('an unavailable brain is not an empty one', () => {
     expect(fetchFn).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('LedgerClient.snapshot — the cache is scoped to a project', () => {
+  it('never serves one project\'s rows for another project\'s same-named asset', async () => {
+    // Asset ids are unique within a project, not across them: `stock_pexels_10374888` is
+    // the same id in every project that sources that clip. Keyed on the asset alone, the
+    // second project was served the first's rows and the engine was never asked about it
+    // — a project that had measured nothing reported full coverage of a clip it had never
+    // seen. Reachable on both hosts, whose clients outlive a project switch.
+    const { client, urls } = clientFor([page([shot('a1', 0)], [digest('a1')]), page([], [])]);
+
+    const first = await client.snapshot(request({ projectId: 'projA', assetIds: ['a1'] }));
+    const second = await client.snapshot(request({ projectId: 'projB', assetIds: ['a1'] }));
+
+    expect(first?.shots).toHaveLength(1);
+    // B has measured nothing, and must be told so rather than handed A's facts.
+    expect(second?.shots).toHaveLength(0);
+    // And the engine was actually asked about B.
+    expect(urls.some((url) => url.includes('projectId=projB'))).toBe(true);
+  });
+
+  it('invalidate() drops only the named project\'s copy', async () => {
+    const { client } = clientFor([page([shot('a1', 0)], [digest('a1')]), page([], [])]);
+    await client.snapshot(request({ projectId: 'projA', assetIds: ['a1'] }));
+    await client.snapshot(request({ projectId: 'projB', assetIds: ['a1'] }));
+
+    client.invalidate('projB', ['a1']);
+
+    expect(client.cacheKeyFor('projA', 'a1')).toBeDefined();
+    expect(client.cacheKeyFor('projB', 'a1')).toBeUndefined();
+  });
+});
+
+describe('LedgerClient.snapshot — an asset measured after it was read', () => {
+  it('keeps serving "no shots" until it is invalidated, and picks the rows up after', async () => {
+    // "Nothing has measured this" is cached like any other answer, which is right — it
+    // stops every turn re-asking about footage that has none. It is wrong for exactly one
+    // asset: the one being indexed right now. Enrolment is fire-and-forget and takes about
+    // ninety seconds for a minute of video, so a run that reads the ledger while a freshly
+    // acquired clip is still indexing caches it empty and serves that forever.
+    //
+    // The desktop enroller now calls `invalidate` when a batch reports `done`, which is the
+    // signal `LedgerSnapshotRequest.refresh` was documented for and nothing supplied.
+    const { client } = clientFor([page([], []), page([shot('a1', 0)], [digest('a1')])]);
+
+    expect((await client.snapshot(request()))?.shots).toHaveLength(0);
+    // Enrolment finished in the background; without a signal the empty answer stands.
+    expect((await client.snapshot(request()))?.shots).toHaveLength(0);
+
+    client.invalidate('p1', ['a1']);
+
+    expect((await client.snapshot(request()))?.shots).toHaveLength(1);
+  });
+});
+

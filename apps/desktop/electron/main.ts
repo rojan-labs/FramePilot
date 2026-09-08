@@ -2328,6 +2328,14 @@ function registerIpcHandlers(): void {
       ? (['measured', 'labelled'] as const)
       : (['measured'] as const);
 
+  // One client for the process, not one per run: its cache is keyed by asset content hash
+  // and tier versions, and that cache is what makes the ledger free after the first read.
+  // A fresh client per run would re-fetch every asset on every turn.
+  //
+  // Declared HERE, above the enroller, because the enroller is the only thing in the app
+  // that knows when an asset's facts have changed — see the `invalidate` call below.
+  const shotLedgerClient = new LedgerClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
+
   const assetEnroller = createAssetEnroller({
     signal: enrolmentShutdown.signal,
     // ONE loop per batch, not one per asset. `/brain/visual/index` takes a list and paces
@@ -2378,6 +2386,22 @@ function registerIpcHandlers(): void {
       if (result.status !== 'done') {
         throw new Error(`visual index did not complete: ${result.status}`);
       }
+      // THE LEDGER CACHE HAS TO BE TOLD, and this is the only place that can tell it.
+      //
+      // `LedgerClient` caches per asset for the process lifetime, and it caches an asset
+      // that returned NO rows exactly as it caches one that returned some — which is right,
+      // because "this asset has no shots" is an answer worth keeping rather than re-asking
+      // every turn. It is wrong for precisely one asset: the one being measured right now.
+      // Enrolment is fire-and-forget and takes ~90s for a minute of video, so a run that
+      // reads the ledger while a freshly acquired clip is still indexing caches it as empty
+      // and then serves that empty answer forever — the clip stays invisible for the rest
+      // of the session even though the engine measured it seconds later.
+      //
+      // `refresh`/`invalidate` exist for this and had no caller anywhere in the repo. This
+      // is the signal the doc-comment on `LedgerSnapshotRequest.refresh` names: an asset
+      // whose index job reported `done`. Cheap and self-limiting — it drops at most one
+      // cache entry per asset per enrolment, and the next run re-reads only those.
+      shotLedgerClient.invalidate(projectId, assetIds);
     },
   });
 
@@ -2684,10 +2708,6 @@ function registerIpcHandlers(): void {
   // hub mints an unguessable requestId, scopes events + aborts to the owning sender,
   // re-validates the request, bounds the run with a timeout, and aborts on a destroyed
   // window. No secret crosses the bridge; only AiEvents do. (security review, M3 gate)
-  // One client for the process, not one per run: its cache is keyed by asset content hash
-  // and tier versions, so it is the thing that makes the ledger free after the first read.
-  // A fresh client per run would re-fetch every asset on every turn.
-  const shotLedgerClient = new LedgerClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
   const aiStreamHub = new AiStreamHub(getOrchestrator, {
     eventChannel: IpcChannels.aiStreamEvent,
     temporalEvidence,
