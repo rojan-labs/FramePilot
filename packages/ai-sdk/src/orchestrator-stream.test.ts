@@ -13,6 +13,7 @@ import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@frame
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
+import type { LedgerSnapshot } from './ledger.js';
 import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
 import type { TimerApi } from './reliability/timeout.js';
@@ -3785,6 +3786,66 @@ describe('streamAgent host tool execution (Phase T)', () => {
         { text: 'sourcing b-roll', toolCalls: [stockCall] },
         { text: 'done', toolCalls: [] },
       ]);
+
+    /**
+     * VU8. A run's understanding of the footage is fixed for the whole `runAiStream`
+     * call, and in agent mode that is the whole multi-turn run: run `19e20922` sourced a
+     * clip at minute six and reasoned about it with `picture: undefined` for the next
+     * twenty-four, though the engine measured it about ninety seconds later.
+     */
+    it('re-reads the ledger for footage the run itself acquired', async () => {
+      const calls: string[][] = [];
+      const refreshed = {
+        shots: [],
+        digests: [],
+        coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+      } as unknown as LedgerSnapshot;
+      await drain(
+        new Orchestrator(stockProvider(), {
+          executor: hostRun({ asset: stockAsset, atSeconds: 12 }),
+        }).streamAgent(
+          input,
+          opts(),
+          {},
+          {
+            refreshLedger: async (assetIds) => {
+              calls.push([...assetIds]);
+              return refreshed;
+            },
+          },
+        ),
+      );
+      // Scoped to what this run put on the timeline — never the whole bin, because every
+      // re-read spends the prompt cache the fixed snapshot exists to protect.
+      expect(calls).toEqual([['stock_pexels_px_1']]);
+    });
+
+    it('does not re-read the ledger for a turn that acquired nothing', async () => {
+      const calls: string[][] = [];
+      const provider = new ScriptedProvider([
+        {
+          text: 'trimming',
+          toolCalls: [
+            { id: 't1', name: 'trim_clip', arguments: { clipId: 'clip_a', start: 0, end: 3 } },
+          ],
+        },
+        { text: 'done', toolCalls: [] },
+      ]);
+      await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          {},
+          {
+            refreshLedger: async (assetIds) => {
+              calls.push([...assetIds]);
+              return null;
+            },
+          },
+        ),
+      );
+      expect(calls).toEqual([]);
+    });
 
     // THE regression this suite exists for: before the `add_stock` arm existed,
     // the host spent quota and disk, the call fell through to the generic settle

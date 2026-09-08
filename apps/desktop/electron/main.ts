@@ -2781,6 +2781,20 @@ function registerIpcHandlers(): void {
       const snapshot = await shotLedgerClient.snapshot({ projectId: project.id, assetIds });
       return snapshot ?? undefined;
     },
+    // The within-run half of the same read (VU8). The run acquired footage of its own and
+    // the engine has since measured it; `refresh` drops exactly those cache entries so the
+    // re-read costs one request for them and nothing for the assets the run already knows.
+    refreshShotLedgerFor: async (project, assetIds) => {
+      const inBin = new Set([...project.assets.map((asset) => asset.id), ...assetIds]);
+      const wanted = [...new Set(assetIds.filter((id) => inBin.has(id)))];
+      if (wanted.length === 0) return undefined;
+      const snapshot = await shotLedgerClient.snapshot({
+        projectId: project.id,
+        assetIds: [...inBin],
+        refresh: wanted,
+      });
+      return snapshot ?? undefined;
+    },
     // What this project has LEARNED — the bin digest, the latest session note, and the
     // corrections/decisions tiers (which is where an answer the editor gave the model
     // lives). The digester has existed since the memory tiers landed and nothing called

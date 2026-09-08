@@ -577,6 +577,17 @@ function isContentEvidenceFact(fact: { readonly key: string; readonly status: st
 const MAX_UNUSABLE_TURN_RETRIES = 1;
 
 /**
+ * How many times one run may re-read the shot ledger mid-run.
+ *
+ * Each re-read changes the prompt prefix, so it trades one cache miss for the facts about
+ * footage the run itself acquired (`AgentRunControls.refreshLedger`). Three is enough for
+ * the shape this exists for — gather, place, then reason about what was gathered — and
+ * small enough that a run cannot spend its cache discovering that an asset is still
+ * indexing.
+ */
+const MAX_LEDGER_REFRESHES = 3;
+
+/**
  * Picture clips this run has actually put on the timeline.
  *
  * `add_clip` specifically, not "any applied operation": the captured run applied
@@ -8276,6 +8287,15 @@ export class Orchestrator {
     const log: string[] = [];
     let plan: readonly string[] | undefined;
     let working: Project = input.project;
+    /**
+     * The run's picture facts. Fixed for the run by design — it renders into the prompt
+     * prefix — except for footage the run acquires ITSELF (see `refreshRunLedger`).
+     */
+    let ledger = input.ledger;
+    /** Assets this run put in the bin, so a refresh can be scoped to them. */
+    const acquiredAssetIds = new Set<string>();
+    /** How many mid-run ledger re-reads this run has spent. */
+    let ledgerRefreshes = 0;
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
     // keeps the closure's view of "what landed" in lockstep with the reducer.
     const cumulativeOps: AnyOperation[] = [];
@@ -8922,7 +8942,13 @@ export class Orchestrator {
         const intent = turn.calls.map((c) => describeToolCall(c, names)).join(', ');
         if (turn.text.trim()) yield emit.assistant(segmentId, turn.text.trim());
 
-        const ctx = self.toolContext({ ...input, project: working });
+        const ctx = self.toolContext({
+          ...input,
+          project: working,
+          // The run-scoped snapshot, which is `input.ledger` until the run acquires
+          // footage of its own (see the refresh below).
+          ...(ledger === undefined ? {} : { ledger }),
+        });
         // U2: turns map positionally onto the seeded ledger; past it — or with none —
         // each turn appends its own derived step.
         const stepIdx = index - 1 < effect.ledgerLength ? index - 1 : effect.planSteps.length;
@@ -9132,6 +9158,11 @@ export class Orchestrator {
         if (applied.applied) {
           working = applied.working;
           cumulativeOps.push(...turnOps);
+          // Footage the RUN acquired, which is the only footage whose facts can arrive
+          // mid-run (`AgentRunControls.refreshLedger`).
+          for (const op of turnOps) {
+            if (op.type === 'add_asset') acquiredAssetIds.add(op.asset.id);
+          }
           for (const op of turnOps) {
             const d = describeOperation(op, names);
             describedActions.push({ action: d.action, detail: d.detail, refs: d.refs });
@@ -9169,6 +9200,38 @@ export class Orchestrator {
             });
           }
         }
+        // VU8 — the run's own footage becomes visible to the run.
+        //
+        // The ledger is read once per `runAiStream` call, which in agent mode is the whole
+        // multi-turn run: an asset the agent sources at minute six is measured about ninety
+        // seconds later and still carries no picture facts for the remaining half hour, so
+        // `match_color` and `add_transitions` decline on it and its row has no shot words.
+        // Re-reading every turn would spend the prompt cache the fixed snapshot exists to
+        // protect, so this asks only about assets THIS RUN acquired that the timeline
+        // references and that the current snapshot has no rows for, at a turn boundary, at
+        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build)
+        // leaves the snapshot exactly as it was.
+        if (applied.applied && controls?.refreshLedger && ledgerRefreshes < MAX_LEDGER_REFRESHES) {
+          const placed = new Set(
+            working.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
+          );
+          const unmeasured = [...acquiredAssetIds].filter(
+            (assetId) =>
+              placed.has(assetId) && !(ledger?.shots ?? []).some((s) => s.assetId === assetId),
+          );
+          if (unmeasured.length > 0) {
+            ledgerRefreshes += 1;
+            const refreshed = await controls.refreshLedger(unmeasured, runSignal);
+            if (refreshed) {
+              orchestratorLog.action('mid-run ledger refresh', {
+                assets: unmeasured.length,
+                shots: refreshed.shots.length,
+                refreshes: ledgerRefreshes,
+              });
+              ledger = refreshed;
+            }
+          }
+        }
         // VU7 — pixels verify, they do not plan. Runs only for an apply that landed, only
         // over the cuts THIS patch is answerable for, and strictly after the diff has
         // already been emitted above: the editor has the edit before anything is decoded.
@@ -9178,7 +9241,7 @@ export class Orchestrator {
           ? await self.verifyAppliedPicture({
               before: workingBefore,
               after: working,
-              ledger: input.ledger,
+              ledger,
               patchId: applied.edit?.patch.patchId ?? `step-${String(index)}`,
               review,
               // The same meter the reducer holds the run to. A run at its ceiling still
