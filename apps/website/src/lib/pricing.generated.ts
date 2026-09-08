@@ -3,15 +3,15 @@
 import type { GeneratedPricing } from './pricing-types';
 
 export const GENERATED_PRICING: GeneratedPricing = {
-  "fetchedAt": "2026-09-08T16:41:33.337Z",
-  "currency": "USD",
-  "plans": {
-    "pro": {
-      "price": null,
-      "dodoProductIds": {
-        "monthly": "pdt_0NnATBKXpVWP8y2UPg87c",
-        "annual": "pdt_0NnATUkOqjCVmT4Qka0wi"
-      }
-    }
-  }
+  fetchedAt: '2026-09-08T16:47:23.375Z',
+  currency: 'USD',
+  plans: {
+    pro: {
+      price: null,
+      dodoProductIds: {
+        annual: 'pdt_0NnAVbBg8Ih9tOEERqWvK',
+        monthly: 'pdt_0NnAVRBz8OZygDIYWDxIS',
+      },
+    },
+  },
 };
