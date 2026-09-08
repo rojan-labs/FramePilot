@@ -36,7 +36,7 @@
 import { stat } from 'node:fs/promises';
 import { createLogger } from '@framepilot/shared-types';
 import { resolveWithin } from '@framepilot/shared-types/safety';
-import type { DerivedAssetMedia } from './asset-media-client.js';
+import { importAssetViaSidecar, type DerivedAssetMedia } from './asset-media-client.js';
 
 const log = createLogger('desktop:derived-media-cache');
 
@@ -58,6 +58,38 @@ export type DeriveAssetMedia = (
   absolutePath: string,
   identity?: DerivedAssetIdentity,
 ) => Promise<DerivedAssetMedia | null>;
+
+/**
+ * A {@link DeriveAssetMedia} backed by the sidecar's `/asset-media` route.
+ *
+ * This exists as a named function rather than a closure at the call site because the
+ * closure form hid a real defect for as long as it existed. `DeriveAssetMedia` takes
+ * `(absolutePath, identity?)`; a one-parameter arrow is assignable to it, TypeScript says
+ * nothing, and the identity is discarded on the way in. `/asset-media` is the only writer
+ * of the brain's asset row and writes one only when handed BOTH ids, so every sourced
+ * download derived its proxy and thumbnails correctly and never entered the brain — and an
+ * asset the brain does not know cannot be measured into the shot ledger.
+ *
+ * Named and exported, the forwarding is a property a test can hold.
+ *
+ * @param options.baseUrl - Sidecar base URL.
+ * @param options.request - Fixed per-call-site derive shape (thumbnails/proxy).
+ * @param options.fetchFn - Injectable `fetch`.
+ */
+export function sidecarDerive(options: {
+  readonly baseUrl: string;
+  readonly request: { readonly thumbnails: number; readonly proxy: boolean };
+  readonly fetchFn?: typeof fetch;
+}): DeriveAssetMedia {
+  return async (absolutePath, identity) => {
+    const derived = await importAssetViaSidecar(
+      options.baseUrl,
+      { inputPath: absolutePath, ...options.request, ...(identity ?? {}) },
+      options.fetchFn,
+    );
+    return derived.ok ? derived : null;
+  };
+}
 
 /** The identity of a file's bytes, as cheaply as the filesystem will tell us. */
 interface SourceStamp {

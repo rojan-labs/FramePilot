@@ -198,7 +198,7 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
-import { cacheDerivedMedia } from './media/derived-media-cache.js';
+import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
@@ -750,18 +750,17 @@ function registerIpcHandlers(): void {
    * intends (acquire concurrently, commit in series) actually cost one derivation
    * instead of two.
    */
+  //
+  // The derivation is `sidecarDerive` rather than a closure written here because the
+  // closure form silently dropped its `identity` argument: `DeriveAssetMedia` takes
+  // `(absolutePath, identity?)`, a one-parameter arrow satisfies that signature, and
+  // `/asset-media` — the only writer of the brain's asset row — writes nothing without
+  // both ids. Every clip the agent sourced therefore derived its proxy and thumbnails
+  // and never entered the brain, so the enrolment that followed measured nothing.
   const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
-    cacheDerivedMedia(
-      async (absolutePath: string) => {
-        const derived = await importAssetViaSidecar(
-          engineBaseUrl,
-          { inputPath: absolutePath, ...request },
-          electronFetch,
-        );
-        return derived.ok ? derived : null;
-      },
-      { projectsRoot },
-    );
+    cacheDerivedMedia(sidecarDerive({ baseUrl: engineBaseUrl, request, fetchFn: electronFetch }), {
+      projectsRoot,
+    });
 
   const musicService = new MusicService({
     projectsRoot,

@@ -2,7 +2,7 @@ import { mkdtemp, mkdir, rm, utimes, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { cacheDerivedMedia, type DeriveAssetMedia } from './derived-media-cache.js';
+import { cacheDerivedMedia, sidecarDerive, type DeriveAssetMedia } from './derived-media-cache.js';
 import type { DerivedAssetMedia } from './asset-media-client.js';
 
 const PROXY_REL = '.framepilot-derived/abc/proxy.mp4';
@@ -199,5 +199,68 @@ describe('cacheDerivedMedia', () => {
 
     // Never served from cache: a path that escapes the root is not one to hand back.
     expect(derive).toHaveBeenCalledTimes(2);
+  });
+});
+
+/**
+ * The identity has to reach the sidecar, because `/asset-media` is the only writer of the
+ * brain's asset row and writes one only when handed BOTH ids. The regression these guard is
+ * not hypothetical: the call site used to be a one-parameter arrow, which satisfies
+ * `DeriveAssetMedia` without complaint, so every sourced download derived its proxy and
+ * thumbnails and never entered the brain. A captured desktop run downloaded three stock
+ * clips and measured none of them — five enrolment jobs finished in 14ms each, reporting
+ * `done`, and wrote zero shot rows.
+ */
+describe('sidecarDerive — the identity reaches the route', () => {
+  /** A `/asset-media` stub that records the JSON body it was posted. */
+  const recordingFetch = (): { fetchFn: typeof fetch; bodies: () => Record<string, unknown>[] } => {
+    const bodies: Record<string, unknown>[] = [];
+    const fetchFn = vi.fn(async (_url: unknown, init?: { body?: unknown }) => {
+      bodies.push(JSON.parse(String(init?.body ?? '{}')) as Record<string, unknown>);
+      return {
+        ok: true,
+        json: async () => ({ durationSeconds: 1, kind: 'video', thumbnailPaths: [] }),
+      };
+    });
+    return { fetchFn: fetchFn as unknown as typeof fetch, bodies: () => bodies };
+  };
+
+  it('forwards projectId and assetId when the caller names the asset', async () => {
+    const { fetchFn, bodies } = recordingFetch();
+    const derive = sidecarDerive({
+      baseUrl: 'http://engine',
+      request: { thumbnails: 5, proxy: true },
+      fetchFn,
+    });
+
+    await derive('/root/media/p1/stock.mp4', { projectId: 'p1', assetId: 'stock_pexels_1' });
+
+    expect(bodies()[0]).toMatchObject({ projectId: 'p1', assetId: 'stock_pexels_1' });
+  });
+
+  it('omits the ids when the caller does not name one, leaving the brain untouched', async () => {
+    const { fetchFn, bodies } = recordingFetch();
+    const derive = sidecarDerive({
+      baseUrl: 'http://engine',
+      request: { thumbnails: 0, proxy: false },
+      fetchFn,
+    });
+
+    await derive('/root/media/p1/clip.mp4');
+
+    expect(bodies()[0]).not.toHaveProperty('projectId');
+    expect(bodies()[0]).not.toHaveProperty('assetId');
+  });
+
+  it('survives the cache wrapper — the identity is not lost in composition', async () => {
+    const { fetchFn, bodies } = recordingFetch();
+    const cached = cacheDerivedMedia(
+      sidecarDerive({ baseUrl: 'http://engine', request: { thumbnails: 5, proxy: true }, fetchFn }),
+      { projectsRoot: root },
+    );
+
+    await cached(source, { projectId: 'p1', assetId: 'stock_pexels_2' });
+
+    expect(bodies()[0]).toMatchObject({ projectId: 'p1', assetId: 'stock_pexels_2' });
   });
 });
