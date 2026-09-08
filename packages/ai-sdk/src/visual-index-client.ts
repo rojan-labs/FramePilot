@@ -105,6 +105,24 @@ export const visualAssetFailureSchema = z.object({
 export type VisualAssetFailure = z.infer<typeof visualAssetFailureSchema>;
 
 /**
+ * Shot-ledger coverage, as the engine's `TierCoverage` reports it (ADR 0175).
+ *
+ * Counts SHOTS, not assets, and `total` is every shot the project's visual assets have.
+ * The three tiers degrade independently: `measured` is the keyless ffmpeg floor, `labelled`
+ * needs an embedding key or the local pack, `described` needs a vision provider. Reading
+ * one number as "indexed" is exactly the misreport this shape exists to prevent — a
+ * project can be fully measured and not described at all.
+ */
+export const visualTierCoverageSchema = z.object({
+  measured: z.number().default(0),
+  labelled: z.number().default(0),
+  described: z.number().default(0),
+  total: z.number().default(0),
+});
+
+export type VisualTierCoverage = z.infer<typeof visualTierCoverageSchema>;
+
+/**
  * `GET /brain/visual/status` response. Mirrors the engine's Pydantic
  * `VisualStatusResponse` field-for-field. `keyConfigured` reflects the engine's
  * ENV key only — the host's own plaintext key is not visible here, and the key
@@ -128,6 +146,12 @@ export const visualStatusResponseSchema = z.object({
    */
   failures: z.array(visualAssetFailureSchema).default([]),
   keyConfigured: z.boolean().default(false),
+  /**
+   * Per-tier shot-ledger coverage. Absent on an engine that predates the ledger, which is
+   * why every reader must have a sentence for "no coverage reported" rather than assuming
+   * zero — zero means measured nothing, absent means the engine did not say.
+   */
+  coverage: visualTierCoverageSchema.nullish(),
   lastJob: visualJobStatusSchema.nullish(),
 });
 
@@ -140,6 +164,8 @@ export const visualIndexItemSchema = z.object({
   indexed: z.number().default(0),
   captioned: z.number().default(0),
   reason: z.string().nullish(),
+  /** Per-tier disposition for THIS asset (`ok` / `skipped: <why>` / `failed: <why>`). */
+  tiers: z.record(z.string(), z.string()).default({}),
 });
 
 export type VisualIndexItem = z.infer<typeof visualIndexItemSchema>;
@@ -148,7 +174,7 @@ export type VisualIndexItem = z.infer<typeof visualIndexItemSchema>;
  * `POST /brain/visual/index` slice response. Mirrors Pydantic
  * `VisualIndexResponse`. The caller re-POSTs with `jobId` until `done`;
  * `reason` also carries the honest no-op signals (`all_keys_failing`,
- * `cancelled`, or the no-key reason on an `available: true` response with no
+ * `cancelled`, or an `available: true` response with no
  * `jobId`).
  */
 export const visualIndexResponseSchema = z.object({
@@ -161,6 +187,14 @@ export const visualIndexResponseSchema = z.object({
   indexed: z.number().default(0),
   captioned: z.number().default(0),
   captionsReason: z.string().nullish(),
+  /**
+   * Per-tier disposition for this slice: `ok`, or `skipped: <why>` / `failed: <why>`.
+   * A missing embedder or captioner shows up here instead of ending the job — the whole
+   * point of ADR 0175's tiering, and the reason a keyless install still indexes.
+   */
+  tiers: z.record(z.string(), z.string()).default({}),
+  /** Ledger coverage across the job's worklist after this slice. */
+  coverage: visualTierCoverageSchema.nullish(),
   items: z.array(visualIndexItemSchema).default([]),
 });
 
@@ -211,6 +245,14 @@ export interface VisualIndexRequestInput {
   readonly jobId?: string;
   /** Assets to index this slice (engine-bounded 1..10). */
   readonly maxAssets?: number;
+  /**
+   * Which ledger tiers this request may fill. Omit for the engine's default (all three).
+   *
+   * The lever automatic, unattended enrolment needs. `measured` is the keyless local
+   * ffmpeg floor; `labelled` and `described` reach a paid provider, so a caller running
+   * without the user watching can name the floor rather than spending on their behalf.
+   */
+  readonly tiers?: readonly ('measured' | 'labelled' | 'described')[];
 }
 
 /** Request body for `POST /brain/visual/index/cancel`. */
@@ -305,7 +347,19 @@ export class VisualIndexClient {
   ): Promise<VisualIndexResponse | undefined> {
     if (this.indexFn) {
       const { captionProvider: _captionProvider, ...request } = body;
-      return this.indexFn(request);
+      // Parsed through the same schema as the HTTP arm, so the desktop transport and the
+      // browser one cannot disagree about defaults — `tiers` and `coverage` are absent on
+      // an engine that predates the ledger, and every reader wants one shape, not two.
+      const result = await this.indexFn(request);
+      if (result === undefined) return undefined;
+      const parsed = visualIndexResponseSchema.safeParse(result);
+      if (!parsed.success) {
+        log.warn('visual index bridge returned an unreadable payload', {
+          projectId: body.projectId,
+        });
+        return undefined;
+      }
+      return parsed.data;
     }
     return this.request(
       '/brain/visual/index',
@@ -394,8 +448,12 @@ export type VisualIndexLoopStatus =
   | 'unreachable'
   /** The engine reported `available: false` (no sandbox root). */
   | 'unavailable'
-  /** No embedding key resolved — nothing to index (honest no-op). */
-  | 'no-key'
+  /**
+   * The engine returned no job handle, so there was nothing to continue — an empty
+   * worklist. Tier 0 of the ledger needs no key (ADR 0175), so this is no longer the
+   * "no embedding key" case it was named for; a keyless project still gets a job.
+   */
+  | 'nothing-to-index'
   /** The job was cancelled (by the user or an aborted signal). */
   | 'cancelled'
   /** All embedding keys failed mid-run; the job is resumable later. */
@@ -431,7 +489,7 @@ export interface RunVisualIndexLoopOptions {
  * The loop NEVER blocks on anything but the sequential slice requests, so a
  * caller `void`s it to index in the background without holding the UI thread.
  * It stops the moment a slice cannot yield a continuable job (no `jobId`), so a
- * no-key or `available: false` response is a clean one-iteration no-op rather
+ * no-job or `available: false` response is a clean one-iteration no-op rather
  * than a spin.
  */
 export async function runVisualIndexLoop(
@@ -454,9 +512,9 @@ export async function runVisualIndexLoop(
     onSlice?.(response);
     if (!response.available) return { status: 'unavailable', last: response };
     jobId = response.jobId ?? jobId;
-    // No job handle on an available response ⇒ the engine had nothing to start
-    // (no key). Honest no-op — there is nothing to continue.
-    if (!jobId) return { status: 'no-key', last: response };
+    // No job handle on an available response ⇒ the engine had nothing to start: an
+    // empty worklist. Honest no-op — there is nothing to continue.
+    if (!jobId) return { status: 'nothing-to-index', last: response };
     if (response.done) return { status: 'done', jobId, last: response };
     // A `reason` on an available, not-done slice is a terminal signal.
     if (response.reason === 'cancelled') return { status: 'cancelled', jobId, last: response };

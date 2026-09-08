@@ -37,7 +37,14 @@ import { verifyTransitions } from '../verify.js';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, noArgs, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
+import type { ToolContext } from '../tool-context.js';
 import { largestFittingSizePercent, overflowingWords } from '../overlay-fit.js';
+import {
+  TRANSITION_REASONS,
+  type TransitionDecision,
+  type TransitionReason,
+  planTransitions,
+} from './transition-planning.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
 /**
@@ -92,6 +99,71 @@ function findOverlayWithSameText(
     }
   }
   return undefined;
+}
+
+/** Arguments `add_transition` resolves a kind and a length from. */
+interface SingleTransitionArgs {
+  readonly trackId: string;
+  readonly fromClipId: string;
+  readonly toClipId: string;
+  readonly kind?: string | undefined;
+  readonly durationSeconds?: number | undefined;
+  readonly reason?: TransitionReason | undefined;
+}
+
+/**
+ * The kind and duration for one cut: whatever the editor named, and the policy for the rest.
+ *
+ * Four cases, and the refusals are the interesting ones. Nothing at all is a refusal
+ * because a transition with neither a kind nor a reason is exactly the guess this tool
+ * stopped taking. And a `reason` the policy answers with a hard cut is a refusal too —
+ * quietly substituting a dissolve there would make "continuity" mean "cross-dissolve",
+ * which is the amateur tell the policy exists to prevent.
+ */
+function resolveSingleTransition(
+  args: SingleTransitionArgs,
+  ctx: ToolContext,
+): { kind: string; durationSeconds: number } {
+  const catalogDefault = args.kind === undefined ? undefined : getTransition(args.kind);
+  if (args.reason === undefined) {
+    if (args.kind === undefined) {
+      throw new ToolRefusalError(
+        'add_transition: say why a transition belongs at this cut with `reason` ' +
+          `(${TRANSITION_REASONS.join(', ')}) and the kind and length are worked out from ` +
+          'the two shots — or name a `kind` yourself if the editor asked for a specific one.',
+      );
+    }
+    return {
+      kind: args.kind,
+      // The catalog's own default length for that entry, not a number of ours: the entry
+      // knows how long it needs to read as itself.
+      durationSeconds: args.durationSeconds ?? catalogDefault?.defaultDuration ?? 0.5,
+    };
+  }
+
+  const [decision] = planTransitions(ctx, {
+    trackId: args.trackId,
+    reason: args.reason,
+    cuts: [{ fromClipId: args.fromClipId, toClipId: args.toClipId, reason: args.reason }],
+  });
+  if (decision === undefined) {
+    throw new ToolRefusalError(
+      `add_transition: "${args.fromClipId}" and "${args.toClipId}" are not a cut on track ` +
+        `"${args.trackId}" — list_edit_boundaries names every cut the sequence has.`,
+    );
+  }
+  if (decision.choice === null && args.kind === undefined) {
+    throw new ToolRefusalError(
+      `add_transition: "${args.reason}" at ${String(Math.round(decision.at * 10) / 10)}s is a ` +
+        `hard cut — ${decision.why}. Leave it as it is, or name a kind explicitly if the ` +
+        'editor asked for one anyway.',
+    );
+  }
+  return {
+    kind: args.kind ?? (decision.choice?.kind as string),
+    durationSeconds:
+      args.durationSeconds ?? decision.choice?.durationSeconds ?? catalogDefault?.defaultDuration ?? 0.5,
+  };
 }
 
 export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
@@ -385,16 +457,15 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
     {
       name: 'add_transition',
       description:
-        'Add a transition at the cut between two adjacent clips on the same track. ' +
-        'Requires trackId plus fromClipId and toClipId (the outgoing and incoming ' +
-        'clip ids, which must be neighbours), a kind, and a positive durationSeconds. ' +
-        'Read the timeline first to get the real track and clip ids; a transition needs ' +
-        'two clips, so it cannot be added when the track has only one clip. ' +
-        'Kinds come from the transition catalog — `cross-dissolve`, `whip-pan-left`, ' +
-        '`glitch`, `circular-wipe` and 70-odd more; `discover_transitions` names them all. ' +
-        'A cut can carry at most half of its shorter clip; ask for longer and the ' +
-        'transition is shortened to fit rather than refused, so short clips take one ' +
-        'too. Read the applied duration back before describing it to the editor.',
+        'Add a transition at the cut between two adjacent clips on the same track ' +
+        '(trackId plus fromClipId and toClipId, which must be neighbours). Say WHY with ' +
+        '`reason` — continuity, time_jump, location_change, energy, montage, soften, ' +
+        'reveal — and the kind and the length are chosen from what the two shots measure ' +
+        'and how fast the sequence is cutting. `continuity` is answered with a hard cut ' +
+        'and no transition, which is the right answer at most cuts. Give `kind` (a ' +
+        'catalog id from discover_transitions) and/or `durationSeconds` only when the ' +
+        'editor named one. A cut can carry at most half of its shorter clip; ask for ' +
+        'longer and it is shortened to fit rather than refused.',
     },
     z
       .object({
@@ -406,22 +477,78 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         // schema would make every added transition a change in four packages.
         // An unknown id is refused by the op with a readable sentence, which is
         // exactly what a model needs to correct itself.
-        kind: z.string().refine((value) => getTransition(value) !== undefined, {
-          message: 'Unknown transition kind. Call discover_transitions to see what exists.',
-        }),
-        durationSeconds: numeric(z.number().positive()),
+        //
+        // OPTIONAL since VU4.2: the id is what an editor names, and the model naming one
+        // is the guess the policy replaces. Absent, `reason` chooses it.
+        kind: z
+          .string()
+          .refine((value) => getTransition(value) !== undefined, {
+            message: 'Unknown transition kind. Call discover_transitions to see what exists.',
+          })
+          .optional(),
+        durationSeconds: numeric(z.number().positive()).optional(),
+        reason: z.enum(TRANSITION_REASONS).optional(),
       })
       .strict(),
-    (a) => [
-      {
-        type: 'add_transition',
-        trackId: a.trackId,
-        fromClipId: a.fromClipId,
-        toClipId: a.toClipId,
-        kind: a.kind,
-        durationSeconds: a.durationSeconds,
-      },
-    ],
+    (a, ctx) => {
+      const resolved = resolveSingleTransition(a, ctx);
+      return [
+        {
+          type: 'add_transition',
+          trackId: a.trackId,
+          fromClipId: a.fromClipId,
+          toClipId: a.toClipId,
+          kind: resolved.kind,
+          durationSeconds: resolved.durationSeconds,
+        },
+      ];
+    },
+  ),
+  mutateTool(
+    {
+      name: 'add_transitions',
+      description:
+        'Decide what belongs at EVERY cut in one pass, instead of one call per cut. ' +
+        '`reason: "auto"` (the default) reads each cut: a jump cut is softened, a change ' +
+        'of setting gets a location transition, and every other cut is deliberately left ' +
+        'as a hard cut. Name one reason instead to apply it to every cut in scope, or ' +
+        'list `cuts` with a reason each. Optionally limit to one trackId. The result ' +
+        'names every cut it left hard and why — those are decisions, not omissions, so do ' +
+        'not go back and fill them in.',
+    },
+    z
+      .object({
+        trackId: z.string().trim().min(1).optional(),
+        reason: z.union([z.literal('auto'), z.enum(TRANSITION_REASONS)]).optional(),
+        cuts: z
+          .array(
+            z
+              .object({
+                fromClipId: z.string().trim().min(1),
+                toClipId: z.string().trim().min(1),
+                reason: z.enum(TRANSITION_REASONS).optional(),
+              })
+              .strict(),
+          )
+          .min(1)
+          .optional(),
+      })
+      .strict(),
+    (a, ctx) =>
+      planTransitions(ctx, {
+        ...(a.trackId === undefined ? {} : { trackId: a.trackId }),
+        reason: a.reason ?? 'auto',
+        ...(a.cuts === undefined ? {} : { cuts: a.cuts }),
+      })
+        .filter((decision): decision is TransitionDecision & { choice: { kind: string; durationSeconds: number } } => decision.choice !== null)
+        .map((decision) => ({
+          type: 'add_transition' as const,
+          trackId: decision.trackId,
+          fromClipId: decision.fromClipId,
+          toClipId: decision.toClipId,
+          kind: decision.choice.kind,
+          durationSeconds: decision.choice.durationSeconds,
+        })),
   ),
   mutateTool(
     {

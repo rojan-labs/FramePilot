@@ -1,0 +1,71 @@
+# Visual Describe pack build manifest.
+#
+# The signed catalog record is generated FROM this manifest plus the artifact hash
+# produced by the build job. Nothing here may drift from
+# `src/framepilot_visual_describe/__init__.py`, which holds the identity the worker itself
+# enforces during the health handshake, or from `pack/models.lock.toml`, which pins the
+# weights AND the llama.cpp runtime binary.
+
+[pack]
+id = "framepilot.visual-describe"
+version = "1.0.0"
+display_name = "Visual Describe"
+description = "Local structured shot descriptions from a small vision-language model: summary, subject, action, setting, camera, on-screen text. No key, no network."
+channel = "stable"
+# The roster the worker enforces. Health check refuses any other set.
+capabilities = ["visual.describe"]
+worker_protocol_version = 1
+models_lock = "pack/models.lock.toml"
+# Tier 2 of the shot ledger. The version is part of the pack's contract with the engine:
+# a request naming another version is refused, not answered approximately.
+tier2_version = 1
+
+[runtime]
+python_version = "3.13"
+python_requires = ">=3.12"
+entrypoint_module = "framepilot_visual_describe"
+health_check_argument = "--framepilot-health-check"
+runtime_argument = "--framepilot-worker-runtime"
+network = "disabled"
+# The inference runtime is a NATIVE binary inside the artifact, not a Python dependency:
+# llama.cpp's `llama-mtmd-cli`, driven as a subprocess exactly as the ASR path drives
+# `whisper-cli`. It is pinned and hashed in models.lock.toml like any other artifact.
+native_runtime = "llama-mtmd-cli"
+
+[[platforms]]
+os = "darwin"
+arch = "arm64"
+entrypoint = "framepilot-visual-describe"
+signing = "apple-developer-id + notarization"
+# Metal on Apple silicon; the same build flag whisper's does.
+acceleration = "metal"
+
+[[platforms]]
+os = "win32"
+arch = "x64"
+entrypoint = "framepilot-visual-describe.exe"
+signing = "authenticode"
+acceleration = "cpu"
+
+[dependencies]
+# Exact versions come from uv.lock, which is the authority. These names document WHY each
+# dependency is present. There is no ML Python dependency at all.
+lock = "uv.lock"
+opencv = "opencv-contrib-python-headless"
+numpy = "numpy"
+
+[artifact]
+# ~1.6 GiB: the 2.2 B Q4_K_M default plus its mmproj, the 500 M low-RAM alternative plus
+# its mmproj, and the llama.cpp binary. The ceiling leaves room for the embedded
+# interpreter and OpenCV's natives without leaving room for a surprise.
+max_unpacked_mib = 2600
+license_notice = "LICENSES.md"
+sbom = "pack/sbom"
+download_discloses = ["size", "licenses", "model provenance", "local-only execution"]
+
+[verification]
+# The build job must run all of these before an artifact may be signed. The first one
+# fails today, by design: every digest is still a placeholder.
+models = "python tools/fetch_models.py --check"
+unit_suite = "pytest"
+decoded_media_suite = "pytest -m decoded_media"

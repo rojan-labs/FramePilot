@@ -21,8 +21,8 @@ ADR 0169 shipped `isFullFrameOpaque` and stated its own remaining gap plainly:
 The obvious fix — hand the predicate the measured source and the frame so it can tell a
 cover crop from a letterboxing one — was implemented on 2026-09-03 and **reverted**. It
 typechecked in four packages and turned 16 tests red. Reverting it is what found the real
-answer, recorded in `TRACKING.md` under "The letterboxing predicate is a relation, not a
-property", and it is this:
+answer — the letterboxing predicate is a relation between the layers, not a property of
+the top one — and it is this:
 
 **A letterboxed overlay is only a divergence if the base shows through its bars.** The
 export fits the clip BEHIND with the same arithmetic it fits the clip in front

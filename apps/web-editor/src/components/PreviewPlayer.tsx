@@ -242,6 +242,11 @@ export function PreviewPlayer({
   const showGrid = settings.gridByDefault;
   const showSafeArea = settings.safeAreaGuidesByDefault;
   const loop = settings.loopByDefault;
+  // Monitor volume/mute — the transport's shared control. Mute is a separate
+  // preference from level so un-muting restores the level the user had, rather
+  // than jumping to unity; collapsed to one gain here exactly as the WebCodecs
+  // path does, so one control governs both preview engines.
+  const monitorGain = settings.previewMuted ? 0 : settings.previewVolume;
   // Before/after compare: when off, the monitor drops the grade approximation so
   // the user can eyeball the ungraded source. View-only (invariant 5).
   const [showGrade, setShowGrade] = useState(true);
@@ -607,11 +612,14 @@ export function PreviewPlayer({
     return () => cancelAnimationFrame(raf);
   }, [playing, prepared]);
 
-  // --- Footage audio gain: scale the front element volume by the clip's gain --
+  // --- Footage audio gain: clip gain scaled by the monitor level ------------
+  // The monitor is a listening level, not an edit: it scales the clip's own gain
+  // for playback only and never touches `audio_gain`, the project, or the render
+  // (invariant 5).
   useEffect(() => {
     const front = slotEls.current[pool.front];
-    if (front) front.volume = clampVolume(videoVolume);
-  }, [videoVolume, pool.front]);
+    if (front) front.volume = clampVolume(videoVolume * monitorGain);
+  }, [videoVolume, monitorGain, pool.front]);
 
   // --- Element transport: play the FRONT slot, keep every other slot paused ---
   // The front only starts once the prepare gate opens; warm slots are silent
@@ -892,12 +900,15 @@ export function PreviewPlayer({
     >
       {/* Audio-only tracks (music/VO/SFX) have no picture element to ride, so a
           hidden mixer plays them in sync — the monitor's <video> only carries
-          its own footage audio. */}
+          its own footage audio. The transport's volume/mute governs BOTH: the
+          footage element's volume above and these clips via the mixer's monitor
+          scale. One control, everything you hear. */}
       <PreviewAudioMixer
         editor={editor}
         assets={assets}
         soloedTrackIds={soloedTrackIds}
         muted={muted}
+        monitorVolume={monitorGain}
       />
       <div className="preview-stage">
         {/* UX-14: how the picture on screen meets the frame. The render CONTAINS a
@@ -998,7 +1009,7 @@ export function PreviewPlayer({
                     src={src}
                     preload="auto"
                     playsInline
-                    muted={isFront ? muted || videoMuted : true}
+                    muted={isFront ? muted || videoMuted || settings.previewMuted : true}
                     controls={false}
                     /* v8 ignore start -- media callbacks need a real media load (e2e). */
                     onLoadedMetadata={() => {

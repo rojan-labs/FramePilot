@@ -56,7 +56,6 @@ interface StoredConfig {
   'openai-compatible': ProviderEntry;
   nvidiaEmbeddings?: string;
   twelveLabs?: string;
-  embeddingsAutoIndex?: boolean;
   visualCaptionProvider?: AiProviderName;
   asrApiKey?: string;
   asrProvider?: AsrProviderName;
@@ -166,9 +165,10 @@ function parseStored(raw: string): StoredConfig {
     ...(typeof parsed['twelveLabs'] === 'string' && parsed['twelveLabs'] !== ''
       ? { twelveLabs: parsed['twelveLabs'] }
       : {}),
-    ...(typeof parsed['embeddingsAutoIndex'] === 'boolean'
-      ? { embeddingsAutoIndex: parsed['embeddingsAutoIndex'] }
-      : {}),
+    // `embeddingsAutoIndex` is deliberately NOT read. It was a toggle over whether to
+    // warm imported media, it stopped being consulted when preparation became automatic,
+    // and it is gone with the key gate (ADR 0175). An existing file may still carry it;
+    // dropping it here is the migration — the next write of this config emits it no more.
     ...(isProviderName(parsed['visualCaptionProvider'])
       ? { visualCaptionProvider: parsed['visualCaptionProvider'] }
       : {}),
@@ -210,9 +210,6 @@ function cloneStored(config: StoredConfig): StoredConfig {
     'openai-compatible': cloneEntry(config['openai-compatible']),
     ...(config.nvidiaEmbeddings === undefined ? {} : { nvidiaEmbeddings: config.nvidiaEmbeddings }),
     ...(config.twelveLabs === undefined ? {} : { twelveLabs: config.twelveLabs }),
-    ...(config.embeddingsAutoIndex === undefined
-      ? {}
-      : { embeddingsAutoIndex: config.embeddingsAutoIndex }),
     ...(config.visualCaptionProvider === undefined
       ? {}
       : { visualCaptionProvider: config.visualCaptionProvider }),
@@ -231,7 +228,6 @@ function isTextOnlyUpdate(update: AiConfigUpdate): boolean {
     update.keys === undefined &&
     update.nvidiaEmbeddings === undefined &&
     update.twelveLabs === undefined &&
-    update.embeddingsAutoIndex === undefined &&
     update.visualCaptionProvider === undefined &&
     update.asrApiKey === undefined &&
     update.asrProvider === undefined &&
@@ -407,7 +403,6 @@ export class AiConfigStore {
       providers,
       ...(nvidiaEmbeddings !== undefined ? { nvidiaEmbeddings } : {}),
       ...(twelveLabs !== undefined ? { twelveLabs } : {}),
-      embeddingsAutoIndex: stored.embeddingsAutoIndex ?? true,
       ...(stored.visualCaptionProvider !== undefined
         ? { visualCaptionProvider: stored.visualCaptionProvider }
         : {}),
@@ -429,7 +424,6 @@ export class AiConfigStore {
       baseUrlsChanged: update.baseUrls ? Object.keys(update.baseUrls) : undefined,
       nvidiaEmbeddingsChanged: update.nvidiaEmbeddings !== undefined,
       twelveLabsChanged: update.twelveLabs !== undefined,
-      embeddingsAutoIndex: update.embeddingsAutoIndex,
       visualCaptionProvider: update.visualCaptionProvider,
       // Presence check, not a value read: the raw key never enters this (or
       // any) log payload — CodeQL alert #61 (clear-text logging).
@@ -476,9 +470,6 @@ export class AiConfigStore {
       else config.twelveLabs = key;
     }
 
-    if (typeof update.embeddingsAutoIndex === 'boolean') {
-      config.embeddingsAutoIndex = update.embeddingsAutoIndex;
-    }
     if (isProviderName(update.visualCaptionProvider) && update.visualCaptionProvider !== 'mock') {
       config.visualCaptionProvider = update.visualCaptionProvider;
     }

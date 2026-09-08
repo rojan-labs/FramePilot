@@ -310,15 +310,15 @@ describe('describeOperation on the operations that used to render blank', () => 
       names,
     );
     expect(d.refs).toEqual([{ kind: 'track', id: 'video_1', label: 'Video 1' }]);
-    expect(describeOperation(op({ type: 'move_layer', layerId: 'video_1', toIndex: 2 })).detail).toBe(
-      'to slot 2',
-    );
+    expect(
+      describeOperation(op({ type: 'move_layer', layerId: 'video_1', toIndex: 2 })).detail,
+    ).toBe('to slot 2');
   });
 
   it('names a folder by its name, and counts what a bulk op carries', () => {
-    expect(detailOf({ type: 'create_folder', folderId: 'f1', name: 'B-roll', parentId: null })).toBe(
-      'B-roll',
-    );
+    expect(
+      detailOf({ type: 'create_folder', folderId: 'f1', name: 'B-roll', parentId: null }),
+    ).toBe('B-roll');
     expect(detailOf({ type: 'set_ai_memory', memory: { pacing: 'fast', look: 'warm' } })).toBe(
       '2 notes',
     );
@@ -333,5 +333,25 @@ describe('describeOperation on the operations that used to render blank', () => 
 
   it('still yields nothing for an operation with genuinely nothing to say', () => {
     expect(detailOf({ type: 'frobnicate_widget' })).toBe('');
+  });
+});
+
+describe('the dangling-tail trim', () => {
+  it('strips a preposition, an article and a colon, exactly as the regex did', () => {
+    expect(describeToolCall({ name: 'analyze_silence', arguments: {} })).toBe('Finding silences');
+    expect(describeToolCall({ name: 'recall_evidence', arguments: {} })).toBe(
+      'Recalling what it found',
+    );
+    expect(describeToolCall({ name: 'ask_user', arguments: {} })).toBe('Asking you');
+    // A tail word is only a tail when a space precedes it: "…the captions" keeps its noun.
+    expect(describeToolCall({ name: 'auto_emphasize_captions', arguments: {} })).toBe(
+      'Emphasising key words in the captions',
+    );
+  });
+
+  it('does not backtrack on a tool name that is one long run of colons', () => {
+    const start = Date.now();
+    expect(describeToolCall({ name: ':'.repeat(50_000), arguments: {} })).toBe('');
+    expect(Date.now() - start).toBeLessThan(1_000);
   });
 });

@@ -18,6 +18,12 @@ import type { Project } from '@framepilot/timeline-schema';
 import { toModelProject } from './model-view.js';
 import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
+import type { LedgerSnapshot } from './ledger.js';
+import {
+  type PacketFactsFilter,
+  applyPacketFacts,
+  filterIsEmpty,
+} from './packet-facts.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './tool-executor.js';
 import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
@@ -561,7 +567,7 @@ function packetT0(packet: unknown): number {
  *
  * The engine's honest contract is preserved verbatim: `available:false` (no sandbox
  * root / unusable brain) is a real FAILURE with the reason; `available:true` WITH a
- * reason and no packets is the no-key / key-exhaustion no-op — a `warning`, not a
+ * reason and no packets is the empty-worklist / key-exhaustion no-op — a `warning`, not a
  * fabricated ranking; `available:true` with no reason and no packets is a legitimate
  * empty result (nothing on screen matched, or the footage is not indexed yet). Packets
  * are handed back verbatim — the model reads captions/spans and cites them.
@@ -989,18 +995,16 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
         summary: `Indexed the footage — ${indexed} span${indexed === 1 ? '' : 's'} across ${total} asset${total === 1 ? '' : 's'}. You can search_visual now.`,
         data: result.last,
       };
-    case 'no-key':
+    case 'nothing-to-index':
       return {
         status: 'warning',
-        // The key has to be added by a person in Settings, so the caller's move is not to
-        // fix it — it is to stop asking and work without an index. Naming only the human's
-        // move is the `Place it from the bin` mistake of run `369e8c82`.
+        // Not a missing key: measurement needs none (ADR 0175). An empty worklist means
+        // this project has no media the engine can look at, so the caller's move is to
+        // stop asking rather than to fix a setting.
         summary:
-          '"index_media": no embedding key is configured, so the footage cannot be indexed ' +
-          'and search_visual, describe_footage and map_footage have nothing to answer from. ' +
-          'Do not call it again in this run. Look at moments directly with get_frame, and ' +
-          'tell the editor to add an NVIDIA embeddings key in Settings → AI → Embeddings if ' +
-          'they want content search.',
+          '"index_media": there is no media in this project for the engine to index, so ' +
+          'search_visual, describe_footage and map_footage have nothing to answer from. ' +
+          'Do not call it again in this run — import or add footage first.',
         data: result.last,
       };
     case 'unavailable':
@@ -1086,6 +1090,54 @@ export function unwrapSessionContext(data: unknown): HostToolOutcome {
       ? 'Nothing learned about this project yet — starting fresh'
       : `Loaded project memory: ${present.join(', ')}`;
   return { status: 'completed', summary, data: { ...sections, status: record.status } };
+}
+
+/**
+ * Read the `facts` filter off a `search_visual` call's arguments.
+ *
+ * Tolerant rather than strict: the arguments were already validated against the tool's Zod
+ * schema before dispatch, and a filter that cannot be read here must degrade to "no
+ * filter" (which {@link applyPacketFacts} then reports honestly) rather than fail a search
+ * the model asked for correctly.
+ */
+export function readFactsFilter(args: Record<string, unknown>): PacketFactsFilter | undefined {
+  const facts = args.facts;
+  if (typeof facts !== 'object' || facts === null) return undefined;
+  const record = facts as Record<string, unknown>;
+  const list = (value: unknown): readonly string[] | undefined =>
+    Array.isArray(value) && value.every((item) => typeof item === 'string')
+      ? (value as string[])
+      : undefined;
+  const filter: PacketFactsFilter = {
+    shotSize: list(record.shotSize),
+    motion: list(record.motion),
+    entities: list(record.entities),
+    setting: list(record.setting),
+  };
+  return filterIsEmpty(filter) ? undefined : filter;
+}
+
+/**
+ * Join ledger facts onto a completed visual read's packets (VU2.5).
+ *
+ * Only a `completed` outcome carries packets; a failure or an honest no-op is returned
+ * untouched, because the sentence it already carries — "this footage is not indexed" — is
+ * the one the model needs, and appending a fact note to it would bury it.
+ */
+export function withPacketFacts(
+  outcome: HostToolOutcome,
+  ledger: LedgerSnapshot | null | undefined,
+  filter?: PacketFactsFilter,
+): HostToolOutcome {
+  if (outcome.status !== 'completed') return outcome;
+  const record = outcome.data as { packets?: unknown[] } | undefined;
+  if (!record || !Array.isArray(record.packets)) return outcome;
+  const result = applyPacketFacts(record.packets, ledger, filter);
+  return {
+    ...outcome,
+    summary: `${outcome.summary}${result.note}`,
+    data: { ...(record as Record<string, unknown>), packets: result.packets },
+  };
 }
 
 /** A resolved sidecar call: the relative route, its request body, and how to
@@ -1217,14 +1269,18 @@ export function planSidecarCall(
     return {
       route: VISUAL_SEARCH_ROUTE,
       body: visualSearchBody(project, args, credentials),
-      interpret: (data) => unwrapVisualSearch(name, data),
+      // The engine ranks; the ledger qualifies. Joining here rather than in the engine keeps
+      // the brain route free of a second notion of what a shot is — the packets and the
+      // shots are already keyed the same way, on `(assetId, asset seconds)`.
+      interpret: (data) =>
+        withPacketFacts(unwrapVisualSearch(name, data), ctx.ledger, readFactsFilter(args)),
     };
   }
   if (name === 'describe_footage') {
     return {
       route: VISUAL_DESCRIBE_ROUTE,
       body: describeFootageBody(project, args, credentials),
-      interpret: unwrapDescribeFootage,
+      interpret: (data) => withPacketFacts(unwrapDescribeFootage(data), ctx.ledger),
     };
   }
   if (name === 'map_footage') {

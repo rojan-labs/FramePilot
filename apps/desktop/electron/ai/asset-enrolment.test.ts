@@ -1,5 +1,11 @@
 import { describe, expect, it, vi } from 'vitest';
-import { createAssetEnroller } from './asset-enrolment.js';
+import {
+  createAssetEnroller,
+  enrolmentTargetFor,
+  stockEnrolmentTargetFor,
+} from './asset-enrolment.js';
+import { sourcedAssetId } from '../media/sourced-asset-id.js';
+import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
 
 interface Call {
   readonly projectId: string;
@@ -172,6 +178,38 @@ describe('createAssetEnroller', () => {
     expect(seen[0]).toBe(controller.signal);
   });
 
+  it('forgets a failed batch so the same asset can be enrolled again', async () => {
+    // The sidecar is usually still starting when a project opens, and that is exactly
+    // when the first import lands. Remembering those ids as "enrolled" would leave the
+    // footage unmeasured for the whole session with nothing to say so.
+    const enrol = vi
+      .fn()
+      .mockRejectedValueOnce(new Error('visual index did not complete: unreachable'))
+      .mockResolvedValue(undefined);
+    const enroller = createAssetEnroller({ enrol, signal: new AbortController().signal });
+
+    enroller.request('p1', 'a1');
+    await enroller.settled();
+    enroller.request('p1', 'a1'); // the same asset, once the engine is up
+    await enroller.settled();
+
+    expect(enrol).toHaveBeenCalledTimes(2);
+  });
+
+  it('still never re-enrols an asset whose batch SUCCEEDED', async () => {
+    // The other half of the rule above: forgetting is for failure only, or the dedupe
+    // this module exists for would be gone.
+    const { enrol } = immediate();
+    const enroller = createAssetEnroller({ enrol, signal: new AbortController().signal });
+
+    enroller.request('p1', 'a1');
+    await enroller.settled();
+    enroller.request('p1', 'a1');
+    await enroller.settled();
+
+    expect(enrol).toHaveBeenCalledTimes(1);
+  });
+
   it('survives a failing batch and keeps enrolling afterwards', async () => {
     // Enrolment is an optimization; a run that cannot index must still place footage.
     const enrol = vi
@@ -207,5 +245,72 @@ describe('createAssetEnroller', () => {
     enroller.request('p3', 'a1'); // still remembered
     await enroller.settled();
     expect(enrol).toHaveBeenCalledTimes(4);
+  });
+});
+
+describe('enrolmentTargetFor', () => {
+  const request = (over: Partial<ImportAssetRequest> = {}): ImportAssetRequest => ({
+    inputPath: 'media/p1/clip.mov',
+    projectId: 'p1',
+    assetId: 'a1',
+    ...over,
+  });
+  const derived = (over: Partial<Extract<ImportAssetResult, { ok: true }>> = {}) =>
+    ({ ok: true, kind: 'video', durationSeconds: 12, media: {}, ...over }) as ImportAssetResult;
+
+  it('enrols an import with NO key, provider or setting configured', () => {
+    // The defect this whole change exists for: `shouldAutoIndex` returned false without an
+    // NVIDIA or TwelveLabs key, so on a default install nothing was ever indexed and the
+    // agent never called a footage surface in ten recorded runs. Measurement needs neither.
+    expect(enrolmentTargetFor(request(), derived())).toEqual({ projectId: 'p1', assetId: 'a1' });
+  });
+
+  it('enrols a still photo — a shot ledger of one', () => {
+    expect(enrolmentTargetFor(request(), derived({ kind: 'image' }))).not.toBeNull();
+  });
+
+  it('does not enrol audio, which has no picture to measure', () => {
+    expect(enrolmentTargetFor(request(), derived({ kind: 'audio' }))).toBeNull();
+  });
+
+  it('does not enrol a failed derivation, which wrote no brain row', () => {
+    // The index route answers `asset not known to brain` for these, and the id would be
+    // remembered as enrolled on the strength of a guaranteed miss.
+    expect(enrolmentTargetFor(request(), { ok: false, error: 'sidecar down' })).toBeNull();
+  });
+
+  it('does not enrol when the ids the brain write needs were not sent', () => {
+    expect(enrolmentTargetFor({ inputPath: 'media/p1/clip.mov' }, derived())).toBeNull();
+    expect(enrolmentTargetFor(request({ assetId: undefined }), derived())).toBeNull();
+  });
+});
+
+
+describe('stockEnrolmentTargetFor', () => {
+  const request = { projectId: 'p1', remoteId: '4321', operationId: 'op1' } as const;
+  const downloaded = {
+    ok: true,
+    asset: {
+      relativePath: 'media/p1/stock/pexels-4321.mp4',
+      source: { provider: 'pexels', remoteId: '4321' },
+    },
+  } as never;
+
+  it('enrols a downloaded stock clip under the id the project and brain share', () => {
+    // The bug this seam exists for: acquired clips were never registered with the brain at
+    // all, so the agent would build a montage from stock and then be told it knew nothing
+    // about any of it. Enrolment was a per-surface hook and the Stock panel had none — a
+    // missing CALL SITE, which no test of the enroller itself can see.
+    const target = stockEnrolmentTargetFor(request, downloaded);
+    expect(target?.projectId).toBe('p1');
+    // Derived, never taken from the result: an id the brain row does not use asks the
+    // engine about an asset it has never heard of.
+    expect(target?.assetId).toBe(sourcedAssetId('stock', 'pexels', '4321'));
+  });
+
+  it('does not enrol a failed download, which wrote no file and no brain row', () => {
+    expect(
+      stockEnrolmentTargetFor(request, { ok: false, error: 'network' } as never),
+    ).toBeNull();
   });
 });

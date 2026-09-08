@@ -86,6 +86,10 @@ import {
   setExecutionAuthorization,
   setNextAction,
 } from './working-state.js';
+import {
+  recordPictureVerification,
+  type PictureVerificationReport,
+} from './picture-verification.js';
 import { referenceDecisions, referenceDirectives } from '../references/directives.js';
 import type { HostPatchRefusal } from './commit-ledger.js';
 import { assessEditCompletion } from '../completion-gate.js';
@@ -951,6 +955,22 @@ export interface AgentTurnResult {
    * already use.
    */
   readonly acceptanceShortfall?: readonly string[];
+  /**
+   * What the pixels said about the cuts THIS apply is answerable for
+   * (`kernel/picture-verification.ts`, VU7).
+   *
+   * The reducer holds no project and no shot ledger, so it cannot compute a picture diff
+   * itself — the effect layer has both at the moment of the apply and hands the finished
+   * report over here, exactly as it already does for `arrangement`, `callFacts` and
+   * `acceptanceShortfall`. The runtime measures; the reducer folds.
+   *
+   * Absent when the run has no ledger, when the apply touched no picture cut it is
+   * responsible for, or when the host wired no evidence route at all. It is a FACT
+   * channel and nothing else: no value of it can turn an applied turn into a rejected
+   * one, which is why it is read only inside the `applied` branch and why nothing
+   * downstream of the fold reads it back.
+   */
+  readonly pictureVerification?: PictureVerificationReport;
   /** The ledger snapshot with this turn's step flipped to `running` (design §2). */
   readonly planSteps: readonly PlanStep[];
   /** Which ledger index this turn occupies (the reducer sets its terminal status). */
@@ -2025,6 +2045,13 @@ export function onTurnResult(
           scope: 'timeline_dependent',
         })
       : revised;
+    // VU7: what the pixels said about the cuts this patch just made. Folded HERE, after
+    // `onProjectRevisionChanged` and beside the arrangement fact, for the same reason that
+    // one is: these are `timeline_dependent` facts about the revision this turn produced,
+    // and recording them before the invalidation would drop them on the way past.
+    const verifiedWorking = r.pictureVerification
+      ? recordPictureVerification(advancedWorking, r.pictureVerification)
+      : advancedWorking;
     const working = r.describedActions.reduce(
       (ledger, action, index) =>
         recordOperation(ledger, {
@@ -2041,7 +2068,7 @@ export function onTurnResult(
           ...(r.patchId === undefined ? {} : { patchId: r.patchId }),
           ...(objectiveId ? { objectiveId } : {}),
         }),
-      advancedWorking,
+      verifiedWorking,
     );
     const s: ConductorState = {
       ...withPlan,

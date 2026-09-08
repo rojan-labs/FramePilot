@@ -16,6 +16,7 @@ import { TOOL_REGISTRY, concurrencySafe, getTool, toolDescriptors } from './tool
 import type { ToolContext } from './tool-context.js';
 import { MAX_CLIPS_PER_BATCH } from './domain-tools/timeline.js';
 import { makeProject } from './__fixtures__/project.js';
+import { parseProject } from '@framepilot/timeline-schema';
 
 const ctx: ToolContext = { project: makeProject(), selection: { start: 1, end: 2 } };
 
@@ -693,6 +694,73 @@ describe('discover_transitions', () => {
 });
 
 describe('mutating tools — build valid operations', () => {
+  it('reorder_clips refuses the order the track is already in, and that ends a rotation', () => {
+    // Live run `reports/golden/vu-ledger-all/cases/reorder-last-first-r1.json`: asked to
+    // "move the last clip to the very beginning", the run reordered FIVE times, each call
+    // re-deriving the positional instruction against the track the previous one had just
+    // changed. Five rotations of five clips is the identity, so it finished with the
+    // ORIGINAL order and reported "Applied 5 edits". `reorder_clips` re-lays the whole
+    // track, so a repeat is a no-op — and an accepted no-op resets every run-stopper as if
+    // a clip had moved. Refusing it is what breaks the cycle.
+    const tool = getTool('reorder_clips')!;
+    // Five clips, the shape the live case runs on. Five matters: with two, "last to the
+    // front" just flips back and forth and never repeats an order, so the cycle this pins
+    // needs a track long enough to rotate through.
+    const base = makeProject();
+    const fiveClipProject = parseProject({
+      ...base,
+      assets: [{ id: 'asset_r', path: 'media/r.mp4', kind: 'video', durationSeconds: 100 }],
+      timeline: {
+        tracks: [
+          {
+            id: 'video_r',
+            type: 'video',
+            clips: Array.from({ length: 5 }, (_, i) => ({
+              id: `clip_r${String(i + 1)}`,
+              assetId: 'asset_r',
+              trackId: 'video_r',
+              start: i * 2,
+              end: i * 2 + 2,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+            })),
+          },
+        ],
+      },
+    });
+    const ctx = { project: fiveClipProject } as ToolContext;
+    const track = fiveClipProject.timeline.tracks[0]!;
+    const order = [...track.clips].sort((a, b) => a.start - b.start).map((c) => c.id);
+
+    expect(() => tool.buildOps!({ trackId: track.id, clipIds: order }, ctx)).toThrow(
+      /already in that exact order/,
+    );
+    expect(() => tool.buildOps!({ trackId: 'nope', clipIds: order }, ctx)).toThrow(/no track/);
+
+    // A genuine reorder still builds its one operation.
+    const moved = [order.at(-1)!, ...order.slice(0, -1)];
+    const ops = tool.buildOps!({ trackId: track.id, clipIds: moved }, ctx);
+    expect(ops).toEqual([{ type: 'reorder_clips', trackId: track.id, clipIds: moved }]);
+
+    // THE CALL THAT DID THE DAMAGE. In the live run the fifth reorder asked for the
+    // track's ORIGINAL order — five rotations of five clips being the identity — and it
+    // was accepted, so a correct edit was silently undone and reported as five applied
+    // edits. Planned against the turn's project, that call is exactly "the order it is
+    // already in", and it is refused now. The run is told the truth instead of undoing
+    // itself.
+    expect(() => tool.buildOps!({ trackId: track.id, clipIds: order }, ctx)).toThrow(
+      /already in that exact order/,
+    );
+
+    // What this does NOT claim: it cannot stop a model that keeps issuing genuinely new
+    // orderings. A rotation only ever repeats itself at the start, so this catches the
+    // undo, not every wasted step. Making a run stop once a positional request is met is a
+    // conductor-level question (`kernel/conductor.ts` progress accounting), recorded in
+    // TESTING_PLAN.md T16.3 rather than guessed at here.
+  });
+
   it('tighten_clips trims every long shot in a window and re-lays the track gaplessly', () => {
     // s9-live-all refine-tighten t2: 184 operations, three delete-then-re-add rebuilds, to
     // shorten a section's shots. This is that job as one patch.

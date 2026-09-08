@@ -41,8 +41,7 @@ export const SkillSchema = z
 export type Skill = z.infer<typeof SkillSchema>;
 
 export type SkillParseResult =
-  | { readonly ok: true; readonly skill: Skill }
-  | { readonly ok: false; readonly error: string };
+  { readonly ok: true; readonly skill: Skill } | { readonly ok: false; readonly error: string };
 
 /**
  * Parse one skill file: strict `---` frontmatter fences at the very start, then
@@ -59,7 +58,11 @@ export function parseSkillFile(file: string, raw: string): SkillParseResult {
   const fields: Record<string, string> = {};
   for (const line of header.split('\n')) {
     if (line.trim() === '') continue;
-    const kv = /^([a-z]+):\s*(.+)$/.exec(line.trim());
+    // `(\S.*)` rather than `(.+)`: forcing the value to start non-blank keeps `\s*`
+    // and the value group from competing for the same spaces, which is what made this
+    // backtrack quadratically on a padded line (CodeQL js/polynomial-redos). The line is
+    // already trimmed, so nothing that used to match stops matching.
+    const kv = /^([a-z]+):\s*(\S.*)$/.exec(line.trim());
     if (!kv) return { ok: false, error: `${file}: bad frontmatter line: "${line.trim()}"` };
     fields[kv[1] as string] = (kv[2] as string).trim();
   }

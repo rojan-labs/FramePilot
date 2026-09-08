@@ -33,6 +33,7 @@ import {
   type AskUserAnswer,
   type AskUserGate,
   type ContextInput,
+  type LedgerSnapshot,
   type StreamOptions,
   type TargetPlatform,
   type TemporalEvidenceAcquirer,
@@ -576,11 +577,11 @@ async function readOptionalContext(
  * else — but it hands over the live project document rather than an id, which the
  * footage map needs in order to answer in timeline time at all.
  */
-async function readContextFor(
-  reader: ((project: Project) => Promise<string | undefined>) | undefined,
+async function readContextFor<T>(
+  reader: ((project: Project) => Promise<T | undefined>) | undefined,
   project: Project,
   label: string,
-): Promise<string | undefined> {
+): Promise<T | undefined> {
   if (!reader || project.id === '') return undefined;
   try {
     return await reader(project);
@@ -704,6 +705,22 @@ export async function runAiStream(
    * what silently handed every run source seconds under a timeline label.
    */
   footageMapFor?: (project: Project) => Promise<string | undefined>,
+  /**
+   * Reads this project's SHOT LEDGER — what one local ffmpeg pass measured about the
+   * picture of every asset the timeline references (ADR 0175, VU2.1).
+   *
+   * This is the desktop half of the read the browser session has had since the ledger
+   * landed (`apps/web-editor/src/editor/ai.ts#readShotLedger`). Without it every picture
+   * surface the ledger feeds — the clip-row shot words, the PICTURE digest, the facts a
+   * tool result carries, the colour solver's readings and the transition policy's measured
+   * cuts — degrades to what the agent had before the ledger existed. The engine measured
+   * the footage and nothing read it, which on the desktop app is every real run.
+   *
+   * Takes the whole project for the same reason `footageMapFor` does: the snapshot is
+   * scoped to the assets THIS timeline references, not the whole bin, so a run's cost
+   * grows with the edit rather than with the library.
+   */
+  shotLedgerFor?: (project: Project) => Promise<LedgerSnapshot | undefined>,
   /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
   sessionContextFor?: (projectId: string) => Promise<string | undefined>,
   /**
@@ -746,16 +763,25 @@ export async function runAiStream(
   // decisions the editor settled (P5.1). `sessionContext` above is the narrative tier and
   // covers human decisions recorded via Accept/Reject; this is the typed ledger, and it
   // covers what the run DISCOVERED, which nothing carried before.
-  const [visualStatus, footageMap, sessionContext, carriedForward] = await Promise.all([
-    readOptionalContext(readVisualStatus, project.id, 'visual status'),
-    readContextFor(footageMapFor, project, 'footage map'),
-    readOptionalContext(sessionContextFor, project.id, 'session context'),
-    readCarriedForward(carriedForwardFor, request.conversationId, project.id),
-  ]);
+  // The fifth is what the PICTURE is: the shot ledger (ADR 0175). It joins the other four
+  // here rather than being fetched on demand because every surface that reads it — clip
+  // rows, the digest, tool-result facts, the colour solver, the transition policy — is a
+  // pure projection of one snapshot, so one read per run keeps the prompt prefix stable
+  // and cacheable. Best-effort exactly like its neighbours: no sidecar, no brain or an
+  // unmeasured project costs the run its picture facts and nothing else.
+  const [visualStatus, footageMap, shotLedger, sessionContext, carriedForward] =
+    await Promise.all([
+      readOptionalContext(readVisualStatus, project.id, 'visual status'),
+      readContextFor(footageMapFor, project, 'footage map'),
+      readContextFor(shotLedgerFor, project, 'shot ledger'),
+      readOptionalContext(sessionContextFor, project.id, 'session context'),
+      readCarriedForward(carriedForwardFor, request.conversationId, project.id),
+    ]);
   const input: ContextInput = {
     project,
     ...(visualStatus === undefined ? {} : { visualStatus }),
     ...(footageMap === undefined ? {} : { footageMap }),
+    ...(shotLedger === undefined ? {} : { ledger: shotLedger }),
     ...(sessionContext === undefined ? {} : { sessionContext }),
     ...(request.references === undefined
       ? {}
@@ -910,6 +936,18 @@ interface HubOptions {
    * already in memory, so this stays a cache-only read and still costs nothing.
    */
   readonly footageMapFor?: (project: Project) => Promise<string | undefined>;
+  /**
+   * Reads the project's SHOT LEDGER (`LedgerClient.snapshot`, ADR 0175) — the tier-0
+   * measurements one local ffmpeg pass wrote for every asset this timeline references.
+   *
+   * Optional and fail-soft like the readers above, and for the same reason: the ledger is
+   * an optimization, and a run without one knows less and still finishes. What made its
+   * absence a defect rather than a degradation is that the desktop app never supplied one
+   * at all — the engine measured every imported asset and no run ever read a row, so the
+   * clip-row words, the picture digest, the tool-result facts, the colour solver and the
+   * transition policy were all inert on the app this product leads with.
+   */
+  readonly shotLedgerFor?: (project: Project) => Promise<LedgerSnapshot | undefined>;
   /**
    * Reads the project's session-memory digest (`createSessionContextDigester`) — the bin
    * summary, the latest session note, and the corrections/decisions tiers.
@@ -1142,6 +1180,7 @@ export class AiStreamHub {
           },
           this.options.visualStatusFor,
           this.options.footageMapFor,
+          this.options.shotLedgerFor,
           this.options.sessionContextFor,
           hooks.commitLedger,
           this.options.carriedForwardFor,

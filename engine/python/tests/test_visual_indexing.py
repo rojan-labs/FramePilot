@@ -21,6 +21,7 @@ from framepilot_engine.visual_indexing import (
     FrameExtractionError,
     extract_keyframe_jpeg,
     grid_from_bytes,
+    keyframe_dhashes,
     sample_asset,
 )
 
@@ -193,3 +194,44 @@ def test_defaults_fall_back_to_real_ffmpeg_helpers(monkeypatch: pytest.MonkeyPat
 
     monkeypatch.setattr(visual_indexing, "run_bytes", lambda argv, *, timeout=None: b"jpeg")
     assert extract_keyframe_jpeg(_MEDIA, 0.0) == b"jpeg"
+
+
+class TestKeyframeDhashes:
+    """The tier-0 phash producer (VU5.3).
+
+    `MeasuredFacts.phash` had NO producer before this: the measurement pass reads
+    `signalstats` off a 160px decode and never touches a frame as pixels, so
+    `_link_duplicate_shots` filtered on `phash is not None` and matched nothing, on every
+    project, forever. Duplicate-take detection was dead code that tested green because the
+    only test covering it monkeypatched the hashes in.
+    """
+
+    def test_it_hashes_one_frame_per_timestamp_keyed_by_shot_order(self) -> None:
+        def runner(argv: Sequence[str]) -> bytes:
+            return _FLAT if "1.0" in argv else _OTHER
+
+        hashes = keyframe_dhashes(_MEDIA, [1.0, 5.0], ffmpeg="ffmpeg", runner=runner)
+        assert set(hashes) == {0, 1}
+        # Decimal strings, because a 64-bit hash through JSON is not safe as a number.
+        assert all(value.isdigit() for value in hashes.values())
+        assert hashes[0] != hashes[1]
+
+    def test_an_undecodable_frame_yields_NO_ENTRY_rather_than_a_shared_zero(self) -> None:
+        # The whole reason this returns a sparse map. A placeholder value would make every
+        # unhashable shot a duplicate of every other one, which is the failure
+        # `shots_from_stats` documents and refuses to write — and `_link_duplicate_shots`
+        # compares Hamming distances, so it would link them all.
+        def runner(argv: Sequence[str]) -> bytes:
+            if "5.0" in argv:
+                raise OSError("no frame there")
+            return _FLAT
+
+        hashes = keyframe_dhashes(_MEDIA, [1.0, 5.0, 9.0], ffmpeg="ffmpeg", runner=runner)
+        assert set(hashes) == {0, 2}
+        assert 1 not in hashes
+
+    def test_a_short_decode_is_skipped_not_reshaped(self) -> None:
+        def runner(argv: Sequence[str]) -> bytes:
+            return b"\x00" * 4
+
+        assert keyframe_dhashes(_MEDIA, [1.0], ffmpeg="ffmpeg", runner=runner) == {}

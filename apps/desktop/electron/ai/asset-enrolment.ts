@@ -27,10 +27,95 @@
  * immediately (enrolment is not delayed behind a timer) and every asset after it rides a
  * batch, which is exactly the pacing the engine route was written for. Nothing is enrolled
  * twice, and an abort signal ends the whole thing.
+ *
+ * ## Why this is now the app's only enrolment path
+ *
+ * It was built for `add_stock` and used by nothing else, while the renderer ran its own
+ * per-import warm-up and the Stock and Sounds panels ran none. Every acquired asset —
+ * human import, agent download, panel download — goes through this one loop now
+ * (ADR 0175). The batching argument above is the reason it can: an import of forty files
+ * and a turn of forty downloads are the same shape of work, and the engine paces both
+ * from one list.
+ *
+ * A batch that does not complete FORGETS its ids, so they can be enrolled again later.
+ * Remembering them would be right if failure meant "already done", and it does not: the
+ * realistic failure is a sidecar that had not finished starting when the project opened,
+ * and the assets imported in that window would stay unmeasured for the whole session.
  */
 import { createLogger } from '@framepilot/shared-types';
+import type { ImportAssetRequest, ImportAssetResult } from '../ipc/contract.js';
+import type { StockDownloadRequest, StockDownloadResult } from '@framepilot/shared-types';
+import { sourcedAssetId } from '../media/sourced-asset-id.js';
 
 const log = createLogger('desktop:asset-enrolment');
+
+/** The project asset an acquisition produced, as the enroller needs to name it. */
+export interface EnrolmentTarget {
+  readonly projectId: string;
+  readonly assetId: string;
+}
+
+/**
+ * Whether a finished media-import derivation should be enrolled, and as what.
+ *
+ * Extracted from the IPC handler because it is the whole import-side policy and there is
+ * nothing else in that handler worth testing. Note what it does NOT consult: no API key,
+ * no provider, no setting. Tier 0 of the shot ledger is one local ffmpeg pass (ADR 0175),
+ * so a clean install with nothing configured enrols exactly like a fully configured one.
+ *
+ * @param request - The import request, whose ids say which asset this file is.
+ * @param result - What the sidecar's `/asset-media` route returned.
+ * @returns The target to enrol, or `null` when there is nothing to enrol.
+ */
+export function enrolmentTargetFor(
+  request: ImportAssetRequest,
+  result: ImportAssetResult,
+): EnrolmentTarget | null {
+  // A failed derivation wrote no brain row, and the visual index answers `asset not known
+  // to brain` for anything that has none — enrolling would burn the id on a certain miss.
+  if (!result.ok) return null;
+  // Without both ids the sidecar was explicitly told to skip the brain write.
+  if (request.projectId === undefined || request.assetId === undefined) return null;
+  // The ledger is a ledger of PICTURES. A track is recorded in the brain by the same call
+  // and simply has no shots; asking the engine to measure it is noise, not coverage.
+  if (result.kind === 'audio') return null;
+  return { projectId: request.projectId, assetId: request.assetId };
+}
+
+/**
+ * Whether a finished STOCK download should be enrolled, and as what.
+ *
+ * The sibling of {@link enrolmentTargetFor}, and it exists for the same reason: the
+ * decision is the whole policy, and leaving it inline in `main.ts` is what let the original
+ * bug happen. Acquired clips were never registered with the brain at all — the agent would
+ * build a montage and then be told it knew nothing about any of it — because enrolment was
+ * a per-surface hook that the Stock panel simply did not have. A missing CALL SITE is
+ * invisible to every test of the enroller itself, so the decision lives here where one can
+ * see it.
+ *
+ * The id is derived, not taken from the result: it must be the id the project document and
+ * the brain row both use, or the engine is asked about an asset it has never heard of.
+ *
+ * @param request - The download request, which names the project.
+ * @param result - What the stock service returned.
+ * @returns The target to enrol, or `null` when the download did not land.
+ */
+export function stockEnrolmentTargetFor(
+  request: StockDownloadRequest,
+  result: StockDownloadResult,
+): EnrolmentTarget | null {
+  // A failed download wrote no file and no brain row; enrolling would spend the id on a
+  // certain miss, exactly as it would for a failed import.
+  if (!result.ok) return null;
+  return {
+    projectId: request.projectId,
+    assetId: sourcedAssetId(
+      'stock',
+      result.asset.source.provider,
+      result.asset.source.remoteId,
+    ),
+  };
+}
 
 /**
  * How many projects keep an enrolment record. The main process outlives every project it
@@ -40,7 +125,10 @@ const log = createLogger('desktop:asset-enrolment');
 const DEFAULT_MAX_TRACKED_PROJECTS = 32;
 
 export interface AssetEnrolmentOptions {
-  /** Run one enrolment for a whole batch. Rejections are reported, never thrown. */
+  /**
+   * Run one enrolment for a whole batch. A rejection means the batch did not land: it is
+   * logged, never rethrown, and the ids are forgotten so a later request retries them.
+   */
   readonly enrol: (input: {
     readonly projectId: string;
     readonly assetIds: readonly string[];
@@ -136,6 +224,10 @@ export function createAssetEnroller(options: AssetEnrolmentOptions): AssetEnroll
           assets: assetIds.length,
           error: error instanceof Error ? error.message : String(error),
         });
+        // Forget the ids. A failed batch is not a completed one, and the asset must stay
+        // eligible for the next acquisition or session to enrol it.
+        const already = seen.get(projectId);
+        if (already) for (const assetId of assetIds) already.delete(assetId);
       })
       .finally(() => {
         running.delete(projectId);

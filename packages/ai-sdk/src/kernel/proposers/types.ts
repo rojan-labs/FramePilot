@@ -36,8 +36,7 @@ export type ModelTier = 'small' | 'mid' | 'large';
  * args, generalized to every proposer output.
  */
 export type ProposerResult<T> =
-  | { readonly ok: true; readonly value: T }
-  | { readonly ok: false; readonly error: string };
+  { readonly ok: true; readonly value: T } | { readonly ok: false; readonly error: string };
 
 /**
  * A model-backed proposer: a name, a tier, a pure request builder, and a pure response
@@ -96,8 +95,14 @@ export function proposerModelEffect(
 /** Strip a ```json … ``` (or bare ```` ``` ````) code fence a model wraps JSON in. */
 function stripCodeFence(raw: string): string {
   const trimmed = raw.trim();
-  const fenced = /^```(?:json)?\s*([\s\S]*?)\s*```$/.exec(trimmed);
-  return fenced?.[1] ?? trimmed;
+  // Sliced rather than matched: in `^```(?:json)?\s*([\s\S]*?)\s*```$` the two `\s`
+  // runs and the lazy body all compete for the same whitespace, so a model reply that is
+  // one long run of spaces backtracks quadratically (CodeQL js/polynomial-redos).
+  if (trimmed.length < 6 || !trimmed.startsWith('```') || !trimmed.endsWith('```')) {
+    return trimmed;
+  }
+  const inner = trimmed.slice(3, -3);
+  return (inner.startsWith('json') ? inner.slice(4) : inner).trim();
 }
 
 const JSON_RECOVERY_MAX_CHARS = 20_000;

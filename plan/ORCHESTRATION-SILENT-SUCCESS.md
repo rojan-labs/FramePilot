@@ -70,13 +70,13 @@ to. It adds no new subsystem.
   sequence model for aspect variants beyond the disclosure in SS-9.
 - **Evidence:** every task lands red-then-green on the golden case, plus the ten tracked
   metrics from `golden-metrics.ts`. Real-media effect is **pending manual verification**
-  per `goal.md` until the maintainer runs it.
+  by the maintainer (the ten golden-eval metrics now live in `BASELINES.md`).
 
 ## What "zero issues" means here
 
 Zero defects is not an achievable acceptance criterion for a layer with a language model in
 it — the model will sometimes choose badly, and no amount of orchestration prevents that.
-`goal.md` already states the achievable form, and it is the bar this sub-plan is measured
+`BASELINES.md` already states the achievable form, and it is the bar this sub-plan is measured
 against:
 
 > Zero incorrect silent successes — the agent never reports a completed edit that did not
@@ -174,9 +174,9 @@ invariant and each is weak without the others. SS-5 next; it is the root of the 
 and is independently measurable. SS-6, SS-7, SS-8, SS-9 are independent and may land in
 any order.
 
-## Release gate mapping (`goal.md`)
+## Release gate mapping (golden-eval baseline)
 
-| `goal.md` bar | Served by |
+| baseline bar | Served by |
 | --- | --- |
 | Zero incorrect silent successes | SS-1, SS-2, SS-3, SS-4 |
 | Every applied edit fully reversible | unchanged; asserted by the golden case |

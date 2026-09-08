@@ -177,6 +177,20 @@ export function unusableHostPayloadEntries(): readonly {
 }
 
 /**
+ * Drop the trailing `.`/`!`/`?` from a provider sentence.
+ *
+ * WHY a scan and not `/[.!?]+$/`: the reason string is whatever a remote provider sent
+ * us, and an anchored `+` over it backtracks quadratically on a long run of punctuation
+ * (CodeQL js/polynomial-redos). Walking back from the end is linear and says the same
+ * thing.
+ */
+function stripSentenceEnd(text: string): string {
+  let end = text.length;
+  while (end > 0 && '.!?'.includes(text.charAt(end - 1))) end -= 1;
+  return text.slice(0, end);
+}
+
+/**
  * The refusal when the host's speech-to-text provider could not run at all.
  *
  * The desktop's `transcribeTwelveLabs` is shared by the manual button and the agent, so its
@@ -198,7 +212,7 @@ export function hostedTranscriptionUnavailable(reason: string): string {
   // (ends in nothing). Normalizing here keeps the two halves from running together into
   // one unreadable line, which is a real cost when the whole point is that it be read.
   const said = reason.trim();
-  const cause = said === '' ? 'the provider gave no reason' : said.replace(/[.!?]+$/, '');
+  const cause = said === '' ? 'the provider gave no reason' : stripSentenceEnd(said);
   return (
     `Rejected "transcribe" — speech-to-text could not run: ${cause}. That is a setup or ` +
     'provider problem, not your arguments, so calling it again with different arguments ' +

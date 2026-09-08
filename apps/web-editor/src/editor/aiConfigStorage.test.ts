@@ -139,11 +139,10 @@ describe('aiConfigStorage', () => {
   });
 
   describe('media intelligence', () => {
-    it('is unconfigured by default and eager import warming defaults on', () => {
+    it('is unconfigured by default', () => {
       const config = toAiConfig(loadBrowserAiConfig());
       expect(config.nvidiaEmbeddings).toBeUndefined();
       expect(config.twelveLabs).toBeUndefined();
-      expect(config.embeddingsAutoIndex).toBe(true);
     });
 
     it('round-trips NVIDIA indexing keys without touching the chat key', () => {
@@ -173,12 +172,15 @@ describe('aiConfigStorage', () => {
       expect(loadBrowserAiConfig().twelveLabs).toBeUndefined();
     });
 
-    it('persists the optional eager import-warming preference', () => {
-      applyBrowserUpdate({ embeddingsAutoIndex: false });
-      expect(loadBrowserAiConfig().embeddingsAutoIndex).toBe(false);
-      expect(toAiConfig(loadBrowserAiConfig()).embeddingsAutoIndex).toBe(false);
-      applyBrowserUpdate({ embeddingsAutoIndex: true });
-      expect(toAiConfig(loadBrowserAiConfig()).embeddingsAutoIndex).toBe(true);
+    it('drops a stored eager-warming toggle instead of migrating it forward', () => {
+      // Retired with the key gate (ADR 0175): preparation is not optional, so a value
+      // left in browser storage by an older build must not come back as a preference.
+      localStorage.setItem(
+        'framepilot.aiConfig',
+        JSON.stringify({ activeProvider: 'mock', embeddingsAutoIndex: false }),
+      );
+      expect(loadBrowserAiConfig()).not.toHaveProperty('embeddingsAutoIndex');
+      expect(toAiConfig(loadBrowserAiConfig())).not.toHaveProperty('embeddingsAutoIndex');
     });
 
     it('ignores the retired visual-caption-provider setting on load and update', () => {

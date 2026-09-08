@@ -419,7 +419,11 @@ describe('SettingsDialog', () => {
     it('says plainly that no key means local facts only, rather than implying failure', () => {
       openAi();
       expect(screen.getByText('Local facts only')).toBeTruthy();
-      expect(screen.getByText(/remain available without a media-understanding key/)).toBeTruthy();
+      // And says what those local facts ARE. "Nothing is indexed" was never true after
+      // measurement became keyless (ADR 0175), and it is the sentence that would keep a
+      // user hunting for a key they do not need.
+      expect(screen.getByText(/imported footage is still measured on this device/)).toBeTruthy();
+      expect(screen.getByText(/Nothing leaves this machine/)).toBeTruthy();
     });
 
     it('reports TwelveLabs ready once a key is configured', () => {
@@ -502,6 +506,119 @@ describe('SettingsDialog', () => {
       });
       openAiForProject('p1');
       await waitFor(() => expect(screen.getByText(/2\/4 assets prepared/)).toBeTruthy());
+    });
+
+    /**
+     * The coverage line's state matrix (ADR 0175).
+     *
+     * One number for three independent tiers could only ever be a lie in one direction or
+     * the other: it read "prepared" when nothing had run, and — once measurement became
+     * keyless — it would read "not prepared" for footage that HAD been measured. Each
+     * case below is a state a real install sits in.
+     */
+    describe('per-tier coverage', () => {
+      const withCoverage = (
+        coverage: Record<string, number>,
+        over: Record<string, unknown> = {},
+      ): void =>
+        stubVisualFetch({
+          available: true,
+          backend: 'brute-force',
+          counts: { assets: 61 },
+          indexedAssets: 61,
+          totalAssets: 61,
+          keyConfigured: false,
+          coverage,
+          ...over,
+        });
+
+      it('says what ran and why the rest did not, on an install with no key', () => {
+        withCoverage({ measured: 61, labelled: 0, described: 0, total: 61 });
+        openAiForProject('p1');
+        return waitFor(() =>
+          expect(
+            screen.getByText(
+              /measured 61\/61 · labelled 0\/61 · described 0\/61 — labelled needs an embedding key · described needs a vision provider/,
+            ),
+          ).toBeTruthy(),
+        );
+      });
+
+      it('calls a fully measured project complete — the floor is what needs nothing', async () => {
+        withCoverage({ measured: 61, labelled: 0, described: 0, total: 61 });
+        openAiForProject('p1');
+        await waitFor(() => expect(screen.getByText(/measured 61\/61/)).toBeTruthy());
+        expect(screen.getByText('completed')).toBeTruthy();
+      });
+
+      it('blames no provider for a zero tier when a key IS configured', async () => {
+        applyBrowserUpdate({ nvidiaEmbeddings: 'nvapi-1', twelveLabs: 'tlk-1' });
+        withCoverage({ measured: 61, labelled: 0, described: 0, total: 61 });
+        openAiForProject('p1');
+        await waitFor(() => expect(screen.getByText(/measured 61\/61/)).toBeTruthy());
+        expect(screen.queryByText(/needs an embedding key/)).toBeNull();
+        expect(screen.queryByText(/needs a vision provider/)).toBeNull();
+      });
+
+      it('reports every tier covered without a trailing excuse', async () => {
+        applyBrowserUpdate({ nvidiaEmbeddings: 'nvapi-1', twelveLabs: 'tlk-1' });
+        withCoverage({ measured: 61, labelled: 61, described: 61, total: 61 });
+        openAiForProject('p1');
+        await waitFor(() =>
+          expect(
+            screen.getByText('measured 61/61 · labelled 61/61 · described 61/61.'),
+          ).toBeTruthy(),
+        );
+      });
+
+      it('does not print 0/0 tiers before anything has been measured', async () => {
+        // Coverage counts shot ROWS, and there are none until tier 0 writes some. The
+        // three-tier line would then answer a question about 61 assets with 0/0.
+        withCoverage({ measured: 0, labelled: 0, described: 0, total: 0 }, { indexedAssets: 0 });
+        openAiForProject('p1');
+        await waitFor(() => expect(screen.getByText(/0\/61 assets prepared/)).toBeTruthy());
+        expect(screen.queryByText(/measured 0\/0/)).toBeNull();
+      });
+
+      it('says it is MEASURING, not embedding, while the floor is still filling', async () => {
+        withCoverage(
+          { measured: 12, labelled: 0, described: 0, total: 61 },
+          {
+            indexedAssets: 12,
+            lastJob: {
+              jobId: 'job-1',
+              state: 'running',
+              progress: 0.2,
+              cursor: 12,
+              total: 61,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        );
+        openAiForProject('p1');
+        await waitFor(() => expect(screen.getByText(/measuring footage \(12\/61\)/)).toBeTruthy());
+        expect(screen.getByText('running')).toBeTruthy();
+      });
+
+      it('keeps the running badge when the floor is full but the job is not done', async () => {
+        applyBrowserUpdate({ twelveLabs: 'tlk-1' });
+        withCoverage(
+          { measured: 61, labelled: 61, described: 12, total: 61 },
+          {
+            lastJob: {
+              jobId: 'job-1',
+              state: 'running',
+              progress: 0.8,
+              cursor: 49,
+              total: 61,
+              updatedAt: new Date().toISOString(),
+            },
+          },
+        );
+        openAiForProject('p1');
+        await waitFor(() => expect(screen.getByText(/described 12\/61/)).toBeTruthy());
+        expect(screen.getByText('running')).toBeTruthy();
+      });
     });
 
     it('shows in-flight progress while a preparation job runs', async () => {
@@ -1191,7 +1308,6 @@ describe('SettingsDialog', () => {
       const config = {
         activeProvider: 'nvidia' as const,
         providers: [],
-        embeddingsAutoIndex: true,
         pexelsReady: options.pexelsReady ?? false,
       };
       const host = {

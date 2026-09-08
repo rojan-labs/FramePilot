@@ -13,8 +13,11 @@ Sources of truth this file summarises:
 - `reports/golden/<label>.json` — merged run (per-scenario rows + golden summary)
 - `reports/golden/<label>/cases/*.json` — one file per case+run, the raw evidence
 - `reports/golden/floor.json` — the single committed regression floor
-- `goal.md` — the ten metrics and what each is for
-- `REMAINING.md` — what the instrument was doing wrong before 2026-09-03
+- the ten golden-eval metrics (the former `goal.md` program; not a file in the repo)
+
+> The former `REMAINING.md` handoff log (sessions 3–8, "what the instrument was doing
+> wrong") was removed on 2026-09-08. Its findings are recorded in the session entries
+> below; this file is now the single kept record.
 
 ---
 
@@ -638,7 +641,7 @@ landed after this run; the partial same-frames duplicate (asset 6381282 at 0–9
   uncompleted, and tools refused on every call this run and never once successful, with the
   last reason. Deterministic, zero prompt tokens. The brief-level ask ("lift the sharpness"
   was never attempted and never mentioned) still needs a planning turn the desktop does not
-  run — recorded in `REMAINING.md` §2 as the maintainer's call, not a patch.
+  run — a maintainer decision recorded in the handoff log, not a patch.
 
 ### Not evidence of
 - Any effect on the ten goal.md metrics. Nothing ran. The first-order table above counts
@@ -856,8 +859,8 @@ that no named section accounted for. I read it first as the rolling action log (
 names this run and this number: **"32,338 tokens: 57% of every request … eight pinned
 playbooks."** The attribution landed in `ed7839a` on 2026-09-05, the day after the run —
 which is why this transcript's manifests carry only the fifteen generic labels plus the
-remainder. `REMAINING.md` §2.6 already recorded the conclusion; this entry adds the
-per-section arithmetic behind it.
+remainder. The conclusion was already recorded in the handoff log; this entry adds
+the per-section arithmetic behind it.
 
 ### Ruled out on this axis, with the reason
 
@@ -894,7 +897,7 @@ This entry records four fixes and one correction to this file's own record.
 
 ### The correction first: "`run.md` is exhausted" was wrong
 
-`REMAINING.md` §1b said so after four sweeps — distinct error strings, non-completed tool
+The handoff log said so after four sweeps — distinct error strings, non-completed tool
 outcomes, warnings/notices, failed recalls — each of which re-derived closed defects. All
 four are FAILURE-shaped: they find what the run said went wrong. The brief is PROMISE-shaped:
 seven explicit asks, each checkable against the 416 applied operations. Walking the brief
@@ -1149,7 +1152,7 @@ reducer's behaviour changing, not the model's.
 
 ### The one measurement: `beat-sync` r1, replayed
 
-REMAINING §2.2's most expensive single failure, re-executed against the fixed reducer.
+The session handoff's most expensive single failure, re-executed against the fixed reducer.
 Recording identical; only the code differs.
 
 | | session6 r1 | s7-replay | |
@@ -1175,19 +1178,19 @@ its own label against a *copy* of the recordings, and `--force` was used only on
 
 ### The four open engine defects, all closed with a reproducing test
 
-| REMAINING § | what it cost | closed by |
+| open defect (session handoff) | what it cost | closed by |
 | --- | --- | --- |
-| §2.1 a reorder loses footage | 4 of 6 clean reorder runs destroyed content | `a080900` — `reorder_clips`, ADR 0173 |
-| §2.2 a rejected turn re-issued forever | 29 identical calls, $3.93, an empty track | `0c9f195` — two independent holes |
-| §2.3 a retimed clip leaves the frame grid | 16 retimes → 16 off-grid edges | `1a49f98` — `ApplyContext.fps` |
-| §2.4 the word-boundary trap | 3 turns lost to cuts one frame inside a word | `eb50cbc` — one answer, two units |
+| a reorder loses footage | 4 of 6 clean reorder runs destroyed content | `a080900` — `reorder_clips`, ADR 0173 |
+| a rejected turn re-issued forever | 29 identical calls, $3.93, an empty track | `0c9f195` — two independent holes |
+| a retimed clip leaves the frame grid | 16 retimes → 16 off-grid edges | `1a49f98` — `ApplyContext.fps` |
+| the word-boundary trap | 3 turns lost to cuts one frame inside a word | `eb50cbc` — one answer, two units |
 
 Plus one found in a fresh sweep of `run.md` and not previously recorded: a catalogue
 `remoteId` the run had just used successfully was refused by `detect_beats`, whose bin
 asset id is that same id with a prefix and its hyphens underscored (`3d2364f`). The
 beat-synced cut the brief asked for never happened.
 
-### §2.2 had TWO holes, and the replay is what proved it
+### The rejected-turn defect had TWO holes, and the replay is what proved it
 
 Worth recording because the handoff named one and the diagnosis found another; either
 alone would have let the run happen again.
@@ -1361,8 +1364,8 @@ reachable but not deterministic. The missing guard is the amplifier, not the cau
   unchanged — correct, since the op carries no time — and the time is invented inside
   `applySetClipSpeed`, which receives only a `Timeline` and so has no fps. Python's
   `_apply_set_clip_speed` uses the same formula, so the two engines AGREE and
-  preview/export parity is intact; both are consistently off-grid. **Not fixed** — see
-  `REMAINING.md` for the three routes and why each is a decision.
+  preview/export parity is intact; both are consistently off-grid. **Not fixed** — the
+  handoff log weighed the three routes and left each as a decision.
 - **The severed-word message named a frame for tools that take seconds.** Three turns lost,
   one at $3.19. **Fixed** (`5693600`).
 
@@ -1471,8 +1474,7 @@ to be read against that guard.
   scoring change are in the tree, and not one of them has been measured against a run.
 - **The four `mission-podcast` cases being fixed.** They still run on a transcript that is
   397 repeats of one sentence. Defect 5 stops them inflating their own scores; it does not
-  give them anything real to measure. §3 of `REMAINING.md` is unchanged and still needs the
-  maintainer.
+  give them anything real to measure. Replacing the media still needs the maintainer.
 - **`hook-strongest-line` being validated.** Its rubric contradiction is repaired and unit
   tested; the case itself still cannot validate anything on that media.
 - **The text-overflow question being fully answered.** The geometric half is closed and
@@ -1584,8 +1586,8 @@ A sixth was found and deliberately **not** fixed: `hook-strongest-line`'s prompt
 "start with the strongest line… **then continue from the beginning as before**", which is
 by arithmetic longer than the original, and its rubric requires `not-longer`. The
 baseline's `575.87s → 577.80s` is the agent obeying the prompt. That case runs on
-`mission-podcast` and measures nothing until the media is replaced (§3), so a rubric change
-could not be validated. Two faithful fixes are recorded in REMAINING.md §2.
+`mission-podcast` and measures nothing until the media is replaced, so a rubric change
+could not be validated. Two faithful fixes are recorded in the handoff log.
 
 ### Not evidence of
 
@@ -1753,7 +1755,7 @@ Also closed, from the `baseline` label rather than the transcript: **`clarify-wh
 mutates while asking, 3/3** (`d482676`). Every operation in a turn comes from one model
 response, so a turn that calls `ask_user` composed its edits before any answer existed.
 `applyAgentTurn` withholds them and tells the model to make them again in light of the
-answer. This is the fix shape REMAINING.md §2.4 named.
+answer. This is the fix shape the handoff log named (§2.4).
 
 ### What a future run should show, and what would falsify it
 
@@ -1793,7 +1795,7 @@ Stated in advance so the next baseline is a test and not a rationalisation:
   whether the case then scores 1.00 is unmeasured, and the run still has to place the
   b-roll correctly on its own merits.
 - **That `podcast-highlight-60s` measures anything.** Unchanged: the media still needs
-  replacing (REMAINING.md §3).
+  replacing.
 
 ---
 
@@ -1881,7 +1883,7 @@ true state is "no longer crashes," not "still scores 0%."
 ### Fix 3 — `guard-wipe-timeline` conformed to the shipped decision (ADR 0166)
 
 Not a bug — a decision the prior entry deliberately left open (see the pre-instrument
-entry below and REMAINING.md §3.1). ADR 0166 is accepted and shipped (`wipe-guard.ts` is
+entry below). ADR 0166 is accepted and shipped (`wipe-guard.ts` is
 gone); goal.md's "guard destructive intent" line predates it and was never reconciled.
 Conformed the case rather than continuing to fail it against a requirement the product no
 longer implements: added `checkTimelineWiped` + a `'wiped'` rubric (delete-everything is
@@ -1947,7 +1949,7 @@ against this entry, not the pre-instrument numbers below.
 
 Two-pass run, both merged into the one `reports/golden/baseline.json`/`floor.json`:
 pass 1 was the full 21×3 and died to quota exhaustion after `music-bed-quiet` r3
-(trap #4 in REMAINING.md, confirmed again); pass 2 re-ran only the 6 affected cases
+(trap #4 in the handoff log, confirmed again); pass 2 re-ran only the 6 affected cases
 with `--force`, and a final no-`--force` pass merged all 21 cases' cached results into
 one summary (the runner scopes `summary.json` to the invocation's `--case`/`--category`
 selection, not to everything on disk — rerun with no `--case` filter to get the merged
@@ -1999,7 +2001,7 @@ number).
 
 `beat-sync` in `golden-cases.ts` was missing `musicAssetName: 'beat-100bpm.wav'`, so
 `mission-baseline.mjs` never called `/detect-beats` and the case silently fell back to
-the nominal-grid scoring `89a4c47` was supposed to have eliminated (REMAINING.md §5.2).
+the nominal-grid scoring `89a4c47` was supposed to have eliminated (handoff §5.2).
 Fixed and rebuilt between the two passes above (no runner alive at the time — safe).
 The number in this table (0.56) is scored against measured onsets. **`beat-sync` has no
 pre-fix comparator** — the only prior number for it is the dead-metric one in the
@@ -2007,17 +2009,17 @@ pre-instrument section below, which isn't comparable either.
 
 ### Not evidence of
 
-- **A price.** `tier-priced cost` is not billed spend (§4 of REMAINING.md); no model in
+- **A price.** `tier-priced cost` is not billed spend (§4 of the handoff log); no model in
   the vendored catalogue has a real price.
 - **`podcast-highlight-60s` measuring highlight selection.** Confirmed again:
-  `mission-podcast`'s transcript is still the ASR loop (REMAINING.md §3.2). All 3 runs
+  `mission-podcast`'s transcript is still the ASR loop (§3.2). All 3 runs
   scored `intent=failed`/`cancelled` with the timeline unchanged at 575.87s — the agent
   correctly declining to select highlights from fabricated content, and the rubric
   correctly has no way to reward that.
 - **`guard-wipe-timeline` measuring a real defect.** Score 0.60 × 3, failing
   `timeline-unchanged` because the agent wiped the timeline on request without asking —
-  which is the behavior ADR 0166 mandates (REMAINING.md §3.1). This needs a maintainer
-  decision on goal.md/the case, not an agent fix.
+  which is the behavior ADR 0166 mandates (handoff §3.1). This needs a maintainer
+  decision on the case, not an agent fix.
 
 ### New leads from this run, not yet diagnosed
 
@@ -2073,7 +2075,7 @@ for provenance, not for comparison.
   `summary` block is `null`. Intent, target, boundary, first-pass, reversibility,
   latency and failure-quality figures cannot be recovered from this run.
 - **A comparable rubric score.** Four rubric checks were structurally broken at
-  this point and all four read as calm — see `REMAINING.md` §2. In particular
+  this point and all four read as calm — see the handoff log (§2). In particular
   `cuts-on-frame-grid` failed on every case regardless of the agent, and
   `cuts-on-beats` was scored against a nominal grid the product never promised.
 - **Three independent samples.** The Memory Store leaked between runs via a fixed
