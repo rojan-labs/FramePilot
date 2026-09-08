@@ -76,7 +76,9 @@ export type CheckId =
   | 'dead_air'
   | 'transition_fit'
   | 'audio_slam'
-  | 'shot_rhythm';
+  | 'shot_rhythm'
+  /** Every labelled marker sits where its words are spoken. */
+  | 'marker_labels';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -1799,6 +1801,109 @@ function pictureClipsInOrder(timeline: Timeline): readonly Clip[] {
  * most common defect in a machine-assembled cut — every silence removal produces candidates
  * for it — and nothing in the battery looked for it.
  */
+/**
+ * How far from a marker its label's words may be spoken and still count as "there". A
+ * marker means AT the beat; two seconds absorbs a lead-in word, not a different sentence.
+ */
+const MARKER_LABEL_WINDOW_SECONDS = 2;
+
+/**
+ * Words a marker label uses to describe a beat rather than quote it — never evidence.
+ */
+const MARKER_LABEL_STOPWORDS: ReadonlySet<string> = new Set([
+  'the', 'and', 'for', 'with', 'from', 'that', 'this', 'into', 'over', 'then',
+  'hook', 'beat', 'intro', 'outro', 'open', 'opening', 'close', 'closing', 'payoff',
+  'proof', 'contrast', 'pivot', 'turn', 'setup', 'stats', 'part', 'section', 'chapter',
+  'why', 'who', 'what', 'when', 'how', 'now', 'here', 'there',
+]);
+
+/** A label or transcript token in the form the two are compared in. */
+function markerToken(raw: string): string {
+  const bare = raw
+    .normalize('NFKC')
+    .toLocaleLowerCase()
+    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
+  // "1,50,000" and "150,000" are one number to a listener.
+  return /^[\d,.]+$/.test(bare) ? bare.replace(/[,.]/g, '') : bare;
+}
+
+/**
+ * Does every labelled marker sit where its words are spoken?
+ *
+ * A marker is the run's own claim about the structure it built, and nothing verified it
+ * against the timeline. Run `df81d58e` (2026-09-08) placed "Hook — founders stop
+ * scrolling" at 0 s; the line is spoken at 3.9–6 s, and at 0 s the speaker says "Today we
+ * are talking about mastering motion design" — the opener the model itself had called
+ * weak and promised to move. The marker described the plan, not the cut. Run `6fc886ef`
+ * did the same the hour before.
+ *
+ * A label counts as placed when any of its content words — not the editorial vocabulary
+ * ("hook", "payoff") it is described with — is spoken within a few seconds of it.
+ */
+function checkMarkerLabels(project: Project): CriticCheck {
+  const labelled = project.markers.filter(
+    (marker): marker is typeof marker & { readonly label: string } =>
+      typeof marker.label === 'string' && marker.label.trim() !== '',
+  );
+  if (labelled.length === 0) {
+    return check('marker_labels', 'Markers sit where their words are spoken', 'skipped', 'No labelled markers.');
+  }
+  const mapped = mapTranscript(
+    buildTimelineMap(project.timeline),
+    project.transcript,
+    speechAssetIdsFor(project.assets, project.transcript),
+  );
+  if (mapped.words.length === 0) {
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'skipped',
+      'No dialogue on the edited timeline to compare the labels against.',
+    );
+  }
+  const offenders: string[] = [];
+  let judged = 0;
+  for (const marker of labelled) {
+    const tokens = marker.label
+      .split(/[\s—–/|]+/)
+      .map(markerToken)
+      .filter((token) => token.length >= 3 && !MARKER_LABEL_STOPWORDS.has(token));
+    if (tokens.length === 0) continue;
+    judged += 1;
+    const nearby = mapped.words
+      .filter(
+        (word) =>
+          word.end >= marker.time - MARKER_LABEL_WINDOW_SECONDS &&
+          word.start <= marker.time + MARKER_LABEL_WINDOW_SECONDS,
+      )
+      .map((word) => markerToken(word.word));
+    const spoken = tokens.some((token) => nearby.includes(token));
+    if (!spoken) offenders.push(`"${marker.label}" at ${round(marker.time)}s`);
+  }
+  if (judged === 0) {
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'skipped',
+      'No marker label carries a word that could be checked against the dialogue.',
+    );
+  }
+  if (offenders.length === 0) {
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'pass',
+      `${judged} labelled marker(s) sit within ${MARKER_LABEL_WINDOW_SECONDS}s of their words.`,
+    );
+  }
+  return check(
+    'marker_labels',
+    'Markers sit where their words are spoken',
+    'warn',
+    `${offenders.length} marker(s) name words that are not spoken within ${MARKER_LABEL_WINDOW_SECONDS}s of them — ${offenders.slice(0, 4).join(', ')}${offenders.length > 4 ? ', …' : ''}. Either the beat was never moved there (reorder_clips / split_clip) or the label describes a plan, not the cut: move the marker to where the words are, or relabel it.`,
+  );
+}
+
 function checkJumpCut(project: Project, fps: number): CriticCheck {
   const boundaries = listEditBoundaries(project.timeline, project.assets);
   if (boundaries.length === 0) {
@@ -2549,6 +2654,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkTransitionFit(project, fps),
     checkAudioSlam(project, fps),
     checkShotRhythm(project, fps),
+    checkMarkerLabels(project),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;

@@ -19,6 +19,7 @@ import {
   toolDomain,
   toolIsAdvertised,
   type ToolDomain,
+requestedDomainsNeverLoaded,
 } from './tool-domains.js';
 import { BUNDLED_SKILLS } from './skills.js';
 import { toolSchemaCost } from './kernel/context/manifest.js';
@@ -234,5 +235,25 @@ describe('domainsForSkill — a playbook arrives with the tools it names', () =>
     const colorSkill = BUNDLED_SKILLS.find((skill) => skill.name === 'color-grading');
     expect(colorSkill).toBeDefined();
     expect(domainsForSkill(colorSkill!.name, colorSkill!.tools)).toContain('color');
+  });
+});
+
+describe('requestedDomainsNeverLoaded — the brief named it, the run never loaded it', () => {
+  // Run `df81d58e`: stock, b-roll and music in the brief; `sourcing` never loaded.
+  const brief =
+    'Build a premium vertical short. Phase 3 - B-roll: download stock footages, search_stock by subject. ' +
+    'Phase 5: search_music / add_music for a music bed, duck it under speech. Colour is SOLVED: apply_look, match_color.';
+
+  it('names the domain, the words that asked for it, and the tools never offered', () => {
+    const missing = requestedDomainsNeverLoaded(brief, new Set(['captions', 'audio', 'motion', 'effects']));
+    const sourcing = missing.find((m) => m.domain === 'sourcing');
+    expect(sourcing?.mentions.map((m) => m.toLowerCase())).toEqual(['b-roll', 'stock footages', 'music']);
+    expect(sourcing?.tools).toEqual(expect.arrayContaining(['search_stock', 'add_stock', 'search_music', 'add_music']));
+    expect(missing.find((m) => m.domain === 'color')?.mentions.map((m) => m.toLowerCase())).toContain('colour');
+  });
+
+  it('is empty when the request loaded what it named, or named nothing', () => {
+    expect(requestedDomainsNeverLoaded(brief, new Set(['sourcing', 'color', 'captions', 'audio']))).toEqual([]);
+    expect(requestedDomainsNeverLoaded('trim the first clip to 4 seconds', new Set())).toEqual([]);
   });
 });

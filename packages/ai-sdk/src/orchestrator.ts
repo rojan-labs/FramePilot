@@ -124,6 +124,8 @@ import {
   domainMembers,
   toolDomain,
   toolIsAdvertised,
+  requestedDomainsNeverLoaded,
+  type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
   AGENT_MAX_OPS_PER_RUN,
@@ -203,7 +205,7 @@ import type {
 } from './providers/types.js';
 import {
   capabilitiesFor,
-  supportsVision,
+  isRouterAlias, supportsVision,
   type CapabilitySource,
 } from './providers/model-capabilities.js';
 import {
@@ -475,13 +477,28 @@ export interface RunCostSeed {
  * (see {@link Orchestrator.editVariations}).
  */
 function costFromUsage(
-  usage: { readonly inputTokens?: number; readonly outputTokens?: number } | undefined,
+  usage:
+    | {
+        readonly inputTokens?: number;
+        readonly outputTokens?: number;
+        readonly cacheReadInputTokens?: number;
+        readonly cacheCreationInputTokens?: number;
+      }
+    | undefined,
   tier: ModelTier = 'mid',
 ): { tokens: number; usd: number } {
   if (!usage) return { tokens: 0, usd: 0 };
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
-  return { tokens: input + output, usd: estimateUsd(tier, { input, output }) };
+  // Cached prompt tokens are real, billed tokens (`cost-meter.ts#TokenUsage`). Counting
+  // only the uncached slice reported 14,642 tokens for a 32-call run whose every request
+  // carried ~24,700 cached input tokens (run `df81d58e`).
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
+  const cacheCreation = usage.cacheCreationInputTokens ?? 0;
+  return {
+    tokens: input + output + cacheRead + cacheCreation,
+    usd: estimateUsd(tier, { input, output, cacheRead, cacheCreation }),
+  };
 }
 
 /**
@@ -4273,6 +4290,31 @@ export class Orchestrator {
         sections: [
           ...assembled.sections,
           ...this.agentStableInstructionSections(loadedSkills, plan),
+          // The briefing and the per-turn steering are built HERE, not by `assembleContext`,
+          // so without rows of their own they fall into `withRemainder`'s "additional
+          // request content" — 9,944 tokens by the last turn of run `df81d58e`, a quarter
+          // of the request, unattributed. The same failure `agentStableInstructionSections`
+          // closed for the playbooks; the briefing is the row that was still missing.
+          ...(briefing === ''
+            ? []
+            : [
+                {
+                  tier: 'system' as const,
+                  label: 'run briefing',
+                  tokenEstimate: estimateTokens(briefing),
+                  included: true,
+                },
+              ]),
+          ...(`${steeringBlock}${recoveryBlock}${fixBlock}` === ''
+            ? []
+            : [
+                {
+                  tier: 'system' as const,
+                  label: 'turn steering',
+                  tokenEstimate: estimateTokens(`${steeringBlock}${recoveryBlock}${fixBlock}`),
+                  included: true,
+                },
+              ]),
         ],
         droppedTokenEstimate: assembled.droppedTokenEstimate,
       },
@@ -8302,6 +8344,8 @@ export class Orchestrator {
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
     const loadedSkills = new Map<string, string>();
     const loadedToolDomains = new Set<ToolDomain>();
+    // Said once per run, on the first turn (see `isRouterAlias`).
+    let routerAliasWarned = false;
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
@@ -8712,6 +8756,22 @@ export class Orchestrator {
         // turn's patch. Collect the verdict BEFORE this turn reads the project, so a turn
         // is never planned against edits the authority refused.
         await reconcileHostVerdicts();
+        // A router alias is not a model. `openrouter/auto` normalises to the id `auto`,
+        // which matches no capability entry: the run assumes a 128k window and withholds
+        // `get_frame`, because it cannot know the routed model can see an image. Run
+        // `df81d58e` (2026-09-08) shipped a full-frame white caption chip and a
+        // letterboxed crop this way — both one frame-grab from obvious — and nothing had
+        // told the editor the run was blind by configuration.
+        if (!routerAliasWarned && isRouterAlias(self.provider.modelId)) {
+          routerAliasWarned = true;
+          yield emit.warning(
+            `"${self.provider.modelId ?? ''}" is a router alias, not a model id: FramePilot cannot ` +
+              'tell which model will answer, so this run assumes a conservative context window ' +
+              'and cannot offer get_frame — it has no way to know the model can see an image. ' +
+              'For work that has to be looked at (captions, reframes, colour), pin a specific ' +
+              'model id in Settings → AI.',
+          );
+        }
         const names = projectNames(working);
         const segmentId = `${emit.assistantId}:seg-${index}`;
         // Pre-request invariants (ADR 0080). A turn that goes out with no objective or
@@ -9485,6 +9545,7 @@ export class Orchestrator {
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
               neverSucceeded: neverSucceededTools(toolAttempts),
+              neverLoaded: requestedDomainsNeverLoaded(input.userPrompt ?? '', loadedToolDomains),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
@@ -10003,6 +10064,24 @@ function trimFailureReason(reason: string): string {
  *
  * Empty when there is nothing to say, so an ordinary clean run is unchanged.
  */
+/**
+ * What the request asked for that the run never had the tools for (run `df81d58e`).
+ *
+ * The brief said "stock", "b-roll" and "music"; `load_tools` was never called for
+ * `sourcing`; `search_stock`/`add_stock` were never on the model's list; the report said
+ * "Applied 106 edits" and the model's prose blamed a missing visual index. Naming the
+ * domain is the one sentence that makes the omission visible to the editor.
+ */
+function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
+  if (neverLoaded.length === 0) return '';
+  const lines = neverLoaded.map(
+    (entry) =>
+      `- ${entry.domain} — the request mentions ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
+      `but load_tools was never called for it, so ${entry.tools.join(', ')} were never offered.`,
+  );
+  return `\n\n**Never loaded:**\n${lines.join('\n')}`;
+}
+
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
@@ -10128,6 +10207,12 @@ export function agentCompletionReport(args: {
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
+   * Tool domains the request asked for by name and the run never loaded — so the tools
+   * that would have done that part were never on the model's list. See
+   * `tool-domains.ts#requestedDomainsNeverLoaded`.
+   */
+  neverLoaded?: readonly NeverLoadedDomain[];
+  /**
    * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
@@ -10162,6 +10247,7 @@ export function agentCompletionReport(args: {
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
   const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
+  const neverLoaded = neverLoadedBlock(args.neverLoaded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -10194,7 +10280,7 @@ export function agentCompletionReport(args: {
         'to project memory this run. Tell the AI the preference again on its own, or set it ' +
         'in the AI settings.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${neverLoaded}${unevidenced}${deliverable}${preview}${memory}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

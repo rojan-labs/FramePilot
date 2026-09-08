@@ -159,3 +159,15 @@ describe('model-catalog.generated.ts', () => {
     expect(committed).toBe(renderCatalogModule());
   });
 });
+
+describe('isRouterAlias', () => {
+  it('recognises a provider-chooses alias and nothing else', async () => {
+    const { isRouterAlias } = await import('./model-capabilities.js');
+    expect(isRouterAlias('openrouter/auto')).toBe(true);
+    expect(isRouterAlias('auto')).toBe(true);
+    expect(isRouterAlias('openrouter/auto:free')).toBe(true);
+    expect(isRouterAlias('claude-sonnet-5')).toBe(false);
+    expect(isRouterAlias('anthropic/claude-opus-5')).toBe(false);
+    expect(isRouterAlias(undefined)).toBe(false);
+  });
+});
