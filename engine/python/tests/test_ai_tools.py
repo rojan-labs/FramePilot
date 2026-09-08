@@ -1150,6 +1150,12 @@ def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
         run_tool("tighten_clips", {"trackId": track.id, "shotSeconds": 60}, ctx)
 
 
+def test_adjust_audio_both_targets_names_the_legal_move(ctx: ToolContext) -> None:
+    """The refusal must say to omit the other field, not just that one is too many."""
+    with pytest.raises(Exception, match="leave the other argument out entirely"):
+        run_tool("adjust_audio", {"clipId": "AU", "trackId": "a", "gainDb": -6.0}, ctx)
+
+
 def test_adjust_audio_whole_track(ctx: ToolContext, project: Project) -> None:
     # Mirror of the TS tool: a trackId fans out to every clip on the track, exactly one
     # of clipId/trackId is accepted, and an unknown track names the real ones.

@@ -84,7 +84,14 @@ export const AUDIO_TOOLS: readonly ToolSpec[] = [
       .strict(),
     (a, ctx) => {
       if ((a.clipId === undefined) === (a.trackId === undefined)) {
-        throw new Error('adjust_audio takes exactly one of clipId or trackId.');
+        // Naming the legal move matters: a model that reads "exactly one" as "one must be
+        // non-meaningful" reaches for a sentinel and burns a call per guess (__none__,
+        // none, x, string were all tried in one run).
+        throw new Error(
+          'adjust_audio takes exactly one of clipId or trackId — pass clipId to set one clip, ' +
+            'or trackId to set every clip on a track, and leave the other argument out ' +
+            'entirely (do not pass an empty string or a placeholder value).',
+        );
       }
       if (a.clipId !== undefined) {
         return [{ type: 'adjust_audio', clipId: a.clipId, gainDb: a.gainDb }];
