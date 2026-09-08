@@ -134,6 +134,27 @@ and still be reached by nothing. VU2.1–VU2.5 were all `[x]` on evidence that o
 through the browser session or the eval harness. Neither path is the product. Any remaining
 phase should state which HOST reads it before it is ticked.
 
+### Left open deliberately, for VU8
+
+**A run never sees the footage it sources.** The snapshot is read once per `runAiStream`
+call, and in agent mode that one call spans the entire multi-turn run — in the captured run,
+thirty minutes and roughly sixty orchestrator turns. An asset the agent downloads at minute
+six is enrolled and measured within about ninety seconds and still carries no facts for the
+rest of that run; the next user turn picks it up, because the client's cache is keyed per
+asset and a new one simply misses.
+
+This is a consequence of the design, not an oversight in it: `ledger-client.ts` states that
+a run's understanding is fixed for the turn precisely so the prompt prefix stays stable and
+cacheable, and re-reading every turn would spend that. `LedgerSnapshotRequest.refresh` is
+the intended way out — invalidate the assets whose index job reported `done` — and it has no
+caller anywhere in the repo today. Wiring it needs a signal from the enroller into the run
+loop and a decision about what it costs in cache misses, which is VU8's question, not a fix
+to smuggle into a host patch.
+
+The same shape applies at the other end: enrolment is fire-and-forget, so a user who imports
+a clip and prompts within the first ~90 seconds gets no ledger for it. In the captured run
+the import preceded the prompt by nine minutes and this never showed.
+
 ## Scale, in numbers
 
 Ten hours of footage at one shot every five seconds is 7,200 shots.
