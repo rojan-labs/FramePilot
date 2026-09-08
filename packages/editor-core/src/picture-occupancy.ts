@@ -487,6 +487,23 @@ export function picturePlacementConflict(
 }
 
 /**
+ * Where the timeline's picture ENDS — the end of the last picture span, or 0 for a
+ * timeline with none.
+ *
+ * Exists so a refusal can tell an interior gap from the empty time after the programme.
+ * {@link firstFreePictureStart} always has an answer because the timeline has no end, and
+ * on a single continuous take that answer is always "after the last frame" — which appends
+ * to the edit instead of cutting away inside it.
+ *
+ * @param timeline - The timeline to inspect.
+ * @param assets - The project's asset bin, used to derive each clip's kind.
+ */
+export function lastPictureEnd(timeline: Timeline, assets: readonly Asset[]): number {
+  const spans = mergedPictureSpans(timeline, assets);
+  return spans.length === 0 ? 0 : spans[spans.length - 1]!.end;
+}
+
+/**
  * The earliest moment at or after `fromSeconds` where a picture clip of
  * `durationSeconds` fits without overlapping existing picture media.
  *

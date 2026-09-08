@@ -141,4 +141,27 @@ describe('stockPlacementConflictReason', () => {
     // in the way, and nothing follows it.
     expect(reason).toMatch(/starts at 10.0s/);
   });
+
+  /**
+   * Run 19e20922: told "call add_stock again with atSeconds 49.8" on a 49.77s single take,
+   * the model appended stock at 49.8s, 57.3s and 103.3s and then spent eleven calls undoing
+   * it. The editor had asked for cutaways during the talk.
+   */
+  it('leads with the bin route when the programme is covered end to end', () => {
+    const tl = timeline([{ id: 'video_1', type: 'video', clips: [clip('cam', 0, 10)] }]);
+    const reason = stockPlacementConflictReason(tl, [existingVideo], 2, 6)!;
+    expect(reason).toContain('covered end to end');
+    expect(reason).toContain('past the last frame');
+    // The route that actually makes a cutaway comes before the one that appends.
+    expect(reason.indexOf('add_clip')).toBeLessThan(reason.indexOf('Only pass atSeconds'));
+  });
+
+  it('still leads with a real interior gap, where atSeconds is a cutaway slot', () => {
+    const tl = timeline([
+      { id: 'video_1', type: 'video', clips: [clip('cam', 0, 10), clip('cam', 20, 40)] },
+    ]);
+    const reason = stockPlacementConflictReason(tl, [existingVideo], 8, 6)!;
+    expect(reason).toContain('Call add_stock again with atSeconds 10.0');
+    expect(reason).not.toContain('covered end to end');
+  });
 });
