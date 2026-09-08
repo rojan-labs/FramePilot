@@ -88,6 +88,29 @@ Caption and overlay tracks are excluded from the map: they carry no real source
 range, and including them would let the thing being derived feed back into the
 derivation.
 
+**Amendment (schema v15, ADR 0090): `speed` is signed, and the map honours all
+three cases.** This ADR was written against schema v12, where `speed` was
+`z.number().positive()`, and the mapper coerced every non-positive speed to `1`
+on the reasoning that such a value could only come from corrupted JSON. Schema
+v15 made zero and negative rates first-class — `0` is a freeze, `< 0` is reverse
+— and they are reachable from the product (`set_clip_playback_mode`, the
+validator, and the Python compiler's `TimeMirror`). The coercion therefore
+stopped being a guard against corruption and became a silent wrong answer: a
+reversed clip mapped forwards at 1x, and a freeze mapped as a full 1x walk of its
+source range. `ClipSpan.speed` now carries the sign, and the conversion functions
+branch on it:
+
+- `speed > 0` — `sourceStart + elapsed * speed`, unchanged.
+- `speed < 0` — the clip opens on `sourceEnd` and runs down, so the source time is
+  `sourceEnd + elapsed * speed`. The half-open source range flips with it, to
+  `(sourceStart, sourceEnd]`, because the boundary that must be excluded is the
+  one that maps to the span's exclusive sequence end.
+- `speed === 0` — the frame at `sourceStart`, for the whole span. The
+  source→sequence direction is not a function here, so `spanCoversSource` admits
+  only the held instant: the rest of the range never plays, and the engine drops a
+  frozen clip's audio, so nothing is spoken over it. Transcript mapping skips
+  frozen spans entirely for that reason.
+
 ### 3. Captions derive from the edit, in a fixed order
 
 `captions/derive.ts`: map words through the timeline → drop what the edit deleted
