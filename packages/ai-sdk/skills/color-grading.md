@@ -1,7 +1,7 @@
 ---
 name: color-grading
 description: Correct exposure and white balance, match shots, then shape a restrained look with the registered parametric grade and preview evidence.
-tools: [get_timeline, detect_scenes, apply_color_grade, render_preview]
+tools: [get_timeline, detect_scenes, measure_color, match_color, normalize_exposure, apply_look, apply_color_grade, render_preview]
 ---
 
 # Color grading
@@ -29,6 +29,16 @@ Conservative per-clip corrections, a consistent look, and preview-grounded revie
 ## Core philosophy
 
 Correct → match → grade. Skin and neutral references arbitrate; consistency beats an individually beautiful shot.
+
+## The tools, in the order the work uses them
+
+- `measure_color` reads what is on screen now — the numbers every decision below is made
+  against. Nothing here is judged from a filename or a hunch.
+- `normalize_exposure` evens a clip out; `match_color` matches one shot to a reference
+  shot; `apply_look` shapes the finished mood. Each solves the grade from measured facts
+  and reports how it was derived — a solved grade is directionally right and approximately
+  scaled, so review it rather than quoting its accuracy.
+- `apply_color_grade` is the manual parametric grade, for a move you want to make by hand.
 
 ## Professional heuristics
 

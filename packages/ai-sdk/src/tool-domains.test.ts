@@ -15,10 +15,12 @@ import {
   DOMAIN_SUMMARY,
   LOADABLE_DOMAINS,
   domainMembers,
+  domainsForSkill,
   toolDomain,
   toolIsAdvertised,
   type ToolDomain,
 } from './tool-domains.js';
+import { BUNDLED_SKILLS } from './skills.js';
 import { toolSchemaCost } from './kernel/context/manifest.js';
 import { AGENT_MAX_OPS_PER_TURN } from './kernel/conductor.js';
 import {
@@ -205,5 +207,32 @@ describe('a tool the stage policy always allows is always advertised', () => {
       // orthogonal to this one.
       expect(core, `${name} must not need load_tools`).toContain(name);
     }
+  });
+});
+
+/**
+ * Run `19e20922`: the request was "lets build professional edit out of this ($100k)",
+ * and `match_color` / `normalize_exposure` / `apply_look` appear zero times in the whole
+ * 8.4 MB transcript — not as calls, not in a listing. Across six `load_tools` calls the
+ * run pinned captions, sourcing, footage, editing and audio, never `color`. The hand-kept
+ * skill table had one entry for twenty-one skills, so the colour playbook pinned nothing.
+ */
+describe('domainsForSkill — a playbook arrives with the tools it names', () => {
+  it('derives the domain from the skill’s own tools list', () => {
+    expect(domainsForSkill('color-grading', ['get_timeline', 'match_color'])).toEqual(['color']);
+    // `core` is always advertised, so it is never pinned.
+    expect(domainsForSkill('anything', ['get_timeline'])).toEqual([]);
+  });
+
+  it('keeps the hand-written extras for a skill whose work needs more than it names', () => {
+    const domains = domainsForSkill('caption-design', ['caption_the_edit']);
+    expect(domains).toContain('captions');
+    expect(domains).toContain('audio');
+  });
+
+  it('pins colour for the bundled colour playbook, as shipped', () => {
+    const colorSkill = BUNDLED_SKILLS.find((skill) => skill.name === 'color-grading');
+    expect(colorSkill).toBeDefined();
+    expect(domainsForSkill(colorSkill!.name, colorSkill!.tools)).toContain('color');
   });
 });

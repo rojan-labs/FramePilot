@@ -119,7 +119,7 @@ import type {
 } from './kernel/conductor.js';
 import {
   type ToolDomain,
-  SKILL_DOMAINS,
+  domainsForSkill,
   domainMembers,
   toolDomain,
   toolIsAdvertised,
@@ -5089,7 +5089,7 @@ export class Orchestrator {
         // lives in a rolling last-N-steps window (compactAgentLog), which would both
         // duplicate several KB per turn AND silently age the body out mid-run. Record
         // it once here; answer a repeat load by pointing at the pinned copy.
-        const skill = value as { name?: unknown; body?: unknown };
+        const skill = value as { name?: unknown; body?: unknown; tools?: unknown };
         if (
           call.name === 'load_skill' &&
           typeof skill.name === 'string' &&
@@ -5109,8 +5109,15 @@ export class Orchestrator {
           // A playbook and the tools it tells the run to use arrive together. Loading the
           // caption playbook and then discovering the caption tools are not advertised is
           // a round trip the run should never have to spend, and the pairing is a fact
-          // about the skill, not a judgement the model has to make (see `SKILL_DOMAINS`).
-          for (const domain of SKILL_DOMAINS[skill.name] ?? []) host.loadedToolDomains.add(domain);
+          // about the skill, not a judgement the model has to make — derived from the
+          // skill's own `tools:` list, so a playbook that names `match_color` pins the
+          // colour domain without anyone remembering to say so (`domainsForSkill`).
+          for (const domain of domainsForSkill(
+            skill.name,
+            Array.isArray(skill.tools) ? (skill.tools as string[]) : [],
+          )) {
+            host.loadedToolDomains.add(domain);
+          }
           return {
             ops: [],
             note: `${desc} → ${
