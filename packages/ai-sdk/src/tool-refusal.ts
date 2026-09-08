@@ -122,20 +122,62 @@ export type RefusalCause =
  * guard built for this in `1bd2f87` could not fire on any run that edits.
  *
  * `picture_over_picture` is deliberately NOT here: it is a verdict about where a clip
- * would land, and the next patch can move what it would have covered.
+ * would land, and the next patch can move what it would have covered. It lives in
+ * {@link PICTURE_ARRANGEMENT_CAUSES} instead, which survives an applied edit that did not
+ * move any picture.
  */
 export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set<RefusalCause>([
   'surface_unavailable',
 ]);
 
 /**
- * Does this `name:cause` failure key describe something an applied edit cannot change?
- * Keys are `${toolName}:${cause}` for a declared refusal (`deterministicFailureKey`), so the
- * cause is the last segment; a text-keyed refusal never matches.
+ * Refusal causes that are verdicts about WHERE PICTURE SITS — so an applied edit clears
+ * them only when that edit actually moved picture.
+ *
+ * The middle ground the two sets above and below leave out. `picture_over_picture` cannot
+ * join {@link ARRANGEMENT_INDEPENDENT_CAUSES}, because moving the clip it would have
+ * covered genuinely changes the answer. But clearing it on ANY applied edit is how a
+ * desktop run took 38 `add_stock` calls, 35 refusals and two guard firings: twenty of them
+ * were the byte-identical call, and the patches in between were caption restyles, which
+ * cannot free picture at 0s — if anything they occupy more of it. The key was wiped some
+ * thirty-three times by edits that had no bearing on the verdict.
+ *
+ * So the question the reducer asks is narrower than "did anything land": did the picture
+ * chain move? A caption patch answers no and the memory stands; a `move_clip` on a video
+ * track answers yes and the retry is free, which is the arm the comment on
+ * `hides_a_cutaway` is protecting.
  */
-export function survivesAppliedEdit(failureKey: string): boolean {
-  const cause = failureKey.slice(failureKey.lastIndexOf(':') + 1);
-  return ARRANGEMENT_INDEPENDENT_CAUSES.has(cause as RefusalCause);
+export const PICTURE_ARRANGEMENT_CAUSES: ReadonlySet<RefusalCause> = new Set<RefusalCause>([
+  'picture_over_picture',
+  'hides_a_cutaway',
+]);
+
+/**
+ * The cause a failure key was banked under, or `undefined` for a text-keyed failure.
+ *
+ * Keys are `${toolName}:${cause}` for a declared refusal (`deterministicFailureKey`), so
+ * the cause is the last segment; a text-keyed refusal never matches one.
+ */
+function causeOf(failureKey: string): RefusalCause | undefined {
+  const cause = failureKey.slice(failureKey.lastIndexOf(':') + 1) as RefusalCause;
+  return ARRANGEMENT_INDEPENDENT_CAUSES.has(cause) || PICTURE_ARRANGEMENT_CAUSES.has(cause)
+    ? cause
+    : undefined;
+}
+
+/**
+ * Does this failure key describe something the applied edit cannot have changed?
+ *
+ * @param failureKey - A banked key from `deterministicFailureKey`.
+ * @param pictureArrangementChanged - Did the applied patch move, add or remove picture on
+ *   the timeline? Defaults to TRUE, which is the conservative reading: an unknown edit is
+ *   assumed to have changed everything, exactly as before this parameter existed.
+ */
+export function survivesAppliedEdit(failureKey: string, pictureArrangementChanged = true): boolean {
+  const cause = causeOf(failureKey);
+  if (cause === undefined) return false;
+  if (ARRANGEMENT_INDEPENDENT_CAUSES.has(cause)) return true;
+  return PICTURE_ARRANGEMENT_CAUSES.has(cause) && !pictureArrangementChanged;
 }
 
 /**

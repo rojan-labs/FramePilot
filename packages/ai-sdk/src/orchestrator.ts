@@ -21,6 +21,7 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  pictureOccupancySignature,
   projectChanged,
 } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
@@ -7984,9 +7985,7 @@ export class Orchestrator {
             ...(controls.temporalEvidence === undefined
               ? {}
               : { temporalEvidence: controls.temporalEvidence }),
-            ...(controls.visionReview === undefined
-              ? {}
-              : { visionReview: controls.visionReview }),
+            ...(controls.visionReview === undefined ? {} : { visionReview: controls.visionReview }),
           },
         );
     }
@@ -8477,7 +8476,10 @@ export class Orchestrator {
      */
     const acceptanceShortfall = (producedChanges: boolean): string[] => {
       const options = self.critiqueOptions(input, agentOptions, producedChanges, evidence);
-      return reconcileInheritedFailures(critique(input.project, options), critique(working, options))
+      return reconcileInheritedFailures(
+        critique(input.project, options),
+        critique(working, options),
+      )
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
     };
@@ -9184,6 +9186,17 @@ export class Orchestrator {
           turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
+          // Which banked refusals this edit clears (`tool-refusal.ts`). Computed here
+          // because the reducer is pure: it has the ops but not the project they landed on,
+          // and "did any picture move" is a question about the timeline, not the op types —
+          // a `delete_range` on a caption track and one on a video track are the same type.
+          ...(applied.applied
+            ? {
+                pictureArrangementChanged:
+                  pictureOccupancySignature(workingBefore.timeline, workingBefore.assets) !==
+                  pictureOccupancySignature(working.timeline, working.assets),
+              }
+            : {}),
           // The timeline the run just made, so the next turn does not have to ask.
           // See `AgentTurnResult.arrangement` and `arrangementLine`.
           ...(applied.applied ? { arrangement: arrangementLine(working) } : {}),

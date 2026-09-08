@@ -227,10 +227,7 @@ export function coverCropFor(
   /* v8 ignore next -- `fittedSize` is total for the sizes just validated above */
   if (!fitted) return undefined;
   // Already covers: there is no bar to cut away, so there is no crop to suggest.
-  if (
-    fitted.width >= frame.width - PIXEL_SLACK &&
-    fitted.height >= frame.height - PIXEL_SLACK
-  ) {
+  if (fitted.width >= frame.width - PIXEL_SLACK && fitted.height >= frame.height - PIXEL_SLACK) {
     return undefined;
   }
   const sourceAspect = source.width / source.height;
@@ -278,7 +275,9 @@ function barsClause(
   coveredId: string,
 ): string {
   const horizontal = frame.width - fitted.width >= frame.height - fitted.height;
-  const bar = Math.round((horizontal ? frame.width - fitted.width : frame.height - fitted.height) / 2);
+  const bar = Math.round(
+    (horizontal ? frame.width - fitted.width : frame.height - fitted.height) / 2,
+  );
   const axis = horizontal ? 'left and right' : 'top and bottom';
   return (
     `the ${String(frame.width)}x${String(frame.height)} frame fits it with ${String(bar)}px ` +
@@ -443,6 +442,26 @@ function mergedPictureSpans(timeline: Timeline, assets: readonly Asset[]): reado
     merged.push(span);
   }
   return merged;
+}
+
+/**
+ * The timeline's picture chain as one comparable string.
+ *
+ * Exists so a caller can ask "did this patch move any picture?" without re-deriving what
+ * counts as picture. The run's memory of a `picture_over_picture` refusal is cleared on an
+ * applied edit, and clearing it on a CAPTION patch is how one run was refused the same
+ * placement 35 times (`tool-refusal.ts#PICTURE_ARRANGEMENT_CAUSES`). Merged spans, not
+ * clips: re-splitting a clip in place does not change where picture is, and neither should
+ * this string.
+ *
+ * @param timeline - The timeline to inspect.
+ * @param assets - The project's asset bin, used to derive each clip's kind.
+ * @returns A value that is equal for two timelines whose picture covers the same moments.
+ */
+export function pictureOccupancySignature(timeline: Timeline, assets: readonly Asset[]): string {
+  return mergedPictureSpans(timeline, assets)
+    .map((span) => `${span.start.toFixed(4)}-${span.end.toFixed(4)}`)
+    .join(',');
 }
 
 /**

@@ -870,6 +870,21 @@ export interface AgentTurnResult {
   readonly hostRefusals?: readonly HostPatchRefusal[];
   /** The validated operations that applied (empty when `applied` is false). */
   readonly appliedOps: readonly AnyOperation[];
+  /**
+   * Did this turn's patch move, add or remove PICTURE on the timeline?
+   *
+   * Read for one thing only: which banked refusals an applied edit clears
+   * (`tool-refusal.ts#PICTURE_ARRANGEMENT_CAUSES`). A caption restyle lands hundreds of
+   * operations and moves no picture, so it must not clear the run's memory of "there is
+   * already picture at 0s" — clearing it there is why one run was refused the identical
+   * `add_stock` twenty times.
+   *
+   * Computed by the orchestrator from the merged picture spans before and after the patch
+   * (`editor-core#pictureOccupancySignature`), because the reducer is pure and holds no
+   * project. Absent ⇒ treated as TRUE, the conservative reading and the behaviour before
+   * this field existed.
+   */
+  readonly pictureArrangementChanged?: boolean;
   /** Pre-described applied ops for the reducer's `timeline_action` cards. */
   readonly describedActions: readonly DescribedAction[];
   /**
@@ -2101,7 +2116,15 @@ export function onTurnResult(
       // verdict about the runtime, not the timeline, and clearing it here is why one
       // desktop run was refused it eight times in 86 minutes with every mutation in
       // between wiping the memory (`tool-refusal.ts#ARRANGEMENT_INDEPENDENT_CAUSES`).
-      seenFailureKeys: state.seenFailureKeys.filter(survivesAppliedEdit),
+      //
+      // AND except the refusals THIS edit cannot have fixed. `picture_over_picture` is a
+      // verdict about where picture sits; a caption patch does not move any, so it leaves
+      // the memory of that verdict standing (`PICTURE_ARRANGEMENT_CAUSES`). Without this,
+      // a run that restyles captions between attempts hands the model a clean slate for a
+      // placement it has already been refused — 35 times, in the captured case.
+      seenFailureKeys: state.seenFailureKeys.filter((key) =>
+        survivesAppliedEdit(key, r.pictureArrangementChanged ?? true),
+      ),
     };
     if (cumulativeOps.length - derivedOpTotal >= state.config.maxOpsPerRun) {
       const note = `Reached the per-run cap of ${state.config.maxOpsPerRun} operations — stopping.`;
