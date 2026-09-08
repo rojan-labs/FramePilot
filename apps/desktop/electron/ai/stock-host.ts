@@ -109,6 +109,18 @@ export function createStockHost(
       };
     }
     const { asset } = result;
+    // A success with nothing in it is a failure, and must say so rather than throw. The
+    // download surface is a typed union, but it crosses a process boundary from a provider
+    // this module does not own: `ok: true` with no asset used to be unreachable only
+    // because the occupancy refusal returned first on the path that produced it.
+    if (!asset) {
+      return {
+        status: 'failed',
+        summary:
+          'The download reported success but returned no file. Nothing was added to your ' +
+          'media bin — call search_stock again and add_stock a different result.',
+      };
+    }
     // The SAME id the download's brain row and its enrolment were keyed by — one
     // formula, one owner, or the project references an asset the ledger never measured.
     const assetId = sourcedAssetId('stock', asset.source.provider, asset.source.remoteId);

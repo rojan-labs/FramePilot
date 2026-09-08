@@ -329,8 +329,8 @@ def test_shot_loudness_is_energy_averaged_and_gated() -> None:
 def test_shot_loudness_needs_no_ffmpeg_when_there_are_no_shots() -> None:
     calls: list[list[str]] = []
 
-    def runner(argv: list[str]) -> str:
-        calls.append(argv)
+    def runner(argv: Sequence[str]) -> str:
+        calls.append(list(argv))
         return ""
 
     assert measure_shot_loudness(Path("clip.mp4"), [], runner=runner) == {}
@@ -340,8 +340,8 @@ def test_shot_loudness_needs_no_ffmpeg_when_there_are_no_shots() -> None:
 def test_measure_shot_loudness_uses_one_pass_for_every_shot() -> None:
     calls: list[list[str]] = []
 
-    def runner(argv: list[str]) -> str:
-        calls.append(argv)
+    def runner(argv: Sequence[str]) -> str:
+        calls.append(list(argv))
         return _MOMENTARY_LOG
 
     result = measure_shot_loudness(

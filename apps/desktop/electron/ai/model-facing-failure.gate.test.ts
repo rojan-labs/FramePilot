@@ -155,14 +155,19 @@ describe('every desktop host override names a next action', () => {
       dead.check(`unresolvableReason("${id}")`, reason ?? '');
     }
 
-    // The placement conflict, refused BEFORE the download is spent.
-    const conflicted = await createStockHost(stockIo())(project, {
+    // The placement conflict has MOVED off this host (#98): a cutaway over existing
+    // picture is lifted onto a front layer, and whether this clip can be depends on its
+    // measured shape, which arrives with the download. The orchestrator refuses it now,
+    // and the SDK's own gate walks that sentence. What the host must still do is not
+    // refuse an occupied span on its own — and not throw when the download comes back
+    // empty, which is what this walk found the moment the refusal stopped returning first.
+    const empty = await createStockHost(stockIo())(project, {
       remoteId: 'r1',
       kind: 'video',
       atSeconds: 0,
     });
-    expect(conflicted.status).toBe('failed');
-    dead.check('add_stock placement conflict', conflicted.summary);
+    expect(empty.status).toBe('failed');
+    dead.check('add_stock download returned no asset', empty.summary);
 
     // Every code the download can fail with. The union is closed and exported, so this
     // walk grows on its own rather than by someone remembering to edit a list here.
