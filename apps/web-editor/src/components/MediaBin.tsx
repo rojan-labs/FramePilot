@@ -48,10 +48,8 @@ import { useAssetThumbnail } from '../editor/useAssetThumbnail.js';
 import { mediaSrc } from '../editor/media.js';
 import { formatClock } from '../editor/captions.js';
 import { searchTranscript, type TranscriptSearchResult } from '../editor/transcriptSearch.js';
-import { useAiConfig } from '../editor/useAiConfig.js';
 import { useSettings } from '../editor/useSettings.js';
 import { autoTranscribeImportedAssets } from '../editor/transcribeImport.js';
-import { autoIndexImportedAssets } from '../editor/visualIndex.js';
 import {
   type BinDensity,
   type BinFilter,
@@ -719,9 +717,6 @@ export function MediaBin({
   const folders = editor.state.folders;
   const transcript = project.transcript;
 
-  // Auto visual-index config (MI4.2): read the readable plaintext key slot + the
-  // auto-index toggle so a completed import can kick off background indexing.
-  const { config: aiConfig } = useAiConfig();
   const { settings } = useSettings();
 
   const trimmedQuery = query.trim();
@@ -951,16 +946,11 @@ export function MediaBin({
       }
       if (importedIds.length > 0) {
         setStatus(`Imported ${importedIds.length} file${importedIds.length === 1 ? '' : 's'}.`);
-        // Fire-and-forget background visual indexing (MI4.2, decision D3): gated
-        // on a configured key + the auto-index toggle, paced across HTTP slices,
-        // and degrading honestly if the sidecar is down. Deliberately NOT awaited
-        // — it must never block import or preview. Its own errors are swallowed by
-        // the honest-degrade client, so there is no rejection to handle here.
-        void autoIndexImportedAssets({
-          projectId: project.id,
-          assetIds: importedIds,
-          config: aiConfig,
-        });
+        // No visual-index call here. Enrolment is the desktop main process's job now
+        // (ADR 0175): `deriveEngineMedia` above already told main this file is asset
+        // `assetId` of this project, and main's single batching enroller queues it —
+        // for human imports, agent downloads and the Stock panel alike. A per-surface
+        // hook in the renderer is exactly what left the agent's own footage unindexed.
         // Fire-and-forget auto-transcribe (Settings → "Automatically on import"). Same
         // no-block contract as auto-index: it establishes the project transcript from the
         // first imported clip when enabled and none exists yet, and swallows its own
@@ -981,7 +971,6 @@ export function MediaBin({
       editor,
       project.id,
       project.transcript,
-      aiConfig,
       settings.transcribeOnImport,
       settings.asrProvider,
       ensureSavedForTranscription,

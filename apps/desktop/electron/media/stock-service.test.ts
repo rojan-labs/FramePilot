@@ -517,6 +517,34 @@ describe('download', () => {
     expect(result.asset.kind).toBe('video');
   });
 
+  it('derives under the SAME asset id the project and the ledger will use', async () => {
+    // `/asset-media` is the only writer of the brain's asset row, and the visual index
+    // answers `asset not known to brain` for anything that has none. Downloading without
+    // these ids is why every stock clip the agent acquired was unindexable (ADR 0175).
+    const fetchImpl = vi.fn().mockImplementation(() => bytesResponse(body));
+    const derive = vi.fn(async () => ({
+      ok: true as const,
+      kind: 'video' as const,
+      durationSeconds: 4,
+      media: {},
+    }));
+    const service = makeService({
+      provider: stubProvider(page([VIDEO_ITEM])),
+      fetchImpl,
+      derive,
+    });
+    await service.search({ text: 'q', kind: 'video' });
+    await service.download({
+      projectId: PROJECT_ID,
+      remoteId: VIDEO_ITEM.remoteId,
+      operationId: 'op-id',
+    });
+    expect(derive).toHaveBeenCalledWith(expect.any(String), {
+      projectId: PROJECT_ID,
+      assetId: `stock_${VIDEO_ITEM.provider}_${VIDEO_ITEM.remoteId}`,
+    });
+  });
+
   it('carries the derived proxy, thumbnails and peaks onto the asset', async () => {
     // The regression this file exists to prevent. The engine transcodes a 540p proxy
     // (a 184 MB 4K source becomes ~4.5 MB), extracts a filmstrip and a waveform — and

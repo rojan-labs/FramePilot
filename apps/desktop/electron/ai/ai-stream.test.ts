@@ -455,6 +455,120 @@ describe('runAiStream', () => {
     expect(seen).toEqual([{ id: project.id, assets: project.assets.length }]);
   });
 
+  it('reads the shot ledger and puts the PICTURE block in front of the model', async () => {
+    // The defect this holds shut: the engine has measured every imported asset into a shot
+    // ledger since VU1, and the desktop app never read a row. `LedgerClient` was
+    // constructed only in the browser session and the eval harness, so `input.ledger` was
+    // undefined on every real desktop run — and with it undefined, `pictureRowFacts` is
+    // empty and the digest is omitted, which is byte-for-byte the prompt the agent had
+    // before the ledger existed. A captured run assembled 142 contexts and not one carried
+    // a picture block, while the project's ledger held measured shots the whole time.
+    //
+    // Asserting the reader was CALLED would not have caught it: the bug was that nothing
+    // called it. So this asserts the block reaches the provider.
+    const prompts: string[] = [];
+    const capturing: AiProvider = {
+      name: 'mock',
+      modelId: 'mock',
+      complete: async () => ({ text: 'ok' }),
+      async *stream(req: AiCompletionRequest): AsyncIterable<ProviderChunk> {
+        prompts.push(
+          req.messages
+            .map((m) => (typeof m.content === 'string' ? m.content : JSON.stringify(m.content)))
+            .join('\n'),
+        );
+        yield { type: 'done', text: 'ok' };
+      },
+    };
+    const seen: string[] = [];
+
+    await runAiStream(
+      new Orchestrator(capturing),
+      request('chat'),
+      () => undefined,
+      new AbortController().signal,
+      {},
+      undefined,
+      undefined,
+      async (doc) => {
+        seen.push(doc.id);
+        return {
+          shots: [
+            {
+              assetId: 'asset_1',
+              contentHash: 'hash_1',
+              shotIndex: 0,
+              t0: 0,
+              t1: 30,
+              keyframeT: 15,
+              splitOf: false,
+              measured: {
+                tier0Version: 1,
+                luma: { mean: 0.57, std: 0.005, p10: 0.21, p90: 0.75 },
+                chroma: { uMean: 130.5, vMean: 135.6, satMean: 0.088 },
+                warmth: 0.04,
+                contrastIdx: 0.54,
+                motion: { si: 140.2, ti: 10.5, class: 'handheld' },
+                cutScore: 0,
+                black: false,
+                freeze: false,
+                sharpness: 0.64,
+                phash: '3689349357871844460',
+                loudnessLufs: null,
+              },
+              labelled: null,
+              described: null,
+            },
+          ],
+          digests: [
+            {
+              assetId: 'asset_1',
+              contentHash: 'hash_1',
+              durationS: 30,
+              shotCount: 1,
+              medianShotS: 30,
+              shotSizeMix: {},
+              settingMix: {},
+              motionMix: { handheld: 1 },
+              people: [],
+              exposureRange: [0.57, 0.57],
+              warmthRange: [0.04, 0.04],
+              hasSpeech: false,
+              lowQualityShots: [],
+              coverage: { measured: 1, labelled: 0, described: 0, total: 1 },
+            },
+          ],
+          coverage: { measured: 1, labelled: 0, described: 0, total: 1 },
+        };
+      },
+    );
+
+    // Scoped to the project being edited, like the footage map.
+    expect(seen).toEqual([project.id]);
+    // And the measurements actually reached the model.
+    expect(prompts[0]).toContain('PICTURE');
+    expect(prompts[0]).toContain('handheld');
+  });
+
+  it('runs normally when the shot-ledger read fails — picture facts, never a dependency', async () => {
+    // Same contract as its four neighbours. `LedgerClient` never throws, but the reader
+    // around it can, and a run must lose its picture facts rather than its output.
+    const events: AiEvent[] = [];
+
+    await runAiStream(
+      new Orchestrator(new MockProvider()),
+      request('chat'),
+      (event) => events.push(event),
+      new AbortController().signal,
+      {},
+      undefined,
+      undefined,
+      () => Promise.reject(new Error('sidecar is busy')),
+    );
+
+    expect(events.at(-1)).toMatchObject({ type: 'status', status: 'completed' });
+  });
+
   it('runs normally when the status read fails — context, never a dependency', async () => {
     // A busy or unreachable sidecar must cost the run its status BLOCK, not the run.
     const events: AiEvent[] = [];

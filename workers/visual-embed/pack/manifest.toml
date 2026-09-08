@@ -1,0 +1,65 @@
+# Visual Embed pack build manifest.
+#
+# The signed catalog record is generated FROM this manifest plus the artifact hash
+# produced by the build job. Nothing here may drift from
+# `src/framepilot_visual_embed/__init__.py`, which holds the identity the worker itself
+# enforces during the health handshake, or from `pack/models.lock.toml`, which pins the
+# weights.
+
+[pack]
+id = "framepilot.visual-embed"
+version = "1.0.0"
+display_name = "Visual Embed"
+description = "Local shot embeddings, zero-shot shot-size/subject/setting labels, and face identity vectors. No key, no network."
+channel = "stable"
+# The roster the worker enforces. Health check refuses any other set.
+capabilities = ["visual.embed", "visual.text"]
+worker_protocol_version = 1
+models_lock = "pack/models.lock.toml"
+# Tier 1 of the shot ledger. The bank version is part of the pack's contract with the
+# engine: a request naming another version is refused, not answered approximately.
+prompt_bank_version = 1
+
+[runtime]
+python_version = "3.13"
+python_requires = ">=3.12"
+entrypoint_module = "framepilot_visual_embed"
+health_check_argument = "--framepilot-health-check"
+runtime_argument = "--framepilot-worker-runtime"
+network = "disabled"
+
+[[platforms]]
+os = "darwin"
+arch = "arm64"
+entrypoint = "framepilot-visual-embed"
+signing = "apple-developer-id + notarization"
+
+[[platforms]]
+os = "win32"
+arch = "x64"
+entrypoint = "framepilot-visual-embed.exe"
+signing = "authenticode"
+
+[dependencies]
+# Exact versions come from uv.lock, which is the authority. These names document WHY each
+# dependency is present.
+lock = "uv.lock"
+onnxruntime = "onnxruntime"
+tokenizers = "tokenizers"
+opencv = "opencv-contrib-python-headless"
+numpy = "numpy"
+
+[artifact]
+# ~410 MiB of weights on top of the runtime and onnxruntime's natives. The ceiling leaves
+# room for the embedded interpreter without leaving room for a surprise.
+max_unpacked_mib = 1200
+license_notice = "LICENSES.md"
+sbom = "pack/sbom"
+download_discloses = ["size", "licenses", "model provenance", "local-only execution"]
+
+[verification]
+# The build job must run all of these before an artifact may be signed. The first one
+# fails today, by design: the model digests are still placeholders.
+models = "python tools/fetch_models.py --check"
+unit_suite = "pytest"
+decoded_media_suite = "pytest -m decoded_media"

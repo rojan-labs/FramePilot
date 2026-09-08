@@ -1,0 +1,194 @@
+{
+  "label": "vu-ledger-all",
+  "generatedAt": "2026-09-07T19:32:29.169Z",
+  "provider": "openrouter",
+  "model": "openrouter/auto",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "reorder-last-first",
+    "reorder-swap-first-two",
+    "match-color-to-first-clip",
+    "warmer-subtle",
+    "transitions-where-they-belong",
+    "remove-duplicate-takes",
+    "which-clips-show-host",
+    "whats-on-screen-at",
+    "find-dark-clips"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 9,
+    "turns": 11,
+    "intentAccuracy": 0.6363636363636364,
+    "targetAccuracy": 0.6666666666666666,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.45454545454545453,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 5,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 234732.4,
+    "usdPerAcceptedEdit": 0.6713724,
+    "modelCallsPerTurn": {
+      "p50": 4,
+      "p95": 14,
+      "n": 11
+    },
+    "toolCallsPerTurn": {
+      "p50": 6,
+      "p95": 28,
+      "n": 11
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 5750,
+        "p95": 35294,
+        "n": 11
+      },
+      "doneMs": {
+        "p50": 42515,
+        "p95": 243241,
+        "n": 11
+      }
+    },
+    "failureQuality": {
+      "failures": 3,
+      "loud": 0,
+      "explained": 0
+    },
+    "perception": {
+      "framesSeenPerEdit": 0,
+      "framesSeen": 0,
+      "perceptionCallsPerRun": 0,
+      "perceptionCallsByTool": {},
+      "numericGuessRate": 0.5,
+      "numericGuess": {
+        "total": 12,
+        "guessed": 6
+      },
+      "measuredTurns": 11
+    },
+    "perCase": {
+      "reorder-last-first": {
+        "category": "reorder",
+        "runs": 1,
+        "score": 0.8333333333333334,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 11,
+        "tokens": 149593,
+        "usdPerRun": 0.266211,
+        "wallMsPerRun": 86080,
+        "silentSuccesses": 0
+      },
+      "reorder-swap-first-two": {
+        "category": "reorder",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 39983,
+        "usdPerRun": 0.059985,
+        "wallMsPerRun": 19948,
+        "silentSuccesses": 0
+      },
+      "match-color-to-first-clip": {
+        "category": "color",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 42649,
+        "usdPerRun": 0.020666999999999998,
+        "wallMsPerRun": 10961,
+        "silentSuccesses": 0
+      },
+      "warmer-subtle": {
+        "category": "color",
+        "runs": 1,
+        "score": 0.8181818181818182,
+        "intentAccuracy": 1,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 74796,
+        "usdPerRun": 0.154248,
+        "wallMsPerRun": 42515,
+        "silentSuccesses": 0
+      },
+      "transitions-where-they-belong": {
+        "category": "transitions",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 141962,
+        "usdPerRun": 1.8979499999999998,
+        "wallMsPerRun": 431497,
+        "silentSuccesses": 0
+      },
+      "remove-duplicate-takes": {
+        "category": "duplicates",
+        "runs": 1,
+        "score": 0.6,
+        "intentAccuracy": 0.5,
+        "firstPass": 0.5,
+        "reversible": 1,
+        "modelCalls": 1,
+        "tokens": 18121,
+        "usdPerRun": 0.621012,
+        "wallMsPerRun": 193925,
+        "silentSuccesses": 0
+      },
+      "which-clips-show-host": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 45280,
+        "usdPerRun": 0.138312,
+        "wallMsPerRun": 47647,
+        "silentSuccesses": 0
+      },
+      "whats-on-screen-at": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 42931,
+        "usdPerRun": 0.065925,
+        "wallMsPerRun": 22905,
+        "silentSuccesses": 0
+      },
+      "find-dark-clips": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 86476,
+        "usdPerRun": 0.132552,
+        "wallMsPerRun": 38053,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

@@ -140,6 +140,24 @@ export function classifyStreamError(provider: string, payload: unknown): Provide
 const MAX_BODY_SNIPPET = 300;
 
 /**
+ * The text inside the first `<tag …>…</tag>` pair, or `undefined` if there isn't one.
+ *
+ * WHY not a regex: the body here is an error page from a proxy we do not control, and a
+ * lazy `<tag[^>]*>([\s\S]*?)<\/tag>` rescans the whole remainder from every `<tag`
+ * that has no closing partner — quadratic on hostile input (CodeQL js/polynomial-redos).
+ * Three `indexOf` calls pick out the same span in one pass.
+ */
+function firstTagBody(html: string, tag: string): string | undefined {
+  const lower = html.toLowerCase();
+  const open = lower.indexOf(`<${tag}`);
+  if (open === -1) return undefined;
+  const openEnd = lower.indexOf('>', open);
+  if (openEnd === -1) return undefined;
+  const close = lower.indexOf(`</${tag}`, openEnd);
+  return close === -1 ? undefined : html.slice(openEnd + 1, close);
+}
+
+/**
  * Reduce a provider error body to something readable in the sidebar.
  *
  * A misconfigured base URL is answered by whatever HTTP server is actually listening,
@@ -157,9 +175,11 @@ export function readableErrorBody(body: string): string {
   if (!/<(!doctype|html|body|pre|title)\b/i.test(trimmed)) {
     return trimmed.length > MAX_BODY_SNIPPET ? `${trimmed.slice(0, MAX_BODY_SNIPPET)}…` : trimmed;
   }
-  const pre = /<pre[^>]*>([\s\S]*?)<\/pre>/i.exec(trimmed)?.[1];
-  const title = /<title[^>]*>([\s\S]*?)<\/title>/i.exec(trimmed)?.[1];
-  const text = (pre ?? title ?? trimmed.replace(/<[^>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
+  const pre = firstTagBody(trimmed, 'pre');
+  const title = firstTagBody(trimmed, 'title');
+  // `[^<>]*` rather than `[^>]*`: a tag body that may itself contain `<` lets the match
+  // start at every `<` in a long run, which is quadratic (CodeQL js/polynomial-redos).
+  const text = (pre ?? title ?? trimmed.replace(/<[^<>]*>/g, ' ')).replace(/\s+/g, ' ').trim();
   return text.length > MAX_BODY_SNIPPET ? `${text.slice(0, MAX_BODY_SNIPPET)}…` : text;
 }
 

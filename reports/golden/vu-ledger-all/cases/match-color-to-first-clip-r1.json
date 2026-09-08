@@ -1,0 +1,307 @@
+{
+  "scenario": "match-color-to-first-clip",
+  "category": "color",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Match the third clip's color to the first clip.",
+      "rubric": "match-color-to-reference",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "grade-on-target",
+          "ok": true,
+          "detail": "clip_003 graded, reference clip_001 untouched",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "grades-real-and-in-range",
+          "ok": true,
+          "detail": "1 grade(s), every parameter inside its contract",
+          "weight": 2
+        },
+        {
+          "id": "no-collateral-changes",
+          "ok": true,
+          "detail": "nothing changed that the request did not name",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "grade-on-target: clip_003 graded, reference clip_001 untouched",
+            "no-collateral-changes: nothing changed that the request did not name"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 3,
+        "toolCalls": 4,
+        "tokens": {
+          "prompt": 41605,
+          "output": 1044,
+          "total": 42649
+        },
+        "usd": 0.020666999999999998,
+        "latency": {
+          "firstProgressMs": 2518,
+          "doneMs": 10961
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 1,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 1,
+            "grounded": 1,
+            "guessed": 0,
+            "rate": 0
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Applied color grade b2-4k60-9s.mov",
+      "recording": "reports/golden/vu-ledger-all/recordings/match-color-to-first-clip-r1-t1.json",
+      "calls": [
+        {
+          "tool": "load_skill",
+          "status": "completed",
+          "args": "name: \"color-grading\""
+        },
+        {
+          "tool": "load_tools",
+          "status": "completed",
+          "args": "domains: [\"color\"]"
+        },
+        {
+          "tool": "get_clips",
+          "status": "completed",
+          "args": "trackId: \"video_1\""
+        },
+        {
+          "tool": "match_color",
+          "status": "completed",
+          "args": "referenceClipId: \"clip_001\", targetClipIds: [\"clip_003\"]"
+        }
+      ],
+      "metrics": {
+        "wallMs": 10961,
+        "modelCalls": 3,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 41605,
+          "input": 1669,
+          "output": 1044,
+          "cacheRead": 39936,
+          "cacheCreate": 0
+        },
+        "perCall": [
+          {
+            "ttftMs": 2509,
+            "wallMs": 2509,
+            "input": 284,
+            "output": 223,
+            "cacheRead": 12288
+          },
+          {
+            "ttftMs": 2075,
+            "wallMs": 2644,
+            "input": 431,
+            "output": 258,
+            "cacheRead": 14336
+          },
+          {
+            "ttftMs": 4921,
+            "wallMs": 5761,
+            "input": 954,
+            "output": 563,
+            "cacheRead": 13312
+          }
+        ],
+        "summary": {
+          "turnCount": 3,
+          "ttftMs": {
+            "p50": 2509,
+            "p95": 4921,
+            "min": 2075,
+            "max": 4921
+          },
+          "wallMs": {
+            "p50": 2644,
+            "p95": 5761,
+            "min": 2509,
+            "max": 5761
+          },
+          "inputTokensPerTurn": {
+            "p50": 431,
+            "p95": 954,
+            "min": 284,
+            "max": 954
+          },
+          "outputTokensPerTurn": {
+            "p50": 258,
+            "p95": 563,
+            "min": 223,
+            "max": 563
+          },
+          "cacheHitRate": 0.9598846292512919,
+          "cacheReportingTurns": 3
+        },
+        "usd": 0.020666999999999998,
+        "usageTokens": 2713,
+        "toolCalls": 4,
+        "toolCallsByName": {
+          "load_skill": 1,
+          "load_tools": 1,
+          "get_clips": 1,
+          "match_color": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 6,
+        "contextByType": [
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 1674,
+            "tool_schemas": 7275
+          },
+          {
+            "system": 2577,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 2300,
+            "tool_schemas": 8520
+          },
+          {
+            "system": 2577,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 2300,
+            "tool_schemas": 8520
+          },
+          {
+            "system": 2753,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 2300,
+            "tool_schemas": 7899
+          },
+          {
+            "system": 2753,
+            "retrieved_evidence": 584,
+            "latest_user_message": 58,
+            "skill": 2300,
+            "tool_schemas": 7899
+          }
+        ],
+        "contextUsedTokens": [
+          11918,
+          284,
+          14039,
+          431,
+          13594,
+          954
+        ],
+        "contextCachedTokens": [
+          null,
+          12288,
+          null,
+          14336,
+          null,
+          13312
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 1,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "openrouter",
+  "model": "openrouter/auto"
+}

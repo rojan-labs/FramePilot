@@ -180,9 +180,97 @@ def _migrate_v3(conn: sqlite3.Connection) -> None:
     )
 
 
+def _migrate_v4(conn: sqlite3.Connection) -> None:
+    """v4 (ADR 0175, plan/visual-understanding VU1.3): the shot ledger.
+
+    Three tables, and every column choice here exists to make ONE thing cheap:
+    re-running a single tier after a model swap without re-measuring the other two.
+
+    - ``shots``: one row per shot, keyed ``(asset_id, content_hash, shot_index)``.
+      The content hash is IN the key rather than beside it, so changed bytes are a
+      different shot set instead of an in-place overwrite — that is what makes a
+      re-import free and a re-encode correctly expensive.
+
+      The three provenance groups get a column PAIR each (``tierN_version`` +
+      the JSON document) rather than one blob with a version inside it, because the
+      invalidation query has to be an index-free ``UPDATE … SET labelled = NULL``
+      over one column. Both halves are nullable: NULL means "this tier has not run",
+      never "this tier found nothing", and the reader must be able to tell those
+      apart (``TierCoverage`` reports the difference as a fact).
+
+      Geometry (``t0``/``t1``/``keyframe_t``/``split_of``) is NOT NULL because it is
+      tier 0's product and tier 0 always runs — ffmpeg is a hard dependency. It sits
+      in real columns, not inside ``measured``, because the projection join reads it
+      for every shot of every clip and must not parse JSON to do it. ``split_of``
+      marks a duration split inside one continuous take (long static material is cut
+      every 30 s so per-shot statistics stay local); a transition policy that read it
+      as an edit point would invent cuts the editor never made.
+
+      ``shots_by_time`` covers the "which shots does this clip show" lookup, which is
+      always by asset and ascending source time.
+
+    - ``entities``: tier 1 identity clusters (person/setting). The centroid is a BLOB
+      packed by :mod:`framepilot_engine.brain.embeddings`, alongside its ``dim`` and
+      producing ``model`` — the same "never mix two model's vectors" discipline
+      ``visual_vectors`` already follows. ``label`` is nullable because it is the one
+      HUMAN-authored value in the ledger ("person_03" → "Marcus"), and a re-cluster
+      must be able to preserve it.
+
+    - ``asset_digest``: the pre-aggregated per-asset summary the project digest and
+      the media-bin badge read. One row per asset, not per content hash, because it
+      is a cache of the current bytes only; ``content_hash`` rides along so a reader
+      can tell a stale digest from a fresh one instead of trusting it blindly.
+
+    ``ON DELETE CASCADE`` on ``assets`` matches the rest of the derived tables: the
+    ledger is rebuildable data (ADR 0058 invariant 1), so losing it with its asset
+    costs time, never truth.
+    """
+    conn.executescript(
+        """
+        CREATE TABLE shots (
+            asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+            content_hash TEXT NOT NULL,
+            shot_index INTEGER NOT NULL,
+            t0 REAL NOT NULL,
+            t1 REAL NOT NULL,
+            keyframe_t REAL NOT NULL,
+            split_of INTEGER NOT NULL DEFAULT 0,
+            tier0_version INTEGER,
+            measured TEXT,
+            tier1_version INTEGER,
+            labelled TEXT,
+            tier2_version INTEGER,
+            described TEXT,
+            updated_at TEXT NOT NULL,
+            PRIMARY KEY (asset_id, content_hash, shot_index)
+        );
+
+        CREATE INDEX shots_by_time ON shots(asset_id, t0);
+
+        CREATE TABLE entities (
+            id TEXT PRIMARY KEY,
+            kind TEXT NOT NULL,
+            label TEXT,
+            centroid BLOB NOT NULL,
+            dim INTEGER NOT NULL,
+            model TEXT NOT NULL,
+            shot_count INTEGER NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+
+        CREATE TABLE asset_digest (
+            asset_id TEXT PRIMARY KEY REFERENCES assets(id) ON DELETE CASCADE,
+            content_hash TEXT NOT NULL,
+            digest TEXT NOT NULL,
+            updated_at TEXT NOT NULL
+        );
+        """
+    )
+
+
 # Ordered, append-only. MIGRATIONS[n] upgrades a database at user_version n to
 # n + 1. Never reorder or edit a shipped entry — append a new one.
-MIGRATIONS: tuple[Migration, ...] = (_migrate_v1, _migrate_v2, _migrate_v3)
+MIGRATIONS: tuple[Migration, ...] = (_migrate_v1, _migrate_v2, _migrate_v3, _migrate_v4)
 
 SCHEMA_VERSION = len(MIGRATIONS)
 

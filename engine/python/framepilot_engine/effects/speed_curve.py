@@ -71,7 +71,16 @@ def _points_of(ramp: Any) -> list[Any]:
 
 
 def _source_time(point: Any) -> float:
-    return float(getattr(point, "source_time", None) or getattr(point, "sourceTime", 0.0) or 0.0)
+    """The point's clip-relative source time, read by **presence**, not truthiness.
+
+    A genuine ``0.0`` is the most common source time there is — it anchors nearly
+    every curve — so falling through it to the next fallback would let a snake_case
+    point at 0 be re-read from an unrelated camelCase attribute.
+    """
+    raw = getattr(point, "source_time", None)
+    if raw is None:
+        raw = getattr(point, "sourceTime", None)
+    return float(raw) if raw is not None else 0.0
 
 
 def _rate(point: Any) -> float:

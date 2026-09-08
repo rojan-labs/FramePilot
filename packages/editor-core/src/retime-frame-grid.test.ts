@@ -1,5 +1,5 @@
 /**
- * A retime must land on the project frame grid (session 7, REMAINING §2.3).
+ * A retime must land on the project frame grid (session 7 handoff).
  *
  * `refine-tighten` r1 turn 2 made 16 `set_clip_speed` calls at 1.3x and produced exactly
  * 16 off-grid clip edges. It is arithmetic, not model error: `set_clip_speed` carries no

@@ -672,3 +672,82 @@ describe('a turn the harness timed out', () => {
     expect(summary.turns).toBe(2);
   });
 });
+
+/**
+ * Perception (plan/visual-understanding VU0.1) rides on the same evidence as everything
+ * else, so the only thing to prove here is the wiring: a measured turn carries it, an
+ * imported one that never had it is reported as unmeasured rather than as a clean zero.
+ */
+describe('perception metrics in the run summary', () => {
+  const seen = (toolName: string): AiEvent[] => {
+    const base = { id: `tc_${toolName}`, conversationId: 'c', turnId: 't', type: 'tool_call' };
+    return [
+      { ...base, ts: T0, toolName, status: 'running' },
+      { ...base, ts: T0 + 1, toolName, status: 'completed' },
+    ] as unknown as AiEvent[];
+  };
+
+  it('measureGoldenTurn records what the turn looked at', () => {
+    const evidence: GoldenTurnEvidence = {
+      events: [
+        ...seen('get_frame'),
+        ...seen('search_visual'),
+        ev('status', { status: 'completed' }),
+      ],
+      startedAt: T0,
+      wallMs: 1000,
+      rubric: rubric(1),
+      expectedIntent: 'edit',
+      modelCalls: 1,
+      toolCalls: 2,
+      tokens: { prompt: 10, output: 1 },
+      usd: null,
+      before: makeProject(),
+      appliedPatches: [trimA],
+    };
+    const m = measureGoldenTurn(evidence);
+    expect(m.perception?.framesSeen).toBe(1);
+    expect(m.perception?.perceptionCalls).toBe(1);
+  });
+
+  it('reports zero measured turns rather than a flattering zero on old evidence', () => {
+    const summary = summarizeGoldenRun([
+      { caseId: 'trim', category: 'trim', turnIndex: 0, run: 1, metrics: metrics() },
+    ]);
+    expect(summary.perception.measuredTurns).toBe(0);
+    expect(summary.perception.framesSeenPerEdit).toBe(0);
+    expect(
+      renderGoldenSummary(summary, {
+        label: 'x',
+        provider: 'p',
+        model: 'm',
+        generatedAt: '2026-09-07',
+      }),
+    ).not.toContain('frames seen / accepted edit');
+  });
+
+  it('prints the perception rows once a run carries them', () => {
+    const withPerception = metrics({
+      perception: {
+        framesSeen: 4,
+        perceptionCalls: 2,
+        perceptionCallsByTool: { search_visual: 2 },
+        numericGuess: { total: 2, grounded: 0, guessed: 2, rate: 1 },
+      },
+    });
+    const summary = summarizeGoldenRun([
+      { caseId: 'trim', category: 'trim', turnIndex: 0, run: 1, metrics: withPerception },
+    ]);
+    expect(summary.perception.measuredTurns).toBe(1);
+    expect(summary.perception.framesSeenPerEdit).toBe(4);
+    expect(summary.perception.numericGuessRate).toBe(1);
+    const report = renderGoldenSummary(summary, {
+      label: 'x',
+      provider: 'p',
+      model: 'm',
+      generatedAt: '2026-09-07',
+    });
+    expect(report).toContain('frames seen / accepted edit');
+    expect(report).toContain('grade/transition numbers with no measured basis');
+  });
+});

@@ -11,6 +11,19 @@ import {
 } from './executable-verifier.js';
 import { mergeExtraWorkerEnvironment } from './worker-env.js';
 
+/**
+ * Wall-clock bound for a worker's health handshake.
+ *
+ * WHY IT IS MUCH LARGER THAN A PROBE'S: a weights-backed pack proves it is healthy by
+ * hashing every pinned artifact and opening a real inference session. Visual Embed reads
+ * ~1.5 GiB and lets CoreML compile two SigLIP towers — measured at ~48 s on a cold cache
+ * and ~21 s warm on an M-series laptop; Visual Describe hashes ~2.6 GiB. Under the 15 s
+ * probe bound both were SIGKILLed mid-verification and reported as `exited null`, which
+ * reads as a broken pack rather than a bound being hit. The verification is the security
+ * property, so the budget has to cover it.
+ */
+const HEALTH_CHECK_TIMEOUT_MS = 180_000;
+
 export class CapabilityPackHealthError extends Error {
   constructor(
     public readonly code: 'health_check_failed' | 'protocol_mismatch' | 'download_cancelled',
@@ -53,6 +66,7 @@ export async function healthCheckCapabilityPackWorker(
       executable: entrypointPath,
       args: ['--framepilot-health-check'],
       env,
+      timeoutMs: HEALTH_CHECK_TIMEOUT_MS,
       ...(signal === undefined ? {} : { signal }),
     });
   } catch (error) {
@@ -65,9 +79,16 @@ export async function healthCheckCapabilityPackWorker(
     );
   }
   if (result.exitCode !== 0) {
+    // A null exit code means the process was killed rather than exiting — the bound above,
+    // or the caller's abort. Saying so is the difference between a diagnosable message and
+    // "exited null", which sent one debugging session looking for a crash that never was.
+    const outcome =
+      result.exitCode === null
+        ? `was killed before it answered (bound: ${HEALTH_CHECK_TIMEOUT_MS / 1_000}s)`
+        : `exited ${result.exitCode}`;
     throw new CapabilityPackHealthError(
       'health_check_failed',
-      `Capability Pack worker health check exited ${result.exitCode}: ${result.stderr.trim().slice(0, 2_000)}`,
+      `Capability Pack worker health check ${outcome}: ${result.stderr.trim().slice(0, 2_000)}`,
     );
   }
   let raw: unknown;

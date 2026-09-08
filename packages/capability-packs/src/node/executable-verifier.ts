@@ -1,6 +1,10 @@
 import { spawn } from 'node:child_process';
 import type { CapabilityPackArtifact } from '../contracts.js';
 
+/**
+ * Default wall-clock bound for a probe command — an OS signature check, a `--version`.
+ * Generous for a question the process answers by looking at itself.
+ */
 const COMMAND_TIMEOUT_MS = 15_000;
 const MAX_COMMAND_OUTPUT_BYTES = 64 * 1024;
 
@@ -9,6 +13,12 @@ export interface BoundedCommandRequest {
   readonly args: readonly string[];
   readonly env?: Readonly<Record<string, string>>;
   readonly signal?: AbortSignal;
+  /**
+   * Wall-clock bound, defaulting to {@link COMMAND_TIMEOUT_MS}. Callers that ask a worker
+   * to do real work before it answers — a health check hashes every pinned weight — must
+   * raise it, or the bound kills a healthy pack and reports `exitCode: null`.
+   */
+  readonly timeoutMs?: number;
 }
 
 export interface BoundedCommandResult {
@@ -129,7 +139,7 @@ export async function runBoundedCommand(
     const terminate = (): void => {
       child.kill('SIGKILL');
     };
-    const timeout = setTimeout(terminate, COMMAND_TIMEOUT_MS);
+    const timeout = setTimeout(terminate, request.timeoutMs ?? COMMAND_TIMEOUT_MS);
     const abort = (): void => terminate();
     request.signal?.addEventListener('abort', abort, { once: true });
     const finish = (error?: unknown, result?: BoundedCommandResult): void => {

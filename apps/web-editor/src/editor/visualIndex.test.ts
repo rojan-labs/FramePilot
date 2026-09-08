@@ -1,19 +1,24 @@
 /**
- * Tests for the visual-index host glue (plan MI4.2): the auto-index gating
- * (key present/absent, toggle on/off, no assets) and the honest no-op when the
- * sidecar is unreachable. Fully offline — a fake {@link VisualIndexClient}.
+ * Tests for the visual-index host glue: credential assembly, and the honest degrade a
+ * build with no sidecar gets.
+ *
+ * Import-time warming is NOT tested here any more because it is not here any more. It
+ * moved to the desktop main process's single batching enroller (ADR 0175 / VU1.5) —
+ * `apps/desktop/electron/ai/asset-enrolment.test.ts` covers it, keyless included.
  */
-import { describe, expect, it, vi } from 'vitest';
+import { describe, expect, it } from 'vitest';
 import type { AiConfig } from '@framepilot/shared-types';
 import { VisualIndexClient } from '@framepilot/ai-sdk';
 import {
-  autoIndexImportedAssets,
+  ensureProjectMediaUnderstanding,
+  fetchFootageMap,
   nvidiaEmbeddingsKeys,
-  shouldAutoIndex,
   twelveLabsKey,
+  understandingCredentials,
 } from './visualIndex.js';
+import type { Project } from '@framepilot/timeline-schema';
 
-/** A minimal AiConfig — only the fields the gating reads matter here. */
+/** A minimal AiConfig — only the fields the credential helpers read matter here. */
 function config(overrides: Partial<AiConfig> = {}): AiConfig {
   return {
     activeProvider: 'mock',
@@ -23,6 +28,19 @@ function config(overrides: Partial<AiConfig> = {}): AiConfig {
     keys: {},
     ...overrides,
   } as unknown as AiConfig;
+}
+
+/** The smallest project the understanding helpers will accept. */
+function project(): Project {
+  return { id: 'p1', assets: [], timeline: { tracks: [] } } as unknown as Project;
+}
+
+/** A client whose every request fails at the transport, as it does with no sidecar. */
+function offlineClient(): VisualIndexClient {
+  const fetchFn = (async () => {
+    throw new Error('ECONNREFUSED');
+  }) as typeof fetch;
+  return new VisualIndexClient({ baseUrl: 'http://127.0.0.1:8765', fetchFn });
 }
 
 describe('nvidiaEmbeddingsKeys', () => {
@@ -41,117 +59,38 @@ describe('twelveLabsKey', () => {
   });
 });
 
-describe('shouldAutoIndex', () => {
-  // Media understanding is automatic now: configuring a key IS the opt-in, and the
-  // separate auto-index toggle is gone. A stored `embeddingsAutoIndex: false` from an
-  // older build must therefore not keep warming switched off — otherwise a user who
-  // once flipped that toggle would silently get no understanding with no visible cause.
-  it('turns on for a key from either backend, and ignores the retired toggle', () => {
-    expect(shouldAutoIndex(config({ nvidiaEmbeddings: 'nvapi-x' }))).toBe(true);
-    expect(shouldAutoIndex(config({ twelveLabs: 'tlk-x' }))).toBe(true); // TwelveLabs key alone
+describe('understandingCredentials', () => {
+  it('sends the on-device key even when TwelveLabs is configured', () => {
+    // TwelveLabs cannot index a still, so withholding this key left a photo project with
+    // no backend at all. One helper, one policy — four call sites used to assemble it.
     expect(
-      shouldAutoIndex(config({ nvidiaEmbeddings: 'nvapi-x', embeddingsAutoIndex: false })),
-    ).toBe(true);
-    expect(shouldAutoIndex(config({ twelveLabs: 'tlk-x', embeddingsAutoIndex: false }))).toBe(true);
-    expect(shouldAutoIndex(config({ embeddingsAutoIndex: true }))).toBe(false); // no key
-    expect(shouldAutoIndex(config())).toBe(false);
+      understandingCredentials(config({ twelveLabs: 'tlk-x', nvidiaEmbeddings: 'nv-x' })),
+    ).toEqual({ twelveLabsKey: 'tlk-x', nvidiaKeys: 'nv-x' });
+  });
+
+  it('is empty with nothing configured — which is no longer a reason not to index', () => {
+    // The gate this replaces returned false here and NOTHING was ever indexed on a
+    // default install. Tier 0 needs no credential, so an empty object is a full request.
+    expect(understandingCredentials(config())).toEqual({});
   });
 });
 
-/** A client whose `index` returns a single done slice, recording the body. */
-function doneClient(): { client: VisualIndexClient; bodies: unknown[] } {
-  const bodies: unknown[] = [];
-  const fetchFn = (async (_url: string | URL | Request, init?: RequestInit) => {
-    bodies.push(JSON.parse(String(init?.body)));
-    return {
-      ok: true,
-      status: 200,
-      json: async () => ({ available: true, jobId: 'j1', cursor: 1, total: 1, done: true }),
-    } as Response;
-  }) as typeof fetch;
-  return { client: new VisualIndexClient({ baseUrl: 'http://127.0.0.1:8765', fetchFn }), bodies };
-}
-
-describe('autoIndexImportedAssets', () => {
-  it('no-ops (undefined) with no assets or no key — never calls the client', async () => {
-    const index = vi.fn();
-    const client = { index } as unknown as VisualIndexClient;
-
-    expect(
-      await autoIndexImportedAssets({
-        projectId: 'p1',
-        assetIds: [],
-        config: config({ nvidiaEmbeddings: 'k' }),
-        client,
-      }),
-    ).toBeUndefined();
-    expect(
-      await autoIndexImportedAssets({
-        projectId: 'p1',
-        assetIds: ['a1'],
-        config: config(),
-        client,
-      }),
-    ).toBeUndefined();
-    expect(index).not.toHaveBeenCalled();
+describe('the browser build, which has no sidecar', () => {
+  it('degrades ensureProjectMediaUnderstanding to unavailable instead of throwing', async () => {
+    const result = await ensureProjectMediaUnderstanding({
+      project: project(),
+      config: config(),
+      client: offlineClient(),
+    });
+    expect(result.status).toBe('unavailable');
+    // Honest about WHY: nothing could be reached. Never 'unconfigured' — a missing key is
+    // not why this failed, and it is no longer a reason to refuse to try.
+    expect(result.status === 'unavailable' && result.reason).toBe('offline');
   });
 
-  it('drives the index loop with the imported asset ids + configured key', async () => {
-    const { client, bodies } = doneClient();
-    const result = await autoIndexImportedAssets({
-      projectId: 'p1',
-      assetIds: ['a1', 'a2'],
-      config: config({ nvidiaEmbeddings: 'nvapi-x' }),
-      client,
-    });
-    expect(result?.status).toBe('done');
-    expect(bodies[0]).toEqual({ projectId: 'p1', assetIds: ['a1', 'a2'], nvidiaKeys: 'nvapi-x' });
-  });
-
-  it('forwards the TwelveLabs key when it is the configured backend', async () => {
-    const { client, bodies } = doneClient();
-    const result = await autoIndexImportedAssets({
-      projectId: 'p1',
-      assetIds: ['a1'],
-      config: config({ twelveLabs: 'tlk-x' }),
-      client,
-    });
-    expect(result?.status).toBe('done');
-    expect(bodies[0]).toEqual({ projectId: 'p1', assetIds: ['a1'], twelveLabsKey: 'tlk-x' });
-  });
-
-  it('forwards BOTH keys so stills can be prepared on-device while TwelveLabs runs', async () => {
-    // TwelveLabs cannot index a still photo, so the engine routes stills to the
-    // on-device embedder — which it can only do if this key reaches it. Dropping
-    // it whenever a TwelveLabs key existed is what left a 61-photo project at
-    // 0/61 prepared with no footage map.
-    const { client, bodies } = doneClient();
-    const result = await autoIndexImportedAssets({
-      projectId: 'p1',
-      assetIds: ['a1'],
-      config: config({ twelveLabs: 'tlk-x', nvidiaEmbeddings: 'nvapi-x' }),
-      client,
-    });
-    expect(result?.status).toBe('done');
-    expect(bodies[0]).toEqual({
-      projectId: 'p1',
-      assetIds: ['a1'],
-      twelveLabsKey: 'tlk-x',
-      nvidiaKeys: 'nvapi-x',
-    });
-  });
-
-  it('degrades honestly to unreachable when the sidecar is down', async () => {
-    const fetchFn = (async () => {
-      throw new Error('ECONNREFUSED');
-    }) as typeof fetch;
-    const client = new VisualIndexClient({ baseUrl: 'http://127.0.0.1:8765', fetchFn });
-    const result = await autoIndexImportedAssets({
-      projectId: 'p1',
-      assetIds: ['a1'],
-      config: config({ nvidiaEmbeddings: 'nvapi-x' }),
-      client,
-    });
-    expect(result?.status).toBe('unreachable');
+  it('resolves the footage map to undefined rather than rejecting', async () => {
+    await expect(
+      fetchFootageMap({ project: project(), config: config(), client: offlineClient() }),
+    ).resolves.toBeUndefined();
   });
 });

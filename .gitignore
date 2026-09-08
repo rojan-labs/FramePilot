@@ -131,6 +131,11 @@ tests/fixtures/mission/**
 !tests/fixtures/mission/manifest.json
 !tests/fixtures/mission/projects/
 !tests/fixtures/mission/projects/**
+# The labelled fixture set (plan/visual-understanding VU0.2). Committed JSON, no media:
+# VU0.3's answer cases are scored against these by hand, so they have to travel with
+# the repo the way the fixture PROJECTS do.
+!tests/fixtures/mission/labels/
+!tests/fixtures/mission/labels/**
 tests/fixtures/mission/projects/*.fp.json
 # Rendered exports are test OUTPUT, not fixtures: `export-matrix.spec.ts` and the
 # benchmarks write them on every run, so tracking them added 376 MB of churning

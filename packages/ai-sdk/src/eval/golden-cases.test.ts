@@ -31,10 +31,10 @@ describe('golden set shape', () => {
     }
   });
 
-  it('a turn that must ask or decline is scored on the timeline staying unchanged', () => {
+  it('a turn that must ask, decline or answer is scored on the timeline staying unchanged', () => {
     for (const c of GOLDEN_CASES) {
       for (const t of c.turns) {
-        if (t.intent === 'ask' || t.intent === 'decline') {
+        if (t.intent === 'ask' || t.intent === 'decline' || t.intent === 'answer') {
           expect(t.rubric, `${c.id}: ${t.intent} turn must use the "unchanged" rubric`).toBe('unchanged');
         }
       }
@@ -48,6 +48,39 @@ describe('golden set shape', () => {
       scoreMissionScenario('trim-first-clip', { before: project, after: project, expectedFirstClipEndSeconds: 10 })
         .score,
     ).toBeLessThan(1);
+  });
+
+  it('every VU0.3 edit case is scored on a collateral-changes check', () => {
+    // The facet that has bitten this repo before: a grade or a transition pass that also
+    // re-cut the programme. A picture case without it would score a run for the part of the
+    // request it got right and say nothing about the damage.
+    const project = makeProject();
+    const pictureRubrics = [
+      'match-color-to-reference',
+      'warmer-subtle',
+      'transitions-where-they-belong',
+    ] as const;
+    for (const rubric of pictureRubrics) {
+      const score = scoreMissionScenario(rubric, { before: project, after: project });
+      expect(
+        score.checks.some((c) => c.id === 'no-collateral-changes'),
+        `${rubric} has no collateral check`,
+      ).toBe(true);
+    }
+  });
+
+  it('the question cases change nothing and are answered, not refused', () => {
+    const questions = GOLDEN_CASES.filter((c) => c.category === 'question');
+    expect(questions.length).toBeGreaterThan(0);
+    for (const c of questions) {
+      for (const t of c.turns) {
+        expect(t.intent, c.id).toBe('answer');
+        expect(t.rubric, c.id).toBe('unchanged');
+      }
+      // Their correctness is an operator judgement against the VU0.2 labels; the case has
+      // to SAY so, or a later reader will assume the harness checked the answer.
+      expect(c.why.toLowerCase()).toContain('operator');
+    }
   });
 
   it('looks a case up by id', () => {

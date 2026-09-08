@@ -44,12 +44,14 @@ function Host({
   soloedTrackIds,
   editorTimeline = timeline,
   assets = [],
+  assetIds = ['a'],
 }: {
   readonly soloedTrackIds?: ReadonlySet<string>;
   readonly editorTimeline?: Timeline;
   readonly assets?: readonly { id: string; path: string; kind: 'video' | 'audio' | 'image' }[];
+  readonly assetIds?: readonly string[];
 } = {}): JSX.Element {
-  const editor = useEditor(editorTimeline, ['a']);
+  const editor = useEditor(editorTimeline, assetIds);
   return (
     <SettingsProvider>
       <button type="button" onClick={() => editor.seek(2)}>
@@ -659,5 +661,117 @@ describe('program monitor — frame fit (UX-14)', () => {
   it('says nothing about an asset whose dimensions were never probed', () => {
     render(<FitHost />);
     expect(screen.queryByText('Letterboxed')).toBeNull();
+  });
+});
+
+/**
+ * Monitor volume/mute on the STREAMING (DOM) preview path. The WebCodecs player
+ * routes the same setting through its master gain bus; this path has no bus, so
+ * the level is folded into the front element's volume and the mixer's monitor
+ * scale. Both engines answer to one control — issue #85 was this path silently
+ * ignoring it. Monitoring only: the clip's own `audio_gain` is untouched.
+ */
+describe('program monitor — monitor volume/mute (streaming path)', () => {
+  const gainDb = (db: number) => ({
+    id: 'g',
+    type: 'audio_gain' as const,
+    params: { gainDb: db },
+    keyframes: [],
+  });
+
+  type ClipEffects = Timeline['tracks'][number]['clips'][number]['effects'];
+
+  const withFootage = (effects: ClipEffects): Timeline => ({
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            id: 'c1',
+            assetId: 'a',
+            trackId: 'v',
+            start: 0,
+            end: 8,
+            sourceStart: 0,
+            sourceEnd: 8,
+            effects,
+            keyframes: [],
+          },
+        ],
+      },
+    ],
+  });
+
+  const videoAssets = [{ id: 'a', path: 'blob:x', kind: 'video' as const }];
+  const songAsset = { id: 'song', path: '/media/Rise_Up.mp3', kind: 'audio' as const };
+
+  it('scales the footage element volume by the monitor level', () => {
+    seedSettings({ previewVolume: 0.4 });
+    render(<Host editorTimeline={withFootage([])} assets={videoAssets} />);
+    expect((screen.getByLabelText('preview a') as HTMLVideoElement).volume).toBeCloseTo(0.4, 6);
+  });
+
+  it('multiplies the monitor level with the clip gain rather than replacing it', () => {
+    seedSettings({ previewVolume: 0.5 });
+    render(<Host editorTimeline={withFootage([gainDb(-20)])} assets={videoAssets} />);
+    // -20 dB → 0.1 clip gain, halved by the monitor.
+    expect((screen.getByLabelText('preview a') as HTMLVideoElement).volume).toBeCloseTo(0.05, 6);
+  });
+
+  it('mutes the footage element when the monitor is muted, keeping the stored level', () => {
+    seedSettings({ previewVolume: 0.8, previewMuted: true });
+    render(<Host editorTimeline={withFootage([])} assets={videoAssets} />);
+    const video = screen.getByLabelText('preview a') as HTMLVideoElement;
+    expect(video.muted).toBe(true);
+    expect(video.volume).toBe(0);
+    // Un-muting must restore 0.8, so the preference itself is never rewritten.
+    const stored = JSON.parse(localStorage.getItem('framepilot.settings') ?? '{}') as {
+      previewVolume?: number;
+    };
+    expect(stored.previewVolume).toBe(0.8);
+  });
+
+  it('applies the monitor level to audio-only clips through the mixer', () => {
+    seedSettings({ previewVolume: 0.25 });
+    const withMusic: Timeline = {
+      tracks: [
+        ...withFootage([]).tracks,
+        {
+          id: 'm',
+          type: 'audio',
+          clips: [
+            {
+              id: 'c2',
+              assetId: 'song',
+              trackId: 'm',
+              start: 0,
+              end: 8,
+              sourceStart: 0,
+              sourceEnd: 8,
+              effects: [],
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    };
+    const { container } = render(
+      <Host
+        editorTimeline={withMusic}
+        assetIds={['a', 'song']}
+        assets={[...videoAssets, songAsset]}
+      />,
+    );
+    const audio = container.querySelector('audio') as HTMLAudioElement | null;
+    expect(audio).not.toBeNull();
+    expect(audio?.volume).toBeCloseTo(0.25, 6);
+  });
+
+  it('leaves both paths at unity with the default (unset) monitor settings', () => {
+    render(<Host editorTimeline={withFootage([])} assets={videoAssets} />);
+    const video = screen.getByLabelText('preview a') as HTMLVideoElement;
+    expect(video.volume).toBe(1);
+    expect(video.muted).toBe(false);
   });
 });

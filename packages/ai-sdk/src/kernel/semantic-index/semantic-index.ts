@@ -29,13 +29,28 @@
  * source-media time into timeline time via
  * every clip that actually references the analyzed asset ({@link ProjectIndex.clipsOfAsset}),
  * so an asset that isn't (yet) placed on the timeline honestly contributes nothing. Slices
- * gated on a schema/op that does not exist yet (`speedRamps`, `markers`, CV `broll`) are
+ * gated on a schema/op that does not exist yet (`markers`, CV `broll`) are
  * still typed for a stable contract but left empty — they have no analysis result to
  * ingest. Nothing here is ever faked: an omitted `analysisResults` field reproduces the
  * exact K2.1 empty-array/null behavior.
+ *
+ * ONE SOURCE→TIMELINE PROJECTION (VU2.5). The `shots`, `silences`, `beats`, `loudness` and
+ * `black` slices each used to map source time to timeline time at a flat 1:1, justified by
+ * a comment claiming no `speedRamps` op existed. It has existed since schema v15, and
+ * `set_clip_speed_ramp` ships, so every time those slices produced on a speed-changed or
+ * reversed clip was wrong — and the false justification is why it stayed wrong. They now
+ * delegate to `projectAssetSpan`, the `picture` slice's projection, which handles the trim,
+ * the speed curve (through `integrateRate`, the same arithmetic the validator and the
+ * render use), reverse, and freeze. There is no second mapping left to drift from it.
+ *
+ * Adding a slice that places an asset time on the timeline? Call `translateSourceRange` or
+ * `translateSourceTime`. Never `start + (clip.start - clip.sourceStart)`.
+ *
+ * Do not read the empty `speedRamps` slice below as evidence the op is missing.
  */
 import type { Clip, Effect, Project, Track } from '@framepilot/timeline-schema';
 import { clipKindOf, indexFor, type ProjectIndex } from '../../project-index.js';
+import { projectAssetSpan } from './picture.js';
 
 /**
  * Normalize raw beat timestamps into a clean grid: finite, non-negative, de-duplicated, and
@@ -143,8 +158,9 @@ export interface BeatGrid {
   readonly bpm?: number;
 }
 
-/** A speed/time-remap ramp. Empty until a speed op exists (punch-in is scale/zoom,
- *  represented as keyframes, not a playback-speed change). */
+/** A speed/time-remap ramp. Left empty because no ANALYSIS produces one — not because the
+ *  op is missing: `speedRamp` is in the schema and `set_clip_speed_ramp` ships. See the
+ *  known-limitation note in the module doc. */
 export interface SpeedRamp {
   readonly clipId: string;
   readonly effectId: string;
@@ -406,28 +422,41 @@ function deriveMusic(tracks: readonly Track[], index: ProjectIndex): MusicEntry[
  * Clip a source-media-time span [sourceStart, sourceEnd) to `clip`'s trimmed window
  * ([clip.sourceStart, clip.sourceEnd)) and translate the overlap into timeline time.
  * `null` when the span does not overlap this clip's source window at all - the honest
- * "this shot/silence isn't part of what's actually placed on the timeline" case. Assumes
- * 1:1 playback speed (no `speedRamps` op exists yet - see the module doc), matching every
- * other timeline<->source mapping in this codebase.
+ * "this shot/silence isn't part of what's actually placed on the timeline" case.
+ *
+ * Speed, reverse and freeze are handled by {@link projectAssetSpan}, the `picture` slice's
+ * projection, which this now delegates to. It used to do the mapping itself with a flat
+ * `start + (clip.start - clip.sourceStart)` and justify that with "no `speedRamps` op
+ * exists yet" - `speedRamp` has been in the schema since v15, so every time this produced
+ * on a ramped or reversed clip was wrong (VU2.5).
  */
 function translateSourceRange(
   clip: Clip,
   sourceStart: number,
   sourceEnd: number,
 ): TimeRange | null {
-  const start = Math.max(sourceStart, clip.sourceStart);
-  const end = Math.min(sourceEnd, clip.sourceEnd);
-  if (end <= start) return null;
-  const offset = clip.start - clip.sourceStart;
-  return { start: start + offset, end: end + offset };
+  return projectAssetSpan(clip, sourceStart, sourceEnd);
 }
 
 /** Translate one source-media-time point through `clip`, or `null` when it falls outside
- *  the clip's trimmed source window (see {@link translateSourceRange}). */
+ *  the clip's trimmed source window (see {@link translateSourceRange}).
+ *
+ *  A point is a zero-width span, and `projectAssetSpan` rejects those, so it is projected
+ *  as one frame-ish sliver and the START of the result is taken. Doing it through the same
+ *  function is the point: a cut time on a ramped clip now lands where the frame lands,
+ *  and there is no second mapping to drift from the first. */
 function translateSourceTime(clip: Clip, sourceTime: number): number | null {
   if (sourceTime < clip.sourceStart || sourceTime > clip.sourceEnd) return null;
-  return clip.start + (sourceTime - clip.sourceStart);
+  const span = projectAssetSpan(clip, sourceTime, Math.min(sourceTime + EPSILON, clip.sourceEnd));
+  if (span !== null) return span.start;
+  // The out-point itself: no span of positive width starts there, but the time is inside
+  // the window, so project the sliver that ENDS at it and take that edge instead.
+  const tail = projectAssetSpan(clip, Math.max(sourceTime - EPSILON, clip.sourceStart), sourceTime);
+  return tail === null ? null : tail.end;
 }
+
+/** A sliver narrow enough to read as a point, wide enough for a positive-width span. */
+const EPSILON = 1e-6;
 
 /** Read `record.assetId`, or `undefined` when the payload doesn't carry one honestly. */
 function readAssetId(record: Record<string, unknown>): string | undefined {
@@ -588,7 +617,8 @@ export function buildSemanticIndex(
     beats: deriveBeats(index, analysisResults?.beats),
     loudness: deriveLoudness(index, analysisResults?.loudness),
     black: deriveTranslatedRanges(index, analysisResults?.black),
-    // Schema-gated - no op exists yet to feed these; honestly empty (see module doc).
+    // Honestly empty: no ANALYSIS feeds these. For `speedRamps` that is not because the
+    // op is missing — see the known-limitation note in the module doc.
     speedRamps: [],
     markers: [],
     broll: [],
