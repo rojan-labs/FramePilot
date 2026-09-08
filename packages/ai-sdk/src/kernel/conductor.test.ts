@@ -2188,6 +2188,25 @@ describe('onEffectResult — verify(+repair) → finalize', () => {
       ...over,
     });
 
+  /**
+   * Run `29eee2df`, turn 3. The record read
+   * `{ criterion: "the captions doesnot seem right, can you make a better broll",
+   * passed: true }` — in the same turn whose summary said "Not done: Add stock — never
+   * succeeded". The verdict is `deliveredWork && r.ok`: 435 caption operations landed and
+   * validated, and neither half of it knows anything about b-roll. The next turn's
+   * briefing reads these records, so the false pass is inherited, not merely displayed.
+   */
+  it('does not label the whole-request verdict with the editor’s own words', () => {
+    const applied = onEffectResult(started(), landed()).state;
+    const step = onEffectResult(
+      { ...applied, phase: 'verifying' },
+      verify({ ok: true, summary: 'Passed with 1 warning(s).' }),
+    );
+    const criteria = step.state.working.verifications.map((v) => v.criterion);
+    expect(criteria).not.toContain('tighten the intro');
+    expect(criteria).toContain('A validated edit landed and the run’s deterministic checks passed');
+  });
+
   it('routes a failed self-check into a findings-scoped fix turn instead of failing outright', () => {
     const applied = onEffectResult(started(), landed()).state;
     const step = onEffectResult(

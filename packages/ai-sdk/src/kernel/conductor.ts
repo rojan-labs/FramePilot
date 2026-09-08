@@ -2773,7 +2773,25 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     // never got its own turn is said in the detail and in the "Not done" block.
     const stepReached = state.ledgerLength === 0 || state.planSteps[index]?.status === 'completed';
     working = recordVerification(working, {
-      criterion: objective.description,
+      // LABEL IT FOR WHAT IT TESTED. `verificationPassed` is `deliveredWork && r.ok` — a
+      // traceable mutation landed and the deterministic checks hold — and neither half
+      // knows what the editor asked for. When the objective is the request said back (an
+      // unplanned run's objective is exactly that), a record reading
+      // `criterion: "the captions doesnot seem right, can you make a better broll",
+      // passed: true` asserts the request was satisfied. In run `29eee2df` it did, in the
+      // same turn whose summary said "Not done: Add stock — never succeeded". The next
+      // turn's briefing reads these records, so a false pass is inherited, not just shown.
+      //
+      // The relabel fires for the objective that IS the goal — the request said back, or
+      // the goal resolved from history behind a bare "continue". A plan STEP keeps its own
+      // label: it names a piece of work, and whether the run reached it is already tracked
+      // (`stepReached`, said in the detail). The checkable half of a request is verified by
+      // name elsewhere — `r.failedChecks` carries those, each with its own criterion.
+      criterion:
+        isRequestEcho(objective.description, working.objective.request) ||
+        objective.description === working.objective.outcome
+          ? GENERIC_DELIVERY_CRITERION
+          : objective.description,
       passed: verificationPassed,
       detail:
         failureReason() ??
@@ -2826,6 +2844,17 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
     events,
   );
 }
+
+/**
+ * What the run's whole-request verdict actually tested, said plainly.
+ *
+ * `verificationPassed` is `deliveredWork && r.ok`: a traceable mutation landed, and the
+ * deterministic checks derived from the request hold. Neither half knows whether the
+ * editor got what they asked for, so a record labelled with their own sentence claims
+ * more than it checked.
+ */
+const GENERIC_DELIVERY_CRITERION =
+  'A validated edit landed and the run’s deterministic checks passed';
 
 /** How many failing checks the failure card spells out before summarising the rest. */
 const MAX_CARD_REASONS = 2;
