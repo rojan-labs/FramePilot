@@ -267,3 +267,39 @@ describe('adjust_audio names the legal move when both targets are given', () => 
     ).toThrow(/leave the other argument out entirely/);
   });
 });
+
+describe('a title that does not fit is refused under a named cause', () => {
+  // Run `df81d58e` (2026-09-08): "PRINCIPLES at sizePercent 18", then 16, then 15 — three
+  // sentences for one rule, and the repeated-failure guard, keyed on text, saw no repeat.
+  it('carries refusalCause text_does_not_fit, which survives an applied edit', async () => {
+    const { ARRANGEMENT_INDEPENDENT_CAUSES } = await import('../tool-refusal.js');
+    const { ToolInvocationError } = await import('../tool-dispatch.js');
+    let thrown: unknown;
+    try {
+      operationsForCall(
+        {
+          id: 'c',
+          name: 'add_text_layer',
+          arguments: {
+            trackId: 'titles',
+            text: '8 PRINCIPLES',
+            start: 6.3,
+            end: 10.1,
+            sizePercent: 18,
+            boxWidthPercent: 70,
+          },
+        },
+        {
+          project: parseProject({ ...project(), resolution: { width: 1080, height: 1920 } }),
+        } as unknown as ToolContext,
+      );
+    } catch (error) {
+      thrown = error;
+    }
+    // `operationsForCall` wraps the refusal; the cause rides on the wrapper so the
+    // orchestrator can key the run's memory on it without a second import.
+    expect(thrown).toBeInstanceOf(ToolInvocationError);
+    expect((thrown as { refusalCause?: string }).refusalCause).toBe('text_does_not_fit');
+    expect(ARRANGEMENT_INDEPENDENT_CAUSES.has('text_does_not_fit')).toBe(true);
+  });
+});

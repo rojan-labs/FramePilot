@@ -103,7 +103,20 @@ export type RefusalCause =
    * `137d8fd0` called `render_preview` three times and `export_video` once, each time
    * reading "Do not call it again", and nothing enforced it.
    */
-  | 'surface_unavailable';
+  | 'surface_unavailable'
+  /**
+   * `add_text_layer` was asked for a word wider than the box it was given at the size it
+   * was given, and neither renderer breaks a word (`overlay-fit.ts`).
+   *
+   * Named because the refusal SENTENCE embeds the size that was tried, so keying it on
+   * text made every retry at a different size a first-seen failure. Run `df81d58e`
+   * (2026-09-08) was refused "PRINCIPLES at sizePercent 18 needs 177% of the frame",
+   * then "at 16", then "at 15" — three keys for one rule, and the repeated-failure guard
+   * never saw a repeat. The verdict depends on the text, the size, the box and the frame,
+   * none of which a timeline edit changes, so it belongs in
+   * {@link ARRANGEMENT_INDEPENDENT_CAUSES}.
+   */
+  | 'text_does_not_fit';
 
 /**
  * Refusal causes that are verdicts about the SURFACE, not about the arrangement — so no
@@ -128,6 +141,7 @@ export type RefusalCause =
  */
 export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set<RefusalCause>([
   'surface_unavailable',
+  'text_does_not_fit',
 ]);
 
 /**

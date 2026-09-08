@@ -2484,3 +2484,18 @@ describe('toolDescriptors byte-stable ordering (E3.3)', () => {
     expect(JSON.stringify(toolDescriptors())).toBe(JSON.stringify(toolDescriptors()));
   });
 });
+
+describe('recall_evidence accepts the handle as the briefing renders it', () => {
+  // Run `df81d58e` (2026-09-08) copied `[ev_17]` back verbatim and was warned instead of
+  // answered. The brackets are typography, not part of the id.
+  it('strips surrounding brackets and whitespace from evidenceId', () => {
+    const parse = getTool('recall_evidence')?.parse;
+    expect(parse).toBeDefined();
+    expect((parse?.({ evidenceId: '[ev_17]' }) as { evidenceId: string }).evidenceId).toBe('ev_17');
+    expect((parse?.({ evidenceId: ' [ ev_17 ] ' }) as { evidenceId: string }).evidenceId).toBe(
+      'ev_17',
+    );
+    expect((parse?.({ evidenceId: 'ev_17' }) as { evidenceId: string }).evidenceId).toBe('ev_17');
+    expect(() => parse?.({ evidenceId: '[]' })).toThrow();
+  });
+});

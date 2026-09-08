@@ -188,9 +188,18 @@ export interface ToolSpec {
 
 /** Ground model-selected emphasis terms in the actual caption text/transcript. */
 
+/**
+ * Evidence handles are rendered to the model as `[ev_17]`, and a model that copies the
+ * rendering back verbatim — brackets and all — was asking for `ev_17`. Run `df81d58e`
+ * (2026-09-08) did exactly that and got a warning instead of its evidence. The brackets
+ * are the briefing's typography, not part of the id, so they are stripped here.
+ */
+const bareEvidenceId = (value: unknown): unknown =>
+  typeof value === 'string' ? value.trim().replace(/^\[+\s*|\s*\]+$/g, '') : value;
+
 const recallEvidenceSchema = z
   .object({
-    evidenceId: z.string().min(1),
+    evidenceId: z.preprocess(bareEvidenceId, z.string().min(1)),
     query: filterString(),
     // Character offset into the stored payload. Without it the tail of anything larger
     // than EVIDENCE_RECALL_CHARS was unreachable by any argument, so a run that needed
