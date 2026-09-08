@@ -1101,6 +1101,38 @@ def test_remove_filler_words(project: Project) -> None:
         )
 
 
+def test_remove_filler_words_skips_freeze_clips(project: Project) -> None:
+    """A freeze (speed 0.0) has no 1:1 source->timeline mapping, so it is never cut."""
+    frozen = project.model_copy(
+        update={
+            "timeline": project.timeline.model_copy(
+                update={
+                    "tracks": [
+                        track.model_copy(
+                            update={
+                                "clips": [
+                                    clip.model_copy(update={"speed": 0.0})
+                                    for clip in track.clips
+                                ]
+                            }
+                        )
+                        if track.id == "v"
+                        else track
+                        for track in project.timeline.tracks
+                    ]
+                }
+            ),
+            "transcript": [
+                TranscriptWord(word="So", start=0.0, end=0.4),
+                TranscriptWord(word="um,", start=0.5, end=0.9),
+                TranscriptWord(word="we", start=1.0, end=1.2),
+            ],
+        }
+    )
+    with pytest.raises(Exception, match="no filler words"):
+        run_tool("remove_filler_words", {"trackId": "v"}, ToolContext(project=frozen))
+
+
 def test_tighten_clips(ctx: ToolContext, project: Project) -> None:
     track = next(t for t in project.timeline.tracks if len(t.clips) > 1)
     first = sorted(track.clips, key=lambda c: c.start)[0]
