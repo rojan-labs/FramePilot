@@ -41,6 +41,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
+import { emphasisCoverageNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -2883,23 +2884,39 @@ export function summarizeReadResult(
         unknown
       >[];
       const fonts = (Array.isArray(obj.fonts) ? obj.fonts : []) as Record<string, unknown>[];
+      // The note (a zero-match re-ask), the units sentence and each chip's numbers are
+      // rendered here because THIS is what the model reads — a payload field the digest
+      // drops might as well not exist. Run `df81d58e` overrode a chip it had never seen a
+      // number for.
+      const note = typeof obj.note === 'string' ? [obj.note] : [];
+      const units = typeof obj.units === 'string' ? [`units: ${obj.units}`] : [];
       if (templates.length === 0)
-        return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
-      const head = `${String(obj.returned ?? templates.length)} of ${String(
-        obj.matched ?? templates.length,
-      )} matching templates, ${fonts.length} bundled fonts`;
+        return [...note, `no caption templates match (${String(obj.matched ?? 0)} in catalog)`].join(
+          '\n',
+        );
+      const matched = Number(obj.matched ?? templates.length);
+      const head =
+        matched > 0
+          ? `${String(obj.returned ?? templates.length)} of ${String(matched)} matching templates, ${fonts.length} bundled fonts`
+          : `${String(templates.length)} near-miss templates (0 strict matches), ${fonts.length} bundled fonts`;
+      const chip = (t: Record<string, unknown>): string => {
+        const bg = t.background as Record<string, unknown> | undefined;
+        if (!bg) return '';
+        const n = (v: unknown) => (typeof v === 'number' ? String(v) : '·');
+        return ` [chip ${String(bg.color ?? '')} pad ${n(bg.paddingX)}/${n(bg.paddingY)} r${n(bg.radius)}]`;
+      };
       const byCategory = new Map<string, string[]>();
       for (const t of templates) {
         const category = String(t.category ?? 'other');
         const ids = byCategory.get(category) ?? [];
-        ids.push(String(t.templateId));
+        ids.push(`${String(t.templateId)}${chip(t)}`);
         byCategory.set(category, ids);
       }
       const catalog = [...byCategory.entries()].map(
         ([category, ids]) => `${category}: ${ids.join(', ')}`,
       );
       const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
-      return [head, ...catalog, fontList].join('\n');
+      return [...note, head, ...catalog, ...units, fontList].join('\n');
     }
     case 'load_tools': {
       // The names, not the JSON. What the model needs from this call is which tools it
@@ -5390,6 +5407,11 @@ export class Orchestrator {
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '') +
+        // How many cues the accent actually reached — read from the applied project, so a
+        // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
+        (call.name === 'auto_emphasize_captions'
+          ? emphasisCoverageNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
         autoReframeNote(call.name, normalized) +
         // What the solve could NOT do, and which cuts were deliberately left hard. Both are

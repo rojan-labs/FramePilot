@@ -33,6 +33,14 @@ import type { ToolSpec } from '../tool-registry.js';
 import { DEFAULT_CAPTION_TOLERANCE_SECONDS, verifyCaptions } from '../verify.js';
 import { mutateTool, readTool } from './tool-factories.js';
 import { ToolRefusalError } from '../tool-refusal.js';
+import {
+  CAPTION_STYLE_UNITS,
+  MIN_CAPTION_CUE_SECONDS,
+  captionEmViolations,
+  captionUnitsRefusal,
+  containsRun,
+  normalizeCaptionWord,
+} from '../caption-style-facts.js';
 import { filterString, id, numeric, seconds } from './tool-args.js';
 /**
  * CSS font-weight keywords, in the numeric vocabulary the schema and the font files use.
@@ -109,13 +117,6 @@ function captionTrackIds(project: Project): string {
   return ` The caption track${ids.length === 1 ? '' : 's'} in this project: ${ids.join(', ')}.`;
 }
 
-/** Compare caption words the way a reader would: case- and punctuation-insensitive. */
-const normalizeCaptionWord = (value: string): string =>
-  value
-    .normalize('NFKC')
-    .toLocaleLowerCase()
-    .replace(/^[^\p{L}\p{N}]+|[^\p{L}\p{N}]+$/gu, '');
-
 const MAX_CAPTION_CUE_SECONDS = 10;
 
 function assertKnownCaptionStyle(style: z.infer<typeof CaptionStyleSchema> | null): void {
@@ -132,6 +133,49 @@ function assertKnownCaptionStyle(style: z.infer<typeof CaptionStyleSchema> | nul
       );
     }
   }
+}
+
+/**
+ * Refuse a style whose chip or shadow numbers are in the wrong unit. The schema cannot
+ * bound them without a migration; the tool boundary can, and it is where the model
+ * reads the answer.
+ */
+function assertCaptionStyleUnits(
+  style: z.infer<typeof CaptionStyleSchema> | null,
+  resolution: { readonly width: number; readonly height: number },
+): void {
+  if (style === null) return;
+  const violations = captionEmViolations(style, resolution);
+  if (violations.length === 0) return;
+  throw new ToolRefusalError(captionUnitsRefusal(violations, resolution), {
+    refusalCause: 'caption_style_units',
+  });
+}
+
+/**
+ * The catalog templates a query and an optional category select. Split out so a zero
+ * result can be re-asked without the category.
+ */
+function matchCaptionTemplates(
+  query: string | undefined,
+  category: string | undefined,
+): readonly (typeof CAPTION_TEMPLATE_CATALOG)[number][] {
+  let templates = CAPTION_TEMPLATE_CATALOG.filter(
+    (template) => category === undefined || template.category === category,
+  );
+  if (query !== undefined) {
+    templates = templates.filter((template) =>
+      [
+        template.id,
+        template.label,
+        template.category,
+        /* v8 ignore next 2 -- every catalog template sets both fields; `?? ''` only satisfies the schema's optional typing */
+        template.style.fontFamily ?? '',
+        template.style.display ?? '',
+      ].some((value) => value.toLocaleLowerCase().includes(query)),
+    );
+  }
+  return templates;
 }
 
 /** Split a keyword into the bare tokens it must match consecutively. */
@@ -182,14 +226,6 @@ function groundedCaptionKeywords(
     // against, so what is persisted cannot drift from what is highlighted.
     return phrase.join(' ');
   });
-}
-
-/** Does `tokens` contain `phrase` as a consecutive run? */
-function containsRun(tokens: readonly string[], phrase: readonly string[]): boolean {
-  for (let i = 0; i + phrase.length <= tokens.length; i += 1) {
-    if (phrase.every((part, offset) => tokens[i + offset] === part)) return true;
-  }
-  return false;
 }
 
 /**
@@ -272,8 +308,11 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'done: an operation returning "applied" is not evidence that anything is ' +
         'synchronized. Repair whatever it reports by re-running caption_the_edit, which ' +
         're-derives every cue from the current timeline in one call — do not delete and ' +
-        're-add cues one at a time. It checks TIMING only — it cannot see whether a cue ' +
-        'is legible, clipped by the frame edge, or sitting on a face.',
+        're-add cues one at a time. It checks timing, plus two things about the LOOK it ' +
+        'can compute: a chip or shadow whose numbers are in the wrong unit ' +
+        '(caption_chip_oversize) and a cue too short to read (caption_too_short). It ' +
+        'cannot see whether a cue is legible against the footage, clipped by the frame ' +
+        'edge, or sitting on a face.',
       capabilities: ['captions'],
     },
     z.object({ toleranceSeconds: seconds.optional() }).strict(),
@@ -293,29 +332,33 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
     discoverCaptionStylesSchema,
     (a) => {
       const query = a.query?.toLocaleLowerCase();
-      let templates = CAPTION_TEMPLATE_CATALOG.filter(
-        (template) => a.category === undefined || template.category === a.category,
-      );
-      if (query !== undefined) {
-        templates = templates.filter((template) =>
-          [
-            template.id,
-            template.label,
-            template.category,
-            /* v8 ignore next 2 -- every catalog template sets both fields; `?? ''` only satisfies the schema's optional typing */
-            template.style.fontFamily ?? '',
-            template.style.display ?? '',
-          ].some((value) => value.toLocaleLowerCase().includes(query)),
-        );
-      }
+      const strict = matchCaptionTemplates(query, a.category);
+      // Zero matches under a category filter is nearly always the RIGHT id in the WRONG
+      // category. Run `df81d58e` asked for "tag" in `phrase` and "negative" in `boxed`
+      // (they are `boxed` and `aesthetic`), got `matched: 0` twice with no hint, and fell
+      // back to a template with no chip at all. Drop the filter and say so.
+      const nearMisses =
+        strict.length === 0 && query !== undefined && a.category !== undefined
+          ? matchCaptionTemplates(query, undefined)
+          : [];
+      const templates = strict.length > 0 ? strict : nearMisses;
       // Default to the whole matching set: the ids ARE the deliverable, the digest
       // renders them grouped by category (a few compact lines), and the full payload
       // stays retrievable by handle. A partial catalog by default is what made the
       // model reason about templates it had never been shown.
       const limited = templates.slice(0, a.limit ?? CAPTION_TEMPLATE_CATALOG.length);
+      const note =
+        nearMisses.length > 0
+          ? `No template matches "${a.query ?? ''}" in category "${a.category ?? ''}"; ` +
+            `the ${String(nearMisses.length)} below match it in their own category — use those ids.`
+          : undefined;
       return {
-        matched: templates.length,
+        matched: strict.length,
         returned: limited.length,
+        ...(note !== undefined ? { note } : {}),
+        // The scale a caller overriding `background`/`shadow` has to match. Two models in
+        // a row guessed pixels because this payload showed no number at all.
+        units: CAPTION_STYLE_UNITS,
         fonts: CAPTION_FONT_CATALOG.map(({ family, category, minWeight, maxWeight }) => ({
           family,
           category,
@@ -329,6 +372,12 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
           suggestedWordsPerLine: template.suggestedWordsPerLine,
           fontFamily: template.style.fontFamily,
           display: template.style.display,
+          ...(template.style.fontScale !== undefined ? { fontScale: template.style.fontScale } : {}),
+          ...(template.style.textColor !== undefined ? { textColor: template.style.textColor } : {}),
+          ...(template.style.background !== undefined
+            ? { background: template.style.background }
+            : {}),
+          ...(template.style.shadow !== undefined ? { shadow: template.style.shadow } : {}),
         })),
         compositionFields: [
           'fontFamily',
@@ -510,6 +559,14 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         speechAssetIdsFor(ctx.project.assets, ctx.project.transcript),
       );
       const mappedWords = mapped.words.filter((word) => word.start < a.end && word.end > a.start);
+      if (duration < MIN_CAPTION_CUE_SECONDS - 1e-9) {
+        // Run `df81d58e` placed a 0.10 s cue, deleted it, and placed it again — three
+        // frames nobody could read, and three turns spent on them.
+        throw new ToolRefusalError(
+          `add_caption_layer creates one readable cue, but ${String(a.start)}s–${String(a.end)}s is ${String(+duration.toFixed(3))}s — about ${String(Math.max(1, Math.round(duration * ctx.project.fps)))} frame(s), below the ${String(MIN_CAPTION_CUE_SECONDS)}s floor of every preset. Widen the range to the whole phrase, or leave the word to the neighbouring cue.`,
+          { refusalCause: 'caption_cue_too_short' },
+        );
+      }
       if (duration > MAX_CAPTION_CUE_SECONDS || mappedWords.length > MAX_CAPTION_CUE_WORDS) {
         throw new ToolRefusalError(
           `add_caption_layer creates one readable cue, but ${a.start}s–${a.end}s spans ${+duration.toFixed(3)}s and ${mappedWords.length} mapped words. To caption a stretch this long call caption_the_edit, which segments the whole edit in one call; to place this cue by hand, split it into separate 3–7 word phrases.`,
@@ -595,7 +652,8 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'maximum width, alignment, line height, safe area, spacing, padding/background, ' +
         'shadow, animation, and accent behavior. Per-cue set_caption_style overrides still ' +
         'win. Pass captionStyle: null to clear the track default. Call discover_caption_styles ' +
-        'first; unbundled fonts and unknown templates are rejected.',
+        'first; unbundled fonts and unknown templates are rejected. background.paddingX/' +
+        'paddingY/radius and shadow.blur are fractions of the font size (0.25–0.6), not pixels.',
       capabilities: ['edit', 'captions'],
     },
     z
@@ -604,8 +662,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         captionStyle: z.preprocess(normalizeAuthoredCaptionStyle, CaptionStyleSchema).nullable(),
       })
       .strict(),
-    (a) => {
+    (a, ctx) => {
       assertKnownCaptionStyle(a.captionStyle);
+      assertCaptionStyleUnits(a.captionStyle, ctx.project.resolution);
       return [
         { type: 'set_track_caption_style', trackId: a.trackId, captionStyle: a.captionStyle },
       ];
@@ -666,8 +725,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
       capabilities: ['edit', 'captions'],
     },
     z.object({ clipId: z.string(), captionStyle: CaptionStyleSchema.nullable() }).strict(),
-    (a) => {
+    (a, ctx) => {
       assertKnownCaptionStyle(a.captionStyle);
+      assertCaptionStyleUnits(a.captionStyle, ctx.project.resolution);
       return [{ type: 'set_caption_style', clipId: a.clipId, captionStyle: a.captionStyle }];
     },
   ),

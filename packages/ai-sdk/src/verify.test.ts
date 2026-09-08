@@ -579,3 +579,44 @@ describe('verifyTransitions', () => {
     expect(report.issues.map((i) => i.code)).toContain('transition_too_long');
   });
 });
+
+describe('verify_captions judges the two look facts it can compute', () => {
+  // Run `df81d58e` (2026-09-08): a chip sent as paddingX 18 painted every caption as a
+  // full-frame white rectangle, a 0.10 s cue was hand-placed, and this verifier said
+  // `ok: true` three times because it read timing and nothing else.
+  it('flags a chip whose padding is in pixels, resolved through the track style', () => {
+    const doc = projectDoc(correctCaptions());
+    const track = doc.timeline.tracks.find((t) => t.id === 'caption_1')!;
+    (track as { captionStyle?: unknown }).captionStyle = {
+      templateId: 'tag',
+      fontScale: 1.08,
+      background: { color: '#FFFFFF', radius: 18, paddingX: 18, paddingY: 10 },
+    };
+    const report = verifyCaptions(doc);
+    expect(report.ok).toBe(false);
+    const oversize = report.issues.filter((i) => i.code === 'caption_chip_oversize');
+    expect(oversize.length).toBe(3 * report.cueCount);
+    expect(oversize[0]?.detail).toMatch(/background\.radius to 18 — a fraction of the font size, so about \d+ px/);
+  });
+
+  it('passes the same cues under the catalog chip', () => {
+    const doc = projectDoc(correctCaptions());
+    const track = doc.timeline.tracks.find((t) => t.id === 'caption_1')!;
+    (track as { captionStyle?: unknown }).captionStyle = { templateId: 'tag' };
+    expect(verifyCaptions(doc).issues.filter((i) => i.code === 'caption_chip_oversize')).toEqual([]);
+  });
+
+  it('flags a cue shorter than any preset floor', () => {
+    const [first, ...rest] = correctCaptions();
+    const flicker: Clip = {
+      ...first!,
+      end: first!.start + 0.1,
+      sourceEnd: 0.1,
+      captionCue: { ...first!.captionCue!, words: first!.captionCue!.words.slice(0, 1) },
+    };
+    const report = verifyCaptions(projectDoc([flicker, ...rest]));
+    const short = report.issues.filter((i) => i.code === 'caption_too_short');
+    expect(short).toHaveLength(1);
+    expect(short[0]?.detail).toMatch(/below the 0\.25s floor/);
+  });
+});

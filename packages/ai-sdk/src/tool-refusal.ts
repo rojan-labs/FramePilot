@@ -116,7 +116,17 @@ export type RefusalCause =
    * none of which a timeline edit changes, so it belongs in
    * {@link ARRANGEMENT_INDEPENDENT_CAUSES}.
    */
-  | 'text_does_not_fit';
+  | 'text_does_not_fit'
+  /**
+   * A caption style carried a font-relative value (`background.paddingX` and its three
+   * siblings) far outside the unit it is written in — pixels where a fraction of the font
+   * size belongs. See `caption-style-facts.ts` for the run that painted a full-frame white
+   * chip this way. Independent of the arrangement for the same reason as the text-fit
+   * verdict: nothing on the timeline changes what 18 font-heights renders as.
+   */
+  | 'caption_style_units'
+  /** `add_caption_layer` was asked for a cue shorter than any preset's floor. */
+  | 'caption_cue_too_short';
 
 /**
  * Refusal causes that are verdicts about the SURFACE, not about the arrangement — so no
@@ -142,6 +152,8 @@ export type RefusalCause =
 export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set<RefusalCause>([
   'surface_unavailable',
   'text_does_not_fit',
+  'caption_style_units',
+  'caption_cue_too_short',
 ]);
 
 /**

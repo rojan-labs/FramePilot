@@ -1082,8 +1082,9 @@ describe('mutating tools — build valid operations', () => {
 
   it('add_caption_layer allows a legal range with no mapped words (no source provenance)', () => {
     // Free range: the fixture lane is occupied 0–10 and a colliding cue is now
-    // rerouted to a lane with room, which would shift the op indices below.
-    const ops = build('add_caption_layer', { trackId: 'video_1', start: 12, end: 12.05 });
+    // rerouted to a lane with room, which would shift the op indices below. At least the
+    // 0.25 s floor long: a shorter cue is refused as unreadable, which is a different test.
+    const ops = build('add_caption_layer', { trackId: 'video_1', start: 12, end: 12.3 });
     expect(ops[1]).toMatchObject({
       type: 'set_caption_cue',
       captionCue: { text: '', words: [] },
