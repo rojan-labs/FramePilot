@@ -92,6 +92,8 @@ export interface LedgerClientOptions {
   readonly pageLimit?: number;
   /** Page safety bound; defaults to {@link LEDGER_MAX_PAGES}. */
   readonly maxPages?: number;
+  /** Cached assets to keep; defaults to {@link LEDGER_MAX_CACHED_ASSETS}. */
+  readonly maxCachedAssets?: number;
 }
 
 /** One asset's ledger rows, and the identity that makes them reusable. */
@@ -131,6 +133,20 @@ function tierVersionsOf(shots: readonly ShotRecord[]): [number, number, number] 
  * client is per process (its cache is what makes the ledger free after the first read) and
  * the browser's is per session.
  */
+/**
+ * Bound on remembered assets, mirroring `derived-media-cache.ts`'s reasoning and its
+ * number: a long editing session touches many files, and this keeps the map from tracking
+ * every one of them forever.
+ *
+ * The cache is process-scoped on desktop (one `shotLedgerClient` in `main.ts`), which is
+ * what makes every turn after the first free — and also what let entries accumulate for
+ * the life of the app, one per `(projectId, assetId)` across every project opened in a
+ * session, each holding that asset's full `ShotRecord[]` (~643 B a row; ten hours of
+ * footage is ~6.3 MB). Eviction is oldest-first, and evicting a live entry costs one
+ * re-read of rows the engine still has, never a wrong answer.
+ */
+const LEDGER_MAX_CACHED_ASSETS = 256;
+
 function cacheSlot(projectId: string, assetId: string): string {
   return `${projectId}\u0000${assetId}`;
 }
@@ -180,6 +196,8 @@ export class LedgerClient {
   private readonly timeoutMs: number;
   private readonly pageLimit: number;
   private readonly maxPages: number;
+  private readonly maxCachedAssets: number;
+  /** Insertion-ordered, so the oldest key is the first one `keys()` yields. */
   private readonly cache = new Map<string, CachedAsset>();
   /** The last snapshot returned, and the asset identities it was assembled from. */
   private lastKey: string | null = null;
@@ -193,6 +211,7 @@ export class LedgerClient {
     this.timeoutMs = options.timeoutMs ?? LEDGER_TIMEOUT_MS;
     this.pageLimit = options.pageLimit ?? LEDGER_PAGE_LIMIT;
     this.maxPages = options.maxPages ?? LEDGER_MAX_PAGES;
+    this.maxCachedAssets = Math.max(1, options.maxCachedAssets ?? LEDGER_MAX_CACHED_ASSETS);
   }
 
   /**
@@ -229,8 +248,13 @@ export class LedgerClient {
     const digests: AssetDigest[] = [];
     const identity: string[] = [];
     for (const assetId of wanted) {
-      const entry = this.cache.get(cacheSlot(request.projectId, assetId));
+      const slot = cacheSlot(request.projectId, assetId);
+      const entry = this.cache.get(slot);
       if (!entry) continue;
+      // Touch: an asset the run keeps asking about must outlive one it has not read since
+      // the project before last.
+      this.cache.delete(slot);
+      this.cache.set(slot, entry);
       identity.push(entry.key);
       shots.push(...entry.shots);
       if (entry.digest) digests.push(entry.digest);
@@ -346,11 +370,17 @@ export class LedgerClient {
     for (const assetId of requested) {
       const shots = shotsByAsset.get(assetId) ?? [];
       const digest = digestByAsset.get(assetId) ?? null;
-      this.cache.set(cacheSlot(projectId, assetId), {
-        key: cacheKey(assetId, shots, digest),
-        shots,
-        digest,
-      });
+      const slot = cacheSlot(projectId, assetId);
+      // Delete before set: `Map` keeps insertion order and a plain `set` on an existing key
+      // leaves it where it was, so a re-read would not refresh its recency and the oldest
+      // key would not be the least recently stored one.
+      this.cache.delete(slot);
+      this.cache.set(slot, { key: cacheKey(assetId, shots, digest), shots, digest });
+    }
+    while (this.cache.size > this.maxCachedAssets) {
+      const oldest = this.cache.keys().next();
+      if (oldest.done) break;
+      this.cache.delete(oldest.value);
     }
   }
 

@@ -2752,10 +2752,16 @@ function registerIpcHandlers(): void {
     // (`LedgerClient` never throws), and the client caches per asset content hash, so a
     // ten-turn run costs one read and a second run on the same project costs none.
     shotLedgerFor: async (project) => {
+      // Only ids the BIN holds. A clip's `assetId` may be a pseudo-asset — `__caption__`,
+      // `__text__` — which resolves to no rows and is then cached as an empty entry: noise
+      // in the request, and a cache slot spent on an asset that can never have facts.
+      const inBin = new Set(project.assets.map((asset) => asset.id));
       const assetIds = [
         ...new Set(
           project.timeline.tracks.flatMap((track) =>
-            track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+            track.clips
+              .map((clip) => clip.assetId)
+              .filter((id): id is string => Boolean(id) && inBin.has(id)),
           ),
         ),
       ];
