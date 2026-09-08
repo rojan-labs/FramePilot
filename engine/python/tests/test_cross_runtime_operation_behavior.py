@@ -63,6 +63,16 @@ def test_cross_runtime_operation_behavior_fixture() -> None:
             track, clip = located
             if "trackId" in expected:
                 assert track.id == expected["trackId"]
+            # A speed CURVE is inverted numerically (bisection over a fixed-step
+            # integral), so a case that crosses one states the slack it accepts
+            # rather than demanding two languages land on the same last bit.
+            tolerance = expected.get("tolerance")
+
+            def matches(actual: Any, want: Any, tolerance: float | None = tolerance) -> bool:
+                if tolerance is None or not isinstance(actual, (int, float)):
+                    return bool(actual == want)
+                return abs(float(actual) - float(want)) <= tolerance
+
             for fixture_key, attribute in (
                 ("start", "start"),
                 ("end", "end"),
@@ -77,7 +87,17 @@ def test_cross_runtime_operation_behavior_fixture() -> None:
                 actual = getattr(clip, attribute)
                 if hasattr(actual, "model_dump"):
                     actual = actual.model_dump(by_alias=True)
-                assert actual == expected[fixture_key], (behavior["name"], fixture_key)
+                assert matches(actual, expected[fixture_key]), (behavior["name"], fixture_key)
+
+            # The re-based speed ramp: source times and rates, in order. A runtime
+            # that leaves the original curve on a trimmed or split piece renders the
+            # wrong speeds over the wrong footage and the validator rejects the patch.
+            if "speedRamp" in expected:
+                points = clip.speed_ramp or []
+                assert len(points) == len(expected["speedRamp"]), behavior["name"]
+                for point, want in zip(points, expected["speedRamp"], strict=True):
+                    assert matches(point.source_time, want["sourceTime"]), behavior["name"]
+                    assert matches(point.rate, want["rate"]), behavior["name"]
 
             if "effectType" in expected:
                 effect = next(
