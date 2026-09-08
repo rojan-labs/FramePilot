@@ -18,6 +18,7 @@ import { effectLayersOf } from '@framepilot/timeline-schema';
 import { EFFECT_PARAMS } from '@framepilot/timeline-schema/effect-params';
 import {
   applyOperation,
+  snapRetimedEnd,
   SUPPORTED_COLOR_GRADE_EFFECTS,
   type Operation,
   type OperationError,
@@ -89,6 +90,18 @@ export interface ValidateOptions {
   readonly assetIds?: Iterable<string>;
   readonly folders?: Iterable<Folder>;
   readonly markers?: Iterable<Marker>;
+  /**
+   * The project frame rate, so validation measures the timeline the way the commit
+   * path does (ADR 0146). Retimes land on the frame grid when a patch is committed
+   * (`applyProjectPatch` passes `{ fps }`), so a validator replaying *without* the
+   * grid computes different clip ends than the ones it is about to be handed back —
+   * and `speedConsistencyChecks` then reads a legitimately snapped `end` as a
+   * `speed_duration_mismatch`, poisoning every later timed edit on that track.
+   *
+   * Omitted, validation keeps its ungridded arithmetic and demands exact speed
+   * durations — right for hand-built timelines that never went through a commit.
+   */
+  readonly fps?: number;
 }
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([
@@ -160,6 +173,11 @@ function refreshClipTrackIndex(
   }
 }
 
+/** Same guard as `operations.ts`: a non-positive or non-finite rate is no grid at all. */
+function gridFps(fps: number | undefined): number | null {
+  return typeof fps === 'number' && Number.isFinite(fps) && fps > 0 ? fps : null;
+}
+
 function tracksById(timeline: Timeline, ids: readonly string[]): Track[] {
   if (ids.length === 0) return [];
   const wanted = new Set(ids);
@@ -174,6 +192,7 @@ export function validatePatch(
   const assetIds = options.assetIds ? new Set(options.assetIds) : undefined;
   const folders = options.folders ? [...options.folders] : undefined;
   const markers = options.markers ? [...options.markers] : undefined;
+  const fps = gridFps(options.fps);
   const issues: ValidationIssue[] = [];
   const clipTracks = clipTrackIndex(timeline);
   let working = timeline;
@@ -197,11 +216,11 @@ export function validatePatch(
     issues.push(...staticChecks(working, op, index, assetIds, clipTracks));
     const scope = postValidationScope(op, clipTracks);
     try {
-      const next = applyOperation(working, op);
+      const next = applyOperation(working, op, fps === null ? undefined : { fps });
       const tracks = tracksById(next, scope.trackIds);
       if (scope.overlap) issues.push(...overlapChecks(tracks, index));
       if (scope.transitions) issues.push(...transitionOverlapChecks(tracks, index));
-      if (scope.speed) issues.push(...speedConsistencyChecks(tracks, index));
+      if (scope.speed) issues.push(...speedConsistencyChecks(tracks, index, fps));
       refreshClipTrackIndex(clipTracks, next, scope.trackIds);
       working = next;
     } catch (cause) {
@@ -436,14 +455,35 @@ function transitionOverlapChecks(tracks: readonly Track[], index: number): Valid
   return issues;
 }
 
-function speedConsistencyChecks(tracks: readonly Track[], index: number): ValidationIssue[] {
+/**
+ * Is this clip's stored span the retimed span the grid would have produced?
+ *
+ * The apply path resolves a retimed `end` onto the frame grid, so a committed 1.3x
+ * clip is off its *exact* duration by up to half a frame — orders of magnitude past
+ * `SPEED_EPSILON`. Asking `snapRetimedEnd` the same question the apply path asked it
+ * is the only compare that cannot drift from it, which is why this calls the very
+ * function `applySetClipSpeed` calls rather than widening the epsilon to "about a
+ * frame" (that would also excuse a genuinely wrong duration on short clips).
+ */
+function durationMatchesGrid(clip: Clip, expectedDuration: number, fps: number): boolean {
+  return snapRetimedEnd(clip.start, clip.start + expectedDuration, fps) === clip.end;
+}
+
+function speedConsistencyChecks(
+  tracks: readonly Track[],
+  index: number,
+  fps: number | null,
+): ValidationIssue[] {
   const issues: ValidationIssue[] = [];
   for (const track of tracks) {
     for (const clip of track.clips) {
       const expectedDuration = clipTimelineDuration(clip);
       if (expectedDuration !== null) {
         const actualDuration = clip.end - clip.start;
-        if (Math.abs(actualDuration - expectedDuration) > SPEED_EPSILON) {
+        const consistent =
+          Math.abs(actualDuration - expectedDuration) <= SPEED_EPSILON ||
+          (fps !== null && durationMatchesGrid(clip, expectedDuration, fps));
+        if (!consistent) {
           const rate = hasSpeedRamp(clip) ? 'its speed ramp' : `speed ${clip.speed ?? 1}x`;
           issues.push({
             code: 'speed_duration_mismatch',

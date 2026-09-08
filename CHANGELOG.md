@@ -79,6 +79,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **One speed change no longer freezes the rest of the track.** After setting a clip to a
+  fractional speed like 1.3x, every later timed edit anywhere on that track — trimming a
+  different clip, moving one, splitting one — was rejected, and the message blamed the
+  retimed clip you had not touched. Speed changes land on your project's frame grid, and
+  the check that guards them now measures on that same grid instead of demanding an exact
+  fraction of a second no frame boundary can sit on.
 - **Retimed clips can be trimmed, split and cut again.** Tightening a sped-up shot, or
   splitting one you had put in slow motion, could come back refused — the render engine
   still moved the clip's in/out point by the same amount as its edges, which is only right

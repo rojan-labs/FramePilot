@@ -94,6 +94,7 @@ export function evaluateCompiledProfessionalOperation(
   }
   const validation = validatePatch(input.project.timeline, input.patch, {
     assetIds: input.project.assets.map((asset) => asset.id),
+    fps: input.project.fps,
   });
   if (!validation.valid) {
     throw new Error(validation.issues.map((issue) => issue.message).join('; '));

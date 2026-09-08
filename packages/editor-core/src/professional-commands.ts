@@ -531,9 +531,16 @@ function compilePatch(
   assets: readonly Asset[],
   command: EditorCommand,
   patch: Patch,
+  sequenceRate: CommandFrameRate,
   facts: readonly EditorCommandFact[],
 ): EditorCommandCompileResult {
-  const validation = validatePatch(timeline, patch, { assetIds: assets.map((asset) => asset.id) });
+  const validation = validatePatch(timeline, patch, {
+    assetIds: assets.map((asset) => asset.id),
+    // Roll/slip/slide land on committed clips, which may carry a frame-snapped retimed
+    // `end`. Without the sequence rate the speed check would read that snap as a
+    // mismatch and refuse every professional edit on the track.
+    fps: sequenceRate.numerator / sequenceRate.denominator,
+  });
   if (!validation.valid) {
     return rejected(
       command,
@@ -614,7 +621,7 @@ function compileRoll(input: CompileEditorCommandInput, command: RollEditCommand)
     reason: `Roll the cut by ${command.delta.frames} frame(s)`,
     operations: seconds > 0 ? [incomingTrim, outgoingTrim] : [outgoingTrim, incomingTrim],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'newCutSeconds', value: newCut },
     { name: 'deltaFrames', value: command.delta.frames },
   ]);
@@ -655,7 +662,7 @@ function compileSlip(input: CompileEditorCommandInput, command: SlipEditCommand)
       },
     ],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'sourceStartSeconds', value: nextSourceStart },
     { name: 'sourceEndSeconds', value: nextSourceEnd },
     { name: 'deltaSourceFrames', value: command.delta.frames },
@@ -728,7 +735,7 @@ function compileSlide(input: CompileEditorCommandInput, command: SlideEditComman
     reason: `Slide "${selected!.clip.id}" by ${command.delta.frames} frame(s)`,
     operations: seconds > 0 ? [nextTrim, move, previousTrim] : [previousTrim, move, nextTrim],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'newStartSeconds', value: selected!.clip.start + seconds },
     { name: 'newEndSeconds', value: selected!.clip.end + seconds },
     { name: 'deltaFrames', value: command.delta.frames },
@@ -821,7 +828,7 @@ function compileRippleTrim(
     reason: `Ripple-trim the ${command.edge} of "${clip.id}" by ${command.delta.frames} frame(s)`,
     operations,
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'edge', value: command.edge },
     { name: 'deltaFrames', value: command.delta.frames },
     { name: 'sequenceDurationChangeSeconds', value: seconds * (command.edge === 'start' ? -1 : 1) },
@@ -851,7 +858,7 @@ function compileRemoval(
       end: clip.end,
     })),
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'clipCount', value: ordered.length },
     { name: 'closesGaps', value: command.type === 'extract_edit' },
   ]);
@@ -952,7 +959,7 @@ function compileInsert(
       },
     ],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'sequenceStartSeconds', value: at },
     { name: 'insertedDurationSeconds', value: duration },
     { name: 'splitExistingClip', value: containing !== undefined },
@@ -988,7 +995,7 @@ function compileOverwrite(
       },
     ],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'sequenceStartSeconds', value: at },
     { name: 'overwrittenDurationSeconds', value: duration },
   ]);
@@ -1026,7 +1033,7 @@ function compileReplace(
       },
     ],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'preservedClipId', value: clip.id },
     { name: 'replacementSourceStartSeconds', value: sourceStart },
     { name: 'replacementSourceEndSeconds', value: sourceEnd },
@@ -1179,7 +1186,7 @@ function compileSwitchAngle(
       },
     ],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'angleGroupId', value: group.id },
     { name: 'fromAngleId', value: current.id },
     { name: 'toAngleId', value: target.id },
@@ -1299,7 +1306,7 @@ function compileAsymmetricCut(
     reason: `${command.type === 'j_cut_edit' ? 'Lead' : 'Trail'} sound by ${command.delta.frames} frame(s)`,
     operations: seconds > 0 ? [incomingTrim, outgoingTrim] : [outgoingTrim, incomingTrim],
   };
-  return compilePatch(input.timeline, input.assets, command, patch, [
+  return compilePatch(input.timeline, input.assets, command, patch, input.sequenceRate, [
     { name: 'pictureCutSeconds', value: pictureCut },
     { name: 'soundCutSeconds', value: nextSoundCut },
     {

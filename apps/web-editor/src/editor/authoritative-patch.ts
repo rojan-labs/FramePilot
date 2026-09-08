@@ -44,6 +44,7 @@ export function applyAuthoritativePatchTransport(
     assetIds: project.assets.map((asset) => asset.id),
     folders: project.folders,
     markers: project.markers,
+    fps: project.fps,
   });
   if (!validation.valid) return null;
 

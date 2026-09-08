@@ -376,6 +376,7 @@ export class ProjectCommandService {
         assetIds: current.project.assets.map((asset) => asset.id),
         folders: current.project.folders,
         markers: current.project.markers,
+        fps: current.project.fps,
       });
       if (!validation.valid) {
         const stale = expectedRevision !== current.revision;

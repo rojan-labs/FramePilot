@@ -138,6 +138,13 @@ const PLACEHOLDER_META: Omit<
   history: [],
 };
 
+/**
+ * The frame grid every store-side edit is measured on — the same rate `toProject`
+ * hands the patch engine, so quantization, validation and commit cannot disagree
+ * about where a frame is (issue #83).
+ */
+export const EDITOR_FPS = PLACEHOLDER_META.fps;
+
 /** Build a {@link Project} view of the editable state for the patch engine. */
 const toProject = (state: EditorState): Project => ({
   ...PLACEHOLDER_META,
@@ -241,11 +248,12 @@ export function applyUserPatch(
   // operation is idempotent, so the second pass changes nothing — but validating an
   // unquantized patch and committing a quantized one is exactly the kind of divergence
   // that makes a preview and an export disagree.
-  const patch = quantizePatch(rawPatch, toProject(state).fps);
+  const patch = quantizePatch(rawPatch, EDITOR_FPS);
   const result = validatePatch(state.timeline, patch, {
     assetIds: state.assetIds,
     folders: state.folders,
     markers: state.markers,
+    fps: EDITOR_FPS,
   });
   if (!result.valid) {
     return { ...state, issues: result.issues };

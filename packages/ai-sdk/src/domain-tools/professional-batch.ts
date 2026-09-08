@@ -38,6 +38,7 @@ export function validateProfessionalOperationBatch(
   };
   const validation = validatePatch(ctx.project.timeline, patch, {
     assetIds: ctx.project.assets.map((asset) => asset.id),
+    fps: ctx.project.fps,
   });
   if (!validation.valid) {
     throw new Error(

@@ -20,6 +20,7 @@ import {
   type SelectMode,
   applyUserPatch,
   clearSelection,
+  EDITOR_FPS,
   createEditorState,
   gotoEdit,
   redoEdit,
@@ -199,6 +200,7 @@ export function useEditor(
         const result = validatePatch(current.timeline, patch, {
           assetIds: current.assetIds,
           folders: current.folders,
+          fps: EDITOR_FPS,
         });
         if (!result.valid) {
           return result.issues.filter((issue) => issue.severity === 'error');
