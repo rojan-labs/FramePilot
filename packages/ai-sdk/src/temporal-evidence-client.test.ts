@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { makeProject } from './__fixtures__/project.js';
 import {
   createTemporalEvidenceAcquirer,
+  estimatedBatchDeadline,
   TemporalEvidenceClientError,
 } from './temporal-evidence-client.js';
 import type { TemporalEvidenceRequest } from './temporal-review.js';
@@ -73,9 +74,7 @@ describe('createTemporalEvidenceAcquirer', () => {
     expect(seen.url).toBe('http://engine/review/temporal-evidence');
     expect(seen.body.requests).toEqual([request]);
     expect(seen.body.project).toMatchObject({ id: 'proj_1' });
-    expect(results.renderSettings.identity).toBe(
-      'temporal-evidence:1920x1080@30:captions=true',
-    );
+    expect(results.renderSettings.identity).toBe('temporal-evidence:1920x1080@30:captions=true');
     expect(results.results[0]).toMatchObject({ requestId: 'opening', kind: 'frame' });
   });
 
@@ -155,6 +154,30 @@ describe('createTemporalEvidenceAcquirer', () => {
     });
 
     await expect(acquire(makeProject(), [request])).rejects.toThrow(/timed out after 5ms/i);
+  });
+
+  /**
+   * Run `19e20922`: "Review could not run: Temporal evidence acquisition timed out after
+   * 300000ms" on the run's LAST turn, so the edits shipped perceptually unchecked. The
+   * engine serializes one batch at a time, so a big plan waits behind an export and
+   * another run's batch before it renders anything — and a deadline that ignores the size
+   * of the plan discards every frame already rendered.
+   */
+  it('gives a large batch more time than a three-frame probe, and still bounds it', () => {
+    const sweep: TemporalEvidenceRequest = {
+      schemaVersion: 1,
+      requestId: 'sweep',
+      projectRevision: 0,
+      reason: 'Whole programme',
+      kind: 'range',
+      startFrame: 0,
+      endFrame: 3300,
+      sampleEveryFrames: 10,
+      checks: ['black_frames'],
+    };
+    expect(estimatedBatchDeadline([request])).toBeGreaterThanOrEqual(300_000);
+    expect(estimatedBatchDeadline([sweep])).toBeGreaterThan(estimatedBatchDeadline([request]));
+    expect(estimatedBatchDeadline([sweep, sweep, sweep, sweep])).toBe(900_000);
   });
 
   it('rejects an empty plan before calling the engine', async () => {
