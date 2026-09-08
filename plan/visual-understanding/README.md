@@ -100,6 +100,40 @@ prompt carries what each clip shows in words. What is NOT yet true: the host sti
 enrolment on a key (VU1.5), the model cannot yet ask for a solved grade or a reasoned
 transition (VU3.2/VU4.2), and nothing verifies an applied edit against pixels (VU7).
 
+## Audit, 2026-09-08 — every phase above was measured in the BROWSER
+
+An end-to-end audit against a captured desktop run (`run.md`, 37 minutes, 195 tool calls)
+and that project's own `brain.sqlite` found the chain broken in two places, both in the
+desktop host and neither visible to any test in this plan. Every phase marked `[x]` was
+true; none of it reached the app this product leads with.
+
+1. **Nothing read the ledger on desktop.** `LedgerClient` was constructed in exactly two
+   places — the browser session and `mission-baseline.mjs` — and the desktop main-process
+   path never set `input.ledger`. The built `dist/main.js` a real run loads contained no
+   reference to it. With it undefined, `pictureRowFacts` is empty and the digest is
+   omitted, so the assembled prompt is byte-identical to the pre-ledger one: across 142
+   context manifests in that run, not one carried a picture block, while the project's
+   ledger held two measured shots the whole time. `get_clip` answered with geometry only —
+   verbatim the thing ADR 0175 says VU2.5 fixes.
+
+2. **Sourced assets were never measured.** `/asset-media` writes the brain's asset row only
+   when handed both ids, and `main.ts`'s derive closure declared one parameter, so the
+   identity `stock-service.ts` passed was discarded before the request was built —
+   silently, because a narrower function satisfies a wider signature. Proxies and
+   thumbnails derived correctly throughout, which is why nothing looked wrong. In the
+   captured run: three stock clips downloaded, five enrolment jobs finishing in 14–20ms
+   each reporting `done` with `consecutiveFailures: 1`, and zero shot rows for any of them.
+
+Both are fixed and verified against a live sidecar on the run's own media: the snapshot
+returns 2 shots / 1 digest / coverage 2-of-2; the prompt gains its PICTURE block at 71
+tokens; `get_clip` returns a full picture block; and `/asset-media` flips `brainRecorded`
+false → true, after which indexing reports `measured: ok` and writes the shot row.
+
+**The lesson for the phases still open:** a surface can be complete, tested and measured
+and still be reached by nothing. VU2.1–VU2.5 were all `[x]` on evidence that only ever ran
+through the browser session or the eval harness. Neither path is the product. Any remaining
+phase should state which HOST reads it before it is ticked.
+
 ## Scale, in numbers
 
 Ten hours of footage at one shot every five seconds is 7,200 shots.
