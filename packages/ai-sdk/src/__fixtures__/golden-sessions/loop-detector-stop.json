@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12068,
+      "usedTokens": 12103,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12068,
+          "estimatedInputTokensBeforeSend": 12103,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179740,
+          "estimatedRemainingCapacity": 179705,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -442,7 +442,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12161,
+      "usedTokens": 12196,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -496,7 +496,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -524,7 +524,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -532,9 +532,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12161,
+          "estimatedInputTokensBeforeSend": 12196,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179647,
+          "estimatedRemainingCapacity": 179612,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -776,7 +776,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 9693,
+      "usedTokens": 9728,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -830,7 +830,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -858,7 +858,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 5019,
+            "tokenEstimate": 5039,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -866,10 +866,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 9693,
+          "estimatedInputTokensBeforeSend": 9728,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 182115,
-          "toolSchemaTokensRebilled": 5019,
+          "estimatedRemainingCapacity": 182080,
+          "toolSchemaTokensRebilled": 5039,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1148,7 +1148,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "what is on the timeline?",
+            "criterion": "A validated edit landed and the run’s deterministic checks passed",
             "passed": false,
             "atRevision": 0,
             "detail": "No traceable project mutation for the committed plan."

@@ -21,6 +21,7 @@ import {
   type AnyOperation,
   type ValidationIssue,
   applyProjectPatch,
+  pictureOccupancySignature,
   projectChanged,
 } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
@@ -118,7 +119,7 @@ import type {
 } from './kernel/conductor.js';
 import {
   type ToolDomain,
-  SKILL_DOMAINS,
+  domainsForSkill,
   domainMembers,
   toolDomain,
   toolIsAdvertised,
@@ -574,6 +575,17 @@ function isContentEvidenceFact(fact: { readonly key: string; readonly status: st
  * out a dropped request without turning a real dead end into a loop.
  */
 const MAX_UNUSABLE_TURN_RETRIES = 1;
+
+/**
+ * How many times one run may re-read the shot ledger mid-run.
+ *
+ * Each re-read changes the prompt prefix, so it trades one cache miss for the facts about
+ * footage the run itself acquired (`AgentRunControls.refreshLedger`). Three is enough for
+ * the shape this exists for — gather, place, then reason about what was gathered — and
+ * small enough that a run cannot spend its cache discovering that an asset is still
+ * indexing.
+ */
+const MAX_LEDGER_REFRESHES = 3;
 
 /**
  * Picture clips this run has actually put on the timeline.
@@ -4813,11 +4825,13 @@ export class Orchestrator {
             // result ages out of the window with it. One, not `ops.length`: the refusal is
             // reached before any operation is built.
             rejectedOpCount: 1,
-            // `StockPlacementRefusal.kind === 'picture_occupied'` is this module's name for
-            // ADR 0140; the RULE is the one `add_clip` names, so run memory must call it
-            // the same thing. Keys stay per-tool (`add_stock:…` vs `add_clip:…`), so
-            // sharing the cause never blocks one tool on the other's refusal.
-            refusalCause: 'picture_over_picture',
+            // The RULE the placer refused under — the same vocabulary `add_clip` uses, so
+            // run memory calls one rule one thing. Keys stay per-tool (`add_stock:…` vs
+            // `add_clip:…`), so sharing the cause never blocks one tool on the other's
+            // refusal. Since ADR 0169 applies to `add_stock` too, an occupied span is
+            // usually LIFTED rather than refused, and what reaches here is the narrower
+            // "would not hide what it covers" / "would bury a cutaway" verdict.
+            refusalCause: placement.refusalCause,
           };
         }
         const ops = [...placement.operations];
@@ -5086,7 +5100,7 @@ export class Orchestrator {
         // lives in a rolling last-N-steps window (compactAgentLog), which would both
         // duplicate several KB per turn AND silently age the body out mid-run. Record
         // it once here; answer a repeat load by pointing at the pinned copy.
-        const skill = value as { name?: unknown; body?: unknown };
+        const skill = value as { name?: unknown; body?: unknown; tools?: unknown };
         if (
           call.name === 'load_skill' &&
           typeof skill.name === 'string' &&
@@ -5106,8 +5120,15 @@ export class Orchestrator {
           // A playbook and the tools it tells the run to use arrive together. Loading the
           // caption playbook and then discovering the caption tools are not advertised is
           // a round trip the run should never have to spend, and the pairing is a fact
-          // about the skill, not a judgement the model has to make (see `SKILL_DOMAINS`).
-          for (const domain of SKILL_DOMAINS[skill.name] ?? []) host.loadedToolDomains.add(domain);
+          // about the skill, not a judgement the model has to make — derived from the
+          // skill's own `tools:` list, so a playbook that names `match_color` pins the
+          // colour domain without anyone remembering to say so (`domainsForSkill`).
+          for (const domain of domainsForSkill(
+            skill.name,
+            Array.isArray(skill.tools) ? (skill.tools as string[]) : [],
+          )) {
+            host.loadedToolDomains.add(domain);
+          }
           return {
             ops: [],
             note: `${desc} → ${
@@ -7984,9 +8005,7 @@ export class Orchestrator {
             ...(controls.temporalEvidence === undefined
               ? {}
               : { temporalEvidence: controls.temporalEvidence }),
-            ...(controls.visionReview === undefined
-              ? {}
-              : { visionReview: controls.visionReview }),
+            ...(controls.visionReview === undefined ? {} : { visionReview: controls.visionReview }),
           },
         );
     }
@@ -8268,6 +8287,15 @@ export class Orchestrator {
     const log: string[] = [];
     let plan: readonly string[] | undefined;
     let working: Project = input.project;
+    /**
+     * The run's picture facts. Fixed for the run by design — it renders into the prompt
+     * prefix — except for footage the run acquires ITSELF (see `refreshRunLedger`).
+     */
+    let ledger = input.ledger;
+    /** Assets this run put in the bin, so a refresh can be scoped to them. */
+    const acquiredAssetIds = new Set<string>();
+    /** How many mid-run ledger re-reads this run has spent. */
+    let ledgerRefreshes = 0;
     // Mirror of the reducer's cumulative applied ops; feeds the completion report and
     // keeps the closure's view of "what landed" in lockstep with the reducer.
     const cumulativeOps: AnyOperation[] = [];
@@ -8477,7 +8505,10 @@ export class Orchestrator {
      */
     const acceptanceShortfall = (producedChanges: boolean): string[] => {
       const options = self.critiqueOptions(input, agentOptions, producedChanges, evidence);
-      return reconcileInheritedFailures(critique(input.project, options), critique(working, options))
+      return reconcileInheritedFailures(
+        critique(input.project, options),
+        critique(working, options),
+      )
         .checks.filter((check) => check.status === 'fail')
         .map((check) => check.detail);
     };
@@ -8911,7 +8942,13 @@ export class Orchestrator {
         const intent = turn.calls.map((c) => describeToolCall(c, names)).join(', ');
         if (turn.text.trim()) yield emit.assistant(segmentId, turn.text.trim());
 
-        const ctx = self.toolContext({ ...input, project: working });
+        const ctx = self.toolContext({
+          ...input,
+          project: working,
+          // The run-scoped snapshot, which is `input.ledger` until the run acquires
+          // footage of its own (see the refresh below).
+          ...(ledger === undefined ? {} : { ledger }),
+        });
         // U2: turns map positionally onto the seeded ledger; past it — or with none —
         // each turn appends its own derived step.
         const stepIdx = index - 1 < effect.ledgerLength ? index - 1 : effect.planSteps.length;
@@ -9121,6 +9158,11 @@ export class Orchestrator {
         if (applied.applied) {
           working = applied.working;
           cumulativeOps.push(...turnOps);
+          // Footage the RUN acquired, which is the only footage whose facts can arrive
+          // mid-run (`AgentRunControls.refreshLedger`).
+          for (const op of turnOps) {
+            if (op.type === 'add_asset') acquiredAssetIds.add(op.asset.id);
+          }
           for (const op of turnOps) {
             const d = describeOperation(op, names);
             describedActions.push({ action: d.action, detail: d.detail, refs: d.refs });
@@ -9158,6 +9200,38 @@ export class Orchestrator {
             });
           }
         }
+        // VU8 — the run's own footage becomes visible to the run.
+        //
+        // The ledger is read once per `runAiStream` call, which in agent mode is the whole
+        // multi-turn run: an asset the agent sources at minute six is measured about ninety
+        // seconds later and still carries no picture facts for the remaining half hour, so
+        // `match_color` and `add_transitions` decline on it and its row has no shot words.
+        // Re-reading every turn would spend the prompt cache the fixed snapshot exists to
+        // protect, so this asks only about assets THIS RUN acquired that the timeline
+        // references and that the current snapshot has no rows for, at a turn boundary, at
+        // most `MAX_LEDGER_REFRESHES` times. A host with no reader (the browser build)
+        // leaves the snapshot exactly as it was.
+        if (applied.applied && controls?.refreshLedger && ledgerRefreshes < MAX_LEDGER_REFRESHES) {
+          const placed = new Set(
+            working.timeline.tracks.flatMap((track) => track.clips.map((clip) => clip.assetId)),
+          );
+          const unmeasured = [...acquiredAssetIds].filter(
+            (assetId) =>
+              placed.has(assetId) && !(ledger?.shots ?? []).some((s) => s.assetId === assetId),
+          );
+          if (unmeasured.length > 0) {
+            ledgerRefreshes += 1;
+            const refreshed = await controls.refreshLedger(unmeasured, runSignal);
+            if (refreshed) {
+              orchestratorLog.action('mid-run ledger refresh', {
+                assets: unmeasured.length,
+                shots: refreshed.shots.length,
+                refreshes: ledgerRefreshes,
+              });
+              ledger = refreshed;
+            }
+          }
+        }
         // VU7 — pixels verify, they do not plan. Runs only for an apply that landed, only
         // over the cuts THIS patch is answerable for, and strictly after the diff has
         // already been emitted above: the editor has the edit before anything is decoded.
@@ -9167,7 +9241,7 @@ export class Orchestrator {
           ? await self.verifyAppliedPicture({
               before: workingBefore,
               after: working,
-              ledger: input.ledger,
+              ledger,
               patchId: applied.edit?.patch.patchId ?? `step-${String(index)}`,
               review,
               // The same meter the reducer holds the run to. A run at its ceiling still
@@ -9184,6 +9258,17 @@ export class Orchestrator {
           turnPlacementCount: placementCount(turnOps),
           applied: applied.applied,
           appliedOps: applied.applied ? [...turnOps] : [],
+          // Which banked refusals this edit clears (`tool-refusal.ts`). Computed here
+          // because the reducer is pure: it has the ops but not the project they landed on,
+          // and "did any picture move" is a question about the timeline, not the op types —
+          // a `delete_range` on a caption track and one on a video track are the same type.
+          ...(applied.applied
+            ? {
+                pictureArrangementChanged:
+                  pictureOccupancySignature(workingBefore.timeline, workingBefore.assets) !==
+                  pictureOccupancySignature(working.timeline, working.assets),
+              }
+            : {}),
           // The timeline the run just made, so the next turn does not have to ask.
           // See `AgentTurnResult.arrangement` and `arrangementLine`.
           ...(applied.applied ? { arrangement: arrangementLine(working) } : {}),
@@ -9356,6 +9441,13 @@ export class Orchestrator {
             agentCompletionReport({
               ops: reportedOps,
               names: projectNames(working),
+              // Caption tracks fold: a restyle is one edit to a person and two hundred
+              // operations to the engine (`operationLines`).
+              captionTrackIds: new Set(
+                working.timeline.tracks
+                  .filter((track) => track.type === 'caption')
+                  .map((track) => track.id),
+              ),
               steps: Math.max(effect.appliedTurns, 1),
               rejectedOpCount: effect.rejectedOpCount,
               rejectionReasons: effect.rejectionReasons,
@@ -9903,6 +9995,61 @@ function notDoneBlock(
   return `\n\n**Not done:**\n${shown.join('\n')}`;
 }
 
+/**
+ * The applied operations as lines an editor can read, and how many CHANGES they are.
+ *
+ * ## Why an operation is not an edit
+ *
+ * A caption restyle tears the cue range down and rebuilds it, so `set_track_caption_style`
+ * on a 200-cue track is 200 operations to the engine and one edit to a person. Run
+ * `29eee2df` restyled ONE track and reported:
+ *
+ *     **Applied 435 edits** in 4 steps
+ *     - Deleted range Caption 1 · 47.8s–49.467s (×2)
+ *     - Deleted range Caption 1 · 46.667s–47.367s (×3)
+ *     …and 194 more
+ *
+ * Nothing in that tells the editor what happened. So every operation on a CAPTION track
+ * folds into one line per track — the cue count kept, because "how many cues" is the part
+ * a person might check — and the headline counts folded changes, with the operation total
+ * beside it for anyone who wants it.
+ *
+ * Only caption tracks fold. A run that trims eleven clips did eleven things, and rolling
+ * those up would hide work rather than summarise it.
+ *
+ * @param ops - The applied operations, in order.
+ * @param names - Label resolver, so a track reads as "Caption 1".
+ * @param captionTrackIds - The project's caption tracks; empty ⇒ nothing folds.
+ * @returns Rendered lines (before truncation) and the change count for the headline.
+ */
+function operationLines(
+  ops: readonly AnyOperation[],
+  names: ReturnType<typeof projectNames> | undefined,
+  captionTrackIds: ReadonlySet<string>,
+): { readonly lines: readonly string[]; readonly changeCount: number } {
+  const counts = new Map<string, number>();
+  /** Operations per caption track, in first-seen order. */
+  const captionOps = new Map<string, number>();
+  for (const op of ops) {
+    const trackId = (op as { trackId?: unknown }).trackId;
+    if (typeof trackId === 'string' && captionTrackIds.has(trackId)) {
+      captionOps.set(trackId, (captionOps.get(trackId) ?? 0) + 1);
+      continue;
+    }
+    const line = operationLine(op, names);
+    counts.set(line, (counts.get(line) ?? 0) + 1);
+  }
+  const lines: string[] = [];
+  for (const [trackId, count] of captionOps) {
+    const label = names?.track(trackId) ?? trackId;
+    lines.push(`- Rewrote the captions on ${label} · ${String(count)} caption edits`);
+  }
+  for (const [line, count] of counts) {
+    lines.push(`- ${line}${count > 1 ? ` (×${count})` : ''}`);
+  }
+  return { lines, changeCount: captionOps.size + counts.size };
+}
+
 /** Markdown completion report closing an agent run that applied edits (U3). Exported for tests. */
 export function agentCompletionReport(args: {
   ops: readonly AnyOperation[];
@@ -9951,25 +10098,27 @@ export function agentCompletionReport(args: {
   planSteps?: readonly PlanStep[];
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
+  /**
+   * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
+   * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
+   */
+  captionTrackIds?: ReadonlySet<string>;
 }): string {
   const maxLines = 10;
-  // Collapse lines that render identically. Eight successive restyles of one caption track
-  // describe ONE outcome to the person reviewing it — the last one is what they will see —
-  // and printing the same sentence eight times reads as a malfunction rather than a receipt.
-  // Only the RENDERED line is compared, so two edits that differ in any way the editor can
-  // see still get their own row; this hides repetition, never distinct work.
-  const counts = new Map<string, number>();
-  for (const op of args.ops) {
-    const line = operationLine(op, args.names);
-    counts.set(line, (counts.get(line) ?? 0) + 1);
-  }
-  const distinct = [...counts.entries()];
-  const lines = distinct
-    .slice(0, maxLines)
-    .map(([line, count]) => `- ${line}${count > 1 ? ` (×${count})` : ''}`);
-  const more = distinct.length - maxLines;
+  // Collapse lines that render identically, and fold a caption track's rebuild into one
+  // line (see `operationLines`). Only the RENDERED line is compared, so two edits that
+  // differ in any way the editor can see still get their own row; this hides repetition
+  // and internal churn, never distinct work.
+  const summarised = operationLines(args.ops, args.names, args.captionTrackIds ?? new Set());
+  const lines = [...summarised.lines.slice(0, maxLines)];
+  const more = summarised.lines.length - maxLines;
   if (more > 0) lines.push(`- …and ${more} more`);
-  const applied = `**Applied ${args.ops.length} edit${args.ops.length === 1 ? '' : 's'}** in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
+  // The COUNT the editor is told is the count of changes, with the operation total beside
+  // it when the two differ — "435 edits" for one caption restyle is arithmetic, not a
+  // summary.
+  const changes = summarised.changeCount;
+  const opsNote = changes === args.ops.length ? '' : ` (${String(args.ops.length)} operations)`;
+  const applied = `**Applied ${String(changes)} edit${changes === 1 ? '' : 's'}**${opsNote} in ${args.steps} step${args.steps === 1 ? '' : 's'}`;
   const head = args.cancelled
     ? `${applied} before you stopped the run — they are on your timeline and can be undone.`
     : args.failed

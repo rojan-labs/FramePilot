@@ -25,6 +25,9 @@ import {
   firstFreePictureStart,
   stockPlacementConflictReason,
 } from '@framepilot/editor-core';
+import { createPicturePlacer } from './domain-tools/picture-layers.js';
+import { ToolRefusalError } from './tool-refusal.js';
+import type { RefusalCause } from './tool-refusal.js';
 
 /**
  * The host's `add_stock` payload.
@@ -91,6 +94,15 @@ export type StockPlacementOutcome =
       readonly reason: string;
       /** The same refusal as data, for a caller that must act rather than read. */
       readonly refusal: StockPlacementRefusal;
+      /**
+       * Which RULE said no, for run memory (`tool-refusal.ts#RefusalCause`).
+       *
+       * A cutaway over existing picture is now LIFTED rather than refused (ADR 0169), so
+       * the placements that still fail here fail for the reasons that survive the lift:
+       * a clip that would not hide what it covers, or one that would bury another cutaway.
+       * Those are different rules and the run must not remember them as one.
+       */
+      readonly refusalCause: RefusalCause;
     };
 
 /**
@@ -141,24 +153,92 @@ export function stockOpsFromPayload(
     return { ok: true, operations: buildStockBinOps(asset as Asset) };
   }
   const placement = buildAddStockOps(project.timeline, project.assets, asset as Asset, atSeconds);
-  if (placement === null) {
-    const start = atSeconds < 0 ? 0 : atSeconds;
-    const durationSeconds = asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
-    // Worded ONCE, in editor-core, so this refusal and the Stock panel's cannot
-    // name different next steps for the same timeline. Lowercased because the
-    // orchestrator embeds it as `Rejected "add_stock" — <reason>`.
-    const sentence = stockPlacementConflictReason(
-      project.timeline,
-      project.assets,
+  if (placement === null) return liftedStockOps(project, asset as Asset, atSeconds);
+  return { ok: true, operations: placement.operations, start: placement.start };
+}
+
+/**
+ * A lane in FRONT of the picture the requested span already holds — the cutaway
+ * `add_stock` exists to make.
+ *
+ * ## Why `add_stock` gets its own route to the placer
+ *
+ * `buildAddStockOps` picks its own track, so under ADR 0140 it could only ever place into
+ * empty time — which meant the one tool whose whole purpose is "source a cutaway the user
+ * never filmed" was the one tool that could not place a cutaway. In run `19e20922` the
+ * b-roll that landed correctly got there through a bin download and `add_clip`; every
+ * `add_stock` with a position was refused. ADR 0169 lifts a full-frame placement in front
+ * of what it covers for `add_clip`, and nothing about that rule is specific to which tool
+ * asked: the same placer decides, so the composition is identical either way.
+ *
+ * The Stock PANEL keeps the conservative refusal (`buildAddStockOps` is unchanged): a
+ * person clicking **Add** did not ask to stack, and can see the timeline to choose.
+ *
+ * The asset is spliced into the project the placer reads, because it is not in the bin
+ * until this patch applies — and without its measured shape every placement would read as
+ * `unmeasured` and be refused for want of a fact the payload was carrying all along.
+ *
+ * @param project - The project as the orchestrator currently holds it.
+ * @param asset - The downloaded stock asset.
+ * @param atSeconds - The requested start, before clamping.
+ */
+function liftedStockOps(project: Project, asset: Asset, atSeconds: number): StockPlacementOutcome {
+  const start = atSeconds < 0 ? 0 : atSeconds;
+  const durationSeconds = asset.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
+  const end = start + durationSeconds;
+  // The lane is the placer's to choose, so the candidate names one that cannot exist.
+  // `pictureOverlapAcross` skips the candidate's OWN track when it collects conflicts, and
+  // naming a real one would hide the very clip this placement has to be judged against.
+  const candidate = {
+    trackId: '__stock_cutaway_unassigned__',
+    assetId: asset.id,
+    start,
+    end,
+    compositing: {},
+  };
+  const withAsset: Project = { ...project, assets: [...(project.assets ?? []), asset] };
+  try {
+    const placed = createPicturePlacer(withAsset).place(candidate);
+    const clipId = `${placed.trackId}_${asset.id}_clip`;
+    return {
+      ok: true,
       start,
-      durationSeconds,
-    )!;
+      operations: [
+        { type: 'add_asset', asset },
+        ...placed.setupOps,
+        {
+          type: 'add_clip',
+          trackId: placed.trackId,
+          assetId: asset.id,
+          clipId,
+          start,
+          end,
+          sourceStart: 0,
+          sourceEnd: durationSeconds,
+        },
+        // The crop the LANE WAS CHOSEN ON (`PicturePlacement.crop`): without it the clip
+        // that was judged to hide what it covers would be placed uncropped and leak.
+        ...(placed.crop === undefined
+          ? []
+          : [{ type: 'set_clip_crop' as const, clipId, crop: placed.crop }]),
+      ] as readonly AnyOperation[],
+    };
+  } catch (cause) {
+    if (!(cause instanceof ToolRefusalError)) throw cause;
+    // A placement that cannot be LIFTED either — it would not hide what it covers, or it
+    // would bury a cutaway. The placer's sentence is the specific one and says what to do;
+    // the free-moment sentence stays as the fallback for a refusal with no rule of its own.
+    const sentence =
+      cause.message.trim() === ''
+        ? stockPlacementConflictReason(project.timeline, project.assets, start, durationSeconds)!
+        : cause.message;
     return {
       ok: false,
       reason: sentence.charAt(0).toLowerCase() + sentence.slice(1),
+      refusalCause: cause.refusalCause ?? 'picture_over_picture',
       refusal: {
         kind: 'picture_occupied',
-        requested: { start, end: start + durationSeconds },
+        requested: { start, end },
         suggestedStart: firstFreePictureStart(
           project.timeline,
           project.assets,
@@ -168,5 +248,4 @@ export function stockOpsFromPayload(
       },
     };
   }
-  return { ok: true, operations: placement.operations, start: placement.start };
 }

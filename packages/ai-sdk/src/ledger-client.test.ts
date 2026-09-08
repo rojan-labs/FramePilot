@@ -99,13 +99,14 @@ function fakeFetch(bodies: readonly (Record<string, unknown> | 'error' | 'boom')
 
 const clientFor = (
   bodies: readonly (Record<string, unknown> | 'error' | 'boom')[],
-  options: { maxPages?: number } = {},
+  options: { maxPages?: number; maxCachedAssets?: number } = {},
 ): { client: LedgerClient; urls: string[]; calls: () => number } => {
   const { fetchFn, urls, calls } = fakeFetch(bodies);
   const client = new LedgerClient({
     baseUrl: 'http://127.0.0.1:8765',
     fetchFn,
     ...(options.maxPages === undefined ? {} : { maxPages: options.maxPages }),
+    ...(options.maxCachedAssets === undefined ? {} : { maxCachedAssets: options.maxCachedAssets }),
   });
   return { client, urls, calls };
 };
@@ -341,7 +342,7 @@ describe('an unavailable brain is not an empty one', () => {
 });
 
 describe('LedgerClient.snapshot — the cache is scoped to a project', () => {
-  it('never serves one project\'s rows for another project\'s same-named asset', async () => {
+  it("never serves one project's rows for another project's same-named asset", async () => {
     // Asset ids are unique within a project, not across them: `stock_pexels_10374888` is
     // the same id in every project that sources that clip. Keyed on the asset alone, the
     // second project was served the first's rows and the engine was never asked about it
@@ -359,7 +360,7 @@ describe('LedgerClient.snapshot — the cache is scoped to a project', () => {
     expect(urls.some((url) => url.includes('projectId=projB'))).toBe(true);
   });
 
-  it('invalidate() drops only the named project\'s copy', async () => {
+  it("invalidate() drops only the named project's copy", async () => {
     const { client } = clientFor([page([shot('a1', 0)], [digest('a1')]), page([], [])]);
     await client.snapshot(request({ projectId: 'projA', assetIds: ['a1'] }));
     await client.snapshot(request({ projectId: 'projB', assetIds: ['a1'] }));
@@ -393,3 +394,35 @@ describe('LedgerClient.snapshot — an asset measured after it was read', () => 
   });
 });
 
+/**
+ * The cache is process-scoped on desktop — one client in `main.ts`, which is what makes
+ * every turn after the first free — so without a bound it accumulates one entry per
+ * `(projectId, assetId)` for the life of the app, each holding that asset's full rows.
+ */
+describe('LedgerClient — the cache is bounded', () => {
+  it('evicts the least recently served asset once it is full', async () => {
+    const { client, calls } = clientFor(
+      [
+        page([shot('a1', 0)], [digest('a1')]),
+        page([shot('a2', 0)], [digest('a2')]),
+        page([shot('a3', 0)], [digest('a3')]),
+        page([shot('a1', 0)], [digest('a1')]),
+      ],
+      { maxCachedAssets: 2 },
+    );
+    await client.snapshot(request({ assetIds: ['a1'] }));
+    await client.snapshot(request({ assetIds: ['a2'] }));
+    expect(calls()).toBe(2);
+    // a1 is served from cache, which makes it the MOST recent — so the third asset must
+    // push out a2, not a1.
+    await client.snapshot(request({ assetIds: ['a1'] }));
+    expect(calls()).toBe(2);
+    await client.snapshot(request({ assetIds: ['a3'] }));
+    expect(client.cacheKeyFor('p1', 'a2')).toBeUndefined();
+    expect(client.cacheKeyFor('p1', 'a1')).toBeDefined();
+    expect(client.cacheKeyFor('p1', 'a3')).toBeDefined();
+    // And an evicted asset costs one re-read, never a wrong answer.
+    const again = await client.snapshot(request({ assetIds: ['a1'] }));
+    expect(again?.shots).toHaveLength(1);
+  });
+});

@@ -185,6 +185,15 @@ export const visualIndexResponseSchema = z.object({
   total: z.number().default(0),
   done: z.boolean().default(false),
   indexed: z.number().default(0),
+  /**
+   * Assets in this slice that could not be indexed.
+   *
+   * `done` alone cannot answer "was anything measured": a slice whose one asset failed
+   * used to advance its cursor and file the job DONE at progress 1.0 in 14ms, having
+   * written no shots. The engine no longer reports that as done, and this is the count a
+   * caller reads to say so out loud rather than inferring it from silence.
+   */
+  failed: z.number().default(0),
   captioned: z.number().default(0),
   captionsReason: z.string().nullish(),
   /**

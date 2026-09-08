@@ -721,6 +721,16 @@ export async function runAiStream(
    * grows with the edit rather than with the library.
    */
   shotLedgerFor?: (project: Project) => Promise<LedgerSnapshot | undefined>,
+  /**
+   * Re-reads the shot ledger mid-run for footage the RUN acquired, once the engine has
+   * measured it (see `HubOptions.refreshShotLedgerFor` and
+   * `AgentRunControls.refreshLedger`). Absent ⇒ the run's snapshot stays fixed, which is
+   * the behaviour every run had before this existed.
+   */
+  refreshShotLedgerFor?: (
+    project: Project,
+    assetIds: readonly string[],
+  ) => Promise<LedgerSnapshot | undefined>,
   /** Reads this project's session-memory digest (see `HubOptions.sessionContextFor`). */
   sessionContextFor?: (projectId: string) => Promise<string | undefined>,
   /**
@@ -769,14 +779,13 @@ export async function runAiStream(
   // pure projection of one snapshot, so one read per run keeps the prompt prefix stable
   // and cacheable. Best-effort exactly like its neighbours: no sidecar, no brain or an
   // unmeasured project costs the run its picture facts and nothing else.
-  const [visualStatus, footageMap, shotLedger, sessionContext, carriedForward] =
-    await Promise.all([
-      readOptionalContext(readVisualStatus, project.id, 'visual status'),
-      readContextFor(footageMapFor, project, 'footage map'),
-      readContextFor(shotLedgerFor, project, 'shot ledger'),
-      readOptionalContext(sessionContextFor, project.id, 'session context'),
-      readCarriedForward(carriedForwardFor, request.conversationId, project.id),
-    ]);
+  const [visualStatus, footageMap, shotLedger, sessionContext, carriedForward] = await Promise.all([
+    readOptionalContext(readVisualStatus, project.id, 'visual status'),
+    readContextFor(footageMapFor, project, 'footage map'),
+    readContextFor(shotLedgerFor, project, 'shot ledger'),
+    readOptionalContext(sessionContextFor, project.id, 'session context'),
+    readCarriedForward(carriedForwardFor, request.conversationId, project.id),
+  ]);
   const input: ContextInput = {
     project,
     ...(visualStatus === undefined ? {} : { visualStatus }),
@@ -808,6 +817,22 @@ export async function runAiStream(
         }
       : {}),
   };
+  // The run's own footage, once the engine has measured it (VU8). Added here rather than
+  // at the hub call site because the refresh has to re-read the whole run's asset set —
+  // the orchestrator replaces its snapshot with what comes back — and the project is
+  // parsed here.
+  const runControls: EditorRunControls = refreshShotLedgerFor
+    ? {
+        ...controls,
+        agent: {
+          ...controls.agent,
+          refreshLedger: async (assetIds) => {
+            const wanted = [...new Set([...project.assets.map((asset) => asset.id), ...assetIds])];
+            return (await refreshShotLedgerFor(project, wanted)) ?? null;
+          },
+        },
+      }
+    : controls;
   const options: StreamOptions = {
     conversationId: request.conversationId,
     turnId: request.turnId,
@@ -842,7 +867,7 @@ export async function runAiStream(
     input,
     options,
     agentOptions,
-    controls,
+    runControls,
     request.variations === true,
   )) {
     eventCount += 1;
@@ -974,6 +999,19 @@ interface HubOptions {
     projectId: string,
     note: { readonly title: string; readonly body: string },
   ) => void;
+  /**
+   * Re-reads the shot ledger for a run that has acquired footage of its own.
+   *
+   * The snapshot `shotLedgerFor` returns is fixed for the run, which keeps the prompt
+   * prefix stable — and leaves a clip the agent downloaded at minute six carrying no
+   * picture facts for the rest of the run, though the engine measures it about ninety
+   * seconds later. This is the narrow way back in: same reader, same cache, with the named
+   * assets invalidated first.
+   */
+  readonly refreshShotLedgerFor?: (
+    project: Project,
+    assetIds: readonly string[],
+  ) => Promise<LedgerSnapshot | undefined>;
 }
 
 interface ActiveRun {
@@ -1181,6 +1219,7 @@ export class AiStreamHub {
           this.options.visualStatusFor,
           this.options.footageMapFor,
           this.options.shotLedgerFor,
+          this.options.refreshShotLedgerFor,
           this.options.sessionContextFor,
           hooks.commitLedger,
           this.options.carriedForwardFor,

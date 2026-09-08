@@ -304,19 +304,17 @@ describe('streamAgent refuses a call the run has already been refused', () => {
  * The second instance of run `369e8c82`'s loop, on the tool a user reaches for when they
  * ask for b-roll.
  *
- * `add_stock` refuses a placement over existing picture twice over: `stock-host.ts` checks
- * BEFORE spending the download, and — because the timeline can move between the two
- * moments — `stockOpsFromPayload` checks again in-process AFTER it. The second refusal is
- * the one keyed here. It is a policy decision, not a host failure: the download completed,
- * and the verdict comes from the orchestrator's own working copy through the same
- * `editor-core` occupancy predicate. `add_clip` no longer shares it — ADR 0169 lets a
- * full-frame placement open a layer in front instead — but `add_stock` picks the track
- * itself and cannot, so ADR 0140's rule is still exactly what it answers with.
+ * `add_stock` places through the same picture placer `add_clip` uses (ADR 0169), so a span
+ * that already holds picture is LIFTED onto a layer in front wherever the clip would hide
+ * what it covers. What still refuses is the narrower verdict — an unmeasured clip, a
+ * blended one, a placement that would bury another cutaway — and that refusal is a policy
+ * decision, not a host failure: the download completed, and the verdict comes from the
+ * orchestrator's own working copy.
  *
- * The fixture's `video_1` holds picture across 0–10s, so 2s and 3s are both refused by that
- * rule and the free moment is 10s. The refusal sentence names the requested span and the
- * free moment, so the two attempts produce two DIFFERENT sentences and one identical rule —
- * exactly the shape that gave run `369e8c82` four keys and no match.
+ * The fixture's stock asset is UNMEASURED, so 2s and 3s are both refused for want of a
+ * shape. Each refusal sentence names the clip it would have covered and its own span, so
+ * the two attempts produce two DIFFERENT sentences and one identical rule — exactly the
+ * shape that gave run `369e8c82` four keys and no match.
  *
  * The cost boundary is the thing these tests exist to hold still. A download is metered, so
  * the guard must neither block a corrected retry (wasting what was paid for) nor wave an
@@ -388,9 +386,11 @@ describe('add_stock — a placement refused after the download is keyed on the r
 
     const results = toolResults(events);
     expect(results).toHaveLength(2);
-    // First attempt: the refusal in its own words, naming the free moment.
-    expect(results[0]?.summary).toContain('already picture on the timeline');
-    expect(results[0]?.summary).toContain('10.0s');
+    // First attempt: the refusal in its own words. Under ADR 0169 the placement is now
+    // LIFTED where it can be, so what refuses here is the narrower verdict — this stock
+    // clip is unmeasured, so nothing can say whether it hides what it covers.
+    expect(results[0]?.summary).toContain('would sit on top of clip_a');
+    expect(results[0]?.summary).toContain('has not been measured');
     expect(results[0]?.summary).not.toContain('already failed');
     // Second attempt: a DIFFERENT sentence (3.0s–7.0s, not 2.0s–6.0s) and the same rule.
     expect(results[1]?.summary).toBe('Refused repeat of "add_stock" — it already failed this run');
@@ -427,7 +427,7 @@ describe('add_stock — a placement refused after the download is keyed on the r
 
     const results = toolResults(events);
     expect(results).toHaveLength(2);
-    expect(results[0]?.summary).toContain('already picture on the timeline');
+    expect(results[0]?.summary).toContain('would sit on top of clip_a');
     // 12s–16s is past the fixture's picture, so the placement succeeds and never
     // computes a key to match against the banked one.
     expect(results[1]?.summary).not.toContain('already failed');
@@ -1403,9 +1403,9 @@ describe('a mutating call the run has already applied', () => {
     ]);
     const events = await drain(new Orchestrator(provider).streamAgent(input, baseOpts(), {}));
     const summaries = toolResults(events).map((r) => r.summary);
-    expect(summaries.some((s) => s.includes('already done, and doing it again moved nothing'))).toBe(
-      true,
-    );
+    expect(
+      summaries.some((s) => s.includes('already done, and doing it again moved nothing')),
+    ).toBe(true);
     expect(modelFacingText(provider)).toContain('the next part of the request');
   });
 
@@ -1413,7 +1413,12 @@ describe('a mutating call the run has already applied', () => {
     // The captured run sent the same instruction both ways round — 15 times one way and
     // 10 the other — and a key that stringifies as-received cannot tell them apart.
     const provider = new RecordingProvider([
-      { text: '', toolCalls: [{ id: 'a', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } }] },
+      {
+        text: '',
+        toolCalls: [
+          { id: 'a', name: 'adjust_audio', arguments: { clipId: 'clip_a', gainDb: -12 } },
+        ],
+      },
       {
         text: '',
         toolCalls: [

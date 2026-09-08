@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12073,
+      "usedTokens": 12108,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12073,
+          "estimatedInputTokensBeforeSend": 12108,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179735,
+          "estimatedRemainingCapacity": 179700,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -434,7 +434,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12272,
+      "usedTokens": 12307,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -488,7 +488,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -516,7 +516,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -524,9 +524,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12272,
+          "estimatedInputTokensBeforeSend": 12307,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179536,
+          "estimatedRemainingCapacity": 179501,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -878,7 +878,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11795,
+      "usedTokens": 11830,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -932,7 +932,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -960,7 +960,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7147,
+            "tokenEstimate": 7167,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -968,10 +968,10 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11795,
+          "estimatedInputTokensBeforeSend": 11830,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180013,
-          "toolSchemaTokensRebilled": 7147,
+          "estimatedRemainingCapacity": 179978,
+          "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -1286,7 +1286,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "tighten the intro using your pacing playbook",
+            "criterion": "A validated edit landed and the run’s deterministic checks passed",
             "passed": true,
             "atRevision": 1,
             "detail": "Passed with 1 warning(s)."

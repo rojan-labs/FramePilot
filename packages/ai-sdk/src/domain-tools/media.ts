@@ -53,7 +53,10 @@ const visualTimeRangeSchema = z
 const visualFactsSchema = z
   .object({
     shotSize: z.array(z.string().trim().min(1)).min(1).optional(),
-    motion: z.array(z.enum(['static', 'slow', 'handheld', 'fast'])).min(1).optional(),
+    motion: z
+      .array(z.enum(['static', 'slow', 'handheld', 'fast']))
+      .min(1)
+      .optional(),
     entities: z.array(z.string().trim().min(1)).min(1).optional(),
     setting: z.array(z.string().trim().min(1)).min(1).optional(),
   })
@@ -125,12 +128,13 @@ const searchMusicSchema = z
 // reach as `search_music`: the query text goes out, results come back, nothing is
 // downloaded until `add_stock` names one.
 //
-// `add_stock` REFUSES rather than stacks when the target span already holds
-// picture media. The preview flattens picture clips from every track into one
-// sequence while the export composites them, so a stacked clip would render
-// differently from what the user saw. Reported as a failure with the reason, so
-// the model can move the placement instead of claiming an edit that lies
-// (`plan/3rd-party-sourcing/photo-video/README.md` §2).
+// `add_stock` places a cutaway over existing picture the same way `add_clip` does
+// (ADR 0169): the clip is LIFTED onto a layer in front of what it covers, which
+// previews and exports identically as long as it hides what is underneath. That
+// last clause is the whole rule — the preview flattens picture clips into one
+// chain while the export composites them, so a placement that leaks would render
+// differently from what the user saw, and those are the ones still refused
+// (`stock-placement.ts#liftedStockOps`, `plan/3rd-party-sourcing/photo-video/README.md` §2).
 /**
  * The two stock kinds, accepting the words a model reaches for. Run `cc907070` lost two
  * searches to `kind: Invalid option: expected one of "photo"|"video"`; "footage" and
@@ -341,9 +345,11 @@ export const MEDIA_TOOLS: readonly ToolSpec[] = [
         'gather several candidates before deciding the order — place them later with ' +
         'add_clip. Fetched at the project’s own resolution, so it keeps working offline. ' +
         'A few seconds to download, and a file already fetched is reused. ' +
-        'A placement FAILS with a reason if that moment already has picture on it: stock ' +
-        'cannot yet sit on top of existing footage, so choose an empty stretch or make ' +
-        'room first. Undoing removes the clip and the file reference in one step.',
+        'A cutaway over existing footage is placed on a layer in FRONT of it, so you do ' +
+        'not need to find a gap or cut a hole first. It fails with a reason only when the ' +
+        'clip could not hide what it covers — an unmeasured or odd-shaped source — or ' +
+        'when it would bury another cutaway. Undoing removes the clip and the file ' +
+        'reference in one step.',
       // Main-process only, like `search_stock` — see the note there.
       hostUiOnly: true,
     },

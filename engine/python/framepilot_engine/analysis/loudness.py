@@ -14,7 +14,9 @@ ffmpeg) and the subprocess call takes an injectable
 
 from __future__ import annotations
 
+import math
 import re
+from collections.abc import Sequence
 from pathlib import Path
 
 from pydantic import BaseModel, Field
@@ -114,3 +116,97 @@ def measure_loudness(
         "-",
     ]
     return parse_loudness_summary(invoke(argv))
+
+
+# The RUNNING lines ebur128 prints while it works, one per 100ms:
+#   [Parsed_ebur128_0 @ 0x…] t: 0.4  TARGET:-23 LUFS  M: -21.8 S:-120.7  I: -21.8 LUFS …
+# `t` is the position in seconds and `M` the momentary (400ms) loudness there. The
+# summary block parsed above describes the whole file and cannot answer "how loud is
+# THIS shot"; these lines can, from the same single pass.
+_MOMENTARY_RE = re.compile(r"\bt:\s*(\d+(?:\.\d+)?)\s.*?\bM:\s*(-?\d+(?:\.\d+)?)")
+
+# EBU R128's absolute gate. Below it a block is silence and is excluded from the
+# integration rather than dragged into the mean — without the gate a shot with one loud
+# line and three seconds of room tone measures as room tone.
+_ABSOLUTE_GATE_LUFS = -70.0
+
+
+def parse_momentary_loudness(logs: str) -> list[tuple[float, float]]:
+    """Read ``(seconds, momentary LUFS)`` from ffmpeg's running ``ebur128`` lines (pure).
+
+    :param logs: ffmpeg stderr text.
+    :returns: Samples in the order ffmpeg printed them; empty when nothing decoded.
+    """
+    return [(float(t), float(m)) for t, m in _MOMENTARY_RE.findall(logs)]
+
+
+def shot_loudness_from_momentary(
+    samples: Sequence[tuple[float, float]],
+    spans: Sequence[tuple[float, float]],
+) -> dict[int, float]:
+    """Reduce momentary samples to one gated loudness figure per shot (pure).
+
+    Energy-averaged, not arithmetic-averaged: loudness is logarithmic, so the mean of
+    -20 and -40 LUFS is not -30. Samples under the R128 absolute gate are excluded, and
+    a shot with nothing above the gate yields NO entry rather than a floor value — the
+    ledger's ``None`` means "not measured", and inventing -70 for a silent shot would make
+    those two indistinguishable, which is the defect this producer exists to close.
+
+    Not a full R128 integrated measurement: it applies the absolute gate and not the
+    relative one, over 400ms momentary blocks. That is the right granularity for a shot
+    that may be two seconds long, and it is what the field's description says it is.
+
+    :param samples: ``(seconds, momentary LUFS)`` pairs from one whole-asset pass.
+    :param spans: ``(t0, t1)`` per shot index, in shot order.
+    :returns: Shot index → gated loudness in LUFS, for the shots that had audible audio.
+    """
+    energy: dict[int, list[float]] = {}
+    for seconds, momentary in samples:
+        if momentary <= _ABSOLUTE_GATE_LUFS:
+            continue
+        for index, (t0, t1) in enumerate(spans):
+            if t0 <= seconds < t1:
+                energy.setdefault(index, []).append(10.0 ** (momentary / 10.0))
+                break
+    return {
+        index: round(10.0 * math.log10(sum(values) / len(values)), 2)
+        for index, values in energy.items()
+        if values
+    }
+
+
+def measure_shot_loudness(
+    path: Path,
+    spans: Sequence[tuple[float, float]],
+    *,
+    runner: Runner | None = None,
+    timeout: float | None = 60.0,
+) -> dict[int, float]:
+    """Measure each shot's loudness in ONE ``ebur128`` pass over the asset.
+
+    One pass, not one per shot: a minute of footage can hold thirty shots, and thirty
+    ffmpeg invocations at enrolment time is a cost the facts do not justify.
+
+    :param path: Media file to analyse (assumed already sandbox-resolved).
+    :param spans: ``(t0, t1)`` per shot index, in shot order.
+    :param runner: ffmpeg stderr runner; defaults to the real subprocess runner.
+    :param timeout: Per-call timeout in seconds.
+    :returns: Shot index → loudness (LUFS); empty when the asset has no audible audio.
+    """
+    if not spans:
+        return {}
+    invoke = runner or (lambda argv: run_logs(argv, timeout=timeout))
+    argv = [
+        find_ffmpeg(),
+        "-hide_banner",
+        "-nostats",
+        "-i",
+        str(path),
+        "-vn",
+        "-af",
+        "ebur128",
+        "-f",
+        "null",
+        "-",
+    ]
+    return shot_loudness_from_momentary(parse_momentary_loudness(invoke(argv)), spans)

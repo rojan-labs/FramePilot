@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 12069,
+      "usedTokens": 12104,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 12069,
+          "estimatedInputTokensBeforeSend": 12104,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 859931,
+          "estimatedRemainingCapacity": 859896,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -308,7 +308,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -336,7 +336,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -344,7 +344,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 12069,
+          "estimatedInputTokensBeforeSend": 12104,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "calculationSource": "provider_reported",
@@ -536,7 +536,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "is there anything to tighten?",
+            "criterion": "A validated edit landed and the run’s deterministic checks passed",
             "passed": false,
             "atRevision": 0,
             "detail": "No traceable project mutation for the committed plan."

@@ -6,6 +6,7 @@ import {
   coverageVerdict,
   hidesWhatIsBehind,
   isFullFrameOpaque,
+  pictureOccupancySignature,
   picturePlacementConflict,
 } from './picture-occupancy.js';
 
@@ -250,9 +251,7 @@ describe('hidesWhatIsBehind', () => {
     // Both are fitted identically, so their transparent bars coincide: the export blends
     // transparent over transparent and paints black, and so does the monitor. Refusing this
     // buys nothing, and the property version refused it.
-    expect(
-      hidesWhatIsBehind(shaped(landscape), [shaped(landscape)], frame),
-    ).toBe(true);
+    expect(hidesWhatIsBehind(shaped(landscape), [shaped(landscape)], frame)).toBe(true);
   });
 
   it('refuses an overlay whose bars leak the base through them', () => {
@@ -353,8 +352,12 @@ describe('coverCropFor — the crop that turns "contain" into "cover", in either
   });
 
   it('returns nothing when the source already fills the frame', () => {
-    expect(coverCropFor({ width: 1920, height: 1080 }, { width: 1920, height: 1080 })).toBeUndefined();
-    expect(coverCropFor({ width: 3840, height: 2160 }, { width: 1920, height: 1080 })).toBeUndefined();
+    expect(
+      coverCropFor({ width: 1920, height: 1080 }, { width: 1920, height: 1080 }),
+    ).toBeUndefined();
+    expect(
+      coverCropFor({ width: 3840, height: 2160 }, { width: 1920, height: 1080 }),
+    ).toBeUndefined();
   });
 
   it('refuses a degenerate size rather than dividing by zero', () => {
@@ -369,21 +372,33 @@ describe('coverageVerdict — the reason, so a refusal need not re-derive it', (
 
   it('names the blend mode', () => {
     expect(
-      coverageVerdict({ clip: { blendMode: 'multiply' }, source: frame }, [{ clip: {}, source: frame }], frame),
+      coverageVerdict(
+        { clip: { blendMode: 'multiply' }, source: frame },
+        [{ clip: {}, source: frame }],
+        frame,
+      ),
     ).toEqual({ hides: false, reason: 'blend', detail: 'multiply' });
   });
 
   it('names keyframes and the coverage-breaking effect', () => {
     expect(
       coverageVerdict(
-        { clip: { keyframes: [{ id: 'k', time: 0, property: 'scale', value: 1, easing: 'linear' }] }, source: frame },
+        {
+          clip: {
+            keyframes: [{ id: 'k', time: 0, property: 'scale', value: 1, easing: 'linear' }],
+          },
+          source: frame,
+        },
         [{ clip: {}, source: frame }],
         frame,
       ).hides,
     ).toBe(false);
     expect(
       coverageVerdict(
-        { clip: { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] }, source: frame },
+        {
+          clip: { effects: [{ id: 'e', type: 'mask', params: {}, keyframes: [] }] },
+          source: frame,
+        },
         [{ clip: {}, source: frame }],
         frame,
       ),
@@ -414,5 +429,51 @@ describe('coverageVerdict — the reason, so a refusal need not re-derive it', (
         frame,
       ),
     ).toEqual({ hides: false, reason: 'unmeasured', detail: 'base_1' });
+  });
+});
+
+describe('pictureOccupancySignature', () => {
+  const assets = [video, image, audio];
+
+  it('is unchanged by a caption patch and changed by a moved clip', () => {
+    // The question the run's refusal memory asks of an applied edit
+    // (`ai-sdk/tool-refusal.ts#PICTURE_ARRANGEMENT_CAUSES`): a caption restyle lands
+    // hundreds of operations and frees no picture, so it must not clear a
+    // `picture_over_picture` verdict.
+    const before = timeline([
+      { id: 'video_1', type: 'video', clips: [clip('a_video', 0, 10)] },
+      { id: 'cap_1', type: 'caption', clips: [clip('a_audio', 0, 4)] },
+    ]);
+    const captionsRestyled = timeline([
+      { id: 'video_1', type: 'video', clips: [clip('a_video', 0, 10)] },
+      { id: 'cap_1', type: 'caption', clips: [clip('a_audio', 1, 2), clip('a_audio', 3, 9)] },
+    ]);
+    const pictureMoved = timeline([
+      { id: 'video_1', type: 'video', clips: [clip('a_video', 2, 10)] },
+    ]);
+
+    expect(pictureOccupancySignature(captionsRestyled, assets)).toBe(
+      pictureOccupancySignature(before, assets),
+    );
+    expect(pictureOccupancySignature(pictureMoved, assets)).not.toBe(
+      pictureOccupancySignature(before, assets),
+    );
+  });
+
+  it('reads a split in place as the same occupancy', () => {
+    // Merged spans, not clips: cutting a clip in two where it stands changes nothing
+    // about which moments carry picture.
+    const whole = timeline([{ id: 'video_1', type: 'video', clips: [clip('a_video', 0, 10)] }]);
+    const split = timeline([
+      {
+        id: 'video_1',
+        type: 'video',
+        clips: [
+          { id: 'left', assetId: 'a_video', start: 0, end: 4, sourceStart: 0, sourceEnd: 4 },
+          { id: 'right', assetId: 'a_video', start: 4, end: 10, sourceStart: 4, sourceEnd: 10 },
+        ],
+      },
+    ]);
+    expect(pictureOccupancySignature(split, assets)).toBe(pictureOccupancySignature(whole, assets));
   });
 });

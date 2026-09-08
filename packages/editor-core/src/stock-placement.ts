@@ -23,7 +23,11 @@
 import type { Asset, Timeline, Track } from '@framepilot/timeline-schema';
 import type { AnyOperation } from './patch.js';
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
-import { firstFreePictureStart, picturePlacementConflict } from './picture-occupancy.js';
+import {
+  firstFreePictureStart,
+  lastPictureEnd,
+  picturePlacementConflict,
+} from './picture-occupancy.js';
 
 /**
  * Length given to a still, matching the renderer's `DEFAULT_CLIP_SECONDS`: a
@@ -278,15 +282,34 @@ export function stockPlacementConflictReason(
   const end = start + durationSeconds;
   if (!picturePlacementConflict(timeline, assets, start, end)) return null;
   const free = firstFreePictureStart(timeline, assets, durationSeconds, start);
-  // The free second is given so the caller can act on it, and the sentence now says WHICH
+  const occupied = `There is already picture on the timeline between ${start.toFixed(1)}s and ${end.toFixed(1)}s. Stock cannot sit on top of existing footage yet`;
+  // A GAP, or the empty time after the programme? `firstFreePictureStart` always answers,
+  // because the timeline has no end — so on one continuous take, the commonest project
+  // there is, the only answer it can give is "after the last frame". Leading with that
+  // number told run 19e20922 to append cutaways at 49.8s, 57.3s and 103.3s to a 49.77s
+  // programme, which it then spent 6 move_clip, 4 trim_clip and a delete_clip undoing.
+  // The editor had asked for cutaways DURING the talk, and the route that makes one —
+  // bin, then add_clip on a layer in front (ADR 0169) — was the back half of the sentence.
+  if (free >= lastPictureEnd(timeline, assets)) {
+    return (
+      `${occupied}, and this edit is covered end to end — the next free stretch starts at ` +
+      `${free.toFixed(1)}s, which is past the last frame, so placing there would lengthen ` +
+      'the programme rather than cut away inside it. Omit atSeconds to put this clip in ' +
+      'the media bin, then place it with add_clip at the moment you want it: add_clip can ' +
+      'lift a cutaway onto a layer in front of the footage it covers. Only pass ' +
+      `atSeconds ${free.toFixed(1)} if you did mean to add to the end.`
+    );
+  }
+  // An interior gap: "call again with atSeconds N" is a real cutaway slot, so it leads.
+  //
+  // The free second is given so the caller can act on it, and the sentence says WHICH
   // call to put it in. Every caller today is an agent path — the orchestrator's
   // post-download refusal and the desktop host's pre-download one — and the property both
   // are gated on (`ai-sdk/src/reliability/next-action.ts`) counts a move the reader has to
   // infer as a dead end. Naming only the number was that inference.
   return (
-    `There is already picture on the timeline between ${start.toFixed(1)}s and ` +
-    `${end.toFixed(1)}s. Stock cannot sit on top of existing footage yet — ` +
-    `the first stretch long enough for this clip starts at ${free.toFixed(1)}s. ` +
+    `${occupied} — the first stretch long enough for this clip starts at ` +
+    `${free.toFixed(1)}s. ` +
     `Call add_stock again with atSeconds ${free.toFixed(1)}, or omit atSeconds to put it ` +
     'in the media bin and place it later with add_clip.'
   );

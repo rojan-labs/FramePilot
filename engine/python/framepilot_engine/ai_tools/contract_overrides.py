@@ -343,7 +343,11 @@ class _AdjustAudioArgs(BaseModel):
     @model_validator(mode="after")
     def _exactly_one_target(self) -> _AdjustAudioArgs:
         if (self.clip_id is None) == (self.track_id is None):
-            raise ValueError("adjust_audio takes exactly one of clipId or trackId.")
+            raise ValueError(
+                "adjust_audio takes exactly one of clipId or trackId — pass clipId to set "
+                "one clip, or trackId to set every clip on a track, and leave the other "
+                "argument out entirely (do not pass an empty string or a placeholder value)."
+            )
         return self
 
     @field_validator("gain_db")

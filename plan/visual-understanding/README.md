@@ -78,21 +78,29 @@ transitions land as the existing transition effect. No timeline schema migration
 
 ## Phase order and gates
 
-**Status 2026-09-07** (branch `plan/visual-understanding`, ten commits). Every number below
-was measured, not estimated; where a thing is unfitted or unlabelled it says so.
+**Status 2026-09-08** (PR #82 merged, plus the issue sweep of 2026-09-08). Every number below
+was measured, not estimated; where a thing is unfitted or unlabelled it says so. Each row now
+also names the HOST that reads the surface, which is the rule the audit section below asks
+for — a phase measured only through the eval harness or the browser is not a shipped one.
 
-| Phase | Name                   | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                           |
-| ----- | ---------------------- | ------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| VU0   | Baseline and contracts | `[~]`  | **VU0.1 `[x]`** — metrics + the floor: 318 turns, 210 accepted edits, ten recorded runs, `get_frame` **0**, footage surfaces **0**, guess rate **1.00** (`reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4 `[x]`** — ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. VU0.2/VU0.3 need a human eye on a contact sheet; they run alongside VU2. |
-| VU1   | Tier 0 shot ledger     | `[~]`  | **VU1.1–VU1.4 `[x]`.** One ffmpeg pass, two chains, one decode. 160 px proven lossless against full res (YAVG 74.0424 vs 74.0471). Brain schema v4. The keyless route: the embedder short-circuit is deleted, tier 0 runs first on both arms. 17–47× real-time on an M1 Pro. VU1.5 (host key gate) in flight; `phash`/`loudnessLufs` still null — VU1.1's remaining half.          |
-| VU2   | Model surfaces         | `[~]`  | **VU2.1–VU2.4 `[x]`.** Picture slice (39 tests), clip-row words (25), the row + digest in the prompt (35). Token delta on an unindexed project: **zero, goldens unregenerated**. Opt-in cost ~108 tokens for the digest, ~10 per covered row. VU2.5 (tools carry facts) in flight; VU2.6 (briefing) open.                                                                          |
-| VU3   | Deterministic colour   | `[~]`  | **VU3.1 `[x]`** — the solver, derived from `render/color.py`'s actual pass, 58 tests. **Coefficients are UNFITTED**: `scripts/fit-color-response.mjs` runs the real fit against a live sidecar. No test asserts a fitted number. VU3.2 (tools) in flight, VU3.3 (verification) open.                                                                                               |
-| VU4   | Transition policy      | `[~]`  | **VU4.1 `[x]`** — 25 tests; families resolve through catalog data, never an id literal; `continuity` returns null at any delta. VU4.2 (the `reason` argument) in flight.                                                                                                                                                                                                           |
-| VU5   | Tier 1 local pack      | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                       |
-| VU6   | Tier 2 local VLM pack  | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                       |
-| VU7   | Sampled verification   | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                       |
-| VU8   | Scale and operations   | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                       |
-| VU9   | Closure                | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                       |
+| Phase | Name                   | Status | Evidence                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| ----- | ---------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| VU0   | Baseline and contracts | `[~]`  | **VU0.1 `[x]`** — metrics + the floor: 318 turns, 210 accepted edits, ten recorded runs, `get_frame` **0**, footage surfaces **0**, guess rate **1.00** (`reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4 `[x]`** — ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. VU0.2/VU0.3 need a human eye on a contact sheet; they run alongside VU2.                                                                                                                                                                                                                                                               |
+| VU1   | Tier 0 shot ledger     | `[~]`  | **VU1.1–VU1.4 `[x]`.** One ffmpeg pass, two chains, one decode. 160 px proven lossless against full res (YAVG 74.0424 vs 74.0471). Brain schema v4. The keyless route: the embedder short-circuit is deleted, tier 0 runs first on both arms. 17–47× real-time on an M1 Pro. VU1.5 (host key gate) in flight. `phash` is POPULATED (real values in a project brain, e.g. `3689349357871844460`), and `loudnessLufs` now has a producer: one `ebur128` pass per asset, bucketed by shot span, gated at R128's absolute floor (#108). Read by: desktop enroller → `LedgerClient`.                                                                  |
+| VU2   | Model surfaces         | `[~]`  | **VU2.1–VU2.4 `[x]`.** Picture slice (39 tests), clip-row words (25), the row + digest in the prompt (35). Token delta on an unindexed project: **zero, goldens unregenerated**. Opt-in cost ~108 tokens for the digest, ~10 per covered row. VU2.5 (tools carry facts) in flight; VU2.6 (briefing) open.                                                                                                                                                                                                                                                                                                                                        |
+| VU3   | Deterministic colour   | `[~]`  | **VU3.1 `[x]`** — the solver, derived from `render/color.py`'s actual pass, 58 tests. Coefficients are unchanged, now for a MEASURED reason: `fit-color-response.mjs` has been run (2026-09-08, `mission-montage`, three clips) and the tint terms agree within 5% while `WARMTH_PER_TEMPERATURE` measures ~0.59 against 0.6936 — a real ~15% under-shoot, tracked in #107. `measure-color-response.mjs` (the ledger-chain measurement that can settle it) exists and has not been run. VU3.2 (tools) in flight, VU3.3 (verification) open. Read by: the agent, once the `color` domain is pinned — which it never was in a real run until #104. |
+| VU4   | Transition policy      | `[~]`  | **VU4.1 `[x]`** — 25 tests; families resolve through catalog data, never an id literal; `continuity` returns null at any delta. VU4.2 (the `reason` argument) in flight.                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| VU5   | Tier 1 local pack      | `[~]`  | Pack skeleton, `manifest.toml` and `models.lock.toml` exist, with weights fetched and pinned on 2026-09-07 against real digests. **No accuracy is asserted anywhere**: no test measures recognition, so the hosted NVIDIA arm stays until the local one is verified. Read by: the pack worker, registered locally via `framepilot-pack register-local`.                                                                                                                                                                                                                                                                                          |
+| VU6   | Tier 2 local VLM pack  | `[~]`  | Same shape as VU5: skeleton, manifest and lock file, no asserted captioning quality. The `described` tier is never produced by an unattended import BY DESIGN (`autoEnrolmentTiers()` withholds it), so every shot's `described` is null in practice and this phase is not closable on import evidence alone.                                                                                                                                                                                                                                                                                                                                    |
+| VU7   | Sampled verification   | `[~]`  | Shipped as per-turn picture verification: `kernel/picture-verification.ts` + `Orchestrator#verifyAppliedPicture`, run over the cuts one applied patch is answerable for, folded into the run's facts. Its evidence comes through `/review/temporal-evidence`, whose fixed 300s deadline discarded a whole review in run 19e20922 and now scales with the batch (#99). Read by: the desktop agent run.                                                                                                                                                                                                                                            |
+| VU8   | Scale and operations   | `[~]`  | The resource governor exists (`brain/governor.py`, four foreground surfaces). Two operational defects closed on 2026-09-08: the `LedgerClient` cache is bounded at 256 assets with oldest-first eviction (#105), and a run now re-reads the ledger for footage it sourced ITSELF, at a turn boundary and at most three times a run (#102). Resumability, 1000-asset projects and eviction under real libraries are unmeasured.                                                                                                                                                                                                                   |
+| VU9   | Closure                | `[ ]`  | Not started.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+
+**Also open, and not inferable from the rows above:** the solved-colour tools were never
+reached by a real run until the colour playbook started pinning their domain (#104), and
+`add_transitions` has still never been exercised by one — that run called `discover_transitions`
+five times and `verify_transitions` four and never acted. A tool that ships and is never
+called is not a measured capability.
 
 **What is true today that was not this morning:** on a machine with no key, no network and
 no vision model, the engine measures every imported asset into a shot ledger, and the agent's
@@ -134,26 +142,25 @@ and still be reached by nothing. VU2.1–VU2.5 were all `[x]` on evidence that o
 through the browser session or the eval harness. Neither path is the product. Any remaining
 phase should state which HOST reads it before it is ticked.
 
-### Left open deliberately, for VU8
+### Closed since, and what is still open (VU8)
 
-**A run never sees the footage it sources.** The snapshot is read once per `runAiStream`
-call, and in agent mode that one call spans the entire multi-turn run — in the captured run,
-thirty minutes and roughly sixty orchestrator turns. An asset the agent downloads at minute
-six is enrolled and measured within about ninety seconds and still carries no facts for the
-rest of that run; the next user turn picks it up, because the client's cache is keyed per
-asset and a new one simply misses.
+**A run never saw the footage it sourced — closed 2026-09-08 (#102).** The snapshot is read
+once per `runAiStream` call, and in agent mode that one call spans the entire multi-turn run:
+thirty minutes and roughly sixty turns in the captured one. An asset downloaded at minute six
+was measured within about ninety seconds and still carried no facts for the rest of the run.
 
-This is a consequence of the design, not an oversight in it: `ledger-client.ts` states that
-a run's understanding is fixed for the turn precisely so the prompt prefix stays stable and
-cacheable, and re-reading every turn would spend that. `LedgerSnapshotRequest.refresh` is
-the intended way out — invalidate the assets whose index job reported `done` — and it has no
-caller anywhere in the repo today. Wiring it needs a signal from the enroller into the run
-loop and a decision about what it costs in cache misses, which is VU8's question, not a fix
-to smuggle into a host patch.
+The fixed snapshot is deliberate — `ledger-client.ts` keeps a run's understanding stable so
+the prompt prefix stays cacheable — so the way back in is narrow rather than general:
+`AgentRunControls.refreshLedger` is called only for an asset THIS RUN acquired that the
+timeline references and the snapshot has no rows for, only at a turn boundary, and at most
+three times a run. One cache miss buys the facts about footage the run itself chose. The
+browser build supplies no reader and its snapshot stays fixed exactly as before.
 
-The same shape applies at the other end: enrolment is fire-and-forget, so a user who imports
-a clip and prompts within the first ~90 seconds gets no ledger for it. In the captured run
-the import preceded the prompt by nine minutes and this never showed.
+**Still open:** enrolment is fire-and-forget, so a user who imports a clip and prompts within
+the first ~90 seconds gets no ledger for it. That is a race before any run exists to refresh,
+so it needs an enrolment-aware wait or an honest "still measuring" line rather than a
+mid-run re-read. In the captured run the import preceded the prompt by nine minutes and this
+never showed.
 
 ## Scale, in numbers
 

@@ -13,6 +13,7 @@ import { applyProjectPatch, invertProjectPatch, type AnyOperation } from '@frame
 import { MockProvider } from './providers/mock.js';
 import { reduceEvents, type AiEvent } from './events.js';
 import { InMemoryPatchCommitLedger } from './kernel/commit-ledger.js';
+import type { LedgerSnapshot } from './ledger.js';
 import { EvidenceStore } from './kernel/evidence-store.js';
 import { ProviderError } from './reliability/types.js';
 import type { TimerApi } from './reliability/timeout.js';
@@ -1959,11 +1960,44 @@ describe('streamAgent', () => {
       rejectedOpCount: 0,
       rejectionReasons: [],
     });
-    expect(report).toMatch(/\*\*Applied 8 edits\*\* in 8 steps/);
+    // One outcome, so one edit — with the operation total kept beside it for anyone who
+    // wants to know what the engine actually did.
+    expect(report).toMatch(/\*\*Applied 1 edit\*\* \(8 operations\) in 8 steps/);
     expect(report).toContain('(×8)');
     // One row, not eight — and no line ends in a colon over nothing.
     expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(1);
     expect(report).not.toMatch(/:\s*$/m);
+  });
+
+  /**
+   * Run `29eee2df` restyled ONE caption track and closed with "**Applied 435 edits** in 4
+   * steps" over ten rows of "Deleted range Caption 1 · 47.8s–49.467s (×2)" and "…and 194
+   * more". A restyle tears the cue range down and rebuilds it, so the report was an
+   * operation dump of internal churn with the outcome nowhere in it.
+   */
+  it('folds a caption track’s rebuild into one line the editor can read', () => {
+    const ops = [
+      ...Array.from({ length: 200 }, (_, i) => ({
+        type: 'delete_range',
+        trackId: 'caption_1',
+        start: i,
+        end: i + 0.5,
+      })),
+      { type: 'set_track_caption_style', trackId: 'caption_1' },
+      { type: 'trim_clip', clipId: 'clip_a', start: 0, end: 2 },
+    ] as unknown as AnyOperation[];
+    const report = agentCompletionReport({
+      ops,
+      steps: 4,
+      rejectedOpCount: 0,
+      rejectionReasons: [],
+      captionTrackIds: new Set(['caption_1']),
+    });
+    // Two changes: the caption track, and the trim. 202 operations.
+    expect(report).toMatch(/\*\*Applied 2 edits\*\* \(202 operations\) in 4 steps/);
+    expect(report).toMatch(/Rewrote the captions on caption_1 · 201 caption edits/);
+    expect(report).not.toContain('…and 194 more');
+    expect(report.split('\n').filter((l) => l.startsWith('- '))).toHaveLength(2);
   });
 
   it('points at Export when the request asked for a file the panel cannot render', () => {
@@ -3753,6 +3787,66 @@ describe('streamAgent host tool execution (Phase T)', () => {
         { text: 'done', toolCalls: [] },
       ]);
 
+    /**
+     * VU8. A run's understanding of the footage is fixed for the whole `runAiStream`
+     * call, and in agent mode that is the whole multi-turn run: run `19e20922` sourced a
+     * clip at minute six and reasoned about it with `picture: undefined` for the next
+     * twenty-four, though the engine measured it about ninety seconds later.
+     */
+    it('re-reads the ledger for footage the run itself acquired', async () => {
+      const calls: string[][] = [];
+      const refreshed = {
+        shots: [],
+        digests: [],
+        coverage: { measured: 0, labelled: 0, described: 0, total: 0 },
+      } as unknown as LedgerSnapshot;
+      await drain(
+        new Orchestrator(stockProvider(), {
+          executor: hostRun({ asset: stockAsset, atSeconds: 12 }),
+        }).streamAgent(
+          input,
+          opts(),
+          {},
+          {
+            refreshLedger: async (assetIds) => {
+              calls.push([...assetIds]);
+              return refreshed;
+            },
+          },
+        ),
+      );
+      // Scoped to what this run put on the timeline — never the whole bin, because every
+      // re-read spends the prompt cache the fixed snapshot exists to protect.
+      expect(calls).toEqual([['stock_pexels_px_1']]);
+    });
+
+    it('does not re-read the ledger for a turn that acquired nothing', async () => {
+      const calls: string[][] = [];
+      const provider = new ScriptedProvider([
+        {
+          text: 'trimming',
+          toolCalls: [
+            { id: 't1', name: 'trim_clip', arguments: { clipId: 'clip_a', start: 0, end: 3 } },
+          ],
+        },
+        { text: 'done', toolCalls: [] },
+      ]);
+      await drain(
+        new Orchestrator(provider).streamAgent(
+          input,
+          opts(),
+          {},
+          {
+            refreshLedger: async (assetIds) => {
+              calls.push([...assetIds]);
+              return null;
+            },
+          },
+        ),
+      );
+      expect(calls).toEqual([]);
+    });
+
     // THE regression this suite exists for: before the `add_stock` arm existed,
     // the host spent quota and disk, the call fell through to the generic settle
     // with `ops: []`, and the model was told the clip had been added to a
@@ -3978,8 +4072,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
     });
 
     // A refusal the model cannot act on is how the captured run stalled: it was
-    // told what was wrong and never where to go instead.
-    it('tells the model where the clip does fit when it refuses a placement', async () => {
+    // told what was wrong and never where to go instead. Since ADR 0169 reached
+    // `add_stock`, an occupied span is LIFTED where the clip can hide what it covers;
+    // this fixture's stock asset is unmeasured, which is one of the cases that cannot be,
+    // and the refusal has to name a move all the same.
+    it('tells the model what to do instead when it refuses a placement', async () => {
       const events = await drain(
         new Orchestrator(stockProvider(), {
           executor: hostRun({ asset: stockAsset, atSeconds: 2 }),
@@ -3987,9 +4084,11 @@ describe('streamAgent host tool execution (Phase T)', () => {
       );
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
       const summary = result?.type === 'tool_result' ? result.summary : '';
-      expect(summary).toMatch(/already picture on the timeline/);
-      // A number it can pass straight back as `atSeconds`.
-      expect(summary).toMatch(/starts at \d+\.\ds/);
+      expect(summary).toMatch(/would sit on top of clip_a/);
+      expect(summary).toMatch(/has not been measured/);
+      // Two moves it can actually make, named.
+      expect(summary).toMatch(/split at 2s and 6s/);
+      expect(summary).toMatch(/once the engine has measured it/);
       expect(summary).not.toMatch(/pick an empty stretch/);
     });
 
@@ -4047,7 +4146,7 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(events.some((e) => e.type === 'diff')).toBe(false);
       const result = events.find((e) => e.type === 'tool_result' && e.toolCallId === 's1');
       expect(result?.type === 'tool_result' ? result.summary : '').toMatch(
-        /already picture on the timeline/,
+        /would sit on top of clip_a/,
       );
     });
   });

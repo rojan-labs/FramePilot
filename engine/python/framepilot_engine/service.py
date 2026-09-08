@@ -58,7 +58,7 @@ from framepilot_engine.analysis.freeze import (
     DEFAULT_MIN_FREEZE_SECONDS,
     detect_freezes,
 )
-from framepilot_engine.analysis.loudness import measure_loudness
+from framepilot_engine.analysis.loudness import measure_loudness, measure_shot_loudness
 from framepilot_engine.analysis.reference import (
     analysis_to_dict,
     analyze_reference_video,
@@ -1051,6 +1051,11 @@ class VisualIndexResponse(BaseModel):
     total: int = 0
     done: bool = False
     indexed: int = Field(default=0, description="New spans embedded across the slice.")
+    failed: int = Field(
+        default=0,
+        description="Assets in this slice that could not be indexed. A slice whose every "
+        "processed asset failed is never reported done — see the route.",
+    )
     captioned: int = Field(default=0, description="Scenes captioned across the slice.")
     captions_reason: str | None = Field(
         default=None,
@@ -2780,7 +2785,24 @@ def create_app(
         phashes = keyframe_dhashes(
             media_path, [s.keyframe_t for s in stats], timeout=timeout
         )
-        rows = shots_from_stats(asset_id, content_hash, stats, phashes=phashes)
+        # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
+        # producer: null for every shot of every asset, including assets with an audio
+        # stream, which is indistinguishable from "this asset is silent". One `ebur128`
+        # pass over the whole asset yields momentary loudness every 100ms; the shot spans
+        # bucket it. Skipped for an asset with no audio stream (`-vn` would leave ffmpeg
+        # nothing to output) and for a still, and never fatal: a measurement that fails
+        # leaves the field null, exactly as it was.
+        loudness: dict[int, float] = {}
+        if info.has_audio and not is_image:
+            try:
+                loudness = measure_shot_loudness(
+                    media_path, [(s.t0, s.t1) for s in stats], timeout=timeout
+                )
+            except (FFmpegError, OSError) as exc:
+                _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        rows = shots_from_stats(
+            asset_id, content_hash, stats, phashes=phashes, loudness_lufs=loudness
+        )
         try:
             store.upsert_shots(asset_id, content_hash, "measured", rows)
             # Rebuilt from the asset's whole ledger, not from `rows`: a digest that
@@ -4101,6 +4123,20 @@ def create_app(
                 items = items[:advanced]
                 break
 
+        # A slice that indexed NOTHING is not a slice that succeeded.
+        #
+        # `stop_reason` is only set once `TL_CONSECUTIVE_FAILURE_LIMIT` consecutive
+        # assets fail, so a batch of one — the common case — could never reach it: the
+        # cursor advanced past the failure and the job was filed DONE at progress 1.0 in
+        # 14-20ms having written zero shots. The desktop enroller decides whether to
+        # retry from exactly that state (`main.ts`), so those assets were remembered as
+        # enrolled permanently and never measured again. Every processed asset failing
+        # is a terminal condition of its own, whatever the consecutive count says.
+        processed = items[:advanced]
+        failed_count = sum(1 for item in processed if not item.ok)
+        if stop_reason is None and processed and failed_count == len(processed):
+            stop_reason = processed[-1].reason or "every asset in this slice failed to index"
+
         # Phase 3 — persist the advanced cursor + terminal state.
         new_cursor = cursor + advanced
         done = new_cursor >= total and stop_reason is None
@@ -4152,6 +4188,7 @@ def create_app(
             total=total,
             done=done,
             indexed=indexed,
+            failed=failed_count,
             captions_reason=tl_captions_reason,
             tiers=tier_states,
             coverage=coverage,
@@ -4556,7 +4593,18 @@ def create_app(
             items = [merged[asset_id] for asset_id in order]
 
             # Phase 3 — persist the advanced cursors + terminal state; embed captions.
-            done = current.done and exhausted is None
+            #
+            # Same rule as the hosted arm: a pass whose every asset failed is not done,
+            # however far the cursor got, and the reason has to be SET rather than
+            # implied — a not-done slice with no reason is one the client re-posts, and
+            # the cursor is already at the end.
+            failed_count = sum(1 for item in items if not item.ok)
+            all_failed_reason = (
+                (items[-1].reason or "every asset in this slice failed to index")
+                if items and failed_count == len(items)
+                else None
+            )
+            done = current.done and exhausted is None and all_failed_reason is None
             captions_reason = (
                 None
                 if describe_producer is not None
@@ -4571,14 +4619,16 @@ def create_app(
                         # up on an exhausted key ring is FAILED, never "running".
                         state=(
                             JobState.FAILED
-                            if exhausted is not None
+                            if exhausted is not None or all_failed_reason is not None
                             else JobState.DONE
                             if done
                             else JobState.RUNNING
                         ),
                         progress=_job_progress(payload, total, plan.deep_possible),
                         payload=payload,
-                        error=EXHAUSTED_REASON if exhausted is not None else None,
+                        error=(
+                            EXHAUSTED_REASON if exhausted is not None else all_failed_reason
+                        ),
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
                         _reindex_embeddings_with_captions(
@@ -4618,12 +4668,13 @@ def create_app(
             return _tiered(
                 VisualIndexResponse(
                     available=True,
-                    reason=EXHAUSTED_REASON if exhausted is not None else None,
+                    reason=(EXHAUSTED_REASON if exhausted is not None else all_failed_reason),
                     job_id=job.id,
                     cursor=new_cursor,
                     total=total,
                     done=done,
                     indexed=indexed,
+                    failed=failed_count,
                     captioned=captioned,
                     captions_reason=captions_reason,
                     coverage=coverage,

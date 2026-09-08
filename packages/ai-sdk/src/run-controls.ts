@@ -19,6 +19,7 @@
  * interface (`durable-run-controls.ts`); the renderer never owns these objects.
  */
 import { createLogger } from '@framepilot/shared-types';
+import type { LedgerSnapshot } from './ledger.js';
 import type { TimerApi } from './reliability/timeout.js';
 
 const log = createLogger('ai-sdk:run-controls');
@@ -105,8 +106,7 @@ export interface AskUserOption {
 
 /** What the editor did with a question: picked/typed an answer, or stopped the run. */
 export type AskUserAnswer =
-  | { readonly kind: 'answered'; readonly answer: string }
-  | { readonly kind: 'cancelled' };
+  { readonly kind: 'answered'; readonly answer: string } | { readonly kind: 'cancelled' };
 
 /**
  * Awaits the editor's answer to a question the MODEL wrote (P12).
@@ -200,4 +200,34 @@ export interface AgentRunControls {
    * is recorded (the plain browser build has no brain, the same honest gap as proxies).
    */
   readonly rememberDecision?: (note: { readonly title: string; readonly body: string }) => void;
+  /**
+   * Re-reads the shot ledger for footage this run ACQUIRED, once the engine has measured it.
+   *
+   * A run's understanding of the footage is fixed for the whole `runAiStream` call, and in
+   * agent mode that call spans the entire multi-turn run — half an hour and sixty turns in
+   * run `19e20922`. That is deliberate: the ledger renders into the prompt prefix, and
+   * re-reading it every turn would spend the cache on facts that did not move. It is wrong
+   * for exactly one asset: one the run downloaded itself. Enrolment measures it about ninety
+   * seconds later, and the run reasons about it with `picture: undefined` for the rest of
+   * its life — no shot words in its row, nothing in the digest, and `match_color` /
+   * `add_transitions` declining on it for want of measurements.
+   *
+   * So the trade is made narrowly: called only when an asset the TIMELINE references was
+   * acquired by this run and still has no rows, at a turn boundary, and at most a few times
+   * (see `MAX_LEDGER_REFRESHES`). One cache miss, in exchange for the facts about footage
+   * the run itself chose.
+   *
+   * Fire-and-forget in spirit like `rememberDecision`: a host that cannot read returns
+   * `null`/`undefined` and the run carries on with what it has. Absent ⇒ the ledger stays
+   * fixed for the run, exactly as before (the browser build has no brain).
+   *
+   * @param assetIds - The acquired assets to re-read; the host re-reads the whole run's
+   *   asset set and refreshes these entries (`LedgerClient.snapshot`'s `refresh`).
+   * @param signal - The run's abort signal.
+   * @returns A fresh snapshot, or `null` when nothing could be read.
+   */
+  readonly refreshLedger?: (
+    assetIds: readonly string[],
+    signal?: AbortSignal,
+  ) => Promise<LedgerSnapshot | null>;
 }
