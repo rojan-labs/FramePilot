@@ -9011,7 +9011,14 @@ export class Orchestrator {
               operation.idempotencyKey.startsWith(idempotencyPrefix),
           )
         ) {
-          yield emit.notification('Skipped an already committed operation during retry recovery.');
+          // This is the sentence that ENDS a run on this path — `done: true` below settles
+          // it — so it has to say so. Run `df81d58e` finished on a bare "Skipped an already
+          // committed operation" and the editor could not tell whether the model stopped or
+          // was stopped.
+          yield emit.notification(
+            'The next planned operation had already been applied earlier in this run, so ' +
+              'there is nothing left to do — finishing here and running the checks.',
+          );
           return turnBase(index, emit.seq(), {
             done: true,
             note: 'Idempotency hit: this planned operation already succeeded.',

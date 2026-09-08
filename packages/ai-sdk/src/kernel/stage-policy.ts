@@ -346,3 +346,38 @@ export function stageAllowsTool(stage: RunStage, name: string, mutates: boolean)
  * believed it. The live rail is `conductor.ts#researchBudgetSpent` + `RESEARCH_BUDGET_TURNS`,
  * which withholds reconnaissance descriptors for the following turn.
  */
+
+/**
+ * Operation types that record something ABOUT the project without editing the cut:
+ * a transcript, a lane, a marker, a lane's flags.
+ *
+ * `plan → apply` fires on an applied patch (`stageAdvanceFor`), and `apply` withholds
+ * every analysis descriptor. Run `df81d58e` (2026-09-08) called `add_track` and
+ * `transcribe` as its second turn — eight seconds in, before a single clip was placed —
+ * and that patch (`add_layer` + `set_transcript`) opened `apply`: `map_footage`,
+ * `describe_footage`, `search_visual`, `detect_scenes`, `analyze_silence` and
+ * `index_media` were withheld for the rest of the run, and the brief's whole
+ * understand-before-touching phase never happened. A transcript is what analysis reads,
+ * not what execution writes; landing one is not proof the run is executing.
+ */
+export const BOOKKEEPING_OPERATION_TYPES: ReadonlySet<string> = new Set([
+  'set_transcript',
+  'add_layer',
+  'remove_layer',
+  'move_layer',
+  'set_track_flags',
+  'add_marker',
+  'remove_marker',
+]);
+
+/**
+ * Did an applied patch EDIT the cut, or only keep books about it?
+ *
+ * An empty list answers yes — a caller that applied something but did not hand the
+ * operations over is trusted exactly as before this predicate existed — so only a patch
+ * made wholly of {@link BOOKKEEPING_OPERATION_TYPES} is held back from `apply`.
+ */
+export function executedAnEdit(ops: readonly { readonly type: string }[]): boolean {
+  if (ops.length === 0) return true;
+  return ops.some((op) => !BOOKKEEPING_OPERATION_TYPES.has(op.type));
+}

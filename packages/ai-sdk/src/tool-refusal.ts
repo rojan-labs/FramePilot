@@ -126,7 +126,13 @@ export type RefusalCause =
    */
   | 'caption_style_units'
   /** `add_caption_layer` was asked for a cue shorter than any preset's floor. */
-  | 'caption_cue_too_short';
+  | 'caption_cue_too_short'
+  /**
+   * `set_clip_crop` was handed a rect whose shape does not match the frame, so the
+   * renderer would letterbox it. Depends on the crop, the source and the project, none of
+   * which the arrangement changes.
+   */
+  | 'crop_letterboxes';
 
 /**
  * Refusal causes that are verdicts about the SURFACE, not about the arrangement — so no
@@ -154,6 +160,7 @@ export const ARRANGEMENT_INDEPENDENT_CAUSES: ReadonlySet<RefusalCause> = new Set
   'text_does_not_fit',
   'caption_style_units',
   'caption_cue_too_short',
+  'crop_letterboxes',
 ]);
 
 /**
