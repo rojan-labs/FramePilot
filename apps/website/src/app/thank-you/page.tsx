@@ -19,7 +19,7 @@ const STEPS = [
     icon: Mail,
     slot: '01',
     title: 'Check your inbox',
-    desc: 'Your license key is on its way from Freemius. It also appears on the receipt page.',
+    desc: 'Your license key is on its way from Dodo Payments. It also appears on the receipt page.',
   },
   {
     icon: Download,

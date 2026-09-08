@@ -8,8 +8,8 @@
  *    unaffected.
  *  - **valid** → render children (the editor).
  *  - **needs_activation** → the activation card: paste a key, activate against
- *    Freemius (in main), with a link to subscribe.
- *  - **invalid with a previously-stored key** (expired / cancelled subscription) →
+ *    Dodo Payments (in main), with a link to subscribe.
+ *  - **invalid with a previously-stored key** (lapsed / cancelled subscription) →
  *    a "renew" card showing the masked key + expiry and a Renew CTA, while still
  *    allowing a different key to be entered.
  *
@@ -29,7 +29,7 @@ type GateState =
   | { phase: 'bypass' }
   | { phase: 'gated'; status: LicenseStatus };
 
-/** Format a Freemius/ISO date for display, tolerating parse failures. */
+/** Format an ISO date for display, tolerating parse failures. */
 function formatExpiry(value: string | null): string | null {
   if (!value) return null;
   const iso = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;

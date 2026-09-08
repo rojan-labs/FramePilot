@@ -28,6 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
+import { hostname } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -657,13 +658,15 @@ function registerIpcHandlers(): void {
       });
   };
 
-  // License gate (100%-paid app). The service holds the key + install token in the
+  // License gate (100%-paid app). The service holds the key + instance id in the
   // main process; only a safe status projection ever crosses the bridge. Enforcement
-  // is active only when a Freemius product id is configured (else dev/unconfigured
-  // builds run freely — see LicenseService). The activate/validate endpoints are
-  // public and need only the product id, so no secret ships in the app.
-  const licenseProductId =
-    process.env.FRAMEPILOT_FREEMIUS_PRODUCT_ID ?? process.env.FREEMIUS_PRODUCT_ID ?? undefined;
+  // is active only when a Dodo product id is configured (else dev/unconfigured
+  // builds run freely — see LicenseService). Dodo's activate/validate/deactivate
+  // endpoints are public and authenticate with the license key itself, so no
+  // merchant secret ships in the app.
+  const licenseProductId = process.env.FRAMEPILOT_DODO_PRODUCT_ID ?? undefined;
+  const licenseEnvironment =
+    process.env.FRAMEPILOT_DODO_ENVIRONMENT === 'test' ? ('test' as const) : ('live' as const);
   // OS-keychain-backed encryption for license.json (anti-crack). `safeStorage`
   // uses Keychain (macOS) / DPAPI (Windows) / libsecret (Linux); where no keyring
   // is available it reports unavailable and the store degrades to plaintext
@@ -682,6 +685,10 @@ function registerIpcHandlers(): void {
       licenseCrypto,
     ),
     productId: licenseProductId,
+    environment: licenseEnvironment,
+    // Recognisable in the customer's Dodo activation list when they need to free
+    // a slot ("which machine is this?").
+    deviceName: `FramePilot — ${hostname()}`,
     fetchFn: electronFetch,
     devBypass: process.env.FRAMEPILOT_LICENSE_DEV_BYPASS === '1',
   });

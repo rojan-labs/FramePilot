@@ -1,19 +1,27 @@
 /**
- * License service — orchestrates the {@link LicenseStore} and the Freemius client
- * to answer "can this app run?" and to activate/deactivate a key.
+ * License service — orchestrates the {@link LicenseStore} and the Dodo Payments
+ * client to answer "can this app run?" and to activate/deactivate a key.
  *
- * Enforcement rule: the paywall is active **only when a Freemius product id is
- * configured**. In an unconfigured/dev build (no `FRAMEPILOT_FREEMIUS_PRODUCT_ID`)
+ * Enforcement rule: the paywall is active **only when a Dodo product id is
+ * configured**. In an unconfigured/dev build (no `FRAMEPILOT_DODO_PRODUCT_ID`)
  * or with `FRAMEPILOT_LICENSE_DEV_BYPASS=1`, the gate reports valid so the app
- * runs — this keeps dev + the existing test suite working and never bricks a build
- * that simply hasn't wired Freemius yet. Packaged production builds set the id.
+ * runs — this keeps dev + the existing test suite working and never bricks a
+ * build that simply hasn't wired payments yet. Packaged production builds set
+ * the id. (Dodo's license endpoints don't need the product id themselves; it is
+ * the one setting that says "this build is a paid build", and the website uses
+ * the same id for checkout.)
  *
  * All I/O is injected (store + fetch), so this is unit-testable without Electron
  * or the network.
  */
 import type { LicenseStatus } from '@framepilot/shared-types';
 import type { LicenseStore } from './license-store.js';
-import { activateLicense, validateLicense } from './freemius-client.js';
+import {
+  activateLicense,
+  deactivateLicense,
+  validateLicense,
+  type DodoEnvironment,
+} from './dodo-client.js';
 
 type FetchFn = typeof globalThis.fetch;
 
@@ -21,11 +29,15 @@ const ONE_DAY_MS = 24 * 60 * 60 * 1000;
 
 export interface LicenseServiceOptions {
   store: LicenseStore;
-  /** Freemius product id; when absent, enforcement is disabled (dev/unconfigured). */
+  /** Dodo product id this build sells; when absent, enforcement is disabled. */
   productId?: string | undefined;
+  /** Which Dodo environment to verify against. Defaults to `live`. */
+  environment?: DodoEnvironment;
+  /** Shown in the customer's Dodo activation list, e.g. "FramePilot — studio-mbp". */
+  deviceName?: string;
   fetchFn: FetchFn;
   now?: () => number;
-  /** Re-verify with Freemius when the cached validation is older than this. */
+  /** Re-verify with Dodo when the cached validation is older than this. */
   revalidateIntervalMs?: number;
   /** Force-disable the gate (dev). */
   devBypass?: boolean;
@@ -34,6 +46,8 @@ export interface LicenseServiceOptions {
 export class LicenseService {
   private readonly store: LicenseStore;
   private readonly productId: string | undefined;
+  private readonly environment: DodoEnvironment;
+  private readonly deviceName: string;
   private readonly fetchFn: FetchFn;
   private readonly now: () => number;
   private readonly revalidateIntervalMs: number;
@@ -42,13 +56,15 @@ export class LicenseService {
   public constructor(opts: LicenseServiceOptions) {
     this.store = opts.store;
     this.productId = opts.productId;
+    this.environment = opts.environment ?? 'live';
+    this.deviceName = opts.deviceName ?? 'FramePilot';
     this.fetchFn = opts.fetchFn;
     this.now = opts.now ?? Date.now;
     this.revalidateIntervalMs = opts.revalidateIntervalMs ?? ONE_DAY_MS;
     this.devBypass = opts.devBypass ?? false;
   }
 
-  /** Enforcement is off when Freemius isn't configured or dev-bypass is set. */
+  /** Enforcement is off when payments aren't configured or dev-bypass is set. */
   private enforcementDisabled(): boolean {
     return this.devBypass || !this.productId;
   }
@@ -63,34 +79,29 @@ export class LicenseService {
   }
 
   /**
-   * Status for the gate. Revalidates against Freemius when the cached result is
+   * Status for the gate. Revalidates against Dodo when the cached result is
    * stale; on a network error it leaves the cache intact so the offline-grace
-   * window in {@link deriveStatus} applies.
+   * window in `deriveStatus` applies.
    */
   public async getStatus(): Promise<LicenseStatus> {
     if (this.enforcementDisabled()) return this.devValid();
     const stored = this.store.read();
-    if (this.productId && stored?.licenseKey && stored.installId) {
+    if (stored?.licenseKey) {
       const stale =
         !stored.lastValidatedAt || this.now() - stored.lastValidatedAt > this.revalidateIntervalMs;
       if (stale) {
         const res = await validateLicense(
           {
-            productId: this.productId,
-            installId: stored.installId,
-            uid: stored.uid,
+            environment: this.environment,
             licenseKey: stored.licenseKey,
+            instanceId: stored.instanceId,
           },
           this.fetchFn,
         );
         if (res.ok) {
-          this.store.update({
-            isValid: res.isValid,
-            expiration: res.expiration,
-            lastValidatedAt: this.now(),
-          });
+          this.store.update({ isValid: res.valid, lastValidatedAt: this.now() });
         } else if (!res.network) {
-          // Authoritative failure (cancelled / not found) — mark invalid.
+          // Authoritative failure from the API — mark invalid.
           this.store.update({ isValid: false, lastValidatedAt: this.now() });
         } else {
           // Network error → keep the cache; the offline-grace window (in
@@ -115,9 +126,13 @@ export class LicenseService {
         message: 'Please enter your license key.',
       };
     }
-    const uid = this.store.ensureUid();
+    const deviceId = this.store.ensureDeviceId();
     const res = await activateLicense(
-      { productId: this.productId as string, uid, licenseKey: key },
+      {
+        environment: this.environment,
+        licenseKey: key,
+        deviceName: `${this.deviceName} (${deviceId.slice(0, 8)})`,
+      },
       this.fetchFn,
     );
     if (!res.ok) {
@@ -125,17 +140,31 @@ export class LicenseService {
     }
     this.store.update({
       licenseKey: key,
-      installId: res.installId,
-      ...(res.installApiToken ? { installApiToken: res.installApiToken } : {}),
-      isValid: res.isValid,
-      expiration: res.expiration,
+      instanceId: res.instanceId,
+      isValid: true,
       lastValidatedAt: this.now(),
     });
     return this.store.status();
   }
 
-  /** Remove the local license (keeps the device uid). */
+  /**
+   * Remove the local license (keeps the device id) and, best effort, release the
+   * activation slot at Dodo so the customer can activate another machine. A
+   * failed remote release must never block the local one — the user asked to
+   * sign this machine out.
+   */
   public async deactivate(): Promise<LicenseStatus> {
+    const stored = this.store.read();
+    if (!this.enforcementDisabled() && stored?.licenseKey && stored.instanceId) {
+      await deactivateLicense(
+        {
+          environment: this.environment,
+          licenseKey: stored.licenseKey,
+          instanceId: stored.instanceId,
+        },
+        this.fetchFn,
+      );
+    }
     this.store.clear();
     return this.getStatus();
   }

@@ -6,17 +6,17 @@ export type { BillingCycle, PlanPrice, PricingPlan };
 /**
  * Typed fallback pricing. FramePilot is a subscription — $25/month or $199/year
  * (billed annually). These defaults are OVERRIDDEN at build time by the live
- * Freemius price (see `pricing.generated.ts`) so production always shows the real
- * number. Edit here to change the offline/default value.
+ * Dodo Payments price (see `pricing.generated.ts`) so production always shows the
+ * real number. Edit here to change the offline/default value.
  */
 const FALLBACK_PLANS: PricingPlan[] = [
   {
     id: 'pro',
     name: 'FramePilot',
     tagline: 'The whole editor, one subscription.',
-    freemiusPlanIds: {
-      monthly: process.env.NEXT_PUBLIC_FREEMIUS_PLAN_ID_MONTHLY,
-      annual: process.env.NEXT_PUBLIC_FREEMIUS_PLAN_ID_ANNUAL,
+    dodoProductIds: {
+      monthly: process.env.NEXT_PUBLIC_DODO_PRODUCT_ID_MONTHLY,
+      annual: process.env.NEXT_PUBLIC_DODO_PRODUCT_ID_ANNUAL,
     },
     price: { monthly: 25, annual: 199 },
     currency: 'USD',
@@ -66,7 +66,7 @@ export function getPlans(): PricingPlan[] {
     return {
       ...plan,
       price: override.price ?? plan.price,
-      freemiusPlanIds: override.freemiusPlanIds ?? plan.freemiusPlanIds,
+      dodoProductIds: override.dodoProductIds ?? plan.dodoProductIds,
     };
   });
 }

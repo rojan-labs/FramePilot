@@ -18,12 +18,13 @@ export interface PricingPlan {
   name: string;
   tagline: string;
   /**
-   * Freemius plan id used to open checkout, per billing cycle (resolved from
-   * env/generated pricing at build). FramePilot's Pro plan is two separate
-   * Freemius plans — "Pro Monthly" and "Pro Yearly" — so checkout needs the
-   * id for whichever cadence the user picked, not one shared id.
+   * Dodo Payments product id used to open checkout, per billing cycle (resolved
+   * from env/generated pricing at build). FramePilot's Pro plan is two separate
+   * Dodo products — "FramePilot Monthly" and "FramePilot Yearly" — because a Dodo
+   * product carries one recurring price, so checkout needs the id for whichever
+   * cadence the user picked, not one shared id.
    */
-  freemiusPlanIds?: Partial<Record<BillingCycle, string>>;
+  dodoProductIds?: Partial<Record<BillingCycle, string>>;
   /** Subscription pricing (monthly + annual). `null` ⇒ contact/custom plan. */
   price: PlanPrice | null;
   currency: string;
@@ -31,7 +32,7 @@ export interface PricingPlan {
   badge?: string;
   cta: {
     label: string;
-    /** `checkout` opens the Freemius overlay; `link` navigates. */
+    /** `checkout` links to Dodo hosted checkout; `link` navigates. */
     kind: 'checkout' | 'link';
     href?: string;
   };
@@ -45,6 +46,6 @@ export interface GeneratedPricing {
   currency: string;
   plans: Record<
     string,
-    { price: PlanPrice | null; freemiusPlanIds?: Partial<Record<BillingCycle, string>> }
+    { price: PlanPrice | null; dodoProductIds?: Partial<Record<BillingCycle, string>> }
   >;
 }

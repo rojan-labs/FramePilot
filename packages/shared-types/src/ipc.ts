@@ -1016,9 +1016,9 @@ export type AiStreamAnswerMessage =
   | { readonly toolCallId: string; readonly kind: 'cancelled' };
 
 /**
- * License gate (100%-paid app). The desktop requires a valid Freemius license to
- * run. `licensed` is the convenience boolean the renderer gate reads; the license
- * key + install token NEVER cross the bridge — only this projection does.
+ * License gate (100%-paid app). The desktop requires a valid Dodo Payments license
+ * key to run. `licensed` is the convenience boolean the renderer gate reads; the
+ * license key + instance id NEVER cross the bridge — only this projection does.
  */
 export type LicenseStatusKind = 'valid' | 'invalid' | 'needs_activation';
 
@@ -1026,7 +1026,11 @@ export interface LicenseStatus {
   readonly status: LicenseStatusKind;
   /** True only when the app should unlock (status === 'valid'). */
   readonly licensed: boolean;
-  /** Subscription expiration (Freemius date/ISO string) or null for lifetime/none. */
+  /**
+   * Known expiry (ISO string) or null. Dodo's public license API does not report
+   * one for subscription keys — validity follows the subscription — so this is
+   * normally null and the gate relies on periodic revalidation.
+   */
   readonly expiresAt: string | null;
   /** Masked key for display (e.g. "••••-••••-AB12"); never the full key. */
   readonly maskedKey?: string;
@@ -1673,7 +1677,7 @@ export interface FramePilotBridge {
   ping(): Promise<'pong'>;
   /**
    * Current license status (safe projection — no key/token). The gate calls this
-   * on mount; it may revalidate against Freemius in the main process.
+   * on mount; it may revalidate against Dodo Payments in the main process.
    */
   licenseStatus(): Promise<LicenseStatus>;
   /** Activate a license key on this device; returns the new status. */

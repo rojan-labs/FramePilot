@@ -1,6 +1,6 @@
 # @framepilot/website
 
-The FramePilot marketing site. A statically exported Next.js App Router application for the landing page, pricing and Freemius checkout, markdown blog, downloads, docs, changelog, and legal pages.
+The FramePilot marketing site. A statically exported Next.js App Router application for the landing page, pricing and Dodo Payments checkout, markdown blog, downloads, docs, changelog, and legal pages.
 
 The site is built on one idea: **it behaves like a timeline**. Editing vocabulary — cut, ripple, in and out points, playhead, bin, tracks, timecode — is the visual and copy metaphor, so the marketing shell argues for the product by being made of the same material. See **ADR 0172** for the direction and the intro, **ADR 0054** for the orange brand, **ADR 0036** for the original architecture, and **[docs/guides/website-and-licensing.md](../../docs/guides/website-and-licensing.md)** for setup, environment variables, and the license flow.
 
@@ -24,7 +24,7 @@ The development server uses port `4321`. The production build is statically expo
 src/app/          App Router routes and global marketing design system
 src/components/   Shared navigation, footer, product artifacts, pricing, downloads, sections
 src/content/      Product capability and FAQ copy kept aligned with current repository behavior
-src/lib/          Site config, SEO, pricing, Freemius checkout, blog and markdown utilities
+src/lib/          Site config, SEO, pricing, Dodo checkout, blog and markdown utilities
 content/blog/     Frontmatter-driven Markdown posts
 scripts/          OG/icon generation and live pricing refresh
 public/           Generated OG assets, icons, manifest, and public brand assets
@@ -70,7 +70,7 @@ public/           Generated OG assets, icons, manifest, and public brand assets
 - The desktop editor geometry is important: tool rail at far left, assets/program workspace in the middle, AI/Inspector rail spanning the right side, and the timeline below the assets/program workspace rather than underneath the AI rail.
 - Interactive product demos must communicate real state progression: footage/project ready → user request → agent activity/plan → timeline mutation → completed, inspectable result.
 - Product claims must match the current README, architecture, and shipped behaviour, and must come from `src/content/*.ts`, `src/lib/site.ts`, the FAQ, `content/docs/*.mdx`, or the repository README. Copy may be rewritten freely in voice and structure, never in facts. No invented metrics, testimonials, or customer logos.
-- Pricing remains driven by the typed pricing layer and Freemius integration. Do not hardcode a second pricing source of truth.
+- Pricing remains driven by the typed pricing layer and the Dodo Payments integration. Do not hardcode a second pricing source of truth.
 - Reading routes such as blog, docs, changelog, and legal should prioritise typography, rails, dividers, and navigation over marketing decoration.
 - Every route should feel like the same product without reusing the homepage composition mechanically.
 - Keep layouts useful from mobile widths through large desktop displays. Product mockups must reflow intentionally rather than reserve width for hidden panels.

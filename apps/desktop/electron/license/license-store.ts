@@ -6,7 +6,7 @@
  * Mirrors {@link AiConfigStore}: no `electron` import (takes a file path + a
  * crypto adapter, so it is unit-testable off a temp file), tolerant of a
  * missing/corrupt file, and it exposes **only** a renderer-safe
- * {@link LicenseStatus} to callers — the license key and install token never
+ * {@link LicenseStatus} to callers — the license key and instance id never
  * leave the main process.
  *
  * WHY encryption (anti-crack, security hardening): the record used to be
@@ -62,17 +62,8 @@ function isEnvelope(value: unknown): value is EncryptedEnvelope {
   return typeof (value as EncryptedEnvelope | null)?.enc === 'string';
 }
 
-/**
- * Freemius rejects any activation `uid` longer than 32 characters
- * (`uid_too_long`, HTTP 400). Node's `randomUUID()` is 36 chars (it includes
- * four hyphens), so the raw value must be normalized before it ever reaches the
- * API — hence the default generator strips the hyphens to a 32-char hex id, as
- * the Freemius docs prescribe (`randomUUID().replace(/-/g, '')`).
- */
-const FREEMIUS_UID_MAX_LEN = 32;
-
-/** Freemius-safe device uid: 32-char hex (randomUUID with its hyphens removed). */
-function freemiusUid(): string {
+/** Stable device identifier: 32-char hex (randomUUID with its hyphens removed). */
+function deviceId(): string {
   return randomUUID().replace(/-/g, '');
 }
 
@@ -86,8 +77,8 @@ export class LicenseStore {
   public constructor(
     private readonly filePath: string,
     private readonly graceMs: number = DEFAULT_GRACE_MS,
-    /** Injectable for tests. Defaults to a Freemius-safe 32-char hex uid. */
-    private readonly genUid: () => string = freemiusUid,
+    /** Injectable for tests. Defaults to a 32-char hex device id. */
+    private readonly genDeviceId: () => string = deviceId,
     private readonly now: () => number = Date.now,
     /** OS-backed encryption; defaults to disabled (plaintext) for tests/off-Electron. */
     private readonly crypto: LicenseCrypto = PLAINTEXT_CRYPTO,
@@ -121,7 +112,7 @@ export class LicenseStore {
       // user, disabled crypto) fails closed.
       try {
         const inner = JSON.parse(this.crypto.decrypt(parsed.enc)) as Partial<StoredLicense>;
-        if (typeof inner.uid !== 'string' || inner.uid.length === 0) return null;
+        if (typeof inner.deviceId !== 'string' || inner.deviceId.length === 0) return null;
         return inner as StoredLicense;
       } catch {
         return null;
@@ -130,7 +121,7 @@ export class LicenseStore {
 
     // Plaintext record.
     const record = parsed as Partial<StoredLicense>;
-    if (typeof record.uid !== 'string' || record.uid.length === 0) return null;
+    if (typeof record.deviceId !== 'string' || record.deviceId.length === 0) return null;
     // When encryption is available, never trust a plaintext record's validity —
     // strip it so the service re-verifies online (anti-forgery + migration).
     return this.crypto.available() ? untrusted(record as StoredLicense) : (record as StoredLicense);
@@ -150,31 +141,28 @@ export class LicenseStore {
   }
 
   /**
-   * The stable device uid used for Freemius activation. Generated + persisted on
-   * first read so the same device keeps its identity across activations.
+   * The stable device id that names this machine's Dodo activation. Generated +
+   * persisted on first read so the device keeps its identity across activations.
    */
-  public ensureUid(): string {
+  public ensureDeviceId(): string {
     const existing = this.read();
-    // Reuse a persisted uid, but only if it's within Freemius's 32-char limit.
-    // A build predating that fix may have written a 36-char `randomUUID()` that
-    // Freemius rejects (`uid_too_long`); regenerate so activation can succeed.
-    if (existing?.uid && existing.uid.length <= FREEMIUS_UID_MAX_LEN) return existing.uid;
-    const uid = this.genUid();
-    this.write({ ...(existing ?? {}), uid });
-    return uid;
+    if (existing?.deviceId) return existing.deviceId;
+    const id = this.genDeviceId();
+    this.write({ ...(existing ?? {}), deviceId: id });
+    return id;
   }
 
-  /** Merge a partial update into the stored record (creating uid if needed). */
+  /** Merge a partial update into the stored record (creating the id if needed). */
   public update(patch: Partial<StoredLicense>): StoredLicense {
-    const current: StoredLicense = this.read() ?? { uid: this.ensureUid() };
-    const next: StoredLicense = { ...current, ...patch, uid: current.uid };
+    const current: StoredLicense = this.read() ?? { deviceId: this.ensureDeviceId() };
+    const next: StoredLicense = { ...current, ...patch, deviceId: current.deviceId };
     this.write(next);
     return next;
   }
 
-  /** Clear the license (deactivation) but keep the device uid. */
+  /** Clear the license (deactivation) but keep the device id. */
   public clear(): void {
-    this.write({ uid: this.ensureUid() });
+    this.write({ deviceId: this.ensureDeviceId() });
   }
 
   /** The renderer-safe status derived from the current stored state. */

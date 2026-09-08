@@ -27,7 +27,7 @@ export default function TermsPage() {
         <p>FramePilot is a paid application. A valid license key grants you a non-exclusive, non-transferable right to install and use the Software on the number of devices permitted by your plan. You may move a license between your own machines by deactivating and re-activating it. You may not resell, sublicense, or share your license key.</p>
 
         <h2>Payments &amp; refunds</h2>
-        <p>Payments are processed by <strong>Freemius</strong>, our merchant of record. If a subscription applies, it renews automatically until cancelled. If FramePilot isn&rsquo;t the right fit, contact us within <strong>14 days</strong> of purchase for a full refund.</p>
+        <p>Payments are processed by <strong>Dodo Payments</strong>, our merchant of record. If a subscription applies, it renews automatically until cancelled. If FramePilot isn&rsquo;t the right fit, contact us within <strong>14 days</strong> of purchase for a full refund.</p>
 
         <h2>Acceptable use</h2>
         <p>You are responsible for the content you create and for holding the rights to any media you edit. Do not use FramePilot to produce unlawful content or to infringe others&rsquo; rights.</p>

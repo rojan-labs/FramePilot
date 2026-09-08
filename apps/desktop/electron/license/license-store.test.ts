@@ -1,6 +1,6 @@
 /**
- * LicenseStore tests: uid generation/persistence, update/clear round-trips, the
- * secret-free status projection, and corrupt-file tolerance.
+ * LicenseStore tests: device-id generation/persistence, update/clear round-trips,
+ * the secret-free status projection, and corrupt-file tolerance.
  */
 import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -38,37 +38,26 @@ describe('LicenseStore', () => {
     expect(store.status().status).toBe('needs_activation');
   });
 
-  it('generates and persists a stable uid', () => {
+  it('generates and persists a stable device id', () => {
     let n = 0;
-    const store = new LicenseStore(file, DEFAULT_GRACE_MS, () => `uid-${++n}`);
-    const uid = store.ensureUid();
-    expect(uid).toBe('uid-1');
-    // Second call reuses the persisted uid, never regenerates.
-    expect(store.ensureUid()).toBe('uid-1');
-    expect(JSON.parse(readFileSync(file, 'utf8')).uid).toBe('uid-1');
+    const store = new LicenseStore(file, DEFAULT_GRACE_MS, () => `dev-${++n}`);
+    expect(store.ensureDeviceId()).toBe('dev-1');
+    // Second call reuses the persisted id, never regenerates.
+    expect(store.ensureDeviceId()).toBe('dev-1');
+    expect(JSON.parse(readFileSync(file, 'utf8')).deviceId).toBe('dev-1');
   });
 
-  it('generates a Freemius-safe uid (<=32 chars, no hyphens) by default', () => {
-    // Freemius rejects any activation uid longer than 32 chars (uid_too_long);
-    // the default generator must not emit a raw 36-char randomUUID.
-    const uid = new LicenseStore(file).ensureUid();
-    expect(uid.length).toBeLessThanOrEqual(32);
-    expect(uid).not.toContain('-');
-  });
-
-  it('regenerates a persisted over-long uid so activation can succeed', () => {
-    // A pre-fix build wrote a 36-char randomUUID that Freemius would reject.
-    writeFileSync(file, JSON.stringify({ uid: '123e4567-e89b-12d3-a456-426614174000' }), 'utf8');
-    const store = new LicenseStore(file, DEFAULT_GRACE_MS, () => 'shortuid');
-    expect(store.ensureUid()).toBe('shortuid');
-    expect(JSON.parse(readFileSync(file, 'utf8')).uid).toBe('shortuid');
+  it('generates a compact hyphen-free device id by default', () => {
+    const id = new LicenseStore(file).ensureDeviceId();
+    expect(id.length).toBe(32);
+    expect(id).not.toContain('-');
   });
 
   it('updates and derives a valid, key-masked status without leaking the key', () => {
     const store = new LicenseStore(
       file,
       DEFAULT_GRACE_MS,
-      () => 'uid-x',
+      () => 'dev-x',
       () => 1000,
     );
     store.update({ licenseKey: 'ABC-DEF-7788', isValid: true, lastValidatedAt: 1000 });
@@ -78,11 +67,11 @@ describe('LicenseStore', () => {
     expect(JSON.stringify(status)).not.toContain('ABC-DEF-7788');
   });
 
-  it('clear() removes the license but keeps the uid', () => {
-    const store = new LicenseStore(file, DEFAULT_GRACE_MS, () => 'uid-keep');
+  it('clear() removes the license but keeps the device id', () => {
+    const store = new LicenseStore(file, DEFAULT_GRACE_MS, () => 'dev-keep');
     store.update({ licenseKey: 'K-1', isValid: true });
     store.clear();
-    expect(store.read()?.uid).toBe('uid-keep');
+    expect(store.read()?.deviceId).toBe('dev-keep');
     expect(store.read()?.licenseKey).toBeUndefined();
     expect(store.status().status).toBe('needs_activation');
   });
@@ -99,7 +88,7 @@ describe('LicenseStore', () => {
       new LicenseStore(
         file,
         DEFAULT_GRACE_MS,
-        () => 'uid-e',
+        () => 'dev-e',
         () => 1000,
         fakeCrypto,
       );
@@ -123,9 +112,9 @@ describe('LicenseStore', () => {
       writeFileSync(
         file,
         JSON.stringify({
-          uid: 'uid-e',
+          deviceId: 'dev-e',
           licenseKey: 'FAKE-KEY-9999',
-          installId: 'inst-1',
+          instanceId: 'lki_1',
           isValid: true,
           expiration: null,
           lastValidatedAt: 1000,
@@ -134,9 +123,9 @@ describe('LicenseStore', () => {
       );
       const store = make();
       const read = store.read();
-      // Identity (key/install) is kept so the service can re-verify online…
+      // Identity (key/instance) is kept so the service can re-verify online…
       expect(read?.licenseKey).toBe('FAKE-KEY-9999');
-      expect(read?.installId).toBe('inst-1');
+      expect(read?.instanceId).toBe('lki_1');
       // …but the forged trust fields are stripped, so the gate stays closed.
       expect(read?.isValid).toBeUndefined();
       expect(read?.lastValidatedAt).toBeUndefined();
