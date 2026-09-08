@@ -204,6 +204,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
+  LedgerClient,
   hostedTranscriptionUnavailable,
   localMusicAssetRefusal,
   sourcingFailureNote,
@@ -2684,6 +2685,10 @@ function registerIpcHandlers(): void {
   // hub mints an unguessable requestId, scopes events + aborts to the owning sender,
   // re-validates the request, bounds the run with a timeout, and aborts on a destroyed
   // window. No secret crosses the bridge; only AiEvents do. (security review, M3 gate)
+  // One client for the process, not one per run: its cache is keyed by asset content hash
+  // and tier versions, so it is the thing that makes the ledger free after the first read.
+  // A fresh client per run would re-fetch every asset on every turn.
+  const shotLedgerClient = new LedgerClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
   const aiStreamHub = new AiStreamHub(getOrchestrator, {
     eventChannel: IpcChannels.aiStreamEvent,
     temporalEvidence,
@@ -2716,6 +2721,29 @@ function registerIpcHandlers(): void {
           ...visualIndexCredentials(),
         }),
       ),
+    // What the PICTURE is (ADR 0175 / VU2.1). The browser session has read this since the
+    // ledger landed; the desktop app never did, so on the surface this product leads with,
+    // the engine measured every imported asset into a shot ledger and not one run ever read
+    // a row. Every picture surface downstream — clip-row words, the PICTURE digest, the
+    // facts a tool result carries, `match_color`'s readings, the transition policy's
+    // measured cuts — was therefore inert in the shipping app while its tests passed.
+    //
+    // Scoped to the assets the TIMELINE references, like the browser's: a run edits a
+    // sequence, not a library, so the read grows with the edit. Fail-soft by construction
+    // (`LedgerClient` never throws), and the client caches per asset content hash, so a
+    // ten-turn run costs one read and a second run on the same project costs none.
+    shotLedgerFor: async (project) => {
+      const assetIds = [
+        ...new Set(
+          project.timeline.tracks.flatMap((track) =>
+            track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+          ),
+        ),
+      ];
+      if (assetIds.length === 0) return undefined;
+      const snapshot = await shotLedgerClient.snapshot({ projectId: project.id, assetIds });
+      return snapshot ?? undefined;
+    },
     // What this project has LEARNED — the bin digest, the latest session note, and the
     // corrections/decisions tiers (which is where an answer the editor gave the model
     // lives). The digester has existed since the memory tiers landed and nothing called
