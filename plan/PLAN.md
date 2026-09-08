@@ -34,9 +34,10 @@ exist). ADR 0177. Branch `rjach/Payment-with-Dodo-payments`.
   CTA links to Dodo hosted checkout with the cadence's product id. Monthly and
   yearly are two Dodo products (one recurring price per product); the build-time
   price fetch reads both. Copy, privacy, and terms name Dodo as merchant of record.
-- `[x]` PAY-4 — **setup is written down.** `PAYMENTS_SETUP.md` (products, env,
-  test-mode purchase, go-live), ADR 0177, the licensing guide, and the env
-  single-source pair (`.env.example` + `turbo.json` globalEnv).
+- `[x]` PAY-4 — **setup is written down.** ADR 0177, the licensing guide, and the
+  env single-source pair (`.env.example` + `turbo.json` globalEnv). The dashboard
+  walkthrough (products, keys, test purchase, go-live) is the maintainer's local
+  `PAYMENTS_SETUP.md`, gitignored because it describes the real account.
 
 **Status snapshot (2026-09-08, CROSS-RUNTIME-PARITY — issue #86):** the Python engine's
 `trim_clip` / `split_clip` / `delete_range` / `ripple_delete` still implemented the pre-v15

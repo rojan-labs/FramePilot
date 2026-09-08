@@ -241,7 +241,6 @@ Start with [`docs/README.md`](./docs/README.md), which maps each document to its
 - API and contracts: [`docs/api/`](./docs/api)
 - Architecture decisions: [`docs/adr/`](./docs/adr)
 - Operations and releases: [`docs/runbooks/`](./docs/runbooks)
-- Payments and licensing setup: [`PAYMENTS_SETUP.md`](./PAYMENTS_SETUP.md)
 - Contribution workflow: [`CONTRIBUTING.md`](./CONTRIBUTING.md)
 - Security policy: [`SECURITY.md`](./SECURITY.md)
 

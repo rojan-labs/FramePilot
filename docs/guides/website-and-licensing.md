@@ -4,9 +4,10 @@ How to run the marketing site (`apps/website`), how checkout works, and how the
 100%-paid license gate works in the desktop app. See ADR 0036 for the original
 rationale and **ADR 0177** for the move from Freemius to Dodo Payments.
 
-> **Setting payments up from scratch?** Follow **[`PAYMENTS_SETUP.md`](../../PAYMENTS_SETUP.md)**
-> at the repo root — dashboard products, env vars, test-mode purchase, go-live.
-> This guide explains how the code behaves once that is done.
+> **Setting payments up from scratch?** The Dodo dashboard walkthrough — products,
+> env vars, test-mode purchase, go-live — lives in the maintainer's local
+> `PAYMENTS_SETUP.md`, which is gitignored because it describes the real product's
+> account. This guide explains how the code behaves once that is done.
 
 The visual system described in ADR 0036 (dark tokens ported from the editor) was replaced on
 2026-09-05 by the light, timeline-shaped "ripple delete" system in **ADR 0172**: paper canvas,
@@ -100,11 +101,11 @@ builds the on-page (scroll-spy) table of contents.
 
 ### Desktop (`apps/desktop`)
 
-| Variable                          | Purpose                                                                                                                                  |
-| --------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
+| Variable                          | Purpose                                                                                                                                   |
+| --------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- |
 | `FRAMEPILOT_DODO_PRODUCT_ID`      | Enables the license gate. **When unset, the gate is off** (dev / unconfigured builds run freely). Packaged production builds must set it. |
-| `FRAMEPILOT_DODO_ENVIRONMENT`     | `live` (default) or `test` — which Dodo environment keys are verified against.                                                           |
-| `FRAMEPILOT_LICENSE_DEV_BYPASS=1` | Force-disable the gate during development.                                                                                               |
+| `FRAMEPILOT_DODO_ENVIRONMENT`     | `live` (default) or `test` — which Dodo environment keys are verified against.                                                            |
+| `FRAMEPILOT_LICENSE_DEV_BYPASS=1` | Force-disable the gate during development.                                                                                                |
 
 The desktop uses only Dodo's **public** activate/validate/deactivate endpoints —
 they authenticate with the license key itself — so no merchant credential ships in
@@ -181,7 +182,7 @@ cannot dead-end. It also behaves like a link should: middle-click, open in a new
 tab, copy the address.
 
 Dashboard setup (products, license-key entitlement, activation limit, emails) is in
-[`PAYMENTS_SETUP.md`](../../PAYMENTS_SETUP.md).
+the maintainer's local `PAYMENTS_SETUP.md`.
 
 ## Downloads
 
