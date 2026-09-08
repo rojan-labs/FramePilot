@@ -34,7 +34,10 @@ from framepilot_engine.analysis.freeze import (
 from framepilot_engine.analysis.loudness import (
     LoudnessAnalysis,
     measure_loudness,
+    measure_shot_loudness,
     parse_loudness_summary,
+    parse_momentary_loudness,
+    shot_loudness_from_momentary,
 )
 
 # --- Sample ffmpeg stderr ----------------------------------------------------
@@ -286,3 +289,65 @@ def test_measure_loudness_builds_expected_argv() -> None:
 
 def test_measure_loudness_returns_none_for_silent_source() -> None:
     assert measure_loudness(Path("/m.mp4"), runner=lambda argv: "") is None
+
+
+# --- Per-shot loudness: the producer `shot.loudnessLufs` never had -----------
+
+_MOMENTARY_LOG = "\n".join(
+    f"[Parsed_ebur128_0 @ 0x1] t: {t:.1f}  TARGET:-23 LUFS  M: {m:.1f} S: -22.0     "
+    "I: -20.9 LUFS       LRA: 0.0 LU"
+    for t, m in [
+        (0.1, -120.7),  # under the absolute gate: silence, not a quiet shot
+        (0.2, -20.0),
+        (0.3, -20.0),
+        (2.1, -40.0),
+        (2.2, -40.0),
+        (4.5, -120.7),  # the third shot is silent throughout
+    ]
+)
+
+
+def test_parse_momentary_loudness_reads_the_running_lines() -> None:
+    samples = parse_momentary_loudness(_MOMENTARY_LOG)
+    assert samples[0] == (0.1, -120.7)
+    assert samples[1] == (0.2, -20.0)
+    assert len(samples) == 6
+
+
+def test_shot_loudness_is_energy_averaged_and_gated() -> None:
+    spans = [(0.0, 2.0), (2.0, 4.0), (4.0, 6.0)]
+    result = shot_loudness_from_momentary(parse_momentary_loudness(_MOMENTARY_LOG), spans)
+    # Loudness is logarithmic, so equal samples average to themselves and the gated
+    # -120.7 sample does not drag shot 0 down.
+    assert result[0] == pytest.approx(-20.0, abs=0.01)
+    assert result[1] == pytest.approx(-40.0, abs=0.01)
+    # A shot with nothing above the gate gets NO entry: `None` in the ledger means "not
+    # measured", and inventing a floor value would make silence and absence identical.
+    assert 2 not in result
+
+
+def test_shot_loudness_needs_no_ffmpeg_when_there_are_no_shots() -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> str:
+        calls.append(argv)
+        return ""
+
+    assert measure_shot_loudness(Path("clip.mp4"), [], runner=runner) == {}
+    assert calls == []
+
+
+def test_measure_shot_loudness_uses_one_pass_for_every_shot() -> None:
+    calls: list[list[str]] = []
+
+    def runner(argv: list[str]) -> str:
+        calls.append(argv)
+        return _MOMENTARY_LOG
+
+    result = measure_shot_loudness(
+        Path("clip.mp4"), [(0.0, 2.0), (2.0, 4.0)], runner=runner
+    )
+    # Thirty shots must not mean thirty ffmpeg invocations at enrolment time.
+    assert len(calls) == 1
+    assert "ebur128" in " ".join(calls[0])
+    assert set(result) == {0, 1}

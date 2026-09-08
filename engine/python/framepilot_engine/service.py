@@ -58,7 +58,7 @@ from framepilot_engine.analysis.freeze import (
     DEFAULT_MIN_FREEZE_SECONDS,
     detect_freezes,
 )
-from framepilot_engine.analysis.loudness import measure_loudness
+from framepilot_engine.analysis.loudness import measure_loudness, measure_shot_loudness
 from framepilot_engine.analysis.reference import (
     analysis_to_dict,
     analyze_reference_video,
@@ -2785,7 +2785,24 @@ def create_app(
         phashes = keyframe_dhashes(
             media_path, [s.keyframe_t for s in stats], timeout=timeout
         )
-        rows = shots_from_stats(asset_id, content_hash, stats, phashes=phashes)
+        # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
+        # producer: null for every shot of every asset, including assets with an audio
+        # stream, which is indistinguishable from "this asset is silent". One `ebur128`
+        # pass over the whole asset yields momentary loudness every 100ms; the shot spans
+        # bucket it. Skipped for an asset with no audio stream (`-vn` would leave ffmpeg
+        # nothing to output) and for a still, and never fatal: a measurement that fails
+        # leaves the field null, exactly as it was.
+        loudness: dict[int, float] = {}
+        if info.has_audio and not is_image:
+            try:
+                loudness = measure_shot_loudness(
+                    media_path, [(s.t0, s.t1) for s in stats], timeout=timeout
+                )
+            except (FFmpegError, OSError) as exc:
+                _log.warning("tier 0 loudness failed: asset=%s reason=%s", asset_id, exc)
+        rows = shots_from_stats(
+            asset_id, content_hash, stats, phashes=phashes, loudness_lufs=loudness
+        )
         try:
             store.upsert_shots(asset_id, content_hash, "measured", rows)
             # Rebuilt from the asset's whole ledger, not from `rows`: a digest that
