@@ -782,10 +782,14 @@ describe('visual grounding (MI6.1)', () => {
       expect(outcome.summary).toContain('1 span across 1 asset.');
     });
 
-    it('warns honestly when no embedding key is configured', () => {
-      const outcome = interpretIndexLoop(result({ status: 'no-key' }), true);
+    it('warns honestly when there is no media to index, and does NOT blame a key', () => {
+      // It used to say "no embedding key is configured, so the footage cannot be
+      // indexed". Measurement needs no key (ADR 0175), so that sentence would now send
+      // the model to tell the editor to fix a setting that is not the problem.
+      const outcome = interpretIndexLoop(result({ status: 'nothing-to-index' }), true);
       expect(outcome.status).toBe('warning');
-      expect(outcome.summary).toContain('no embedding key');
+      expect(outcome.summary).toContain('no media in this project');
+      expect(outcome.summary).not.toContain('key');
     });
 
     it('fails when the engine is unavailable or unreachable', () => {

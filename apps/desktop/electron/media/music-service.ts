@@ -46,7 +46,8 @@ import type {
   MusicTrackWire,
 } from '../ipc/contract.js';
 import { dedupeName, mediaRelativeDir, safeFileName } from '../projects/media-import.js';
-import type { DerivedAssetMedia } from './asset-media-client.js';
+import type { DeriveAssetMedia } from './derived-media-cache.js';
+import { sourcedAssetId } from './sourced-asset-id.js';
 
 const log = createLogger('desktop:music');
 
@@ -104,7 +105,7 @@ export interface MusicServiceOptions {
   /** Absolute path of the projects root; every write is resolved inside it. */
   readonly projectsRoot: string;
   /** Derive duration/peaks/proxy for a downloaded file. Failure is non-fatal. */
-  readonly deriveAssetMedia: (absolutePath: string) => Promise<DerivedAssetMedia | null>;
+  readonly deriveAssetMedia: DeriveAssetMedia;
   /** Injected for tests. Defaults to the real Openverse adapter. */
   readonly provider?: MusicProvider;
   /** Injected for tests; used only for preview and download bytes. */
@@ -436,7 +437,7 @@ export class MusicService {
         log.action('download → deduped', { remoteId: track.remoteId });
         return {
           ok: true,
-          asset: await this.materialize(track, relativePath, absolutePath, true),
+          asset: await this.materialize(track, relativePath, absolutePath, true, request.projectId),
         };
       }
       // The ledger says we have it but the file is gone (the user deleted it).
@@ -472,7 +473,13 @@ export class MusicService {
       log.action('download → installed', { remoteId: track.remoteId, bytes });
 
       this.emit(request, 'deriving', bytes, bytes);
-      const asset = await this.materialize(track, relativePath, absolutePath, false);
+      const asset = await this.materialize(
+        track,
+        relativePath,
+        absolutePath,
+        false,
+        request.projectId,
+      );
       this.emit(request, 'installed', bytes, bytes);
       return { ok: true, asset };
     } catch (error) {
@@ -608,10 +615,20 @@ export class MusicService {
     relativePath: string,
     absolutePath: string,
     deduped: boolean,
+    projectId: string,
   ): Promise<MusicDownloadedAssetWire> {
     // A missing waveform is a degraded timeline row; a missing asset is a lost
     // download. So derivation failure never fails the add.
-    const derived = await this.options.deriveAssetMedia(absolutePath).catch(() => null);
+    //
+    // The identity rides along so `/asset-media` records the track in the project brain,
+    // the same as an imported file. A track carries no picture, so nothing enrols it into
+    // the shot ledger — but analysis and loudness both key on that brain row.
+    const derived = await this.options
+      .deriveAssetMedia(absolutePath, {
+        projectId,
+        assetId: sourcedAssetId('music', track.provider, track.remoteId),
+      })
+      .catch(() => null);
     // The derived media lives under `media` — see `DerivedAssetMedia`. Read off `derived`
     // itself it compiled, read `undefined`, and stored `peaks: null` for every sourced
     // track, so the timeline drew a skeleton waveform over a real, already-derived one.

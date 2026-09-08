@@ -153,6 +153,15 @@ export const FactKindSchema = z.enum([
   'footage',
   'audio',
   'derived',
+  /**
+   * Something the run CHECKED after it acted, rather than something it learned before.
+   *
+   * Separated from `derived` because provenance is the point: "the exposure jump at 0:04 is
+   * really there" was settled by decoding the composited frames of the arrangement this run
+   * produced, and a later turn reading it must be able to tell that from an inference. Facts
+   * of this kind are written by `picture-verification.ts` (ADR 0175 §4, VU7).
+   */
+  'verification',
 ]);
 export type FactKind = z.infer<typeof FactKindSchema>;
 

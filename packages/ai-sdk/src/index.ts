@@ -74,6 +74,8 @@ export * from './sidecar-executor.js';
 export * from './brain-client.js';
 export * from './visual-index-client.js';
 export * from './footage-map.js';
+export * from './ledger.js';
+export * from './ledger-client.js';
 export * from './proposers/edit-signals.js';
 export * from './memory-client.js';
 export * from './session-warmup.js';
@@ -94,6 +96,7 @@ export * from './kernel/index.js';
 export * from './eval/mission-rubric.js';
 export * from './eval/golden-cases.js';
 export * from './eval/golden-metrics.js';
+export * from './eval/perception-metrics.js';
 // The typed specialist boundary (P5.1). Exported because the desktop host's tracking
 // executor is a production caller and must go through the contract like everything else.
 export * from './specialists/index.js';

@@ -1,0 +1,83 @@
+{
+  "schemaVersion": 1,
+  "kind": "cuts",
+  "generatedAt": "2026-09-07",
+  "generator": "packages/ai-sdk/scripts/propose-fixture-labels.mjs",
+  "note": "The cuts of mission-montage. Structure and measured deltas are derived from tier 0; sameSetting and expectedTransitionReason are a human pass and are null.",
+  "project": "mission-montage",
+  "cutCount": 4,
+  "cuts": [
+    {
+      "id": "mission-montage#0",
+      "atSeconds": 39.8,
+      "fromClipId": "clip_001",
+      "toClipId": "clip_002",
+      "outgoingShot": "mission-montage/camera-4k60-40s.mov#1",
+      "incomingShot": "mission-montage/b1-4k30-22s.mov#0",
+      "source": "partly-proposed",
+      "verified": false,
+      "proposed": {
+        "sourceChange": true,
+        "jumpCut": false,
+        "lumaDelta": 0.1011,
+        "warmthDelta": -0.1472
+      },
+      "sameSetting": null,
+      "expectedTransitionReason": null
+    },
+    {
+      "id": "mission-montage#1",
+      "atSeconds": 61.433,
+      "fromClipId": "clip_002",
+      "toClipId": "clip_003",
+      "outgoingShot": "mission-montage/b1-4k30-22s.mov#0",
+      "incomingShot": "mission-montage/b2-4k60-9s.mov#0",
+      "source": "partly-proposed",
+      "verified": false,
+      "proposed": {
+        "sourceChange": true,
+        "jumpCut": false,
+        "lumaDelta": -0.1065,
+        "warmthDelta": 0.1276
+      },
+      "sameSetting": null,
+      "expectedTransitionReason": null
+    },
+    {
+      "id": "mission-montage#2",
+      "atSeconds": 70.2,
+      "fromClipId": "clip_003",
+      "toClipId": "clip_004",
+      "outgoingShot": "mission-montage/b2-4k60-9s.mov#0",
+      "incomingShot": "mission-montage/b3-1080p60-15s.mov#0",
+      "source": "partly-proposed",
+      "verified": false,
+      "proposed": {
+        "sourceChange": true,
+        "jumpCut": false,
+        "lumaDelta": -0.3035,
+        "warmthDelta": -0.0798
+      },
+      "sameSetting": null,
+      "expectedTransitionReason": null
+    },
+    {
+      "id": "mission-montage#3",
+      "atSeconds": 84.9,
+      "fromClipId": "clip_004",
+      "toClipId": "clip_005",
+      "outgoingShot": "mission-montage/b3-1080p60-15s.mov#0",
+      "incomingShot": "mission-montage/b4-1080p-50s.mp4#0",
+      "source": "partly-proposed",
+      "verified": false,
+      "proposed": {
+        "sourceChange": true,
+        "jumpCut": false,
+        "lumaDelta": 0.4454,
+        "warmthDelta": 0.0162
+      },
+      "sameSetting": null,
+      "expectedTransitionReason": null
+    }
+  ]
+}

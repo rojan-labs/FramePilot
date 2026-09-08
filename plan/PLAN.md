@@ -128,7 +128,7 @@ and `hook-first` have each been awarding themselves a free point**. Their record
 are upper bounds; no recorded number was edited. Two capabilities that could never succeed
 on a real project — ducking a bed under footage that carries the sound, and `duck_roles` on
 any project the agent did not build — now can, at a measured cost of **+130 tokens per
-request**. Full detail: `BASELINES.md` "session 5". Still open: `REMAINING.md`.
+request**. Full detail: `BASELINES.md` "session 5". (The `REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.3 — **eight defects from the second sweep of `137d8fd0`.** A duck refused
   with no viable track named; an enum rejection that never quoted the value it refused; a
@@ -150,7 +150,7 @@ every placement that did it had reported `completed`. Closed with reproducing te
 (`23cddd2`), the deterministic half of C.19 (`afd2671`), and C.21 (`f84e564`) — a false
 stop of the session-7 same-wall guard found by replaying session6's recordings for free. `BASELINES.md` "ninth axis" has
 the table and the first-order accounting. Every failure-shaped lead re-derived this session
-was already closed by a fix citing this run; `REMAINING.md` §1b lists them so nobody mines
+was already closed by a fix citing this run; the handoff log lists them so nobody mines
 them a sixth time. Branch `fix/agent-reliability-s8` (worktree `../FramePilot-reliability-s8`).
 
 **Prior snapshot (2026-09-06, GOLDEN-EVAL — goal.md Phase 0):** **no run.** A fifth
@@ -237,7 +237,7 @@ grid in both runtimes. Cost on the frozen token surfaces: **+169 tokens per requ
 measured. **Nothing here is sampled against the model** — `reorder_clips` in particular is
 a capability the agent did not have, so its effect on the reorder cases is unknown until
 someone runs it. Branch `fix/agent-reliability-s7`. Full detail: `BASELINES.md`
-"s7-replay"; what is still open: `REMAINING.md`.
+"s7-replay"; what is still open: the session handoff (removed 2026-09-08; see the `BASELINES.md` session entries).
 
 - `[x]` GOLDEN-C.4 — **a reorder no longer loses footage.** `reorder_clips` recomputes a
   track's starts in ONE patch: no delete, no add, clip set invariant, so a run that stops
@@ -285,7 +285,7 @@ provider dropped and the run was stopped. Nine of the eleven score 1.00 on every
 down as predicted — `no-mid-word-cuts` is measuring rather than being handed a point, and
 the cases score 1.00 anyway. The run also found that **a reorder loses the editor's
 footage** in four of six clean runs. Full numbers, per-case table and what each is _not_
-evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
+evidence of: `BASELINES.md` "session6". (The `REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-C.1 — **`mission-podcast` measures what its cases claim.** Measuring the
   alternatives is what settled it: `speech-9min-b` has real words and no silent gap at −30,
@@ -302,13 +302,13 @@ evidence of: `BASELINES.md` "session6". What is still open: `REMAINING.md`.
 - `[x]` GOLDEN-C.4 — **a reorder must not lose footage.** Closed 2026-09-05d, see above. Four of six clean runs destroyed
   content; twice the agent deleted the sequence and then asked the editor how to recover
   from the state it had made. Needs a maintainer decision (ADR 0056 atomicity, ADR 0166
-  wipe guard) and probably an atomic `reorder_clips` operation. `REMAINING.md` §2.1.
+  wipe guard) and probably an atomic `reorder_clips` operation. Session-6 handoff.
 - `[x]` GOLDEN-C.5 — **a wholesale-rejected turn can be re-issued forever.** Closed 2026-09-05d, see above. 29 identical
   calls, $3.93, an empty track, past a guard that exists and passes its tests. Reproduce
-  with `--replay` before tuning any of the five run-stoppers. `REMAINING.md` §2.2.
+  with `--replay` before tuning any of the five run-stoppers. Session-7 handoff.
 - `[x]` GOLDEN-C.6 — **a retimed clip leaves the frame grid.** Closed 2026-09-05d, see above. 16 `set_clip_speed` calls at
   1.3× produced 16 off-grid edges; both engines agree, so parity holds and both are wrong
-  together. Three routes, all decisions. `REMAINING.md` §2.3.
+  together. Three routes, all decisions. Session-7 handoff.
 - `[ ]` GOLDEN-0.2 — a COMPLETE 21×3 run. Ten cases still have no clean turn; re-running
   them is the one legitimate use of `--force`.
 
@@ -318,8 +318,9 @@ attempt since 2026-09-04 ran and **did not finish** — the provider stalled ten
 31 turns, intent accuracy 0.72 → **0.935** and first-pass acceptance 0.49 → **0.839**, with
 target resolution, operation validity and reversibility all **1.00** and zero silent
 successes. Running it found **five instrument defects**, all fixed. Full numbers, the
-per-case table, and what each is _not_ evidence of: `BASELINES.md` "session3". What is
-still open: `REMAINING.md`.
+per-case table, and what each is _not_ evidence of: `BASELINES.md` "session3". (The
+`REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live
+in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.2 — **five instrument defects, found by running the thing.** A rubric
   demanding a shorter programme for a prompt asking for a faster one; a case asking for 45
@@ -337,8 +338,9 @@ was **not re-run** this session (credits conserved). Sixteen defects closed on
 single captured desktop transcript (`run.md`, run `137d8fd0`), three from the previous
 session's open leads, and one of those a **retraction**: `broll-first-20s`'s severed word
 was the instrument, not b-roll placement. Every number, every prediction the next run
-should test, and what each is _not_ evidence of: `BASELINES.md` "session 3". What is still
-open, with root causes: `REMAINING.md`.
+should test, and what each is _not_ evidence of: `BASELINES.md` "session 3". (The
+`REMAINING.md` handoff (removed 2026-09-08) tracked what was still open; its findings live
+in the `BASELINES.md` session entries.)
 
 - `[x]` GOLDEN-B.1 — **thirteen defects from one transcript, and three golden leads.**
   Caption patches discarded on stacked footage; `word_severed` failing runs on hallucinated
@@ -470,7 +472,8 @@ reconcileInheritedFailures`: a health check failing identically before and after
   route, so the remedy reaches the briefing instead of ageing out with the tool result;
   and `arrangementLine` / `get_timeline_summary` mark a video track with no free picture
   span, so the state stops advertising a layer nothing may go on. Not reproducible on the
-  golden set — every mission fixture has one video track; see TRACKING.md for the shape.
+  golden set — every mission fixture has one video track, so the multi-track shape
+  could not be exercised there.
 - `[x]` GOLDEN-A.3 — ADR 0140's refusal extended from stock to every agent picture placement (`picture-layers.ts`); `add_track`/`add_clip` no longer invite picture-in-picture. Preview and export cannot disagree on an agent edit until SUC-P1 lifts the constraint.
   **Narrowed twice since, and the narrowing is the shipped rule.** ADR 0169: a full-frame
   opaque placement over picture is legal and goes on a layer in front. ADR 0170: "full-frame"
@@ -9829,6 +9832,72 @@ decision in **ADR 0157**.
       tokens/request cheaper (22,412 → 22,367). **ADR 0166.** Accepted risk: a model that
       decides to rebuild can now clear a track, and the user's recourse is undo rather than
       prevention. Other progress guards untouched.
+
+## Phase VU — Visual Understanding: the agent knows the footage, the edit, and the screen — `[ ]` proposed (2026-09-07)
+
+Sub-plan: [`plan/visual-understanding/README.md`](./visual-understanding/README.md) (nine files:
+diagnosis, architecture, phases VU0–VU9). **Root cause, measured:** across every golden run the
+model read the timeline 713 times and looked at a frame 13 times; nothing is ever indexed
+unless an NVIDIA or TwelveLabs key is configured (`visualIndex.ts:74`, the `/brain/visual/index`
+embedder short-circuit), and a clip row the model reads is `c12[0–4.2s]` and nothing else.
+**Decision:** a per-shot **ledger** compiled at import in three tiers — tier 0 measured facts
+from one ffmpeg pass with no key and no model; tier 1 local SigLIP/SFace embeddings, labels and
+person clusters as a capability pack; tier 2 structured captions from a local llama.cpp VLM pack
+with hosted parity — joined into the semantic index as a `picture` slice, printed as words in
+the clip rows and a ≤600-token digest, consumed by deterministic solvers (`match_color`,
+`normalize_exposure`, `apply_look`, transition policy by `reason`) that emit the operations that
+already exist, and verified with pixels only at flagged cuts. No `project.fp.json` schema change;
+brain migration v4. Order: VU0 baseline metrics first, then VU1–VU3 (keyless ledger → model
+surfaces → color solver) as the first vertical slice before any pack work.
+
+- [x] VU0 — **VU0.1 metrics + the measured floor** (318 turns, 210 accepted edits, ten
+  recorded runs: `get_frame` **0**, footage surfaces **0**, guess rate **1.00** —
+  `reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4**
+  ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. **VU0.2/VU0.3** 8 golden cases (5
+  edit-state rubrics, 3 answer-scored), 558 machine-PROPOSED labels marked unverified, and
+  a contact-sheet generator for the human pass. Semantic labels are still owed.
+- [x] VU1 — tier 0 shot ledger. One ffmpeg pass, two chains, ONE decode; brain schema v4;
+  the keyless route (the embedder short-circuit is deleted, tier 0 runs first on both arms);
+  one enrolment path. Measured: 160 px lossless vs full res (YAVG **74.0424 vs 74.0471**),
+  **29.4× real-time** ⇒ a 10-hour library in ~20 min. Fixed along the way: **every still was
+  silently unmeasured** (all 60 photo fixtures), found only by sweeping the whole directory.
+- [x] VU2 — model surfaces: ledger client, `picture` slice with cut-pair deltas, clip-row
+  words, PICTURE digest, facts on `get_clips`/`list_edit_boundaries`. **Zero token delta on
+  an unindexed project** (goldens pass unregenerated); opt-in ~108 tokens/turn for the digest
+  and ~10 per covered row. `[~]` VU2.6's briefing module is built and tested but **not wired**.
+- [x] VU3 — `match_color` / `normalize_exposure` / `apply_look`, inverted from
+  `render/color.py`'s actual pass, emitting the existing `apply_color_grade` operation; the
+  model supplies no value on any of them. **Coefficients UNFITTED** — `fit-color-response.mjs`
+  runs the real fit; no test asserts a fitted number. `[~]` VU3.3's re-measure loop is VU7's.
+- [x] VU4 — transition policy by reason; `add_transitions` `auto` reads the boundary flags
+  and NAMES every cut it leaves as a hard cut. Families resolve through catalog data, never an
+  id literal; `continuity` returns null at any delta.
+- [x] VU5 — tier 1 pack `framepilot.visual-embed`: worker, protocol, versioned prompt bank,
+  local arm preferred over the hosted one, entity clustering. **The pairwise duplicate scan is
+  DELETED** (`_SIMILAR_GROUP_SPAN_CAP` returns nothing) for an exact multi-index bucket.
+  **Weights fetched and the backend has run** (2026-09-08): real digests, health check green,
+  and the first real run found what no fake could — `run(None, …)[0]` was reading
+  `last_hidden_state`, not `pooler_output`. `resolve_model` still refuses a placeholder digest
+  by name. **No label accuracy is claimed**; VU5.4 is still unmeasured.
+- [x] VU6 — tier 2 pack `framepilot.visual-describe`: one STRUCTURED description per shot,
+  the same schema from the local pack, the hosted arm and TwelveLabs. **Free-text captions are
+  DELETED** — `CAPTION_INSTRUCTION` and the prose path are gone, and `captioner.py` no longer
+  has a function returning a string. Captions now join spans by TIME OVERLAP, because two
+  segmentations cannot share an index space. Same weight status as VU5.
+- [~] VU7 — deterministic cut checks + bounded vision escalation, built and tested (28
+  tests), **not wired**: the conductor is a pure reducer with no project, and the only seam
+  with the right inputs is the steering/repair channel a verification must never enter.
+- [x] VU8 — governor (indexing yields to render/export/frame/evidence), tier-0-first
+  scheduling, preemption on import, per-tier invalidation. Measured: **643 B/row** ⇒ a 10-hour
+  library ≈ **6.3 MB** (no eviction needed), `tier_coverage` 3.3 ms over 12,000 rows, and a
+  real **SIGKILL mid-slice resumed to 272 rows identical to a clean run**. Three §7 claims
+  corrected, incl. an LRU cache refused for an artifact with **no producer**.
+- [x] VU9 — the golden gate carries the perception metrics, with `framesSeenPerEdit` gated as
+  a **CEILING** (proven to trip at 0.00 → 1.40) — every other metric is a floor, this one is
+  not, because a change that raises scores by spending frames has not done what this plan set
+  out to do. ADR 0175 (ledger) + ADR 0176 (packs); `docs/guides/media-intelligence.md`
+  rewritten around the tiers; CHANGELOG current; evidence consolidated in
+  `plan/visual-understanding/09-EVIDENCE.md`.
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

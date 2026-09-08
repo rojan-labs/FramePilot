@@ -390,6 +390,21 @@ class RemoveEffectArgs(BaseModel):
     layer_id: str = Field(alias="layerId")
 
 
+#: Why a transition belongs at a cut. The model states one of these; the policy
+#: (`packages/editor-core/src/transition-policy.ts`) turns it into a kind and a duration.
+#: `continuity` deliberately yields NO transition — an unmotivated dissolve is the classic
+#: amateur tell, and refusing it is the point of the vocabulary.
+TransitionReason = Literal[
+    "continuity",
+    "time_jump",
+    "location_change",
+    "energy",
+    "montage",
+    "soften",
+    "reveal",
+]
+
+
 class AddTransitionArgs(BaseModel):
     model_config = _STRICT
     track_id: str = Field(alias="trackId")
@@ -399,8 +414,51 @@ class AddTransitionArgs(BaseModel):
     # 78 ids here would make every added transition a change in four packages;
     # the operation checks it against the catalog and refuses an unknown one with
     # a readable sentence, which is what a model needs to correct itself.
-    kind: str
-    duration_seconds: float = Field(alias="durationSeconds", gt=0.0)
+    # Optional since VU4.2 (ADR 0175): with a `reason`, the transition POLICY picks the
+    # kind and the length from the cut's measured deltas, and the model never names an id
+    # out of a 50-entry catalog it cannot see. An explicit kind still wins.
+    kind: str | None = None
+    duration_seconds: float | None = Field(default=None, alias="durationSeconds", gt=0.0)
+    reason: TransitionReason | None = None
+
+
+class TransitionCut(BaseModel):
+    """One cut in a batch, with an optional per-cut override of the batch reason."""
+
+    model_config = _STRICT
+    from_clip_id: str = Field(alias="fromClipId")
+    to_clip_id: str = Field(alias="toClipId")
+    reason: TransitionReason | None = None
+
+
+class AddTransitionsArgs(BaseModel):
+    model_config = _STRICT
+    track_id: str | None = Field(default=None, alias="trackId")
+    reason: TransitionReason | Literal["auto"] | None = None
+    cuts: list[TransitionCut] | None = None
+
+
+class MatchColorArgs(BaseModel):
+    model_config = _STRICT
+    target_clip_ids: list[str] = Field(alias="targetClipIds", min_length=1, max_length=40)
+    reference_clip_id: str = Field(alias="referenceClipId")
+
+
+class NormalizeExposureArgs(BaseModel):
+    model_config = _STRICT
+    track_id: str = Field(alias="trackId")
+    #: `median`, or a clip id to anchor on.
+    anchor: str | None = None
+
+
+class ApplyLookArgs(BaseModel):
+    model_config = _STRICT
+    clip_ids: list[str] | None = Field(default=None, alias="clipIds", max_length=40)
+    track_id: str | None = Field(default=None, alias="trackId")
+    look: Literal[
+        "warmer", "cooler", "punchier", "flatter", "brighter", "darker", "cinematic", "clean"
+    ]
+    amount: Literal["subtle", "medium", "strong"] | None = None
 
 
 class AddMaskArgs(BaseModel):
@@ -923,6 +981,22 @@ class FindSimilarArgs(BaseModel):
     limit: int | None = Field(default=None, ge=1, le=100)
 
 
+class VisualFactsFilter(BaseModel):
+    """Ledger facts a visual search may filter on before it ranks (VU2.5, ADR 0175).
+
+    Every field is a LIST because the useful query is "any of these" — wide or very wide,
+    static or slow. Shot size and setting stay free strings rather than enums: the ladder is
+    already declared once in ``ledger_models`` and restating it here would make adding a rung
+    a change in two files, which is the drift this parity test exists to catch.
+    """
+
+    model_config = _STRICT
+    shot_size: list[str] | None = Field(default=None, alias="shotSize")
+    motion: list[Literal["static", "slow", "handheld", "fast"]] | None = None
+    entities: list[str] | None = None
+    setting: list[str] | None = None
+
+
 class SearchVisualArgs(BaseModel):
     """Visual grounding search over on-screen content (plan MI5.1/§3.4).
 
@@ -937,6 +1011,10 @@ class SearchVisualArgs(BaseModel):
     k: int | None = Field(default=None, ge=1, le=50)
     asset_ids: list[str] | None = Field(default=None, alias="assetIds")
     time_range: tuple[float, float] | None = Field(default=None, alias="timeRange")
+    facts: VisualFactsFilter | None = Field(
+        default=None,
+        description="Narrow the search by measured facts before ranking (VU2.5, ADR 0175).",
+    )
 
     @model_validator(mode="after")
     def _ordered_range(self) -> SearchVisualArgs:
@@ -1471,6 +1549,48 @@ TOOL_REGISTRY: dict[str, ToolSpec] = {
         "per clip, so a whole-sequence look is one call per clip.",
         kind="mutate",
         input_model=ApplyColorGradeArgs,
+        mutating=True,
+    ),
+    "match_color": _spec(
+        "match_color",
+        # Mirrors `domain-tools/solved-color.ts`. The model names the two shots; the solver
+        # reads their measurements and produces every number (ADR 0175).
+        "Grade one or more clips to match a reference clip's look. You name the shots; the "
+        "measured difference between them decides the grade, so you never supply a value. "
+        "Reports honestly when an axis ran out of range, when a clip has never been "
+        "measured, and whether the reading came from a render or from the imported "
+        "footage. Nothing is verified until it is measured again.",
+        kind="mutate",
+        input_model=MatchColorArgs,
+        mutating=True,
+    ),
+    "normalize_exposure": _spec(
+        "normalize_exposure",
+        "Bring the outliers on one track to a common brightness. Only clips beyond the "
+        "tolerance are graded — the rest are left untouched, because an edit that changes "
+        "every clip when three were wrong is not what was asked for.",
+        kind="mutate",
+        input_model=NormalizeExposureArgs,
+        mutating=True,
+    ),
+    "apply_look": _spec(
+        "apply_look",
+        "Move clips along one look axis by a named amount: warmer, cooler, punchier, "
+        "flatter, brighter, darker, cinematic or clean, at subtle, medium or strong. The "
+        "amount is measured from where the footage actually sits, so `warmer medium` is "
+        "the same visible change on dark footage as on bright.",
+        kind="mutate",
+        input_model=ApplyLookArgs,
+        mutating=True,
+    ),
+    "add_transitions": _spec(
+        "add_transitions",
+        "Place transitions across a track's cuts by REASON rather than by name. `auto` "
+        "reads each cut's measured deltas: a jump cut is softened, a location change gets "
+        "a dissolve, and a continuity cut is left as a hard cut. The result names every "
+        "cut it left alone and why — those are decisions, not omissions.",
+        kind="mutate",
+        input_model=AddTransitionsArgs,
         mutating=True,
     ),
     "adjust_audio": _spec(

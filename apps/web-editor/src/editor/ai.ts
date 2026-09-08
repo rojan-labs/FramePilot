@@ -68,6 +68,7 @@ import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-sch
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
 import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
+import { LedgerClient, type LedgerSnapshot } from '@framepilot/ai-sdk';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -424,6 +425,9 @@ export class BrowserAiSession implements AiSession {
    * expose the same `answer()` surface and the sidebar never has to know which one it is
    * talking to.
    */
+  /** Memoized per session so the ledger's per-asset cache survives across turns. */
+  private ledgerClient?: LedgerClient;
+
   private askGate = createAskUserGate();
 
   public constructor(private readonly orchestrator: Orchestrator) {}
@@ -480,6 +484,42 @@ export class BrowserAiSession implements AiSession {
         ),
       sessionContext: () => createSessionContextDigester({ baseUrl })(projectId),
     };
+  }
+
+  /**
+   * The project's shot ledger for this run, or `undefined` when it cannot be read.
+   *
+   * Only the assets the timeline actually references: a run edits a sequence, not a library,
+   * and asking for the library would grow with the bin rather than with the edit.
+   *
+   * Never throws and never blocks a run: no sidecar, a transport failure, or an engine that
+   * says it could not look all resolve to `undefined`, and the picture surfaces degrade to
+   * exactly what they showed before the ledger existed.
+   */
+  private async readShotLedger(input: AiSessionInput): Promise<LedgerSnapshot | undefined> {
+    const baseUrl = configuredEngineBaseUrl();
+    if (!baseUrl) return undefined;
+    const assetIds = [
+      ...new Set(
+        input.project.timeline.tracks.flatMap((track) =>
+          track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+        ),
+      ),
+    ];
+    if (assetIds.length === 0) return undefined;
+    try {
+      this.ledgerClient ??= new LedgerClient({ baseUrl });
+      const snapshot = await this.ledgerClient.snapshot({
+        projectId: input.project.id,
+        assetIds,
+      });
+      return snapshot ?? undefined;
+    } catch (error) {
+      log.debug('shot ledger unavailable for this run', {
+        error: error instanceof Error ? error.message : String(error),
+      });
+      return undefined;
+    }
   }
 
   /**
@@ -575,6 +615,12 @@ export class BrowserAiSession implements AiSession {
     // delaying or failing an otherwise good run.
     const reads = this.understandingReads(input);
     const understanding = reads ? await readProjectUnderstanding(reads) : {};
+    // The shot ledger (ADR 0175). Fail-soft and cached per asset content hash, exactly like
+    // the blocks above: an unreachable sidecar costs the run its picture facts and nothing
+    // else. Without this the clip rows, the PICTURE digest, `match_color` and the transition
+    // policy all have nothing to read — every one of them degrades to what the agent had
+    // before the ledger existed, which is why it is fetched here rather than on demand.
+    const ledger = await this.readShotLedger(input);
     const context = {
       project: input.project,
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
@@ -586,6 +632,7 @@ export class BrowserAiSession implements AiSession {
       ...(input.pinned && input.pinned.length > 0 ? { pinned: input.pinned } : {}),
       ...(input.references && input.references.length > 0 ? { references: input.references } : {}),
       ...understanding,
+      ...(ledger ? { ledger } : {}),
     };
     const options: StreamOptions = {
       conversationId: input.conversationId,
