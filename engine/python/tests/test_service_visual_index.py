@@ -471,7 +471,13 @@ def test_unknown_asset_is_reported_not_fatal(
     client = _client(tmp_path, monkeypatch)
     _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
     body = _index(client, assetIds=["ghost"]).json()
-    assert body["done"] is True and body["indexed"] == 0
+    # Reported, not fatal: a 200 with the per-asset reason. But NOT done — a slice whose
+    # every asset failed indexed nothing, and `done` is what the desktop enroller reads
+    # to decide the asset never needs looking at again (five such jobs in the captured
+    # project were filed DONE at progress 1.0 in 14-20ms with zero shots written).
+    assert body["available"] is True
+    assert body["done"] is False
+    assert body["indexed"] == 0 and body["failed"] == 1
     assert body["items"][0]["ok"] is False
     assert "not known" in body["items"][0]["reason"]
 
@@ -1228,3 +1234,20 @@ def test_an_asset_with_no_measured_shots_reports_a_hole(
         body["items"][0]["tiers"]["described"]
         == "skipped: no measured shots for the current bytes"
     )
+
+
+def test_a_slice_that_indexed_nothing_is_not_done(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every processed asset failed, so the job is not a finished one.
+
+    ``done`` is a statement about the cursor; the enroller reads it as a statement about
+    the footage, and remembers a "done" asset as enrolled permanently. The two only agree
+    if a slice that measured nothing refuses to call itself done.
+    """
+    client = _client(tmp_path, monkeypatch)
+    _seed_asset(tmp_path, "p1", "vid", "clip.mp4", _video_probe())
+    body = _index(client, assetIds=["ghost", "phantom"]).json()
+    assert body["done"] is False
+    assert body["failed"] == len(body["items"]) > 0
+    assert body["reason"]

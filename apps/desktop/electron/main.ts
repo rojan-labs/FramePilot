@@ -2383,8 +2383,20 @@ function registerIpcHandlers(): void {
       // realistic failure is a sidecar that was still starting, and the asset would then
       // never be measured for the rest of the session. Throwing hands the ids back to the
       // enroller, which forgets them; the rejection itself is only logged.
-      if (result.status !== 'done') {
-        throw new Error(`visual index did not complete: ${result.status}`);
+      // ...and neither must a batch that finished having measured NOTHING. `done` is a
+      // statement about the cursor, not about the footage: five jobs in the captured
+      // project reported DONE at progress 1.0 in 14-20ms with zero shots written, and
+      // those assets were then remembered as enrolled for the life of the `seen` set.
+      // The engine no longer files an all-failed slice as done; this is the second lock
+      // on the same door, on the side that decides whether to retry.
+      const nothingIndexed =
+        result.last !== undefined && result.last.failed > 0 && result.last.indexed === 0;
+      if (result.status !== 'done' || nothingIndexed) {
+        throw new Error(
+          nothingIndexed
+            ? `visual index indexed nothing: ${String(result.last?.failed)} asset(s) failed`
+            : `visual index did not complete: ${result.status}`,
+        );
       }
       // THE LEDGER CACHE HAS TO BE TOLD, and this is the only place that can tell it.
       //
