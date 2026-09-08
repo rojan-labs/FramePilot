@@ -24,6 +24,9 @@ import {
   mapSourceTime,
   mapSequenceTime,
   retainedSourceRanges,
+  spanIsFrozen,
+  spanSequenceToSource,
+  spanSourceToSequence,
 } from '../timeline-map.js';
 import * as segmentModule from './segment.js';
 import { captionSegmentConfig, type CaptionSegmentConfig } from './segment.js';
@@ -279,6 +282,150 @@ describe('source ↔ sequence conversion', () => {
     ]);
     const hits = mapSourceTime(buildTimelineMap(reused), ASSET, 15);
     expect(hits.map((h) => h.sequenceTime)).toEqual([5, 15]);
+  });
+});
+
+/**
+ * Retimed playback — reverse and freeze (schema v15, ADR 0090).
+ *
+ * These are reachable from the product: `set_clip_playback_mode` emits
+ * `set_clip_speed` with a negative speed or zero, the validator accepts both, and the
+ * render engine plays them (`TimeMirror` for reverse, a held frame for a freeze). The
+ * map used to coerce every non-positive speed to `1`, on a premise about schema v12 that
+ * v15 reversed — so a reversed clip mapped forwards and a freeze mapped as a full 1x walk
+ * of its source range, and captions, verification, the critic and `map_time` all read
+ * those wrong times without anything detecting it.
+ */
+describe('reverse and freeze spans', () => {
+  /** One clip, alone on a video track — the shape these cases are about. */
+  const singleClip = (clip: {
+    readonly start: number;
+    readonly end: number;
+    readonly sourceStart: number;
+    readonly sourceEnd: number;
+    readonly speed?: number;
+  }): Timeline => ({
+    revision: 1,
+    tracks: [
+      {
+        id: 'track_v1',
+        type: 'video' as const,
+        clips: [
+          {
+            id: 'clip_0',
+            assetId: ASSET,
+            trackId: 'track_v1',
+            start: clip.start,
+            end: clip.end,
+            sourceStart: clip.sourceStart,
+            sourceEnd: clip.sourceEnd,
+            effects: [],
+            keyframes: [],
+            ...(clip.speed === undefined ? {} : { speed: clip.speed }),
+          },
+        ],
+      },
+    ],
+  });
+
+  // 10s of source consumed backwards at 2x ⇒ 5s of sequence, the duration invariant.
+  const reversed = singleClip({ start: 0, end: 5, sourceStart: 10, sourceEnd: 20, speed: -2 });
+  // A frame held for 3s. The source range names the held frame, not a range that plays.
+  const frozen = singleClip({ start: 0, end: 3, sourceStart: 7, sourceEnd: 8, speed: 0 });
+
+  it('keeps the signed speed rather than normalising it to 1x', () => {
+    expect(buildTimelineMap(reversed).spans[0]?.speed).toBe(-2);
+    expect(buildTimelineMap(frozen).spans[0]?.speed).toBe(0);
+    expect(spanIsFrozen(buildTimelineMap(frozen).spans[0]!)).toBe(true);
+    expect(spanIsFrozen(buildTimelineMap(reversed).spans[0]!)).toBe(false);
+  });
+
+  it('still normalises an absent or non-finite speed to 1x', () => {
+    expect(
+      buildTimelineMap(singleClip({ start: 0, end: 5, sourceStart: 0, sourceEnd: 5 })).spans[0]
+        ?.speed,
+    ).toBe(1);
+    const corrupt = buildTimelineMap(
+      singleClip({ start: 0, end: 5, sourceStart: 0, sourceEnd: 5, speed: Number.NaN }),
+    );
+    expect(corrupt.spans[0]?.speed).toBe(1);
+  });
+
+  it('plays a reversed clip from its source OUT point backwards, at its magnitude', () => {
+    const span = buildTimelineMap(reversed).spans[0]!;
+    // The first frame of the clip is the LAST frame of the source range.
+    expect(spanSequenceToSource(span, 0)).toBeCloseTo(20, 9);
+    expect(spanSequenceToSource(span, 1)).toBeCloseTo(18, 9);
+    expect(spanSequenceToSource(span, 2.5)).toBeCloseTo(15, 9);
+    // ...and the end of the span lands on the source IN point.
+    expect(spanSequenceToSource(span, 5)).toBeCloseTo(10, 9);
+  });
+
+  it('maps a reversed clip’s source instants back to the sequence, later source first', () => {
+    const map = buildTimelineMap(reversed);
+    expect(mapSourceTime(map, ASSET, 18)[0]?.sequenceTime).toBeCloseTo(1, 9);
+    expect(mapSourceTime(map, ASSET, 12)[0]?.sequenceTime).toBeCloseTo(4, 9);
+    // Source outside the retained range is still gone.
+    expect(mapSourceTime(map, ASSET, 9)).toHaveLength(0);
+    expect(mapSourceTime(map, ASSET, 21)).toHaveLength(0);
+  });
+
+  it('treats the source OUT point as the reversed clip’s first frame, not as cut', () => {
+    const map = buildTimelineMap(reversed);
+    // Half-open at the end that maps to the exclusive sequence end — which reverses
+    // with the direction. `sourceEnd` opens the clip; `sourceStart` is the boundary.
+    expect(mapSourceTime(map, ASSET, 20).map((h) => h.sequenceTime)).toEqual([0]);
+    expect(mapSourceTime(map, ASSET, 10)).toHaveLength(0);
+  });
+
+  it('round-trips every instant of a reversed clip', () => {
+    const map = buildTimelineMap(reversed);
+    const span = map.spans[0]!;
+    for (let t = 20; t > 10; t -= 0.37) {
+      const hit = mapSourceTime(map, ASSET, t)[0];
+      expect(hit).toBeDefined();
+      expect(mapSequenceTime(map, hit!.sequenceTime)?.sourceTime).toBeCloseTo(t, 6);
+      expect(spanSourceToSequence(span, t)).toBeCloseTo(hit!.sequenceTime, 9);
+    }
+  });
+
+  it('holds the source in-point for the whole of a freeze', () => {
+    const map = buildTimelineMap(frozen);
+    for (const at of [0, 0.5, 1.5, 2.99]) {
+      expect(mapSequenceTime(map, at)?.sourceTime).toBeCloseTo(7, 9);
+    }
+    // Not a 1x walk: the old behaviour read 8.99s of source out of a 1s range.
+    expect(spanSequenceToSource(map.spans[0]!, 2.99)).toBeCloseTo(7, 9);
+  });
+
+  it('retains only the held frame of a frozen clip, not its whole source range', () => {
+    const map = buildTimelineMap(frozen);
+    expect(mapSourceTime(map, ASSET, 7).map((h) => h.sequenceTime)).toEqual([0]);
+    // The rest of the range never plays, so it was NOT retained.
+    expect(mapSourceTime(map, ASSET, 7.5)).toHaveLength(0);
+  });
+
+  it('captions a reversed clip as intervals, in the order the words are heard', () => {
+    const map = buildTimelineMap(reversed);
+    const words: TranscriptWord[] = [
+      { word: 'early', start: 11, end: 12, assetId: ASSET },
+      { word: 'late', start: 18, end: 19, assetId: ASSET },
+    ];
+    const mapped = mapTranscript(map, words);
+    const byWord = new Map(mapped.words.map((w) => [w.word, w]));
+    // Played backwards, the source's LATE word is heard FIRST.
+    expect(byWord.get('late')!.start).toBeCloseTo(0.5, 6);
+    expect(byWord.get('late')!.end).toBeCloseTo(1, 6);
+    expect(byWord.get('early')!.start).toBeCloseTo(4, 6);
+    expect(byWord.get('early')!.end).toBeCloseTo(4.5, 6);
+    // Intervals, never inverted.
+    for (const w of mapped.words) expect(w.end).toBeGreaterThan(w.start);
+  });
+
+  it('captions nothing over a freeze, which holds one silent frame', () => {
+    const map = buildTimelineMap(frozen);
+    const words: TranscriptWord[] = [{ word: 'spoken', start: 7.2, end: 7.6, assetId: ASSET }];
+    expect(mapTranscript(map, words).words).toHaveLength(0);
   });
 });
 
