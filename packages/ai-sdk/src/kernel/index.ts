@@ -29,6 +29,7 @@ export * from './event-log.js';
 export * from './narration.js';
 export * from './editor-run-lifecycle.js';
 export * from './editor-run-projection.js';
+export * from './picture-verification.js';
 export * from './working-state.js';
 export * from './commit-ledger.js';
 export * from './replay/replay.js';

@@ -30,6 +30,10 @@ import {
   type EditorInteractionContext,
 } from './editor-context/interaction-context.js';
 import { detectTranscriptLoop, type TranscriptLoop } from './transcript-loop.js';
+import type { LedgerSnapshot } from './ledger.js';
+import { pictureFor, type PictureSlice } from './kernel/semantic-index/picture.js';
+import { shotWords } from './kernel/context/shot-words.js';
+import { summarizePictureDigest } from './kernel/context/picture-digest.js';
 
 const log = createLogger('ai-sdk:context-builder');
 
@@ -137,6 +141,20 @@ export interface ContextInput {
    * never dumped. Drops with the timeline under budget pressure.
    */
   readonly footageMap?: string;
+  /**
+   * The run's shot ledger (ADR 0175): what one ffmpeg pass — and, where a pack or a key has
+   * run, a label or a caption — knows about the picture of every asset the timeline
+   * references. Hosts fetch it once per run with `LedgerClient.snapshot` (`ledger-client.ts`)
+   * and pass it straight through; absent (no sidecar, no brain, an unread project) every
+   * surface below degrades to exactly today's output.
+   *
+   * Two blocks read it, both on the `timeline` tier: the clip rows gain a words-only fact
+   * suffix (`c12[61–66.4s] · MS man at desk · static · bright warm`), and the PICTURE digest
+   * summarises the footage as a whole. Neither is a tool call and neither costs a frame,
+   * which is the entire point — across ten recorded golden runs the model read the timeline
+   * 192 times and looked at a frame zero times (`reports/golden/BASELINE.md`).
+   */
+  readonly ledger?: LedgerSnapshot | null;
 }
 
 /**
@@ -287,8 +305,16 @@ function renderTrackClips(
   focus?: FocusRange,
   maxClips: number = Infinity,
   retrieval?: RetrievalQuery,
+  facts?: ReadonlyMap<string, string>,
 ): string {
-  const inFull = (c: Clip): string => `${c.id}[${round(c.start)}–${round(c.end)}s]`;
+  // The row is geometry plus, when the ledger knows the picture, the words for it (ADR
+  // 0175 / VU2.3). A clip with no facts renders byte-for-byte as it always has, so an
+  // unindexed project's prompt — and its cached prefix — does not move at all.
+  const inFull = (c: Clip): string => {
+    const row = `${c.id}[${round(c.start)}–${round(c.end)}s]`;
+    const words = facts?.get(c.id);
+    return words === undefined || words === '' ? row : `${row} · ${words}`;
+  };
   // P2.1/P2.2: ranked selection. The clips the request is about are chosen first, then the
   // room left over is filled — evenly across the whole timeline for a global request,
   // outward from the selection for a local one. Rendering stays in TIME order whatever the
@@ -324,6 +350,27 @@ function renderTrackClips(
 }
 
 /**
+ * Per-clip picture words, keyed by clip id (ADR 0175 / VU2.3).
+ *
+ * The join is already done — {@link pictureFor} gives every picture clip its shots and its
+ * dominant one, memoized per (project, ledger) — and the rendering is already written:
+ * `shotWords` is the ONLY place a measurement becomes a word, so the clip row, the digest
+ * and any later surface can never describe the same shot differently.
+ *
+ * Clips whose dominant shot says nothing are simply absent from the map, which is what makes
+ * the no-ledger prompt byte-identical to today's.
+ */
+export function pictureRowFacts(slice: PictureSlice): ReadonlyMap<string, string> {
+  const facts = new Map<string, string>();
+  for (const clip of slice.clips) {
+    if (!clip.dominant) continue;
+    const words = shotWords(clip.dominant);
+    if (words !== '') facts.set(clip.clipId, words);
+  }
+  return facts;
+}
+
+/**
  * One-line-per-layer summary of the timeline (counts + spans, not full JSON).
  *
  * Layers are type-agnostic (Phase 2, ADR 0032): each is described by its **z-order**
@@ -337,6 +384,11 @@ function renderTrackClips(
  * to a count/span — so a huge timeline stays relevant and bounded around the request.
  * When no focus is given, `maxClipsPerLayer` (K2.2) bounds each layer's listing so the
  * slice never grows unboundedly with the timeline; overflow collapses to a count/span.
+ *
+ * `facts` (VU2.3) is the per-clip picture suffix from {@link pictureRowFacts}: rows for
+ * clips it names gain ` · MS man at desk · static · bright warm`, bounded per row by
+ * `shot-words.ts`. It changes NOTHING about how many clips are shown — the count bound and
+ * the focus ranking are untouched — so the slice grows by a bounded suffix, never by a row.
  */
 export function summarizeTimeline(
   timeline: Timeline,
@@ -344,6 +396,7 @@ export function summarizeTimeline(
   focus?: FocusRange,
   maxClipsPerLayer: number = Infinity,
   retrieval?: RetrievalQuery,
+  facts?: ReadonlyMap<string, string>,
 ): string {
   if (timeline.tracks.length === 0) return 'Timeline: (empty)';
   const count = timeline.tracks.length;
@@ -358,7 +411,7 @@ export function summarizeTimeline(
     const head = `- Layer ${i + 1}/${count} (${z}, ${kind}${role}) "${track.id}"`;
     if (track.clips.length === 0) return `${head}: empty`;
     const span = clipsSpan(track.clips);
-    const clips = renderTrackClips(track.clips, focus, maxClipsPerLayer, retrieval);
+    const clips = renderTrackClips(track.clips, focus, maxClipsPerLayer, retrieval, facts);
     return `${head} (${track.clips.length} clip(s), ${round(span.start)}–${round(span.end)}s): ${clips}`;
   });
   const heading = focus
@@ -816,6 +869,7 @@ export function allocateGroundingSlice(
   room: number,
   focus?: FocusRange,
   retrieval?: RetrievalQuery,
+  facts?: ReadonlyMap<string, string>,
 ): GroundingAllocation {
   const timeline = project.timeline;
   const maxClips = timeline.tracks.reduce((n, track) => Math.max(n, track.clips.length), 0);
@@ -841,12 +895,12 @@ export function allocateGroundingSlice(
   const maxClipsPerLayer = bounded
     ? MIN_CLIPS_PER_LAYER
     : largestFittingCount(MIN_CLIPS_PER_LAYER, maxClips, timelineRoom, (count) =>
-        summarizeTimeline(timeline, assetKinds, focus, count, retrieval),
+        summarizeTimeline(timeline, assetKinds, focus, count, retrieval, facts),
       );
   // Rule 2, second half, symmetrically: the transcript gets everything the timeline did
   // not actually spend, measured on the real render rather than on its allowance.
   const spentOnTimeline = estimateTokens(
-    summarizeTimeline(timeline, assetKinds, focus, maxClipsPerLayer, retrieval),
+    summarizeTimeline(timeline, assetKinds, focus, maxClipsPerLayer, retrieval, facts),
   );
   const transcriptRoom = Math.max(0, room - spentOnTimeline);
   const maxTranscriptWords = bounded
@@ -898,6 +952,13 @@ const TIER_RECOVERY: Partial<Record<ContextTier, string>> = {
  * something it is not.
  */
 const BLOCK_RECOVERY: Readonly<Record<string, string>> = {
+  // Its tier's line offers `get_clips`, which does not yet return picture facts — and the
+  // failure this block exists to prevent is precisely "the model concluded the footage is
+  // featureless", so its omission notice must not read as one.
+  'picture digest':
+    'what the footage LOOKS like across its assets (people, settings, framing, motion, ' +
+    'exposure, quality) — it did not fit, which says nothing about the footage; do not ' +
+    'describe what is on screen without looking',
   references:
     'the references the editor attached and their measured targets — no tool can re-read ' +
     'them, so do not claim to have matched a reference you cannot see; ask instead',
@@ -1027,6 +1088,15 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // here too, because they ride the timeline tier and are not the assembler's to size.
   const visualStatus = input.visualStatus?.trim() ?? '';
   const footageMap = input.footageMap?.trim() ?? '';
+  // The picture surfaces (ADR 0175 / VU2.3, VU2.4). Both are pure projections of the run's
+  // ledger snapshot: the row facts join clips to shots (memoized per project+ledger, so the
+  // budgeter's repeated re-renders cost one derivation), and the digest reads asset rows
+  // only. With no ledger, `pictureRowFacts` is empty and the digest is omitted — the
+  // assembled prompt is then byte-identical to what it has always been.
+  const rowFacts = input.ledger
+    ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger))
+    : undefined;
+  const pictureDigest = summarizePictureDigest(input.ledger) ?? '';
   // Priced here for the same reason: it rides the timeline tier and must not eat the
   // grounding slice that the transcript and clip retrievals are sized from.
   const sourceMedia = summarizeSourceMedia(project);
@@ -1042,6 +1112,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     ...fixed.map((b) => b.text),
     visualStatus,
     footageMap,
+    pictureDigest,
     sourceMedia,
     mediaBin,
     promptBlock,
@@ -1060,6 +1131,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
     budget - spentElsewhere,
     selection,
     retrieval,
+    rowFacts,
   );
 
   const tiered: TieredBlock[] = [
@@ -1072,6 +1144,7 @@ export function assembleContext(input: ContextInput): AssembledContext {
         selection,
         allocation.maxClipsPerLayer,
         retrieval,
+        rowFacts,
       ),
     },
   ];
@@ -1095,6 +1168,13 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // planning cuts/zooms/reframes on long or unfamiliar material.
   if (footageMap !== '') {
     tiered.push({ tier: 'timeline', label: 'footage map', text: footageMap });
+  }
+  // The PICTURE digest (VU2.4) closes the group: the map says what happens in the footage
+  // over time, this says what it LOOKS like — people, settings, framing, motion, exposure,
+  // and how much of it has actually been read. It sits after the map so the two "what is in
+  // the footage" blocks read together, and it drops with them under budget pressure.
+  if (pictureDigest !== '') {
+    tiered.push({ tier: 'timeline', label: 'picture digest', text: pictureDigest });
   }
   if (project.transcript.length > 0) {
     tiered.push({

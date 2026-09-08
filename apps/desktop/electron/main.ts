@@ -198,18 +198,23 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
-import { cacheDerivedMedia } from './media/derived-media-cache.js';
+import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
+  LedgerClient,
   hostedTranscriptionUnavailable,
   localMusicAssetRefusal,
   sourcingFailureNote,
   unusableHostPayload,
 } from '@framepilot/ai-sdk';
-import { createAssetEnroller } from './ai/asset-enrolment.js';
+import {
+  createAssetEnroller,
+  enrolmentTargetFor,
+  stockEnrolmentTargetFor,
+} from './ai/asset-enrolment.js';
 import { createStockHost } from './ai/stock-host.js';
 import { LocalTelemetry, telemetryEnabledFromEnv } from './telemetry/telemetry.js';
 import { resolveUpdateChannel } from './updater/channel.js';
@@ -745,18 +750,17 @@ function registerIpcHandlers(): void {
    * intends (acquire concurrently, commit in series) actually cost one derivation
    * instead of two.
    */
+  //
+  // The derivation is `sidecarDerive` rather than a closure written here because the
+  // closure form silently dropped its `identity` argument: `DeriveAssetMedia` takes
+  // `(absolutePath, identity?)`, a one-parameter arrow satisfies that signature, and
+  // `/asset-media` — the only writer of the brain's asset row — writes nothing without
+  // both ids. Every clip the agent sourced therefore derived its proxy and thumbnails
+  // and never entered the brain, so the enrolment that followed measured nothing.
   const cachedDerive = (request: { thumbnails: number; proxy: boolean }) =>
-    cacheDerivedMedia(
-      async (absolutePath: string) => {
-        const derived = await importAssetViaSidecar(
-          engineBaseUrl,
-          { inputPath: absolutePath, ...request },
-          electronFetch,
-        );
-        return derived.ok ? derived : null;
-      },
-      { projectsRoot },
-    );
+    cacheDerivedMedia(sidecarDerive({ baseUrl: engineBaseUrl, request, fetchFn: electronFetch }), {
+      projectsRoot,
+    });
 
   const musicService = new MusicService({
     projectsRoot,
@@ -1185,7 +1189,7 @@ function registerIpcHandlers(): void {
       ) {
         return { ok: false, error: 'download_failed', detail: 'invalid download request' };
       }
-      return await stockService.download(req);
+      return await downloadStockAsset(req);
     },
   );
   ipcMain.on(IpcChannels.stockDownloadCancel, (_event, operationId: unknown) => {
@@ -1618,11 +1622,22 @@ function registerIpcHandlers(): void {
         const request = req as ImportAssetRequest;
         const guard = sandboxProjectPath(await ensureProjectsDir(), request?.inputPath);
         if (!guard.ok) return guard;
-        return await importAssetViaSidecar(
+        const derived = await importAssetViaSidecar(
           engineBaseUrl,
           { ...request, inputPath: guard.path },
           electronFetch,
         );
+        // The human import path's one enrolment hook (ADR 0175 / VU1.5). It is here, and
+        // not in the renderer where it used to be, because this is where an acquired file
+        // becomes a KNOWN asset: the call above is the only writer of the brain row the
+        // shot ledger reads, so enrolling anywhere else can only ask the engine about an
+        // asset it has never heard of.
+        //
+        // The conditions live in `enrolmentTargetFor` beside the enroller, where they can
+        // be tested; there is nothing else in this handler worth a test.
+        const target = enrolmentTargetFor(request, derived);
+        if (target) enrolAcquiredAsset(target.projectId, target.assetId);
+        return derived;
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
@@ -2295,28 +2310,32 @@ function registerIpcHandlers(): void {
   };
 
   /**
-   * `add_stock` for the agent. The decision it carries — what an absent
-   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
-   * against the orchestrator's matching rule.
-   */
-  /**
-   * Enrol agent-downloaded stock into the visual index (D1).
-   *
-   * `describe_footage` answered `not_indexed` for every clip captured run `e36235cc`
-   * downloaded, because the only automatic enrolment is `autoIndexImportedAssets` on the
-   * renderer's HUMAN import path — the agent's acquisition path had no hook at all. So a
-   * montage judged on visual variety was assembled blind.
-   *
-   * Fire-and-forget and never awaited by the download: enrolment is an optimization, it
-   * needs a configured key, and a run that cannot index must still be able to place
-   * footage. The same contract `autoIndexImportedAssets` has.
-   */
-  /**
    * Ends all background enrolment at quit. Held here, beside the enroller, because
    * `before-quit` is registered a long way below and both halves have to name the same
    * controller for the abort to reach anything.
    */
   const enrolmentShutdown = new AbortController();
+  /**
+   * The tiers an UNATTENDED import may fill (see the note at its call site).
+   *
+   * `measured` is local, keyless and free, and is the whole point of ADR 0175 — it runs for
+   * everyone. `labelled` costs money only where the user has already configured an
+   * embeddings key, which is exactly the consent the deleted key gate used to require.
+   * `described` is a per-shot vision call and never runs without the user asking.
+   */
+  const autoEnrolmentTiers = (): readonly ('measured' | 'labelled' | 'described')[] =>
+    aiConfig.resolveEmbeddingsKeys() !== undefined || aiConfig.resolveTwelveLabsKey() !== undefined
+      ? (['measured', 'labelled'] as const)
+      : (['measured'] as const);
+
+  // One client for the process, not one per run: its cache is keyed by asset content hash
+  // and tier versions, and that cache is what makes the ledger free after the first read.
+  // A fresh client per run would re-fetch every asset on every turn.
+  //
+  // Declared HERE, above the enroller, because the enroller is the only thing in the app
+  // that knows when an asset's facts have changed — see the `invalidate` call below.
+  const shotLedgerClient = new LedgerClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
+
   const assetEnroller = createAssetEnroller({
     signal: enrolmentShutdown.signal,
     // ONE loop per batch, not one per asset. `/brain/visual/index` takes a list and paces
@@ -2326,33 +2345,119 @@ function registerIpcHandlers(): void {
     enrol: async ({ projectId, assetIds, signal }) => {
       const result = await runVisualIndexLoop({
         client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
-        request: { projectId, assetIds: [...assetIds], ...visualIndexCredentials() },
+        // Credentials still ride along, but they no longer decide WHETHER this runs:
+        // they decide which tiers the engine can add on top of the keyless measurement
+        // (ADR 0175).
+        //
+        // WHAT AUTOMATIC ENROLMENT IS ALLOWED TO SPEND. `tiers` is NOT left at the
+        // engine's default of all three. On `main` this path was gated behind an
+        // embeddings key, and deleting that gate — correct, because tier 0 needs no key —
+        // also removed the only thing standing between an unattended import and a paid
+        // vision call. `captionProvider` falls back to the ACTIVE chat provider, and tier 2
+        // is one call per shot, so a user whose only key is for chat would have been billed
+        // per shot on every import, with no prompt and no toggle.
+        //
+        // So: the keyless floor always, `labelled` only when the user has configured an
+        // embeddings key — the same consent signal the deleted gate read — and `described`
+        // never from an unattended import. Explicit indexing through the IPC surface is
+        // unchanged and still fills every tier the credentials allow.
+        request: {
+          projectId,
+          assetIds: [...assetIds],
+          tiers: autoEnrolmentTiers(),
+          ...visualIndexCredentials(),
+        },
         signal,
       });
-      aiLog.debug('stock asset enrolment settled', {
+      aiLog.debug('asset enrolment settled', {
         projectId,
         assets: assetIds.length,
         status: result.status,
+        // Which tiers actually reached the footage. "Enrolled" and "described" are
+        // different facts and a log that conflates them cannot diagnose a blind run.
+        ...(result.last?.tiers && Object.keys(result.last.tiers).length > 0
+          ? { tiers: result.last.tiers }
+          : {}),
       });
+      // A batch that did not finish must not leave its ids remembered as enrolled: the
+      // realistic failure is a sidecar that was still starting, and the asset would then
+      // never be measured for the rest of the session. Throwing hands the ids back to the
+      // enroller, which forgets them; the rejection itself is only logged.
+      if (result.status !== 'done') {
+        throw new Error(`visual index did not complete: ${result.status}`);
+      }
+      // THE LEDGER CACHE HAS TO BE TOLD, and this is the only place that can tell it.
+      //
+      // `LedgerClient` caches per asset for the process lifetime, and it caches an asset
+      // that returned NO rows exactly as it caches one that returned some — which is right,
+      // because "this asset has no shots" is an answer worth keeping rather than re-asking
+      // every turn. It is wrong for precisely one asset: the one being measured right now.
+      // Enrolment is fire-and-forget and takes ~90s for a minute of video, so a run that
+      // reads the ledger while a freshly acquired clip is still indexing caches it as empty
+      // and then serves that empty answer forever — the clip stays invisible for the rest
+      // of the session even though the engine measured it seconds later.
+      //
+      // `refresh`/`invalidate` exist for this and had no caller anywhere in the repo. This
+      // is the signal the doc-comment on `LedgerSnapshotRequest.refresh` names: an asset
+      // whose index job reported `done`. Cheap and self-limiting — it drops at most one
+      // cache entry per asset per enrolment, and the next run re-reads only those.
+      shotLedgerClient.invalidate(projectId, assetIds);
     },
   });
 
-  const enrolStockAsset = ({
-    projectId,
-    assetId,
-  }: {
-    readonly projectId: string;
-    readonly assetId: string;
-  }): void => {
-    // Checked before queueing, not inside the batch: without a key there is nothing to
-    // enrol into, and remembering the id anyway would suppress a real enrolment after the
-    // user adds one in Settings.
-    const credentials = visualIndexCredentials();
-    if (!credentials.twelveLabsKey && !credentials.nvidiaKeys) return;
+  /**
+   * Enrol ONE acquired asset into the shot ledger, in the background.
+   *
+   * This is the only enrolment entry point in the app (ADR 0175 / VU1.5). It used to be
+   * three: the renderer warmed human imports when a key was configured, `enrolStockAsset`
+   * warmed agent downloads under the same key check, and the Stock and Sounds panels
+   * warmed nothing at all. So on a default install nothing was ever indexed, and across
+   * ten recorded golden runs the agent never called a footage surface.
+   *
+   * There is no key check. Tier 0 — scene cuts, exposure, warmth, motion, sharpness — is
+   * one local ffmpeg pass; a key only buys the labelled and described tiers on top. There
+   * is no sidecar-reachability check either: the client already degrades honestly, and a
+   * second opinion about whether the engine is up could only disagree with it.
+   *
+   * Fire-and-forget, never awaited by the acquisition it follows.
+   *
+   * @param projectId - The project the asset belongs to.
+   * @param assetId - The asset id used by BOTH the project document and the brain row.
+   */
+  const enrolAcquiredAsset = (projectId: string, assetId: string): void => {
     assetEnroller.request(projectId, assetId);
   };
 
-  const hostAddStock = createStockHost(stockService, enrolStockAsset);
+  /**
+   * Download a stock item and enrol it — the one path both the agent's `add_stock` and
+   * the renderer's Stock panel take.
+   *
+   * The enrolment sits HERE rather than in either caller because the panel path had none
+   * and the agent path had its own, so a clip acquired by hand was measurable and the
+   * same clip acquired by the agent was not (or, after the key gate, neither was).
+   */
+  const downloadStockAsset = async (
+    request: StockDownloadRequest,
+  ): Promise<StockDownloadResult> => {
+    const result = await stockService.download(request);
+    // The decision and the id live in `stockEnrolmentTargetFor`, beside the import path's,
+    // where both can be tested. A missing call site is what caused the original bug and is
+    // invisible to any test of the enroller itself.
+    const target = stockEnrolmentTargetFor(request, result);
+    if (target) enrolAcquiredAsset(target.projectId, target.assetId);
+    return result;
+  };
+
+  /**
+   * `add_stock` for the agent. The decision it carries — what an absent
+   * `atSeconds` means — lives in `ai/stock-host.ts` where it can be tested
+   * against the orchestrator's matching rule.
+   */
+  const hostAddStock = createStockHost({
+    unresolvableReason: (remoteId) => stockService.unresolvableReason(remoteId),
+    knownItem: (remoteId) => stockService.knownItem(remoteId),
+    download: downloadStockAsset,
+  });
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
@@ -2635,6 +2740,29 @@ function registerIpcHandlers(): void {
           ...visualIndexCredentials(),
         }),
       ),
+    // What the PICTURE is (ADR 0175 / VU2.1). The browser session has read this since the
+    // ledger landed; the desktop app never did, so on the surface this product leads with,
+    // the engine measured every imported asset into a shot ledger and not one run ever read
+    // a row. Every picture surface downstream — clip-row words, the PICTURE digest, the
+    // facts a tool result carries, `match_color`'s readings, the transition policy's
+    // measured cuts — was therefore inert in the shipping app while its tests passed.
+    //
+    // Scoped to the assets the TIMELINE references, like the browser's: a run edits a
+    // sequence, not a library, so the read grows with the edit. Fail-soft by construction
+    // (`LedgerClient` never throws), and the client caches per asset content hash, so a
+    // ten-turn run costs one read and a second run on the same project costs none.
+    shotLedgerFor: async (project) => {
+      const assetIds = [
+        ...new Set(
+          project.timeline.tracks.flatMap((track) =>
+            track.clips.map((clip) => clip.assetId).filter((id): id is string => Boolean(id)),
+          ),
+        ),
+      ];
+      if (assetIds.length === 0) return undefined;
+      const snapshot = await shotLedgerClient.snapshot({ projectId: project.id, assetIds });
+      return snapshot ?? undefined;
+    },
     // What this project has LEARNED — the bin digest, the latest session note, and the
     // corrections/decisions tiers (which is where an answer the editor gave the model
     // lives). The digester has existed since the memory tiers landed and nothing called

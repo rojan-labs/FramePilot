@@ -2,7 +2,7 @@
  * AiConfigStore tests: round-trip read/write, key save/clear, model override, the
  * secret-free projection, env fallback, and corrupt-file tolerance.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
@@ -186,10 +186,9 @@ describe('AiConfigStore', () => {
   });
 
   describe('visual-embeddings key slot (MI0.1)', () => {
-    it('is absent by default and auto-index defaults on', () => {
+    it('is absent by default', () => {
       const config = new AiConfigStore(file).toAiConfig();
       expect(config.nvidiaEmbeddings).toBeUndefined();
-      expect(config.embeddingsAutoIndex).toBe(true);
     });
 
     it('saves the comma-separated keys and — unlike chat keys — reads them back (D5)', () => {
@@ -238,11 +237,19 @@ describe('AiConfigStore', () => {
       delete process.env['TWELVELABS_API_KEY'];
     });
 
-    it('toggles auto-index off and persists it', () => {
+    it('drops a stored embeddingsAutoIndex rather than round-tripping it', () => {
+      // The migration for the retired toggle (ADR 0175): preparation is not optional any
+      // more — measurement needs no key and no permission — so a file written by an older
+      // build keeps the flag on disk exactly once, and the first write after this drops it.
+      writeFileSync(
+        file,
+        JSON.stringify({ activeProvider: 'mock', embeddingsAutoIndex: false }),
+        'utf8',
+      );
       const store = new AiConfigStore(file);
-      expect(store.applyUpdate({ embeddingsAutoIndex: false }).embeddingsAutoIndex).toBe(false);
-      expect(new AiConfigStore(file).toAiConfig().embeddingsAutoIndex).toBe(false);
-      expect(store.applyUpdate({ embeddingsAutoIndex: true }).embeddingsAutoIndex).toBe(true);
+      expect(store.toAiConfig()).not.toHaveProperty('embeddingsAutoIndex');
+      store.applyUpdate({ nvidiaEmbeddings: 'nvapi-1' });
+      expect(JSON.parse(readFileSync(file, 'utf8'))).not.toHaveProperty('embeddingsAutoIndex');
     });
   });
 

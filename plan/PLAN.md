@@ -9811,6 +9811,72 @@ decision in **ADR 0157**.
       decides to rebuild can now clear a track, and the user's recourse is undo rather than
       prevention. Other progress guards untouched.
 
+## Phase VU — Visual Understanding: the agent knows the footage, the edit, and the screen — `[ ]` proposed (2026-09-07)
+
+Sub-plan: [`plan/visual-understanding/README.md`](./visual-understanding/README.md) (nine files:
+diagnosis, architecture, phases VU0–VU9). **Root cause, measured:** across every golden run the
+model read the timeline 713 times and looked at a frame 13 times; nothing is ever indexed
+unless an NVIDIA or TwelveLabs key is configured (`visualIndex.ts:74`, the `/brain/visual/index`
+embedder short-circuit), and a clip row the model reads is `c12[0–4.2s]` and nothing else.
+**Decision:** a per-shot **ledger** compiled at import in three tiers — tier 0 measured facts
+from one ffmpeg pass with no key and no model; tier 1 local SigLIP/SFace embeddings, labels and
+person clusters as a capability pack; tier 2 structured captions from a local llama.cpp VLM pack
+with hosted parity — joined into the semantic index as a `picture` slice, printed as words in
+the clip rows and a ≤600-token digest, consumed by deterministic solvers (`match_color`,
+`normalize_exposure`, `apply_look`, transition policy by `reason`) that emit the operations that
+already exist, and verified with pixels only at flagged cuts. No `project.fp.json` schema change;
+brain migration v4. Order: VU0 baseline metrics first, then VU1–VU3 (keyless ledger → model
+surfaces → color solver) as the first vertical slice before any pack work.
+
+- [x] VU0 — **VU0.1 metrics + the measured floor** (318 turns, 210 accepted edits, ten
+  recorded runs: `get_frame` **0**, footage surfaces **0**, guess rate **1.00** —
+  `reports/golden/BASELINE.md`, produced without re-running a single case). **VU0.4**
+  ADR 0175 + the Zod↔Pydantic ledger, 11 parity tests. **VU0.2/VU0.3** 8 golden cases (5
+  edit-state rubrics, 3 answer-scored), 558 machine-PROPOSED labels marked unverified, and
+  a contact-sheet generator for the human pass. Semantic labels are still owed.
+- [x] VU1 — tier 0 shot ledger. One ffmpeg pass, two chains, ONE decode; brain schema v4;
+  the keyless route (the embedder short-circuit is deleted, tier 0 runs first on both arms);
+  one enrolment path. Measured: 160 px lossless vs full res (YAVG **74.0424 vs 74.0471**),
+  **29.4× real-time** ⇒ a 10-hour library in ~20 min. Fixed along the way: **every still was
+  silently unmeasured** (all 60 photo fixtures), found only by sweeping the whole directory.
+- [x] VU2 — model surfaces: ledger client, `picture` slice with cut-pair deltas, clip-row
+  words, PICTURE digest, facts on `get_clips`/`list_edit_boundaries`. **Zero token delta on
+  an unindexed project** (goldens pass unregenerated); opt-in ~108 tokens/turn for the digest
+  and ~10 per covered row. `[~]` VU2.6's briefing module is built and tested but **not wired**.
+- [x] VU3 — `match_color` / `normalize_exposure` / `apply_look`, inverted from
+  `render/color.py`'s actual pass, emitting the existing `apply_color_grade` operation; the
+  model supplies no value on any of them. **Coefficients UNFITTED** — `fit-color-response.mjs`
+  runs the real fit; no test asserts a fitted number. `[~]` VU3.3's re-measure loop is VU7's.
+- [x] VU4 — transition policy by reason; `add_transitions` `auto` reads the boundary flags
+  and NAMES every cut it leaves as a hard cut. Families resolve through catalog data, never an
+  id literal; `continuity` returns null at any delta.
+- [x] VU5 — tier 1 pack `framepilot.visual-embed`: worker, protocol, versioned prompt bank,
+  local arm preferred over the hosted one, entity clustering. **The pairwise duplicate scan is
+  DELETED** (`_SIMILAR_GROUP_SPAN_CAP` returns nothing) for an exact multi-index bucket.
+  **Weights fetched and the backend has run** (2026-09-08): real digests, health check green,
+  and the first real run found what no fake could — `run(None, …)[0]` was reading
+  `last_hidden_state`, not `pooler_output`. `resolve_model` still refuses a placeholder digest
+  by name. **No label accuracy is claimed**; VU5.4 is still unmeasured.
+- [x] VU6 — tier 2 pack `framepilot.visual-describe`: one STRUCTURED description per shot,
+  the same schema from the local pack, the hosted arm and TwelveLabs. **Free-text captions are
+  DELETED** — `CAPTION_INSTRUCTION` and the prose path are gone, and `captioner.py` no longer
+  has a function returning a string. Captions now join spans by TIME OVERLAP, because two
+  segmentations cannot share an index space. Same weight status as VU5.
+- [~] VU7 — deterministic cut checks + bounded vision escalation, built and tested (28
+  tests), **not wired**: the conductor is a pure reducer with no project, and the only seam
+  with the right inputs is the steering/repair channel a verification must never enter.
+- [x] VU8 — governor (indexing yields to render/export/frame/evidence), tier-0-first
+  scheduling, preemption on import, per-tier invalidation. Measured: **643 B/row** ⇒ a 10-hour
+  library ≈ **6.3 MB** (no eviction needed), `tier_coverage` 3.3 ms over 12,000 rows, and a
+  real **SIGKILL mid-slice resumed to 272 rows identical to a clean run**. Three §7 claims
+  corrected, incl. an LRU cache refused for an artifact with **no producer**.
+- [x] VU9 — the golden gate carries the perception metrics, with `framesSeenPerEdit` gated as
+  a **CEILING** (proven to trip at 0.00 → 1.40) — every other metric is a floor, this one is
+  not, because a change that raises scores by spending frames has not done what this plan set
+  out to do. ADR 0175 (ledger) + ADR 0176 (packs); `docs/guides/media-intelligence.md`
+  rewritten around the tiers; CHANGELOG current; evidence consolidated in
+  `plan/visual-understanding/09-EVIDENCE.md`.
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)

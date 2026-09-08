@@ -812,6 +812,49 @@ function AsrSettings(): JSX.Element {
 
 type MediaStatusState = VisualStatusResponse | 'loading' | 'error' | 'no-project';
 
+/**
+ * Which of the tiers a key unlocks this machine could run at all.
+ *
+ * Read from the host's OWN configuration, never inferred from a zero count: "described 0"
+ * and "described 0 because nothing can describe" are different sentences, and only the
+ * second one tells the reader whether to go and do something about it.
+ */
+interface TierProviders {
+  /** An embedding key (or pack) exists for the `labelled` tier. */
+  readonly labelled: boolean;
+  /** A vision provider exists for the `described` tier. */
+  readonly described: boolean;
+}
+
+/**
+ * The per-tier coverage line — the panel's whole job in one string.
+ *
+ * Three counts, never one. `measured` is the keyless ffmpeg floor (ADR 0175) and it is
+ * the one that says the footage has been looked at; `labelled` and `described` are the
+ * tiers a key buys. Collapsing them into "indexed" is what let a project with no key read
+ * as prepared when nothing had run, and a fully measured project read as not indexed.
+ *
+ * Counts are SHOTS, as the engine reports them.
+ */
+function tierCoverageLine(
+  coverage: NonNullable<VisualStatusResponse['coverage']>,
+  providers: TierProviders,
+): string {
+  const total = coverage.total;
+  const line = [
+    `measured ${coverage.measured}/${total}`,
+    `labelled ${coverage.labelled}/${total}`,
+    `described ${coverage.described}/${total}`,
+  ].join(' · ');
+  const missing: string[] = [];
+  if (coverage.labelled === 0 && !providers.labelled)
+    missing.push('labelled needs an embedding key');
+  if (coverage.described === 0 && !providers.described) {
+    missing.push('described needs a vision provider');
+  }
+  return missing.length > 0 ? `${line} — ${missing.join(' · ')}` : line;
+}
+
 /** How many failing assets to name inline before collapsing to a count. */
 const MAX_LISTED_FAILURES = 3;
 
@@ -854,7 +897,11 @@ const STALLED_AFTER_MS = 5 * 60 * 1000;
  * appears only when something actually failed or stalled, it says what it will retry, and
  * it disappears the moment there is nothing to retry.
  */
-function describeCoverage(status: VisualStatusResponse, now: number): CoverageView {
+function describeCoverage(
+  status: VisualStatusResponse,
+  now: number,
+  providers: TierProviders,
+): CoverageView {
   const none: CoverageView['failures'] = [];
   if (!status.available) {
     return {
@@ -864,7 +911,16 @@ function describeCoverage(status: VisualStatusResponse, now: number): CoverageVi
       failures: none,
     };
   }
-  const prepared = `${status.indexedAssets}/${status.totalAssets} assets prepared`;
+  // Prefer what the ledger actually covered. `indexedAssets` is one number for three
+  // independent tiers, so it can only be honest when the engine reports no coverage at
+  // all (an older sidecar) — and then the sentence says "prepared", not "indexed".
+  // `total` counts shot rows, and those only exist once measurement has written some.
+  // So all-zero coverage is "nothing measured yet", not "three tiers at 0/0" — printing
+  // the latter would answer a question about 61 assets with a line about none.
+  const coverage = status.coverage && status.coverage.total > 0 ? status.coverage : undefined;
+  const prepared = coverage
+    ? tierCoverageLine(coverage, providers)
+    : `${status.indexedAssets}/${status.totalAssets} assets prepared`;
   const failures = status.failures;
   const job = status.lastJob;
 
@@ -888,7 +944,14 @@ function describeCoverage(status: VisualStatusResponse, now: number): CoverageVi
       failures,
     };
   }
-  if (status.totalAssets > 0 && status.indexedAssets >= status.totalAssets) {
+  // Complete when the FLOOR is complete: measurement is the tier that needs nothing, so a
+  // project whose every shot is measured has been looked at even if no key was ever set.
+  // A still-running job keeps the running badge — the tiers above the floor may have work
+  // left, and a green "completed" over a moving progress bar is the misreport this panel
+  // was rewritten to stop telling.
+  const preparedTotal = coverage ? coverage.total : status.totalAssets;
+  const preparedCount = coverage ? coverage.measured : status.indexedAssets;
+  if (preparedTotal > 0 && preparedCount >= preparedTotal && job?.state !== 'running') {
     return { statusText: `${prepared}.`, tone: 'completed', recovery: undefined, failures: none };
   }
   if (job && (job.state === 'failed' || job.state === 'interrupted')) {
@@ -921,10 +984,14 @@ function describeCoverage(status: VisualStatusResponse, now: number): CoverageVi
       };
     }
     // Say what it is waiting on. A percentage alone cannot distinguish slow from broken.
+    // Measurement is local ffmpeg work, not an upload and not an embedding call, so while
+    // the floor is still filling that is what the line has to say.
     const waiting =
       status.backend === 'twelvelabs'
         ? `uploading to TwelveLabs (${job.cursor}/${job.total})`
-        : `embedding frames (${job.cursor}/${job.total})`;
+        : coverage && coverage.measured < coverage.total
+          ? `measuring footage (${job.cursor}/${job.total})`
+          : `embedding frames (${job.cursor}/${job.total})`;
     return {
       statusText: `${prepared} · ${Math.round(job.progress * 100)}% — ${waiting}.`,
       tone: 'running',
@@ -1000,6 +1067,19 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
   const onDeviceKey = nvidiaEmbeddingsKeys(config) !== undefined;
   const keyConfigured = hostedKey || onDeviceKey;
   const activeBackend = hostedKey ? 'TwelveLabs' : onDeviceKey ? 'On-device' : undefined;
+  /**
+   * What this machine could run above the measured floor. `described` also counts a
+   * configured, ready caption provider — on desktop its key lives in main, so `ready` is
+   * all the renderer is told about it, and that is exactly the fact needed here.
+   */
+  const captionProviderReady =
+    config.visualCaptionProvider !== undefined &&
+    (config.providers.find((provider) => provider.name === config.visualCaptionProvider)?.ready ??
+      false);
+  const tierProviders: TierProviders = {
+    labelled: onDeviceKey,
+    described: hostedKey || captionProviderReady,
+  };
   let statusText = 'Open a project to see media-understanding coverage.';
   let tone: CoverageTone = 'idle';
   let recovery: CoverageRecovery;
@@ -1012,7 +1092,11 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
       'The media engine is currently unreachable. Cached/local editing remains available.';
     tone = 'warning';
   } else if (typeof status === 'object') {
-    ({ statusText, tone, recovery, failures } = describeCoverage(status, Date.now()));
+    ({ statusText, tone, recovery, failures } = describeCoverage(
+      status,
+      Date.now(),
+      tierProviders,
+    ));
   }
 
   return (
@@ -1065,7 +1149,9 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
           <span className="setting-label">Automatic preparation</span>
           <span className="setting-hint">
             FramePilot prepares media on import or first semantic need, joins duplicate requests,
-            and reuses unchanged results. There is no manual indexing step.
+            and reuses unchanged results. There is no manual indexing step. Measurement — shot
+            boundaries, exposure, warmth, motion, sharpness — runs on this machine with no key; a
+            key adds labels and written descriptions on top of it.
           </span>
         </div>
         <span className="ai-tone" data-tone={keyConfigured ? 'completed' : 'idle'}>
@@ -1123,8 +1209,10 @@ function MediaIntelligenceSettings({ projectId }: { readonly projectId?: string 
       ) : null}
       {!keyConfigured ? (
         <p className="setting-hint setting-note">
-          Deterministic inspection, timeline editing, frame rendering, local transcription, and
-          cached results remain available without a media-understanding key.
+          Without a key, imported footage is still measured on this device — shot boundaries,
+          exposure, warmth, motion and sharpness — and the coverage line above says exactly how far
+          each tier got. Deterministic inspection, timeline editing, frame rendering, local
+          transcription and cached results are unaffected. Nothing leaves this machine.
         </p>
       ) : null}
     </SettingGroup>

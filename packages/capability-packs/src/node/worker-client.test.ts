@@ -157,6 +157,50 @@ describe('runCapabilityPackWorker', () => {
     expect(launched).toBe(false);
   });
 
+  it('sandbox-checks EVERY capability that is not on the media-free list', async () => {
+    // The guard used to read `if ('media' in request)`, which made the path sandbox
+    // conditional on a property NAME: a request type carrying its path under any other key
+    // would have skipped the check with no compile error and no failing test. The exemption
+    // is a closed list of capabilities now, so this asserts the property that matters —
+    // a capability nobody exempted is checked, whatever shape its payload has.
+    const root = await mkdtemp(path.join(tmpdir(), 'framepilot-worker-root-'));
+    const outside = await mkdtemp(path.join(tmpdir(), 'framepilot-worker-outside-'));
+    const externalMedia = path.join(outside, 'secret.mp4');
+    await writeFile(externalMedia, 'secret');
+    let launched = false;
+    const refusingLauncher: CapabilityPackWorkerLauncher = (...args) => {
+      launched = true;
+      return launcher('success')(...args);
+    };
+
+    const base = request(externalMedia);
+    const shapes: CapabilityPackWorkerRequest[] = [
+      base,
+      {
+        ...base,
+        capability: 'visual.embed',
+        parameters: { promptBankVersion: 1, shots: [{ shotIndex: 0, keyframeT: 0.5 }] },
+      } as CapabilityPackWorkerRequest,
+      {
+        ...base,
+        capability: 'visual.describe',
+        parameters: { tier2Version: 1, shots: [{ shotIndex: 0, t0: 0, t1: 1 }] },
+      } as CapabilityPackWorkerRequest,
+    ];
+    for (const shape of shapes) {
+      await expect(
+        runCapabilityPackWorker({
+          entrypoint: '/signed/worker',
+          mediaRoot: root,
+          request: shape,
+          launch: refusingLauncher,
+        }),
+      ).rejects.toMatchObject({ code: 'media_escape' });
+    }
+    // Nothing was launched: the sandbox refuses before the process starts, on every one.
+    expect(launched).toBe(false);
+  });
+
   it('rejects malformed and stale worker output', async () => {
     const { root, media } = await sandbox();
     await expect(

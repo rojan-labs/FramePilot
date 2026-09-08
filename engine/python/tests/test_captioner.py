@@ -1,9 +1,14 @@
-"""Tests for the per-scene VLM captioner (brain.captioner, plan MI3.1).
+"""Tests for the hosted structured describer (brain.captioner, plan VU6.3).
 
-Deterministic core module (100% branch coverage): every request is respx-mocked
-— no test tier ever calls a live vision API (plan §6) — so both wire formats,
-the frame cap, trimming/capping, and every failure branch are exercised
-directly. A recurring assertion proves the API key never reaches the logs.
+Deterministic core module: every request is respx-mocked — no test tier ever calls a live
+vision API — so both wire formats, the schema they carry, the frame cap and every failure
+branch are exercised directly. A recurring assertion proves the API key never reaches the
+logs.
+
+**The free-text path is gone.** ``CAPTION_INSTRUCTION`` and ``SceneCaptioner.caption_scene``
+were deleted with the prose tier; the tests that covered them were deleted with it, and the
+ones here replace them. A test asserting that a caption is "≤2 sentences of prose" would be
+a test for a contract this codebase no longer has.
 """
 
 from __future__ import annotations
@@ -17,13 +22,24 @@ import pytest
 import respx
 
 from framepilot_engine.brain.captioner import (
+    ANTHROPIC_TOOL_NAME,
     ANTHROPIC_VERSION,
-    CAPTION_INSTRUCTION,
     NO_VISION_PROVIDER_REASON,
-    CaptionError,
     CaptionProviderConfig,
-    SceneCaptioner,
-    resolve_captioner,
+    DescribeError,
+    SceneDescriber,
+    is_informative_caption,
+    resolve_describer,
+)
+from framepilot_engine.brain.described import (
+    DESCRIBE_INSTRUCTION,
+    DESCRIBED_JSON_SCHEMA,
+    DESCRIBED_SCHEMA_NAME,
+)
+from framepilot_engine.brain.ledger_models import (
+    TIER2_VERSION,
+    CameraMovement,
+    ShotSize,
 )
 
 KEY = "sk-secret-key-123456"
@@ -32,6 +48,24 @@ OPENAI_URL = "https://api.openai.com/v1/chat/completions"
 
 JPEG_A = b"\xff\xd8jpeg-bytes-a\xff\xd9"
 JPEG_B = b"\xff\xd8jpeg-bytes-b\xff\xd9"
+JPEG_C = b"\xff\xd8jpeg-bytes-c\xff\xd9"
+JPEG_D = b"\xff\xd8jpeg-bytes-d\xff\xd9"
+
+
+def description(**overrides: Any) -> dict[str, Any]:
+    payload: dict[str, Any] = {
+        "summary": "A man in a grey jacket speaks to camera at a desk.",
+        "subject": "man in grey jacket",
+        "action": "speaking to camera",
+        "setting": "office desk with a laptop",
+        "camera": {"shotSize": "MS", "angle": "eye-level", "movement": "static"},
+        "mood": "neutral, bright",
+        "onScreenText": ["SHIP IT"],
+        "quality": ["well-lit"],
+        "confidence": "high",
+    }
+    payload.update(overrides)
+    return payload
 
 
 def anthropic_config(base_url: str | None = None) -> CaptionProviderConfig:
@@ -44,23 +78,24 @@ def openai_config(base_url: str | None = None) -> CaptionProviderConfig:
     return CaptionProviderConfig(kind="openai", model="gpt-x", api_key=KEY, base_url=base_url)
 
 
-def make_captioner(config: CaptionProviderConfig, **kwargs: Any) -> SceneCaptioner:
-    return SceneCaptioner(config, http=httpx.Client(), **kwargs)
+def make_describer(config: CaptionProviderConfig, **kwargs: Any) -> SceneDescriber:
+    return SceneDescriber(config, http=httpx.Client(), **kwargs)
 
 
-def anthropic_response(text: str) -> dict[str, Any]:
-    """A well-formed Messages response with a leading non-text block to skip."""
+def anthropic_response(payload: dict[str, Any]) -> dict[str, Any]:
+    """A well-formed Messages response with a leading non-tool block to skip."""
     return {
         "content": [
-            {"type": "thinking", "thinking": "ignored"},
-            {"type": "text", "text": text},
+            {"type": "text", "text": "ignored preamble"},
+            {"type": "tool_use", "name": ANTHROPIC_TOOL_NAME, "id": "t1", "input": payload},
         ],
         "model": "claude-x",
     }
 
 
-def openai_response(text: str) -> dict[str, Any]:
-    return {"choices": [{"message": {"role": "assistant", "content": text}}]}
+def openai_response(payload: dict[str, Any] | str) -> dict[str, Any]:
+    content = payload if isinstance(payload, str) else json.dumps(payload)
+    return {"choices": [{"message": {"role": "assistant", "content": content}}]}
 
 
 def request_body(call_index: int = 0) -> dict[str, Any]:
@@ -72,216 +107,226 @@ def request_body(call_index: int = 0) -> dict[str, Any]:
 
 
 def test_resolve_without_config_is_honestly_unavailable() -> None:
-    resolution = resolve_captioner(None)
-    assert resolution.captioner is None
+    resolution = resolve_describer(None)
+    assert resolution.describer is None
     assert resolution.reason == NO_VISION_PROVIDER_REASON
 
 
-def test_resolve_with_config_builds_a_captioner() -> None:
-    resolution = resolve_captioner(anthropic_config(), http=httpx.Client())
-    assert isinstance(resolution.captioner, SceneCaptioner)
+def test_resolve_with_config_builds_a_describer() -> None:
+    resolution = resolve_describer(anthropic_config(), http=httpx.Client())
+    assert isinstance(resolution.describer, SceneDescriber)
     assert resolution.reason is None
 
 
 def test_resolve_defaults_to_a_real_http_client() -> None:
-    resolution = resolve_captioner(openai_config())
-    assert isinstance(resolution.captioner, SceneCaptioner)
+    resolution = resolve_describer(openai_config())
+    assert isinstance(resolution.describer, SceneDescriber)
+
+
+@pytest.mark.parametrize("bound", ["max_frames", "max_tokens", "timeout_seconds"])
+def test_non_positive_bounds_are_refused(bound: str) -> None:
+    with pytest.raises(ValueError, match=f"{bound} must be > 0"):
+        make_describer(anthropic_config(), **{bound: 0})
 
 
 # --- anthropic wire format --------------------------------------------------------
 
 
 @respx.mock
-def test_anthropic_request_shape_and_base64_encoding(
+def test_anthropic_forces_a_tool_call_against_the_shared_schema(
     caplog: pytest.LogCaptureFixture,
 ) -> None:
-    respx.post(ANTHROPIC_URL).respond(200, json=anthropic_response("A whiteboard with a diagram."))
-    captioner = make_captioner(anthropic_config())
+    respx.post(ANTHROPIC_URL).respond(200, json=anthropic_response(description()))
+    describer = make_describer(anthropic_config())
     with caplog.at_level("DEBUG"):
-        caption = captioner.caption_scene([JPEG_A])
-    assert caption == "A whiteboard with a diagram."
+        facts = describer.describe_scene([JPEG_A])
 
     request = respx.calls[0].request
     assert request.headers["x-api-key"] == KEY
     assert request.headers["anthropic-version"] == ANTHROPIC_VERSION
     body = request_body()
-    assert body["model"] == "claude-x"
-    assert body["system"] == CAPTION_INSTRUCTION
-    content = body["messages"][0]["content"]
-    image_block = content[0]
-    assert image_block["type"] == "image"
-    assert image_block["source"]["type"] == "base64"
+    assert body["system"] == DESCRIBE_INSTRUCTION
+    # Structure is not a request the model may decline: the tool is named in tool_choice.
+    assert body["tool_choice"] == {"type": "tool", "name": ANTHROPIC_TOOL_NAME}
+    assert body["tools"][0]["input_schema"] == DESCRIBED_JSON_SCHEMA
+    image_block = body["messages"][0]["content"][0]
     assert image_block["source"]["media_type"] == "image/jpeg"
     assert image_block["source"]["data"] == base64.b64encode(JPEG_A).decode("ascii")
-    assert content[-1]["type"] == "text"
+
+    assert facts.tier2_version == TIER2_VERSION
+    assert facts.model == "claude-x"
+    assert facts.summary.startswith("A man in a grey jacket")
+    assert facts.camera.shot_size is ShotSize.MS
+    assert facts.camera.movement is CameraMovement.STATIC
+    assert facts.on_screen_text == ["SHIP IT"]
+    assert facts.p == 0.9
     # The key must never reach the logs.
     assert KEY not in caplog.text
 
 
 @respx.mock
+def test_anthropic_prose_answer_is_refused_rather_than_stored() -> None:
+    respx.post(ANTHROPIC_URL).respond(
+        200, json={"content": [{"type": "text", "text": "A man at a desk."}]}
+    )
+    with pytest.raises(DescribeError, match="no description tool call"):
+        make_describer(anthropic_config()).describe_scene([JPEG_A])
+
+
+@respx.mock
+def test_anthropic_tool_call_without_an_object_is_refused() -> None:
+    respx.post(ANTHROPIC_URL).respond(
+        200,
+        json={"content": [{"type": "tool_use", "name": ANTHROPIC_TOOL_NAME, "input": "text"}]},
+    )
+    with pytest.raises(DescribeError, match="no input object"):
+        make_describer(anthropic_config()).describe_scene([JPEG_A])
+
+
+@respx.mock
 def test_anthropic_custom_base_url_is_honored() -> None:
     respx.post("https://proxy.internal/v1/messages").respond(
-        200, json=anthropic_response("Two people at a desk.")
+        200, json=anthropic_response(description())
     )
-    captioner = make_captioner(anthropic_config(base_url="https://proxy.internal/"))
-    assert captioner.caption_scene([JPEG_A]) == "Two people at a desk."
+    describer = make_describer(anthropic_config(base_url="https://proxy.internal/"))
+    assert describer.describe_scene([JPEG_A]).subject == "man in grey jacket"
 
 
 # --- openai-compatible wire format ------------------------------------------------
 
 
 @respx.mock
-def test_openai_request_shape_and_data_uri() -> None:
+def test_openai_requests_a_strict_json_schema_and_data_uris() -> None:
     respx.post("https://nim.local/v1/chat/completions").respond(
-        200, json=openai_response("A product dashboard on a laptop screen.")
+        200, json=openai_response(description())
     )
-    captioner = make_captioner(openai_config(base_url="https://nim.local/v1"))
-    caption = captioner.caption_scene([JPEG_A])
-    assert caption == "A product dashboard on a laptop screen."
+    describer = make_describer(openai_config(base_url="https://nim.local/v1"))
+    facts = describer.describe_scene([JPEG_A, JPEG_B])
 
-    request = respx.calls[0].request
-    assert request.headers["Authorization"] == f"Bearer {KEY}"
     body = request_body()
-    assert body["model"] == "gpt-x"
-    messages = body["messages"]
-    assert messages[0] == {"role": "system", "content": CAPTION_INSTRUCTION}
-    content = messages[1]["content"]
-    assert content[0] == {"type": "text", "text": "Caption this scene."}
-    image_part = content[1]
-    assert image_part["type"] == "image_url"
-    expected_uri = "data:image/jpeg;base64," + base64.b64encode(JPEG_A).decode("ascii")
-    assert image_part["image_url"]["url"] == expected_uri
+    assert body["response_format"]["type"] == "json_schema"
+    assert body["response_format"]["json_schema"]["name"] == DESCRIBED_SCHEMA_NAME
+    assert body["response_format"]["json_schema"]["strict"] is True
+    assert body["response_format"]["json_schema"]["schema"] == DESCRIBED_JSON_SCHEMA
+    assert body["messages"][0]["content"] == DESCRIBE_INSTRUCTION
+    parts = body["messages"][1]["content"]
+    assert parts[1]["image_url"]["url"].startswith("data:image/jpeg;base64,")
+    assert len(parts) == 3
+    assert respx.calls[0].request.headers["Authorization"] == f"Bearer {KEY}"
+    assert facts.model == "gpt-x"
 
 
 @respx.mock
-def test_openai_default_base_url_hits_the_public_host() -> None:
-    respx.post(OPENAI_URL).respond(200, json=openai_response("A city street at night."))
-    captioner = make_captioner(openai_config())
-    assert captioner.caption_scene([JPEG_A]) == "A city street at night."
-
-
-# --- multi-frame strip ------------------------------------------------------------
+def test_openai_non_json_content_is_refused() -> None:
+    respx.post(OPENAI_URL).respond(200, json=openai_response("A man at a desk."))
+    with pytest.raises(DescribeError, match="did not return JSON"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
 
 
 @respx.mock
-def test_multi_frame_strip_sends_every_frame_up_to_the_cap() -> None:
-    respx.post(OPENAI_URL).respond(200, json=openai_response("A sequence of motion."))
-    captioner = make_captioner(openai_config(), max_frames=4)
-    captioner.caption_scene([JPEG_A, JPEG_B])
-    content = request_body()["messages"][1]["content"]
-    image_parts = [c for c in content if c["type"] == "image_url"]
-    assert len(image_parts) == 2
+def test_openai_json_that_is_not_an_object_is_refused() -> None:
+    respx.post(OPENAI_URL).respond(200, json=openai_response("[1, 2]"))
+    with pytest.raises(DescribeError, match="not an object"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
 
 
 @respx.mock
-def test_frame_count_is_capped_at_max_frames() -> None:
-    respx.post(ANTHROPIC_URL).respond(200, json=anthropic_response("Busy scene."))
-    captioner = make_captioner(anthropic_config(), max_frames=2)
-    captioner.caption_scene([JPEG_A, JPEG_B, JPEG_A, JPEG_B, JPEG_A])
-    content = request_body()["messages"][0]["content"]
-    image_blocks = [c for c in content if c["type"] == "image"]
-    assert len(image_blocks) == 2
-
-
-# --- trimming / capping -----------------------------------------------------------
-
-
-@respx.mock
-def test_caption_whitespace_is_collapsed() -> None:
+def test_openai_non_text_content_is_refused() -> None:
     respx.post(OPENAI_URL).respond(
-        200, json=openai_response("  A   messy\n\tcaption  \n with   gaps.  ")
+        200, json={"choices": [{"message": {"content": [{"type": "text"}]}}]}
     )
-    captioner = make_captioner(openai_config())
-    assert captioner.caption_scene([JPEG_A]) == "A messy caption with gaps."
+    with pytest.raises(DescribeError, match="non-text content"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
 
 
 @respx.mock
-def test_long_caption_is_hard_capped() -> None:
-    respx.post(OPENAI_URL).respond(200, json=openai_response("word " * 100))
-    captioner = make_captioner(openai_config(), max_caption_chars=20)
-    caption = captioner.caption_scene([JPEG_A])
-    assert len(caption) <= 20
-    assert caption == "word word word word"
+def test_openai_unreadable_body_is_refused() -> None:
+    respx.post(OPENAI_URL).respond(200, json={"unexpected": True})
+    with pytest.raises(DescribeError, match="Could not read a description"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
+
+
+# --- shared behaviour --------------------------------------------------------------
 
 
 @respx.mock
-def test_provider_safety_status_is_rejected_as_nonvisual_metadata() -> None:
-    # Regression from a real indexed image: an OpenAI-compatible endpoint returned
-    # its moderation preamble as message.content and it was persisted as the scene
-    # caption, leaving the orchestrator with "User Safety: safe" instead of pixels.
-    respx.post(OPENAI_URL).respond(200, json=openai_response("User Safety: safe"))
-    captioner = make_captioner(openai_config())
-    with pytest.raises(CaptionError, match="status metadata"):
-        captioner.caption_scene([JPEG_A])
+def test_only_the_first_max_frames_are_sent() -> None:
+    respx.post(ANTHROPIC_URL).respond(200, json=anthropic_response(description()))
+    describer = make_describer(anthropic_config(), max_frames=2)
+    describer.describe_scene([JPEG_A, JPEG_B, JPEG_C, JPEG_D])
+    content = request_body()["messages"][0]["content"]
+    assert sum(1 for block in content if block["type"] == "image") == 2
 
 
-# --- failure branches -------------------------------------------------------------
+def test_an_empty_frame_list_is_refused() -> None:
+    with pytest.raises(DescribeError, match="at least one frame"):
+        make_describer(anthropic_config()).describe_scene([])
 
 
 @respx.mock
-def test_http_error_raises_caption_error_without_rotating(
-    caplog: pytest.LogCaptureFixture,
-) -> None:
-    respx.post(ANTHROPIC_URL).respond(500, text="upstream boom")
-    captioner = make_captioner(anthropic_config())
-    with caplog.at_level("DEBUG"), pytest.raises(CaptionError, match="HTTP 500"):
-        captioner.caption_scene([JPEG_A])
-    assert len(respx.calls) == 1  # best-effort: no retry, no key rotation
+def test_a_non_200_response_carries_its_status(caplog: pytest.LogCaptureFixture) -> None:
+    respx.post(ANTHROPIC_URL).respond(429, text="rate limited")
+    with caplog.at_level("DEBUG"), pytest.raises(DescribeError, match="HTTP 429"):
+        make_describer(anthropic_config()).describe_scene([JPEG_A])
     assert KEY not in caplog.text
 
 
 @respx.mock
-def test_malformed_anthropic_body_raises_caption_error() -> None:
-    respx.post(ANTHROPIC_URL).respond(200, json={"unexpected": "shape"})
-    captioner = make_captioner(anthropic_config())
-    with pytest.raises(CaptionError, match="anthropic response body"):
-        captioner.caption_scene([JPEG_A])
+def test_a_summaryless_answer_is_not_a_description() -> None:
+    respx.post(OPENAI_URL).respond(200, json=openai_response(description(summary="  ")))
+    with pytest.raises(DescribeError, match="not a shot description"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
 
 
 @respx.mock
-def test_malformed_openai_body_raises_caption_error() -> None:
-    respx.post(OPENAI_URL).respond(200, json={"choices": []})
-    captioner = make_captioner(openai_config())
-    with pytest.raises(CaptionError, match="openai response body"):
-        captioner.caption_scene([JPEG_A])
-
-
-@respx.mock
-def test_openai_non_text_content_raises_caption_error() -> None:
+def test_status_metadata_in_the_summary_is_refused() -> None:
+    # Observed on real OpenAI-compatible vision endpoints: a moderation preamble returned
+    # as content. It is a successful HTTP response with zero visual evidence.
     respx.post(OPENAI_URL).respond(
-        200, json={"choices": [{"message": {"content": None}}]}
+        200, json=openai_response(description(summary="User Safety: safe"))
     )
-    captioner = make_captioner(openai_config())
-    with pytest.raises(CaptionError, match="non-text content"):
-        captioner.caption_scene([JPEG_A])
+    with pytest.raises(DescribeError, match="status metadata"):
+        make_describer(openai_config()).describe_scene([JPEG_A])
 
 
 @respx.mock
-def test_empty_caption_raises_caption_error() -> None:
-    respx.post(OPENAI_URL).respond(200, json=openai_response("   \n  "))
-    captioner = make_captioner(openai_config())
-    with pytest.raises(CaptionError, match="empty caption"):
-        captioner.caption_scene([JPEG_A])
+def test_out_of_vocabulary_values_are_dropped_not_stored() -> None:
+    respx.post(OPENAI_URL).respond(
+        200,
+        json=openai_response(
+            description(
+                camera={"shotSize": "unknown", "angle": "sideways", "movement": "unknown"},
+                quality=["cinematic"],
+                confidence="unsure",
+            )
+        ),
+    )
+    facts = make_describer(openai_config()).describe_scene([JPEG_A])
+    assert facts.camera.shot_size is None
+    assert facts.camera.angle is None
+    assert facts.camera.movement is None
+    assert facts.quality == []
+    assert facts.p == 0.7
 
 
-def test_empty_frame_list_raises_caption_error() -> None:
-    captioner = make_captioner(openai_config())
-    with pytest.raises(CaptionError, match="at least one frame"):
-        captioner.caption_scene([])
+def test_the_model_id_is_the_row_provenance() -> None:
+    assert make_describer(openai_config()).model == "gpt-x"
 
 
-# --- construction guards ----------------------------------------------------------
+# --- legacy caption rows -----------------------------------------------------------
 
 
 @pytest.mark.parametrize(
-    ("kwargs", "match"),
+    ("text", "informative"),
     [
-        ({"max_frames": 0}, "max_frames"),
-        ({"max_caption_chars": 0}, "max_caption_chars"),
-        ({"max_tokens": 0}, "max_tokens"),
-        ({"timeout_seconds": 0.0}, "timeout_seconds"),
+        ("A man at a desk.", True),
+        ("Person outdoors", True),
+        ("User Safety: safe", False),
+        ("safety: blocked", False),
+        ("   ", False),
     ],
 )
-def test_non_positive_bounds_are_rejected(kwargs: dict[str, Any], match: str) -> None:
-    with pytest.raises(ValueError, match=match):
-        make_captioner(openai_config(), **kwargs)
+def test_is_informative_caption_still_screens_legacy_rows(text: str, informative: bool) -> None:
+    # `visual_captions` still holds rows the deleted prose path wrote; readers treat an
+    # uninformative one as missing, which is what makes describing such an asset resumable.
+    assert is_informative_caption(text) is informative

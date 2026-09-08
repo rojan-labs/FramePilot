@@ -369,6 +369,53 @@ describe('analysis-fed slices — shots (detect_scenes ingestion, P4.1)', () => 
     ]);
   });
 
+  // VU2.5 — the slices below used to map source→timeline with a flat
+  // `start + (clip.start - clip.sourceStart)`, justified in a comment by "no `speedRamps`
+  // op exists yet". `speedRamp` has been in the schema since v15 and `set_clip_speed_ramp`
+  // ships, so every time these produced on a speed-changed or reversed clip was wrong.
+  // They delegate to the `picture` slice's `projectAssetSpan` now. These pin that: with a
+  // flat mapping each expectation below is off by the speed factor, so a revert fails here
+  // rather than silently mis-placing every shot, silence, beat and cut on a ramped clip.
+  it('places a shot by the speed curve on a ramped clip, not at 1:1', () => {
+    // 8s of source played at 2× occupies 4s of timeline, starting at 10.
+    const ramped = {
+      ...clip('ramp1', 'v2', 'broll', 10, 14),
+      sourceStart: 0,
+      sourceEnd: 8,
+      speedRamp: [{ id: 'sp1', sourceTime: 0, rate: 2, easing: 'linear' }],
+    } as unknown as Clip;
+    const idx = buildSemanticIndex(
+      placedAssetProject({
+        timeline: { tracks: [track('v2', 'video', [ramped])] },
+      } as Partial<Project>),
+      { shots: { assetId: 'broll', cuts: [{ time: 0 }, { time: 4 }, { time: 8 }] } },
+    );
+    // Source 4s in is 2s of TIMELINE in, at 2×. A 1:1 mapping would say 4s and put the
+    // boundary at 14 — past the end of a clip that is only 4s long.
+    expect(idx.shots).toEqual([
+      { start: 10, end: 12, sourceClipId: 'ramp1' },
+      { start: 12, end: 14, sourceClipId: 'ramp1' },
+    ]);
+  });
+
+  it('places a shot from the far end of the source on a reversed clip', () => {
+    const reversed = {
+      ...clip('rev1', 'v2', 'broll', 10, 18),
+      sourceStart: 0,
+      sourceEnd: 8,
+      speed: -1,
+    } as unknown as Clip;
+    const idx = buildSemanticIndex(
+      placedAssetProject({
+        timeline: { tracks: [track('v2', 'video', [reversed])] },
+      } as Partial<Project>),
+      { shots: { assetId: 'broll', cuts: [{ time: 0 }, { time: 2 }] } },
+    );
+    // Played backwards, source [0,2) is the LAST 2s on screen, not the first. A 1:1 mapping
+    // would report [10,12) — the opposite end of the clip.
+    expect(idx.shots).toEqual([{ start: 16, end: 18, sourceClipId: 'rev1' }]);
+  });
+
   it('yields no shots for fewer than two cut times (nothing to bound a shot)', () => {
     const idx = buildSemanticIndex(placedAssetProject(), {
       shots: { assetId: 'broll', cuts: [{ time: 3 }] },

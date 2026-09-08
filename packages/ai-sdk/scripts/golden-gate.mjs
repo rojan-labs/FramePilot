@@ -31,12 +31,30 @@ import { fileURLToPath } from 'node:url';
 const HERE = dirname(fileURLToPath(import.meta.url));
 const REPO = resolve(HERE, '..', '..', '..');
 const FLOOR = join(REPO, 'reports', 'golden', 'floor.json');
+/**
+ * Waive the perception ceiling for one run, out loud.
+ *
+ * The escape hatch for gating "not measured": a human types this when they knowingly gate
+ * an artifact recorded before the metric existed. It is a flag rather than a silent pass so
+ * the waiver appears in the command someone had to write.
+ */
+const ALLOW_UNMEASURED = process.argv.includes('--allow-unmeasured-perception');
 /** A p50 may wobble by one rubric check on a 3-run sample; more than that is a regression. */
 const SCORE_TOLERANCE = 0.05;
 /** Run-to-run noise on a 2-3 run sample is well under this; a real cost regression is not. */
 const COST_TOLERANCE = 0.1;
 /** One turn out of ~20 flipping is noise on a small sample; more than that is a regression. */
 const RATE_TOLERANCE = 0.05;
+
+/**
+ * Zero. The floor IS zero frames — `reports/golden/BASELINE.md` records `get_frame` called
+ * not once across 318 turns and 210 accepted edits — so there is no noise band to leave
+ * room for, and the comment on the ceiling below promises this trips "on the first frame a
+ * change starts spending". It did not: at 0.5 a change could spend 0.4 frames per accepted
+ * edit and pass silently, which on a ten-edit run is four frames the gate was written to
+ * catch. The comment was the honest half; this is now the number it describes.
+ */
+const FRAMES_TOLERANCE = 0;
 
 const p50 = (xs) => {
   const a = xs.filter((x) => typeof x === 'number' && Number.isFinite(x)).sort((x, y) => x - y);
@@ -265,6 +283,60 @@ if (!now || !was) {
   {
     const share = (s) => (s?.failureQuality?.failures ? s.failureQuality.explained / s.failureQuality.failures : null);
     console.log(`| failures explained | ${pct(share(was))} | ${pct(share(now))} | reported |`);
+  }
+  // ── perception (plan/visual-understanding VU0.1) ────────────────────────────────
+  //
+  // `framesSeenPerEdit` is gated as a CEILING, which is the opposite of every rate above.
+  // The plan's whole claim is that facts arriving as text remove the need to look, so a
+  // change that makes the agent look MORE has not worked — even if its rubric score rose.
+  // The floor is 0.00 (`reports/golden/BASELINE.md`: get_frame was never called in any of
+  // ten recorded runs), so this trips on the first frame a change starts spending.
+  {
+    const a = was.perception?.framesSeenPerEdit;
+    const b = now.perception?.framesSeenPerEdit;
+    let verdict = 'held';
+    // "Not measured" is NOT "fine", and it used to print like it was. Both artifacts
+    // predated the metric, so this row read `n/a` on every CI run while the plan's central
+    // claim went unguarded — a gate that cannot fire protects nothing. Both sides are armed
+    // now (`perception-baseline.mjs --write-into`), so an absent block means someone fed an
+    // artifact from before the metric, and the line has to say the ceiling is OFF.
+    if (a == null || b == null) {
+      // A gate that WARNS is not a gate. This branch printed "⚠ NOT MEASURED" and passed,
+      // which is the exact condition the arming commit was written to remove: an artifact
+      // with no perception block sailed through CI behind a line nobody reads. Both sides
+      // are armed now, so reaching this means someone fed the gate a pre-metric artifact,
+      // and the honest response is to stop the build and make a human say so out loud.
+      const side = a == null ? 'floor' : 'input';
+      if (ALLOW_UNMEASURED) {
+        verdict = `⚠ NOT MEASURED — ${side} has no perception block (waived by --allow-unmeasured-perception)`;
+      } else {
+        verdict = `NOT MEASURED — ${side} has no perception block; arm it with perception-baseline.mjs --write-into, or pass --allow-unmeasured-perception`;
+        failed += 1;
+      }
+    } else if (b > a + FRAMES_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
+    else if (b < a) verdict = 'fewer frames';
+    console.log(`| frames seen / accepted edit | ${fmt(a, 2)} | ${fmt(b, 2)} | ${verdict} |`);
+  }
+  // A guess rate that RISES means the model went back to inventing grade and transition
+  // values the solvers exist to compute. Gated, not merely reported.
+  {
+    const a = was.perception?.numericGuessRate;
+    const b = now.perception?.numericGuessRate;
+    let verdict = 'held';
+    // Unlike the ceiling above, absent here is legitimately "no grade or transition was
+    // applied in this run", which is not the same as an unarmed artifact — a run that
+    // graded nothing has no rate to report. Reported, not gated.
+    if (a == null || b == null) verdict = 'n/a — no grade/transition applied';
+    else if (b > a + RATE_TOLERANCE) { verdict = 'REGRESSION'; failed += 1; }
+    else if (b < a) verdict = 'better';
+    console.log(`| grade/transition guess rate | ${pct(a)} | ${pct(b)} | ${verdict} |`);
+  }
+  // Reported, never gated: a run that legitimately needs no footage surface should not be
+  // punished for not calling one.
+  {
+    const a = was.perception?.perceptionCallsPerRun;
+    const b = now.perception?.perceptionCallsPerRun;
+    console.log(`| footage-surface calls / run | ${fmt(a, 2)} | ${fmt(b, 2)} | reported |`);
   }
   const dropped = [];
   for (const [id, c] of Object.entries(now.perCase)) {

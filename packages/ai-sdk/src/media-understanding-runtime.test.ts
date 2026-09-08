@@ -52,14 +52,22 @@ const baseInput = (over: Partial<EnsureMediaUnderstandingInput> = {}) =>
   }) as EnsureMediaUnderstandingInput;
 
 describe('ensureMediaUnderstanding — refusing honestly', () => {
-  it('reports `unconfigured` with no key, and names what still works', () => {
-    // The honest-degradation contract: no key is a configuration state, not a failure,
-    // and the message has to say deterministic editing is unaffected.
-    return ensureMediaUnderstanding(baseInput()).then((result) => {
-      expect(result.status).toBe('unavailable');
-      expect(result).toMatchObject({ reason: 'unconfigured' });
-      expect(result.status === 'unavailable' && result.message).toMatch(/Local deterministic/);
-    });
+  it('PREPARES with no key at all — measurement needs none', async () => {
+    // This used to be an early return reporting `unconfigured`, and it was half the
+    // reason a default install had nothing to look at: tier 0 of the shot ledger is one
+    // local ffmpeg pass (ADR 0175), so the absence of a key is not a reason to refuse.
+    // The tiers a key unlocks report themselves as absent coverage instead.
+    const result = await ensureMediaUnderstanding(baseInput());
+    expect(result.status).toBe('ready');
+  });
+
+  it('reports `unconfigured` only when the ENGINE says a key is what is missing', async () => {
+    const result = await ensureMediaUnderstanding(
+      baseInput({
+        client: client({ status: status(), slices: [{ available: false, reason: 'no-key' }] }),
+      }),
+    );
+    expect(result).toMatchObject({ status: 'unavailable', reason: 'unconfigured' });
   });
 
   it('reports `cancelled` when the signal aborted before preparation started', async () => {
@@ -418,7 +426,10 @@ describe('queryTimestamp — local first, never a fabricated answer', () => {
       question: 'who is on screen?',
       probe: async () => probe(),
       search: never,
-      ensure: baseInput(),
+      // The engine, not the absence of a key here, is what makes this unconfigured now.
+      ensure: baseInput({
+        client: client({ status: status(), slices: [{ available: false, reason: 'no-key' }] }),
+      }),
     });
     expect(answer).toMatchObject({ available: false, reason: 'provider_unconfigured' });
   });

@@ -122,17 +122,11 @@ async function prepare(
   input: EnsureMediaUnderstandingInput,
 ): Promise<EnsureMediaUnderstandingResult> {
   const backend: 'twelvelabs' | 'builtin' = input.twelveLabsKey ? 'twelvelabs' : 'builtin';
-  if (!input.twelveLabsKey && !input.nvidiaKeys) {
-    const result: UnderstandingUnavailable = {
-      status: 'unavailable',
-      backend,
-      reason: 'unconfigured',
-      message:
-        'Media understanding is not configured. Local deterministic inspection remains available.',
-    };
-    emit(input, { type: 'unavailable', backend, reason: result.reason, message: result.message });
-    return result;
-  }
+  // No key check. Tier 0 of the shot ledger — scene cuts, exposure, warmth, motion,
+  // sharpness — is one local ffmpeg pass (ADR 0175), so preparation is worth attempting
+  // on a clean install with nothing configured. The tiers a key would unlock report
+  // themselves as absent coverage; they are not a gate on the job. This early return was
+  // half the reason the agent never called a footage surface in ten recorded runs.
   if (input.signal?.aborted) {
     return {
       status: 'unavailable',
@@ -173,7 +167,7 @@ async function prepare(
     message:
       backend === 'twelvelabs'
         ? 'Preparing media with TwelveLabs. This may use provider credits; completed results are reused.'
-        : 'Preparing media with the built-in visual index.',
+        : 'Preparing media on this device. Measurement runs with no key; described and labelled footage needs one.',
   });
 
   const indexing = await runVisualIndexLoop({

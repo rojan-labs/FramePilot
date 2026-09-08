@@ -1,0 +1,77 @@
+# Visual Embed Capability Pack worker.
+#
+# A SEPARATE artifact project, on the same terms as workers/subject-intelligence and
+# workers/tracking-lite: not a member of the root uv workspace, not a dependency of the
+# base Python render engine or the Electron app. Model weights and ML runtimes ship as
+# signed, on-demand Capability Packs (docs/adr/0114-on-demand-capability-packs.md), never
+# inside the base installer. Nothing here may be imported by `framepilot_engine`.
+#
+# THE POINT OF THE `cv` EXTRA: onnxruntime must never become a default dependency of
+# anything. The engine already keeps it optional (its `embeddings` extra, for MiniLM text
+# vectors) and the frozen sidecar must stay ~129 MiB. Putting it under an extra here means
+# the base repository can test this whole worker — protocol, prompt bank, policy, runtime,
+# packing — with no ML runtime installed at all.
+[project]
+name = "framepilot-visual-embed"
+version = "1.0.0"
+description = "FramePilot Visual Embed Capability Pack worker (shot embeddings, zero-shot labels, face identity)"
+readme = "README.md"
+license = { text = "Proprietary" }
+authors = [{ name = "Rojan Acharya and FramePilot contributors" }]
+requires-python = ">=3.12"
+# The protocol/prompt-bank/policy/runtime layer has NO third-party dependency, so the base
+# repository can test this worker without installing onnxruntime or fetching weights.
+dependencies = []
+
+[project.optional-dependencies]
+# Real inference backend. Installed only by the pack build/CI job.
+cv = [
+  "numpy>=2.1",
+  "onnxruntime>=1.20,<2",
+  "tokenizers>=0.20,<1",
+  "opencv-contrib-python-headless>=5.0,<6",
+]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.6",
+  "mypy>=1.11",
+]
+
+[project.scripts]
+framepilot-visual-embed = "framepilot_visual_embed.__main__:main"
+
+[build-system]
+requires = ["hatchling>=1.25"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/framepilot_visual_embed"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]
+# The default suite runs with no ML stack and no downloaded weights. Real inference proof
+# is opt-in and runs in the pack build job, because it needs both the `cv` extra and the
+# pinned model files.
+addopts = "-ra --strict-markers -m 'not decoded_media'"
+markers = [
+  "decoded_media: requires onnxruntime, pinned model weights and real media (pack build job only)",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
+allowed-confusables = ["–"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+files = ["src/framepilot_visual_embed"]
+
+[[tool.mypy.overrides]]
+module = ["cv2.*", "numpy.*", "onnxruntime.*", "tokenizers.*"]
+ignore_missing_imports = true

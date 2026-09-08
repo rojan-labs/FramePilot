@@ -37,6 +37,13 @@ from dataclasses import dataclass
 import httpx
 
 from framepilot_engine.brain.keyring import KeyRing, KeyRingExhaustedError, parse_keys
+from framepilot_engine.brain.local_visual_embed import (
+    CAPABILITY_EMBED,
+    CAPABILITY_TEXT,
+    LOCAL_MODEL_ID,
+    LocalVisualEmbedClient,
+)
+from framepilot_engine.brain.pack_worker import PackHandle
 
 _log = logging.getLogger(__name__)
 
@@ -111,12 +118,43 @@ class EmbedResult:
 class VisualEmbedderResolution:
     """Outcome of the visual-embedder capability gate (honest-unavailable shape).
 
-    Mirrors :class:`~framepilot_engine.brain.embeddings.EmbedderResolution`:
-    exactly one of ``client``/``reason`` is meaningful.
+    Mirrors :class:`~framepilot_engine.brain.embeddings.EmbedderResolution`, with one arm
+    added: exactly one of ``client``/``local``/``reason`` is meaningful.
+
+    ``client`` and ``local`` are kept as SEPARATE fields rather than one union because
+    they are not interchangeable. The hosted client embeds JPEG bytes the sampler already
+    decoded; the local pack is handed a media handle and a shot list and decodes for
+    itself. Collapsing them behind one name would hide that the two arms produce different
+    vector spaces and are driven by different code paths — and the "two spaces never mix"
+    rule is the one thing a caller must not be able to forget.
     """
 
     client: VisualEmbedClient | None
     reason: str | None = None
+    local: LocalVisualEmbedClient | None = None
+
+    @property
+    def available(self) -> bool:
+        """Whether ANY tier-1 producer resolved. The gate every caller should read."""
+        return self.client is not None or self.local is not None
+
+    @property
+    def backend(self) -> str | None:
+        """Which arm won, for logs and the per-tier disposition line."""
+        if self.local is not None:
+            return "local"
+        if self.client is not None:
+            return "nvidia"
+        return None
+
+    @property
+    def model_id(self) -> str | None:
+        """The vector space this resolution writes into; ``None`` when nothing resolved."""
+        if self.local is not None:
+            return LOCAL_MODEL_ID
+        if self.client is not None:
+            return MODEL_ID
+        return None
 
 
 def _to_data_uri(image_jpeg: bytes) -> str:
@@ -409,20 +447,38 @@ def _default_http() -> httpx.Client:
 def resolve_visual_embedder(
     keys_raw: str | None,
     *,
+    pack: PackHandle | None = None,
     http: httpx.Client | None = None,
     now: Callable[[], float] = time.monotonic,
 ) -> VisualEmbedderResolution:
-    """The visual-embedder capability gate (plan §3.2, honest-unavailable).
+    """The visual-embedder capability gate (plan §3.2 / VU5.3, honest-unavailable).
 
-    No configured key is the shipped default: visual indexing/search reports
-    ``reason="no_api_key"`` instead of fabricating results. ``http`` exists so
-    tests inject a mocked client; the default is a real one.
+    **The local pack wins when it is installed**, and the reasons are not about price:
 
-    :param keys_raw: The comma-separated ``FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS``
-        setting (decision D5).
+    - it needs no key, so tier 1 exists on a default install at all;
+    - no frame leaves the machine, which is the privacy statement ADR 0175 narrows to;
+    - its image vectors and its query vectors are the same space, so ``search_visual``
+      can search what was indexed. A hosted index searched with a local query vector —
+      or the reverse — returns confidently irrelevant footage, so the arm that owns the
+      stored vectors must also own the query.
+
+    With no pack and no key, indexing does not stop: tier 0 still runs and tier 1 is
+    recorded as absent coverage (that early return is the defect ADR 0175 removed).
+
+    :param keys_raw: The comma-separated ``FRAMEPILOT_NVIDIA_EMBEDDINGS_KEYS`` setting
+        (decision D5).
+    :param pack: An installed, host-verified ``framepilot.visual-embed`` handle. Arrives
+        on the index request beside the keys; the engine never discovers a pack itself.
+    :param http: Injected for tests; the default is the shared process client.
     """
+    if pack is not None and pack.provides(CAPABILITY_EMBED) and pack.provides(CAPABILITY_TEXT):
+        _log.info("ACT visual embedder resolved: backend=local pack=%s", pack.pack_id)
+        return VisualEmbedderResolution(client=None, local=LocalVisualEmbedClient(pack))
     keys = parse_keys(keys_raw)
     if not keys:
+        # Still `no_api_key`, unchanged: with no pack installed the hosted arm IS the
+        # only arm, and inventing a second reason string here would break every caller
+        # that already reads this one.
         return VisualEmbedderResolution(client=None, reason=NO_API_KEY_REASON)
     client = VisualEmbedClient(
         KeyRing(keys),

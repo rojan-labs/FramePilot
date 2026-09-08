@@ -248,6 +248,7 @@ export function createEffectRuntime(deps: EffectRuntimeDeps): EffectRuntime {
           project: effect.project,
           ...(effect.interaction === undefined ? {} : { interaction: effect.interaction }),
           ...(effect.analysisBudget === undefined ? {} : { analysisBudget: effect.analysisBudget }),
+          ...(effect.ledger === undefined ? {} : { ledger: effect.ledger }),
         },
         signal,
       );

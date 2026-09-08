@@ -46,6 +46,7 @@ import { type ModelAsset, toModelProject } from './model-view.js';
 import type { ToolCost, ToolLatency, ToolPermission } from './tool-scope.js';
 import { AUDIO_TOOLS } from './domain-tools/audio.js';
 import { COLOR_TOOLS } from './domain-tools/color.js';
+import { SOLVED_COLOR_TOOLS } from './domain-tools/solved-color.js';
 import { MOTION_TOOLS } from './domain-tools/motion.js';
 import { CAPTION_TOOLS } from './domain-tools/captions.js';
 import { TIMELINE_TOOLS } from './domain-tools/timeline.js';
@@ -537,6 +538,7 @@ export const TOOL_REGISTRY: readonly ToolSpec[] = [
   ...MEDIA_TOOLS,
   ...MOTION_TOOLS,
   ...COLOR_TOOLS,
+  ...SOLVED_COLOR_TOOLS,
   ...TRACKING_MASK_TOOLS,
   ...AUDIO_TOOLS,
   ...CAPTION_TOOLS,

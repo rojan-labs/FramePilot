@@ -23,6 +23,7 @@ import type { AiCompletionRequest, ToolCall } from '../providers/types.js';
 import type { Command } from './commands.js';
 import type { ModelTier } from './proposers/types.js';
 import type { JsonValue, ProjectRevision } from '../run-contracts.js';
+import type { LedgerSnapshot } from '../ledger.js';
 import type { AnalysisBudget } from './cost/analysis-caps.js';
 import type { EditorInteractionContext } from '../editor-context/interaction-context.js';
 
@@ -94,6 +95,14 @@ export interface HostToolEffect {
   readonly interaction?: EditorInteractionContext;
   /** The run-scoped compute ceiling enforced by the host executor. */
   readonly analysisBudget?: AnalysisBudget;
+  /**
+   * The run's shot ledger, when the host fetched one (ADR 0175).
+   *
+   * Carried on the effect rather than read from a module-level cache because the executor
+   * is a boundary: everything a host tool may read is on the request. The visual reads
+   * join their evidence packets to it; every other host tool ignores it.
+   */
+  readonly ledger?: LedgerSnapshot | null;
   /**
    * Optional explicit idempotency key; when omitted the runtime derives one from
    * the call name + arguments (generalizing today's per-run `hostCache` key).
