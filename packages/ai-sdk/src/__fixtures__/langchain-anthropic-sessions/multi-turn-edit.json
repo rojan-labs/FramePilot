@@ -192,12 +192,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -319,12 +326,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -736,12 +750,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -865,12 +886,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1312,12 +1340,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 345,
+            "label": "run briefing",
+            "tokenEstimate": 323,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 22,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1450,12 +1485,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 345,
+            "label": "run briefing",
+            "tokenEstimate": 323,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 22,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1788,8 +1830,8 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "usage",
-      "tokens": 360,
-      "usd": 0.0018,
+      "tokens": 510,
+      "usd": 0.0019485000000000001,
       "modelCalls": 3
     },
     {

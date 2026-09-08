@@ -192,12 +192,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -478,12 +485,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 289,
+            "label": "run briefing",
+            "tokenEstimate": 245,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 44,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,

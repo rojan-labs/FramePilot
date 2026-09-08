@@ -9082,17 +9082,28 @@ export class Orchestrator {
               operation.idempotencyKey.startsWith(idempotencyPrefix),
           )
         ) {
-          // This is the sentence that ENDS a run on this path — `done: true` below settles
-          // it — so it has to say so. Run `df81d58e` finished on a bare "Skipped an already
-          // committed operation" and the editor could not tell whether the model stopped or
-          // was stopped.
+          // A turn that repeats, byte for byte, a turn that already landed is a repeat —
+          // not the end of the request. This path used to settle the run (`done: true`):
+          // run `df81d58e` (2026-09-08) ended at turn 31 with b-roll, music, colour and the
+          // report never attempted, and run `1603cd9c` the next hour ended at turn 10 —
+          // right after verify_captions had reported 202 problems and the model had said
+          // "I'm tightening the caption system first" — because its next batch of markers
+          // was the batch it had just placed. The right answer is the one an applied
+          // no-op already gets (`AgentTurnResult.satisfied`): nothing landed, nothing
+          // failed, and the no-progress guard decides whether the run is actually stuck.
+          const repeatNote =
+            'Those exact calls already landed earlier in this run, so they were not run ' +
+            'again. Do the NEXT part of the request — something the timeline does not ' +
+            'have yet — or, if every part is done, finish with a short summary and no tool call.';
+          log.push(`Step ${index}: repeated an already-applied turn — skipped. ${repeatNote}`);
           yield emit.notification(
-            'The next planned operation had already been applied earlier in this run, so ' +
-              'there is nothing left to do — finishing here and running the checks.',
+            'That set of edits already landed earlier in this run, so it was not applied ' +
+              'again — moving on to what the request still needs.',
           );
           return turnBase(index, emit.seq(), {
-            done: true,
-            note: 'Idempotency hit: this planned operation already succeeded.',
+            satisfied: true,
+            note: repeatNote,
+            intent: 'Repeated an already-applied turn',
           });
         }
         const {

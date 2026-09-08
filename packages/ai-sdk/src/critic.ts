@@ -27,6 +27,7 @@ import {
 } from '@framepilot/editor-core';
 import type { Clip, Effect, Project, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import type { AnyOperation } from '@framepilot/editor-core';
+import { verifyCaptions } from './verify.js';
 import {
   COVERAGE_LABEL,
   mentionsUnreadableShotCount,
@@ -78,7 +79,9 @@ export type CheckId =
   | 'audio_slam'
   | 'shot_rhythm'
   /** Every labelled marker sits where its words are spoken. */
-  | 'marker_labels';
+  | 'marker_labels'
+  /** The caption track passes `verify_captions` — timing AND the two look facts it computes. */
+  | 'caption_verify';
 
 /** One check's verdict + a human-readable explanation. */
 export interface CriticCheck {
@@ -1802,6 +1805,48 @@ function pictureClipsInOrder(timeline: Timeline): readonly Clip[] {
  * for it — and nothing in the battery looked for it.
  */
 /**
+ * Does the caption track pass its own verifier?
+ *
+ * `verify_captions` is a tool the model calls; nothing folded its answer into the run's
+ * verdict. Run `1603cd9c` (2026-09-08) called it, was told "202 problems" — every cue's
+ * chip resolving to ~1,700 px of padding — moved on to markers, and the run closed
+ * "Passed with 3 warning(s)". A chip that covers the picture and a cue too short to read
+ * are the deliverable being wrong, so they FAIL; timing drift and coverage gaps warn.
+ */
+function checkCaptionVerify(project: Project): CriticCheck {
+  const hasCaptions = project.timeline.tracks.some(
+    (track) => track.type === 'caption' && track.clips.length > 0,
+  );
+  if (!hasCaptions) {
+    return check('caption_verify', 'Captions verify clean', 'skipped', 'No caption cues present.');
+  }
+  const report = verifyCaptions(project);
+  if (report.ok) {
+    return check(
+      'caption_verify',
+      'Captions verify clean',
+      'pass',
+      `${String(report.cueCount)} cue(s) verify against the mapped words and the frame.`,
+    );
+  }
+  const LOOK_CODES = new Set(['caption_chip_oversize', 'caption_too_short']);
+  const look = report.issues.filter((issue) => LOOK_CODES.has(issue.code));
+  const first = (look[0] ?? report.issues[0])!;
+  const counts = new Map<string, number>();
+  for (const issue of report.issues) counts.set(issue.code, (counts.get(issue.code) ?? 0) + 1);
+  const tally = [...counts.entries()].map(([code, n]) => `${code} ×${String(n)}`).join(', ');
+  return check(
+    'caption_verify',
+    'Captions verify clean',
+    look.length > 0 ? 'fail' : 'warn',
+    `verify_captions reports ${String(report.issues.length)} issue(s) (${tally}). First: ${first.detail} ` +
+      (look.length > 0
+        ? 'Restyle the track with set_track_caption_style using catalog-range values, or regenerate the cues with caption_the_edit.'
+        : 'Regenerate the cues with caption_the_edit.'),
+  );
+}
+
+/**
  * How far from a marker its label's words may be spoken and still count as "there". A
  * marker means AT the beat; two seconds absorbs a lead-in word, not a different sentence.
  */
@@ -2655,6 +2700,7 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     checkAudioSlam(project, fps),
     checkShotRhythm(project, fps),
     checkMarkerLabels(project),
+    checkCaptionVerify(project),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;
   const warns = checks.filter((c) => c.status === 'warn').length;

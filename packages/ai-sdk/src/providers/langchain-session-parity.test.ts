@@ -280,8 +280,12 @@ describe('whole-run behaviour through the Anthropic adapter, frozen', () => {
       scenario,
     );
     const usage = outcome.events.filter((event) => event.type === 'usage');
+    // 240 uncached + 100 cache-read tokens across the two calls. The cache reads are
+    // counted ONCE — `usageFromMetadata` subtracts them from LangChain's total and
+    // `costFromUsage` adds them back as their own priced line (`cost-meter.ts`), so a
+    // double count would read 440 here and a dropped one 240.
     expect(usage).toEqual([
-      expect.objectContaining({ type: 'usage', tokens: 240, usd: 0.0012, modelCalls: 2 }),
+      expect.objectContaining({ type: 'usage', tokens: 340, usd: 0.001299, modelCalls: 2 }),
     ]);
   });
 });

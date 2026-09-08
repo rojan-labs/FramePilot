@@ -314,12 +314,19 @@
           {
             "id": "s11",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 255,
+            "label": "run briefing",
+            "tokenEstimate": 250,
             "included": true
           },
           {
             "id": "s12",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 5,
+            "included": true
+          },
+          {
+            "id": "s13",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -803,12 +810,19 @@
           {
             "id": "s11",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 432,
+            "label": "run briefing",
+            "tokenEstimate": 419,
             "included": true
           },
           {
             "id": "s12",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 13,
+            "included": true
+          },
+          {
+            "id": "s13",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1116,12 +1130,26 @@
           {
             "id": "s11",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 572,
+            "label": "run briefing",
+            "tokenEstimate": 383,
             "included": true
           },
           {
             "id": "s12",
+            "type": "system",
+            "label": "turn steering",
+            "tokenEstimate": 173,
+            "included": true
+          },
+          {
+            "id": "s13",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 16,
+            "included": true
+          },
+          {
+            "id": "s14",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 5039,

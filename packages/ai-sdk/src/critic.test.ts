@@ -693,6 +693,7 @@ describe('critique — shape', () => {
       'audio_slam',
       'shot_rhythm',
       'marker_labels',
+      'caption_verify',
     ]);
   });
 

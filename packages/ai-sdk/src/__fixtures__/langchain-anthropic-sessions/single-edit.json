@@ -192,12 +192,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -319,12 +326,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -736,12 +750,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -874,12 +895,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1184,8 +1212,8 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "usage",
-      "tokens": 240,
-      "usd": 0.0012,
+      "tokens": 340,
+      "usd": 0.001299,
       "modelCalls": 2
     },
     {
