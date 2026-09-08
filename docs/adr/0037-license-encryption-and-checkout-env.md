@@ -1,5 +1,9 @@
 # 37. License-at-rest encryption + Freemius checkout env passthrough
 
+> **Superseded in part (2026-09-08):** the checkout-env half of this ADR now refers to
+> Dodo Payments variables — see **ADR 0177**. The encryption-at-rest decision below is
+> unchanged and still in force.
+
 Date: 2026-07-05
 
 ## Status

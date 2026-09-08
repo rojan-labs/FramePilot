@@ -18,7 +18,7 @@ export const metadata: Metadata = pageMetadata({
 
 const TERMS = [
   ['Local-first', 'Editing and rendering happen on your machine. Hosted AI runs only if you set it up.'],
-  ['Freemius checkout', 'Freemius handles the payment and sends your license key.'],
+  ['Dodo Payments checkout', 'Dodo Payments handles the payment and sends your license key.'],
   ['14-day guarantee', 'Use it on real work. Want your money back inside 14 days, just ask.'],
 ] as const;
 

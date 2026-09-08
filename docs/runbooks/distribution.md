@@ -185,5 +185,5 @@ These are **not** yet satisfied and block a production release:
   Gatekeeper and cannot auto-update.
 - **A feed hostname and bucket**, per §2.
 - **A root key**, per §3.
-- **A Freemius product id**, or the app runs unlicensed (`license-service.ts`
-  treats an unconfigured product as unlocked).
+- **A Dodo Payments product id** (`FRAMEPILOT_DODO_PRODUCT_ID`), or the app runs
+  unlicensed (`license-service.ts` treats an unconfigured product as unlocked).

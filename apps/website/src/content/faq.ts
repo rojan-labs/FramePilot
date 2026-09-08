@@ -27,7 +27,7 @@ export const FAQ: FaqItem[] = [
   },
   {
     q: 'How does the license work?',
-    a: 'Freemius handles checkout and licensing. You get a license key after buying, activate it inside FramePilot, and manage the subscription through the billing flow that came with your purchase.',
+    a: 'Dodo Payments handles checkout and licensing. You get a license key after buying, activate it inside FramePilot, and manage the subscription from the customer portal linked on your receipt.',
   },
   {
     q: 'Which platforms are supported?',
@@ -43,6 +43,6 @@ export const FAQ: FaqItem[] = [
   },
   {
     q: 'Can I cancel, and is there a refund window?',
-    a: 'Cancel whenever you like through the Freemius billing flow. Checkout currently comes with a 14-day money-back guarantee.',
+    a: 'Cancel whenever you like from the Dodo Payments customer portal linked on your receipt. Checkout currently comes with a 14-day money-back guarantee.',
   },
 ];

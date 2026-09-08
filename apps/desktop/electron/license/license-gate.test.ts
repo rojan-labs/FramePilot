@@ -8,21 +8,21 @@ import {
   deriveStatus,
   isExpired,
   maskLicenseKey,
-  parseFreemiusDate,
+  parseLicenseDate,
   withinGrace,
   type StoredLicense,
 } from './license-gate.js';
 
 const NOW = Date.parse('2026-07-03T00:00:00Z');
 
-describe('parseFreemiusDate', () => {
-  it('parses Freemius "YYYY-MM-DD HH:MM:SS" UTC', () => {
-    expect(parseFreemiusDate('2026-08-01 12:00:00')).toBe(Date.parse('2026-08-01T12:00:00Z'));
+describe('parseLicenseDate', () => {
+  it('parses "YYYY-MM-DD HH:MM:SS" UTC', () => {
+    expect(parseLicenseDate('2026-08-01 12:00:00')).toBe(Date.parse('2026-08-01T12:00:00Z'));
   });
   it('parses ISO strings and returns null for empty/invalid', () => {
-    expect(parseFreemiusDate('2026-08-01T12:00:00Z')).toBe(Date.parse('2026-08-01T12:00:00Z'));
-    expect(parseFreemiusDate(null)).toBeNull();
-    expect(parseFreemiusDate('not-a-date')).toBeNull();
+    expect(parseLicenseDate('2026-08-01T12:00:00Z')).toBe(Date.parse('2026-08-01T12:00:00Z'));
+    expect(parseLicenseDate(null)).toBeNull();
+    expect(parseLicenseDate('not-a-date')).toBeNull();
   });
 });
 
@@ -52,11 +52,11 @@ describe('withinGrace', () => {
 });
 
 describe('deriveStatus', () => {
-  const base: StoredLicense = { uid: 'u1', licenseKey: 'K-EY-9999' };
+  const base: StoredLicense = { deviceId: 'd1', licenseKey: 'K-EY-9999' };
 
   it('needs activation with no stored license or no key', () => {
     expect(deriveStatus(null, NOW).status).toBe('needs_activation');
-    expect(deriveStatus({ uid: 'u1' }, NOW).status).toBe('needs_activation');
+    expect(deriveStatus({ deviceId: 'd1' }, NOW).status).toBe('needs_activation');
   });
 
   it('is valid for a currently-valid license and masks the key', () => {
@@ -77,12 +77,15 @@ describe('deriveStatus', () => {
     expect(s.licensed).toBe(false);
   });
 
-  it('keeps a lifetime (no-expiry) valid license valid even when stale', () => {
+  it('requires a re-check once the grace window lapses, even with no known expiry', () => {
+    // Dodo never reports an expiry, so staleness alone must close the gate —
+    // otherwise a cancelled subscription would stay unlocked forever offline.
     const s = deriveStatus(
-      { ...base, isValid: true, expiration: null, lastValidatedAt: NOW - 10 * DEFAULT_GRACE_MS },
+      { ...base, isValid: true, expiration: null, lastValidatedAt: NOW - DEFAULT_GRACE_MS - 1 },
       NOW,
     );
-    expect(s.status).toBe('valid');
+    expect(s.status).toBe('invalid');
+    expect(s.message).toMatch(/reconnect/i);
   });
 
   it('keeps a subscription valid within grace but invalid beyond it', () => {

@@ -3,45 +3,57 @@
  * source of truth for "is this license currently valid?" and is 100%
  * unit-testable. The store and service compose it.
  *
- * The app is 100% paid: it requires a valid Freemius license to run. A license
- * may be a lifetime key (no expiration) or a subscription (expires). We also
- * support an OFFLINE GRACE window so a previously-valid license keeps working for
- * a few days without network — otherwise a flaky connection would lock users out.
+ * The app is 100% paid: it requires a valid Dodo Payments license key to run.
+ *
+ * WHY validity is grace-window based (and not expiry based): Dodo's public
+ * license endpoints answer one question — `valid: true | false` — and never
+ * report an expiry date. A subscription key's validity simply *follows the
+ * subscription*: Dodo flips it to invalid when the subscription goes on hold,
+ * is cancelled, or its term ends. So the app cannot reason about dates locally;
+ * it must re-ask Dodo periodically. Between checks, a previously-valid license
+ * keeps working for the OFFLINE GRACE window, otherwise a flaky connection (or
+ * a week on a plane) would lock a paying customer out of their own footage.
+ *
+ * `expiration` is kept in the record for the rare imported/merchant-issued key
+ * whose expiry we do know; when present it is enforced on top of the grace rule.
  */
 import type { LicenseStatus, LicenseStatusKind } from '@framepilot/shared-types';
 
 /** The on-disk license record (secrets included — never sent to the renderer). */
 export interface StoredLicense {
-  /** Stable per-device identifier (Freemius `uid`), generated once. */
-  uid: string;
+  /** Stable per-device identifier, generated once. Names the Dodo activation. */
+  deviceId: string;
   /** The user's license key. */
   licenseKey?: string;
-  /** Freemius install id created on activation. */
-  installId?: string;
-  /** Freemius install API token (bearer for future install updates). */
-  installApiToken?: string;
-  /** Subscription expiration ("YYYY-MM-DD HH:MM:SS" UTC) or null for lifetime. */
+  /** Dodo license key instance id created on activation (needed to deactivate). */
+  instanceId?: string;
+  /** Known expiry (ISO) when one is available, else null/absent. */
   expiration?: string | null;
-  /** Last known validity from Freemius (used for the offline-grace path). */
+  /** Last known validity from Dodo (used for the offline-grace path). */
   isValid?: boolean;
-  /** Epoch ms of the last successful validation against Freemius. */
+  /** Epoch ms of the last successful validation against Dodo. */
   lastValidatedAt?: number;
 }
 
-/** Default offline grace: keep a validated license usable for 7 days offline. */
-export const DEFAULT_GRACE_MS = 7 * 24 * 60 * 60 * 1000;
+/**
+ * Default offline grace: keep a validated license usable for 30 days offline.
+ * Dodo's own desktop guidance uses the same window, and since validity here is
+ * re-checked daily when online, 30 days only ever matters to a genuinely
+ * disconnected machine.
+ */
+export const DEFAULT_GRACE_MS = 30 * 24 * 60 * 60 * 1000;
 
-/** Parse a Freemius date ("YYYY-MM-DD HH:MM:SS" UTC) to epoch ms, or null. */
-export function parseFreemiusDate(value: string | null | undefined): number | null {
+/** Parse an ISO (or "YYYY-MM-DD HH:MM:SS" UTC) date to epoch ms, or null. */
+export function parseLicenseDate(value: string | null | undefined): number | null {
   if (!value) return null;
   const iso = value.includes('T') ? value : `${value.replace(' ', 'T')}Z`;
   const ms = Date.parse(iso);
   return Number.isNaN(ms) ? null : ms;
 }
 
-/** True when a subscription expiration is in the past. Lifetime (null) never expires. */
+/** True when a known expiration is in the past. An absent expiry never expires. */
 export function isExpired(expiration: string | null | undefined, now: number): boolean {
-  const ms = parseFreemiusDate(expiration);
+  const ms = parseLicenseDate(expiration);
   return ms !== null && now > ms;
 }
 
@@ -89,13 +101,10 @@ export function deriveStatus(
     };
   }
 
-  // `isValid` is the last AUTHORITATIVE result from Freemius. A `false` here means
-  // the server said the license is invalid/cancelled — no grace applies.
+  // `isValid` is the last AUTHORITATIVE result from Dodo. A `false` here means
+  // the server said the license is invalid/revoked — no grace applies.
   if (stored.isValid) {
-    // A lifetime license (no expiration) stays valid; a subscription stays valid
-    // while its last successful validation is inside the offline-grace window,
-    // otherwise it must be re-verified online.
-    if (expiresAt === null || withinGrace(stored.lastValidatedAt, now, graceMs)) {
+    if (withinGrace(stored.lastValidatedAt, now, graceMs)) {
       return { status: 'valid', licensed: true, ...base };
     }
     return {

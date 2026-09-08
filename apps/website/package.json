@@ -3,7 +3,7 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "FramePilot marketing website — landing, pricing (Freemius), blog, downloads (Next.js App Router).",
+  "description": "FramePilot marketing website — landing, pricing (Dodo Payments), blog, downloads (Next.js App Router).",
   "license": "SEE LICENSE IN ../../LICENSE",
   "scripts": {
     "dev": "node --env-file-if-exists=../../.env node_modules/next/dist/bin/next dev -p 4321",

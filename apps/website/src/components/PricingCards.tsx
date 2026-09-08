@@ -33,7 +33,7 @@ export function PricingCards({ plans }: { plans: PricingPlan[] }) {
 
       <Ruler className="mt-10" />
       <p className="pt-4 text-[12px] leading-5 text-fg-muted">
-        Prices in USD. Secure checkout and licensing by Freemius. 14-day money-back guarantee.
+        Prices in USD. Secure checkout and licensing by Dodo Payments. 14-day money-back guarantee.
       </p>
     </div>
   );
@@ -101,7 +101,7 @@ function Plan({ plan, cycle, slot }: { plan: PricingPlan; cycle: BillingCycle; s
         <div>
           {plan.cta.kind === 'checkout' ? (
             <BuyButton
-              planId={plan.freemiusPlanIds?.[cycle]}
+              productId={plan.dodoProductIds?.[cycle]}
               billingCycle={cycle}
               label={plan.cta.label}
               variant={plan.highlight ? 'primary' : 'secondary'}

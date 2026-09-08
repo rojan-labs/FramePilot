@@ -67,12 +67,12 @@ export default function PrivacyPage() {
         <h2>Licensing &amp; payments</h2>
         <p>
           Purchases and license management are handled by our merchant of record,{' '}
-          <a href="https://freemius.com" target="_blank" rel="noopener noreferrer">
-            Freemius
+          <a href="https://dodopayments.com" target="_blank" rel="noopener noreferrer">
+            Dodo Payments
           </a>
           , which processes your payment and contact details under its own privacy policy. To
           activate a license, FramePilot sends your license key and an anonymous device identifier
-          to Freemius to verify validity. We do not receive your payment card details.
+          to Dodo Payments to verify validity. We do not receive your payment card details.
         </p>
 
         <h2>Website analytics</h2>

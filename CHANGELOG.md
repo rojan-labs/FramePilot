@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Buying and activating FramePilot now runs on Dodo Payments.** Checkout, the receipt,
+  your invoice, and the license key that unlocks the app all come from Dodo Payments
+  instead of Freemius. Buying is one click from the pricing page to a hosted checkout —
+  no overlay to load, and nothing an ad blocker can break. Activation works the same way
+  it always did: paste the key from your email into the app on first launch. Signing a
+  machine out now frees its slot properly, so moving to a new computer no longer needs
+  support. Offline editing is more generous too — a license keeps working for 30 days
+  without a connection, up from 7.
 - **The AI's summary counts changes, not operations.** Restyling one caption track used to
   close with "Applied 435 edits" over a list of deleted cue ranges — the engine rebuilds the
   whole track to restyle it, and the report showed you that rebuild. It now reads as the one

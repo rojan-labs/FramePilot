@@ -159,3 +159,9 @@ reports/golden/*/events/
 # The nightly's own run directory is uploaded as a workflow artifact, never committed.
 reports/golden/nightly/
 reports/golden/nightly.json
+
+# Payments runbook: kept local. It walks the Dodo Payments dashboard setup for the
+# real product (ids, keys, activation limits, go-live), which is operator material
+# rather than repo content. The public explanation of how payments work lives in
+# docs/guides/website-and-licensing.md and ADR 0177.
+PAYMENTS_SETUP.md

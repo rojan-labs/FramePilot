@@ -2,19 +2,4 @@
 /* eslint-disable */
 import type { GeneratedPricing } from './pricing-types';
 
-export const GENERATED_PRICING: GeneratedPricing = {
-  "fetchedAt": "2026-08-22T12:04:29.174Z",
-  "currency": "USD",
-  "plans": {
-    "pro": {
-      "price": {
-        "monthly": 25,
-        "annual": 199
-      },
-      "freemiusPlanIds": {
-        "monthly": "55196",
-        "annual": "55197"
-      }
-    }
-  }
-};
+export const GENERATED_PRICING: GeneratedPricing | null = null;

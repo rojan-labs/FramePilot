@@ -1,7 +1,7 @@
 /**
  * LicenseService tests: the unconfigured/dev-bypass rule, activation success and
  * failure, stale revalidation (authoritative-invalid vs. network→offline-grace),
- * and the synchronous cached guard.
+ * deactivation releasing the Dodo activation slot, and the synchronous cached guard.
  */
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -30,7 +30,7 @@ describe('LicenseService', () => {
     new LicenseStore(
       file,
       DEFAULT_GRACE_MS,
-      () => 'uid-1',
+      () => 'dev-1',
       () => NOW,
     );
 
@@ -43,7 +43,7 @@ describe('LicenseService', () => {
   it('disables enforcement under dev bypass even with a product id', async () => {
     const svc = new LicenseService({
       store: makeStore(),
-      productId: '123',
+      productId: 'pdt_1',
       devBypass: true,
       fetchFn: vi.fn(),
       now: () => NOW,
@@ -51,51 +51,47 @@ describe('LicenseService', () => {
     expect((await svc.getStatus()).licensed).toBe(true);
   });
 
-  it('activates a valid key and unlocks', async () => {
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ install_id: 5, is_cancelled: false, expiration: null }));
+  it('activates a valid key, names the device, and unlocks', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ id: 'lki_5' }, 201));
     const svc = new LicenseService({
       store: makeStore(),
-      productId: '123',
+      productId: 'pdt_1',
+      deviceName: 'FramePilot — studio',
       fetchFn: fetchFn as unknown as typeof fetch,
       now: () => NOW,
     });
     const status = await svc.activate('MY-KEY-1234');
     expect(status).toMatchObject({ status: 'valid', licensed: true, maskedKey: '••••-••••-1234' });
     expect(svc.isLicensedCached()).toBe(true);
+    expect(JSON.parse(fetchFn.mock.calls[0][1].body).name).toBe('FramePilot — studio (dev-1)');
   });
 
-  it('rejects an empty key and a bad key', async () => {
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ error: { message: 'No such license' } }, 404));
+  it('rejects an empty key and surfaces a bad key', async () => {
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({}, 404));
     const svc = new LicenseService({
       store: makeStore(),
-      productId: '123',
+      productId: 'pdt_1',
       fetchFn: fetchFn as unknown as typeof fetch,
       now: () => NOW,
     });
     expect((await svc.activate('   ')).status).toBe('needs_activation');
     const bad = await svc.activate('WRONG');
     expect(bad.status).toBe('invalid');
-    expect(bad.message).toBe('No such license');
+    expect(bad.message).toMatch(/could not find/i);
   });
 
-  it('revalidates a stale license and marks an authoritative cancellation invalid', async () => {
+  it('revalidates a stale license and marks an authoritative revocation invalid', async () => {
     const store = makeStore();
     store.update({
       licenseKey: 'K-1',
-      installId: '5',
+      instanceId: 'lki_5',
       isValid: true,
       lastValidatedAt: NOW - 10 * DEFAULT_GRACE_MS, // very stale
     });
-    const fetchFn = vi
-      .fn()
-      .mockResolvedValue(jsonResponse({ is_cancelled: true, expiration: null }));
+    const fetchFn = vi.fn().mockResolvedValue(jsonResponse({ valid: false }));
     const svc = new LicenseService({
       store,
-      productId: '123',
+      productId: 'pdt_1',
       fetchFn: fetchFn as unknown as typeof fetch,
       now: () => NOW,
     });
@@ -106,19 +102,16 @@ describe('LicenseService', () => {
 
   it('keeps a stale-but-recent license valid via offline grace on network failure', async () => {
     const store = makeStore();
-    // A subscription (future expiry), stale enough to trigger revalidation but
-    // last validated within the offline-grace window.
     store.update({
       licenseKey: 'K-1',
-      installId: '5',
+      instanceId: 'lki_5',
       isValid: true,
-      expiration: '2027-01-01 00:00:00',
       lastValidatedAt: NOW - 2 * 24 * 60 * 60 * 1000,
     });
     const fetchFn = vi.fn().mockRejectedValue(new Error('offline'));
     const svc = new LicenseService({
       store,
-      productId: '123',
+      productId: 'pdt_1',
       fetchFn: fetchFn as unknown as typeof fetch,
       now: () => NOW,
       revalidateIntervalMs: 60 * 60 * 1000, // 1h → stale
@@ -129,13 +122,28 @@ describe('LicenseService', () => {
     expect(status.offlineGrace).toBe(true);
   });
 
-  it('deactivate clears the license', async () => {
+  it('deactivate releases the Dodo activation slot and clears the license', async () => {
     const store = makeStore();
-    store.update({ licenseKey: 'K-1', installId: '5', isValid: true, lastValidatedAt: NOW });
+    store.update({ licenseKey: 'K-1', instanceId: 'lki_5', isValid: true, lastValidatedAt: NOW });
+    const fetchFn = vi.fn().mockResolvedValue(new Response(null, { status: 200 }));
     const svc = new LicenseService({
       store,
-      productId: '123',
-      fetchFn: vi.fn() as unknown as typeof fetch,
+      productId: 'pdt_1',
+      fetchFn: fetchFn as unknown as typeof fetch,
+      now: () => NOW,
+    });
+    await svc.deactivate();
+    expect(fetchFn.mock.calls[0][0]).toContain('/licenses/deactivate');
+    expect(store.read()?.licenseKey).toBeUndefined();
+  });
+
+  it('still clears locally when the remote deactivation fails', async () => {
+    const store = makeStore();
+    store.update({ licenseKey: 'K-1', instanceId: 'lki_5', isValid: true, lastValidatedAt: NOW });
+    const svc = new LicenseService({
+      store,
+      productId: 'pdt_1',
+      fetchFn: vi.fn().mockRejectedValue(new Error('offline')) as unknown as typeof fetch,
       now: () => NOW,
     });
     await svc.deactivate();

@@ -110,7 +110,7 @@ patch validation, host authority, or project safety boundaries.
 - Desktop packaging through Electron Builder with a bundled PyInstaller engine.
 - Packaged ffmpeg and ffprobe resolution, signing support, and release workflows.
 - Streamable HTTP MCP server on a loopback interface for external agent clients.
-- Marketing website package and Freemius-backed licensing and checkout integration.
+- Marketing website package and Dodo Payments-backed licensing and checkout integration.
 
 ## Current boundaries
 

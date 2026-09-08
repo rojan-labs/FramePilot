@@ -63,7 +63,7 @@ export function PricingPreview({ plan }: { plan: PricingPlan | null }) {
                 ? `Billed ${formatUsd(plan.price.annual)} yearly`
                 : 'Billed monthly. Cancel anytime.'}
             </p>
-            <BuyButton planId={plan.freemiusPlanIds?.[cycle]} billingCycle={cycle} className="mt-5" />
+            <BuyButton productId={plan.dodoProductIds?.[cycle]} billingCycle={cycle} className="mt-5" />
           </div>
 
           <div>
