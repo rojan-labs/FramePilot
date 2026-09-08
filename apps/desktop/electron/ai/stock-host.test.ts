@@ -130,7 +130,11 @@ describe('createStockHost — an absent atSeconds means the bin', () => {
 });
 
 describe('createStockHost — a given atSeconds still means the timeline', () => {
-  it('refuses an occupied span before spending the download, naming a free moment', async () => {
+  it('downloads an occupied span rather than refusing it, so the placer can lift it', async () => {
+    // ADR 0169: a full-frame cutaway goes on a layer in FRONT of the picture it covers,
+    // and whether this clip qualifies depends on its measured shape — which arrives with
+    // the download. Refusing on occupancy alone here refused the cutaway `add_stock`
+    // exists to make (run 19e20922: 35 of 38 calls). The orchestrator decides, once.
     const deps = io(13);
     const host = createStockHost(deps);
     const outcome = await host(projectWithClipAtHead(), {
@@ -138,14 +142,13 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
       kind: 'video',
       atSeconds: 0,
     });
-    expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toMatch(/already picture on the timeline between 0.0s and 13.0s/);
-    // The whole point of the refusal: it says where to go instead. 7.767s is the
-    // end of the clip in the way, and nothing follows it.
-    expect(outcome.summary).toMatch(/starts at 7.8s/);
-    // And it DECLARES the rule it refused under, which is what makes the run remember it.
-    expect(outcome.refusalCause).toBe('picture_over_picture');
-    expect(deps.download).not.toHaveBeenCalled();
+    expect(outcome.status).toBe('completed');
+    expect(outcome.summary).not.toMatch(/already picture/);
+    expect((outcome.data as { atSeconds?: number }).atSeconds).toBe(0);
+    expect(deps.download).toHaveBeenCalledTimes(1);
+    // Nothing was refused, so nothing is declared: a cause here would bank a run-memory
+    // key for a placement that has not been judged yet.
+    expect(outcome).not.toHaveProperty('refusalCause');
   });
 
   it('places into empty time and echoes the clamped position', async () => {
@@ -170,9 +173,9 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
     expect((outcome.data as { atSeconds?: number }).atSeconds).toBe(0);
   });
 
-  it('gives a still the default length when probing occupancy', async () => {
-    // No duration of its own: the probe has to use the same default the
-    // placement builder does, or the two disagree about what fits.
+  it('sends a still through with its position, length or no length', async () => {
+    // A still has no duration of its own; the length that matters is the one the
+    // placement builder gives it, and that decision now lives with the placer.
     const deps = io(null);
     const host = createStockHost(deps);
     const outcome = await host(projectWithClipAtHead(), {
@@ -180,9 +183,9 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
       kind: 'photo',
       atSeconds: 0,
     });
-    expect(outcome.status).toBe('failed');
-    expect(outcome.summary).toMatch(/between 0.0s and 5.0s/);
-    expect(deps.download).not.toHaveBeenCalled();
+    expect(outcome.status).toBe('completed');
+    expect((outcome.data as { atSeconds?: number }).atSeconds).toBe(0);
+    expect(deps.download).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -190,12 +193,10 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
  * WHICH failures declare a cause, and which must not.
  *
  * A declared `refusalCause` is the one way a host outcome earns a run-memory key
- * (`orchestrator.ts#deterministicFailureKey`), and the key is permanent for the run. That
- * is the right answer for a POLICY verdict — this module's placement refusal is a pure
- * function of the arguments and the project, decided before a byte is spent, and
- * undeclared it was the last unbounded arm of run `369e8c82`'s loop: four refusals of ADR
- * 0140 in fifteen minutes, none of them matching, because the sentence interpolates the
- * times and the colliding clip.
+ * (`orchestrator.ts#deterministicFailureKey`), and the key is permanent for the run. Since
+ * ADR 0169 reached `add_stock`, this host reaches no policy verdict of its own — the
+ * placement is decided by the orchestrator, which has the downloaded asset's measured
+ * shape and declares the rule there.
  *
  * It is the WRONG answer for anything that merely failed. A download timeout, a provider
  * 5xx, a rate limit, a missing key, an id from a closed session — every one of those can
@@ -203,7 +204,7 @@ describe('createStockHost — a given atSeconds still means the timeline', () =>
  * of the run over a bad network moment. So this walks the module's other failure exits and
  * pins that they declare nothing.
  */
-describe('createStockHost — only the policy refusal declares a cause', () => {
+describe('createStockHost — no host failure declares a cause', () => {
   it('leaves an unresolvable id undeclared, so the model may try another', async () => {
     const host = createStockHost({ ...io(), unresolvableReason: () => 'That clip is gone.' });
     const outcome = await host(emptyProject(), { remoteId: 'x', kind: 'video' });

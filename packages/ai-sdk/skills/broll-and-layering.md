@@ -34,10 +34,12 @@ and it just arrives in the media bin. Reach for them **last**, not first.
   exterior, an establishing shot, a texture — and say in your summary that the
   shot is stock, so the user is never surprised by footage they do not recognise.
 - Search by subject, not by mood: "city skyline at dusk", not "inspiring".
-- **Stock cannot sit on top of existing footage yet.** `add_stock` fails with a
-  reason when that moment already has picture on it. That is a real constraint,
-  not a retry: find an empty stretch, or cut a hole first. Do not respond by
-  trying adjacent seconds until one sticks.
+- **A cutaway goes over the footage, not beside it.** `add_stock` with `atSeconds`
+  places the clip on a layer in front of whatever is playing there, so you do not
+  need a gap and must not append past the end of the edit to find one. It fails
+  only when the clip could not hide what it covers (an unmeasured or odd-shaped
+  source) or would bury another cutaway — a real constraint, not a retry, so do
+  not respond by trying adjacent seconds until one sticks.
 - A photo has no duration; it lands at the project's default still length and can
   be trimmed like any other clip afterwards.
 - The provider is metered. `search_stock` tells you how many requests remain when
@@ -48,8 +50,7 @@ and it just arrives in the media bin. Reach for them **last**, not first.
   know the order. "Gather" here
   means downloading into the bin — not collecting search results to choose from
   later. Downloading straight onto the timeline
-  forces you to commit to a running order before you have seen the second shot,
-  and the occupancy rule above then refuses it.
+  forces you to commit to a running order before you have seen the second shot.
 - A search result is only a `remoteId` until you download it. There is no path to
   guess and no URL to paste: `add_stock` is the only thing that turns a candidate
   into media this project owns.

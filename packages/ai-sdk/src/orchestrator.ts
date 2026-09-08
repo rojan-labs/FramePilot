@@ -4814,11 +4814,13 @@ export class Orchestrator {
             // result ages out of the window with it. One, not `ops.length`: the refusal is
             // reached before any operation is built.
             rejectedOpCount: 1,
-            // `StockPlacementRefusal.kind === 'picture_occupied'` is this module's name for
-            // ADR 0140; the RULE is the one `add_clip` names, so run memory must call it
-            // the same thing. Keys stay per-tool (`add_stock:…` vs `add_clip:…`), so
-            // sharing the cause never blocks one tool on the other's refusal.
-            refusalCause: 'picture_over_picture',
+            // The RULE the placer refused under — the same vocabulary `add_clip` uses, so
+            // run memory calls one rule one thing. Keys stay per-tool (`add_stock:…` vs
+            // `add_clip:…`), so sharing the cause never blocks one tool on the other's
+            // refusal. Since ADR 0169 applies to `add_stock` too, an occupied span is
+            // usually LIFTED rather than refused, and what reaches here is the narrower
+            // "would not hide what it covers" / "would bury a cutaway" verdict.
+            refusalCause: placement.refusalCause,
           };
         }
         const ops = [...placement.operations];

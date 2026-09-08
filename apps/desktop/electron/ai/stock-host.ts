@@ -14,11 +14,18 @@
  *
  * ## The contract, in one line each
  *
- * - **`atSeconds` given** — the clip is meant for the timeline. Refuse before
- *   spending the download if that span already holds picture (ADR 0140); the
- *   answer does not depend on the bytes. That refusal DECLARES its rule
- *   (`refusalCause`), so the run remembers it by what it is rather than by a
- *   sentence that changes with every placement. Echo the clamped position back.
+ * - **`atSeconds` given** — the clip is meant for the timeline. Echo the clamped
+ *   position back and let the orchestrator place it.
+ *
+ *   This host no longer refuses an occupied span. Under ADR 0169 a full-frame
+ *   cutaway is LIFTED onto a layer in front of the picture it covers, and whether
+ *   this clip qualifies depends on its measured shape — which arrives WITH the
+ *   download and is not knowable here (`knownItem` carries a length and nothing
+ *   else). Refusing on occupancy alone therefore refused the cutaway the tool
+ *   exists to make: in run `19e20922`, 35 of 38 calls. The orchestrator holds the
+ *   asset and the working copy and makes the ADR 0169 decision once, for
+ *   `add_stock` and `add_clip` alike, and still DECLARES its rule
+ *   (`refusalCause`) for the placements that genuinely cannot be shown.
  * - **`atSeconds` absent** — the clip is meant for the MEDIA BIN. There is no
  *   span to check, so there is nothing to refuse: this is how a run gathers
  *   several candidates before choosing a running order, and it is placed later
@@ -30,7 +37,6 @@
  * Stock panel builds by hand.
  */
 import { randomUUID } from 'node:crypto';
-import { DEFAULT_STOCK_STILL_SECONDS, stockPlacementConflictReason } from '@framepilot/editor-core';
 import { type HostToolOutcome, sourcingFailureNote } from '@framepilot/ai-sdk';
 import type { Project } from '@framepilot/timeline-schema';
 import type { StockDownloadRequest, StockDownloadResult } from '../ipc/contract.js';
@@ -40,7 +46,13 @@ import { sourcedAssetId } from '../media/sourced-asset-id.js';
 export interface StockHostIO {
   /** Why `remoteId` cannot be acted on, or `null` when it can. */
   unresolvableReason(remoteId: string): string | null;
-  /** The searched item behind `remoteId`, for its length before the download. */
+  /**
+   * The searched item behind `remoteId`.
+   *
+   * Kept as part of the contract even though the length is no longer read here: the
+   * resolvability check above is answered from the same session state, and a host that
+   * cannot name its items cannot report an unresolvable id.
+   */
   knownItem(remoteId: string): { readonly durationSeconds?: number | null | undefined } | undefined;
   download(request: StockDownloadRequest): Promise<StockDownloadResult>;
 }
@@ -70,47 +82,11 @@ export function createStockHost(
     if (unresolvable !== null) {
       return { status: 'failed', summary: unresolvable };
     }
-    const item = io.knownItem(remoteId)!;
-
     // A BIN-ONLY download has no span, so there is nothing to refuse. Checking
     // one anyway is the bug this module exists to prevent: it collapsed "no
     // position" into "position 0", and every gather after the first clip landed
     // was rejected for colliding with that clip.
     const start = atSeconds === undefined ? undefined : Math.max(0, atSeconds);
-    if (start !== undefined) {
-      // A still has no duration of its own; the placement builder gives it the
-      // same default length a dragged-in image gets, and the occupancy check has
-      // to use the same number or the two would disagree about what fits.
-      const durationSeconds = item.durationSeconds ?? DEFAULT_STOCK_STILL_SECONDS;
-      // Stated, not silently worked around. Stacking would preview differently from
-      // how it renders, and reporting success on a stacked clip would be a completed
-      // edit that lies. The sentence comes from `editor-core` so this pre-download
-      // refusal and the orchestrator's post-download one cannot word it differently —
-      // including the free moment it points at.
-      const conflict = stockPlacementConflictReason(
-        project.timeline,
-        project.assets,
-        start,
-        durationSeconds,
-      );
-      if (conflict !== null) {
-        // DECLARED, so the run remembers it by its RULE.
-        //
-        // This is a policy verdict, not a failure of the work: it is a pure function of
-        // the arguments and the project handed in, reached before a byte is spent, and it
-        // would say exactly the same thing if the identical call were made again. Every
-        // OTHER `failed` this module returns — the unresolvable id above, the download
-        // failure below — stays undeclared and therefore retryable, which is the default
-        // host outcomes are given for good reason.
-        //
-        // Undeclared, this branch was the last unbounded arm of run `369e8c82`'s loop and
-        // the one a real b-roll request hits FIRST: the orchestrator keys no host failure,
-        // so the desktop refusal cost nothing per iteration and could repeat forever. The
-        // sentence cannot be the identity — it interpolates both times and the conflicting
-        // clip, so 4.48–6s and 4.2–6s read as two unrelated failures.
-        return { status: 'failed', summary: conflict, refusalCause: 'picture_over_picture' };
-      }
-    }
 
     const result = await io.download({
       projectId: project.id,

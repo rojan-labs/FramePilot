@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Stock cutaways can go over your footage.** Asking the AI for b-roll during a talking-head
+  take used to fail: stock could only land where the timeline was empty, so on a single
+  continuous take the only place left was after the end of the edit. A stock clip now goes on
+  a layer in front of what is playing, exactly like a clip you place yourself — and it is
+  still refused when it could not cover what is underneath, which is the case where the
+  preview and the export would disagree.
+
 - **Automatic preparation on import no longer spends money without being asked.** Importing
   media always prepares the free, on-device part — the measurements the AI reads on every
   clip. The paid parts follow what you have set up: labelling runs only if you have added an
