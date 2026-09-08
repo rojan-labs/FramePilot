@@ -118,7 +118,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12066,
+      "usedTokens": 12101,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -172,7 +172,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -200,7 +200,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -208,9 +208,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12066,
+          "estimatedInputTokensBeforeSend": 12101,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179742,
+          "estimatedRemainingCapacity": 179707,
           "calculationSource": "local_estimate"
         },
         "compaction": {
@@ -387,7 +387,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 12179,
+      "usedTokens": 12214,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -441,7 +441,7 @@
             "id": "s7",
             "type": "skill",
             "label": "skills manifest",
-            "tokenEstimate": 1674,
+            "tokenEstimate": 1689,
             "included": true
           },
           {
@@ -469,7 +469,7 @@
             "id": "s11",
             "type": "tool_schemas",
             "label": "tool definitions",
-            "tokenEstimate": 7768,
+            "tokenEstimate": 7788,
             "included": true,
             "cacheSide": "cached_prefix"
           }
@@ -477,9 +477,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 12179,
+          "estimatedInputTokensBeforeSend": 12214,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179629,
+          "estimatedRemainingCapacity": 179594,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -694,7 +694,7 @@
         "verifications": [
           {
             "id": "verify_1",
-            "criterion": "who is on screen?",
+            "criterion": "A validated edit landed and the run’s deterministic checks passed",
             "passed": false,
             "atRevision": 0,
             "detail": "No traceable project mutation for the committed plan."
