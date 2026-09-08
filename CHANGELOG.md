@@ -6,6 +6,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → Memory shows what this project remembers, and can reset it.** The
+  preferences the AI saved on the project (audience, brand, caption style, pacing, export
+  platforms — and whether you said so or it inferred them) are listed, with a **Reset AI
+  memory** button. A **Reset timeline** button empties every track and marker while
+  keeping your media, transcript and memory. Both ask once before acting and are ordinary
+  edits — undo brings everything back.
+
 ### Fixed
 
 - **Caption chips no longer swallow the picture.** Asking the AI for a white background

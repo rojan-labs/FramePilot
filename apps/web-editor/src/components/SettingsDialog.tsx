@@ -17,6 +17,8 @@ import {
   type ReactNode,
 } from 'react';
 import { Button, SegmentedControl, Switch } from '@framepilot/ui';
+import type { Patch } from '@framepilot/editor-core';
+import type { Project } from '@framepilot/timeline-schema';
 import type {
   AiProviderInfo,
   AiProviderName,
@@ -26,6 +28,8 @@ import type {
 import {
   capabilitiesFor,
   LocalWhisperCliClient,
+  readMemory,
+  type ProjectMemory,
   type LocalAsrSetupProgress,
   type LocalAsrStatus,
   type UserAsrProviderName,
@@ -55,6 +59,12 @@ import {
 import { useAiConfig } from '../editor/useAiConfig.js';
 import { onStockQuotaChanged, stockQuota, type StockQuotaSnapshot } from '../editor/bridge.js';
 import { useUserMemory } from '../editor/useUserMemory.js';
+import {
+  hasAiMemory,
+  resetAiMemoryPatch,
+  resetTimelinePatch,
+  timelineResetSummary,
+} from '../editor/project-resets.js';
 import {
   BASE_URL_PROVIDERS,
   KEYLESS_PROVIDERS,
@@ -98,6 +108,10 @@ export interface SettingsDialogProps {
   readonly onClose: () => void;
   readonly initialSection?: SettingsSection;
   readonly projectId?: string;
+  /** The open project, for the Memory section's per-project view and resets. */
+  readonly project?: Project;
+  /** Apply a reset as one undoable edit (owned by {@link App}, which holds the project). */
+  readonly onApplyPatch?: (patch: Patch) => void;
 }
 
 type Section = SettingsSection;
@@ -1710,10 +1724,177 @@ function PreferenceField({
   );
 }
 
-function MemorySettings(): JSX.Element {
+/**
+ * A button that asks once before doing something the editor would rather not do by
+ * accident. Two clicks: the first turns it into "Confirm …" beside a Cancel, the second
+ * acts. No modal — the row itself is the confirmation, and it stays put until answered.
+ */
+function ConfirmButton({
+  label,
+  confirmLabel,
+  disabled,
+  onConfirm,
+}: {
+  readonly label: string;
+  readonly confirmLabel: string;
+  readonly disabled?: boolean;
+  readonly onConfirm: () => void;
+}): JSX.Element {
+  const [armed, setArmed] = useState(false);
+  if (!armed) {
+    return (
+      <Button variant="secondary" type="button" disabled={disabled} onClick={() => setArmed(true)}>
+        {label}
+      </Button>
+    );
+  }
+  return (
+    <span className="setting-confirm">
+      <Button
+        variant="secondary"
+        type="button"
+        onClick={() => {
+          setArmed(false);
+          onConfirm();
+        }}
+      >
+        {confirmLabel}
+      </Button>
+      <Button variant="ghost" type="button" onClick={() => setArmed(false)}>
+        Cancel
+      </Button>
+    </span>
+  );
+}
+
+const PROJECT_PREFERENCE_LABELS: readonly [keyof ProjectMemory & string, string][] = [
+  ['targetAudience', 'Target audience'],
+  ['brandStyle', 'Brand style'],
+  ['captionStyle', 'Caption style'],
+  ['preferredPacing', 'Preferred pacing'],
+];
+
+/** Where a remembered preference came from, in the editor's words. */
+function provenanceLabel(memory: ProjectMemory, key: string): string {
+  const source = memory.provenance[key]?.source;
+  if (source === 'user') return 'you said so';
+  if (source === 'inferred') return 'the assistant inferred it';
+  if (source === 'reference') return 'read from a reference';
+  return '';
+}
+
+/** What this project's file remembers, read the same way the assistant reads it. */
+function ProjectMemoryView({ project }: { readonly project: Project }): JSX.Element {
+  const memory = readMemory(project);
+  const preferences = PROJECT_PREFERENCE_LABELS.filter(([key]) => typeof memory[key] === 'string');
+  const empty =
+    preferences.length === 0 &&
+    memory.exportPlatforms.length === 0 &&
+    memory.acceptedEdits.length === 0 &&
+    memory.rejectedEdits.length === 0;
+  if (empty) {
+    return <p className="setting-hint">Nothing remembered for this project yet.</p>;
+  }
+  return (
+    <dl className="setting-memory-list" aria-label="Project memory">
+      {preferences.map(([key, label]) => {
+        const note = provenanceLabel(memory, key);
+        return (
+          <div key={key} className="setting-memory-row">
+            <dt>{label}</dt>
+            <dd>
+              {String(memory[key])}
+              {note ? <span className="setting-hint"> · {note}</span> : null}
+            </dd>
+          </div>
+        );
+      })}
+      {memory.exportPlatforms.length > 0 ? (
+        <div className="setting-memory-row">
+          <dt>Export platforms</dt>
+          <dd>{memory.exportPlatforms.join(', ')}</dd>
+        </div>
+      ) : null}
+      <div className="setting-memory-row">
+        <dt>Edit feedback</dt>
+        <dd>
+          {memory.acceptedEdits.length} accepted · {memory.rejectedEdits.length} rejected
+        </dd>
+      </div>
+    </dl>
+  );
+}
+
+function MemorySettings({
+  project,
+  onApplyPatch,
+}: {
+  readonly project?: Project;
+  readonly onApplyPatch?: (patch: Patch) => void;
+}): JSX.Element {
   const { userMemory, setPreference, setPlatforms } = useUserMemory();
+  const canReset = project !== undefined && onApplyPatch !== undefined;
+  const timeline = project ? timelineResetSummary(project) : { tracks: 0, clips: 0, markers: 0 };
+  const timelineEmpty = timeline.tracks === 0 && timeline.markers === 0;
   return (
     <>
+      <SettingGroup
+        title="This project"
+        description="What the assistant remembers about this project. It lives in the project file; a reset is one edit you can undo."
+      >
+        {project ? (
+          <>
+            <ProjectMemoryView project={project} />
+            <div className="setting-row">
+              <div className="setting-text">
+                <span className="setting-label">Reset AI memory</span>
+                <span className="setting-hint">
+                  Forget the preferences and the accepted/rejected edits above. Your
+                  cross-project profile below is kept.
+                </span>
+              </div>
+              <ConfirmButton
+                label="Reset AI memory"
+                confirmLabel="Confirm reset"
+                disabled={!canReset || !hasAiMemory(project)}
+                onConfirm={() => {
+                  const patch = resetAiMemoryPatch(project);
+                  if (patch && onApplyPatch) onApplyPatch(patch);
+                }}
+              />
+            </div>
+          </>
+        ) : (
+          <p className="setting-hint">Open a project to see what it remembers.</p>
+        )}
+      </SettingGroup>
+      <SettingGroup
+        title="Timeline"
+        description="Start the edit again from an empty timeline. The media bin, the transcript and the AI memory are kept."
+      >
+        <div className="setting-row">
+          <div className="setting-text">
+            <span className="setting-label">Reset timeline</span>
+            <span className="setting-hint">
+              {project
+                ? timelineEmpty
+                  ? 'The timeline is already empty.'
+                  : `Removes ${String(timeline.tracks)} track${timeline.tracks === 1 ? '' : 's'}, ${String(timeline.clips)} clip${timeline.clips === 1 ? '' : 's'} and ${String(timeline.markers)} marker${timeline.markers === 1 ? '' : 's'}. Undo brings them back.`
+                : 'Open a project first.'}
+            </span>
+          </div>
+          <ConfirmButton
+            label="Reset timeline"
+            confirmLabel="Confirm reset"
+            disabled={!canReset || timelineEmpty}
+            onConfirm={() => {
+              if (!project) return;
+              const patch = resetTimelinePatch(project);
+              if (patch && onApplyPatch) onApplyPatch(patch);
+            }}
+          />
+        </div>
+      </SettingGroup>
       <SettingGroup
         title="Editing profile"
         description="Cross-project defaults the assistant can reuse."
@@ -1776,6 +1957,8 @@ export function SettingsDialog({
   onClose,
   initialSection,
   projectId,
+  project,
+  onApplyPatch,
 }: SettingsDialogProps): JSX.Element | null {
   if (!open) return null;
   return (
@@ -1783,6 +1966,8 @@ export function SettingsDialog({
       onClose={onClose}
       initialSection={initialSection ?? 'display'}
       {...(projectId ? { projectId } : {})}
+      {...(project ? { project } : {})}
+      {...(onApplyPatch ? { onApplyPatch } : {})}
     />
   );
 }
@@ -1791,10 +1976,14 @@ function SettingsDialogContent({
   onClose,
   initialSection,
   projectId,
+  project,
+  onApplyPatch,
 }: {
   readonly onClose: () => void;
   readonly initialSection: Section;
   readonly projectId?: string;
+  readonly project?: Project;
+  readonly onApplyPatch?: (patch: Patch) => void;
 }): JSX.Element {
   const { settings, update, reset, persistenceError } = useSettings();
   const { config } = useAiConfig();
@@ -2075,7 +2264,12 @@ function SettingsDialogContent({
                 />
               ) : null}
               {section === 'storage' ? <CapabilityPackStorageSettings /> : null}
-              {section === 'memory' ? <MemorySettings /> : null}
+              {section === 'memory' ? (
+                <MemorySettings
+                  {...(project ? { project } : {})}
+                  {...(onApplyPatch ? { onApplyPatch } : {})}
+                />
+              ) : null}
               {section === 'shortcuts' ? <ShortcutList /> : null}
             </div>
           </div>

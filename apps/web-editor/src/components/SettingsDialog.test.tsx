@@ -1407,3 +1407,99 @@ describe('SettingsDialog', () => {
     });
   });
 });
+
+describe('Memory — this project', () => {
+  const projectWithMemory = () =>
+    ({
+      id: 'p1',
+      name: 'p1',
+      version: 1,
+      fps: 30,
+      resolution: { width: 1080, height: 1920 },
+      assets: [],
+      folders: [],
+      timeline: {
+        tracks: [
+          { id: 'v1', type: 'video', clips: [{ id: 'c1', assetId: 'a', trackId: 'v1', start: 0, end: 2, sourceStart: 0, sourceEnd: 2, effects: [], keyframes: [] }] },
+          { id: 'cap', type: 'caption', clips: [] },
+        ],
+      },
+      transcript: [],
+      markers: [{ id: 'm1', time: 0, label: 'Hook' }],
+      aiMemory: {
+        captionStyle: 'white chip, dark ink',
+        preferredPacing: 'fast',
+        exportPlatforms: ['reels'],
+        acceptedEdits: [{ patchId: 'a', reason: 'ok' }],
+        rejectedEdits: [],
+        provenance: { captionStyle: { source: 'user', turn: 2 } },
+      },
+      history: [],
+    }) as unknown as import('@framepilot/timeline-schema').Project;
+
+  const openMemory = (onApplyPatch = vi.fn()) => {
+    render(
+      <SettingsProvider>
+        <AiConfigProvider>
+          <SettingsDialog
+            open
+            onClose={() => {}}
+            initialSection="memory"
+            projectId="p1"
+            project={projectWithMemory()}
+            onApplyPatch={onApplyPatch}
+          />
+        </AiConfigProvider>
+      </SettingsProvider>,
+    );
+    return onApplyPatch;
+  };
+
+  it('shows the preferences saved on the project, with where they came from', () => {
+    openMemory();
+    const list = screen.getByLabelText('Project memory');
+    expect(list.tagName).toBe('DL');
+    expect(list.textContent).toContain('white chip, dark ink');
+    expect(list.textContent).toContain('you said so');
+    expect(list.textContent).toContain('fast');
+    expect(list.textContent).toContain('reels');
+    expect(list.textContent).toContain('1 accepted · 0 rejected');
+  });
+
+  it('resets AI memory only after confirming, as one set_ai_memory patch', () => {
+    const apply = openMemory();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset AI memory' }));
+    expect(apply).not.toHaveBeenCalled();
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByRole('button', { name: 'Reset AI memory' })).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset AI memory' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm reset' }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply.mock.calls[0]![0].operations).toEqual([{ type: 'set_ai_memory', memory: {} }]);
+  });
+
+  it('resets the timeline as one patch removing every track and marker', () => {
+    const apply = openMemory();
+    expect(screen.getByText(/Removes 2 tracks, 1 clip and 1 marker/)).toBeTruthy();
+    fireEvent.click(screen.getByRole('button', { name: 'Reset timeline' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Confirm reset' }));
+    expect(apply).toHaveBeenCalledTimes(1);
+    expect(apply.mock.calls[0]![0].operations.map((op: { type: string }) => op.type)).toEqual([
+      'remove_layer',
+      'remove_layer',
+      'remove_marker',
+    ]);
+  });
+
+  it('offers nothing to reset without a project', () => {
+    render(
+      <SettingsProvider>
+        <AiConfigProvider>
+          <SettingsDialog open onClose={() => {}} initialSection="memory" />
+        </AiConfigProvider>
+      </SettingsProvider>,
+    );
+    expect(screen.getByText('Open a project to see what it remembers.')).toBeTruthy();
+    expect((screen.getByRole('button', { name: 'Reset timeline' }) as HTMLButtonElement).disabled).toBe(true);
+  });
+});

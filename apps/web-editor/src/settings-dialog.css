@@ -1285,3 +1285,27 @@
   font-family: var(--font-mono);
   font-size: 0.95em;
 }
+
+/* Settings → Memory: the per-project view and its two-step reset buttons. */
+.settings-dialog .setting-memory-list {
+  margin: 0 0 12px;
+  display: grid;
+  gap: 6px;
+}
+.settings-dialog .setting-memory-row {
+  display: grid;
+  grid-template-columns: minmax(120px, 160px) 1fr;
+  gap: 12px;
+  font-size: 13px;
+}
+.settings-dialog .setting-memory-row dt {
+  color: var(--fp-text-muted, #6b6b6b);
+}
+.settings-dialog .setting-memory-row dd {
+  margin: 0;
+}
+.settings-dialog .setting-confirm {
+  display: inline-flex;
+  gap: 6px;
+  align-items: center;
+}
