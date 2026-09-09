@@ -421,9 +421,13 @@ export function createVisualStatusReader(options: BrainClientOptions): VisualSta
  * the footage and when it cannot:
  *
  * - unavailable (no sandbox root / unusable brain) → the honest reason;
- * - no embeddings key → content SEARCH is off (search_visual/describe_footage stay empty);
+ * - nothing indexed and no embeddings key → content SEARCH is off (search_visual and
+ *   describe_footage stay empty);
  * - available but nothing indexed → search is not ready yet;
- * - available and indexed → coverage, vector count, and backend, and that it can search.
+ * - available and indexed → coverage, unit count, and backend, and that it can search.
+ *
+ * "Indexed" is backend-relative: the built-in arm reports `counts.vectors`, the
+ * TwelveLabs arm reports `counts.videos`/`counts.images` and no vectors at all.
  *
  * Three things this line must never say, all of which it used to. It must not tell the
  * model to `index_media`: indexing is implicit lifecycle work driven by the app
@@ -456,15 +460,27 @@ export function summarizeVisualStatus(
     const reason = status.reason ?? 'no project sandbox is configured';
     return `Visual index: unavailable (${reason}) — you cannot SEARCH this footage by content. ${fallback}, or rely on the transcript and ask the editor.`;
   }
-  if (!status.keyConfigured) {
+  // What INDEXED means depends on the backend. The built-in arm counts `vectors`; the
+  // TwelveLabs arm has none of its own — it reports `{videos, images}`, because the
+  // vectors live on the hosted index. Reading only `vectors` therefore made a fully
+  // indexed TwelveLabs project unable to reach the "indexed" line at all.
+  const vectors = status.counts.vectors ?? 0;
+  const hostedUnits = (status.counts.videos ?? 0) + (status.counts.images ?? 0);
+  const searchable = status.indexedAssets > 0 && (vectors > 0 || hostedUnits > 0);
+  // Only claim "no key" when there is also nothing to search. On a TwelveLabs project
+  // keyed through Settings the engine cannot see a key on this GET, and saying "search
+  // returns nothing" over a 1/1-indexed project sent run a53b7c1f to ask_user for ten
+  // minutes instead of calling search_visual on footage that was ready.
+  if (!status.keyConfigured && !searchable) {
     return `Visual index: no embeddings key configured, so search_visual and describe_footage return nothing — there is no content search. ${fallback}; never guess what is on screen.`;
   }
-  const vectors = status.counts.vectors ?? 0;
-  if (status.indexedAssets === 0 || vectors === 0) {
+  if (!searchable) {
     return `Visual index: 0/${status.totalAssets} assets indexed — indexing runs automatically in the background, so search_visual and describe_footage stay empty until it finishes. ${fallback} rather than waiting.`;
   }
   const backend = status.backend ? `, ${status.backend} backend` : '';
-  return `Visual index: ${status.indexedAssets}/${status.totalAssets} assets, ${vectors} vector${vectors === 1 ? '' : 's'}${backend} — use search_visual to ground content-dependent edits and describe_footage to read an asset in order.`;
+  const units = vectors > 0 ? vectors : hostedUnits;
+  const unitWord = vectors > 0 ? 'vector' : 'indexed file';
+  return `Visual index: ${status.indexedAssets}/${status.totalAssets} assets, ${units} ${unitWord}${units === 1 ? '' : 's'}${backend} — use search_visual to ground content-dependent edits and describe_footage to read an asset in order.`;
 }
 
 /**

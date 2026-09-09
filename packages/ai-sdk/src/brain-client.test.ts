@@ -429,7 +429,7 @@ describe('visual status (MI6.2)', () => {
       // it had no tool to render — and spent reasoning working out which briefing was
       // true rather than doing the edit.
       for (const s of [
-        status({ keyConfigured: false }),
+        status({ keyConfigured: false, indexedAssets: 0, counts: {} }),
         status({ indexedAssets: 0, counts: { assets: 0, vectors: 0 } }),
         status({ available: false, reason: null }),
       ]) {
@@ -440,7 +440,10 @@ describe('visual status (MI6.2)', () => {
     });
 
     it('says content SEARCH is off with no embeddings key — never that it is blind', () => {
-      const line = summarizeVisualStatus(status({ keyConfigured: false }), SIGHTED);
+      const line = summarizeVisualStatus(
+        status({ keyConfigured: false, indexedAssets: 0, counts: {} }),
+        SIGHTED,
+      );
       expect(line).toContain('no embeddings key');
       // `get_frame` renders any moment as an image whatever the INDEX is doing, so
       // "you cannot see" was false, and a model told it is blind stops looking.
@@ -479,6 +482,45 @@ describe('visual status (MI6.2)', () => {
         SIGHTED,
       );
       expect(line).toContain('0/4 assets indexed');
+    });
+
+    it('tells an indexed TwelveLabs project it CAN search, key flag or not', () => {
+      // Run a53b7c1f. The desktop forwards the TwelveLabs key on the index/search POSTs
+      // only, so the status GET reported `keyConfigured:false` on a project that was
+      // 1/1 indexed and searchable — and the hosted backend counts `videos`/`images`
+      // with no `vectors` at all, so the indexed line was unreachable twice over. The
+      // model quoted "search returns nothing" verbatim and spent ten minutes on
+      // ask_user instead of calling search_visual.
+      const line = summarizeVisualStatus(
+        status({
+          backend: 'twelvelabs',
+          counts: { videos: 1, images: 0 },
+          indexedAssets: 1,
+          totalAssets: 1,
+          keyConfigured: false,
+        }),
+        SIGHTED,
+      );
+      expect(line).toContain('1/1 assets');
+      expect(line).toContain('1 indexed file');
+      expect(line).toContain('twelvelabs');
+      expect(line).toContain('search_visual');
+      expect(line).not.toContain('no embeddings key');
+    });
+
+    it('still reports 0/N on a TwelveLabs project with nothing indexed yet', () => {
+      const line = summarizeVisualStatus(
+        status({
+          backend: 'twelvelabs',
+          counts: { videos: 0, images: 0 },
+          indexedAssets: 0,
+          totalAssets: 2,
+          keyConfigured: true,
+        }),
+        SIGHTED,
+      );
+      expect(line).toContain('0/2 assets indexed');
+      expect(line).toContain('automatically in the background');
     });
 
     it('surfaces the honest reason when the brain is unavailable', () => {

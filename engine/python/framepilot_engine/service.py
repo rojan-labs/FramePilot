@@ -4722,9 +4722,10 @@ def create_app(
         """Report visual-index coverage, counts, backend, and key/job health (MI4.3).
 
         Honest-unavailable: no sandbox root or an unusable brain reports
-        ``available=False`` with the reason. ``keyConfigured`` is derived from the
-        env setting (this GET carries no body) and the key itself is never
-        returned.
+        ``available=False`` with the reason. ``keyConfigured`` is derived from what
+        is persisted — the env setting, or a stored TwelveLabs index id, which proves
+        a key was used on the index POST (this GET carries no body). The key itself
+        is never returned.
         """
         # This GET carries no request body, so the TwelveLabs key (host-owned,
         # forwarded only on the index/search POSTs) is not visible here. Detect a
@@ -4775,7 +4776,13 @@ def create_app(
                         indexed_assets=indexed,
                         total_assets=total_assets,
                         failures=_asset_failures(store),
-                        key_configured=env_tl_key,
+                        # A stored TL index id PROVES a key was used: the desktop
+                        # forwards the Settings key on the index/search POSTs and never
+                        # via env, so `env_tl_key` alone reported keyConfigured:false on
+                        # a project that is fully indexed on TwelveLabs. The agent then
+                        # read "no embeddings key configured, search returns nothing"
+                        # and stopped asking the footage anything (run a53b7c1f).
+                        key_configured=tl_active,
                         coverage=ledger_coverage,
                         last_job=last_job,
                     )
