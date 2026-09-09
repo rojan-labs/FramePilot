@@ -3,6 +3,10 @@
 This guide gets the current FramePilot repository running for development. For a longer
 product and architecture walkthrough, read [`onboarding.md`](onboarding.md).
 
+For the desktop-first, machine-verified version — ports, where Settings really stores the
+AI configuration, which model to pick, capability packs, MCP, and a troubleshooting table —
+read [`LOCAL_SETUP.md`](../../LOCAL_SETUP.md) at the repository root.
+
 ## Prerequisites
 
 | Tool               | Supported baseline | Purpose                                                                                                  |
