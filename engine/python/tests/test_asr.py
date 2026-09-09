@@ -121,6 +121,86 @@ def test_parse_whisper_json_multi_word_segment_without_tokens_is_dropped() -> No
     assert asr.parse_whisper_json(data) == []
 
 
+# --- Hallucination-loop collapse (run a53b7c1f) --------------------------------
+
+
+def _phrase_words(
+    phrase: list[str], repeats: int, *, start: float = 0.0
+) -> list[tuple[str, float, float]]:
+    """`repeats` consecutive copies of `phrase`, one word every 0.5s."""
+    words: list[tuple[str, float, float]] = []
+    clock = start
+    for _ in range(repeats):
+        for word in phrase:
+            words.append((word, clock, clock + 0.4))
+            clock += 0.5
+    return words
+
+
+def test_collapse_repeated_phrases_cuts_a_hallucination_loop_to_two_cycles() -> None:
+    # The captured project: 2431 words of which "I'll try to follow you later."
+    # repeats 396 times consecutively over wind-only GoPro audio.
+    phrase = ["I'll", "try", "to", "follow", "you", "later."]
+    words = _phrase_words(phrase, 396)
+    collapsed = asr.collapse_repeated_phrases(words)
+    assert [word for word, _s, _e in collapsed] == phrase * 2
+    # Only dropped, never rewritten: the survivors keep their original timings.
+    assert collapsed == words[: len(phrase) * 2]
+
+
+def test_collapse_repeated_phrases_leaves_real_repetition_alone() -> None:
+    # Three in a row is emphasis, not a loop, and must survive untouched.
+    words = _phrase_words(["say", "it", "again"], 3)
+    assert asr.collapse_repeated_phrases(words) == words
+
+
+def test_collapse_repeated_phrases_picks_the_shortest_cycle() -> None:
+    # "no" eight times is also "no no" four times; the one-word cycle is the honest
+    # reading, so two copies survive rather than four.
+    words = _phrase_words(["no"], 8)
+    collapsed = asr.collapse_repeated_phrases(words)
+    assert [word for word, _s, _e in collapsed] == ["no", "no"]
+
+
+def test_collapse_repeated_phrases_keeps_the_speech_around_a_loop() -> None:
+    lead = _phrase_words(["okay", "here", "we", "go"], 1)
+    loop = _phrase_words(["um"], 9, start=2.0)
+    tail = _phrase_words(["and", "we're", "done"], 1, start=8.0)
+    collapsed = asr.collapse_repeated_phrases(lead + loop + tail)
+    assert [word for word, _s, _e in collapsed] == [
+        "okay",
+        "here",
+        "we",
+        "go",
+        "um",
+        "um",
+        "and",
+        "we're",
+        "done",
+    ]
+
+
+def test_parse_whisper_json_collapses_a_loop_that_spans_segments() -> None:
+    """The collapse runs over the whole word list, not per segment.
+
+    whisper.cpp emits its loop across many segments, so a per-segment collapse would
+    see five separate short runs and leave the loop in the project transcript.
+    """
+    phrase = ["follow", "me"]
+    segments = []
+    clock = 0
+    for _ in range(10):
+        tokens = []
+        for word in phrase:
+            tokens.append({"text": f" {word}", "offsets": {"from": clock, "to": clock + 400}})
+            clock += 500
+        segments.append(
+            {"offsets": {"from": 0, "to": clock}, "text": " ".join(phrase), "tokens": tokens}
+        )
+    words = asr.parse_whisper_json({"transcription": segments})
+    assert [w.word for w in words] == phrase * 2
+
+
 def test_parse_whisper_json_clamps_non_monotonic_timings() -> None:
     # Second token's offsets regress before the first token's end — must clamp to
     # non-decreasing, never emit start > end or overlapping/negative-duration.
