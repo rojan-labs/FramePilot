@@ -6907,6 +6907,12 @@ def create_app(
             longest_seconds=summary.longest_seconds,
             below_threshold_seconds=summary.below_threshold_seconds,
             probe_floor_seconds=summary.probe_floor_seconds,
+            # Echo the thresholds the measurement actually USED. Omitting them let the
+            # response fall back to the model defaults, so a -40 dB request came back
+            # labelled -30 dB and the agent told the editor "9 stretches under -30 dB"
+            # for a measurement taken somewhere else entirely (run a53b7c1f).
+            noise_floor_db=summary.noise_floor_db,
+            min_silence_seconds=summary.min_silence_seconds,
         )
 
     @app.post("/detect-scenes", response_model=SceneAnalysisResponse)
