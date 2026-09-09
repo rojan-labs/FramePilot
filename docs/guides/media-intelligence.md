@@ -270,6 +270,24 @@ says so with a typed reason and never fabricates a result.
 - **No sqlite-vec** (packaging miss) → search degrades to brute-force
   `cosine_top_k`, logged, identical top-k on the fixture set.
 
+### What the status line says for a Settings-keyed TwelveLabs project
+
+`GET /brain/visual/status` carries no request body, so the TwelveLabs key — which the
+desktop forwards only on the index and search POSTs — is invisible to it. It therefore
+reads `keyConfigured` from what is _persisted_: the engine env key, **or** the project's
+stored TwelveLabs index id, which only exists because a key was accepted on an index run.
+Before that, a project fully indexed on TwelveLabs reported `keyConfigured:false`, and the
+one-line status the model reads said "no embeddings key configured, so `search_visual` and
+`describe_footage` return nothing" over footage that was ready to search (run a53b7c1f,
+2026-09-09). The model quoted it and asked the editor questions instead of looking.
+
+The status line itself also no longer requires a vector count to call a project indexed.
+The built-in arm reports `counts.vectors`; the TwelveLabs arm reports `counts.videos` and
+`counts.images` and has no vectors of its own, because they live on the hosted index. Any
+indexed asset with either kind of count now yields the "use `search_visual` … and
+`describe_footage`" line; the "no key" line is reserved for a project with nothing indexed
+_and_ no key, and the `0/N — indexing runs in the background` line is unchanged.
+
 **Desktop-first (per `CLAUDE.md`).** The visual index requires the Python
 sidecar: the sampler, NVIDIA client, captioner, and vector tables all live in the
 engine (single-writer brain invariant). The plain **browser build has no engine**,

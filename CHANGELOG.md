@@ -17,6 +17,26 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **An edit you undid can be made again.** After using Reset timeline (or deleting a track
+  by hand), asking the AI for the same change it had made earlier did nothing at all — the
+  app recognised the request as one it had already carried out and skipped it, then failed
+  the run with "Track not found". A repeat is now skipped only when it truly would change
+  nothing; otherwise it is made again.
+- **Silence analysis reports the threshold you asked for.** Asking for a quieter floor
+  measured correctly but was described back with the default numbers, so the AI told you
+  "9 silent stretches under -30 dB" for a reading taken at -40 dB. The answer now names the
+  level and gap length it actually used.
+- **The AI knows your indexed footage is searchable.** On a project indexed with a
+  TwelveLabs key entered in Settings, the AI was told there was no key and that visual
+  search returns nothing — so it asked questions instead of looking at the footage it could
+  already search. Indexed footage is now described as searchable whichever backend holds it.
+- **Reading a long asset is no longer cut short.** `describe_footage` was stopped after two
+  minutes on footage that takes about that long to read, losing the AI's only look at the
+  material. It now gets the same allowance as building a footage map.
+- **A stuck transcript no longer fills the project.** Speech recognition on near-silent
+  audio (wind, room tone) could loop, repeating one phrase hundreds of times and making the
+  whole transcript unusable. A phrase repeating five or more times in a row is now trimmed
+  to two copies.
 - **Caption chips no longer swallow the picture.** Asking the AI for a white background
   behind captions could produce a chip thousands of pixels wide — the padding was written
   in the wrong unit and nothing checked it. The AI now sees each template's real chip

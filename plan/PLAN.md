@@ -13,6 +13,28 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
+**Status snapshot (2026-09-09, AGENT-RUN-DEFECTS — run a53b7c1f tooling report):** five
+defects captured in one desktop agent run (project `project_raw_mttqrhhzjy9w`, deepseek via
+OpenRouter) fixed on `fix/agent-tooling-report-2026-09-09`.
+
+- `[x]` RUN-A — **a re-applied patch is no longer silently dropped.** Patch ids hash
+  operations only, so the desktop replayed a repeat whose effect a later edit (Reset
+  timeline, a manual track delete, an undo) had removed; V1 was never re-added and the
+  next patch failed on "Track not found". A repeat is now replayed only when it cannot
+  apply again or when applying it changes no project content.
+- `[x]` RUN-B — **`/analyze-silence` echoes the requested floor.** The route measured at
+  the requested noise floor and minimum gap but reported the defaults, so a -40 dB reading
+  was described as -30 dB.
+- `[x]` RUN-C — **an indexed TwelveLabs project is described as searchable.** The status
+  GET now derives `keyConfigured` from a stored TL index id (the desktop forwards the
+  Settings key on the POSTs only), and the model-facing status line treats hosted
+  video/image counts as indexed coverage instead of requiring a vector count.
+- `[x]` RUN-D — **`describe_footage` gets the `map_footage` budget (900s).** It walks the
+  same hosted Pegasus map and was aborted at the 120s default.
+- `[x]` RUN-E — **whisper.cpp hallucination loops are collapsed.** A cycle of up to twelve
+  words repeating five or more times consecutively is cut to two copies, with a warning;
+  the captured transcript held one phrase 396 times.
+
 **Status snapshot (2026-09-08, PAYMENTS — Dodo Payments migration):** the payment
 provider moved from Freemius to Dodo Payments across the website and the desktop
 license gate, before launch and with nothing to migrate (no issued keys or installs

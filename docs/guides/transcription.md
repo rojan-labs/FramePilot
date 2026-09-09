@@ -107,6 +107,23 @@ error. None of these cases clears an existing transcript.
 3. The operation goes through the same validate → preview → apply → undo pipeline as any other
    patch (AGENTS.md invariant 5) — the transcript is never written directly.
 
+## Repetition collapse (local whisper.cpp)
+
+whisper.cpp can fall into a decoding loop on audio with no speech in it — wind, room tone,
+handling noise — and emit the same phrase over and over with plausible per-word timings.
+One captured project (run a53b7c1f, 2026-09-09) held a 2431-word transcript in which the
+six-word phrase "I'll try to follow you later." repeated 396 times consecutively; the agent
+read it and correctly called the transcript unusable.
+
+`collapse_repeated_phrases` in `audio/asr.py` runs over the merged word list before the
+timings are clamped, so a loop spanning several whisper segments is seen as one run. A
+cycle of one to twelve words repeating five or more times in a row is treated as a loop:
+the first two cycles are kept, the rest dropped, and one `warning` names the phrase and how
+many words went. Words are only removed, never rewritten, so timings stay monotonic. Real
+speech does not repeat an identical multi-word segment five times consecutively at
+word-boundary precision; the accepted cost is a genuine single word said five or more times
+("no no no no no") keeping only two copies.
+
 ## Model management internals
 
 - Engine module: `framepilot_engine/audio/asr.py`.
