@@ -35,7 +35,7 @@ export function PricingPreview({ plan }: { plan: PricingPlan | null }) {
           <span className="tc text-fg-tertiary">Runs the full length of the project</span>
         </div>
 
-        <Ruler className="mt-3" />
+        <Ruler variant="axis" className="mt-3" />
 
         {/* The clip itself: full-width, one colour, priced on the right. */}
         <div className="lane mt-4 p-1.5">
@@ -69,8 +69,7 @@ export function PricingPreview({ plan }: { plan: PricingPlan | null }) {
           <div>
             <ul className="grid gap-x-8 sm:grid-cols-2">
               {plan.features.slice(0, 6).map((feature) => (
-                <li key={feature}>
-                  <Ruler />
+                <li key={feature} className="border-t border-line">
                   <span className="flex items-start gap-2.5 py-3 text-[12.5px] leading-5 text-fg-secondary">
                     <Check size={12} className="mt-1 shrink-0 text-accent" aria-hidden />
                     {feature}

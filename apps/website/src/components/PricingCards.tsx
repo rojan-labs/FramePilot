@@ -31,8 +31,7 @@ export function PricingCards({ plans }: { plans: PricingPlan[] }) {
         ))}
       </div>
 
-      <Ruler className="mt-10" />
-      <p className="pt-4 text-[12px] leading-5 text-fg-muted">
+      <p className="mt-10 pt-4 text-[12px] leading-5 text-fg-muted">
         Prices in USD. Secure checkout and licensing by Dodo Payments. 14-day money-back guarantee.
       </p>
     </div>
@@ -44,7 +43,7 @@ function Plan({ plan, cycle, slot }: { plan: PricingPlan; cycle: BillingCycle; s
 
   return (
     <article>
-      <Ruler />
+      <Ruler variant="axis" />
       <div className="lane mt-3 p-1.5">
         <div
           className={`flex flex-col gap-5 rounded-[3px] px-5 py-5 sm:flex-row sm:items-center sm:justify-between ${
@@ -115,8 +114,7 @@ function Plan({ plan, cycle, slot }: { plan: PricingPlan; cycle: BillingCycle; s
 
         <ul className="grid gap-x-10 sm:grid-cols-2">
           {plan.features.map((feature) => (
-            <li key={feature}>
-              <Ruler />
+            <li key={feature} className="border-t border-line">
               <span className="flex items-start gap-2.5 py-3 text-[12.5px] leading-5 text-fg-secondary">
                 <Check size={12} className="mt-1 shrink-0 text-accent" aria-hidden />
                 {feature}

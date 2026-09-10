@@ -6,7 +6,7 @@ export function FinalCta() {
   return (
     <section className="bg-canvas">
       <div className="container-x">
-        <Ruler />
+        <Ruler variant="mark" />
         <div className="py-18 sm:py-24 lg:py-28">
           <p className="flex items-center gap-2.5">
             <InPoint />

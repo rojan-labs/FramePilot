@@ -18,7 +18,7 @@ export function Footer() {
     <footer className="bg-app">
       <div className="container-x">
         <div className="flex items-center gap-3 pt-px">
-          <div className="ruler grow" aria-hidden />
+          <div className="ruler ruler-axis grow" aria-hidden />
           <span className="flex shrink-0 items-center gap-2 pt-1">
             <OutPoint />
             <span className="tc text-accent">OUT</span>
@@ -63,7 +63,6 @@ export function Footer() {
           ))}
         </div>
 
-        <div className="ruler ruler-flip" aria-hidden />
         <div className="flex flex-col gap-2 py-5 sm:flex-row sm:items-center sm:justify-between">
           <p className="tc text-fg-muted">
             {`${year}:00:00:00`} · © {site.name}

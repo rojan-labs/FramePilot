@@ -28,7 +28,7 @@ export default function DownloadPage() {
           <DownloadOptions />
         </div>
 
-        <Ruler className="mt-10" />
+        <Ruler variant="axis" className="mt-10" />
         <div className="flex flex-col gap-4 pt-4 sm:flex-row sm:items-center sm:justify-between">
           <p className="flex items-center gap-2.5">
             <OutPoint />

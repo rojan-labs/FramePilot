@@ -1,7 +1,6 @@
 import { Plus } from 'lucide-react';
 import { FAQ, type FaqItem } from '@/content/faq';
 import { Section, SectionHeading } from '@/components/Section';
-import { Ruler } from '@/components/timeline/Ruler';
 
 export function Faq({ items = FAQ }: { items?: FaqItem[] }) {
   return (
@@ -16,8 +15,7 @@ export function Faq({ items = FAQ }: { items?: FaqItem[] }) {
 
         <div>
           {items.map((item, index) => (
-            <details key={item.q} className="group">
-              <Ruler />
+            <details key={item.q} className="group border-t border-line">
               <summary className="flex cursor-pointer list-none items-start gap-4 py-5 text-left [&::-webkit-details-marker]:hidden">
                 <span className="tc tabular mt-1 shrink-0 text-fg-muted">
                   {String(index + 1).padStart(2, '0')}
@@ -36,7 +34,7 @@ export function Faq({ items = FAQ }: { items?: FaqItem[] }) {
               </p>
             </details>
           ))}
-          <Ruler />
+          <div className="border-t border-line" aria-hidden />
         </div>
       </div>
     </Section>

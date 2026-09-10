@@ -3,7 +3,6 @@ import { pageMetadata } from '@/lib/seo';
 import { renderMarkdown } from '@/lib/markdown';
 import { getChangelogEntries, formatChangelogDate } from '@/lib/changelog';
 import { PageHeader } from '@/components/PageHeader';
-import { Ruler } from '@/components/timeline/Ruler';
 
 export const metadata: Metadata = pageMetadata({
   title: 'Changelog',
@@ -74,7 +73,6 @@ export default async function ChangelogPage() {
                   </p>
                   <div className="prose-fp mt-6" dangerouslySetInnerHTML={{ __html: html }} />
                 </article>
-                <Ruler className="md:col-span-2" />
               </li>
             ))}
           </ol>

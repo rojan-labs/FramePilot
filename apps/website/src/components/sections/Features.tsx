@@ -2,7 +2,7 @@ import type { CSSProperties } from 'react';
 import { Section, SectionHeading } from '@/components/Section';
 import { ClipRow, ClipTrack } from '@/components/motion/ClipReveal';
 import { Ruler } from '@/components/timeline/Ruler';
-import { FEATURES, FEATURE_TRACKS, type FeatureTrack } from '@/content/features';
+import { FEATURES, FEATURE_TRACKS, MAKES, type FeatureTrack } from '@/content/features';
 
 /*
  * Three tracks, not eight cards. A capability's clip sits on the track that
@@ -45,7 +45,7 @@ export function Features() {
                 <span className="tc text-fg-tertiary">{track.caption}</span>
               </div>
 
-              <Ruler className="mt-3" />
+              <Ruler variant="axis" className="mt-3" />
 
               <ClipTrack as="ol" className="mt-4 space-y-6">
                 {clips.map((feature) => (
@@ -77,6 +77,15 @@ export function Features() {
             </div>
           );
         })}
+      </div>
+
+      {/* The work all three tracks are for. It used to sit beside the hero,
+          where it competed with the headline for the first viewport. */}
+      <div className="mt-14 border-t border-line pt-4 sm:mt-16">
+        <p className="tc text-fg-muted">Built for</p>
+        <p className="mt-2 max-w-3xl text-[13.5px] leading-6 text-fg-secondary">
+          {MAKES.join(' · ')}
+        </p>
       </div>
     </Section>
   );

@@ -46,7 +46,7 @@ export default async function DocPage({ params }: { params: Promise<{ slug: stri
 
         <div className="prose-fp mt-9" dangerouslySetInnerHTML={{ __html: html }} />
 
-        <Ruler className="mt-16" />
+        <Ruler variant="mark" className="mt-16" />
         <nav className="grid gap-4 pt-5 sm:grid-cols-2">
           {prev ? (
             <Link href={`/docs/${prev.slug}`} className="group text-left">
