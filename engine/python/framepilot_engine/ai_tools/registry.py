@@ -827,6 +827,7 @@ class SetClipCropArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
     crop: CropRect | None
+    allow_letterbox: bool | None = Field(default=None, alias="allowLetterbox")
 
 
 class SetClipBlendModeArgs(BaseModel):

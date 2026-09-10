@@ -236,10 +236,6 @@ const NO_NEXT_ACTION_BY_DESIGN: readonly { readonly text: string; readonly why: 
     why: 'not a failure — the model stopped calling tools, which is how a run ends',
   },
   {
-    text: 'Idempotency hit: this planned operation already succeeded.',
-    why: 'not a failure — the operation is already on the timeline, which is the outcome asked for',
-  },
-  {
     text: 'Run paused because its objective or committed plan could not be recovered.',
     why:
       'a real failure with no model-side move. It is returned with `done: true`, so the model ' +
