@@ -1723,17 +1723,27 @@ describe('createSidecarExecutor', () => {
     }) as unknown as typeof fetch;
     const timers = vi.spyOn(globalThis, 'setTimeout');
     const executor = createSidecarExecutor({ baseUrl: 'http://x', fetchFn });
-    await executor.run(call('map_footage'), ctx);
-    await executor.run(call('detect_beats'), ctx);
-    for (const invocation of timers.mock.calls) {
-      if (typeof invocation[1] === 'number' && invocation[1] >= 120_000) {
-        budgets.push(invocation[1]);
-      }
-    }
+    const budgetFor = async (toolName: string): Promise<number> => {
+      timers.mockClear();
+      await executor.run(call(toolName), ctx);
+      const seen = timers.mock.calls
+        .map((invocation) => invocation[1])
+        .filter((ms): ms is number => typeof ms === 'number' && ms >= 120_000);
+      budgets.push(...seen);
+      return Math.max(...seen);
+    };
+    const mapBudget = await budgetFor('map_footage');
+    // `describe_footage` walks the SAME hosted map on a TwelveLabs project, one asset at
+    // a time. It ran at the default and was killed at 120.1s on an asset whose map took
+    // 119.6s, so the run never read its footage at all (run a53b7c1f).
+    const describeBudget = await budgetFor('describe_footage');
+    const beatsBudget = await budgetFor('detect_beats');
     timers.mockRestore();
-    // The long tool gets minutes; the fast local one keeps the strict default, because
+    // The long tools get minutes; the fast local one keeps the strict default, because
     // a beat grid that takes two minutes really is a fault.
-    expect(Math.max(...budgets)).toBeGreaterThan(120_000);
+    expect(mapBudget).toBeGreaterThan(120_000);
+    expect(describeBudget).toBe(mapBudget);
+    expect(beatsBudget).toBe(120_000);
     expect(budgets).toContain(120_000);
   });
 

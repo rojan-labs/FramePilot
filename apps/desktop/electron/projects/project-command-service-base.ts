@@ -11,9 +11,11 @@ import { isProjectFileConflictError } from '@framepilot/timeline-schema/file';
 import { createLogger } from '@framepilot/shared-types';
 import { createHash } from 'node:crypto';
 import {
+  applyProjectPatch,
   commitProjectPatch,
   DEFAULT_DURABLE_HISTORY_LIMITS,
   fromPersistedHistory,
+  quantizePatch,
   toPersistedHistory,
   validatePatch,
   type HistoryEntry,
@@ -79,6 +81,26 @@ export interface ProjectRevisionIO {
 
 const fingerprint = (canonical: string): string =>
   createHash('sha256').update(canonical).digest('hex');
+
+/**
+ * Everything about a project a user could see change, and nothing about how it got there.
+ *
+ * `history` and `version` are excluded on purpose: a commit appends to history and the
+ * revision advances by definition, so any comparison including them would report every
+ * repeat as a change. Used only to answer "would applying this patch again do anything?".
+ */
+function projectContent(project: Project): string {
+  return JSON.stringify([
+    project.assets,
+    project.folders,
+    project.timeline,
+    project.transcript,
+    project.markers,
+    project.angleGroups,
+    project.capabilityPacks ?? [],
+    project.aiMemory,
+  ]);
+}
 
 function isPersistedVersion(value: unknown): value is PersistedVersionEntry {
   if (typeof value !== 'object' || value === null) return false;
@@ -297,6 +319,44 @@ export class ProjectCommandService {
     }
   }
 
+  /**
+   * Is re-committing an already-seen patch genuinely a no-op against the project as it
+   * stands now?
+   *
+   * Two ways it can be, and only these two:
+   * - it cannot apply again (the marker it adds already exists, the clip it trims is
+   *   gone) — the validator says so, and committing would only produce a refusal; or
+   * - applying it changes no content — the same transcript, the same tracks.
+   *
+   * The comparison is on content the user can see (assets, folders, timeline, transcript,
+   * markers, angle groups, capability pins, AI memory) and deliberately not on `history`
+   * or `version`: a commit appends a history entry by definition, so including it would
+   * make every repeat look like a change.
+   *
+   * @param project - the project as it stands right now
+   * @param patch - the repeat being offered
+   * @returns true when committing it would change nothing the user can see
+   */
+  private repeatWouldChangeNothing(project: Project, patch: Patch): boolean {
+    const validation = validatePatch(project.timeline, patch, {
+      assetIds: project.assets.map((asset) => asset.id),
+      folders: project.folders,
+      markers: project.markers,
+      fps: project.fps,
+    });
+    if (!validation.valid) return true;
+    try {
+      // The same grid `commitProjectPatch` applies (ADR 0146), so the comparison is
+      // against the numbers a real commit would write, not the raw request.
+      const applied = applyProjectPatch(project, quantizePatch(patch, project.fps));
+      return projectContent(applied) === projectContent(project);
+    } catch {
+      // An apply that throws cannot be a silent no-op either; let the normal
+      // validate → commit path produce the typed failure the caller can show.
+      return false;
+    }
+  }
+
   public async commitPatch(
     projectId: string,
     expectedRevision: number,
@@ -359,18 +419,37 @@ export class ProjectCommandService {
             ],
           };
         }
-        log.action('replayed committed project patch', {
-          projectId,
-          patchId: patch.patchId,
-          revision: current.revision,
-        });
-        return {
-          ok: true,
-          revision: current.revision,
-          project: current.project,
-          rebased: false,
-          replayed: true,
-        };
+        // A repeat is only a no-op while its EFFECT is still in the project.
+        //
+        // Run `a53b7c1f` (project_raw_mttqrhhzjy9w, 2026-09-09): an earlier run committed
+        // `patch_3393a454` (add_layer V1). The user then ran Settings → Memory → "Reset
+        // timeline", whose `remove_layer V1` took the track away again. The next run's
+        // `add_track` produced the byte-identical operations, therefore the identical id,
+        // and this branch answered "already durable, nothing to do" — V1 was never
+        // re-added, and the run's next patch died on "Track not found: V1. This timeline
+        // has no tracks." Patch ids hash operations only, so they say nothing about
+        // whether a later edit (a reset, a manual track delete, an undo) has since undone
+        // the effect. Ask the project instead.
+        if (!this.repeatWouldChangeNothing(current.project, patch)) {
+          log.action('repeat committed as a new edit because its effect was gone', {
+            projectId,
+            patchId: patch.patchId,
+            revision: current.revision,
+          });
+        } else {
+          log.action('replayed committed project patch', {
+            projectId,
+            patchId: patch.patchId,
+            revision: current.revision,
+          });
+          return {
+            ok: true,
+            revision: current.revision,
+            project: current.project,
+            rebased: false,
+            replayed: true,
+          };
+        }
       }
       const validation = validatePatch(current.project.timeline, patch, {
         assetIds: current.project.assets.map((asset) => asset.id),

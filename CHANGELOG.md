@@ -6,6 +6,64 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **Settings → Memory shows what this project remembers, and can reset it.** The
+  preferences the AI saved on the project (audience, brand, caption style, pacing, export
+  platforms — and whether you said so or it inferred them) are listed, with a **Reset AI
+  memory** button. A **Reset timeline** button empties every track and marker while
+  keeping your media, transcript and memory. Both ask once before acting and are ordinary
+  edits — undo brings everything back.
+
+### Fixed
+
+- **An edit you undid can be made again.** After using Reset timeline (or deleting a track
+  by hand), asking the AI for the same change it had made earlier did nothing at all — the
+  app recognised the request as one it had already carried out and skipped it, then failed
+  the run with "Track not found". A repeat is now skipped only when it truly would change
+  nothing; otherwise it is made again.
+- **Silence analysis reports the threshold you asked for.** Asking for a quieter floor
+  measured correctly but was described back with the default numbers, so the AI told you
+  "9 silent stretches under -30 dB" for a reading taken at -40 dB. The answer now names the
+  level and gap length it actually used.
+- **The AI knows your indexed footage is searchable.** On a project indexed with a
+  TwelveLabs key entered in Settings, the AI was told there was no key and that visual
+  search returns nothing — so it asked questions instead of looking at the footage it could
+  already search. Indexed footage is now described as searchable whichever backend holds it.
+- **Reading a long asset is no longer cut short.** `describe_footage` was stopped after two
+  minutes on footage that takes about that long to read, losing the AI's only look at the
+  material. It now gets the same allowance as building a footage map.
+- **A stuck transcript no longer fills the project.** Speech recognition on near-silent
+  audio (wind, room tone) could loop, repeating one phrase hundreds of times and making the
+  whole transcript unusable. A phrase repeating five or more times in a row is now trimmed
+  to two copies.
+- **Caption chips no longer swallow the picture.** Asking the AI for a white background
+  behind captions could produce a chip thousands of pixels wide — the padding was written
+  in the wrong unit and nothing checked it. The AI now sees each template's real chip
+  numbers when it browses styles, is refused a value in the wrong unit with the range it
+  should use, and `verify_captions` reports an oversized chip and a caption too short to
+  read. A style search that names a real template in the wrong category now returns it
+  instead of nothing.
+- **Reframing a landscape clip can no longer letterbox a vertical edit.** A crop whose
+  shape does not match the frame is refused with the black bars it would produce and the
+  frame-filling crop to move instead; pass `allowLetterbox` if the bars are the intent.
+- **The AI keeps its understanding tools after transcribing.** Writing a transcript or
+  adding a track no longer counts as starting the edit, so footage analysis stays available
+  until the first real cut lands.
+- **The end-of-run summary says what the AI never had.** If your request named stock,
+  b-roll, music or colour work and the AI never loaded that tool set, the summary now says
+  so, with the tools that were never offered. A run that stops because its next step was
+  already done says that, rather than ending silently.
+- **Markers are checked against the words.** A labelled marker whose words are not spoken
+  within two seconds of it is flagged in the self-check, so "Hook" cannot sit on the wrong
+  line.
+- **Usage counts cached tokens.** The session's token and cost readout now includes prompt
+  tokens served from the provider's cache — previously a cached run could read as a tenth
+  of its real size.
+- **A router alias is called out.** Choosing a model like `openrouter/auto` now warns at
+  the start of a run that the AI cannot look at frames or size its context, and suggests
+  pinning a model.
+
 ### Changed
 
 - **Buying and activating FramePilot now runs on Dodo Payments.** Checkout, the receipt,

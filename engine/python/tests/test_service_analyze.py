@@ -556,3 +556,31 @@ def test_brain_analysis_route_rejects_traversal_project_id(
     resp = client.get("/brain/analysis", params={"projectId": "../../etc"})
     assert resp.status_code == 200
     assert resp.json()["available"] is False
+
+
+def test_analyze_silence_route_echoes_the_requested_thresholds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The response must name the level and gap the measurement actually used.
+
+    Run a53b7c1f asked for -40 dB / 0.75s. The route measured there but built the
+    response without the two fields, so the model defaults (-30 dB / 0.5s) went out on
+    the wire and the agent told the editor "9 stretches under -30 dB" for a measurement
+    taken at a different floor entirely.
+    """
+    _patch_all_analyzers(monkeypatch)
+    project_path = _write_analysis_project(tmp_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = client.post(
+        "/analyze-silence",
+        json={
+            "project_path": str(project_path),
+            "noise_floor_db": -40.0,
+            "min_silence_seconds": 0.75,
+        },
+    )
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["noiseFloorDb"] == -40.0
+    assert body["minSilenceSeconds"] == 0.75

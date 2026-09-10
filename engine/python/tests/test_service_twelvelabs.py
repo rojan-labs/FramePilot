@@ -204,7 +204,12 @@ def test_index_unavailable_without_projects_root(monkeypatch: pytest.MonkeyPatch
 def test_status_detects_twelvelabs_backend_without_env_key(tmp_path: Path) -> None:
     """A project indexed via a host/Settings key (engine env unset) must still
     report the ``twelvelabs`` backend — detected from its stored index id — not
-    mislabel itself as ``sqlite-vec`` (the "stuck on sqlite-vec" report)."""
+    mislabel itself as ``sqlite-vec`` (the "stuck on sqlite-vec" report).
+
+    And it must report ``keyConfigured`` true. The stored index id only exists
+    because a key was accepted on the index POST; answering "no key" made the agent
+    tell the editor that visual search returns nothing on a project that was fully
+    indexed and searchable (run a53b7c1f)."""
     _seed_asset(tmp_path, tmp_path)
     with open_brain(tmp_path, "p1") as store:
         store_index_id(store, "idx-1")
@@ -217,8 +222,9 @@ def test_status_detects_twelvelabs_backend_without_env_key(tmp_path: Path) -> No
     assert status["available"] is True
     assert status["backend"] == "twelvelabs"
     assert status["indexedAssets"] == 1
-    # The engine env holds no key, so it honestly reports none is configured there.
-    assert status["keyConfigured"] is False
+    # The stored index id is the proof a key was used, even though the engine env
+    # holds none — the desktop forwards the Settings key on the POSTs only.
+    assert status["keyConfigured"] is True
 
 
 # --- transcribe ------------------------------------------------------------------

@@ -8,7 +8,13 @@
  * browser persistence, recovery and non-patch metadata changes.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Patch } from '@framepilot/editor-core';
+import {
+  commitProjectPatch,
+  fromPersistedHistory,
+  toPersistedHistory,
+  type HistoryEntry,
+  type Patch,
+} from '@framepilot/editor-core';
 import { createLogger, type CapabilityPackProjectResolutionWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { clearProjectSessionCaches } from './editor/sessionCaches.js';
@@ -438,6 +444,31 @@ export function App(): JSX.Element {
     [persistCreated],
   );
 
+  /**
+   * Apply an edit that originates OUTSIDE the editor (Settings → Memory's resets). It goes
+   * through the same history-recording commit every editor edit does, so it is undoable
+   * and persists by the same route (`handleEditorProjectChange`); the sync nonce then
+   * hands the result to the editor's store, which otherwise only learns of edits it made.
+   */
+  const applySettingsPatch = useCallback(
+    (patch: Patch): void => {
+      if (!project) return;
+      try {
+        const step = commitProjectPatch(
+          project,
+          fromPersistedHistory(project.history as readonly HistoryEntry[]),
+          patch,
+        );
+        handleEditorProjectChange({ ...step.project, history: toPersistedHistory(step.history) });
+        setProjectSyncNonce((nonce) => nonce + 1);
+        log.action('settings patch applied', { projectId: project.id, patchId: patch.patchId });
+      } catch (error) {
+        log.error('settings patch failed', { projectId: project.id, error: String(error) });
+      }
+    },
+    [project, handleEditorProjectChange],
+  );
+
   const commitAuthoritativeProject = useCallback((next: Project, revision: number) => {
     setProject(ensureBaseTracks(next));
     projectRevisionRef.current = revision;
@@ -646,7 +677,7 @@ export function App(): JSX.Element {
             open={settingsOpen}
             initialSection={settingsSection}
             onClose={() => setSettingsOpen(false)}
-            {...(project ? { projectId: project.id } : {})}
+            {...(project ? { projectId: project.id, project, onApplyPatch: applySettingsPatch } : {})}
           />
           {project !== null && !capabilityGateDismissed ? (
             <CapabilityPackDependencyDialog

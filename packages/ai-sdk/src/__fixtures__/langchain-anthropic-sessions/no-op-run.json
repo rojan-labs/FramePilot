@@ -192,12 +192,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -328,12 +335,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -577,8 +591,8 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "usage",
-      "tokens": 120,
-      "usd": 0.0006,
+      "tokens": 170,
+      "usd": 0.0006495,
       "modelCalls": 1
     },
     {

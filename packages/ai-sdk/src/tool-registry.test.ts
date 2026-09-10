@@ -1082,8 +1082,9 @@ describe('mutating tools — build valid operations', () => {
 
   it('add_caption_layer allows a legal range with no mapped words (no source provenance)', () => {
     // Free range: the fixture lane is occupied 0–10 and a colliding cue is now
-    // rerouted to a lane with room, which would shift the op indices below.
-    const ops = build('add_caption_layer', { trackId: 'video_1', start: 12, end: 12.05 });
+    // rerouted to a lane with room, which would shift the op indices below. At least the
+    // 0.25 s floor long: a shorter cue is refused as unreadable, which is a different test.
+    const ops = build('add_caption_layer', { trackId: 'video_1', start: 12, end: 12.3 });
     expect(ops[1]).toMatchObject({
       type: 'set_caption_cue',
       captionCue: { text: '', words: [] },
@@ -2482,5 +2483,20 @@ describe('toolDescriptors byte-stable ordering (E3.3)', () => {
 
   it('two calls serialize byte-identically (the prompt-cache prefix invariant)', () => {
     expect(JSON.stringify(toolDescriptors())).toBe(JSON.stringify(toolDescriptors()));
+  });
+});
+
+describe('recall_evidence accepts the handle as the briefing renders it', () => {
+  // Run `df81d58e` (2026-09-08) copied `[ev_17]` back verbatim and was warned instead of
+  // answered. The brackets are typography, not part of the id.
+  it('strips surrounding brackets and whitespace from evidenceId', () => {
+    const parse = getTool('recall_evidence')?.parse;
+    expect(parse).toBeDefined();
+    expect((parse?.({ evidenceId: '[ev_17]' }) as { evidenceId: string }).evidenceId).toBe('ev_17');
+    expect((parse?.({ evidenceId: ' [ ev_17 ] ' }) as { evidenceId: string }).evidenceId).toBe(
+      'ev_17',
+    );
+    expect((parse?.({ evidenceId: 'ev_17' }) as { evidenceId: string }).evidenceId).toBe('ev_17');
+    expect(() => parse?.({ evidenceId: '[]' })).toThrow();
   });
 });

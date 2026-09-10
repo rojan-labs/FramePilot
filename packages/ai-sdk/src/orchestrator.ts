@@ -16,6 +16,7 @@ import {
   SilenceRangesPayloadSchema,
   noCutsNote,
   silenceCutOps,
+  describeSilenceSkips,
 } from './silence-cut.js';
 import {
   type AnyOperation,
@@ -41,6 +42,7 @@ import {
 } from './domain-tools/automatic-tracking.js';
 import { clipCandidates } from './domain-tools/clip-candidates.js';
 import { colorSolveNote } from './domain-tools/solved-color.js';
+import { emphasisCoverageNote } from './caption-style-facts.js';
 import { transitionsNote } from './domain-tools/transition-planning.js';
 import { tracksCoveredByPictureInFront } from './domain-tools/picture-layers.js';
 import {
@@ -123,6 +125,8 @@ import {
   domainMembers,
   toolDomain,
   toolIsAdvertised,
+  requestedDomainsNeverLoaded,
+  type NeverLoadedDomain,
 } from './tool-domains.js';
 import {
   AGENT_MAX_OPS_PER_RUN,
@@ -202,7 +206,7 @@ import type {
 } from './providers/types.js';
 import {
   capabilitiesFor,
-  supportsVision,
+  isRouterAlias, supportsVision,
   type CapabilitySource,
 } from './providers/model-capabilities.js';
 import {
@@ -474,13 +478,28 @@ export interface RunCostSeed {
  * (see {@link Orchestrator.editVariations}).
  */
 function costFromUsage(
-  usage: { readonly inputTokens?: number; readonly outputTokens?: number } | undefined,
+  usage:
+    | {
+        readonly inputTokens?: number;
+        readonly outputTokens?: number;
+        readonly cacheReadInputTokens?: number;
+        readonly cacheCreationInputTokens?: number;
+      }
+    | undefined,
   tier: ModelTier = 'mid',
 ): { tokens: number; usd: number } {
   if (!usage) return { tokens: 0, usd: 0 };
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
-  return { tokens: input + output, usd: estimateUsd(tier, { input, output }) };
+  // Cached prompt tokens are real, billed tokens (`cost-meter.ts#TokenUsage`). Counting
+  // only the uncached slice reported 14,642 tokens for a 32-call run whose every request
+  // carried ~24,700 cached input tokens (run `df81d58e`).
+  const cacheRead = usage.cacheReadInputTokens ?? 0;
+  const cacheCreation = usage.cacheCreationInputTokens ?? 0;
+  return {
+    tokens: input + output + cacheRead + cacheCreation,
+    usd: estimateUsd(tier, { input, output, cacheRead, cacheCreation }),
+  };
 }
 
 /**
@@ -2883,23 +2902,39 @@ export function summarizeReadResult(
         unknown
       >[];
       const fonts = (Array.isArray(obj.fonts) ? obj.fonts : []) as Record<string, unknown>[];
+      // The note (a zero-match re-ask), the units sentence and each chip's numbers are
+      // rendered here because THIS is what the model reads — a payload field the digest
+      // drops might as well not exist. Run `df81d58e` overrode a chip it had never seen a
+      // number for.
+      const note = typeof obj.note === 'string' ? [obj.note] : [];
+      const units = typeof obj.units === 'string' ? [`units: ${obj.units}`] : [];
       if (templates.length === 0)
-        return `no caption templates match (${String(obj.matched ?? 0)} in catalog)`;
-      const head = `${String(obj.returned ?? templates.length)} of ${String(
-        obj.matched ?? templates.length,
-      )} matching templates, ${fonts.length} bundled fonts`;
+        return [...note, `no caption templates match (${String(obj.matched ?? 0)} in catalog)`].join(
+          '\n',
+        );
+      const matched = Number(obj.matched ?? templates.length);
+      const head =
+        matched > 0
+          ? `${String(obj.returned ?? templates.length)} of ${String(matched)} matching templates, ${fonts.length} bundled fonts`
+          : `${String(templates.length)} near-miss templates (0 strict matches), ${fonts.length} bundled fonts`;
+      const chip = (t: Record<string, unknown>): string => {
+        const bg = t.background as Record<string, unknown> | undefined;
+        if (!bg) return '';
+        const n = (v: unknown) => (typeof v === 'number' ? String(v) : '·');
+        return ` [chip ${String(bg.color ?? '')} pad ${n(bg.paddingX)}/${n(bg.paddingY)} r${n(bg.radius)}]`;
+      };
       const byCategory = new Map<string, string[]>();
       for (const t of templates) {
         const category = String(t.category ?? 'other');
         const ids = byCategory.get(category) ?? [];
-        ids.push(String(t.templateId));
+        ids.push(`${String(t.templateId)}${chip(t)}`);
         byCategory.set(category, ids);
       }
       const catalog = [...byCategory.entries()].map(
         ([category, ids]) => `${category}: ${ids.join(', ')}`,
       );
       const fontList = `fonts: ${fonts.map((f) => String(f.family)).join(', ')}`;
-      return [head, ...catalog, fontList].join('\n');
+      return [...note, head, ...catalog, ...units, fontList].join('\n');
     }
     case 'load_tools': {
       // The names, not the JSON. What the model needs from this call is which tools it
@@ -4256,6 +4291,31 @@ export class Orchestrator {
         sections: [
           ...assembled.sections,
           ...this.agentStableInstructionSections(loadedSkills, plan),
+          // The briefing and the per-turn steering are built HERE, not by `assembleContext`,
+          // so without rows of their own they fall into `withRemainder`'s "additional
+          // request content" — 9,944 tokens by the last turn of run `df81d58e`, a quarter
+          // of the request, unattributed. The same failure `agentStableInstructionSections`
+          // closed for the playbooks; the briefing is the row that was still missing.
+          ...(briefing === ''
+            ? []
+            : [
+                {
+                  tier: 'system' as const,
+                  label: 'run briefing',
+                  tokenEstimate: estimateTokens(briefing),
+                  included: true,
+                },
+              ]),
+          ...(`${steeringBlock}${recoveryBlock}${fixBlock}` === ''
+            ? []
+            : [
+                {
+                  tier: 'system' as const,
+                  label: 'turn steering',
+                  tokenEstimate: estimateTokens(`${steeringBlock}${recoveryBlock}${fixBlock}`),
+                  included: true,
+                },
+              ]),
         ],
         droppedTokenEstimate: assembled.droppedTokenEstimate,
       },
@@ -4604,7 +4664,11 @@ export class Orchestrator {
               : DEFAULT_SILENCE_CUT.keepSeconds,
           ...(typeof args.trackId === 'string' ? { trackId: args.trackId } : {}),
         };
-        const { ops, cuts, removedSeconds } = silenceCutOps(ctx.project, parsed.data, options);
+        const { ops, cuts, removedSeconds, skips } = silenceCutOps(
+          ctx.project,
+          parsed.data,
+          options,
+        );
         if (ops.length === 0) {
           // An empty cut list is NEVER evidence that the recording is tight — `ranges` is
           // filtered inside ffmpeg, so it is empty by construction whenever the threshold
@@ -4625,7 +4689,13 @@ export class Orchestrator {
         if (!probe.validation.valid) {
           return hostBackedValidatorRejection('remove_silences', probe.validation.issues, ops);
         }
-        const summary = `Removed ${String(cuts.length)} silence(s), ${removedSeconds.toFixed(1)}s in total`;
+        // "3 of 4": the count the measurement returned is the number the model read, and a
+        // summary that only names the cuts leaves it to guess where the rest went.
+        const skipped = describeSilenceSkips(skips);
+        const measured = parsed.data.ranges.length;
+        const summary =
+          `Removed ${String(cuts.length)}${measured > cuts.length ? ` of ${String(measured)} measured` : ''} ` +
+          `silence(s), ${removedSeconds.toFixed(1)}s in total${skipped ? ` (${skipped})` : ''}`;
         return {
           ops,
           note: `${summary}. Breath of ${String(options.keepSeconds)}s kept on each side; the timeline is ${removedSeconds.toFixed(1)}s shorter.`,
@@ -5390,6 +5460,11 @@ export class Orchestrator {
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
+          : '') +
+        // How many cues the accent actually reached — read from the applied project, so a
+        // second identical pass reads as the no-op it is (`caption-style-facts.ts`).
+        (call.name === 'auto_emphasize_captions'
+          ? emphasisCoverageNote(applied, (call.arguments as { trackId?: unknown }).trackId)
           : '') +
         autoReframeNote(call.name, normalized) +
         // What the solve could NOT do, and which cuts were deliberately left hard. Both are
@@ -8280,6 +8355,8 @@ export class Orchestrator {
     // the run (see `HostCallContext.loadedSkills` / `agentSkillsBlock`).
     const loadedSkills = new Map<string, string>();
     const loadedToolDomains = new Set<ToolDomain>();
+    // Said once per run, on the first turn (see `isRouterAlias`).
+    let routerAliasWarned = false;
     // Per-run analysis budget (B5.4) — same role as the non-streaming loop's; shared
     // across the run's turns AND its repair pass so the ceiling is truly per-run.
     const analysisBudget = createAnalysisBudget(agentOptions.analysisCaps);
@@ -8690,6 +8767,22 @@ export class Orchestrator {
         // turn's patch. Collect the verdict BEFORE this turn reads the project, so a turn
         // is never planned against edits the authority refused.
         await reconcileHostVerdicts();
+        // A router alias is not a model. `openrouter/auto` normalises to the id `auto`,
+        // which matches no capability entry: the run assumes a 128k window and withholds
+        // `get_frame`, because it cannot know the routed model can see an image. Run
+        // `df81d58e` (2026-09-08) shipped a full-frame white caption chip and a
+        // letterboxed crop this way — both one frame-grab from obvious — and nothing had
+        // told the editor the run was blind by configuration.
+        if (!routerAliasWarned && isRouterAlias(self.provider.modelId)) {
+          routerAliasWarned = true;
+          yield emit.warning(
+            `"${self.provider.modelId ?? ''}" is a router alias, not a model id: FramePilot cannot ` +
+              'tell which model will answer, so this run assumes a conservative context window ' +
+              'and cannot offer get_frame — it has no way to know the model can see an image. ' +
+              'For work that has to be looked at (captions, reframes, colour), pin a specific ' +
+              'model id in Settings → AI.',
+          );
+        }
         const names = projectNames(working);
         const segmentId = `${emit.assistantId}:seg-${index}`;
         // Pre-request invariants (ADR 0080). A turn that goes out with no objective or
@@ -8989,10 +9082,28 @@ export class Orchestrator {
               operation.idempotencyKey.startsWith(idempotencyPrefix),
           )
         ) {
-          yield emit.notification('Skipped an already committed operation during retry recovery.');
+          // A turn that repeats, byte for byte, a turn that already landed is a repeat —
+          // not the end of the request. This path used to settle the run (`done: true`):
+          // run `df81d58e` (2026-09-08) ended at turn 31 with b-roll, music, colour and the
+          // report never attempted, and run `1603cd9c` the next hour ended at turn 10 —
+          // right after verify_captions had reported 202 problems and the model had said
+          // "I'm tightening the caption system first" — because its next batch of markers
+          // was the batch it had just placed. The right answer is the one an applied
+          // no-op already gets (`AgentTurnResult.satisfied`): nothing landed, nothing
+          // failed, and the no-progress guard decides whether the run is actually stuck.
+          const repeatNote =
+            'Those exact calls already landed earlier in this run, so they were not run ' +
+            'again. Do the NEXT part of the request — something the timeline does not ' +
+            'have yet — or, if every part is done, finish with a short summary and no tool call.';
+          log.push(`Step ${index}: repeated an already-applied turn — skipped. ${repeatNote}`);
+          yield emit.notification(
+            'That set of edits already landed earlier in this run, so it was not applied ' +
+              'again — moving on to what the request still needs.',
+          );
           return turnBase(index, emit.seq(), {
-            done: true,
-            note: 'Idempotency hit: this planned operation already succeeded.',
+            satisfied: true,
+            note: repeatNote,
+            intent: 'Repeated an already-applied turn',
           });
         }
         const {
@@ -9456,6 +9567,7 @@ export class Orchestrator {
               // Both are free: the plan ledger and the settled tool cards already exist.
               planSteps: effect.planSteps,
               neverSucceeded: neverSucceededTools(toolAttempts),
+              neverLoaded: requestedDomainsNeverLoaded(input.userPrompt ?? '', loadedToolDomains),
               ...(effect.cancelled ? { cancelled: true } : {}),
               ...(effect.failed && !effect.cancelled ? { failed: true } : {}),
               ...(asksForFile ? { deliverableFileRequested: true } : {}),
@@ -9974,6 +10086,24 @@ function trimFailureReason(reason: string): string {
  *
  * Empty when there is nothing to say, so an ordinary clean run is unchanged.
  */
+/**
+ * What the request asked for that the run never had the tools for (run `df81d58e`).
+ *
+ * The brief said "stock", "b-roll" and "music"; `load_tools` was never called for
+ * `sourcing`; `search_stock`/`add_stock` were never on the model's list; the report said
+ * "Applied 106 edits" and the model's prose blamed a missing visual index. Naming the
+ * domain is the one sentence that makes the omission visible to the editor.
+ */
+function neverLoadedBlock(neverLoaded: readonly NeverLoadedDomain[]): string {
+  if (neverLoaded.length === 0) return '';
+  const lines = neverLoaded.map(
+    (entry) =>
+      `- ${entry.domain} — the request mentions ${entry.mentions.map((m) => `"${m}"`).join(', ')}, ` +
+      `but load_tools was never called for it, so ${entry.tools.join(', ')} were never offered.`,
+  );
+  return `\n\n**Never loaded:**\n${lines.join('\n')}`;
+}
+
 function notDoneBlock(
   planSteps: readonly PlanStep[],
   neverSucceeded: readonly NeverSucceededTool[],
@@ -10099,6 +10229,12 @@ export function agentCompletionReport(args: {
   /** Tools the run called, failed, and never got an answer out of. See `neverSucceededTools`. */
   neverSucceeded?: readonly NeverSucceededTool[];
   /**
+   * Tool domains the request asked for by name and the run never loaded — so the tools
+   * that would have done that part were never on the model's list. See
+   * `tool-domains.ts#requestedDomainsNeverLoaded`.
+   */
+  neverLoaded?: readonly NeverLoadedDomain[];
+  /**
    * The project's caption tracks, so a rebuilt cue range reads as one edit rather than
    * two hundred (see {@link operationLines}). Absent ⇒ nothing folds.
    */
@@ -10133,6 +10269,7 @@ export function agentCompletionReport(args: {
   // After "Skipped" (work that was attempted and refused) and before the caveats: what was
   // never delivered at all. A cancelled run keeps it — that is the run that needs it most.
   const notDone = notDoneBlock(args.planSteps ?? [], args.neverSucceeded ?? []);
+  const neverLoaded = neverLoadedBlock(args.neverLoaded ?? []);
   // An honest receipt for a montage chosen blind. The captured run picked nine spans out of
   // 575 seconds having read nothing about the content, and told the editor the choices came
   // from a footage map it never asked for. The edit still stands — the editor may well have
@@ -10165,7 +10302,7 @@ export function agentCompletionReport(args: {
         'to project memory this run. Tell the AI the preference again on its own, or set it ' +
         'in the AI settings.'
       : '';
-  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${unevidenced}${deliverable}${preview}${memory}`;
+  return `${head}\n\n${lines.join('\n')}${skipped}${notDone}${neverLoaded}${unevidenced}${deliverable}${preview}${memory}`;
 }
 
 /** Render a {@link CritiqueReport} as a compact human-readable block. */

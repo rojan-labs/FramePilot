@@ -533,6 +533,11 @@ class _SetClipCropArgs(BaseModel):
     model_config = _STRICT
     clip_id: str = Field(alias="clipId")
     crop: _StrictCropRect | None
+    #: Bars are the intent (a deliberate letterbox/pillarbox), so an off-aspect rect is
+    #: allowed. The refusal this waives is enforced on the TS side (``assertCropFillsFrame``
+    #: in ``domain-tools/timeline.ts``), which is where the tool actually runs; the field
+    #: exists here so the advertised contract is the same one on both arms.
+    allow_letterbox: bool | None = Field(default=None, alias="allowLetterbox")
 
 
 class _AutoEmphasizeCaptionsArgs(BaseModel):

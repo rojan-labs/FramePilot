@@ -19,11 +19,7 @@ import { toModelProject } from './model-view.js';
 import { compactFootageChapters, footageMapSchema } from './footage-map.js';
 import { indexFor } from './project-index.js';
 import type { LedgerSnapshot } from './ledger.js';
-import {
-  type PacketFactsFilter,
-  applyPacketFacts,
-  filterIsEmpty,
-} from './packet-facts.js';
+import { type PacketFactsFilter, applyPacketFacts, filterIsEmpty } from './packet-facts.js';
 import type { AiImage, ToolCall } from './providers/types.js';
 import type { HostExecutionContext, HostToolExecutor, HostToolOutcome } from './tool-executor.js';
 import { outcomeCharge, preflightCharge } from './kernel/cost/analysis-caps.js';
@@ -154,6 +150,11 @@ const DEFAULT_TIMEOUT_MS = 120_000;
 const TOOL_TIMEOUT_MS: Record<string, number> = {
   // Chapters + highlights + summary per asset, sequentially, at ~35s per asset.
   map_footage: 900_000,
+  // The same Pegasus walk as `map_footage`, scoped to one asset: on a TwelveLabs
+  // project `/brain/visual/describe` reads the hosted map rather than a local index.
+  // At the default it was aborted at 120.1s on the very asset whose map_footage took
+  // 119.6s, and the run lost its only reading of the footage (run a53b7c1f).
+  describe_footage: 900_000,
   // One query, but it may wait behind the indexing of the project it searches.
   search_visual: 300_000,
   // Whole-file speech recognition; an hour of audio is a legitimate wait.

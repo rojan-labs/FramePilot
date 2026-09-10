@@ -32,6 +32,11 @@ import {
   MAX_CAPTION_CUE_WORDS,
 } from '@framepilot/editor-core';
 import type { Clip, Project, Track } from '@framepilot/timeline-schema';
+import {
+  MIN_CAPTION_CUE_SECONDS,
+  captionEmViolations,
+  resolveCaptionStyle,
+} from './caption-style-facts.js';
 
 /**
  * How far a caption may sit from the word it captions before it counts as out of
@@ -402,7 +407,11 @@ export function verifyCaptions(
   );
   const issues: VerificationIssue[] = [];
 
-  const cues = captionTracks(project).flatMap((track) => track.clips.filter(isCaptionClip));
+  const tracks = captionTracks(project);
+  const cues = tracks.flatMap((track) => track.clips.filter(isCaptionClip));
+  // Which lane each cue renders on, for the style it resolves to.
+  const trackOfCue = new Map<string, Track>();
+  for (const track of tracks) for (const clip of track.clips) trackOfCue.set(clip.id, track);
   // ONE partition, computed once and read by every check below. Three checks each deriving
   // their own answer to "which words is this cue answerable for" is what let the verifier
   // contradict itself — and, worse, contradict the generator whose output it was judging.
@@ -430,6 +439,30 @@ export function verifyCaptions(
     checkCueBoundaries(clip, mapped.runs, issues);
     checkCueSync(clip, mapped.words, owned, tolerance, issues);
     checkCueCurrency(clip, owned, tolerance, issues);
+
+    // Two things about the LOOK this verifier can settle without a render, both learned
+    // from run `df81d58e` (see `caption-style-facts.ts`): a chip whose padding is in the
+    // wrong unit paints over the whole frame, and a cue shorter than any preset's floor
+    // is a flicker. Timing passed on both; nothing else looked.
+    if (clip.end - clip.start < MIN_CAPTION_CUE_SECONDS - 1e-6) {
+      issues.push({
+        code: 'caption_too_short',
+        clipId: clip.id,
+        at: clip.start,
+        detail: `Caption at ${at(clip.start)}–${at(clip.end)} lasts ${at(clip.end - clip.start)}, below the ${String(MIN_CAPTION_CUE_SECONDS)}s floor of every preset — it cannot be read. Merge it into the neighbouring cue or regenerate through caption_the_edit.`,
+      });
+    }
+    for (const violation of captionEmViolations(
+      resolveCaptionStyle(clip, trackOfCue.get(clip.id)),
+      project.resolution,
+    )) {
+      issues.push({
+        code: 'caption_chip_oversize',
+        clipId: clip.id,
+        at: clip.start,
+        detail: `Caption at ${at(clip.start)} resolves ${violation.path} to ${String(violation.value)} — a fraction of the font size, so about ${String(violation.px)} px on this ${String(project.resolution.width)}×${String(project.resolution.height)} frame. The chip covers the picture. Restyle with values in the catalog's 0.25–0.6 range.`,
+      });
+    }
 
     const displayedWordCount = clip.captionCue?.words.length ?? owned.length;
     if (displayedWordCount > MAX_VERIFIABLE_CAPTION_WORDS) {

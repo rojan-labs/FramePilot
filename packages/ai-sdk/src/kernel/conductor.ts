@@ -52,7 +52,7 @@ import { explicitDurationTargetSeconds } from '../critic.js';
 import type { Command } from './commands.js';
 import { deriveObjectiveText } from './continuation.js';
 import type { Distillation } from './briefing.js';
-import { type ToolRole, settledStageFor } from './stage-policy.js';
+import { type ToolRole, executedAnEdit, settledStageFor } from './stage-policy.js';
 import {
   MAX_NO_PROGRESS_TURNS,
   SEMANTIC_LOOP_TURNS,
@@ -1823,7 +1823,14 @@ export function onTurnResult(
   // the fact-folded copy — and asking it by object identity there answered a different
   // question. See `stageAdvanced`.
   const stageBefore = state.working.stage;
-  const target = settledStageFor(state.working.stage, roles, r.applied);
+  // A patch made only of bookkeeping (a transcript, a lane, a marker) is not execution —
+  // see `stage-policy.ts#BOOKKEEPING_OPERATION_TYPES` for the run that lost its whole
+  // understanding phase to one.
+  const target = settledStageFor(
+    state.working.stage,
+    roles,
+    r.applied && executedAnEdit(r.appliedOps),
+  );
   const staged =
     target === state.working.stage
       ? state.working

@@ -4011,6 +4011,11 @@
           "crop"
         ],
         "properties": {
+          "allowLetterbox": {
+            "type": [
+              "boolean"
+            ]
+          },
           "clipId": {
             "type": [
               "string"

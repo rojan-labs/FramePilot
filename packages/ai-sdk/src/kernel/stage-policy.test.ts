@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PRECONDITION_TOOL_NAMES,
   EXECUTION_MEASUREMENT_TOOL_NAMES,
+  executedAnEdit,
   settledStageFor,
   stageAdvanceFor,
   stageAllowsRole,
@@ -384,5 +385,20 @@ describe('verification looks in execution stages (plan/system-mission P1.1b)', (
 
   it('keeps the set minimal — the picture look, in pixels and in numbers', () => {
     expect([...VERIFICATION_LOOK_TOOL_NAMES]).toEqual(['get_frame', 'measure_color']);
+  });
+});
+
+describe('executedAnEdit — bookkeeping is not execution', () => {
+  // Run `df81d58e`: `add_track` + `transcribe` landed as the second turn and opened
+  // `apply`, which withheld every analysis tool before a clip was placed.
+  it('holds a transcript-and-lane patch back from apply', () => {
+    expect(executedAnEdit([{ type: 'add_layer' }, { type: 'set_transcript' }])).toBe(false);
+    expect(executedAnEdit([{ type: 'add_marker' }, { type: 'set_track_flags' }])).toBe(false);
+  });
+
+  it('counts any real edit, and trusts a caller that handed over no operations', () => {
+    expect(executedAnEdit([{ type: 'add_layer' }, { type: 'add_clip' }])).toBe(true);
+    expect(executedAnEdit([{ type: 'set_track_caption_style' }])).toBe(true);
+    expect(executedAnEdit([])).toBe(true);
   });
 });

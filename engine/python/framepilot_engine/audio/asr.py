@@ -648,6 +648,84 @@ def _merge_tokens_to_words(tokens: list[dict[str, Any]]) -> list[tuple[str, floa
     return words
 
 
+#: Longest repeating unit a hallucination loop is collapsed over. Long enough for a
+#: whole hallucinated sentence, short enough that a repeated stanza of real speech
+#: (a chant, a chorus) is not one "phrase".
+_MAX_REPEAT_CYCLE_WORDS = 12
+#: Consecutive repeats that mark a loop rather than emphasis.
+_REPEAT_CYCLE_THRESHOLD = 5
+#: How many copies survive, so the reader can still see what was said.
+_REPEAT_CYCLES_KEPT = 2
+
+
+def collapse_repeated_phrases(
+    words: list[tuple[str, float, float]],
+) -> list[tuple[str, float, float]]:
+    """Collapse a whisper.cpp hallucination loop down to two copies (pure).
+
+    whisper.cpp decoding can fall into a cycle on non-speech audio and emit the same
+    phrase over and over with plausible timings. One captured project holds 2431 words
+    of which "I'll try to follow you later." repeats 396 times in a row over wind-only
+    GoPro audio; the agent read the transcript and called it unusable, correctly.
+
+    A cycle of one to :data:`_MAX_REPEAT_CYCLE_WORDS` words repeating at least
+    :data:`_REPEAT_CYCLE_THRESHOLD` times consecutively is treated as a loop; the first
+    :data:`_REPEAT_CYCLES_KEPT` cycles are kept and the rest dropped. The shortest cycle
+    that qualifies wins, so "no no no no no" collapses as a one-word loop rather than as
+    a longer phrase that happens to contain it.
+
+    WHY this is safe: real speech does not repeat an identical multi-word segment five
+    times consecutively at word-boundary precision. The accepted cost is a genuine
+    single word said five or more times in a row ("no no no no no") losing everything
+    past the second copy — a small, visible loss against a transcript that is otherwise
+    unusable for every downstream tool that reads it.
+
+    Timings are untouched: entries are only dropped, never rewritten, so an already
+    monotonic list stays monotonic.
+
+    :param words: merged ``(text, start, end)`` word tuples, in order.
+    :returns: the same tuples with the tail of each detected loop removed.
+    """
+    result: list[tuple[str, float, float]] = []
+    total = len(words)
+    index = 0
+    while index < total:
+        cycle_length = 0
+        repeats = 0
+        for length in range(1, _MAX_REPEAT_CYCLE_WORDS + 1):
+            # Not enough words left for the threshold at this length, nor at any longer.
+            if index + length * _REPEAT_CYCLE_THRESHOLD > total:
+                break
+            pattern = [word for word, _start, _end in words[index : index + length]]
+            count = 1
+            probe = index + length
+            while (
+                probe + length <= total
+                and [word for word, _start, _end in words[probe : probe + length]] == pattern
+            ):
+                count += 1
+                probe += length
+            if count >= _REPEAT_CYCLE_THRESHOLD:
+                cycle_length, repeats = length, count
+                break
+        if cycle_length == 0:
+            result.append(words[index])
+            index += 1
+            continue
+        kept = cycle_length * _REPEAT_CYCLES_KEPT
+        result.extend(words[index : index + kept])
+        dropped = (repeats - _REPEAT_CYCLES_KEPT) * cycle_length
+        _log.warning(
+            "Collapsed a repeated transcript phrase %r: %d consecutive repeats, %d words "
+            "dropped (whisper.cpp hallucination loop)",
+            " ".join(word for word, _start, _end in words[index : index + cycle_length]),
+            repeats,
+            dropped,
+        )
+        index += cycle_length * repeats
+    return result
+
+
 def _clamp_monotonic(
     entries: list[tuple[str, float, float]],
 ) -> list[TranscriptWord]:
@@ -698,7 +776,9 @@ def parse_whisper_json(data: dict[str, Any]) -> list[TranscriptWord]:
                 t_from, t_to = offsets.get("from"), offsets.get("to")
                 if isinstance(t_from, (int, float)) and isinstance(t_to, (int, float)):
                     entries.append((text, float(t_from) / 1000.0, float(t_to) / 1000.0))
-    return _clamp_monotonic(entries)
+    # After BOTH branches have contributed, so a loop that spans a segment boundary
+    # (which the captured 396-repeat loop does) is seen as one run of words.
+    return _clamp_monotonic(collapse_repeated_phrases(entries))
 
 
 # ---------------------------------------------------------------------------

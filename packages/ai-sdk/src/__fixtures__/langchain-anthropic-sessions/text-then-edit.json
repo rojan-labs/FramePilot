@@ -192,12 +192,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -328,12 +335,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 155,
+            "label": "run briefing",
+            "tokenEstimate": 151,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 4,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7788,
@@ -753,12 +767,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -891,12 +912,19 @@
           {
             "id": "s10",
             "type": "system",
-            "label": "additional request content",
-            "tokenEstimate": 332,
+            "label": "run briefing",
+            "tokenEstimate": 320,
             "included": true
           },
           {
             "id": "s11",
+            "type": "system",
+            "label": "additional request content",
+            "tokenEstimate": 12,
+            "included": true
+          },
+          {
+            "id": "s12",
             "type": "tool_schemas",
             "label": "tool definitions",
             "tokenEstimate": 7167,
@@ -1201,8 +1229,8 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "usage",
-      "tokens": 240,
-      "usd": 0.0012,
+      "tokens": 340,
+      "usd": 0.001299,
       "modelCalls": 2
     },
     {
@@ -1211,7 +1239,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "assistant_message",
-      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s"
+      "text": "**Applied 1 edit** in 1 step — on your timeline now; each one can be undone.\n\n- Deleted range Video 1 · 0s–3s\n\n**Never loaded:**\n- audio — the request mentions \"dead air\", but load_tools was never called for it, so adjust_audio, analyze_silence, remove_silences, remove_filler_words, professional_audio were never offered."
     },
     {
       "id": "turn_parity:status:13",

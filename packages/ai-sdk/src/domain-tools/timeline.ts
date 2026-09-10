@@ -338,6 +338,67 @@ export function coverCropForFrame(
 }
 
 /**
+ * Refuse a crop whose shape the renderer would letterbox.
+ *
+ * The compiler FITS a cropped source into the frame (`render/compiler.py`: "letterbox-fit
+ * to the preset frame"), and `set_clip_crop` validated only the rect's bounds. Run
+ * `df81d58e` (2026-09-08) replaced the correct auto 9:16 crop on every clip with
+ * `{ x: 0.21875, width: 0.5625, height: 1 }` — 1080 × 1080 px of a 1920 × 1080 source, a
+ * square in a 1080 × 1920 frame — and the tool said "Reframed clip". Exported: 420 px of
+ * black above and below the speaker, the one outcome the brief had named as a failure.
+ *
+ * Only a MEASURED source is judged (`asset.media.width/height`); an unmeasured one has no
+ * shape to compare. A 2 % tolerance absorbs rounding, and `allowLetterbox: true` says the
+ * bars are the intent.
+ */
+function assertCropFillsFrame(ctx: ToolContext, clipId: string, crop: CropRect): void {
+  const { resolution } = ctx.project;
+  const clip = ctx.project.timeline.tracks.flatMap((t) => t.clips).find((c) => c.id === clipId);
+  const asset = clip
+    ? ctx.project.assets.find((candidate) => candidate.id === clip.assetId)
+    : undefined;
+  const width = asset?.media?.width;
+  const height = asset?.media?.height;
+  if (typeof width !== 'number' || typeof height !== 'number' || width <= 0 || height <= 0) return;
+  const cropW = crop.width * width;
+  const cropH = crop.height * height;
+  const cropAspect = cropW / cropH;
+  const frameAspect = resolution.width / resolution.height;
+  if (Math.abs(cropAspect / frameAspect - 1) <= 0.02) return;
+  const scale = Math.min(resolution.width / cropW, resolution.height / cropH);
+  const bars =
+    cropAspect > frameAspect
+      ? `${String(Math.round((resolution.height - cropH * scale) / 2))} px of black above and below`
+      : `${String(Math.round((resolution.width - cropW * scale) / 2))} px of black left and right`;
+  const fill = coverCropFor({ width, height }, resolution);
+  const suggestion = fill
+    ? ` The frame-filling crop of this source is width ${String(+fill.width.toFixed(6))} × height ${String(+fill.height.toFixed(6))} (${String(Math.round(fill.width * width))}×${String(Math.round(fill.height * height))} px); to reframe, move x (0–${String(+(1 - fill.width).toFixed(6))}) and y (0–${String(+(1 - fill.height).toFixed(6))}), not the shape.`
+    : '';
+  throw new ToolRefusalError(
+    `A ${String(Math.round(cropW))}×${String(Math.round(cropH))} px crop of this ${String(width)}×${String(height)} source is ` +
+      `${ratioLabel(cropAspect)}, and the ${String(resolution.width)}×${String(resolution.height)} frame is ` +
+      `${ratioLabel(frameAspect)}: the renderer fits it, so it exports with ${bars}.${suggestion} ` +
+      'Pass allowLetterbox: true only if the bars are the intent.',
+    { refusalCause: 'crop_letterboxes' },
+  );
+}
+
+/** "9:16", "16:9", "1:1" — the small-integer ratio a viewer would name, else a decimal. */
+function ratioLabel(aspect: number): string {
+  const named: readonly [number, string][] = [
+    [1, '1:1'],
+    [9 / 16, '9:16'],
+    [16 / 9, '16:9'],
+    [4 / 5, '4:5'],
+    [4 / 3, '4:3'],
+    [3 / 4, '3:4'],
+    [21 / 9, '21:9'],
+  ];
+  const hit = named.find(([value]) => Math.abs(aspect / value - 1) <= 0.02);
+  return hit ? hit[1] : `${aspect.toFixed(2)}:1`;
+}
+
+/**
  * The crop `add_clip`/`add_clips` apply on their own, or `undefined` for "leave it alone".
  *
  * ## Why the engine makes this editorial call
@@ -1606,8 +1667,18 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
         '9:16 subject-centered crop.',
       capabilities: ['edit', 'reframe'],
     },
-    z.object({ clipId: z.string(), crop: CropRectSchema.nullable() }).strict(),
-    (a) => [{ type: 'set_clip_crop', clipId: a.clipId, crop: a.crop }],
+    z
+      .object({
+        clipId: z.string(),
+        crop: CropRectSchema.nullable(),
+        /** Bars are the intent (a deliberate pillarbox), so an off-aspect rect is allowed. */
+        allowLetterbox: z.boolean().optional(),
+      })
+      .strict(),
+    (a, ctx) => {
+      if (a.crop !== null && a.allowLetterbox !== true) assertCropFillsFrame(ctx, a.clipId, a.crop);
+      return [{ type: 'set_clip_crop', clipId: a.clipId, crop: a.crop }];
+    },
   ),
   mutateTool(
     {

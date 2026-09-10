@@ -411,6 +411,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
               (over.requiredBoxWidthPercent <= 100
                 ? `or widen boxWidthPercent to ${String(over.requiredBoxWidthPercent)}.`
                 : 'no box is wide enough at this size, so the size has to come down.'),
+            // Named so the guard keys on the RULE, not on the sentence — which embeds the
+            // size that was tried and therefore changed on every retry.
+            { refusalCause: 'text_does_not_fit' },
           );
         }
       }

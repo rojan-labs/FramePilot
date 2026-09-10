@@ -98,3 +98,31 @@ describe('tierUsdShare', () => {
     expect(tierUsdShare(emptyLedger())).toEqual({ small: 0, mid: 0, large: 0 });
   });
 });
+
+describe('cached prompt tokens are counted and priced', () => {
+  // Run `df81d58e`: 32 calls, ~24,700 cached input tokens each, metered as 14,642 total.
+  it('adds cache reads and writes to the totals, at the tier’s cache rates', async () => {
+    const { emptyLedger, recordCost, totalTokens, estimateUsd, DEFAULT_TIER_PRICING } = await import(
+      './cost-meter.js'
+    );
+    const usage = { input: 3, output: 450, cacheRead: 24_700, cacheCreation: 0 };
+    const ledger = recordCost(emptyLedger(), 'mid', usage);
+    expect(ledger.cachedInputTokens).toBe(24_700);
+    expect(totalTokens(ledger)).toBe(3 + 450 + 24_700);
+    const price = DEFAULT_TIER_PRICING.mid;
+    const expected =
+      (3 * price.inputPerMTok + 450 * price.outputPerMTok + 24_700 * price.inputPerMTok * 0.1) /
+      1_000_000;
+    expect(ledger.usd).toBeCloseTo(expected, 9);
+    expect(estimateUsd('mid', { input: 3, output: 450 })).toBeLessThan(ledger.usd);
+  });
+
+  it('honours an explicit cache price and leaves an uncached call unchanged', async () => {
+    const { estimateUsd, DEFAULT_TIER_PRICING } = await import('./cost-meter.js');
+    const prices = { ...DEFAULT_TIER_PRICING, mid: { ...DEFAULT_TIER_PRICING.mid, cacheReadPerMTok: 1 } };
+    expect(estimateUsd('mid', { input: 0, output: 0, cacheRead: 1_000_000 }, prices)).toBeCloseTo(1, 9);
+    expect(estimateUsd('mid', { input: 10, output: 10 })).toBe(
+      (10 * DEFAULT_TIER_PRICING.mid.inputPerMTok + 10 * DEFAULT_TIER_PRICING.mid.outputPerMTok) / 1_000_000,
+    );
+  });
+});

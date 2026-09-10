@@ -274,6 +274,79 @@ describe('ProjectCommandService.commitPatch', () => {
     expect(write).not.toHaveBeenCalled();
   });
 
+  it('commits a repeat again once a later edit undid its effect', async () => {
+    // Run `a53b7c1f` (2026-09-09). An earlier run added track V1; the user then ran
+    // Settings → Memory → "Reset timeline", which removed it. The next run's `add_track`
+    // hashed to the same id, was answered "already durable", and V1 was never re-added —
+    // so the run's next patch died on "Track not found: V1. This timeline has no tracks."
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const write = vi.fn(async () => undefined);
+    const addLayer: Patch = {
+      patchId: 'patch_3393a454',
+      createdBy: 'agent',
+      reason: 'Add a video track',
+      operations: [{ type: 'add_layer', layerId: 'V1', layerType: 'video', atIndex: 0 }],
+    };
+
+    const first = await service.commitPatch(initial.id, revision, addLayer, write, 'run_1');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+
+    const reset = await service.commitPatch(
+      initial.id,
+      first.revision,
+      {
+        patchId: 'reset_timeline_1',
+        createdBy: 'user',
+        reason: 'Reset timeline',
+        operations: [{ type: 'remove_layer', layerId: 'V1' }],
+      },
+      write,
+    );
+    expect(reset.ok).toBe(true);
+    if (!reset.ok) return;
+    expect(service.project(initial.id)?.timeline.tracks).toHaveLength(0);
+
+    const again = await service.commitPatch(initial.id, reset.revision, addLayer, write, 'run_2');
+    expect(again.ok).toBe(true);
+    if (!again.ok) return;
+    expect(again.replayed).toBeUndefined();
+    const committed = service.project(initial.id);
+    expect(committed?.timeline.tracks.map((track) => track.id)).toEqual(['V1']);
+    expect(write).toHaveBeenCalledTimes(3);
+    expect(committed?.history).toHaveLength(3);
+  });
+
+  it('replays an identical set_transcript because applying it changes nothing', async () => {
+    // The transcribe case the replay exists for: the same words, already in the project,
+    // so the repeat validates fine but writes nothing new. Still a silent no-op.
+    const service = new ProjectCommandService(JSON.stringify);
+    const initial = project([]);
+    const revision = service.observe(initial).revision;
+    const write = vi.fn(async () => undefined);
+    const patch: Patch = {
+      patchId: 'agent_transcript',
+      createdBy: 'agent',
+      reason: 'Transcribe the footage',
+      operations: [
+        {
+          type: 'set_transcript',
+          words: [{ word: 'hello', start: 0, end: 0.5 }],
+        },
+      ],
+    };
+
+    const first = await service.commitPatch(initial.id, revision, patch, write, 'run_1');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const replay = await service.commitPatch(initial.id, first.revision, patch, write, 'run_2');
+
+    expect(replay).toMatchObject({ ok: true, replayed: true, revision: first.revision });
+    expect(write).toHaveBeenCalledTimes(1);
+  });
+
   it('rejects patch-id reuse with different content, and says which', async () => {
     const service = new ProjectCommandService(JSON.stringify);
     const initial = project([]);

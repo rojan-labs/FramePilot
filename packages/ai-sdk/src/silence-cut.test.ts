@@ -323,3 +323,36 @@ describe("fillerCutOps — the um's and uh's, by the transcript's own timings", 
     expect(fillerCutOps(spoken(projectWithClip(10, 5, 20, 2))).cuts).toHaveLength(0);
   });
 });
+
+describe('a measured silence that becomes no cut is accounted for', () => {
+  // Run `df81d58e`: four silences measured, three ripple-deletes, "Removed 3 silence(s)".
+  // The fourth (16.0–16.4 s) sat under "with one" and was pulled back to nothing.
+  it('names the reason per skipped range', async () => {
+    const { describeSilenceSkips } = await import('./silence-cut.js');
+    const project: Project = {
+      ...projectWithClip(0, 0, 20),
+      transcript: [
+        { word: 'with', start: 15.9, end: 16.2, assetId: 'asset_1' },
+        { word: 'one', start: 16.2, end: 16.5, assetId: 'asset_1' },
+      ],
+    };
+    const { cuts, skips } = silenceCutOps(
+      project,
+      {
+        assetId: 'asset_1',
+        ranges: [
+          { start: 4, end: 4.4 },
+          { start: 16.0, end: 16.4 },
+          { start: 9, end: 9.2 },
+        ],
+      },
+      { minSilenceSeconds: 0.3, keepSeconds: 0.08 },
+    );
+    expect(cuts).toHaveLength(1);
+    expect(skips).toEqual({ inside_spoken_word: 1, below_threshold: 1 });
+    expect(describeSilenceSkips(skips)).toBe(
+      '2 skipped: 1 inside a spoken word, 1 shorter than minSilenceSeconds',
+    );
+    expect(describeSilenceSkips({})).toBe('');
+  });
+});

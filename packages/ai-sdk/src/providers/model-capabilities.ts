@@ -213,6 +213,20 @@ function longestPrefixMatch(id: string): string | undefined {
  * @param model - The model id the provider will send, or `undefined` when unknown.
  * @returns The window, the output reservation, and whether the figure is model-specific.
  */
+/**
+ * Is this "model" a router alias — a request for the provider to choose?
+ *
+ * `openrouter/auto` normalises to the id `auto`, which is in no table: `capabilitiesFor`
+ * falls to the provider floor and `supportsVision` to `false`, so the run assumes a
+ * conservative window and is offered no `get_frame`. Both are the right defaults for an
+ * unknown model and the wrong ones for a run that will be judged on how its frames look.
+ * The orchestrator says so once, at the first turn.
+ */
+export function isRouterAlias(model: string | undefined): boolean {
+  const id = normalizeModelId(model ?? '');
+  return id === 'auto' || id === 'router' || id.endsWith('/auto');
+}
+
 export function capabilitiesFor(
   provider: ProviderName | undefined,
   model: string | undefined,
