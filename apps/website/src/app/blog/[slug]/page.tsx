@@ -86,7 +86,7 @@ export default async function BlogPostPage({ params }: { params: Promise<{ slug:
         </div>
 
         <div className="mt-20 max-w-[880px] lg:ml-[224px]">
-          <Ruler />
+          <Ruler variant="axis" />
           <p className="mt-4 flex items-center gap-2.5">
             <OutPoint />
             <span className="tc text-accent">Out</span>

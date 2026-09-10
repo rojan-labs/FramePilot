@@ -25,7 +25,7 @@ export default function NotFound() {
 
         {/* The bin's contents, as a lane of struck-through clips. */}
         <div className="mt-9 max-w-lg">
-          <Ruler />
+          <Ruler variant="axis" />
           <ul className="lane mt-3 space-y-1.5 p-1.5">
             {IN_THE_BIN.map((item) => (
               <li

@@ -33,7 +33,7 @@ export function Section({
     <section id={id} className={`scroll-mt-24 ${TONES[tone]} ${className}`}>
       {rule && (
         <div className="container-x">
-          <Ruler tone={tone === 'ink' ? 'ink' : 'paper'} />
+          <Ruler variant="mark" tone={tone === 'ink' ? 'ink' : 'paper'} />
         </div>
       )}
       <div className="container-x py-18 sm:py-24 lg:py-28">{children}</div>

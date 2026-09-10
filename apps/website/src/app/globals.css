@@ -134,27 +134,46 @@ html[data-intro='pending'] body::before {
   }
 
   /*
-   * The ruler: a hairline with minor ticks every --tick-gap and a taller major
-   * tick every --tick-major. Used instead of a plain border between sections.
+   * The ruler, in three weights. Ticks are a measurement axis, not a border, so
+   * the plain hairline is the default and ticks have to be asked for:
+   *
+   *   plain  a hairline. Row dividers, chrome, fine print, prose rules.
+   *   mark   hairline plus major ticks only. Section beats.
+   *   axis   the full comb. Only above something positioned along it.
+   *
+   * See the docblock in src/components/timeline/Ruler.tsx for when each applies.
    */
   .ruler {
     position: relative;
-    height: 9px;
+    height: 0;
     border-top: 1px solid var(--color-line);
+    background-repeat: no-repeat, no-repeat;
+    background-position: 0 0, 0 0;
+  }
+  .ruler-mark {
+    height: 6px;
+    background-image:
+      repeating-linear-gradient(to right, var(--color-line-strong) 0 1px, transparent 1px var(--tick-major));
+    background-size: 100% 5px;
+  }
+  .ruler-axis {
+    height: 9px;
     background-image:
       repeating-linear-gradient(to right, var(--color-line-strong) 0 1px, transparent 1px var(--tick-major)),
       repeating-linear-gradient(to right, var(--color-line) 0 1px, transparent 1px var(--tick-gap));
     background-size: 100% 8px, 100% 4px;
-    background-repeat: no-repeat, no-repeat;
-    background-position: 0 0, 0 0;
   }
   .ruler-flip {
     border-top: 0;
     border-bottom: 1px solid var(--color-line);
     background-position: 0 100%, 0 100%;
   }
-  .ruler-ink {
-    border-color: rgba(255, 255, 255, 0.16);
+  .ruler-ink { border-color: rgba(255, 255, 255, 0.16); }
+  .ruler-ink.ruler-mark {
+    background-image:
+      repeating-linear-gradient(to right, rgba(255, 255, 255, 0.3) 0 1px, transparent 1px var(--tick-major));
+  }
+  .ruler-ink.ruler-axis {
     background-image:
       repeating-linear-gradient(to right, rgba(255, 255, 255, 0.3) 0 1px, transparent 1px var(--tick-major)),
       repeating-linear-gradient(to right, rgba(255, 255, 255, 0.14) 0 1px, transparent 1px var(--tick-gap));
@@ -209,17 +228,7 @@ html[data-intro='pending'] body::before {
   .prose-fp pre { overflow-x: auto; border-radius: 6px; background: #17140f; padding: 1.1rem 1.2rem; color: #f2efe8; font-size: 13.5px; line-height: 1.65; }
   .prose-fp pre code { background: none; padding: 0; color: inherit; font-size: inherit; }
   .prose-fp img { border-radius: 6px; }
-    .prose-fp hr {
-    margin-block: 2.3em;
-    height: 9px;
-    border: 0;
-    border-top: 1px solid var(--color-line);
-    background-image:
-      repeating-linear-gradient(to right, var(--color-line-strong) 0 1px, transparent 1px var(--tick-major)),
-      repeating-linear-gradient(to right, var(--color-line) 0 1px, transparent 1px var(--tick-gap));
-    background-size: 100% 8px, 100% 4px;
-    background-repeat: no-repeat, no-repeat;
-  }
+  .prose-fp hr { margin-block: 2.3em; height: 0; border: 0; border-top: 1px solid var(--color-line); }
   .prose-fp table { display: block; width: 100%; margin-block: 1.5em; overflow-x: auto; border-collapse: collapse; font-size: 14px; }
   .prose-fp th, .prose-fp td { border-bottom: 1px solid var(--color-line); padding: 0.65em 0.75em; text-align: left; }
   .prose-fp thead th { font-weight: 620; color: var(--color-fg); }

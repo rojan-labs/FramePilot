@@ -40,7 +40,7 @@ const AUDIO: Clip[] = [[0, 100]];
 
 export function BeforeAfter() {
   return (
-    <Section id="difference" tone="ink">
+    <Section id="difference" tone="ink" rule={false}>
       <SectionHeading
         tc="00:03"
         eyebrow="The difference"
@@ -105,7 +105,7 @@ function Panel({
       >
         {headline}
       </p>
-      <div className="ruler ruler-ink mt-5" aria-hidden />
+      <div className="ruler ruler-axis ruler-ink mt-5" aria-hidden />
       <div className="mt-3 space-y-1.5">{children}</div>
       <p className="mt-4 text-[13px] leading-6 text-white/40">{note}</p>
     </div>

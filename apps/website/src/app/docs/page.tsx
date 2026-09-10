@@ -71,8 +71,7 @@ export default function DocsHome() {
         ))}
       </div>
 
-      <Ruler className="mt-12" />
-      <p className="pt-4 text-[12.5px] text-fg-tertiary">
+      <p className="mt-12 border-t border-line pt-4 text-[12.5px] text-fg-tertiary">
         Can&rsquo;t find something?{' '}
         <a
           href={`mailto:${site.email}`}

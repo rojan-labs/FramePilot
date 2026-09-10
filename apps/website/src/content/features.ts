@@ -93,7 +93,7 @@ export const FEATURES: Feature[] = [
   },
 ];
 
-/** The work FramePilot is built for. Used as the hero's ledger. */
+/** The work FramePilot is built for. Closes the features section. */
 export const MAKES = [
   'Product demos',
   'Screen recordings',

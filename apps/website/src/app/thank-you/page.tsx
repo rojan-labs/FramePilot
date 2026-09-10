@@ -3,7 +3,6 @@ import { Download, KeyRound, Mail } from 'lucide-react';
 import { pageMetadata } from '@/lib/seo';
 import { DownloadButton } from '@/components/DownloadButton';
 import { PageHeader } from '@/components/PageHeader';
-import { Ruler } from '@/components/timeline/Ruler';
 
 export const metadata: Metadata = {
   ...pageMetadata({
@@ -70,7 +69,6 @@ export default function ThankYouPage() {
                 </div>
               </div>
             </div>
-            <Ruler />
           </li>
         ))}
       </ol>

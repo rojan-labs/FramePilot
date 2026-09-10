@@ -121,7 +121,7 @@ export function ScrollEditorStory() {
               </div>
             </div>
 
-            <Ruler className="mt-4" />
+            <Ruler variant="axis" className="mt-4" />
             <div className="flex items-center gap-4 pt-2.5">
               <span className="tc tabular shrink-0 text-accent">{`00:0${phaseIndex + 1}`}</span>
               <p

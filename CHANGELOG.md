@@ -6,6 +6,27 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Changed
+
+- **The landing page's hero is one centred column.** The three-fact slate that sat beside
+  the headline competed with it for the first screen; the work FramePilot is built for now
+  closes the features section instead.
+- **Far fewer tick-marked rules across the marketing site.** Ticks are a measurement axis,
+  so they are now drawn only where something below them is positioned along one — 36 combs
+  on the home page became 8, and 34 on pricing became 3. Everything else is a hairline.
+- **The corner bin behaves like a bin.** It carries no label: pointing at it lifts the lid
+  and fans out the editors the intro threw away. Tools now fall on a real trajectory, land
+  inside the bin rather than beside it, and the bin takes the impact.
+- **A better intro.** The orbit has a visible path and depth of field, the logo arrives
+  softly and recoils with each throw, and a render bar shows how long the wait is.
+
+### Fixed
+
+- **FAQ rows are separated when closed.** The dividers were nested inside `<details>`, so
+  they only appeared once a question was already open.
+- **A tool being thrown away no longer appears twice.** It lingered on the intro's orbit
+  for a quarter of a second while its copy flew to the bin.
+
 ### Added
 
 - **Settings → Memory shows what this project remembers, and can reset it.** The

@@ -57,7 +57,7 @@ export function PageHeader({
       )}
 
       {children}
-      <Ruler className="mt-10 sm:mt-12" />
+      <Ruler variant="mark" className="mt-10 sm:mt-12" />
     </header>
   );
 }
