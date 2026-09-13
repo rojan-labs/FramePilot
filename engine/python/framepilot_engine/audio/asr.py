@@ -840,11 +840,14 @@ def _prepare_mono16k_wav(
     ]
     try:
         run(argv, timeout)
-    except FFmpegError as exc:
+    except (FFmpegError, AsrTranscriptionError) as exc:
+        # The production runner raises AsrTranscriptionError, not FFmpegError; catching only
+        # the latter meant the classification below ran for test fakes and never for real,
+        # and a video with no audio returned ffmpeg's whole version banner as its reason.
         raise _decode_failure(media_path, exc, timeout=timeout) from exc
 
 
-def _decode_failure(path: Path, exc: FFmpegError, *, timeout: float | None) -> Exception:
+def _decode_failure(path: Path, exc: Exception, *, timeout: float | None) -> Exception:
     """Classify a failed audio decode of ``path`` into the error worth reporting.
 
     A video with no audio track fails this decode with ffmpeg's whole banner followed by

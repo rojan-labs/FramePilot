@@ -62,9 +62,22 @@ def _cmd_render(args: argparse.Namespace) -> int:
         loudness=args.loudness,
         limiter=args.limiter,
     )
-    job = render(project, opts, base_dir=project_path.parent)
+    job = render(project, opts, base_dir=project_path.parent, progress=_print_render_progress)
+    # End the carriage-returned progress line so the JSON below starts on its own line.
+    print(file=sys.stderr, flush=True)
     print(job.model_dump_json(indent=2))
     return 0 if job.state == RenderState.COMPLETED else 1
+
+
+def _print_render_progress(stage: str, fraction: float) -> None:
+    """Overwrite a single stderr line with the render's stage and progress.
+
+    A multi-minute export used to print nothing until it finished, which is
+    indistinguishable from a hang. stderr for the same reason as the download
+    progress below: stdout stays clean JSON for anyone piping it.
+    """
+    percent = max(0, min(100, round(fraction * 100)))
+    print(f"\r{stage}: {percent}%", end="", file=sys.stderr, flush=True)
 
 
 def _cmd_validate_render(args: argparse.Namespace) -> int:

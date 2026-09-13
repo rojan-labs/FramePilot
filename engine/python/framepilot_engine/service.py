@@ -6390,8 +6390,14 @@ def create_app(
         }
         needs_video = kind in {AnalysisKind.SCENES, AnalysisKind.BLACK, AnalysisKind.FREEZE}
         if needs_audio and not info.has_audio:
+            # UNAVAILABLE, not SKIPPED: this is the same fact the per-analysis routes report
+            # when the analyzer raises NoAudioStreamError, and the agent host settles it as a
+            # warning there. As SKIPPED it settled as a hard failure — and stock video, which
+            # is usually video-only, is exactly what "detect beats on the stock clip" targets.
             return AnalysisEntry(
-                kind=kind, status=AnalysisEntryStatus.SKIPPED, reason="Asset has no audio stream."
+                kind=kind,
+                status=AnalysisEntryStatus.UNAVAILABLE,
+                reason=f"{media_path.name} has no audio track, so there is nothing to analyse.",
             )
         if needs_video and (not info.has_video or info.is_image):
             return AnalysisEntry(
@@ -7142,6 +7148,14 @@ def create_app(
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
         except AsrError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except FileNotFoundError as exc:
+            # The content-hash cache opens the media first, so a file removed from disk used
+            # to escape as a 500 carrying a raw traceback message.
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"The media for asset {resolved_id} is missing from disk ({media_path.name}). "
+                "Relink or re-import it, then transcribe again.",
+            ) from exc
         _log.info("ACT transcribe: asset=%s → %d words", resolved_id, len(words))
         # Stamp the attribution here (schema v12, ADR 0076): this is the one place
         # that knows which asset was transcribed, and an unattributed transcript is
