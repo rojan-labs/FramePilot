@@ -109,6 +109,14 @@ claim this ADR exists to make is unreachable by any user. They are inert unless 
 handle is configured (`FRAMEPILOT_PACK_VISUAL_EMBED` / `_DESCRIBE`, both empty by default),
 so the default install is unaffected either way.
 
+**Updated 2026-09-13 — the desktop host now supplies the handles.** Until then the env vars
+were the only route, so on desktop both packs installed, passed health and never ran. The
+host builds a handle for the newest installed + healthy release of each pack and sends it on
+every index and search request; unattended import fills the tier an installed LOCAL pack
+provides (installing it is the consent, and it spends nothing). Search embeds its query with
+the pack whenever the brain's vectors are in the pack's space. The default install is still
+unaffected: no pack installed, no handle sent.
+
 ## Rejected alternatives
 
 - **Bundle the models in the installer.** ADR 0114 settled this: first install and every

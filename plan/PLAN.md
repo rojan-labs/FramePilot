@@ -9945,6 +9945,10 @@ surfaces → color solver) as the first vertical slice before any pack work.
   DELETED** — `CAPTION_INSTRUCTION` and the prose path are gone, and `captioner.py` no longer
   has a function returning a string. Captions now join spans by TIME OVERLAP, because two
   segmentations cannot share an index space. Same weight status as VU5.
+  **Desktop wiring closed 2026-09-13** (VU5 + VU6): the host now sends both pack handles on
+  index and search, search embeds with the pack that indexed the brain, and the describe
+  prompt no longer makes SmolVLM2 return its own field hints. Verified against the real
+  installed packs on real clips — see `plan/visual-understanding/05-LOCAL-PERCEPTION-PACKS.md`.
 - [~] VU7 — deterministic cut checks + bounded vision escalation, built and tested (28
   tests), **not wired**: the conductor is a pure reducer with no project, and the only seam
   with the right inputs is the steering/repair channel a verification must never enter.

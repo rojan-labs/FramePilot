@@ -935,3 +935,66 @@ with the evidence above so the gate has something concrete to judge.
 
 **Severity note:** of everything found this session, this is the one that *destroys user
 footage* on a plausible instruction. I would rank it above the remaining pack-pipeline work.
+
+---
+
+# R. Visual embed + visual describe, end to end
+
+## R1 🔧 The packs were healthy and never ran on desktop
+
+B above showed both packs pass their health handshake. That was never the question. The
+engine runs a local pack only when handed a verified JSON handle, and **the desktop host
+never built one** — `FRAMEPILOT_PACK_VISUAL_EMBED` / `_DESCRIBE` were the only route, and
+nothing sets them in a packaged app. Plan 05 recorded it as open for both VU5 and VU6; the
+register scripts claimed the opposite.
+
+Two more gaps sat behind it:
+
+| gap | effect |
+|---|---|
+| `/brain/visual/search` always embedded the query with the hosted NVIDIA arm | a keyless pack-indexed brain answered every search `no_api_key` |
+| `VisualVectorStore.search` scored every stored vector, any model | with both spaces present, a query was cosine-scored against another model's vectors |
+
+Fixed in `c8a5aa20` (engine), `b7cb08dd` (ai-sdk), `0dccf35f` (desktop).
+
+## R2 🔧 First real run: the describer returned its own prompt
+
+Driven through a sidecar built from this branch, with handles produced by the compiled
+desktop resolver from the REAL pack index, on two real camera clips:
+
+```
+labelled:  framepilot/siglip2-base-patch16-224-onnx   CU/none · WS/place     ✅
+described: "subject": "who or what the shot is of"                            ❌
+           "action":  "what they are doing"   "setting": "where it is"
+```
+
+Every free-text field was a `field: hint.` phrase from `DESCRIBE_INSTRUCTION`. Ruled out
+first: the projector pairing (the 2.2B mmproj is used; the 500M one is refused with an
+`n_embd` mismatch). Reproduced at temperature 0 on the worker's own 768 px keyframes with
+one frame and with three; a prompt naming no field describes the same frames correctly.
+Plan 05 had already logged "the model collapses subject/action/setting to one filler
+string" — that string was this. Fixed in the describe commit; the eval that scored 9/9
+through it now checks `no_instruction_echo`.
+
+## R3 ✅ Verified end to end after both fixes
+
+| step | result |
+|---|---|
+| index, all tiers, real packs | 2/2 assets · measured 2 · labelled 2 · described 2 · ~186 s |
+| described (clip_b) | "A ski lift is seen against a backdrop of a cloudy sky and snow-covered mountains…" |
+| `/brain/visual/search` with the handle | packets from both clips, query embedded by the pack |
+| same search, no handle | `no_api_key` — honest, unchanged |
+| `/brain/visual/describe` | one packet per asset carrying the local description |
+
+Scoped tests: engine 25 (search/tier-1) + 32 (vector store) + 58 (described/drift/local
+describe) · worker 92 · ai-sdk 5 · desktop 6 · desktop typecheck, eslint, ruff, mypy clean.
+
+## R4 ⚠️ Open, recorded not fixed
+
+- **`onScreenText` is invented** on frames with no text (words from the summary, `unknown`).
+- **Tier 2 is slow**: ~90 s per short shot on this machine. Unattended import now runs it
+  when the pack is installed; the governor yields it to render/export/frame, but a long
+  import will keep a core busy.
+- **No lease across a worker run started by the engine.** A pack evicted mid-index fails
+  that slice; the next handle refresh drops it.
+- **`find_similar`** is untouched.

@@ -91,10 +91,11 @@ FRAMEPILOT_DEV_PACK_REGISTRATION=1 node "$CLI" register-local "$INPUT_JSON" "$ST
 
 cat >&2 <<'MSG'
 
-Done. The desktop host passes the installed pack to the sidecar on each
-/brain/visual/index call; for a sidecar-only test, export the handle directly:
+Done. Restart the desktop app: it resolves the installed pack at startup and sends its
+handle on every /brain/visual/index call. For a sidecar-only test, export the handle
+directly:
 
-  FRAMEPILOT_PACK_VISUAL_EMBED='{"packId":"framepilot.visual-describe","version":"1.0.0",
+  FRAMEPILOT_PACK_VISUAL_DESCRIBE='{"packId":"framepilot.visual-describe","version":"1.0.0",
     "releaseDigest":"<sha256 from the register-local result>",
     "entrypoint":"<store>/.../bin/framepilot-visual-describe",
     "capabilities":["visual.describe"],

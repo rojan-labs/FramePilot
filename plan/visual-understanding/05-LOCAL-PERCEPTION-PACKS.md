@@ -113,10 +113,17 @@ What IS done and tested against a fake backend:
 Remaining, in order: verify the SigLIP 2 **export**'s licence and SFace's; fetch and pin
 (`tools/fetch_models.py --record`, then copy the digests into `models.py`); run
 `pytest -m decoded_media`; register with `scripts/dev-register-visual-embed.sh`; then and
-only then measure VU5.4 against VU0.2's labels. Two smaller pieces are also open: the
-desktop host does not yet pass a `visualEmbedPack` handle (the env var is the only route
-today), and `search_visual`/`find_similar` still query the hosted space — the local text
-arm exists and is tested, but nothing selects the space with coverage yet.
+only then measure VU5.4 against VU0.2's labels.
+
+**Closed 2026-09-13** (branch `fix/release-1.0-audit-2026-09-13`): the desktop host now
+builds a `visualEmbedPack` handle from the newest installed + healthy release
+(`apps/desktop/electron/capability-packs/visual-packs.ts`) and sends it on every index and
+search request; `/brain/visual/search` embeds the query with the pack whenever the brain's
+spans live in the local space (`_visual_query_space`), and the vector store no longer
+scores a query against another model's vectors. Verified through a sidecar built from the
+branch against the REAL installed packs and two real camera clips: 2/2 assets labelled
+(`framepilot/siglip2-base-patch16-224-onnx`), and a text search answered by the pack. Still
+open: `find_similar` (a text-embedding route, untouched).
 
 ## VU6 Tier 2: `framepilot.visual-describe`
 
@@ -173,6 +180,18 @@ every field is `null`, and a generated label set scores the model against itself
 from the same run and deliberately unscored: the model collapses `subject`, `action` and
 `setting` to one filler string.
 
+**2026-09-13 — that filler string was the prompt.** The first run through the desktop
+wiring, on two real camera clips, stored `"subject": "who or what the shot is of"`,
+`"action": "what they are doing"`, `"setting": "where it is"` for every shot: the
+instruction's `field: hint.` lines, returned VERBATIM under the grammar. Reproduced at
+temperature 0 with the worker's own 768 px keyframes, one frame or three. Rewording the
+instruction to name no field fixes it on the same frames ("A ski lift is seen against a
+backdrop of a cloudy sky and snow-covered mountains…"). The pack now blanks any free-text
+field that only repeats the instruction (a summary that does is "not describable"), the
+engine test forbids a `field:` hint in the instruction, and the eval gained
+`no_instruction_echo` on every fixture — the check whose absence let 9/9 pass. Still
+visible and NOT fixed: `onScreenText` is invented on frames with no text.
+
 ### VU6.5 Evidence — the original targets
 
 - Every mission fixture shot has a `described` row after a background run on the M1 Pro with
@@ -221,8 +240,9 @@ Two things are NOT wired, and are named rather than implied:
 - **the TwelveLabs arm.** `described_from_summary` exists and is tested (prose into
   `summary`, every other field left empty), but `_tl_index_slice` still records
   `described: skipped` for videos. Mapping TL spans onto ledger shots is its own piece.
-- **the desktop host does not pass a `visualDescribePack` handle.** The request field and
-  `FRAMEPILOT_PACK_VISUAL_DESCRIBE` are the only routes today, exactly as VU5 left tier 1.
+- ~~**the desktop host does not pass a `visualDescribePack` handle.**~~ Closed 2026-09-13
+  with the tier-1 handle (see VU5). Unattended import now fills `described` when the local
+  pack is installed; hosted `described` still never runs from an import.
 
 One behaviour change worth reviewing: `visual_captions` rows are now keyed by SHOT, while
 the hosted NVIDIA span space is keyed by the sampler's scenes. The readers that joined the

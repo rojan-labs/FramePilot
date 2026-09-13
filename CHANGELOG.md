@@ -22,6 +22,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The on-device footage understanding packs now actually run in the desktop app.** With
+  Visual Embed and Visual Describe installed, imported footage is labelled and described on
+  your machine — no API key, and no frame leaves the computer — and searching your footage
+  uses the same local model that indexed it. Before, both packs installed and passed their
+  health check but the app never called them.
+- **Local shot descriptions describe the shot.** The on-device describer was returning
+  fragments of its own instructions ("who or what the shot is of") instead of what was in
+  the frame. It now writes what it sees, and a description that only repeats the prompt is
+  discarded rather than saved.
 - **FAQ rows are separated when closed.** The dividers were nested inside `<details>`, so
   they only appeared once a question was already open.
 - **A tool being thrown away no longer appears twice.** It lingered on the intro's orbit
