@@ -251,12 +251,18 @@ def test_analyze_audio_only_asset_skips_video_kinds(
 
     resp = _post_analyze(client, project_path, asset_id="mus", depth="deep")
     assert resp.status_code == 200
-    statuses = _statuses(resp.json())
+    body = resp.json()
+    statuses = _statuses(body)
     assert statuses["scenes"] == "skipped"
     assert statuses["black"] == "skipped"
     assert statuses["freeze"] == "skipped"
     assert statuses["silence"] == "ok"
     assert statuses["loudness"] == "ok"
+    # §S5: the skip reason names the other asset in this project that WOULD
+    # work for a video analyzer, not just that this one doesn't.
+    entries = {e["kind"]: e for e in body["results"]}
+    for kind in ("scenes", "black", "freeze"):
+        assert "vid" in entries[kind]["reason"]
 
 
 def test_analyze_silent_video_reports_audio_kinds_unavailable(
@@ -271,13 +277,48 @@ def test_analyze_silent_video_reports_audio_kinds_unavailable(
 
     resp = _post_analyze(client, project_path, depth="deep")
     assert resp.status_code == 200
-    statuses = _statuses(resp.json())
+    body = resp.json()
+    statuses = _statuses(body)
     # UNAVAILABLE, the same verdict the per-analysis routes give a file with no audio track:
     # the agent host settles it as a warning, where SKIPPED settled as a hard failure.
     for kind in ("silence", "loudness", "beats", "transcription"):
         assert statuses[kind] == "unavailable"
     for kind in ("probe", "scenes", "black", "freeze"):
         assert statuses[kind] == "ok"
+    # §S5: the unavailable reason names the other asset that WOULD work for an
+    # audio analyzer (default asset here is "vid", the video-only asset).
+    entries = {e["kind"]: e for e in body["results"]}
+    for kind in ("silence", "loudness", "beats", "transcription"):
+        assert "mus" in entries[kind]["reason"]
+
+
+def test_analyze_wrong_kind_reason_names_no_asset_when_none_would_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§S5: a single-asset, all-video-only project has no asset that would work
+    for an audio analyzer — the reason must say so plainly rather than naming
+    nothing at all."""
+    _patch_all_analyzers(
+        monkeypatch,
+        inspect_media=lambda path, *, timeout=None: _media_info(has_audio=False),
+    )
+    project = Project.model_validate(
+        {
+            "id": "pb",
+            "name": "B",
+            "assets": [{"id": "vid", "path": "clip.mp4", "kind": "video"}],
+            "timeline": {"tracks": []},
+        }
+    )
+    project_path = tmp_path / "solo.project.fp.json"
+    ProjectFile.save(project, project_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = _post_analyze(client, project_path, kinds=["silence"])
+    assert resp.status_code == 200
+    entry = resp.json()["results"][0]
+    assert entry["status"] == "unavailable"
+    assert "no other asset in this project would work" in entry["reason"].lower()
 
 
 # --- Route: honest unavailability + failure isolation ---------------------------------

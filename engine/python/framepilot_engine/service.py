@@ -251,7 +251,7 @@ from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
-from framepilot_engine.timeline.models import Project, ProjectFile, ProjectFileError
+from framepilot_engine.timeline.models import Asset, Project, ProjectFile, ProjectFileError
 from framepilot_engine.validation.render_validation import (
     ExpectedRender,
     ValidationReport,
@@ -6365,6 +6365,25 @@ def create_app(
         media_path = sandbox(str(media_base / asset.path))
         return asset.id, media_path
 
+    def _assets_compatible_with(
+        assets: list[Asset], *, exclude_id: str, kinds: set[str]
+    ) -> str:
+        """Name up to a few other project assets whose declared kind fits ``kinds``.
+
+        Used to turn a wrong-media-kind skip/unavailable reason into something
+        actionable (§S5): a caller who tried a video-only asset on an
+        audio-only analyzer should be told *which* asset would actually work,
+        not just that this one doesn't. Declared ``kind`` (not a fresh probe)
+        is the same cheap signal :func:`resolve_asset_media` already uses to
+        pick a default asset — no extra ffprobe pass per candidate.
+        """
+        candidates = [a.id for a in assets if a.id != exclude_id and a.kind in kinds]
+        if not candidates:
+            return "No other asset in this project would work for this analysis either."
+        shown = ", ".join(candidates[:5])
+        more = f" (+{len(candidates) - 5} more)" if len(candidates) > 5 else ""
+        return f"Assets that would work instead: {shown}{more}."
+
     def run_analyzer(
         kind: AnalysisKind,
         media_path: Path,
@@ -6372,6 +6391,7 @@ def create_app(
         *,
         timeout: float,
         asset_id: str | None = None,
+        other_assets: list[Asset] | None = None,
     ) -> AnalysisEntry:
         """Run one analyzer for the unified pass, mapping every outcome to a
         typed :class:`AnalysisEntry` (plan B1.2).
@@ -6394,17 +6414,19 @@ def create_app(
             # when the analyzer raises NoAudioStreamError, and the agent host settles it as a
             # warning there. As SKIPPED it settled as a hard failure — and stock video, which
             # is usually video-only, is exactly what "detect beats on the stock clip" targets.
-            return AnalysisEntry(
-                kind=kind,
-                status=AnalysisEntryStatus.UNAVAILABLE,
-                reason=f"{media_path.name} has no audio track, so there is nothing to analyse.",
-            )
+            reason = f"{media_path.name} has no audio track, so there is nothing to analyse."
+            if other_assets is not None and asset_id is not None:
+                reason += " " + _assets_compatible_with(
+                    other_assets, exclude_id=asset_id, kinds={"video", "audio"}
+                )
+            return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.UNAVAILABLE, reason=reason)
         if needs_video and (not info.has_video or info.is_image):
-            return AnalysisEntry(
-                kind=kind,
-                status=AnalysisEntryStatus.SKIPPED,
-                reason="Asset has no video timeline to analyse.",
-            )
+            reason = "Asset has no video timeline to analyse."
+            if other_assets is not None and asset_id is not None:
+                reason += " " + _assets_compatible_with(
+                    other_assets, exclude_id=asset_id, kinds={"video"}
+                )
+            return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.SKIPPED, reason=reason)
 
         duration = info.duration_seconds
         try:
@@ -6489,6 +6511,16 @@ def create_app(
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
+        # Loaded once so a wrong-media-kind skip/unavailable reason (§S5) can name
+        # other assets in the project that would work for that analyzer, instead
+        # of only saying this one doesn't. Best-effort: a load failure here must
+        # never block the pass itself, since resolve_asset_media already proved
+        # the project loads.
+        try:
+            other_assets = resolve_project_source(req)[0].assets
+        except HTTPException:
+            other_assets = None
+
         # Brain persistence is best-effort (plan B0.5/B1.3): any failure to open
         # or hash degrades to a fresh, unpersisted pass — never a request error.
         root = settings.projects_root
@@ -6536,7 +6568,14 @@ def create_app(
                             )
                         )
                         continue
-                entry = run_analyzer(kind, media_path, info, timeout=timeout, asset_id=resolved_id)
+                entry = run_analyzer(
+                    kind,
+                    media_path,
+                    info,
+                    timeout=timeout,
+                    asset_id=resolved_id,
+                    other_assets=other_assets,
+                )
                 entries.append(entry)
                 if (
                     brain is not None
