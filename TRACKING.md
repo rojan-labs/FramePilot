@@ -890,3 +890,48 @@ the real route is `streamChat`).
 and moved toward a fix before confirming the fault. Every one was caught by checking the
 source or the ADR — but each cost a detour, and one (the `__unparsedToolInput` "recovery")
 would have shipped dead code.
+
+## Q5 ❌ Root-caused: "drop the duplicates" deleted unique footage because nothing can identify a duplicate
+
+`remove-duplicate-takes`, turn 2 — the full chain, from the recorded calls:
+
+```
+turn 1  "Build a 30-second montage … and use the opening shot three times."
+        → delete_clips, add_clips, add_clip   (19 edits applied)
+turn 2  "Drop the duplicate takes."
+        → delete_clips(clipIds: […], ripple: true)   ← DELETED FIRST
+        → get_timeline                                ← LOOKED AFTER
+        "Ripple-deleted range Video 1 · 26s–30s / 15s–19s"
+```
+
+**What a duplicate take actually is.** `mission-rubric.ts#checkDuplicateTakesRemoved` defines
+it deterministically: *two clips playing **overlapping source** of the same asset — a fact the
+project file proves.* Explicitly **not** tier 1's `duplicateOf`, which is a phash cluster over
+two different recordings of the same action, and which "no committed fixture ships".
+
+**What the agent used instead:** asset identity. Both clips it deleted were
+`asset_001` at **different source offsets** (`_15000`, `_26000`) — different moments, i.e.
+distinct takes. The rubric's `unique-takes-kept` names exactly those two as wrongly dropped.
+
+**Two compounding failures:**
+
+1. Turn 1 did not follow "use the opening shot three times" — the incoming timeline had **no**
+   overlapping-source pairs at all, which is why `duplicate-takes-removed` came back
+   `skipped`.
+2. Asked to remove duplicates when **none existed**, the agent deleted two unique clips rather
+   than answering "there are none". A no-op request became a destructive edit — and it
+   deleted *before* reading the timeline.
+
+**Why this is a capability gap, not a bug to patch.** The deterministic notion of a duplicate
+take (overlapping source of one asset) exists **only in the eval**. Nothing product-side
+offers it to the agent: tier 1's `duplicateOf` is phash-based and does not fire here, and
+`delete_clips` cannot infer intent. So the model has no way to identify a duplicate take and
+falls back to asset identity — which destroys distinct footage.
+
+Closing it means a deterministic duplicate-take fact or tool on the product side. That is a
+**new capability**, so it goes through the product-scope gate in
+`.agents/rules/product-discipline.mdc` with the maintainer, not into this branch. Recorded
+with the evidence above so the gate has something concrete to judge.
+
+**Severity note:** of everything found this session, this is the one that *destroys user
+footage* on a plausible instruction. I would rank it above the remaining pack-pipeline work.
