@@ -123,7 +123,7 @@ function installer(
   fetchMock: typeof fetch,
   overrides: {
     verifyExecutable?: () => Promise<void>;
-    healthCheck?: () => Promise<CapabilityPackWorkerHandshake>;
+    healthCheck?: (...args: unknown[]) => Promise<CapabilityPackWorkerHandshake>;
   } = {},
 ): CapabilityPackInstaller {
   return new CapabilityPackInstaller(root, {
@@ -167,6 +167,30 @@ describe('CapabilityPackInstaller', () => {
 
     expect(await subject.install(installRequest())).toEqual(record);
     expect(fetchMock).toHaveBeenCalledOnce();
+  });
+
+  it('hands the worker its pack root during the install health check', async () => {
+    // A weights-backed pack finds its models under FRAMEPILOT_CAPABILITY_PACK_ROOT. Local
+    // registration always passed it; the catalog installer did not, so subject-intelligence,
+    // visual-embed and visual-describe would have failed their handshake and been quarantined.
+    const root = await createRoot();
+    const calls: unknown[][] = [];
+    const subject = installer(root, vi.fn<typeof fetch>().mockResolvedValue(response()), {
+      healthCheck: async (...args) => {
+        calls.push(args);
+        return handshake;
+      },
+    });
+
+    await subject.install(installRequest());
+
+    expect(calls).toHaveLength(1);
+    const [entrypoint, , , , , extraEnvironment] = calls[0]!;
+    const packRoot = (extraEnvironment as Record<string, string>).FRAMEPILOT_CAPABILITY_PACK_ROOT;
+    expect(packRoot?.startsWith(path.join(root, 'staging'))).toBe(true);
+    // The root is the directory the entrypoint lives in by its artifact path — the same layout
+    // the committed install has, so the models are where the worker will look after the rename.
+    expect(path.relative(packRoot!, entrypoint as string)).toBe(artifact.entrypoint);
   });
 
   it('rejects stale approval before network or filesystem mutation', async () => {
@@ -245,11 +269,22 @@ describe('CapabilityPackInstaller', () => {
     await rm(path.join(root, 'index.json'));
     const fetchMock = vi.fn<typeof fetch>();
     const verifier = vi.fn(async () => undefined);
-    const recoveredBy = installer(root, fetchMock, { verifyExecutable: verifier });
+    const healthCalls: unknown[][] = [];
+    const recoveredBy = installer(root, fetchMock, {
+      verifyExecutable: verifier,
+      healthCheck: async (...args) => {
+        healthCalls.push(args);
+        return handshake;
+      },
+    });
 
     const recovered = await recoveredBy.install(installRequest());
 
     expect(recovered.health.detail).toContain('Recovered after interrupted index commit');
+    // Recovery re-checks the COMMITTED install, so the worker's pack root is that directory.
+    expect(healthCalls[0]?.[5]).toEqual({
+      FRAMEPILOT_CAPABILITY_PACK_ROOT: path.join(root, recovered.installRelativePath),
+    });
     expect(fetchMock).not.toHaveBeenCalled();
     expect(verifier).toHaveBeenCalledOnce();
     expect((await new FileCapabilityPackStore(root).list())[0]?.state).toBe('installed');

@@ -174,6 +174,8 @@ export class CapabilityPackInstaller {
         request.release.capabilities,
         this.commandRunner,
         request.signal,
+        // Same root the runtime service points a weights-backed pack at (see below).
+        { FRAMEPILOT_CAPABILITY_PACK_ROOT: committedPath },
       );
       const now = new Date().toISOString();
       const recovered = InstalledCapabilityPackSchema.parse({
@@ -231,6 +233,12 @@ export class CapabilityPackInstaller {
         request.release.capabilities,
         this.commandRunner,
         request.signal,
+        // A weights-backed pack (subject-intelligence, visual-embed, visual-describe) finds its
+        // models under FRAMEPILOT_CAPABILITY_PACK_ROOT and fails its handshake without it. Local
+        // registration always passed it; the catalog installer never did, so every
+        // weights-backed pack would have been QUARANTINED on a real install. Staging mirrors
+        // the committed layout, so the models are exactly where they will be after the rename.
+        { FRAMEPILOT_CAPABILITY_PACK_ROOT: extracted.stagingPath },
       );
       emitProgress(request, 'committing', downloaded.bytes, 'Committing immutable install.');
       const record = healthyRecord(request, extracted, handshake);
