@@ -61,6 +61,7 @@ import {
   effectLayersOf,
 } from '@framepilot/timeline-schema';
 import {
+  INVERSION_STEPS,
   clipTimelineDuration,
   hasSpeedRamp,
   integrateRate,
@@ -1198,7 +1199,12 @@ function applyTrim(timeline: Timeline, op: TrimClipOp): Timeline {
   // documented known limitation, which meant an ordinary trim of a 2x clip was
   // rejected by `speed_duration_mismatch`. `truncateClip` owns the mapping for
   // every speed case, so trim, delete_range and ripple_delete cannot disagree.
-  const next: Clip = truncateClip(clip, op.start, op.end, clip.id);
+  // `solveRamp`: only a TRIM re-solves a ramped clip's source window against the curve
+  // it will actually carry. `split_clip` and `delete_range` must PARTITION the source
+  // exactly — one piece's `sourceEnd` is the next piece's `sourceStart` — and the solve
+  // moves that seam by ~1e-6s, which is the wrong trade for them. Their pieces can still
+  // drift from their own rebased curves; see the note on `solveEndSource`.
+  const next: Clip = truncateClip(clip, op.start, op.end, clip.id, true);
   if (next.sourceStart < -EPSILON || next.sourceEnd - next.sourceStart <= EPSILON) {
     throw new OperationError('invalid_range', sourceRangeRejection('trim_clip', clip, next));
   }
@@ -1383,6 +1389,77 @@ function subtractRange(clip: Clip, start: Seconds, end: Seconds): Clip[] {
  * which is a different rate — the trim would silently change the speed of footage
  * it did not remove.
  */
+/**
+ * The source offset whose RETAINED, REBASED curve fills `duration` timeline seconds.
+ *
+ * A ramped trim has to invert a function it then changes. `sourceOffsetForTimeline`
+ * solves against the clip's CURRENT curve, but the trimmed clip does not keep that
+ * curve: `rebaseSpeedRamp` has to drop the control points that fall outside the new
+ * source range (the validator refuses a point outside it) and close the curve with a
+ * synthetic endpoint carrying the rate at the cut. That is a faithful *sample* of the
+ * old curve, not the same curve — an `ease-in-out` segment restricted to part of its
+ * span is NOT another `ease-in-out` between the endpoint values, because the easing
+ * re-runs its whole S over the shorter interval and sweeps a different area.
+ *
+ * So the span solved against the old curve implies a different duration once the ramp
+ * is rebased, and `speedConsistencyChecks` rejects the whole patch. On the real clip
+ * from run `3ed87ff0` — rates 1.8 → 0.35 → 1.6 over 3.32s of source — trimming to
+ * 1.733s produced a clip meaning 1.663s: 70ms, about two frames at 30fps, and a hard
+ * refusal. Trimming a speed-ramped clip simply did not work whenever the cut landed
+ * past a control point.
+ *
+ * The schema cannot express "half of an ease", so the curve cannot be preserved
+ * exactly. What CAN be preserved is the editor's intent — the cut lands where they
+ * asked — by inverting the composed function instead of the bare one: choose the span
+ * whose OWN rebased curve integrates to `duration`. Monotonic in the span (more source
+ * is always more timeline time at positive rates), so the same bisection that inverts
+ * the curve inverts the composition. Where nothing is clipped the rebase is the
+ * identity and this returns exactly what `sourceOffsetForTimeline` returned.
+ */
+function solveEndSource(clip: Clip, headSource: Seconds, duration: Seconds): Seconds {
+  const available = clip.sourceEnd - clip.sourceStart;
+
+  const durationFor = (end: Seconds): number => retainedDuration(clip, headSource, end);
+  if (durationFor(available) <= duration) return available;
+  let lo = headSource;
+  let hi = available;
+  for (let i = 0; i < INVERSION_STEPS; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (durationFor(mid) < duration) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * Timeline seconds the window `[headSource, endSource]` yields once its OWN ramp is
+ * rebased — the quantity the validator will recompute, so the one the solvers target.
+ */
+function retainedDuration(clip: Clip, headSource: Seconds, endSource: Seconds): number {
+  const span = endSource - headSource;
+  if (span <= 0) return 0;
+  const rebased = rebaseSpeedRamp(clip, headSource, span);
+  return rebased === undefined ? span : integrateRate(rebased, 0, span);
+}
+
+/**
+ * The mirror of {@link solveEndSource} for a HEAD trim, where the tail is pinned to the
+ * end of the footage and the start is the edge that moved. Later starts retain less
+ * source and so less timeline time, making the function monotonically DECREASING — the
+ * bisection branches the other way.
+ */
+function solveHeadSource(clip: Clip, endSource: Seconds, duration: Seconds): Seconds {
+  if (retainedDuration(clip, 0, endSource) <= duration) return 0;
+  let lo = 0;
+  let hi = endSource;
+  for (let i = 0; i < INVERSION_STEPS; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (retainedDuration(clip, mid, endSource) > duration) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
 function rebaseSpeedRamp(
   clip: Clip,
   consumed: Seconds,
@@ -1543,7 +1620,13 @@ function rebaseKeyframes(clip: Clip, headSeconds: Seconds, id: string): Keyframe
   return kept;
 }
 
-function truncateClip(clip: Clip, newStart: Seconds, newEnd: Seconds, id: string): Clip {
+function truncateClip(
+  clip: Clip,
+  newStart: Seconds,
+  newEnd: Seconds,
+  id: string,
+  solveRamp = false,
+): Clip {
   // A clip with no time-based source has no source range to consume: its window is
   // always the whole of itself. Mapping the trim through the source arithmetic
   // below would drive `sourceStart` negative when the left edge moves earlier, and
@@ -1600,8 +1683,33 @@ function truncateClip(clip: Clip, newStart: Seconds, newEnd: Seconds, id: string
     };
   }
 
-  const headSource = sourceOffsetForTimeline(clip, headSeconds);
-  const endSource = sourceOffsetForTimeline(clip, newEnd - clip.start);
+  const duration = newEnd - newStart;
+  const available = clip.sourceEnd - clip.sourceStart;
+  let headSource = sourceOffsetForTimeline(clip, headSeconds);
+  const plainEnd = sourceOffsetForTimeline(clip, newEnd - clip.start);
+  // The rebase-aware solvers below apply only to a trim that stays INSIDE the clip's
+  // own footage. EXTENDING a ramped clip past either end is a different contract — the
+  // extra timeline time is priced at the rate held at that end, deliberately not
+  // re-derived from the integral, which has nothing left to give — and the rebase keeps
+  // the whole curve there, so the plain inversion is already exact.
+  const extendsTail = plainEnd > available + EPSILON;
+  const extendsHead = headSource < -EPSILON;
+  const endSource =
+    solveRamp && hasSpeedRamp(clip) && !extendsTail && !extendsHead && plainEnd < available - EPSILON
+      ? solveEndSource(clip, headSource, duration)
+      : plainEnd;
+  // A HEAD trim has no room to grow the tail: `endSource` is already the end of the
+  // footage, so the solver above cannot move it and the window still yields less than
+  // asked. The free edge is the one that MOVED, so solve that instead.
+  if (
+    solveRamp &&
+    hasSpeedRamp(clip) &&
+    !extendsTail &&
+    headSource > EPSILON &&
+    retainedDuration(clip, headSource, endSource) + EPSILON < duration
+  ) {
+    headSource = solveHeadSource(clip, endSource, duration);
+  }
   const next: Clip = {
     ...base,
     sourceStart: clip.sourceStart + headSource,

@@ -19,6 +19,7 @@ import {
   type Operation,
 } from './operations.js';
 import { evaluateKeyframes } from './keyframes.js';
+import { clipTimelineDuration } from './speed-curve.js';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -2854,6 +2855,52 @@ describe('edge ops are speed-aware (ADR 0046 known limitation, fixed in v15)', (
     // carry the whole original curve and each render the wrong speeds.
     expect(right!.speedRamp?.[0]?.sourceTime).toBe(0);
     expect(right!.speedRamp?.[0]?.rate).toBeGreaterThan(0.5);
+  });
+
+  it('trims a RAMPED clip to a duration its own REBASED curve actually yields', () => {
+    // Run `3ed87ff0` could not trim this clip at all. The trim solved the new source
+    // window against the clip's CURRENT curve, then `rebaseSpeedRamp` replaced that
+    // curve — it must drop control points outside the new source range and close with a
+    // synthetic endpoint — and an `ease-in-out` segment restricted to part of its span
+    // is not another `ease-in-out` between the endpoint values, so the area changes.
+    // The clip came back meaning 1.663s while claiming 1.733s: 70ms, ~2 frames, and
+    // `speed_duration_mismatch` refused the whole patch.
+    const ramped: Timeline = {
+      revision: 1,
+      tracks: [
+        {
+          id: 'v1',
+          type: 'video',
+          clips: [
+            clip({
+              id: 'a',
+              trackId: 'v1',
+              start: 55.233333333333334,
+              end: 58.266666666666666,
+              sourceStart: 462,
+              sourceEnd: 465.31668157155883,
+              speedRamp: [
+                { id: 'r0', sourceTime: 0, rate: 1.8, easing: 'ease-in-out' },
+                { id: 'r1', sourceTime: 0.9, rate: 0.35, easing: 'ease-in-out' },
+                { id: 'r2', sourceTime: 1.4, rate: 1.6, easing: 'ease-in-out' },
+              ],
+            }),
+          ],
+        },
+      ],
+    };
+    // Tail trim (cut lands past a control point) and head trim (pinned tail) both used
+    // to drift; the middle case never did and must stay exact.
+    for (const [start, end] of [
+      [55.233333333333334, 56.96666666666667],
+      [55.233333333333334, 57.5],
+      [56, 58.266666666666666],
+    ]) {
+      const after = applyOperation(ramped, { type: 'trim_clip', clipId: 'a', start, end });
+      const a = findClipById(after, 'a')!;
+      expect(clipTimelineDuration(a)).toBeCloseTo(a.end - a.start, 9);
+      expect(a.end - a.start).toBeCloseTo(end - start, 9);
+    }
   });
 
   it('extends a RAMPED clip past its own footage span at the held end rate', () => {
