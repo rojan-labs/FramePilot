@@ -216,4 +216,48 @@ from a hang, which is exactly how I first read it. Needs confirming whether the 
 render path surfaces progress (it has `/render/jobs/{job_id}`) before calling this a defect
 of the product rather than of the CLI.
 
-Result pending.
+**H2 ❓ Throughput.** The render is genuinely CPU-bound — 100% CPU with 10+ child
+processes (per-clip ffmpeg work) — not hung. Elapsed time for the 61s vertical output is
+being measured; result pending. A first attempt died when its foreground tool call timed
+out, which is a harness artefact, not an engine fault.
+
+---
+
+## I. Fixes landed this session
+
+Branch **`fix/release-1.0-audit-2026-09-13`** (worktree `../FramePilot-release-audit`),
+pushed. The main checkout stays on `main`, per this repo's worktree rule.
+
+| Commit | Fix | Verification |
+|--------|-----|--------------|
+| `2fb8b200` | **G1** — desktop startup log reports the real active provider instead of the unset env var | `pnpm --filter @framepilot/desktop typecheck` ✅ |
+| `2fb8b200` | **F1** — `scripts/audit-project.mjs` promoted to a repo script (portable path, actionable "build it first" error, multi-file, exits non-zero only on errors) | run over all 6 real projects: 0 errors, exit 0 ✅ |
+| `8f9541dc` | **J1** — successful `/health` probes drop to DEBUG so the request log stops being 2000 heartbeat lines an idle hour; failing probes stay at INFO | `tests/test_service.py` **107 passed**, ruff ✅, mypy ✅ |
+
+### J1 detail — the health heartbeat was burying the request log
+
+The desktop polls `/health` every 5s for as long as it is open, and the request middleware
+logged every call at INFO. With uvicorn's own access line that is **three lines every five
+seconds** — the render/analyze/transcribe calls the log exists to show are buried in
+heartbeats, and an engine log attached to a bug report is mostly noise.
+
+A passing probe now logs at DEBUG; a **non-200 probe still logs at INFO**, because "health
+started returning 503" is the one thing worth reading that log for.
+
+Two tests lock both halves. The failing-probe test replaces the real `/health` route rather
+than adding a second one — FastAPI matches the *first* route registered for a path, so an
+added route never runs and the test would have passed for the wrong reason. It did, until
+I checked.
+
+---
+
+## K. Loop status — what I'd do next, in priority order
+
+1. **Finish the render measurement (H2)** and, if 61s of output really costs minutes,
+   profile where: per-clip ffmpeg spawn, the grade chain, or the ramp resampling.
+2. **Render progress reporting (H1)** — the CLI is silent for the whole job.
+3. **Self-contained capability packs (B1)** — the one item I'd call a genuine 1.0 blocker,
+   because the current packs only work on this machine.
+4. **Confirm D10** (AI memory never accumulating accept/reject) against `packages/ai-sdk`.
+5. **Reconcile `.env` with `ai-config.json` (A3/F2)** — stale `claude-opus-4-8`, and a
+   `FRAMEPILOT_AI_PROVIDER=deepseek` that no longer matches anything the app does.
