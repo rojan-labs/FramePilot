@@ -757,10 +757,10 @@ than installing with the wrong modes. No signed catalog has been published.
 
 **What is left is genuinely not code** — needs a person, a credential, or a decision:
 
-- **Size caps:** visual-embed's weights alone (1501.6 MiB) exceed its 1200 MiB cap (payload
-  1781 MiB); visual-describe is 2709 MiB against 2600. Options: an fp16/int8 SigLIP 2 text encoder
-  (~540–800 MiB, new pins + backend support), moving the 500M model pair (606.8 MiB) to an optional
-  pack, or raising the caps. No weight was changed.
+- ~~**Size caps**~~ — **decided 2026-09-14: raised.** visual-embed 1200 → 2000 MiB (payload
+  1781 MiB, weights alone 1501.6), visual-describe 2600 → 3000 MiB (payload 2709 MiB), each with
+  ~10–12% headroom so unexpected growth still fails the build. No weight was changed; the fp16/int8
+  text encoder and the separate low-RAM pack were not taken.
 - **Credentials:** `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `CSC_NAME`, `APPLE_ID`,
   `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `CAPABILITY_PACK_CATALOG_SIGNING_KEY`; variables
   `CAPABILITY_PACK_CATALOG_KEY_ID`, `CAPABILITY_PACK_ARTIFACT_BASE_URL`,

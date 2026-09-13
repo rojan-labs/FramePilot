@@ -55,10 +55,12 @@ opencv = "opencv-contrib-python-headless"
 numpy = "numpy"
 
 [artifact]
-# ~1.6 GiB: the 2.2 B Q4_K_M default plus its mmproj, the 500 M low-RAM alternative plus
-# its mmproj, and the llama.cpp binary. The ceiling leaves room for the embedded
-# interpreter and OpenCV's natives without leaving room for a surprise.
-max_unpacked_mib = 2600
+# Measured 2026-09-14 (darwin-arm64): the built payload is 2709 MiB — 2499.8 MiB of pinned
+# weights (the 2.2 B Q4_K_M default + mmproj 1893.0, the 500 M low-RAM pair 606.8) plus the
+# llama.cpp runtime, OpenCV's natives and the embedded interpreter. The old 2600 MiB ceiling was
+# 109 MiB short. Raised by maintainer decision, keeping the low-RAM pair in this pack; the
+# ceiling keeps ~10% headroom so a surprise still fails the build.
+max_unpacked_mib = 3000
 license_notice = "LICENSES.md"
 sbom = "pack/sbom"
 download_discloses = ["size", "licenses", "model provenance", "local-only execution"]

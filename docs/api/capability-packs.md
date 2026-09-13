@@ -239,8 +239,11 @@ Still the maintainer's, and not done by any workflow:
   not yet releasable.
 - **Visual Embed and Visual Describe SBOMs.** Neither worker has `tools/generate_sbom.py` or a
   `pack/sbom/` record, so their release records fail closed at the license step.
-- **Size caps.** See the measured residual below; raising a cap or changing what ships is a
-  product decision.
+- **Size caps — decided 2026-09-14: raised.** Visual Embed's cap went from 1200 to 2000 MiB and
+  Visual Describe's from 2600 to 3000 MiB, so both measured payloads fit with roughly 10–12%
+  headroom and an unexpected growth still fails the build. The alternatives were not taken: an
+  fp16 or int8 SigLIP 2 text tower (about 540–800 MiB smaller, but new pins and backend support)
+  and moving the 500M low-memory pair (606.8 MiB) into a separate optional pack.
 
   Measured 2026-09-14 on darwin-arm64. Health check passes from the relocated payload in all
   three builds. Sizes are the sum of file bytes, which is what `prepare-artifact` records:
@@ -248,18 +251,12 @@ Still the maintainer's, and not done by any workflow:
   | Pack            | Before     | After    | Cap  | Weights (unchanged)                                 | Largest non-weight parts                |
   | --------------- | ---------- | -------- | ---- | --------------------------------------------------- | --------------------------------------- |
   | Tracking Lite   | —          | 178 MiB  | 400  | 0                                                   | OpenCV                                  |
-  | Visual Embed    | 1812.0 MiB | 1781 MiB | 1200 | 1501.6 MiB (SigLIP 2 fp32 text tower alone: 1077.1) | OpenCV 139, onnxruntime 76, Python 27   |
-  | Visual Describe | 2750.5 MiB | 2709 MiB | 2600 | 2499.8 MiB (2.2B pair 1893.0, 500M pair 606.8)      | OpenCV 137, llama runtime 31, Python 27 |
+  | Visual Embed    | 1812.0 MiB | 1781 MiB | 2000 | 1501.6 MiB (SigLIP 2 fp32 text tower alone: 1077.1) | OpenCV 139, onnxruntime 76, Python 27   |
+  | Visual Describe | 2750.5 MiB | 2709 MiB | 3000 | 2499.8 MiB (2.2B pair 1893.0, 500M pair 606.8)      | OpenCV 137, llama runtime 31, Python 27 |
 
-  The weights alone exceed Visual Embed's cap, so no build-side trimming can fit it. Visual
-  Describe is 109 MiB over. Its llama.cpp dylibs ship under both their versioned and
-  unversioned names, a 15.5 MiB duplicate forced by the no-symlink artifact rule unless
-  `models.py` pins the unversioned names instead. Options, none taken:
-
-  - an fp16 or int8 SigLIP 2 text tower, which needs backend support and new pins and
-    shrinks the text tower by about 540–800 MiB
-  - the 500M low-memory pair (606.8 MiB) as a separate optional pack
-  - raising `max_unpacked_mib` to match what ships
+  Visual Describe's llama.cpp dylibs still ship under both their versioned and unversioned names,
+  a 15.5 MiB duplicate forced by the no-symlink artifact rule unless `models.py` pins the
+  unversioned names instead.
 
 - **Install-time execute bits and a zip-surviving signature** were two blockers for any real
   catalog install. Both are now fixed with the signed `executables` list and the native launcher
