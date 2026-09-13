@@ -1,0 +1,109 @@
+# Visual Embed Capability Pack verification.
+#
+# Mirrors the Tracking Lite and Subject Intelligence workflows: `workers/visual-embed`
+# is a standalone artifact project, not a workspace member, and neither onnxruntime nor
+# its ~1.5 GiB of model weights may ever enter the base application's environment.
+#
+# WHY THE WEIGHT TIER IS DISPATCH-ONLY (unlike the two smaller packs): this pack's pinned
+# weights are ~1.5 GiB per platform per run. Pulling that on every PR that touches the
+# worker is an infrastructure-cost decision nobody has made, so pull requests run the tier
+# that needs no ML stack and no weights, and the real-inference proof runs on demand and
+# inside `capability-pack-release.yml` before an artifact is produced.
+#
+# NO SBOM TIER YET: this worker has no `tools/generate_sbom.py` and no `pack/sbom/`
+# record, although its manifest names one. Adding a drift check without a generator
+# would be a check of nothing; that gap is tracked in docs/api/capability-packs.md.
+name: Capability Pack — Visual Embed
+
+on:
+  pull_request:
+    paths:
+      - 'workers/visual-embed/**'
+      - '.github/workflows/capability-pack-visual-embed.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'workers/visual-embed/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-visual-embed-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: workers/visual-embed
+
+jobs:
+  # Tier 1 runs everywhere and proves the worker's own logic needs neither onnxruntime
+  # nor a downloaded weight.
+  protocol-and-policy:
+    name: Protocol and policy (no ML stack, no weights)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Unit suite
+        run: uv run --python 3.13 --with pytest --no-project pytest -q
+      - name: Lint
+        run: uv run --python 3.13 --with ruff --no-project ruff check .
+      - name: Typecheck
+        run: uv run --python 3.13 --with mypy --no-project mypy
+      - name: Weights must never be committed
+        # ~1.5 GiB of binaries with their own licences belong in a signed pack artifact,
+        # not in every clone of the base repository.
+        working-directory: .
+        run: |
+          if git ls-files workers/visual-embed/models | grep -v '^workers/visual-embed/models/.gitignore$'; then
+            echo "::error::model weights must not be committed; they are fetched by digest"
+            exit 1
+          fi
+      - name: Base app must not depend on this worker
+        # The engine legitimately NAMES this pack (it receives a host-verified handle to
+        # it), so this guards imports, not mentions. An import would put onnxruntime and
+        # the weights inside the base installer.
+        working-directory: .
+        run: |
+          if grep -rnE '^\s*(from|import)\s+framepilot_visual_embed' \
+              --include='*.py' engine/python/framepilot_engine; then
+            echo "::error::the base render engine must never import the Visual Embed worker"
+            exit 1
+          fi
+          if grep -n '"workers/' pnpm-workspace.yaml pyproject.toml; then
+            echo "::error::the worker must not be a workspace member"
+            exit 1
+          fi
+
+  # Tier 2, on demand only (see header): pinned weights + real inference, per platform,
+  # because the artifact is platform bound.
+  inference-proof:
+    name: Real-inference proof (${{ matrix.platform }})
+    if: github.event_name == 'workflow_dispatch'
+    needs: protocol-and-policy
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: macos-14 # Apple Silicon
+            platform: darwin-arm64
+          - runner: windows-latest
+            platform: win32-x64
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Install the CV extra from the exact lock
+        run: uv sync --extra cv --no-dev --locked --python 3.13
+      - name: Fetch the pinned weights and verify every digest
+        run: uv run --no-dev python tools/fetch_models.py
+      - name: Weights must still match their pins
+        run: uv run --no-dev python tools/fetch_models.py --check
+      - name: Embedding and face-identity proof on real content
+        run: uv run --extra cv --no-dev --with pytest pytest -m decoded_media -q
