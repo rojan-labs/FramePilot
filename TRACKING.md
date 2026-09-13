@@ -716,3 +716,60 @@ build job exists to catch.
 
 The build now emits the unsigned artifact and the digest those steps consume, so the
 remaining work is credentialed release engineering rather than missing capability.
+
+---
+
+# Q. Live agent run — find and fix
+
+Real `Orchestrator.streamAgent`, `claude-agent-sdk` / **claude-sonnet-5**, against a sidecar
+built from the current tree (port 8802, mission fixtures root), so every fix in this branch
+is in play. Run detached, as the harness requires.
+
+## Q1 — Batch 1: clean sweep
+
+`montage-30s`, `trim-first-clip-10s`, `captions-plain`, `match-color-to-first-clip`
+
+| metric | value |
+|---|---|
+| intent accuracy · target resolution · boundary precision | **100% · 100% · 100%** |
+| operation validity · first-pass acceptance · reversibility | **100% · 100% · 100%** |
+| accepted edits · silent successes · failures | 4 · 0 · **0** |
+| grade/transition numbers with no measured basis | **0%** of 1 |
+| tokens / accepted edit | 86,990 |
+
+All four cases scored **1.00**, first-pass, undo OK — including `captions-plain` at 1457
+operations and `montage-30s` at 26. No functional gap surfaced.
+
+**Two numbers I checked rather than assumed.** `frames seen / accepted edit: 0.00` and
+`footage-surface calls / run: 0.00` look alarming — the model edited without ever pulling a
+frame. They are not a defect here: the harness **does** now pass `ctx.ledger`
+(`mission-baseline.mjs:373`), so the cheap perception path is live, and
+`match-color-to-first-clip` produced its one numeric **with a measured basis** (0% guessed).
+The ledger is what a frame pull would otherwise have been for. The older note about the
+harness never sending the ledger is stale.
+
+## Q2 🔧 The run found a real gap in my own cost fix · `ab4ecae8`
+
+Every case reported `usd=0`, and the summary printed
+`tier-priced cost / accepted edit  $0.000`.
+
+For `claude-agent-sdk` that is nearly right — a subscription has no per-token charge. But
+the **same 0** is produced for `openrouter` or `deepseek`, where it means *"this SDK has no
+rates for that provider"*, not *"this run was free"*. My N1 fix made the budget honest and
+left the **reporting** ambiguous: `usd: 0` now meant two different things.
+
+That is precisely the ambiguity `modelCalls` already exists to resolve on the other axis —
+its own comment says *"a $0/0-token run means two completely different things depending on
+this number"*. So `UsageEvent.priced` draws the same distinction for the dollar figure.
+
+The metrics layer was **already built for this**: `usd: number | null`, with every dollar
+aggregate filtering on `!== null`. It was simply never handed a null, so an unpriced
+provider's 0 flowed in as a measurement and `usdPerAcceptedEdit: 0` rendered as good news
+instead of as no data. The harness now maps `priced: false` → `null`; the existing filters
+do the rest.
+
+Additive and optional, so an event persisted before the field existed keeps the old reading.
+Golden fixtures regenerated — the only content change is `priced` (`true` for the Anthropic
+adapter sessions, `false` for the mock-provider corpus).
+
+**ai-sdk: 5020 passed, 0 failed** · typecheck · eslint clean.
