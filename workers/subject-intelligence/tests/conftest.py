@@ -71,7 +71,13 @@ class ScriptedBackend:
     def model_digests(self) -> dict[str, str]:
         return {"scripted.onnx": "0" * 64}
 
-    def open_frames(self, path: str, first_frame: int, last_frame_exclusive: int) -> ScriptedSource:
+    def open_frames(
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
+    ) -> ScriptedSource:
         if self.media_unreadable:
             raise MediaUnreadableError(f"cannot read {path}.")
         self.source = ScriptedSource(frames=self.frames)

@@ -65,15 +65,36 @@ def _configure_opencv() -> None:
 
 
 class OpenCvFrameSource:
-    """Sequential reader bounded to the host-approved frame range."""
+    """Sequential reader bounded to the host-approved range, sampled on the request's grid.
 
-    def __init__(self, path: str, first_frame: int, last_frame_exclusive: int) -> None:
+    The host numbers frames on the PROJECT frame rate (it does not know the
+    file's), so request frame ``n`` means source time ``n / fps``. Seeking by the
+    file's own frame index read the wrong moment whenever the rates differ — a
+    60 fps file tracked in a 30 fps project started at half the clip's in-point.
+    With ``fps`` given, the reader maps each grid time to the file frame showing
+    at that time: it skips frames when the file is faster and holds the current
+    frame when the file is slower, so the sample count and numbering still match
+    the request exactly. Without ``fps`` (or when the file reports no rate) it
+    keeps the historical file-index behaviour.
+    """
+
+    def __init__(
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
+    ) -> None:
         self._capture = cv2.VideoCapture(path)
         if not self._capture.isOpened():
             raise MediaUnreadableError(f"could not open approved media handle: {path}")
         self._remaining = last_frame_exclusive - first_frame
-        if first_frame > 0:
+        self._grid = _grid_mapping(float(self._capture.get(cv2.CAP_PROP_FPS)), fps, first_frame)
+        if self._grid is not None:
+            self._capture.set(cv2.CAP_PROP_POS_FRAMES, float(self._grid.next_file_index))
+        elif first_frame > 0:
             self._capture.set(cv2.CAP_PROP_POS_FRAMES, float(first_frame))
+        self._current: DecodedFrame | None = None
         width = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if width <= 0 or height <= 0:
@@ -93,14 +114,62 @@ class OpenCvFrameSource:
     def read(self) -> Frame | None:
         if self._remaining <= 0:
             return None
-        ok, frame = self._capture.read()
-        if not ok or frame is None:
-            return None
+        if self._grid is None:
+            ok, frame = self._capture.read()
+            if not ok or frame is None:
+                return None
+            self._remaining -= 1
+            return DecodedFrame(color=frame, gray=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        target = self._grid.target_file_index()
+        while self._current is None or self._grid.current_file_index < target:
+            ok, frame = self._capture.read()
+            if not ok or frame is None:
+                # The media ends before this grid time: the range is bounded by
+                # what exists, never padded with a repeated last frame.
+                return None
+            self._current = DecodedFrame(
+                color=frame, gray=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+            )
+            self._grid.advance()
+        self._grid.emitted += 1
         self._remaining -= 1
-        return DecodedFrame(color=frame, gray=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+        return self._current
 
     def close(self) -> None:
         self._capture.release()
+
+
+#: Absorbs float error so a grid time exactly on a file frame maps to that frame.
+_GRID_EPSILON: Final = 1e-6
+
+
+@dataclass(slots=True)
+class _GridMapping:
+    """Request-grid frame ``first + emitted`` → the file frame on screen at that time."""
+
+    grid_fps: float
+    file_fps: float
+    first_frame: int
+    next_file_index: int
+    current_file_index: int = -1
+    emitted: int = 0
+
+    def target_file_index(self) -> int:
+        seconds = (self.first_frame + self.emitted) / self.grid_fps
+        return int(seconds * self.file_fps + _GRID_EPSILON)
+
+    def advance(self) -> None:
+        self.current_file_index = self.next_file_index
+        self.next_file_index += 1
+
+
+def _grid_mapping(file_fps: float, grid_fps: float | None, first_frame: int) -> _GridMapping | None:
+    if grid_fps is None or not grid_fps > 0.0 or not file_fps > 0.0 or file_fps != file_fps:
+        return None
+    start = int(first_frame / grid_fps * file_fps + _GRID_EPSILON)
+    return _GridMapping(
+        grid_fps=grid_fps, file_fps=file_fps, first_frame=first_frame, next_file_index=start
+    )
 
 
 class OpenCvRegionTracker:
@@ -151,9 +220,13 @@ class OpenCvBackend:
         return self._name
 
     def open_frames(
-        self, path: str, first_frame: int, last_frame_exclusive: int
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
     ) -> OpenCvFrameSource:
-        return OpenCvFrameSource(path, first_frame, last_frame_exclusive)
+        return OpenCvFrameSource(path, first_frame, last_frame_exclusive, fps)
 
     def optical_flow(
         self, previous: Frame, current: Frame, points: Sequence[Point]

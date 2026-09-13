@@ -82,8 +82,13 @@ class TrackingBackend(Protocol):
         """Stable backend identity reported in the handshake and every result."""
 
     def open_frames(
-        self, path: str, first_frame: int, last_frame_exclusive: int
-    ) -> FrameSource: ...
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
+    ) -> FrameSource:
+        """Frames ``first..last`` on the request's ``fps`` grid (source time ``n / fps``)."""
 
     def optical_flow(
         self, previous: Frame, current: Frame, points: Sequence[Point]

@@ -142,7 +142,11 @@ class ScriptedBackend:
         return (end[0] - start[0], end[1] - start[1])
 
     def open_frames(
-        self, path: str, first_frame: int, last_frame_exclusive: int
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
     ) -> ScriptedFrameSource:
         if self.media_unreadable:
             raise MediaUnreadableError(f"could not open approved media handle: {path}")

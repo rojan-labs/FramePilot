@@ -47,7 +47,9 @@ class StubBackend:
     name = "stub"
     model_digests: ClassVar[dict[str, str]] = {"m.onnx": "c" * 64}
 
-    def open_frames(self, path: str, first: int, last: int) -> object:  # pragma: no cover
+    def open_frames(  # pragma: no cover
+        self, path: str, first: int, last: int, fps: float | None = None
+    ) -> object:
         raise NotImplementedError
 
     def detect_faces(self, frame: object) -> tuple[()]:  # pragma: no cover
