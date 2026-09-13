@@ -1832,7 +1832,8 @@
       "type": "usage",
       "tokens": 510,
       "usd": 0.0097425,
-      "modelCalls": 3
+      "modelCalls": 3,
+      "priced": true
     },
     {
       "id": "turn_parity:assistant",

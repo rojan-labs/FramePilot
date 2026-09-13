@@ -469,6 +469,8 @@ export interface RunCostSeed {
   readonly usd: number;
   /** Model calls already made for this turn. Absent ⇒ unknown, counted as none. */
   readonly modelCalls?: number;
+  /** See {@link UsageEvent.priced} — `false` means `usd` is a placeholder, not a price. */
+  readonly priced?: boolean;
 }
 
 /**
@@ -9563,7 +9565,12 @@ export class Orchestrator {
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
         // the single terminal `emit.usage(...)` contract every route shares.
-        yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+        yield emit.usage({
+          tokens: usageTokens,
+          usd: usageUsd,
+          modelCalls,
+          priced: pricing !== undefined,
+        });
         // Say the refusal out loud. The per-turn path emits these as warnings through the
         // reducer (`onTurnResult`); a run that ends here has no turn left to carry them, and
         // silence is how "your edit was refused" becomes "your edit was applied".
@@ -9689,7 +9696,12 @@ export class Orchestrator {
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,
       // completed turns, a repair call) — settle honestly with whatever cost accrued
       // before the throw, same as `finalize`'s normal-exit emission.
-      yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+      yield emit.usage({
+        tokens: usageTokens,
+        usd: usageUsd,
+        modelCalls,
+        priced: pricing !== undefined,
+      });
       // Per-step reasoning nodes each settled themselves (streamAssistant's abort-safe
       // settle) — no shared per-run node to close here.
       yield emit.status(aborted ? 'cancelled' : 'failed');

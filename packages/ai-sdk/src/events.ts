@@ -483,6 +483,21 @@ export interface UsageEvent extends AiEventBase {
    * `summarizeUsage` treats conservatively.
    */
   readonly modelCalls?: number;
+  /**
+   * Whether `usd` is a PRICE or a placeholder.
+   *
+   * Same distinction {@link modelCalls} draws, on the other axis. `usd: 0` means two
+   * different things: a run this SDK can price that genuinely cost nothing, and a run on
+   * a provider whose rates are not in this repo — where 0 is the honest stand-in for
+   * "unknown", not a measurement (see `kernel/cost/cost-meter.ts#runPricingFor`). Reading
+   * the second as the first is how a golden summary reports `usdPerAcceptedEdit: 0` for a
+   * paid provider and looks like good news.
+   *
+   * `false` ⇒ unpriced: ignore `usd`, and say "not priced" rather than "free". Optional so
+   * an emitter that does not know (or an event persisted before this field existed) is not
+   * forced to claim one — `undefined` keeps the old reading, that `usd` is a price.
+   */
+  readonly priced?: boolean;
 }
 
 /**
@@ -1313,7 +1328,13 @@ export interface TurnEmitter {
   /** Streamed 0..1 progress for a task's long effect (K0.2). */
   effectProgress(taskId: string, label: string, value: number): EffectProgressEvent;
   /** A run's real, priced cost (P7.1) — raw numbers; the host formats them (never rendered raw by default). */
-  usage(cost: { tokens: number; usd: number; modelCalls?: number }): UsageEvent;
+  usage(cost: {
+    tokens: number;
+    usd: number;
+    modelCalls?: number;
+    /** See {@link UsageEvent.priced}. */
+    priced?: boolean;
+  }): UsageEvent;
   /** Current model call's prompt occupancy; re-emitted with exact provider usage when available. */
   contextUsage(detail: {
     usedTokens: number;
@@ -1479,6 +1500,7 @@ export function createTurnEmitter(ref: TurnRef, startSeq = 0): TurnEmitter {
       tokens: cost.tokens,
       usd: cost.usd,
       ...(cost.modelCalls !== undefined ? { modelCalls: cost.modelCalls } : {}),
+      ...(cost.priced !== undefined ? { priced: cost.priced } : {}),
     }),
     contextUsage: (detail) => ({
       ...base(`${ref.turnId}:context-usage`),

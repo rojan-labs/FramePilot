@@ -337,7 +337,8 @@
       "type": "usage",
       "tokens": 0,
       "usd": 0,
-      "modelCalls": 1
+      "modelCalls": 1,
+      "priced": false
     },
     {
       "id": "turn_golden:status:4",

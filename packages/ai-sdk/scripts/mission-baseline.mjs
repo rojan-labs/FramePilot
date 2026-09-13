@@ -486,7 +486,12 @@ async function runTurn({ project, turn, history, scenarioId, run, turnIndex, car
         cacheRead: t.cacheReadInputTokens ?? null,
       })),
       summary: turns.length ? summarizeRunMetrics(turns) : null,
-      usd: usage?.usd ?? null,
+      // `priced: false` means the SDK cannot price this provider, so `usd` is 0 as a
+      // stand-in for "unknown" (cost-meter.ts#runPricingFor). The metrics layer already
+      // models that as null and filters it out of every dollar aggregate; passing the 0
+      // through instead reported `usdPerAcceptedEdit: 0` for a paid provider, which reads
+      // as good news rather than as no data.
+      usd: usage?.priced === false ? null : (usage?.usd ?? null),
       usageTokens: usage?.tokens ?? null,
       toolCalls: toolCalls.length,
       toolCallsByName: countBy(toolCalls, (e) => e.toolName),

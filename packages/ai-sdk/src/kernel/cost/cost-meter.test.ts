@@ -173,3 +173,19 @@ describe('runPricingFor — what a run may honestly be charged for', () => {
     expect(runPricingFor({ name: 'openrouter', modelId: 'whatever' })).toBeUndefined();
   });
 });
+
+describe('an unpriced run must not read as a free one', () => {
+  it('distinguishes "cost nothing" from "cannot be priced"', () => {
+    // The usage event carries usd 0 in BOTH cases, which is why `priced` exists: the
+    // golden summary filtered on the number and reported `usdPerAcceptedEdit: 0` for a
+    // paid provider — no data, rendered as good news. Same distinction `modelCalls`
+    // already draws between a deterministic recipe and a provider that reported nothing.
+    expect(runPricingFor({ name: 'openrouter', modelId: 'inclusionai/ling-3.0-flash' })).toBe(
+      undefined,
+    );
+    const priced = runPricingFor({ name: 'anthropic', modelId: 'claude-sonnet-5' });
+    expect(priced).not.toBe(undefined);
+    // A priced run really costing nothing is a legitimate 0 — no usage, no charge.
+    expect(estimateUsd(priced!.primaryTier, { input: 0, output: 0 }, priced!.prices)).toBe(0);
+  });
+});
