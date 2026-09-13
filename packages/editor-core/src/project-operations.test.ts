@@ -1014,3 +1014,33 @@ describe('validatePatch — project ops', () => {
     expect(result.valid).toBe(true);
   });
 });
+
+describe('add_marker on an id that is already taken', () => {
+  const base = (): Project =>
+    baseProject({ markers: [{ id: 'marker_hook', time: 1.5, label: 'Hook' }] });
+
+  it('is a NO-OP when the marker is already exactly there', () => {
+    // Marker ids are derived from the label, so an agent that mentions a beat twice mints
+    // the same id twice. A rejected op fails the WHOLE patch, so one restated marker used
+    // to throw away every edit beside it — six runs lost work that way.
+    const project = base();
+    const after = applyProjectOperation(project, {
+      type: 'add_marker',
+      id: 'marker_hook',
+      time: 1.5,
+      label: 'Hook',
+    });
+    expect(after.markers).toEqual(project.markers);
+  });
+
+  it('still refuses DIFFERENT content under a taken id, and says what is there', () => {
+    expect(() =>
+      applyProjectOperation(base(), {
+        type: 'add_marker',
+        id: 'marker_hook',
+        time: 9,
+        label: 'Hook',
+      }),
+    ).toThrow(/already exists.*sits at 1\.5s labelled "Hook".*this one is 9s/s);
+  });
+});

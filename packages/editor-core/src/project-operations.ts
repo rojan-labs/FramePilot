@@ -213,6 +213,10 @@ const withMarkers = (project: Project, markers: readonly Marker[]): Project => (
   markers: markers.slice(),
 });
 
+/** Same marker, in the only sense `add_marker` can restate: id, time, label and colour. */
+const markersEqual = (a: Marker, b: Marker): boolean =>
+  a.id === b.id && a.time === b.time && a.label === b.label && a.color === b.color;
+
 const markerFromOp = (op: AddMarkerOp): Marker => ({
   id: op.id,
   time: op.time,
@@ -345,8 +349,25 @@ export function applyProjectOperation(project: Project, op: ProjectOperation): P
     case 'set_ai_memory':
       return { ...project, aiMemory: { ...op.memory } };
     case 'add_marker': {
-      if (project.markers.some((m) => m.id === op.id)) {
-        throw new ProjectOperationError('duplicate_marker', `Marker id already exists: ${op.id}`);
+      const clash = project.markers.find((m) => m.id === op.id);
+      if (clash !== undefined) {
+        // Re-adding the SAME marker is a no-op, not a failure. Marker ids are derived
+        // from the label (`marker_hook_motion_design`), so an agent that mentions a beat
+        // twice mints the same id twice — and because a rejected op fails the WHOLE
+        // patch, one repeated marker threw away every edit beside it. Six runs lost work
+        // to this. A marker that is already exactly there has nothing to do.
+        if (markersEqual(clash, markerFromOp(op))) return project;
+        // Genuinely different content under a taken id IS a conflict, but the old
+        // sentence named only the id — leaving the caller to guess what it collided with
+        // and, in practice, to reissue the identical call. Name what is already there.
+        throw new ProjectOperationError(
+          'duplicate_marker',
+          `Marker id already exists: ${op.id}. It sits at ${Number(clash.time.toFixed(3))}s` +
+            `${clash.label === undefined ? '' : ` labelled "${clash.label}"`}, and this one ` +
+            `is ${Number(op.time.toFixed(3))}s` +
+            `${op.label === undefined ? '' : ` labelled "${op.label}"`}. Use a different id, ` +
+            'or remove_marker first if you meant to move it.',
+        );
       }
       if (!Number.isFinite(op.time) || op.time < 0) {
         throw new ProjectOperationError(
