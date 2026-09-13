@@ -153,14 +153,20 @@ jobs:
         run: |
           set -euo pipefail
           payload="$OUT/$PACK/payload"
-          # Libraries first, the entrypoint last, so nothing is signed before what it loads.
+          entrypoint="$payload/bin/$(sed -n 's/^entrypoint = "\(.*\)"/\1/p' "workers/$PACK/pack/manifest.toml" | head -1)"
+          # The entrypoint is the compiled launcher (scripts/pack-launcher/launcher.c). It must
+          # be a Mach-O: a shell script's signature lives in extended attributes, which the
+          # host's ZIP install drops, so a signed script would arrive unsigned.
+          file -b "$entrypoint" | grep -q 'Mach-O' || { echo "::error::$entrypoint is not a Mach-O launcher"; exit 1; }
+          # Every other Mach-O first (interpreter, extension modules, dylibs), the launcher last.
           while IFS= read -r -d '' file; do
+            [[ "$file" == "$entrypoint" ]] && continue
             if file -b "$file" | grep -q 'Mach-O'; then
               codesign --force --timestamp --options runtime --sign "$CSC_NAME" "$file"
             fi
           done < <(find "$payload" -type f -print0)
-          entrypoint="$(sed -n 's/^entrypoint = "\(.*\)"/\1/p' "workers/$PACK/pack/manifest.toml" | head -1)"
-          codesign --force --timestamp --options runtime --sign "$CSC_NAME" "$payload/bin/$entrypoint"
+          codesign --force --timestamp --options runtime --sign "$CSC_NAME" "$entrypoint"
+          codesign --verify --strict --verbose=2 "$entrypoint"
           echo "signed=true" >> "$GITHUB_OUTPUT"
 
       - name: Re-verify the (signed) payload, enforce the size cap, archive

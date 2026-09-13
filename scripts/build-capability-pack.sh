@@ -12,7 +12,9 @@
 # it, because any one silently regressing puts a build-machine path back:
 #
 #   1. `uv venv --relocatable` — console scripts get a `#!/bin/sh` wrapper that
-#      resolves the interpreter next to themselves.
+#      resolves the interpreter next to themselves. The ENTRYPOINT's wrapper is then
+#      replaced by a compiled launcher doing the same (`install_native_launcher`), because
+#      a shell script's signature does not survive the host's ZIP install.
 #   2. The interpreter is a real file, not uv's symlink to its managed CPython.
 #   3. The STANDARD LIBRARY is inside the payload and `pyvenv.cfg` is gone. A venv's
 #      `pyvenv.cfg` names `home = <build machine's CPython>/bin`, and the stdlib lives
@@ -154,6 +156,8 @@ build_payload() {
   find "$PAYLOAD" -type d -name __pycache__ -prune -exec rm -rf {} +
   find "$PAYLOAD/lib/python$PY_VERSION/site-packages" -type d -name tests -prune -exec rm -rf {} +
 
+  install_native_launcher
+
   # (5) Pinned model weights, for the packs that ship them. `fetch_models.py` verifies
   # each file against `pack/models.lock.toml`. Only the PINNED set is copied: a
   # `models/` directory also holds build inputs — Visual Describe's 10.6 MiB runtime
@@ -180,6 +184,36 @@ for archive in lock.get("archive", []):
   fi
 
   assert_standalone
+}
+
+# Replace uv's `#!/bin/sh` console-script wrapper with a compiled launcher that does the same
+# thing (scripts/pack-launcher/launcher.c). WHY: a script's macOS code signature lives in
+# extended attributes, which the host's ZIP install does not carry, so a signed wrapper
+# arrives unsigned. A Mach-O embeds its signature. There is no shell-wrapper fallback: the
+# only platform this script builds for release is darwin (Linux is a local-dev convenience
+# the launcher also supports), and no Windows builder exists.
+install_native_launcher() {
+  local wrapper="$PAYLOAD/bin/$ENTRYPOINT" target module function
+  target="$(sed -n 's/^from \([A-Za-z_][A-Za-z0-9_.]*\) import \([A-Za-z_][A-Za-z0-9_]*\)$/\1 \2/p' "$wrapper" | head -1)"
+  module="${target% *}"; function="${target#* }"
+  # Replicate the console script the WORKER declared, not a guess; an unparseable wrapper
+  # means uv changed its format and the launcher would run something else.
+  [[ -n "$target" && "$module" == "$(sed -n 's/^entrypoint_module = "\(.*\)"/\1/p' "$MANIFEST" | head -1)".* ]] || {
+    echo "FAIL: cannot derive the console-script target from $wrapper (or it disagrees with entrypoint_module)" >&2
+    exit 1
+  }
+  local config="$BUILD_DIR/launcher-config.h"
+  printf '#define FP_PYTHON_CODE "import sys\\nfrom %s import %s\\nsys.exit(%s())"\n' \
+    "$module" "$function" "$function" > "$config"
+  rm -f "$wrapper"
+  cc -Os -std=gnu11 -Wall -Wextra -Werror -include "$config" \
+    "$REPO_ROOT/scripts/pack-launcher/launcher.c" -o "$wrapper" >&2
+  chmod 755 "$wrapper"
+  if [[ "$OS" == darwin ]] && ! file -b "$wrapper" | grep -q 'Mach-O'; then
+    echo "FAIL: the entrypoint $wrapper is not a Mach-O executable" >&2
+    exit 1
+  fi
+  echo "  launcher  bin/$ENTRYPOINT -> python -P -c 'from $module import $function'" >&2
 }
 
 assert_standalone() {
