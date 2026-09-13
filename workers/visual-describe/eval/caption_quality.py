@@ -56,7 +56,10 @@ sys.path.insert(0, str(PACK_ROOT / "src"))
 from make_fixtures import FPS, SECONDS, SLATE_TEXT  # noqa: E402
 
 from framepilot_visual_describe.protocol import PROTOCOL_VERSION  # noqa: E402
-from framepilot_visual_describe.schema import TIER2_VERSION  # noqa: E402
+from framepilot_visual_describe.schema import DESCRIBE_INSTRUCTION, TIER2_VERSION  # noqa: E402
+
+#: Free-text fields that must describe the picture, never repeat the prompt.
+FREE_TEXT_FIELDS = ("summary", "subject", "action", "setting", "mood")
 
 #: Words that assert a human being is in frame. Matched whole-word and case-insensitively
 #: against `subject` and `action`; `summary` is excluded because it may legitimately say
@@ -149,6 +152,22 @@ def score(name: str, shot: dict[str, Any]) -> list[dict[str, Any]]:
     text_items = [t for t in (shot.get("onScreenText") or []) if t.strip()]
     claimed = " ".join(str(shot.get(field) or "") for field in ("subject", "action"))
     person = PERSON_RE.search(claimed)
+
+    # Scored on EVERY fixture. This eval once passed 9/9 while the shipped prompt made the
+    # model return its own per-field hints as every value on real footage: none of the
+    # checks below looks at what a field says unless a person or a slate is involved.
+    instruction = DESCRIBE_INSTRUCTION.lower()
+    echoed = [
+        field
+        for field in FREE_TEXT_FIELDS
+        if len(str(shot.get(field) or "").strip()) >= 8
+        and str(shot.get(field)).strip().lower().rstrip(".") in instruction
+    ]
+    checks.append({
+        "check": "no_instruction_echo",
+        "ok": not echoed,
+        "detail": f"copied the prompt into {echoed!r}" if echoed else "no field repeats the prompt",
+    })
 
     if name in EMPTY_FIXTURES:
         checks.append({
