@@ -1090,17 +1090,18 @@ def test_compile_moves_a_tracked_mask_over_time(
         [{"id": "v", "type": "video", "clips": [clip]}],
         assets=[{"id": "a1", "path": "tm.mp4", "kind": "video"}],
     )
-    box_keyframes = [
-        {
-            "id": f"tracking__c1__mask__{prop}__{round(time * 1_000_000)}",
-            "time": time,
-            "property": prop,
-            "value": value,
-            "easing": "linear",
-        }
-        for time, x in ((0.0, 0.0), (1.0, 0.5))
-        for prop, value in (("x", x), ("y", 0.0), ("width", 0.5), ("height", 1.0))
-    ]
+    def box_keyframes(prefix: str) -> list[dict[str, Any]]:
+        return [
+            {
+                "id": f"{prefix}__{prop}__{round(time * 1_000_000)}",
+                "time": time,
+                "property": prop,
+                "value": value,
+                "easing": "linear",
+            }
+            for time, x in ((0.0, 0.0), (1.0, 0.5))
+            for prop, value in (("x", x), ("y", 0.0), ("width", 0.5), ("height", 1.0))
+        ]
     timeline = apply_operation(
         project.timeline,
         TrackObject.model_validate(
@@ -1110,7 +1111,7 @@ def test_compile_moves_a_tracked_mask_over_time(
                 "target": "bounding_box",
                 "region": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
                 "engine": "framepilot.tracking-lite@1.0.0",
-                "keyframes": [{**k, "id": k["id"].replace("__mask", "")} for k in box_keyframes],
+                "keyframes": box_keyframes("tracking__c1"),
             }
         ),
     )
@@ -1122,7 +1123,7 @@ def test_compile_moves_a_tracked_mask_over_time(
                 "clipId": "c1",
                 "shape": "rectangle",
                 "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
-                "keyframes": box_keyframes,
+                "keyframes": box_keyframes("tracking__c1__mask"),
             }
         ),
     )
