@@ -10,6 +10,7 @@ import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { operationsForCall } from '../tool-dispatch.js';
 import type { ToolContext } from '../tool-context.js';
+import { overflowingWords } from '../overlay-fit.js';
 import { getTool } from '../tool-registry.js';
 
 function project(): Project {
@@ -222,9 +223,13 @@ describe('stock cutaways are held to the number the brief asked for', () => {
 });
 
 describe('a title that cannot fit its box is refused with the size that would', () => {
-  it('names the word, the box, and the largest size that fits', () => {
+  it('FITS a title that would run out the frame, instead of refusing it', () => {
     // Run `4a8e`: "Breck, opening weekend" at a size where "weekend" needed 119% of the
     // frame in an 80% box, caught only by the safe-area check afterwards.
+    //
+    // This used to throw, naming the largest size that would fit — and run `160b7557`
+    // showed the model does not act on that: five titles, refused once each, retried
+    // none, and the export shipped with no titles at all. The fit is applied here now.
     const call = (sizePercent: number) =>
       operationsForCall(
         {
@@ -244,9 +249,26 @@ describe('a title that cannot fit its box is refused with the size that would', 
           project: parseProject({ ...project(), resolution: { width: 1080, height: 1920 } }),
         } as unknown as ToolContext,
       );
-    expect(() => call(30)).toThrow(/"weekend" does not fit/);
-    expect(() => call(30)).toThrow(/largest size that fits this box is sizePercent \d+(\.\d)?/);
-    expect(call(8).some((op) => op.type === 'add_text_overlay')).toBe(true);
+    // The overlay lands either way; what changes is the style it lands with.
+    const oversized = call(30);
+    expect(oversized.some((op) => op.type === 'add_text_overlay')).toBe(true);
+    const styled = oversized.find((op) => op.type === 'set_effect_params');
+    const params = (styled as { params: Record<string, number> } | undefined)?.params;
+    // Either the box was widened to keep the requested size, or the size came down —
+    // never left at the 30 that would have run out the sides.
+    const keptSize = params?.['fontSizePercent'] ?? 30;
+    const box = params?.['boxWidthPercent'] ?? 80;
+    expect(keptSize < 30 || box > 80).toBe(true);
+    // Whatever it chose must actually fit.
+    expect(
+      overflowingWords(
+        { text: 'Breck, opening weekend', fontSizePercent: keptSize, boxWidthPercent: box },
+        { width: 1080, height: 1920 },
+      ),
+    ).toEqual([]);
+    // A size that always fitted is left exactly alone.
+    const small = call(8).find((op) => op.type === 'set_effect_params');
+    expect((small as { params: Record<string, number> }).params['fontSizePercent']).toBe(8);
   });
 });
 
@@ -268,38 +290,50 @@ describe('adjust_audio names the legal move when both targets are given', () => 
   });
 });
 
-describe('a title that does not fit is refused under a named cause', () => {
+describe('a title that does not fit is FITTED, not refused', () => {
   // Run `df81d58e` (2026-09-08): "PRINCIPLES at sizePercent 18", then 16, then 15 — three
-  // sentences for one rule, and the repeated-failure guard, keyed on text, saw no repeat.
-  it('carries refusalCause text_does_not_fit, which survives an applied edit', async () => {
+  // sentences for one rule. That was solved by naming the cause so the repeated-failure
+  // guard could see one rule instead of three sentences. Run `160b7557` then showed the
+  // guard was solving the wrong half: the model does not retry a fit refusal at all. It
+  // asked for five titles, was refused once each, retried none, and the export shipped
+  // with no titles. So the size is now brought into range instead of the call rejected.
+  it('lands the overlay at a size that fits rather than rejecting the call', async () => {
     const { ARRANGEMENT_INDEPENDENT_CAUSES } = await import('../tool-refusal.js');
-    const { ToolInvocationError } = await import('../tool-dispatch.js');
-    let thrown: unknown;
-    try {
-      operationsForCall(
-        {
-          id: 'c',
-          name: 'add_text_layer',
-          arguments: {
-            trackId: 'titles',
-            text: '8 PRINCIPLES',
-            start: 6.3,
-            end: 10.1,
-            sizePercent: 18,
-            boxWidthPercent: 70,
-          },
+    const ops = operationsForCall(
+      {
+        id: 'c',
+        name: 'add_text_layer',
+        arguments: {
+          trackId: 'titles',
+          text: '8 PRINCIPLES',
+          start: 6.3,
+          end: 10.1,
+          sizePercent: 18,
+          boxWidthPercent: 70,
         },
+      },
+      {
+        project: parseProject({ ...project(), resolution: { width: 1080, height: 1920 } }),
+      } as unknown as ToolContext,
+    );
+    expect(ops.some((op) => op.type === 'add_text_overlay')).toBe(true);
+    const params = (
+      ops.find((op) => op.type === 'set_effect_params') as
+        | { params: Record<string, number> }
+        | undefined
+    )?.params;
+    expect(
+      overflowingWords(
         {
-          project: parseProject({ ...project(), resolution: { width: 1080, height: 1920 } }),
-        } as unknown as ToolContext,
-      );
-    } catch (error) {
-      thrown = error;
-    }
-    // `operationsForCall` wraps the refusal; the cause rides on the wrapper so the
-    // orchestrator can key the run's memory on it without a second import.
-    expect(thrown).toBeInstanceOf(ToolInvocationError);
-    expect((thrown as { refusalCause?: string }).refusalCause).toBe('text_does_not_fit');
+          text: '8 PRINCIPLES',
+          fontSizePercent: params?.['fontSizePercent'] ?? 18,
+          boxWidthPercent: params?.['boxWidthPercent'] ?? 70,
+        },
+        { width: 1080, height: 1920 },
+      ),
+    ).toEqual([]);
+    // The cause stays registered for text no size can rescue, and stays
+    // arrangement-independent: it is a property of the words, not of the timeline.
     expect(ARRANGEMENT_INDEPENDENT_CAUSES.has('text_does_not_fit')).toBe(true);
   });
 });

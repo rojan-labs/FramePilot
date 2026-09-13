@@ -48,6 +48,15 @@ import {
 import { filterString, id, numeric, seconds } from './tool-args.js';
 
 /**
+ * The widest a text box may be widened to in order to keep the size the editor asked for.
+ *
+ * 100 is the whole frame edge to edge, which leaves a title touching both sides — legible,
+ * but it reads as a mistake and any safe-area check will flag it. Stopping short keeps a
+ * visible margin, and text that still does not fit comes down in size instead.
+ */
+const MAX_BOX_WIDTH_PERCENT = 92;
+
+/**
  * The effect lane to apply to: the named one, else the first that exists.
  *
  * Returns `undefined` when there is none, which is the caller's signal to create
@@ -394,27 +403,58 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // the export alike, and the safe-area check can only say so afterwards. The fit is
       // arithmetic on the text and the box, so it is decided here: run `4a8e` set "Breck,
       // opening weekend" at a size where "weekend" needed 119% of the frame in an 80% box.
-      if (a.sizePercent !== undefined && a.boxWidthPercent !== undefined) {
+      //
+      // FIT IT, don't refuse it. This used to throw, naming the largest size that would
+      // fit — and the model did not use it. Run `160b7557` asked for five titles
+      // ("MASTERING", "PRINCIPLES", "SUBSCRIBERS", "557,000", "SCHOOL"), was refused once
+      // each, retried none of them, and the export shipped with NO titles at all. Across
+      // the three runs that hit this, 64 `add_text_layer` calls produced 11 overlays.
+      //
+      // Refusing spends a whole model call to be told a number this function has already
+      // computed. A title one size smaller is an ordinary typographic compromise; a
+      // missing title is a hole in the edit. So the fit is applied here, the same way the
+      // speed-ramp tool fits its slot by default rather than refusing a ramp that would
+      // overrun it.
+      //
+      // Widening the box is preferred where it is enough, because that KEEPS the size the
+      // editor asked for; shrinking is the fallback for text no box can hold. The chosen
+      // values ride the ops, so the applied patch states the size that was really used.
+      let sizePercent = a.sizePercent;
+      let boxWidthPercent = a.boxWidthPercent;
+      if (sizePercent !== undefined && boxWidthPercent !== undefined) {
         const over = overflowingWords(
-          { text: a.text, fontSizePercent: a.sizePercent, boxWidthPercent: a.boxWidthPercent },
+          { text: a.text, fontSizePercent: sizePercent, boxWidthPercent },
           ctx.project.resolution,
         )[0];
         if (over !== undefined) {
-          const fits = largestFittingSizePercent(a.text, a.boxWidthPercent, ctx.project.resolution);
-          throw new ToolRefusalError(
-            `"${over.word}" does not fit: at sizePercent ${String(a.sizePercent)} it needs about ` +
-              `${String(over.requiredBoxWidthPercent)}% of the frame width and boxWidthPercent is ` +
-              `${String(a.boxWidthPercent)}, so it would run out the sides of the frame. ` +
-              (fits !== undefined
-                ? `The largest size that fits this box is sizePercent ${String(fits)}; `
-                : '') +
-              (over.requiredBoxWidthPercent <= 100
-                ? `or widen boxWidthPercent to ${String(over.requiredBoxWidthPercent)}.`
-                : 'no box is wide enough at this size, so the size has to come down.'),
-            // Named so the guard keys on the RULE, not on the sentence — which embeds the
-            // size that was tried and therefore changed on every retry.
-            { refusalCause: 'text_does_not_fit' },
-          );
+          if (over.requiredBoxWidthPercent <= MAX_BOX_WIDTH_PERCENT) {
+            boxWidthPercent = over.requiredBoxWidthPercent;
+          }
+          // Re-measure rather than trust the widen: `requiredBoxWidthPercent` answers for
+          // the widest word, and the box may also have been left where it was. Whatever
+          // still overflows comes down in size, against the box as it now stands.
+          if (
+            overflowingWords(
+              { text: a.text, fontSizePercent: sizePercent, boxWidthPercent },
+              ctx.project.resolution,
+            ).length > 0
+          ) {
+            const fits = largestFittingSizePercent(
+              a.text,
+              boxWidthPercent,
+              ctx.project.resolution,
+            );
+            if (fits === undefined || fits <= 0) {
+              // Not arithmetic this can solve — the text has no measurable width, or the
+              // frame has none. That is still worth saying out loud.
+              throw new ToolRefusalError(
+                `"${over.word}" cannot be fitted in this frame at any size. Shorten the ` +
+                  'text, or split it across two overlays.',
+                { refusalCause: 'text_does_not_fit' },
+              );
+            }
+            sizePercent = fits;
+          }
         }
       }
       const placed = createLaneAllocator(ctx.project.timeline).allocate(a.trackId, a.start, a.end);
@@ -437,11 +477,11 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
       // reads it, and the renderer resolves it), and one shared vocabulary is worth more
       // than a shorter call. Undo still removes both in one step — they are one patch.
       const params: Record<string, unknown> = {
-        ...(a.sizePercent === undefined ? {} : { fontSizePercent: a.sizePercent }),
+        ...(sizePercent === undefined ? {} : { fontSizePercent: sizePercent }),
         ...(a.color === undefined ? {} : { color: a.color }),
         ...(a.background === undefined ? {} : { background: a.background }),
         ...(a.align === undefined ? {} : { align: a.align }),
-        ...(a.boxWidthPercent === undefined ? {} : { boxWidthPercent: a.boxWidthPercent }),
+        ...(boxWidthPercent === undefined ? {} : { boxWidthPercent }),
         ...(a.xPercent === undefined ? {} : { xPercent: a.xPercent }),
         ...(a.yPercent === undefined ? {} : { yPercent: a.yPercent }),
       };
