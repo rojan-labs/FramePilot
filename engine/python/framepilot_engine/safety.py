@@ -58,8 +58,11 @@ def resolve_within(base: Path, candidate: str) -> Path:
 
     if resolved_candidate != resolved_base and resolved_base not in resolved_candidate.parents:
         raise PathTraversalError(
-            f"Path escapes sandbox. base={resolved_base} candidate={candidate!r} "
-            f"resolved={resolved_candidate}"
+            f"Path escapes sandbox. This engine instance is configured for projects "
+            f"root base={resolved_base}, candidate={candidate!r} resolved={resolved_candidate}. "
+            "If this path is expected to be valid, this sidecar may have been started "
+            "for a different projects root — check which sidecar/port is handling the "
+            "request."
         )
 
     return resolved_candidate
