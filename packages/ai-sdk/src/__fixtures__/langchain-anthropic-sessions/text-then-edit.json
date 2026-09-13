@@ -1232,7 +1232,9 @@
       "tokens": 340,
       "usd": 0.006495,
       "modelCalls": 2,
-      "priced": true
+      "priced": true,
+      "cacheReadTokens": 80,
+      "cacheWriteTokens": 20
     },
     {
       "id": "turn_parity:assistant",

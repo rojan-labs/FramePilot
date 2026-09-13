@@ -749,7 +749,9 @@
       "tokens": 0,
       "usd": 0,
       "modelCalls": 2,
-      "priced": false
+      "priced": false,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
     },
     {
       "id": "turn_golden:status:9",

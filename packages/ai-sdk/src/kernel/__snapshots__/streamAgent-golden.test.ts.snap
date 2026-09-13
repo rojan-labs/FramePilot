@@ -82,6 +82,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "type": "status",
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:3",
       "modelCalls": 0,
@@ -3024,6 +3026,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:38",
       "modelCalls": 9,
@@ -3422,6 +3426,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:5",
       "modelCalls": 1,
@@ -3768,6 +3774,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:3",
       "modelCalls": 1,
@@ -3963,6 +3971,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:2",
       "modelCalls": 0,
@@ -4380,6 +4390,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "type": "error",
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:4",
       "modelCalls": 2,
@@ -4854,6 +4866,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:5",
       "modelCalls": 1,
@@ -5659,6 +5673,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:8",
       "modelCalls": 2,
@@ -6624,6 +6640,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:11",
       "modelCalls": 2,
@@ -7616,6 +7634,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:12",
       "modelCalls": 2,
@@ -8316,6 +8336,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:10",
       "modelCalls": 1,
@@ -8889,6 +8911,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:8",
       "modelCalls": 1,
@@ -10457,6 +10481,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:18",
       "modelCalls": 3,
@@ -10651,6 +10677,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:4",
       "modelCalls": 0,
@@ -11236,6 +11264,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:7",
       "modelCalls": 1,
@@ -11469,6 +11499,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:4",
       "modelCalls": 0,
@@ -11907,6 +11939,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:5",
       "modelCalls": 1,
@@ -13193,6 +13227,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:14",
       "modelCalls": 3,
@@ -14431,6 +14467,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       },
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:14",
       "modelCalls": 3,
@@ -14704,6 +14742,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "type": "error",
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:4",
       "modelCalls": 0,
@@ -14977,6 +15017,8 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
       "type": "error",
     },
     {
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0,
       "conversationId": "conv_1",
       "id": "turn_1:usage:4",
       "modelCalls": 0,

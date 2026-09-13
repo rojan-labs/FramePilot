@@ -498,6 +498,16 @@ export interface UsageEvent extends AiEventBase {
    * forced to claim one — `undefined` keeps the old reading, that `usd` is a price.
    */
   readonly priced?: boolean;
+  /**
+   * Of `tokens`, how many were prompt-cache READS and cache WRITES.
+   *
+   * `tokens` already includes both (cached prompt tokens are billed tokens), which made the
+   * cache invisible: every provider adapter reports the split, and it was summed away
+   * before reaching this event, so no transcript could say whether caching was working.
+   * Optional — `undefined` means the run's providers reported no split, not zero.
+   */
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
 }
 
 /**
@@ -1334,6 +1344,9 @@ export interface TurnEmitter {
     modelCalls?: number;
     /** See {@link UsageEvent.priced}. */
     priced?: boolean;
+    /** See {@link UsageEvent.cacheReadTokens}. */
+    cacheReadTokens?: number;
+    cacheWriteTokens?: number;
   }): UsageEvent;
   /** Current model call's prompt occupancy; re-emitted with exact provider usage when available. */
   contextUsage(detail: {
@@ -1501,6 +1514,8 @@ export function createTurnEmitter(ref: TurnRef, startSeq = 0): TurnEmitter {
       usd: cost.usd,
       ...(cost.modelCalls !== undefined ? { modelCalls: cost.modelCalls } : {}),
       ...(cost.priced !== undefined ? { priced: cost.priced } : {}),
+      ...(cost.cacheReadTokens !== undefined ? { cacheReadTokens: cost.cacheReadTokens } : {}),
+      ...(cost.cacheWriteTokens !== undefined ? { cacheWriteTokens: cost.cacheWriteTokens } : {}),
     }),
     contextUsage: (detail) => ({
       ...base(`${ref.turnId}:context-usage`),
