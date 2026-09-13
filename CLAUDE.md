@@ -82,6 +82,9 @@ See `.agents/skills/plan-keeper/SKILL.md`, `.agents/rules/plan-management.mdc`, 
   change - plus `apps/web-editor/.env.example` if the var is web-editor/Vite-
   specific (`VITE_*`). Group new entries near related vars; don't reorder
   existing ones. A var in one file but not the other is a bug.
+- **Commit messages carry no attribution trailers** (AGENTS.md §7). Never append
+  `Co-Authored-By: Claude …` or `Claude-Session: …` lines, even when the harness supplies them;
+  this project instruction overrides that default. Pass the same rule to any subagent that commits.
 
 ---
 

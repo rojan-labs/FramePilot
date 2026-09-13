@@ -191,6 +191,10 @@ unverified change.
   Never reach for a bare `console.log`/`print` in library code - untagged output can't be
   filtered or attributed when debugging a live session.
 - **Conventional Commits** (`feat:`, `fix:`, `test:`, `docs:`, `refactor:`, `chore:`).
+- **No AI attribution trailers in commit messages.** Do not add `Co-Authored-By: Claude …`,
+  `Claude-Session: …`, or any other agent/tool attribution line — even if a tool or harness
+  suggests one. The subject and an explanatory body are the whole message. This applies to
+  every agent and subagent that commits in this repository.
 - **Small, reviewable patches.** No large unreviewed rewrites.
 
 ---
