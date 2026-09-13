@@ -488,6 +488,21 @@ Then the USD cap only ever fires on a number the product can actually stand behi
 Not landed: it is multi-file plumbing into a shipped budget feature, and the
 "what happens when prices are unknown" half is a product decision. Ready to land on request.
 
+**🔧 Resolved to the core (2026-09-14, `d59cc710`).** N1 fixed the price TABLE; the tier LABEL
+was still what got priced. Every cost site now asks `pricingForCall(tier)` — the class of the
+model `providerForTier(tier)` actually resolves to, or unpriced:
+
+| call | was priced as | now |
+|---|---|---|
+| classifier | `small`, on the run provider's table | the model routing ran on (a configured cheap model, else the run's own) |
+| editing turns (`tier: 'mid'` effects) | `this.provider` | `providerForTier('mid')` |
+| repair pass | `large` | the model serving `large` |
+| edit variations | fixed `mid` | the run model's own class |
+
+A run is `priced` only when no call ran on an unpriceable model. The six golden scenarios that
+flipped to `priced: true` all have `modelCalls: 0` — genuinely free. Tests: Opus routing bills at
+the large rate, a Haiku classifier at small, an unpriceable classifier marks the run unpriced.
+
 ---
 
 # N. Fix pass — in order
@@ -935,6 +950,18 @@ with the evidence above so the gate has something concrete to judge.
 
 **Severity note:** of everything found this session, this is the one that *destroys user
 footage* on a plausible instruction. I would rank it above the remaining pack-pipeline work.
+
+**🔧 Resolved to the core (2026-09-14).** Both halves:
+
+- **The product now knows what a repeated take is** (`7c33bc7a`). `editor-core/source-repeats.ts`
+  is the single definition — picture clips of one asset whose source overlaps by more than
+  0.5 s, each repeat naming the first clip that plays the material. The agent reads it where it
+  plans: the clip row gains `replays <clip> source`, and `get_clips` rows carry
+  `replaysSourceOf`. The rubric scores against the same function. Different moments of one
+  asset — the clips the recorded run destroyed — are explicitly NOT repeats (tested). A project
+  with no repeats renders a byte-identical prompt.
+- **The case measures removal, not a precondition** (`39596077`): the runner places the repeats
+  (`setup: repeat-opening-shot`) and the case is one "Drop the duplicate takes." turn.
 
 ---
 

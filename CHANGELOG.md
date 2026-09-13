@@ -31,6 +31,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fragments of its own instructions ("who or what the shot is of") instead of what was in
   the frame. It now writes what it sees, and a description that only repeats the prompt is
   discarded rather than saved.
+- **The assistant can tell a repeated take from a different moment.** Asked to remove
+  duplicate takes, it could delete two different shots from the same camera file, because it
+  had no way to see which clips play the same footage twice. It now sees exactly which clips
+  repeat another and leaves distinct moments alone.
+- **The run cost shown for an AI edit matches the model that did the work.** Parts of a run
+  were priced as a fixed model class, so a run on a large model under-reported its cost and
+  some quick internal steps were priced as the wrong model.
 - **Masks show in the preview.** Masks — and tracked masks following their subject — used
   to appear only in an exported video; the preview showed the whole frame. They now play in
   the preview with the same shape, softness, inversion and motion as the export.
