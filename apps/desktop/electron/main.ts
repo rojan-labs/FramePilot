@@ -753,6 +753,7 @@ function registerIpcHandlers(): void {
         : { catalogUrl: process.env.FRAMEPILOT_CAPABILITY_PACK_CATALOG_URL }),
       trustedRootKeys: await capabilityPackRootKeys,
       appVersion: app.getVersion(),
+      runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
       fetch: electronFetch,
       onProgress: (progress) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
@@ -2073,7 +2074,12 @@ function registerIpcHandlers(): void {
         return {
           status: 'completed',
           summary: `Transcribed ${result.words.length} timed word${result.words.length === 1 ? '' : 's'}`,
-          data: { words: result.words },
+          // Attributed here, where the asset is known: an unattributed transcript replaces
+          // every other asset's words when it is applied.
+          data: {
+            assetId: asset.id,
+            words: result.words.map((word) => ({ ...word, assetId: asset.id })),
+          },
         };
       }
       const apiKey = aiConfig.resolveAsrApiKey();
@@ -2134,7 +2140,11 @@ function registerIpcHandlers(): void {
       return {
         status: 'completed',
         summary: `Transcribed ${n} timed word${n === 1 ? '' : 's'}`,
-        data: { words: result.words },
+        // The groq/nvidia/chunked adapters do not stamp `assetId` on their words; see above.
+        data: {
+          assetId: asset.id,
+          words: result.words.map((word) => ({ ...word, assetId: asset.id })),
+        },
       };
     } catch (error) {
       // The thrown message is passed through VERBATIM — it is the only account of what

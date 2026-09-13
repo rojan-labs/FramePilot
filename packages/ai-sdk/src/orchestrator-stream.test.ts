@@ -3728,6 +3728,33 @@ describe('streamAgent host tool execution (Phase T)', () => {
       expect(reduceEvents(events).status).toBe('completed');
     });
 
+    it('scopes the transcript to the transcribed asset even when the host words carry no assetId', async () => {
+      // The desktop's hosted ASR adapters return words with no `assetId`, and an unattributed
+      // set_transcript replaces EVERY asset's transcript — the other clips' words were lost.
+      const provider = new ScriptedProvider([
+        { text: 'transcribing', toolCalls: [transcribeCall] },
+        { text: 'done', toolCalls: [] },
+      ]);
+      const executor = {
+        run: async () => ({
+          status: 'completed' as const,
+          summary: 'Transcribed 1 word',
+          data: { words: [{ word: 'hi', start: 0, end: 0.5 }] },
+        }),
+      };
+      const events = await drain(
+        new Orchestrator(provider, { executor }).streamAgent(input, opts()),
+      );
+      const diff = events.find((e) => e.type === 'diff');
+      const operation = (
+        diff as { edit?: { patch?: { operations?: Array<Record<string, unknown>> } } } | undefined
+      )?.edit?.patch?.operations?.find((op) => op.type === 'set_transcript');
+      expect(operation).toMatchObject({
+        assetId: 'asset_1',
+        words: [{ word: 'hi', start: 0, end: 0.5, assetId: 'asset_1' }],
+      });
+    });
+
     it('rejects a host outcome with no data at all, preserving the existing transcript', async () => {
       const provider = new ScriptedProvider([
         { text: 'transcribing', toolCalls: [transcribeCall] },

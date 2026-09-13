@@ -471,6 +471,9 @@ export interface RunCostSeed {
   readonly modelCalls?: number;
   /** See {@link UsageEvent.priced} — `false` means `usd` is a placeholder, not a price. */
   readonly priced?: boolean;
+  /** See {@link UsageEvent.cacheReadTokens}. Absent ⇒ the seed reported no split. */
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
 }
 
 /**
@@ -496,8 +499,8 @@ function costFromUsage(
    * `budgetExhausted` has always documented and could never actually get.
    */
   prices?: Readonly<Record<ModelTier, TierPrice>>,
-): { tokens: number; usd: number } {
-  if (!usage) return { tokens: 0, usd: 0 };
+): { tokens: number; usd: number; cacheRead: number; cacheCreation: number } {
+  if (!usage) return { tokens: 0, usd: 0, cacheRead: 0, cacheCreation: 0 };
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
   // Cached prompt tokens are real, billed tokens (`cost-meter.ts#TokenUsage`). Counting
@@ -507,6 +510,10 @@ function costFromUsage(
   const cacheCreation = usage.cacheCreationInputTokens ?? 0;
   return {
     tokens: input + output + cacheRead + cacheCreation,
+    // Kept apart as well as summed: `tokens` alone cannot say whether the prompt cache is
+    // working, and the adapters report the split on every call.
+    cacheRead,
+    cacheCreation,
     usd:
       prices === undefined
         ? 0
@@ -4640,7 +4647,27 @@ export class Orchestrator {
           const note = unusableHostPayload('transcribe');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
-        const ops: AnyOperation[] = [{ type: 'set_transcript', words: parsedWords.data }];
+        // Scoped to the transcribed asset, always. An unattributed `set_transcript` is a
+        // WHOLE-PROJECT replacement (`project-operations.ts`), and the desktop's hosted ASR
+        // adapters return words without an `assetId` — so transcribing one clip through
+        // groq/nvidia replaced every other asset's transcript with words belonging to none.
+        const transcribedAssetId =
+          typeof record.assetId === 'string' && record.assetId !== ''
+            ? record.assetId
+            : typeof call.arguments.assetId === 'string' && call.arguments.assetId !== ''
+              ? call.arguments.assetId
+              : undefined;
+        const words =
+          transcribedAssetId === undefined
+            ? parsedWords.data
+            : parsedWords.data.map((word) => ({ ...word, assetId: transcribedAssetId }));
+        const ops: AnyOperation[] = [
+          {
+            type: 'set_transcript',
+            words,
+            ...(transcribedAssetId === undefined ? {} : { assetId: transcribedAssetId }),
+          },
+        ];
         const probe = assembleEdit(ctx.project, ops, 'Transcribe media', 'agent');
         /* v8 ignore start -- set_transcript is a whole-array replace with no timeline
            references to check (see validator.ts), so a schema-valid word array can
@@ -5387,7 +5414,14 @@ export class Orchestrator {
         // edit happened: the user sees the call made no change, and the agent loop
         // feeds this note back so the model moves on to the real edit rather than
         // repeating the no-op or halting on it.
-        const note = `${desc} — nothing to change`;
+        // The tool's own account of WHY rides along. `add_transitions reason:"auto"` leaves a
+        // cut hard when nothing has recognised what either side shows, and said so only on
+        // the path that built operations — so a run where every cut stayed hard got
+        // "nothing to change", reissued the identical call, and ended with no text at all.
+        const note =
+          `${desc} — nothing to change` +
+          colorSolveNote(call.name, ctx, call.arguments) +
+          transitionsNote(call.name, ctx, call.arguments);
         return { ops, note, summary: note, status: 'warning' };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -8490,6 +8524,8 @@ export class Orchestrator {
     const pricing = runPricingFor(this.provider);
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
+    let usageCacheRead = initialCost.cacheReadTokens ?? 0;
+    let usageCacheWrite = initialCost.cacheWriteTokens ?? 0;
     /**
      * Did any call this run return real evidence about what is IN the footage?
      *
@@ -8974,6 +9010,8 @@ export class Orchestrator {
             );
             usageTokens += supersededCost.tokens;
             usageUsd += supersededCost.usd;
+            usageCacheRead += supersededCost.cacheRead;
+            usageCacheWrite += supersededCost.cacheCreation;
           }
           turn = yield* streamOnce(attempt, { ...retryPrompt, messages: retryMessages });
           modelCalls += 1;
@@ -8989,6 +9027,8 @@ export class Orchestrator {
           const cost = costFromUsage(turn.usage, pricing?.primaryTier ?? 'mid', pricing?.prices);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
+          usageCacheRead += cost.cacheRead;
+          usageCacheWrite += cost.cacheCreation;
         }
         if (unusable === 'truncated' && !turn.aborted) {
           // Publishing the fragment would make a cut-off sentence the run's last word.
@@ -9485,6 +9525,8 @@ export class Orchestrator {
               const cost = costFromUsage(usage, 'large', pricing?.prices);
               usageTokens += cost.tokens;
               usageUsd += cost.usd;
+              usageCacheRead += cost.cacheRead;
+              usageCacheWrite += cost.cacheCreation;
             },
           });
           // Carried whether or not anything landed: a repair that RAN and produced nothing
@@ -9570,6 +9612,8 @@ export class Orchestrator {
           usd: usageUsd,
           modelCalls,
           priced: pricing !== undefined,
+          cacheReadTokens: usageCacheRead,
+          cacheWriteTokens: usageCacheWrite,
         });
         // Say the refusal out loud. The per-turn path emits these as warnings through the
         // reducer (`onTurnResult`); a run that ends here has no turn left to carry them, and
@@ -9701,6 +9745,8 @@ export class Orchestrator {
         usd: usageUsd,
         modelCalls,
         priced: pricing !== undefined,
+        cacheReadTokens: usageCacheRead,
+        cacheWriteTokens: usageCacheWrite,
       });
       // Per-step reasoning nodes each settled themselves (streamAssistant's abort-safe
       // settle) — no shared per-run node to close here.
