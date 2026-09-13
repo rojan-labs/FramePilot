@@ -3502,7 +3502,15 @@ async function checkForUpdates(): Promise<void> {
 void app.whenReady().then(async () => {
   aiLog.action('startup', {
     updateChannel: resolveUpdateChannel(process.env),
-    aiProvider: process.env.FRAMEPILOT_AI_PROVIDER ?? 'mock',
+    // Report the provider this launch will actually USE, which is the one persisted by
+    // Settings → AI in `ai-config.json`; `FRAMEPILOT_AI_PROVIDER` is only its fallback
+    // (see `registerIpcHandlers`). Reading the env var alone made every desktop launch
+    // announce `mock` — the env var is not set in the packaged app or in `desktop:dev` —
+    // while the app went on to call the configured provider. The one line whose job is to
+    // say what the AI layer is doing was the one line guaranteed to be wrong.
+    aiProvider: new AiConfigStore(
+      path.join(app.getPath('userData'), 'ai-config.json'),
+    ).activeProvider(),
   });
 
   setupTelemetry();
