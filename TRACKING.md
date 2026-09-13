@@ -261,3 +261,90 @@ I checked.
 4. **Confirm D10** (AI memory never accumulating accept/reject) against `packages/ai-sdk`.
 5. **Reconcile `.env` with `ai-config.json` (A3/F2)** — stale `claude-opus-4-8`, and a
    `FRAMEPILOT_AI_PROVIDER=deepseek` that no longer matches anything the app does.
+
+---
+
+## L. Run-transcript mining (418 conversations)
+
+Source: `~/Library/Application Support/@framepilot/desktop/conversations/`.
+417 have events; **226 actually edited a timeline** (191 are chat-only).
+
+### L1 — Perceptual review fails on 14% of the runs that attempt it
+
+| | |
+|---|---|
+| Runs that edited the timeline | 226 |
+| Of those, a review was attempted | 153 |
+| **Review failed** | **22 (14%)** |
+| Review succeeded | 131 |
+
+Breakdown: 8 cancelled · 7 other · 5 timed out · 5 came back *after the run ended*.
+The timeouts are large and real — `307500ms for 5 requests`, `323500ms for 32 requests`.
+The user-facing sentence is honest ("Your edits are applied and validated, but were not
+perceptually checked"), but the accuracy guarantee is the thing silently skipped, and
+the engine's own message blames queueing: *"The engine serializes one batch at a time."*
+
+Not fixed here — it needs the temporal-evidence path profiled, which is its own piece of work.
+
+### L2 — Why edits don't land, by operation (all-time, with last-seen)
+
+| op | n | last seen | still live? |
+|----|---|-----------|-------------|
+| `add_text_layer` | 9 | 2026-09-09 | yes — text that doesn't fit the frame |
+| `add_clip` | 8 | 2026-09-08 | yes — unknown asset id |
+| `add_marker` | 6 | 2026-09-09 | yes — duplicate marker id |
+| `delete_clip` | 6 | 2026-08-28 | no |
+| `caption_the_edit` | 5 | 2026-09-04 | **closed, see L3** |
+| `normalize_exposure` | 3 | 2026-09-12 | yes — called before anything is measured |
+| `set_clip_speed_ramp` | 3 | 2026-09-12 | yes |
+| `add_clips` | 3 | 2026-09-06 | yes — duplicate shot over the same moment |
+| `trim_clip` | 2 | 2026-09-12 | **FIXED, see L4** |
+| `add_transition` | 1 | 2026-09-12 | yes — "continuity" is a hard cut by policy |
+| `add_music` | 1 | 2026-09-04 | yes — one bad param fanned into **3129** rejections |
+
+### L3 🚫 `caption_the_edit` emitting 584 invalid cues — already fixed, not a live bug
+
+One run (2026-08-30 16:03) produced **584** rejected ops, all
+`add_caption_layer.end must be greater than start`. That is the same day commit
+`e4dc3e90` — *"stop the run clamp squeezing a cue out of existence at a cut"* — landed the
+fix in `captions/derive.ts`, which now absorbs a squeezed cue into the previous one of the
+same run. One occurrence, never since. Closed.
+
+### L4 🔧 FIXED — trimming a speed-ramped clip did not work
+
+The freshest run (09-12, opus-5) failed three ops, **all on the same ramped clip**. The
+`trim_clip` one is a genuine arithmetic defect, reproduced from the real project file:
+
+```
+TRIM 55.233→56.967   tl=1.733333  impliedByRamp=1.663106   DRIFT=7.0e-2  *** REJECTED ***
+TRIM 55.233→57.500   tl=2.266667  impliedByRamp=2.266667   ok
+TRIM 56.000→58.267   tl=2.266667  impliedByRamp=2.254589   DRIFT=1.2e-2  *** REJECTED ***
+```
+
+**Cause.** The trim solves the new source window against the clip's *current* curve, then
+`rebaseSpeedRamp` replaces that curve — points outside the new source range must go, and
+the curve closes with a synthetic endpoint at the rate at the cut. The rebased point moved
+from `1.4@1.6` to `1.245@1.36`: an `ease-in-out` segment restricted to part of its span is
+**not** another `ease-in-out` between the endpoint values, because the easing re-runs its
+whole S over the shorter interval and sweeps a different area. 70ms ≈ 2 frames at 30fps,
+and `speed_duration_mismatch` refuses the patch. **Trimming a ramped clip failed whenever
+the cut landed past a control point.**
+
+**Fix** (`c79889a9`). The schema cannot express "half of an ease", so the curve cannot be
+preserved. The editor's *intent* can: invert the **composed** function — pick the source
+window whose own rebased curve integrates to the requested duration. Monotonic, so the
+same bisection works; where nothing is clipped the rebase is the identity and the result
+is unchanged. A head trim gets the mirror solve, since its tail is pinned.
+
+All three cases now land exactly. **1187 editor-core tests pass**, typecheck and eslint clean.
+
+**L5 ⚠️ A conflict I deliberately did not resolve.** `split_clip` and `delete_range` share
+`truncateClip` but must partition the source *exactly* — one piece's `sourceEnd` is the
+next's `sourceStart`. The solve moves that seam by ~1e-6s and broke a split test. For a
+ramped clip those two invariants genuinely conflict, because rebasing changes each half's
+area. Resolving it properly needs a schema that can express a partial ease, which is a
+schema change and therefore a maintainer decision. The fix is scoped to `trim_clip` via an
+explicit flag; split and delete_range keep their exact partition and their existing drift.
+
+**L6 ❓ Cost.** The 09-12 opus-5 run: **1.81M tokens, $5.04, 38 model calls** for one
+conversation. Worth a budget look before 1.0.
