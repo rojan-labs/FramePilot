@@ -41,6 +41,7 @@ import type {
 import { createLogger } from '@framepilot/shared-types';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { CapabilityPackTrackingService } from './tracking.js';
+import { resolveVisualPackHandles, type VisualPackHandles } from './visual-packs.js';
 
 const CATALOG_MAX_BYTES = 10 * 1024 * 1024;
 const PROPOSAL_TTL_MS = 15 * 60 * 1_000;
@@ -185,6 +186,21 @@ export class CapabilityPackDesktopService {
       FRAMEPILOT_WHISPER_CLI: cli,
       FRAMEPILOT_ASR_MODEL_DIR: modelDir,
     };
+  }
+
+  /**
+   * Main-verified handles for the local perception packs, sent on every visual-index and
+   * visual-search request (ADR 0176).
+   *
+   * @param cacheRoot - Writable parent for each pack's derived cache; never inside a pack.
+   */
+  async visualPackHandles(cacheRoot: string): Promise<VisualPackHandles> {
+    return resolveVisualPackHandles({
+      records: await this.store.list(),
+      storageRoot: this.rootPath,
+      cacheRoot,
+      os: this.platform.os,
+    });
   }
 
   get storageRoot(): string {

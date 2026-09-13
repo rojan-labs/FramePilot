@@ -167,6 +167,11 @@ import { RunIpcHub } from './ai/run-ipc.js';
 import { describeEffectResult, describeRuntimeEffect } from './ai/effect-record.js';
 import { DurableRunControls } from './ai/durable-run-controls.js';
 import { CapabilityPackDesktopService } from './capability-packs/service.js';
+import {
+  autoEnrolmentTiers as autoEnrolmentTiersFor,
+  type VisualIndexTier,
+  type VisualPackHandles,
+} from './capability-packs/visual-packs.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
@@ -718,6 +723,26 @@ function registerIpcHandlers(): void {
   /** In-flight tracking jobs, so the renderer can cancel one by request id. */
   const trackingRuns = new Map<string, AbortController>();
   let capabilityPackService: Promise<CapabilityPackDesktopService>;
+  /**
+   * Handles for the installed local perception packs (ADR 0176), refreshed whenever the
+   * pack store changes. A handle whose pack was since removed is harmless: the engine
+   * checks the entrypoint exists and treats a missing one as "no local pack".
+   */
+  let visualPackHandles: VisualPackHandles = {};
+  const refreshVisualPackHandles = async (service: CapabilityPackDesktopService): Promise<void> => {
+    try {
+      visualPackHandles = await service.visualPackHandles(
+        path.join(app.getPath('userData'), 'capability-pack-cache'),
+      );
+      aiLog.action('visual packs resolved', {
+        embed: visualPackHandles.visualEmbedPack !== undefined,
+        describe: visualPackHandles.visualDescribePack !== undefined,
+      });
+    } catch (error) {
+      visualPackHandles = {};
+      aiLog.error('visual pack handles unavailable', { error: errorMessage(error) });
+    }
+  };
   const createCapabilityPackService = async (
     rootPath: string,
   ): Promise<CapabilityPackDesktopService> =>
@@ -735,8 +760,9 @@ function registerIpcHandlers(): void {
         }
       },
       onInstalled: async (identity) => {
-        if (identity.id !== 'framepilot.local-whisper') return;
         const service = await capabilityPackService;
+        await refreshVisualPackHandles(service);
+        if (identity.id !== 'framepilot.local-whisper') return;
         capabilityPackRuntimeEnvironment = await service.runtimeEnvironment();
         sidecar.stop();
         await sidecar.start();
@@ -822,6 +848,7 @@ function registerIpcHandlers(): void {
     .then(({ activeRoot }) => createCapabilityPackService(activeRoot));
   void capabilityPackService
     .then(async (service) => {
+      await refreshVisualPackHandles(service);
       capabilityPackRuntimeEnvironment = await service.runtimeEnvironment();
     })
     .catch((error: unknown) => {
@@ -899,6 +926,7 @@ function registerIpcHandlers(): void {
             await replacement.storage();
             await capabilityPackLocation.commit(prepared.destinationRoot, prepared.sourceRoot);
             capabilityPackService = Promise.resolve(replacement);
+            await refreshVisualPackHandles(replacement);
             capabilityPackRuntimeEnvironment = await replacement.runtimeEnvironment();
             sidecar.stop();
             await sidecar.start();
@@ -1816,7 +1844,7 @@ function registerIpcHandlers(): void {
   // (plan AGENT-NATIVE-UX T3). Shared across providers; the sidecar is per-app.
   const visualIndexCredentials = (): Pick<
     VisualIndexRequestInput,
-    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider'
+    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider' | 'visualEmbedPack' | 'visualDescribePack'
   > => {
     const providerName = aiConfig.visualCaptionProvider();
     const provider = aiConfig.resolveConfig(providerName);
@@ -1851,6 +1879,10 @@ function registerIpcHandlers(): void {
       ...(nvidiaKeys !== undefined ? { nvidiaKeys } : {}),
       ...(twelveLabsKey !== undefined ? { twelveLabsKey } : {}),
       ...(captionProvider !== undefined ? { captionProvider } : {}),
+      // Installed local perception packs (ADR 0176). Resolved asynchronously from the pack
+      // store whenever it changes; read synchronously here because the executor calls this
+      // per tool call.
+      ...visualPackHandles,
     };
   };
   // Hosted-ASR request window: clips longer than this are decoded to a mono-16k WAV
@@ -2323,17 +2355,16 @@ function registerIpcHandlers(): void {
    */
   const enrolmentShutdown = new AbortController();
   /**
-   * The tiers an UNATTENDED import may fill (see the note at its call site).
-   *
-   * `measured` is local, keyless and free, and is the whole point of ADR 0175 — it runs for
-   * everyone. `labelled` costs money only where the user has already configured an
-   * embeddings key, which is exactly the consent the deleted key gate used to require.
-   * `described` is a per-shot vision call and never runs without the user asking.
+   * The tiers an UNATTENDED import may fill (see the note at its call site, and
+   * `capability-packs/visual-packs.ts` for why an installed local pack counts as consent).
    */
-  const autoEnrolmentTiers = (): readonly ('measured' | 'labelled' | 'described')[] =>
-    aiConfig.resolveEmbeddingsKeys() !== undefined || aiConfig.resolveTwelveLabsKey() !== undefined
-      ? (['measured', 'labelled'] as const)
-      : (['measured'] as const);
+  const autoEnrolmentTiers = (): readonly VisualIndexTier[] =>
+    autoEnrolmentTiersFor({
+      hostedLabelsConfigured:
+        aiConfig.resolveEmbeddingsKeys() !== undefined ||
+        aiConfig.resolveTwelveLabsKey() !== undefined,
+      handles: visualPackHandles,
+    });
 
   // One client for the process, not one per run: its cache is keyed by asset content hash
   // and tier versions, and that cache is what makes the ledger free after the first read.
