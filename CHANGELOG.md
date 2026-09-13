@@ -31,6 +31,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fragments of its own instructions ("who or what the shot is of") instead of what was in
   the frame. It now writes what it sees, and a description that only repeats the prompt is
   discarded rather than saved.
+- **Transcribing a clip with the AI no longer erases other clips' transcripts.** With a
+  hosted speech-to-text provider selected, asking the assistant to transcribe one clip
+  replaced the words of every other clip in the project.
+- **Local transcription can be set up on builds without the downloadable pack.** Settings
+  used to stop at "catalog is not configured"; it now uses the local whisper setup.
+- **Clearer answers for footage with no sound.** Beat and silence detection on a
+  video-only clip is reported as "no audio track" instead of failing, and transcribing one
+  no longer shows a wall of ffmpeg output.
+- **The assistant stops chasing searches that cannot work.** Without footage search set
+  up, it now says so instead of repeatedly trying visual search.
+- **`framepilot render` shows progress** while it works.
 - **FAQ rows are separated when closed.** The dividers were nested inside `<details>`, so
   they only appeared once a question was already open.
 - **A tool being thrown away no longer appears twice.** It lingered on the intro's orbit

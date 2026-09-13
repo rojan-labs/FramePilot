@@ -998,3 +998,69 @@ describe) · worker 92 · ai-sdk 5 · desktop 6 · desktop typecheck, eslint, ru
 - **No lease across a worker run started by the engine.** A pack evicted mid-index fails
   that slice; the next handle refresh drops it.
 - **`find_similar`** is untouched.
+
+---
+
+# S. Integration audit — every other pack and the AI SDK host surface
+
+Four read-only audits ran in parallel (Opus 5), each tracing entry point → host → worker or
+engine → result → timeline op, and each proving its findings against the real installed
+workers or a live sidecar rather than reading code alone.
+
+## S1 🔧 AI SDK ↔ engine contracts (21 host-executed tools, ~30 contract rows)
+
+Every body the TS builders produce is accepted by its engine route; no registered tool is
+unroutable on desktop. The defects were all in how an honest engine answer was *read*:
+
+| # | defect | fix |
+|---|---|---|
+| S1.1 | `/analyze` returned `skipped` for an audio analysis of a **video-only** asset — settled as a hard `failed`, while the per-analysis routes say `unavailable` (a warning) for the same fact. Stock video is usually video-only. | `a1c4772e` engine returns `unavailable` |
+| S1.2 | `index_media` said *"You can search_visual now"* when only the keyless measured tier ran; the next three reads all refused (proved live). | `14414c1e` warns and names what is missing |
+| S1.3 | `search_visual`'s `no_api_key` had no guidance entry — the model got a bare token. | `14414c1e` |
+| S1.4 | Transcript search hits were documented as timeline time; transcript words are **asset** time. | `14414c1e` hits carry their asset's clip placements |
+
+## S2 🔧 Transcription (local-whisper pack + hosted providers)
+
+Local whisper is correct end to end on real speech: 149 words on a 49.8 s clip, pauses within
+~0.1 s of `silencedetect`, cache hit on repeat. (It runs through Homebrew's `whisper-cli`: the
+`framepilot.local-whisper` pack is not installed on this machine.)
+
+| # | defect | fix |
+|---|---|---|
+| S2.1 ❗ | **Data loss.** Agent `transcribe` through a hosted provider (groq/nvidia) built an **unattributed** `set_transcript`, which applies as a whole-project replacement — every other asset's transcript was replaced. | `ca3e10e4` host stamps the asset; orchestrator always scopes the op |
+| S2.2 | Settings → local transcription dead-ended on any build without a signed pack catalog. | `2402a8cf` falls back to local setup |
+| S2.3 | The pack runtime env derived the ASR cache from the model dir's parent — the read-only signed install. | `2402a8cf` cache in app data |
+| S2.4 | A video with no audio returned ffmpeg's whole version banner (classifier caught the wrong exception type). | `a1c4772e` |
+| S2.5 | A media file missing from disk returned a 500. | `a1c4772e` 404 naming the asset |
+
+## S3 ⏳ Tracking-lite + subject-intelligence
+
+Both workers run correctly against the real installed packs (point 100 frames/0.9 s, region,
+detect 100 frames/49.7 s, segment 60 masks), and results convert to valid, reversible ops. But:
+
+| # | severity | defect | status |
+|---|---|---|---|
+| S3.1 | blocker | tracked motion is written to an `object_track` effect that neither export nor preview reads — a successful track never moves the mask | in progress |
+| S3.2 | blocker | Inspector "Follow silhouette" always fails (`kind:'segment'` rejected) | in progress |
+| S3.3 | major | `subject.segment` > ~200 frames overflows the 1 MiB worker line | in progress |
+| S3.4 | major | frame window computed with project fps; workers seek by file frame index | in progress |
+| S3.5 | major | a point track collapses the mask to a ~2% box | in progress |
+| S3.6–9 | minor | first-usable-sample timing, clip speed ≠ 1, overflow marked retryable | in progress |
+
+## S4 — TRACKING.md open items, root-caused
+
+| item | verdict | action |
+|---|---|---|
+| Q4b transitions | **wiring bug** (zero-op result dropped the plan's own note → identical retry → empty text) **+ fixture limit** (mission ledger has no tier-1 labels, so `sameSetting` is null at every cut) | note fixed `ca3e10e4`; treating "different asset" as a location change is a guess ADR 0175 rules out → **maintainer** |
+| Q5 duplicate takes | **eval case**: turn 1 placed non-overlapping windows, so by the rubric's own definition nothing was a duplicate, and "drop the duplicate takes" right after "use the opening shot three times" naturally means those repeats | **maintainer** to re-seed the case. Product fact (a "replays <clip> source" marker on the context row) is cheap but shifts prompt goldens — proposed, not landed |
+| D10 AI memory | **bug on desktop**: `recordAccepted` runs only in `AiSidebar.applyPatch`, which returns early when Electron commits the patch; Electron never records acceptance | **maintainer**: with auto-apply every validated patch is "accepted", so recording it is weak signal |
+| H1 silent CLI render | bug | `a1c4772e` |
+| M4 cache split | bug | `22ec3d84` |
+| L5 split/delete_range on ramps | unchanged | maintainer (needs a schema that can express a partial ease) |
+
+## S5 — recorded, not fixed
+
+- Browser build advertises `detect_subjects` / `track_subject_automatically`, which fail there.
+- `/analyze` wrong-kind skip reason names no asset that would work.
+- The local-whisper pack cannot be installed until a signed catalog is published (release blocker if the packaged app should transcribe locally without Homebrew).
+- The packaged sidecar still searches PATH for `whisper-cli` (docs say it never adopts one).
