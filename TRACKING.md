@@ -773,3 +773,51 @@ Golden fixtures regenerated — the only content change is `priced` (`true` for 
 adapter sessions, `false` for the mock-provider corpus).
 
 **ai-sdk: 5020 passed, 0 failed** · typecheck · eslint clean.
+
+## Q3 — Batch 2: cut short by the Claude subscription's session limit
+
+`hook`, `broll` ×3, `vague`, `impossible`, `guard`, `clarify`, `question` ×3,
+`transitions`, `duplicates` — 13 cases, of which only **2½ produced evidence**:
+
+| case | score | intent | note |
+|------|------:|--------|------|
+| `hook-strongest-line` | **1.00** | 100% | 6 calls, 90s |
+| `broll-first-20s` | **1.00** | 100% | 3 calls, 17.9s |
+| `broll-empty-overlay-track` | 1.00 | **failed** | 2 valid ops landed, then quota hit mid-turn |
+
+Everything after that: `calls=1 prompt=0 out=0 tools=0 ops=0 wall=2s`.
+
+```
+Claude Code returned an error result:
+You've hit your session limit · resets 4:45pm (Asia/Katmandu)
+```
+
+**Every layer handled it correctly**, which is worth recording as a positive result:
+
+- the provider surfaced an actionable message, not an empty response;
+- the harness classified it `loud: true, explained: true`;
+- `summarizeGoldenRun` excluded the 12 dead turns from every rate **and** counted them;
+- `summary.md` printed, in bold:
+  `| **turns the provider never answered** | **12 — excluded from every rate above; re-run them** |`
+
+Also visible: `tier-priced cost / accepted edit (not billed) | —`. That dash is Q2's fix
+working end to end — batch 1 printed `$0.000` for the same provider.
+
+### Three defects I claimed here and disproved
+
+Recorded because each cost me a detour, and because the pattern is the same one as O4:
+reading a correct mechanism as a broken one.
+
+| claim | reality |
+|-------|---------|
+| "10 of 13 cases were silently dropped from the metrics" | 🚫 They are excluded *and* counted as `voidTurns`, exactly as the code comment promises. |
+| "A total provider failure scores 1.00 — the eval can't tell success from doing nothing" | 🚫 Void turns are excluded from every rate before scoring; the 1.00s I saw were on turns already removed from the aggregate. |
+| "`summary.md` never renders `voidTurns`" | 🚫 It renders it **in bold**. I grepped for the word "void"; the rendered wording is "turns the provider never answered". |
+
+### Still owed
+
+Ten cases have no evidence yet — `vague`, `impossible`, `guard`, `clarify`, the three
+`question` cases, `transitions`, `duplicates`, `broll-over-sentence`. They need a re-run
+after the session limit resets. `--force` is not needed: the harness skips case files that
+already exist, and these were written as void, so re-running the label picks up exactly the
+ones that produced nothing.
