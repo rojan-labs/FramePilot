@@ -248,6 +248,13 @@ export interface VisualIndexRequestInput {
    * falls back to the engine's `TWELVELABS_API_KEY` env. Host-owned, never logged.
    */
   readonly twelveLabsKey?: string;
+  /**
+   * JSON handle for the installed `framepilot.visual-embed` Capability Pack (ADR 0176).
+   * The host resolves and verifies it; the engine prefers it over the hosted embedder.
+   */
+  readonly visualEmbedPack?: string;
+  /** JSON handle for the installed `framepilot.visual-describe` Capability Pack (ADR 0176). */
+  readonly visualDescribePack?: string;
   /** Vision provider for captions; omit to skip captioning. */
   readonly captionProvider?: VisualCaptionProviderInput;
   /** Omit to start a new job (id minted + returned); pass the returned id to continue. */

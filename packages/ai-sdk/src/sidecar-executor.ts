@@ -188,7 +188,7 @@ export interface SidecarExecutorOptions {
    */
   readonly visualIndexCredentials?: () => Pick<
     VisualIndexRequestInput,
-    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider'
+    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider' | 'visualEmbedPack' | 'visualDescribePack'
   >;
   /**
    * Host-side override for `transcribe`. WHY: the local `whisper-cli` engine runs
@@ -502,7 +502,10 @@ export function unwrapSearch(toolName: string, project: Project, data: unknown):
  * that omits them silently falls back to the (empty) built-in `sqlite-vec` store even
  * when the footage was indexed through TwelveLabs. Keys never enter model context or logs.
  */
-export type VisualQueryCredentials = Pick<VisualIndexRequestInput, 'nvidiaKeys' | 'twelveLabsKey'>;
+export type VisualQueryCredentials = Pick<
+  VisualIndexRequestInput,
+  'nvidiaKeys' | 'twelveLabsKey' | 'visualEmbedPack'
+>;
 
 /**
  * The `POST /brain/visual/search` body for a `search_visual` call (plan MI5.1).
@@ -511,6 +514,8 @@ export type VisualQueryCredentials = Pick<VisualIndexRequestInput, 'nvidiaKeys' 
  * forwarded (matching `index_media`) so search reaches whichever backend indexed the
  * footage — the TwelveLabs backend when `twelveLabsKey` is set, else the built-in
  * NVIDIA vector store; each still falls back to its env key when the host holds none.
+ * The local visual-embed pack handle rides along too: footage the pack indexed lives
+ * in the pack's own vector space, and only the pack can embed a query into it.
  */
 export function visualSearchBody(
   project: Project,
@@ -527,6 +532,7 @@ export function visualSearchBody(
   if (Array.isArray(args.timeRange)) body.timeRange = args.timeRange;
   if (credentials?.nvidiaKeys) body.nvidiaKeys = credentials.nvidiaKeys;
   if (credentials?.twelveLabsKey) body.twelveLabsKey = credentials.twelveLabsKey;
+  if (credentials?.visualEmbedPack) body.visualEmbedPack = credentials.visualEmbedPack;
   return body;
 }
 

@@ -469,6 +469,13 @@ describe('visual grounding (MI6.1)', () => {
       expect(body).not.toHaveProperty('twelveLabsKey');
       expect(body).not.toHaveProperty('nvidiaKeys');
     });
+
+    it('forwards the local visual-embed pack handle so a pack-indexed brain is searchable', () => {
+      const handle = '{"packId":"framepilot.visual-embed"}';
+      const body = visualSearchBody(project, { query: 'x' }, { visualEmbedPack: handle });
+      expect(body.visualEmbedPack).toBe(handle);
+      expect(visualSearchBody(project, { query: 'x' }, {})).not.toHaveProperty('visualEmbedPack');
+    });
   });
 
   describe('describeFootageBody', () => {
