@@ -31,8 +31,11 @@ deletes the partial and starts clean.
 Verified artifacts extract only into a fresh disposable staging directory. Raw artifacts must be
 the one signed entrypoint. ZIP extraction accepts exactly the signed file allowlist; it rejects
 absolute, traversal, backslash, duplicate, extra, missing, symbolic-link, over-count, over-size, and
-over-expansion entries and writes every file with no-overwrite semantics. Failure or cancellation
-removes the whole staging directory. The production ZIP reader and its transitive helper add about
+over-expansion entries and writes every file with no-overwrite semantics. Every file is written
+`0644` whatever mode bits the archive claims. After a verified macOS extraction the host marks
+exactly the signed entrypoint plus the artifact's optional signed `executables` list `0755`. That
+list must be a duplicate-free subset of `files`, and it is the only way a bundled interpreter or
+helper binary stays runnable. Failure or cancellation removes the whole staging directory. The production ZIP reader and its transitive helper add about
 140 KiB unpacked in the development installation and pass the dependency license gate; models and
 worker binaries remain outside the base app.
 
@@ -159,7 +162,11 @@ pnpm --filter @framepilot/capability-packs release:pack -- rollback signed.json 
 
 `prepare-artifact` inventories regular files only, rejects links and unapproved license identifiers,
 requires the declared entrypoint, hashes the archive and each unpacked file, and emits the signed
-file allowlist plus a deterministic file-level SBOM. The command applies the same artifact schema as
+file allowlist plus a deterministic file-level SBOM. For a macOS artifact it also derives
+`executables` from the staged payload's real execute bits, and it refuses an entrypoint that is not
+executable. The catalog `schemaVersion` stays `1` because the field is optional and additive. A host
+older than the field drops it while parsing, so the release digest no longer matches and the install
+fails closed. No signed catalog had been published when the field was added. The command applies the same artifact schema as
 the installer, including platform executable-trust identity and raw/ZIP constraints.
 `prepare-release` validates the assembled cross-platform release and derives its canonical logical
 release digest; the later signing step recomputes that digest independently.
@@ -190,7 +197,17 @@ What runs where:
 `scripts/build-capability-pack.sh` builds a payload that is standalone by proof. It vendors the
 interpreter **and the standard library** and removes `pyvenv.cfg`. It also moves the payload and
 runs it with a scrubbed environment. It then checks that every import root lies inside the moved
-payload before running the worker's own health handshake from there. The script refuses:
+payload before running the worker's own health handshake from there.
+
+The entrypoint `bin/<entrypoint>` is a native launcher compiled from
+`scripts/pack-launcher/launcher.c` with the system `cc`, not uv's `#!/bin/sh` wrapper. It resolves
+its own real path and execs the sibling `bin/python` as `-P -c "from <module> import <function>;
+sys.exit(<function>())"`. The target comes from the wrapper it replaces. It forwards every argument
+and keeps the environment unchanged. `-P` stops the launch directory from shadowing worker modules.
+It exists because macOS keeps a script's code signature in extended attributes, and the host's ZIP
+install drops them. A Mach-O embeds its signature, so it survives. The release job signs every other
+Mach-O file first and the launcher last, then verifies it. There is no shell-wrapper fallback: the
+only release platform built is darwin. The script refuses:
 
 - a payload that references the repository or uv's managed CPython
 - a payload that contains a symbolic link, which the installer rejects
@@ -244,17 +261,14 @@ Still the maintainer's, and not done by any workflow:
   - the 500M low-memory pair (606.8 MiB) as a separate optional pack
   - raising `max_unpacked_mib` to match what ships
 
-- **Two host-side gaps that block a real catalog install of any pack built this way** (found
-  while wiring this pipeline, not changed by it):
-  1. `extractor.ts` writes every ZIP entry `0644` and marks only the signed entrypoint `0755`.
-     The entrypoint is uv's `#!/bin/sh` wrapper that `exec`s `bin/python`, and Visual Describe
-     also `exec`s `models/llama-mtmd-cli`. Both would be non-executable after installation.
-  2. The macOS entrypoint is that shell wrapper, not a Mach-O. `codesign` stores a script's
-     signature in extended attributes, which a ZIP extracted by the host does not carry, and
-     `spctl --assess --type execute` is meant for executables and apps. So the host's
-     executable-trust check cannot pass on it even when the release job signs it. The fix
-     needs a decision: a signed Mach-O launcher, per-file execute bits in the signed artifact
-     contract, or both.
+- **Install-time execute bits and a zip-surviving signature** were two blockers for any real
+  catalog install. Both are now fixed with the signed `executables` list and the native launcher
+  (see above). Proven on 2026-09-14 with an ad-hoc-signed Tracking Lite ZIP installed through the
+  real extractor: `codesign --verify --strict` passes on the extracted entrypoint, `bin/python` is
+  executable, and the host health check handshakes. The same install without `executables` fails
+  with `Permission denied`. Still unproven without credentials: the Team ID match, `spctl`
+  Gatekeeper assessment and notarization. Whether the hardened runtime (`--options runtime`) needs
+  entitlements for the interpreter's extension modules is also unproven, and needs a Developer ID run.
 - **Vendored interpreter licenses.** The release tool adds `PSF-2.0` for the vendored CPython.
   The natives python-build-standalone links into it (OpenSSL, libffi, SQLite, xz, zlib, bzip2,
   mpdecimal, ncurses) are not yet enumerated by any SBOM.
