@@ -487,3 +487,84 @@ Then the USD cap only ever fires on a number the product can actually stand behi
 
 Not landed: it is multi-file plumbing into a shipped budget feature, and the
 "what happens when prices are unknown" half is a product decision. Ready to land on request.
+
+---
+
+# N. Fix pass — in order
+
+## N1 🔧 COST (M2 + M5) — fixed · `2023d700`
+
+`runPricingFor` resolves what a run may honestly be charged for and returns **undefined —
+unpriced** when this SDK cannot know. Unpriced keeps metering tokens and reports `usd 0`,
+which finally makes `budgetExhausted`'s own documented invariant reachable.
+
+| | |
+|---|---|
+| **Priced** | the `anthropic` provider on a Claude model whose class is readable — the one case `DEFAULT_TIER_PRICING` actually describes |
+| **Unpriced** | every other provider (their rates are not in this repo, and guessing killed run `33f7e787`) |
+| **Unpriced** | `claude-agent-sdk` — it runs on the user's Claude Code **subscription**; "stopped at $5 spent" would stop a run for money nobody spends |
+| **Unpriced** | any Claude model whose class can't be read — a wrong tier is how the under-billing happened |
+
+An unpriced run is still bounded by `maxSteps` and `maxWallMs`. Only the dollar bound
+stands down, because it was the one enforced with an invented figure.
+
+**The frozen parity fixtures confirmed M5 exactly.** `CONFIG` runs `claude-opus-4-8`, and
+all four recorded sessions differ by **exactly 5.0×** in `usd` — one line each, `usd` only,
+nothing else. The recordings had encoded the bug.
+
+`ai-sdk: 5018 passed, 0 failed` · typecheck · eslint clean.
+
+## N2 🔧 REVIEW FAILURES (L1) — fixed by the render fix, verified
+
+The 14% review-failure rate and the render blow-up were **the same bug**. `temporal_evidence.py`
+imports `compile_timeline` from the render compiler, and the compiler's own docstring names
+"the temporal-evidence review" as a caller of the vectorised-audio path — the path that was
+doing a 60-step bisection per sample.
+
+The causal chain, readable in the code's own comments: the ramp map once crashed on array
+input → was fixed to map element-wise → which made it ~10⁶× too slow → so the review stopped
+crashing and started **timing out** instead.
+
+The transcripts split cleanly on it:
+
+| | |
+|---|---|
+| review failures **before** 2026-09-06 | 10 — **none** involve a speed ramp |
+| review failures **from** 2026-09-06 | 12 — **all 12** involve a speed ramp |
+
+**Measured after the fix**, on the real ramped clip through the real endpoint:
+
+```
+POST /review/temporal-evidence  (frames 1657–1748, the ramped clip)  →  6.06 s
+```
+
+with real evidence returned (luma, blackRatio, perceptual hashes). The same reviews
+previously timed out at **307,500 ms** and **323,500 ms**.
+
+## N3 🚫 EMPTY REJECTION REASONS — already fixed, verified not live
+
+Two runs reported `313 / 685 proposed changes couldn't be applied to the timeline (; ; )` —
+empty strings where reasons belonged. Root cause was two divergent op caps (100 in the
+enforcing half, 200 in the reporting half), so a turn between them was refused by one and
+invisible to the other. Unified by `87740dd1` on **2026-09-01**; the last occurrence was
+2026-09-01, none in the twelve days since. Closed without new work.
+
+## N4 🔧 `add_marker` — restating a marker no longer throws the patch away · `7ea55250`
+
+Marker ids are derived from the label, so an agent that mentions a beat twice mints the same
+id twice — and because a rejected op fails the **whole** patch, one repeated marker discarded
+every edit beside it. **Six runs lost work this way.**
+
+An identical marker now applies as a no-op. A genuine conflict still refuses, but names what
+is already there and what was asked for, instead of only the id — which is what left the
+captured runs reissuing the identical call.
+
+## N5 — still open, in order
+
+| # | Item | Note |
+|---|------|------|
+| 1 | `add_text_layer` doesn't fit (9×) | refusal already gives exact numbers; the question is whether the tool should auto-fit — product decision |
+| 2 | `add_clip` unknown asset (8×) | model naming assets that aren't in the bin |
+| 3 | `normalize_exposure` before measuring (3×) | ordering precondition; auto-measure is a product decision |
+| 4 | Self-contained capability packs (B1) | the genuine 1.0 blocker — current packs are `register-local` and work on this machine only |
+| 5 | `.env` staleness (A3) | deliberately not edited — it is the user's own gitignored config, holding live keys |
