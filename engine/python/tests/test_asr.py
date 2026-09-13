@@ -270,6 +270,49 @@ def test_whisper_cli_available_true_when_on_path(monkeypatch: pytest.MonkeyPatch
     assert asr.whisper_cli_available() is True
 
 
+def test_packaged_sidecar_never_searches_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """§S2/§S5: the packaged sidecar must not adopt a PATH `whisper-cli` — only
+    the installed Capability Pack (via `FRAMEPILOT_WHISPER_CLI`) or an explicit
+    host path is accepted. A PATH hit here would be an unreviewed, unversioned
+    binary running outside the signed-pack trust chain."""
+    monkeypatch.delenv("FRAMEPILOT_WHISPER_CLI", raising=False)
+    monkeypatch.setattr(asr.sys, "frozen", True, raising=False)
+
+    def fake_which(name: str) -> str | None:
+        # Even a PATH hit must not be adopted in packaged mode.
+        return f"/usr/bin/{name}" if name == "whisper-cli" else None
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    with pytest.raises(asr.WhisperCliNotFoundError, match="Capability Pack"):
+        asr.find_whisper_cli()
+    assert asr.whisper_cli_available() is False
+
+
+def test_packaged_sidecar_accepts_the_installed_pack_override(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The desktop app injects `FRAMEPILOT_WHISPER_CLI` from the installed
+    `framepilot.local-whisper` pack (or an explicit host path); packaged mode
+    must still accept that — only the bare-name PATH search is disabled."""
+    monkeypatch.setattr(asr.sys, "frozen", True, raising=False)
+    monkeypatch.setenv("FRAMEPILOT_WHISPER_CLI", "/Installed/local-whisper/bin/whisper-cli")
+    assert asr.find_whisper_cli() == "/Installed/local-whisper/bin/whisper-cli"
+    assert asr.whisper_cli_available() is True
+
+
+def test_dev_mode_still_falls_back_to_path(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Outside a frozen build, the PATH fallback documented for source
+    development is unchanged."""
+    monkeypatch.delenv("FRAMEPILOT_WHISPER_CLI", raising=False)
+    monkeypatch.setattr(asr.sys, "frozen", False, raising=False)
+
+    def fake_which(name: str) -> str | None:
+        return f"/usr/bin/{name}" if name == "whisper-cli" else None
+
+    monkeypatch.setattr("shutil.which", fake_which)
+    assert asr.find_whisper_cli() == "/usr/bin/whisper-cli"
+
+
 # --- Model management ---------------------------------------------------------
 
 
