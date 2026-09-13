@@ -57,7 +57,8 @@ jobs:
       - name: Lint
         run: uv run --python 3.13 --with ruff --no-project ruff check .
       - name: Typecheck
-        run: uv run --python 3.13 --with mypy --no-project mypy
+        # pytest too: this worker's `[tool.mypy] files` includes `tests`, which import it.
+        run: uv run --python 3.13 --with mypy --with pytest --no-project mypy
       - name: Weights and runtime binaries must never be committed
         working-directory: .
         run: |
