@@ -732,6 +732,45 @@ build job exists to catch.
 The build now emits the unsigned artifact and the digest those steps consume, so the
 remaining work is credentialed release engineering rather than missing capability.
 
+## P4 🔧 O4 resolved to the core (2026-09-14) — everything short of credentials
+
+"Credentialed release engineering" turned out to be wrong too: going deeper found that **no
+pack could have been installed from a catalog on any machine**, signed or not, for five
+independent reasons. All five are fixed and each is proven, not asserted:
+
+| # | root cause | fix | proof |
+|---|---|---|---|
+| 1 | the "standalone" payload still used this machine's Python: `pyvenv.cfg` pointed at `~/.local/share/uv/...` and the stdlib was never copied (a moved copy: `No module named 'encodings'`) | `f9019e66` stdlib copied, `pyvenv.cfg` removed, uv paths stripped | the payload is MOVED and run under `env -i`; every import path must resolve inside it, then the worker handshake runs from there |
+| 2 | the build emitted `.tar.gz`; the installer accepts only raw or zip | `f9019e66` zip, with `--stage payload\|finalize` so CI signs between | tracking-lite zip holds exactly its 1232 payload files, no symlinks |
+| 3 | the extractor wrote every file `0644` and made only the entrypoint executable — a pack's own interpreter could not run | `9f341daf` signed `executables` list in the artifact record, derived from real payload modes at `prepare-artifact`, applied by the installer (archive modes never trusted) | installed through the REAL extractor: `bin/python` executable, handshake OK; without the list, `exit 126 … Permission denied` |
+| 4 | the macOS entrypoint was a `#!/bin/sh` wrapper whose signature lives in xattrs, lost by a zip — the host trust check could never pass | `a0f5409c` native Mach-O launcher (`scripts/pack-launcher/launcher.c`), module baked in and signed with the binary | ad-hoc-signed build, zipped and installed: `codesign --verify --strict` → valid, satisfies its Designated Requirement |
+| 5 | the catalog installer's health check never passed `FRAMEPILOT_CAPABILITY_PACK_ROOT` (local registration did), so every weights-backed pack would have been QUARANTINED | `d1f5aa12` staging root on install, committed root on recovery | installer tests assert both |
+
+Also landed: CI verification for visual-embed and visual-describe on every PR (`8a249d5d`), and
+`capability-pack-release.yml` (`254b69c4`) chaining build → codesign → zip → notarize →
+`prepare-artifact` → `prepare-release` → catalog → `sign-catalog` → `publication-plan`, run end to
+end on a real tracking-lite build with a throwaway catalog key. Signing, notarization and catalog
+signing run only when their secrets exist and skip with a visible warning otherwise; an unsigned
+build carries `UNSIGNED00` and can never reach a signed catalog. `CAPABILITY_PACK_CATALOG_VERSION`
+stays 1: `executables` is additive, and a host that predates it fails the release digest rather
+than installing with the wrong modes. No signed catalog has been published.
+
+**What is left is genuinely not code** — needs a person, a credential, or a decision:
+
+- **Size caps:** visual-embed's weights alone (1501.6 MiB) exceed its 1200 MiB cap (payload
+  1781 MiB); visual-describe is 2709 MiB against 2600. Options: an fp16/int8 SigLIP 2 text encoder
+  (~540–800 MiB, new pins + backend support), moving the 500M model pair (606.8 MiB) to an optional
+  pack, or raising the caps. No weight was changed.
+- **Credentials:** `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `CSC_NAME`, `APPLE_ID`,
+  `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`, `CAPABILITY_PACK_CATALOG_SIGNING_KEY`; variables
+  `CAPABILITY_PACK_CATALOG_KEY_ID`, `CAPABILITY_PACK_ARTIFACT_BASE_URL`,
+  `CAPABILITY_PACK_MIN_APP_VERSION`. A Developer ID run must still confirm Team ID match, Gatekeeper
+  and whether hardened-runtime signing of the interpreter needs entitlements.
+- **Licences:** no SBOM generator for visual-embed/visual-describe (the release generator refuses to
+  hand-type a licence list), and the C libraries bundled in the interpreter are not yet listed.
+- **Windows:** no Windows builder; visual-describe pins no Windows runtime.
+- **Distribution:** CDN upload, live-catalog merge and moving `latest` remain manual.
+
 ---
 
 # Q. Live agent run — find and fix

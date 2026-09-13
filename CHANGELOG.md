@@ -31,6 +31,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fragments of its own instructions ("who or what the shot is of") instead of what was in
   the frame. It now writes what it sees, and a description that only repeats the prompt is
   discarded rather than saved.
+- **Downloadable packs can actually be installed.** Tracking, subject detection and the
+  on-device footage understanding packs could not have run once installed from the pack
+  catalog: the bundled runtime was not self-contained, was not marked runnable, lost its code
+  signature on macOS, and most packs could not find their own models during the install check.
+  All four are fixed and proven with a real install.
 - **The assistant can tell a repeated take from a different moment.** Asked to remove
   duplicate takes, it could delete two different shots from the same camera file, because it
   had no way to see which clips play the same footage twice. It now sees exactly which clips
