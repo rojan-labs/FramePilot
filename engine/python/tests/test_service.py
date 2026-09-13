@@ -11,7 +11,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
-from fastapi import HTTPException
+from fastapi import HTTPException, Response, status
 from fastapi.testclient import TestClient
 
 from framepilot_engine.audio.asr import AsrSetupTracker, ModelDownload
@@ -65,6 +65,42 @@ def test_health(client: TestClient) -> None:
     resp = client.get("/health")
     assert resp.status_code == 200
     assert resp.json()["status"] == "ok"
+
+
+def test_successful_health_probe_does_not_log_at_info(
+    client: TestClient, caplog: pytest.LogCaptureFixture
+) -> None:
+    """A passing liveness probe is not news, and the desktop app sends one every 5s.
+
+    Left at INFO it is ~2000 lines an idle hour, which buries the render/analyze calls
+    the request log exists to show. Any OTHER route must still log at INFO.
+    """
+    with caplog.at_level("INFO", logger="framepilot_engine.service"):
+        client.get("/health")
+    assert [r for r in caplog.records if "/health" in r.getMessage()] == []
+
+
+def test_failing_health_probe_still_logs_at_info(caplog: pytest.LogCaptureFixture) -> None:
+    """Quieting the probe must not quiet the one thing worth reading it for.
+
+    "health started returning 503" is exactly the signal someone opens these logs for,
+    so only a 200 is demoted to DEBUG.
+    """
+    app = create_app()
+    # Replace the real route rather than adding a second one: FastAPI matches the
+    # FIRST route registered for a path, so an added /health would never run.
+    app.router.routes = [
+        r for r in app.router.routes if getattr(r, "path", None) != "/health"
+    ]
+
+    @app.get("/health")  # type: ignore[misc]
+    def _unhealthy() -> Response:
+        return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
+
+    with caplog.at_level("INFO", logger="framepilot_engine.service"):
+        resp = TestClient(app, raise_server_exceptions=False).get("/health")
+    assert resp.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
+    assert any("503" in r.getMessage() for r in caplog.records)
 
 
 def test_no_route_blocks_the_event_loop() -> None:

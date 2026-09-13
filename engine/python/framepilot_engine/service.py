@@ -1963,14 +1963,23 @@ def create_app(
         always visible in the engine console when debugging.
         """
         start = time.monotonic()
-        _log.info("ACT → %s %s", request.method, request.url.path)
+        # The desktop app polls /health every 5s for the whole time it is open. At INFO
+        # that is three lines every five seconds (in, out, and uvicorn's own access line)
+        # forever, which buries the render/analyze/transcribe calls this log exists to
+        # show — an idle hour of logs is ~2000 heartbeat lines and nothing else. A
+        # liveness probe is only worth a line when it says something: a SUCCEEDING probe
+        # goes to DEBUG, while a failing or slow one stays at INFO below, because "health
+        # started returning 503" is exactly the signal someone reads these logs for.
+        probe = request.url.path == "/health"
+        (_log.debug if probe else _log.info)("ACT → %s %s", request.method, request.url.path)
         try:
             response = await call_next(request)
         except Exception:  # pragma: no cover - re-raised after logging
             _log.exception("ERR ✗ %s %s raised", request.method, request.url.path)
             raise
         elapsed_ms = (time.monotonic() - start) * 1000
-        _log.info(
+        quiet = probe and response.status_code == status.HTTP_200_OK
+        (_log.debug if quiet else _log.info)(
             "ACT ← %s %s → %s (%.0f ms)",
             request.method,
             request.url.path,
