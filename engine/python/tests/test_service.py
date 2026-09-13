@@ -93,7 +93,7 @@ def test_failing_health_probe_still_logs_at_info(caplog: pytest.LogCaptureFixtur
         r for r in app.router.routes if getattr(r, "path", None) != "/health"
     ]
 
-    @app.get("/health")  # type: ignore[misc]
+    @app.get("/health")
     def _unhealthy() -> Response:
         return Response(status_code=status.HTTP_503_SERVICE_UNAVAILABLE)
 
