@@ -348,3 +348,102 @@ explicit flag; split and delete_range keep their exact partition and their exist
 
 **L6 ❓ Cost.** The 09-12 opus-5 run: **1.81M tokens, $5.04, 38 model calls** for one
 conversation. Worth a budget look before 1.0.
+
+---
+
+# M. Performance / cost / token / context sweep
+
+## M1 🔧 FIXED — the render was ~1,000,000× slower than it needed to be
+
+Exporting the target project ran **35+ minutes at 100% CPU and never wrote a file**. It was
+not hung, and it was not the encoder — VideoToolbox hardware encode was selected correctly.
+
+Sampling the process showed `PyArray_FromIter` → `gen_iternext`: numpy pulling a Python
+generator one element at a time. The generator was in `render/compiler.py#ramped_time_map`.
+
+**Cause.** MoviePy hands the picture a scalar `t`, but hands **audio the whole array of
+sample times**. The map went through `source_time_at` per element — and that inverts the
+speed curve by *bisection*: `INVERSION_STEPS` passes, each re-normalising the ramp and
+Simpson-integrating every segment. Picture asks 30×/second and never noticed. **Audio asks
+44,100×/second**, so one 3.3s ramped clip is ~8 million integrations.
+
+**Fix** (`84ff4719`). The curve is strictly increasing — which is exactly why it is
+invertible — so invert it *once* into a monotonic table and apply it to the whole array
+with `np.interp` in C. Built lazily; `np.interp` clamps at both ends, which is the
+saturation `source_time_at` already had.
+
+| | before | after |
+|---|---|---|
+| map 44,100 samples (1s of audio) | **~1090 s** | **0.00095 s** |
+| speedup | | **1,152,740×** |
+| **full 61s export** | **35+ min, no file** | **77.7 s** |
+| accuracy vs exact bisection | — | max err **6.7e-07 s** = 0.032 of *one* sample @48kHz, monotonic |
+
+The 77.7s export passes **all 11 `validate-render` checks**: duration 60.867s exact,
+1080×1920@30, no black frames, no black tail, audio −3.1 dBFS (no clipping), no silent tail.
+So the agent's edit is also confirmed correct end to end, through a real render.
+
+Tests: 173 passed (ramp/speed/compiler/retime) + 26 passed (render parity, frame grab,
+cross-runtime) · ruff clean · mypy clean.
+
+The TypeScript mirror was checked for the same hazard — `sourceTimeAt` has only scalar
+call sites there, so the preview path is unaffected.
+
+## M2 ❌ COST — the dollar figure is fabricated for every non-Anthropic provider
+
+**This is not theoretical. A real run was killed by it:**
+
+```
+09-04  inclusionai/ling-3.0-flash
+"Reached this run's $26.50 budget after 153 steps ($26.61 spent) — stopping"
+```
+
+`$26.61` is **Anthropic list pricing applied to a cheap third-party flash model**.
+
+The chain:
+- `cost-meter.ts#estimateUsd` prices by `ModelTier`, from `DEFAULT_TIER_PRICING`
+  (`small $1/$5`, `mid $3/$15`, `large $15/$75` per MTok) — Anthropic list rates.
+- Nothing anywhere passes the `prices` override. Verified: the only references to
+  `DEFAULT_TIER_PRICING` outside `cost-meter.ts` are in `baseline-capture.ts`, which
+  re-exports it. **The documented config seam — "a deployment overrides this via the
+  `prices` argument … so a price change is config, not code" — is dead code.**
+- `conductor.ts#budgetExhausted` **stops the run** on `runUsd >= maxUsd`
+  (`DEFAULT_MAX_RUN_USD = 5`).
+- That function's own comment says *"An unpriced provider (usd stays 0) never trips this"* —
+  but **no provider is ever unpriced**, because the tier table always returns a number.
+
+Consequences: the spend shown to the user is wrong for most providers, and runs on cheap
+models are terminated as though they were Opus. Measured totals across 255 runs —
+**$193.54 / 38.5M tokens** — are unreliable in the dollar column; the token column is honest.
+
+**Not fixed here, deliberately.** The fix is to thread real prices from `ai-config.json`
+through `AgentOptions` → `ConductorConfig` → `costFromUsage`, and to treat a provider with
+unknown prices as genuinely unpriced so the USD cap cannot fire on a number we invented.
+That is multi-file plumbing into a **shipped budget feature**, which `CLAUDE.md` says to
+propose rather than land unreviewed. Proposed, with the evidence above.
+
+## M3 ✅ CONTEXT — measured, no issue
+
+Across every run that reported context usage:
+
+| | |
+|---|---|
+| runs above **80%** of their context window | **0** |
+| runs above 60% | 2 (72%, 63% — both `ling-3.0-flash`, 128k window) |
+| mean tokens per model call, 128k-window models | 18,437 |
+| mean tokens per model call, 1M-window models | 10,025 |
+
+No run came close to exhausting its window, and none was truncated for context. **Context
+is not a problem in this product today** — worth stating plainly rather than "fixing".
+
+## M4 ❓ TOKEN EFFICIENCY — one clear lever, not yet acted on
+
+Token spend concentrates in small-context models: the three most expensive runs are all
+`ling-3.0-flash` (128k) at 149–156 model calls and ~34k tokens/call, versus opus-5 (1M) at
+21–38 calls. More calls × similar per-call context = the token bill. The lever is model
+choice and call count, not context size (M3).
+
+Prompt-cache hit rate **cannot be measured from the transcripts** — the `usage` event
+carries only `{tokens, usd, modelCalls}`, with no cache-read/cache-write split, even though
+`cost-meter.ts#TokenUsage` models both. Adding that to the event is the prerequisite for
+any honest cache-efficiency work.
