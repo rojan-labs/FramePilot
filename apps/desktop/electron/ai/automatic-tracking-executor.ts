@@ -305,6 +305,7 @@ async function runTracking(
       capability: plan.capability as AutomaticTrackingMeasurement['plan']['capability'],
       fps: plan.fps,
       startSeconds: plan.startSeconds,
+      firstFrame: plan.firstFrame,
     },
     samples,
     engine: job.engine,
