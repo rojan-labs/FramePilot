@@ -342,7 +342,9 @@ describe('Orchestrator.streamAuto', () => {
     // run's ONE terminal `usage` event must still carry the classifier's spend, not a
     // fabricated zero.
     class UsageProvider implements AiProvider {
-      public readonly name = 'mock' as const;
+      // Priced identity: an unpriced provider reports usd 0 by design (`runPricingFor`).
+      public readonly name = 'anthropic' as const;
+      public readonly modelId = 'claude-opus-5';
       private index = 0;
       public async complete(): Promise<AiResponse> {
         this.index += 1;

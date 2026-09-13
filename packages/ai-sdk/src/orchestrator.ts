@@ -141,7 +141,8 @@ import {
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
-import { estimateUsd } from './kernel/cost/cost-meter.js';
+import { estimateUsd, runPricingFor } from './kernel/cost/cost-meter.js';
+import type { TierPrice } from './kernel/cost/cost-meter.js';
 import { EDIT_LOOK_TOOL_NAMES, stageAllowsTool, toolRole } from './kernel/stage-policy.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
@@ -487,6 +488,12 @@ function costFromUsage(
       }
     | undefined,
   tier: ModelTier = 'mid',
+  /**
+   * The run's prices, or `undefined` when this SDK cannot price the model that served
+   * the call — see {@link RunPricing}. Unpriced means `usd` stays 0, which is what
+   * `budgetExhausted` has always documented and could never actually get.
+   */
+  prices?: Readonly<Record<ModelTier, TierPrice>>,
 ): { tokens: number; usd: number } {
   if (!usage) return { tokens: 0, usd: 0 };
   const input = usage.inputTokens ?? 0;
@@ -498,7 +505,10 @@ function costFromUsage(
   const cacheCreation = usage.cacheCreationInputTokens ?? 0;
   return {
     tokens: input + output + cacheRead + cacheCreation,
-    usd: estimateUsd(tier, { input, output, cacheRead, cacheCreation }),
+    usd:
+      prices === undefined
+        ? 0
+        : estimateUsd(tier, { input, output, cacheRead, cacheCreation }, prices),
   };
 }
 
@@ -3769,6 +3779,8 @@ export class Orchestrator {
     const messages = buildContext(this.budgeted(input, toolSchemaCost(tools)));
     const ctx = this.toolContext(input);
     const variants: EditResult[] = [];
+    // Same rule as the agent loop: an unpriced provider reports 0, not a tier-table guess.
+    const variationPricing = runPricingFor(this.provider);
     let tokens = 0;
     let usd = 0;
     for (const temperature of VARIATION_TEMPERATURES.slice(0, EDIT_VARIATION_COUNT)) {
@@ -3780,7 +3792,14 @@ export class Orchestrator {
         const inputTok = response.usage.inputTokens ?? 0;
         const outputTok = response.usage.outputTokens ?? 0;
         tokens += inputTok + outputTok;
-        usd += estimateUsd(VARIATION_PRICING_TIER, { input: inputTok, output: outputTok });
+        usd +=
+          variationPricing === undefined
+            ? 0
+            : estimateUsd(
+                VARIATION_PRICING_TIER,
+                { input: inputTok, output: outputTok },
+                variationPricing.prices,
+              );
       }
       const operations: AnyOperation[] = [];
       for (const call of response.toolCalls ?? []) {
@@ -7271,7 +7290,12 @@ export class Orchestrator {
           {
             route: 'agent',
             agentOptions: autoOptions.agentOptions ?? {},
-            initialCost: { ...costFromUsage(classifierUsage, 'small'), modelCalls: 1 },
+            initialCost: {
+              // Same rule as every other cost site: an unpriced provider contributes 0,
+              // never a tier-table guess (`runPricingFor`).
+              ...costFromUsage(classifierUsage, 'small', runPricingFor(this.provider)?.prices),
+              modelCalls: 1,
+            },
           },
           {
             ...sharedEditorControls,
@@ -8458,6 +8482,10 @@ export class Orchestrator {
     // plain-number accumulator (no `CostLedger` needed — the agent loop's direct
     // provider calls have no per-call tier to fold by). Emitted once, in `finalize`/
     // `settle`, alongside the terminal diff.
+    // Resolved ONCE per run, here, because this is where the provider that will serve it
+    // is known. `undefined` ⇒ unpriced: tokens are still metered, the USD cap simply does
+    // not fire on a figure this SDK would have had to invent (see `RunPricing`).
+    const pricing = runPricingFor(this.provider);
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
     /**
@@ -8937,7 +8965,11 @@ export class Orchestrator {
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
           if (turn.usage) {
-            const supersededCost = costFromUsage(turn.usage);
+            const supersededCost = costFromUsage(
+              turn.usage,
+              pricing?.primaryTier ?? 'mid',
+              pricing?.prices,
+            );
             usageTokens += supersededCost.tokens;
             usageUsd += supersededCost.usd;
           }
@@ -8952,7 +8984,7 @@ export class Orchestrator {
         pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
         if (turn.usage) {
-          const cost = costFromUsage(turn.usage);
+          const cost = costFromUsage(turn.usage, pricing?.primaryTier ?? 'mid', pricing?.prices);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
         }
@@ -9448,7 +9480,7 @@ export class Orchestrator {
             // accumulator (the same closure `runTurn` above folds each turn's into).
             onUsage: (usage) => {
               modelCalls += 1;
-              const cost = costFromUsage(usage, 'large');
+              const cost = costFromUsage(usage, 'large', pricing?.prices);
               usageTokens += cost.tokens;
               usageUsd += cost.usd;
             },

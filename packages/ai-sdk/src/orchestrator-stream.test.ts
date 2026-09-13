@@ -226,11 +226,27 @@ class StallingProvider implements AiProvider {
  * No `stream()` → exercises the `complete()`-drain path.
  */
 class ScriptedProvider implements AiProvider {
-  public readonly name = 'mock' as const;
   private index = 0;
   /** Every request the loop sent, in order — lets a test assert what the model saw. */
   public readonly requests: AiCompletionRequest[] = [];
-  public constructor(private readonly responses: readonly AiResponse[]) {}
+  /**
+   * Identity defaults to the unpriced `mock`. A COST test overrides it, because only a
+   * provider this SDK can actually price meters a non-zero `usd` (see `runPricingFor`):
+   * an unpriced run reports 0 on purpose, so asserting `usd > 0` against `mock` would be
+   * asserting the invented figure that killed run `33f7e787`.
+   */
+  public readonly name: AiProvider['name'];
+  public readonly modelId: string | undefined;
+  public constructor(
+    private readonly responses: readonly AiResponse[],
+    identity: { name: AiProvider['name']; modelId: string } = {
+      name: 'mock',
+      modelId: undefined as unknown as string,
+    },
+  ) {
+    this.name = identity.name;
+    this.modelId = identity.modelId;
+  }
   public async complete(request: AiCompletionRequest): Promise<AiResponse> {
     this.requests.push(request);
     const response = this.responses[Math.min(this.index, this.responses.length - 1)];
@@ -856,7 +872,9 @@ describe('streamEdit variations (H1.5/P13.1 — opt-in "A/B compare")', () => {
 
   it('surfaces the REAL combined cost of every candidate call via a usage event', async () => {
     class UsageProvider implements AiProvider {
-      public readonly name = 'mock' as const;
+      // Priced identity: an unpriced provider reports usd 0 by design (`runPricingFor`).
+      public readonly name = 'anthropic' as const;
+      public readonly modelId = 'claude-opus-5';
       private index = 0;
       public async complete(): Promise<AiResponse> {
         this.index += 1;
@@ -4277,14 +4295,17 @@ describe('streamAgent usage (C1)', () => {
   });
 
   it("sums every turn's real reported usage into the terminal usage event", async () => {
-    const provider = new ScriptedProvider([
-      {
-        text: 'edit',
-        toolCalls: [deleteRange('a', 0, 3)],
-        usage: { inputTokens: 100, outputTokens: 20 },
-      },
-      { text: 'done', usage: { inputTokens: 30, outputTokens: 10 } },
-    ]);
+    const provider = new ScriptedProvider(
+      [
+        {
+          text: 'edit',
+          toolCalls: [deleteRange('a', 0, 3)],
+          usage: { inputTokens: 100, outputTokens: 20 },
+        },
+        { text: 'done', usage: { inputTokens: 30, outputTokens: 10 } },
+      ],
+      { name: 'anthropic', modelId: 'claude-opus-5' },
+    );
     const events = await drain(new Orchestrator(provider).streamAgent(input, opts()));
     const usage = usageOf(events);
     expect(usage?.tokens).toBe(160); // (100 + 20) + (30 + 10)

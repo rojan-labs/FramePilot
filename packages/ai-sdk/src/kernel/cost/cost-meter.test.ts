@@ -5,6 +5,7 @@ import {
   emptyLedger,
   estimateUsd,
   recordCost,
+  runPricingFor,
   tierUsdShare,
   totalTokens,
   type TierPrice,
@@ -124,5 +125,51 @@ describe('cached prompt tokens are counted and priced', () => {
     expect(estimateUsd('mid', { input: 10, output: 10 })).toBe(
       (10 * DEFAULT_TIER_PRICING.mid.inputPerMTok + 10 * DEFAULT_TIER_PRICING.mid.outputPerMTok) / 1_000_000,
     );
+  });
+});
+
+describe('runPricingFor — what a run may honestly be charged for', () => {
+  it('prices the anthropic provider at the tier of the model actually configured', () => {
+    // The bug this locks out: every editing turn passed NO tier, so an opus-class run was
+    // metered at `mid` — 5x under by this table's own ratio — and the cap could not fire
+    // when it should have.
+    expect(runPricingFor({ name: 'anthropic', modelId: 'claude-opus-5' })?.primaryTier).toBe(
+      'large',
+    );
+    expect(runPricingFor({ name: 'anthropic', modelId: 'claude-sonnet-5' })?.primaryTier).toBe(
+      'mid',
+    );
+    expect(runPricingFor({ name: 'anthropic', modelId: 'claude-haiku-4-5' })?.primaryTier).toBe(
+      'small',
+    );
+  });
+
+  it('leaves every non-anthropic provider UNPRICED', () => {
+    // Run `33f7e787` was stopped at 153 steps — "Reached this run's $26.50 budget ($26.61
+    // spent)" — on a cheap third-party model billed at Anthropic Sonnet rates. Nobody was
+    // ever charged that $26.61.
+    for (const name of ['openrouter', 'deepseek', 'groq', 'google', 'nvidia', 'ollama']) {
+      expect(runPricingFor({ name, modelId: 'inclusionai/ling-3.0-flash' })).toBeUndefined();
+    }
+  });
+
+  it('leaves claude-agent-sdk unpriced even though it serves Claude models', () => {
+    // It runs against the user's Claude Code SUBSCRIPTION — no per-token billing exists —
+    // so stopping their run at "$5 spent" would stop it for money nobody spends.
+    expect(runPricingFor({ name: 'claude-agent-sdk', modelId: 'claude-opus-5' })).toBeUndefined();
+  });
+
+  it('refuses to guess a tier for a Claude model whose class it cannot read', () => {
+    expect(runPricingFor({ name: 'anthropic', modelId: 'claude-experimental-x' })).toBeUndefined();
+    expect(runPricingFor({ name: 'anthropic' })).toBeUndefined();
+  });
+
+  it('an unpriced run costs 0, so the USD budget cannot fire on an invented number', () => {
+    const usage = { input: 2_000_000, output: 500_000 };
+    // Priced: a real, large figure.
+    const priced = runPricingFor({ name: 'anthropic', modelId: 'claude-opus-5' })!;
+    expect(estimateUsd(priced.primaryTier, usage, priced.prices)).toBeGreaterThan(0);
+    // Unpriced: `budgetExhausted` compares `runUsd > 0`, so 0 is what makes it stand down.
+    expect(runPricingFor({ name: 'openrouter', modelId: 'whatever' })).toBeUndefined();
   });
 });
