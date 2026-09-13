@@ -293,6 +293,105 @@ describe('CapabilityPackTrackingService', () => {
     expect((outcome as { detail: string }).detail).toContain('target_lost');
   });
 
+  it('does not offer a retry for a deterministic worker output overflow', async () => {
+    const { service } = harness({
+      runWorker: async () => {
+        throw new CapabilityPackWorkerRuntimeError(
+          'worker_failed',
+          'worker output line exceeded its 1 MiB bound.',
+          'internal_error',
+        );
+      },
+    });
+
+    const outcome = await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+
+    expect(outcome).toMatchObject({ status: 'failed', code: 'worker_failed', retryable: false });
+  });
+
+  it('keeps other worker internal errors retryable', async () => {
+    const { service } = harness({
+      runWorker: async () => {
+        throw new CapabilityPackWorkerRuntimeError('worker_failed', 'decoder hiccup', 'internal_error');
+      },
+    });
+
+    const outcome = await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+
+    expect(outcome).toMatchObject({ status: 'failed', retryable: true });
+  });
+
+  it('splits a long segmentation into bounded chunks and concatenates the masks in order', async () => {
+    const chunks: CapabilityPackWorkerRequest['media'][] = [];
+    const progress: { completed: number; total: number }[] = [];
+    const { service, leases } = harness({
+      records: [installed(), installedSubject()],
+      runWorker: async (input) => {
+        const typed = input as {
+          request: CapabilityPackWorkerRequest;
+          onProgress?: (p: { phase: string; completed: number; total: number }) => void;
+        };
+        const { media } = typed.request;
+        chunks.push(media);
+        const frames = media.lastFrameExclusive - media.firstFrame;
+        typed.onProgress?.({ phase: 'segment', completed: frames, total: frames });
+        return {
+          type: 'result',
+          protocolVersion: 1,
+          requestId: 'req-1',
+          projectRevision: 12,
+          capability: 'subject.segment',
+          backend: 'opencv-dnn-5.0.0',
+          modelDigests: {},
+          masks: Array.from({ length: frames }, (_unused, index) => ({
+            frame: media.firstFrame + index,
+            width: 4,
+            height: 4,
+            counts: [16],
+            confidence: 0.9,
+          })),
+        } as CapabilityPackWorkerResult;
+      },
+    });
+
+    const outcome = await service.run(
+      request({
+        capability: 'subject.segment',
+        media: {
+          handleId: 'handle-1',
+          assetId: 'asset-1',
+          absolutePath: `${MEDIA_ROOT}/shot.mp4`,
+          sourceStartSeconds: 1,
+          sourceEndSeconds: 1 + 320 / 30,
+          fps: 30,
+          firstFrame: 30,
+          lastFrameExclusive: 350,
+        },
+      }),
+      {
+        projectRevision: 12,
+        mediaRoot: MEDIA_ROOT,
+        onProgress: (p) => progress.push({ completed: p.completed, total: p.total }),
+      },
+    );
+
+    expect(outcome.status).toBe('completed');
+    expect(chunks.map((media) => [media.firstFrame, media.lastFrameExclusive])).toEqual([
+      [30, 180],
+      [180, 330],
+      [330, 350],
+    ]);
+    expect(chunks[1]!.sourceStartSeconds).toBeCloseTo(1 + 150 / 30, 9);
+    expect(chunks[2]!.sourceEndSeconds).toBeCloseTo(1 + 320 / 30, 9);
+    if (outcome.status !== 'completed' || !('masks' in outcome.result)) throw new Error('expected masks');
+    expect(outcome.result.masks.map((mask) => mask.frame)).toEqual(
+      Array.from({ length: 320 }, (_unused, index) => 30 + index),
+    );
+    expect(progress.at(-1)).toEqual({ completed: 320, total: 320 });
+    // One lease covers every chunk.
+    expect(leases).toEqual({ acquired: 1, released: 1 });
+  });
+
   it('releases the lease when the worker process crashes outright', async () => {
     const { service, leases } = harness({
       runWorker: async () => {
