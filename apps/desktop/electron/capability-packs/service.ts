@@ -80,6 +80,8 @@ export interface CapabilityPackDesktopServiceOptions {
   readonly now?: () => Date;
   readonly onProgress: (progress: CapabilityPackProgressWire) => void;
   readonly onInstalled?: (identity: CapabilityPackIdentityWire) => Promise<void>;
+  /** Writable app-data directory for caches a pack's runtime produces (never inside a pack). */
+  readonly runtimeCacheRoot?: string;
 }
 
 /** Main-process authority behind the validated Capability Pack IPC surface. */
@@ -94,6 +96,7 @@ export class CapabilityPackDesktopService {
   private readonly now: () => Date;
   private readonly onProgress: (progress: CapabilityPackProgressWire) => void;
   private readonly onInstalled: ((identity: CapabilityPackIdentityWire) => Promise<void>) | undefined;
+  private readonly runtimeCacheRoot: string | undefined;
   private readonly store: FileCapabilityPackStore;
   private readonly storageManager: CapabilityPackStorageManager;
   private readonly trust: FileCapabilityPackCatalogTrust;
@@ -113,6 +116,7 @@ export class CapabilityPackDesktopService {
     this.now = options.now ?? (() => new Date());
     this.onProgress = options.onProgress;
     this.onInstalled = options.onInstalled;
+    this.runtimeCacheRoot = options.runtimeCacheRoot;
     this.store = new FileCapabilityPackStore(this.rootPath);
     this.storageManager = new CapabilityPackStorageManager(
       this.store,
@@ -185,6 +189,11 @@ export class CapabilityPackDesktopService {
     return {
       FRAMEPILOT_WHISPER_CLI: cli,
       FRAMEPILOT_ASR_MODEL_DIR: modelDir,
+      // The engine derives its cache from the model dir's PARENT when this is unset — which
+      // for a pack is the signed, read-only install root.
+      ...(this.runtimeCacheRoot === undefined
+        ? {}
+        : { FRAMEPILOT_ASR_CACHE_DIR: path.join(this.runtimeCacheRoot, 'asr-cache') }),
     };
   }
 
@@ -506,7 +515,11 @@ export class CapabilityPackDesktopService {
 
   private async loadCatalog() {
     if (this.catalogUrl === undefined || this.trustedRootKeys.length === 0) {
-      throw new Error('Capability Pack catalog is not configured in this build.');
+      // Coded, so a caller can tell "this build has no catalog" (fall back to a local path)
+      // from a catalog that exists and failed verification (a real error to show).
+      throw Object.assign(new Error('Capability Pack catalog is not configured in this build.'), {
+        code: 'catalog_unconfigured',
+      });
     }
     const url = new URL(this.catalogUrl);
     if (url.protocol !== 'https:') throw new Error('Capability Pack catalog URL must use HTTPS.');

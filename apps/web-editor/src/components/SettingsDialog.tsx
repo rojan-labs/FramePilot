@@ -606,9 +606,17 @@ function LocalAsrSetup(): JSX.Element {
     if (bridge?.capabilityPackPropose) {
       setMessage(null);
       const result = await bridge.capabilityPackPropose('asr.whisper.local');
-      if (!result.ok) setMessage(result.error);
-      else setPackProposal(result.proposal);
-      return;
+      if (result.ok) {
+        setPackProposal(result.proposal);
+        return;
+      }
+      // A build with no signed catalog (every dev build, and any release before the packs
+      // are published) cannot install the pack at all. Dead-ending there hid the local
+      // setup below, which works whenever whisper-cli is installed.
+      if (result.code !== 'catalog_unconfigured') {
+        setMessage(result.error);
+        return;
+      }
     }
     if (typeof status === 'object' && !status.binaryAvailable) {
       setMessage('Install whisper-cli first, then return here to download the local model.');
