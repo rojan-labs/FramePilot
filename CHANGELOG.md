@@ -31,6 +31,10 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fragments of its own instructions ("who or what the shot is of") instead of what was in
   the frame. It now writes what it sees, and a description that only repeats the prompt is
   discarded rather than saved.
+- **Tracked masks now follow the subject in your export.** A successful track used to be
+  saved without moving the mask. "Follow silhouette" in the Inspector works, long clips no
+  longer fail to segment, tracking stays in sync on footage whose frame rate differs from
+  the project's, and following a point keeps the mask the size you drew it.
 - **Transcribing a clip with the AI no longer erases other clips' transcripts.** With a
   hosted speech-to-text provider selected, asking the assistant to transcribe one clip
   replaced the words of every other clip in the project.

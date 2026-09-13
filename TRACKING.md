@@ -1033,19 +1033,31 @@ Local whisper is correct end to end on real speech: 149 words on a 49.8 s clip, 
 | S2.4 | A video with no audio returned ffmpeg's whole version banner (classifier caught the wrong exception type). | `a1c4772e` |
 | S2.5 | A media file missing from disk returned a 500. | `a1c4772e` 404 naming the asset |
 
-## S3 ⏳ Tracking-lite + subject-intelligence
+## S3 🔧 Tracking-lite + subject-intelligence
 
 Both workers run correctly against the real installed packs (point 100 frames/0.9 s, region,
 detect 100 frames/49.7 s, segment 60 masks), and results convert to valid, reversible ops. But:
 
-| # | severity | defect | status |
+| # | severity | defect | fix |
 |---|---|---|---|
-| S3.1 | blocker | tracked motion is written to an `object_track` effect that neither export nor preview reads — a successful track never moves the mask | in progress |
-| S3.2 | blocker | Inspector "Follow silhouette" always fails (`kind:'segment'` rejected) | in progress |
-| S3.3 | major | `subject.segment` > ~200 frames overflows the 1 MiB worker line | in progress |
-| S3.4 | major | frame window computed with project fps; workers seek by file frame index | in progress |
-| S3.5 | major | a point track collapses the mask to a ~2% box | in progress |
-| S3.6–9 | minor | first-usable-sample timing, clip speed ≠ 1, overflow marked retryable | in progress |
+| S3.1 | blocker | tracked motion was written to an `object_track` effect the export never reads — a successful track never moved the mask | `f494917e` the command also re-states `<clip>__mask` with the tracked keyframes; an engine test renders it and asserts the mask moves |
+| S3.2 | blocker | Inspector "Follow silhouette" always failed (`kind:'segment'` rejected) | `0374ec43` masks converted to a track in main and in `MaskPackActions` |
+| S3.3 | major | `subject.segment` > ~200 frames overflowed the 1 MiB worker line | `b98a7d0b` chunked to ≤150 frames under one lease |
+| S3.4 | major | frame window computed with project fps; workers seek by file frame index | `ba8a4baf` workers sample the request's time grid (skip/hold frames) |
+| S3.5 | major | a point track collapsed the mask to a ~2% box | `f494917e` point tracks move the centre only |
+| S3.6 | minor | first usable sample timed at the range start | `f494917e` `dc453d8a` keyframes anchored at the requested first frame |
+| S3.7 | minor | clip speed ≠ 1 broke keyframe timing | `f494917e` scaled by speed; curves/freeze/reverse refused with a reason |
+| S3.9 | minor | output overflow marked retryable | `b98a7d0b` |
+
+Findings 8 (detection stride) and 10 (a lost target returns no partial track) are design
+decisions, left unchanged. Re-verified independently after the fixes: editor-core 35,
+ai-sdk tracking + golden 8, desktop tracking 19, web MaskPackActions 3, engine mask render,
+and the capability/eval suites the changed capability table feeds (40) — all pass.
+
+**Residual, recorded:** the web **preview renders no masks at all** (static or tracked), so a
+tracked mask moves in the export only; `add_mask` moves the mask effect to the end of the
+clip's effect list; overflow is detected by message text, not a protocol code; a
+variable-frame-rate file may drift slightly on the time grid.
 
 ## S4 — TRACKING.md open items, root-caused
 
