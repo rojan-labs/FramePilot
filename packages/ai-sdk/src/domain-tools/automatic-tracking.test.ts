@@ -93,7 +93,13 @@ describe('track_subject_automatically tool', () => {
   it('compiles a measured region track into a validated, exactly invertible op', () => {
     const project = projectWithMask();
     const ops = automaticTrackingOpsFromMeasurement(measurement(), { project });
-    expect(ops).toHaveLength(1);
+    // track_object records the measurement; add_mask puts the motion on the
+    // mask effect the export actually animates.
+    expect(ops.map((candidate) => candidate.type)).toEqual(['track_object', 'add_mask']);
+    const steered = ops[1]!;
+    if (steered.type === 'add_mask') {
+      expect(steered.keyframes?.some((keyframe) => keyframe.property === 'x')).toBe(true);
+    }
     const op = ops[0]!;
     expect(op.type).toBe('track_object');
     if (op.type !== 'track_object') return;

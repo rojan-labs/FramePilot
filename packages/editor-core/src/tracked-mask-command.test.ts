@@ -152,6 +152,88 @@ describe('apply_tracked_mask', () => {
     });
   });
 
+  it('steers the mask effect itself, which is what export animates', () => {
+    const result = compile();
+    if (result.status !== 'compiled') throw new Error('expected compilation');
+
+    const applied = applyPatch(timeline(), result.patch);
+    const mask = applied.tracks[0]!.clips[0]!.effects.find((effect) => effect.id === 'shot__mask')!;
+    expect(mask.params).toMatchObject({
+      shape: 'rectangle',
+      bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+      feather: 0.05,
+    });
+    const xs = mask.keyframes
+      .filter((keyframe) => keyframe.property === 'x')
+      .sort((left, right) => left.time - right.time);
+    expect(xs.length).toBe(8);
+    expect(xs[xs.length - 1]!.value).toBeGreaterThan(xs[0]!.value);
+    expect(xs[xs.length - 1]!.time).toBeGreaterThan(xs[0]!.time);
+  });
+
+  it('point follow moves only the centre, keeping the drawn mask size', () => {
+    const tiny = Array.from({ length: 8 }, (_unused, frame) => ({
+      frame,
+      box: { x: 0.24 + frame * 0.01, y: 0.39, width: 0.02, height: 0.02 },
+      confidence: 0.9,
+      occluded: false,
+    }));
+    const result = compile({ target: 'object', samples: tiny });
+    if (result.status !== 'compiled') throw new Error(`expected compilation: ${JSON.stringify(result)}`);
+
+    const mask = applyPatch(timeline(), result.patch).tracks[0]!.clips[0]!.effects.find(
+      (effect) => effect.id === 'shot__mask',
+    )!;
+    const values = (property: string) =>
+      mask.keyframes.filter((keyframe) => keyframe.property === property).map((keyframe) => keyframe.value);
+    expect(new Set(values('width'))).toEqual(new Set([0.3]));
+    expect(new Set(values('height'))).toEqual(new Set([0.4]));
+    // Centre 0.25 → mask x 0.25 - 0.15 = 0.10 at frame 0.
+    expect(values('x')[0]).toBeCloseTo(0.1 + 0.01, 1);
+    expect(values('y')[0]).toBeCloseTo(0.2, 5);
+  });
+
+  it('times keyframes from the requested first frame when the opening frames were occluded', () => {
+    const late = samples(8).map((sample) =>
+      sample.frame < 3 ? { ...sample, occluded: true, confidence: 0 } : sample,
+    );
+    const anchored = compile({ samples: late, firstFrame: 0 });
+    if (anchored.status !== 'compiled') throw new Error('expected compilation');
+    const mask = applyPatch(timeline(), anchored.patch).tracks[0]!.clips[0]!.effects.find(
+      (effect) => effect.id === 'shot__mask',
+    )!;
+    const firstTime = Math.min(...mask.keyframes.map((keyframe) => keyframe.time));
+    expect(firstTime).toBeCloseTo(3 / 30, 6);
+  });
+
+  it('places keyframes in clip time for a clip playing at speed 2', () => {
+    const fast = timeline();
+    const clip = fast.tracks[0]!.clips[0]! as { end: number; sourceEnd: number; speed?: number };
+    clip.end = 2;
+    clip.sourceEnd = 4;
+    clip.speed = 2;
+    // 120 source frames at 30fps = 4 source seconds = 2 clip seconds.
+    const result = compileTrackingCommand({
+      timeline: fast,
+      assets,
+      command: command({ samples: samples(120).map((s) => ({ ...s, box: { ...s.box, x: 0.1 } })) }),
+    });
+    if (result.status !== 'compiled') throw new Error(`expected compilation: ${JSON.stringify(result)}`);
+    const times = result.patch.operations
+      .flatMap((operation) => ('keyframes' in operation ? (operation.keyframes ?? []) : []))
+      .map((keyframe) => keyframe.time);
+    expect(Math.max(...times)).toBeLessThanOrEqual(2);
+    expect(Math.max(...times)).toBeGreaterThan(1.9);
+  });
+
+  it('refuses a reversed clip with a clear reason instead of mistiming the track', () => {
+    const reversed = timeline();
+    (reversed.tracks[0]!.clips[0]! as { speed?: number }).speed = -1;
+    expect(
+      compileTrackingCommand({ timeline: reversed, assets, command: command() }),
+    ).toMatchObject({ status: 'rejected', code: 'unusable_track', detail: expect.stringMatching(/forward/) });
+  });
+
   it('refuses keyframes that would fall outside the clip', () => {
     const result = compile({ startSeconds: 3.99, samples: samples(30) });
 

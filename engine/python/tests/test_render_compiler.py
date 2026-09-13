@@ -1060,6 +1060,91 @@ def test_compile_applies_animated_mask(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
+def test_compile_moves_a_tracked_mask_over_time(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """A measured track, applied the way the TS tracking compiler emits it, MOVES the render.
+
+    ``compileTrackingCommand`` emits ``track_object`` (provenance) plus ``add_mask``
+    re-stating the drawn mask with the tracked x/y/width/height keyframes. Applying
+    those ops through the engine and compiling must put the visible hole in a
+    different place early and late — the tracked-motion-never-renders regression.
+    """
+    from framepilot_engine.timeline.operations import AddMask, TrackObject, apply_operation
+
+    src = media_factory("tm.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "tm.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["effects"] = [
+        {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+                "shape": "rectangle",
+                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
+            },
+            "keyframes": [],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[{"id": "a1", "path": "tm.mp4", "kind": "video"}],
+    )
+    box_keyframes = [
+        {
+            "id": f"tracking__c1__mask__{prop}__{round(time * 1_000_000)}",
+            "time": time,
+            "property": prop,
+            "value": value,
+            "easing": "linear",
+        }
+        for time, x in ((0.0, 0.0), (1.0, 0.5))
+        for prop, value in (("x", x), ("y", 0.0), ("width", 0.5), ("height", 1.0))
+    ]
+    timeline = apply_operation(
+        project.timeline,
+        TrackObject.model_validate(
+            {
+                "type": "track_object",
+                "clipId": "c1",
+                "target": "bounding_box",
+                "region": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
+                "engine": "framepilot.tracking-lite@1.0.0",
+                "keyframes": [{**k, "id": k["id"].replace("__mask", "")} for k in box_keyframes],
+            }
+        ),
+    )
+    timeline = apply_operation(
+        timeline,
+        AddMask.model_validate(
+            {
+                "type": "add_mask",
+                "clipId": "c1",
+                "shape": "rectangle",
+                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
+                "keyframes": box_keyframes,
+            }
+        ),
+    )
+    tracked = project.model_copy(update={"timeline": timeline})
+
+    composite = compile_timeline(tracked, _index(tracked, tmp_project_dir), REELS)
+    try:
+        early = np.asarray(composite.get_frame(0.1))
+        late = np.asarray(composite.get_frame(0.9))
+        row = early.shape[0] // 2
+        left, right = int(early.shape[1] * 0.2), int(early.shape[1] * 0.9)
+        # Early the hole covers x≈0.05..0.55: the left sample shows, the right is hidden.
+        assert int(early[row, left].sum()) > 100, early[row, left]
+        assert int(early[row, right].sum()) < 40, early[row, right]
+        # Late the hole covers x≈0.45..0.95: the reverse.
+        assert int(late[row, left].sum()) < 40, late[row, left]
+        assert int(late[row, right].sum()) > 100, late[row, right]
+    finally:
+        close_clip_tree(composite)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
 def test_compile_applies_color_grade(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:

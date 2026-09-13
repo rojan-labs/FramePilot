@@ -44,6 +44,16 @@ export interface ApplyTrackedMaskCommand {
   readonly fps: number;
   /** Clip-relative time, in seconds, of the first tracked frame. */
   readonly startSeconds: number;
+  /**
+   * The frame index `startSeconds` corresponds to — the first frame REQUESTED.
+   * Without it the first usable sample is assumed to sit at `startSeconds`,
+   * which shifts the whole track early when the opening frames were occluded.
+   */
+  readonly firstFrame?: number;
+  /**
+   * Measured samples. `target: 'object'` means point follow: only the centre of
+   * each box steers the mask, keeping the drawn size.
+   */
   readonly samples: readonly TrackSample[];
   readonly policy?: Partial<TrackConversionPolicy>;
 }
@@ -330,17 +340,135 @@ function compileTrackExistingMask(
   return finalizePatch(input, command, patch, facts);
 }
 
+/**
+ * Clip-seconds per measured source frame, or a refusal when the clip's time map
+ * is not a constant forward rate.
+ *
+ * Workers sample the clip's SOURCE range, so frame `n` sits `n / fps` source
+ * seconds in — but mask keyframes live in clip (timeline) seconds. A clip at
+ * speed 2 shows those frames in half the time; ignoring that put every keyframe
+ * past the clip's end. A freeze, a reverse or a speed curve has no single linear
+ * mapping, and guessing one would steer the mask onto the wrong frames.
+ */
+function framesPerClipSecond(
+  clip: ResolvedTrackableMask['clip'],
+  fps: number,
+): number | string {
+  if (clip.speedRamp !== undefined && clip.speedRamp.length > 0) {
+    return 'Measured tracks cannot yet be applied to a clip with a speed curve. Remove the ramp, track, then re-apply it.';
+  }
+  const speed = clip.speed ?? 1;
+  if (!(speed > 0)) {
+    return 'Measured tracks can only be applied to a clip playing forward (not frozen or reversed).';
+  }
+  return fps * speed;
+}
+
+function numberParam(effect: Effect, name: string): number | undefined {
+  const value = effect.params[name];
+  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+}
+
+/**
+ * The mask's own keyframes after a measured track is applied.
+ *
+ * The export compiler (`_attach_mask`) and every mask reader animate the MASK
+ * effect's keyframes; the `object_track` effect is provenance only. So the
+ * measured motion must land on the mask, or nothing on screen moves.
+ *
+ * `target: 'object'` is the point-follow path (`tracking.point`): the worker's
+ * box is only the tracked feature's patch, a few pixels wide, so steering the
+ * mask's size from it collapses the user's drawn mask. There only the centre
+ * moves, and the drawn width/height are kept.
+ */
+function trackedMaskKeyframes(
+  clipId: string,
+  mask: Effect,
+  region: MaskBounds,
+  target: ApplyTrackedMaskCommand['target'],
+  measured: readonly Keyframe[],
+): Keyframe[] {
+  const kept = mask.keyframes.filter(
+    (keyframe) => !BOX_PROPERTIES.includes(keyframe.property as (typeof BOX_PROPERTIES)[number]),
+  );
+  const byTime = new Map<number, Record<string, Keyframe>>();
+  for (const keyframe of measured) {
+    const slot = byTime.get(keyframe.time) ?? {};
+    slot[keyframe.property] = keyframe;
+    byTime.set(keyframe.time, slot);
+  }
+  const steered: Keyframe[] = [];
+  for (const [time, slot] of byTime) {
+    const [x, y, width, height] = BOX_PROPERTIES.map((name) => slot[name]?.value);
+    if (x === undefined || y === undefined || width === undefined || height === undefined) continue;
+    const box: MaskBounds =
+      target === 'object'
+        ? {
+            x: Math.min(Math.max(x + width / 2 - region.width / 2, 0), 1 - region.width),
+            y: Math.min(Math.max(y + height / 2 - region.height / 2, 0), 1 - region.height),
+            width: region.width,
+            height: region.height,
+          }
+        : { x, y, width, height };
+    const suffix = Math.round(time * 1_000_000);
+    for (const name of BOX_PROPERTIES) {
+      steered.push({
+        id: `tracking__${clipId}__mask__${name}__${suffix}`,
+        property: name,
+        time,
+        value: box[name],
+        easing: 'linear',
+      });
+    }
+  }
+  return [...kept, ...steered];
+}
+
+/** Re-state the drawn mask, preserving its geometry params, with the tracked keyframes. */
+function steeredMaskOperation(
+  clipId: string,
+  mask: Effect,
+  region: MaskBounds,
+  keyframes: readonly Keyframe[],
+): Extract<Patch['operations'][number], { type: 'add_mask' }> {
+  const feather = numberParam(mask, 'feather');
+  const opacity = numberParam(mask, 'opacity');
+  const invert = mask.params.invert;
+  return {
+    type: 'add_mask',
+    clipId,
+    shape: mask.params.shape as 'rectangle' | 'ellipse',
+    bounds: region,
+    ...(feather === undefined ? {} : { feather }),
+    ...(opacity === undefined ? {} : { opacity }),
+    ...(typeof invert === 'boolean' ? { invert } : {}),
+    keyframes,
+  };
+}
+
 function compileApplyTrackedMask(
   input: CompileTrackingCommandInput,
   command: ApplyTrackedMaskCommand,
 ): TrackingCommandCompileResult {
   const resolved = resolveTrackableMask(input, command);
   if ('rejection' in resolved) return resolved.rejection;
-  const { clip, region, revision } = resolved;
+  const { clip, mask, region, revision } = resolved;
+  // `add_mask` always writes `<clip>__mask`; steering any other mask id would
+  // silently animate a different effect than the one the caller named.
+  if (command.maskEffectId !== professionalMaskEffectId(command.clipId)) {
+    return rejected(
+      command,
+      'missing_mask',
+      `Measured tracks steer the clip's mask "${professionalMaskEffectId(command.clipId)}", not "${command.maskEffectId}".`,
+    );
+  }
+  const rate = framesPerClipSecond(clip, command.fps);
+  if (typeof rate === 'string') return rejected(command, 'unusable_track', rate);
   const conversion = convertTrackSamples({
     samples: command.samples,
-    fps: command.fps,
+    fps: rate,
     startSeconds: command.startSeconds,
+    ...(command.firstFrame === undefined ? {} : { firstFrame: command.firstFrame }),
     durationSeconds: clip.end - clip.start,
     keyframePrefix: `tracking__${command.clipId}`,
     ...(command.policy === undefined ? {} : { policy: command.policy }),
@@ -350,6 +478,13 @@ function compileApplyTrackedMask(
     // into a partial or smoothed-over edit.
     return rejected(command, 'unusable_track', conversion.detail, conversion.facts);
   }
+  const maskKeyframes = trackedMaskKeyframes(
+    command.clipId,
+    mask,
+    region,
+    command.target,
+    conversion.keyframes,
+  );
   const patch: Patch = {
     patchId: `tracking__${command.clipId}__${revision}` as PatchId,
     createdBy: 'agent',
@@ -363,6 +498,7 @@ function compileApplyTrackedMask(
         engine: command.engine,
         keyframes: conversion.keyframes,
       },
+      steeredMaskOperation(command.clipId, mask, region, maskKeyframes),
     ],
   };
   const facts: readonly TrackingCommandFact[] = [
@@ -370,6 +506,7 @@ function compileApplyTrackedMask(
     { name: 'maskEffectId', value: command.maskEffectId },
     { name: 'trackingEffectId', value: professionalTrackingEffectId(command.clipId) },
     { name: 'engine', value: command.engine },
+    { name: 'follow', value: command.target === 'object' ? 'centre' : 'box' },
     ...conversion.facts,
   ];
   return finalizePatch(input, command, patch, facts);
