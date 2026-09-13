@@ -169,6 +169,14 @@ function timeoutForTool(toolName: string, configured: number | undefined): numbe
 }
 
 export interface SidecarExecutorOptions {
+  /**
+   * Tools this HOST cannot run on top of the render actions every sidecar executor refuses.
+   *
+   * The registry is shared across surfaces, but some host tools are routed by a wrapper
+   * only one host has — the desktop's Capability Pack tracking executor, for one. A surface
+   * without that wrapper must say so before the model spends a turn calling them.
+   */
+  readonly unroutableToolNames?: readonly string[];
   /** Sidecar base URL (e.g. `http://127.0.0.1:8765`). */
   readonly baseUrl: string;
   /** Injectable `fetch` (defaults to the global) for testing / Electron net. */
@@ -1449,6 +1457,10 @@ export async function chargeAnalysisBudget(
 export function createSidecarExecutor(options: SidecarExecutorOptions): HostToolExecutor {
   const fetchFn = options.fetchFn ?? fetch;
   const now = options.now ?? Date.now;
+  const unroutable: ReadonlySet<string> =
+    options.unroutableToolNames === undefined || options.unroutableToolNames.length === 0
+      ? RENDER_ACTIONS
+      : new Set([...RENDER_ACTIONS, ...options.unroutableToolNames]);
   const dispatch: HostToolExecutor = {
     async run(
       call: ToolCall,
@@ -1701,7 +1713,7 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
     // `planSidecarCall` is a pure function of the tool name and has no route for these, so
     // the answer is knowable before any call — say it where the descriptors are chosen
     // rather than after the model has already spent a turn asking.
-    unroutableTools: () => RENDER_ACTIONS,
+    unroutableTools: () => unroutable,
   };
 }
 
