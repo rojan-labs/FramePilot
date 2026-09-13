@@ -1228,6 +1228,15 @@ class VisualSearchRequest(BaseModel):
         description="TwelveLabs API key; when set, search is served by TwelveLabs instead of "
         "the built-in vector store. Falls back to TWELVELABS_API_KEY. Never logged.",
     )
+    visual_embed_pack: str | None = Field(
+        default=None,
+        alias="visualEmbedPack",
+        description="JSON handle for an installed, host-verified framepilot.visual-embed "
+        "Capability Pack — the same handle `/brain/visual/index` takes. Footage indexed by "
+        "the local pack lives in the pack's vector space, so only the pack can embed a "
+        "query that searches it. Falls back to FRAMEPILOT_PACK_VISUAL_EMBED. Never logged "
+        "beyond its pack id.",
+    )
     project_path: str | None = Field(
         default=None, description="Saved project supplying clips + transcript (optional)."
     )
@@ -2864,6 +2873,32 @@ def create_app(
             return MODEL_ID
         return MODEL_ID
 
+    def _visual_query_space(
+        resolved_root: Path, project_id: str, *, hosted_ready: bool, local_ready: bool
+    ) -> str:
+        """Which vector space a search QUERY must be embedded into.
+
+        A query vector is only comparable with vectors from the model that embedded it.
+        :func:`_spans_model_id` answers "what is stored", which is enough for reads that
+        need no query; a search also needs an arm that can embed into that space, and on a
+        pack-only machine the hosted one never can. So: the space that holds rows AND has
+        a ready embedder, hosted winning a tie as it does there. A brain with nothing
+        indexed yet gets the space its next index slice will write — the local pack's when
+        one is installed, because indexing prefers the pack too.
+        """
+        try:
+            with open_brain(resolved_root, project_id) as store:
+                hosted_rows = bool(store.list_visual_spans(model=MODEL_ID))
+                local_rows = bool(store.list_visual_spans(model=LOCAL_MODEL_ID))
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError):
+            # The search's own brain read reports the failure honestly; this only picks a space.
+            hosted_rows = local_rows = False
+        if hosted_rows and hosted_ready:
+            return MODEL_ID
+        if local_ready and (local_rows or not hosted_rows):
+            return LOCAL_MODEL_ID
+        return MODEL_ID
+
     def _shot_phash(shot: ShotRecord) -> int:
         """The shot's keyframe dHash as an integer for its ``visual_spans`` row.
 
@@ -3989,7 +4024,13 @@ def create_app(
                     ).describer
                 )
                 still_backend = (
-                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
+                    resolve_visual_embedder(
+                        req.nvidia_keys or settings.nvidia_embeddings_keys,
+                        pack=parse_pack_handle(
+                            req.visual_embed_pack or settings.visual_embed_pack,
+                            require=(CAPABILITY_EMBED, CAPABILITY_TEXT),
+                        ),
+                    ),
                     producer,
                 )
                 return still_backend
@@ -5500,22 +5541,44 @@ def create_app(
         tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
         if tl.client is not None:
             return _tl_search(tl.client, req, root.resolve())
+        local_pack = parse_pack_handle(
+            req.visual_embed_pack or settings.visual_embed_pack,
+            require=(CAPABILITY_EMBED, CAPABILITY_TEXT),
+        )
         embedder_res = resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys)
-        if embedder_res.client is None:
-            # No embedding key: the query cannot be embedded — reported honestly.
+        query_space = _visual_query_space(
+            root.resolve(),
+            req.project_id,
+            hosted_ready=embedder_res.client is not None,
+            local_ready=local_pack is not None,
+        )
+        query_vector: list[float]
+        if query_space == LOCAL_MODEL_ID and local_pack is not None:
+            try:
+                query_vector = LocalVisualEmbedClient(local_pack).embed_query(req.query)
+            except PackWorkerError as exc:
+                _log.warning("Visual search stopped: local pack failed (%s)", exc.code)
+                return VisualSearchResponse(
+                    available=False,
+                    reason=f"The local visual-embed pack could not embed the query: {exc.detail}",
+                )
+        elif embedder_res.client is not None:
+            try:
+                query_vector = embedder_res.client.embed_query(req.query)
+            except KeyRingExhaustedError as exc:
+                _log.warning("Visual search stopped: embedding keys exhausted")
+                return VisualSearchResponse(
+                    available=True, reason=exc.last_error or EXHAUSTED_REASON
+                )
+            except VisualEmbedError as exc:
+                return VisualSearchResponse(available=False, reason=str(exc))
+        else:
+            # Neither arm can embed a query into the space this brain holds — reported honestly.
             return VisualSearchResponse(available=True, reason=embedder_res.reason)
 
         project_doc: Project | None = None
         if req.project_path is not None or req.project is not None:
             project_doc = load_project_document(req.project_path, req.project)
-
-        try:
-            query_vector = embedder_res.client.embed_query(req.query)
-        except KeyRingExhaustedError as exc:
-            _log.warning("Visual search stopped: embedding keys exhausted")
-            return VisualSearchResponse(available=True, reason=exc.last_error or EXHAUSTED_REASON)
-        except VisualEmbedError as exc:
-            return VisualSearchResponse(available=False, reason=str(exc))
 
         text_res = embedder_resolution()
         try:
@@ -5529,6 +5592,7 @@ def create_app(
                     VISUAL_SEARCH_POOL,
                     asset_ids=req.asset_ids,
                     time_range=req.time_range,
+                    model=query_space,
                 )
                 caption_fts = store.search_captions(req.query, limit=VISUAL_SEARCH_POOL)
                 transcript_fts = store.search_transcript(req.query, limit=VISUAL_SEARCH_POOL)
@@ -5538,7 +5602,7 @@ def create_app(
                     semantic = semantic_hits(
                         text_res.embedder, req.query, rows, limit=VISUAL_SEARCH_POOL
                     )
-                spans = store.list_visual_spans(model=_spans_model_id(store))
+                spans = store.list_visual_spans(model=query_space)
                 captions = [
                     caption
                     for caption in store.list_visual_captions()

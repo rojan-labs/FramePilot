@@ -268,6 +268,7 @@ class VisualVectorStore:
         *,
         asset_ids: Sequence[str] | None = None,
         time_range: tuple[float, float] | None = None,
+        model: str | None = None,
     ) -> list[VisualHit]:
         """Top-``k`` most-similar spans to ``query_vector`` (backend-transparent).
 
@@ -280,12 +281,16 @@ class VisualVectorStore:
         :param k: Maximum hits; ``<= 0`` returns ``[]``.
         :param asset_ids: Restrict to these assets, if given.
         :param time_range: ``(start, end)`` seconds; keep spans overlapping it.
+        :param model: Restrict to vectors of this model's space. A query vector is only
+            comparable with vectors from the model that embedded it; the local pack and
+            the hosted embedder write different spaces (even different dimensions) into
+            the same brain, and a cosine across the two is a confident, meaningless score.
         """
         if k <= 0:
             return []
         allowed = set(asset_ids) if asset_ids is not None else None
-        has_filters = allowed is not None or time_range is not None
-        scored = self._scored_candidates(query_vector, k, fetch_all=has_filters)
+        has_filters = allowed is not None or time_range is not None or model is not None
+        scored = self._scored_candidates(query_vector, k, fetch_all=has_filters, model=model)
         # Resolve span metadata for ONLY the candidate keys via targeted PK point
         # lookups, not a full ``visual_spans`` materialization: on the unfiltered
         # hot path that is O(k) (k <= 50) instead of O(n) (MI7.1). Keys with no
@@ -314,12 +319,27 @@ class VisualVectorStore:
     # -- backend selection -------------------------------------------------------
 
     def _scored_candidates(
-        self, query_vector: Sequence[float], k: int, *, fetch_all: bool
+        self,
+        query_vector: Sequence[float],
+        k: int,
+        *,
+        fetch_all: bool,
+        model: str | None = None,
     ) -> list[tuple[_SpanKey, float]]:
         available, _ = vec_available(self._conn)
         if available and self._index_ready():
-            return self._vec_candidates(query_vector, k, fetch_all=fetch_all)
-        return self._brute_candidates(query_vector, k, fetch_all=fetch_all)
+            try:
+                indexed = self._vec_candidates(query_vector, k, fetch_all=fetch_all)
+            except sqlite3.Error as error:
+                # The derived vec0 index has exactly one dimension. A query from the other
+                # space cannot MATCH it, but the durable rows can still answer by brute
+                # force, so a second space degrades the speed of a search, never its result.
+                _log.warning("vec0 search unavailable for this query, using brute force: %s", error)
+            else:
+                matching = [item for item in indexed if model is None or item[0][1] == model]
+                if matching or model is None:
+                    return matching
+        return self._brute_candidates(query_vector, k, fetch_all=fetch_all, model=model)
 
     def _vec_candidates(
         self, query_vector: Sequence[float], k: int, *, fetch_all: bool
@@ -345,9 +365,14 @@ class VisualVectorStore:
         return candidates
 
     def _brute_candidates(
-        self, query_vector: Sequence[float], k: int, *, fetch_all: bool
+        self,
+        query_vector: Sequence[float],
+        k: int,
+        *,
+        fetch_all: bool,
+        model: str | None = None,
     ) -> list[tuple[_SpanKey, float]]:
-        rows = self._store.list_visual_vectors()
+        rows = self._store.list_visual_vectors(model=model)
         if not rows:
             return []
         limit = len(rows) if fetch_all else k
