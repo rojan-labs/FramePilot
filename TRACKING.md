@@ -658,3 +658,61 @@ machine, and it is why it works here and nowhere else.
 **Not attempted.** Building a cross-platform signed, notarized pack pipeline needs signing
 identities, notarization credentials and a distribution decision. That is release
 engineering and a maintainer call, not a code fix.
+
+---
+
+# P. The capability-pack blocker — build closed, signing still open
+
+## P1 🔧 There is now a build · `4b412900`
+
+`scripts/build-capability-pack.sh` produces a genuinely standalone pack artifact.
+
+Three things make the payload independent of this repo, and the script **asserts all
+three** rather than trusting them:
+
+1. **`uv venv --relocatable`** — console scripts resolve the interpreter beside
+   themselves instead of naming a build-machine path in a shebang.
+2. **The worker installed NON-editable.** `uv sync` installs the project *editable* — a
+   `.pth` holding `<repo>/workers/<pack>/src`. My first draft asserted only over `bin/`
+   and produced a payload that would have imported nothing on any other machine. That
+   miss is why the assert now covers the whole payload, and why PEP 610 `direct_url.json`
+   is stripped.
+3. **Interpreter symlinks replaced by real files** — `uv` links them to its managed
+   CPython, absent on a user's machine.
+
+Then it **proves** it: the worker's own health handshake runs against the built payload,
+with `FRAMEPILOT_CAPABILITY_PACK_ROOT` set the way the host sets it.
+
+The artifact digest hashes the **content** (every path + sha256, sorted), not the tarball
+— a `.tar.gz` embeds mtimes, ownership and gzip metadata that differ between bsdtar here
+and GNU tar in CI, so digesting the archive would make the two places that must agree
+disagree.
+
+### Measured — each artifact extracted elsewhere and re-checked standalone
+
+| pack | unpacked | cap | standalone health check |
+|------|---------:|----:|---|
+| `tracking-lite` | 213 MiB | 400 | ✅ `opencv-5.0.0-cpu`, zero repo references |
+| `subject-intelligence` | 254 MiB | 500 | ✅ pinned ONNX digests intact, zero repo references |
+| `visual-embed` | **1821 MiB** | 1200 | ✅ health OK — **over its own cap** |
+| `visual-describe` | **2755 MiB** | 2600 | ✅ health OK — **over its own cap** |
+
+## P2 ❌ Two packs exceed their own declared size cap
+
+Not visible before, because nothing built them. `visual-embed`'s SigLIP2 **text** encoder
+alone is 1078 MiB of its 1502 MiB of weights.
+
+Raising the cap or shipping a smaller/quantized encoder is a download-size decision for
+the maintainer, so the build **fails** rather than choosing. This is the kind of drift a
+build job exists to catch.
+
+## P3 ⏳ Still open, and genuinely not mine
+
+| | |
+|---|---|
+| **Signing / notarization** | needs an Apple Developer ID and notarization credentials |
+| **Publishing** | needs the signed-catalog endpoint and a distribution decision |
+| **CI wiring** | `visual-embed` / `visual-describe` still have no workflow; adding one means ~4.2 GiB of weight downloads per run, which is an infra-cost call |
+
+The build now emits the unsigned artifact and the digest those steps consume, so the
+remaining work is credentialed release engineering rather than missing capability.
