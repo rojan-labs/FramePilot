@@ -299,16 +299,6 @@ export const EDIT_VARIATION_COUNT = 2;
 const VARIATION_TEMPERATURES: readonly (number | undefined)[] = [undefined, 0.9];
 
 /**
- * The `ModelTier` an `edit`-mode call is priced at for the variations run's combined-cost
- * accounting. `edit()`/`streamEdit()` do not run through the tier-routed effect runtime (that
- * machinery is for the recipe/planner DAG, P3.4) — they call the single injected provider
- * directly — so there is no per-call tier to read. `'mid'` mirrors `plan-driver.ts`'s
- * `DEFAULT_MODEL_TIER`, the same default an untiered EditProposer-class call already prices
- * at elsewhere in this codebase.
- */
-const VARIATION_PRICING_TIER: ModelTier = 'mid';
-
-/**
  * What one model call needs to know about its own context, beyond the payload.
  *
  * `tier` and `contextWindow` were the whole of it; the rest is what the context manifest
@@ -3483,6 +3473,26 @@ export class Orchestrator {
   }
 
   /**
+   * What ONE model call may honestly be charged at (TRACKING M5): the price class of the
+   * model that ACTUALLY serves `tier` — a configured tier provider, else the run's own — or
+   * `undefined` (unpriced) when this SDK cannot price that model.
+   *
+   * WHY per call, not per run: a tier is a routing label, not a model. The classifier was
+   * billed as `small` and the repair pass as `large` whatever served them, so an Opus run with
+   * no tier providers charged its own routing call at Haiku rates and a Sonnet run's repair at
+   * Opus rates, and a cheap classifier configured on another provider was priced from the run
+   * provider's table. A call is priced by the model that answered it, or not at all.
+   */
+  private pricingForCall(
+    tier: ModelTier,
+  ): { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> } | undefined {
+    const pricing = runPricingFor(this.providerForTier(tier));
+    return pricing === undefined
+      ? undefined
+      : { tier: pricing.primaryTier, prices: pricing.prices };
+  }
+
+  /**
    * Build the {@link EffectRuntime} for one run, wrapped
    * in {@link createRecordingEffectRuntime} when `recordEffects` is on (P7.3). `finish` must
    * be called once the run settles (on every terminal path) so a recording run always hands
@@ -3804,8 +3814,10 @@ export class Orchestrator {
         usd +=
           variationPricing === undefined
             ? 0
-            : estimateUsd(
-                VARIATION_PRICING_TIER,
+            : // The class of the model that answered (M5) — these calls go straight to
+              // `this.provider`, so a fixed tier label mispriced every non-default model.
+              estimateUsd(
+                variationPricing.primaryTier,
                 { input: inputTok, output: outputTok },
                 variationPricing.prices,
               );
@@ -7312,7 +7324,7 @@ export class Orchestrator {
           ...(autoOptions.controls ? { controls: autoOptions.controls } : {}),
         });
         return;
-      case 'edit':
+      case 'edit': {
         // Mark the turn as editing up front so an edit that ultimately applies nothing
         // still gets the sidebar's honest "nothing changed" notice — independent of which
         // statuses the delegated agent loop happens to emit (runOutcome.foldTurnEvent).
@@ -7320,6 +7332,15 @@ export class Orchestrator {
         // C1: the classifier call that routed here already spent real tokens — seed the
         // agent run's cost accumulator with it so the single terminal `usage` event this
         // run emits is the run's TRUE combined cost, not just the agent loop's own calls.
+        // Priced by the model that ACTUALLY routed (M5): `providerForTier('small')` is a
+        // configured cheap model or, with none configured, the run's own provider — never
+        // "whatever `small` costs" on someone else's price table.
+        const classifierPricing = this.pricingForCall('small');
+        const classifierCost = costFromUsage(
+          classifierUsage,
+          classifierPricing?.tier ?? 'small',
+          classifierPricing?.prices,
+        );
         yield* this.streamEditorRun(
           input,
           options,
@@ -7327,10 +7348,14 @@ export class Orchestrator {
             route: 'agent',
             agentOptions: autoOptions.agentOptions ?? {},
             initialCost: {
-              // Same rule as every other cost site: an unpriced provider contributes 0,
-              // never a tier-table guess (`runPricingFor`).
-              ...costFromUsage(classifierUsage, 'small', runPricingFor(this.provider)?.prices),
+              tokens: classifierCost.tokens,
+              usd: classifierCost.usd,
+              cacheReadTokens: classifierCost.cacheRead,
+              cacheWriteTokens: classifierCost.cacheCreation,
               modelCalls: 1,
+              // A routing call on a model this SDK cannot price makes the whole run's dollar
+              // figure a placeholder, not a price.
+              priced: classifierPricing !== undefined,
             },
           },
           {
@@ -7339,6 +7364,7 @@ export class Orchestrator {
           },
         );
         return;
+      }
     }
   }
 
@@ -8521,11 +8547,18 @@ export class Orchestrator {
     // Resolved ONCE per run, here, because this is where the provider that will serve it
     // is known. `undefined` ⇒ unpriced: tokens are still metered, the USD cap simply does
     // not fire on a figure this SDK would have had to invent (see `RunPricing`).
-    const pricing = runPricingFor(this.provider);
+    // The editing turns run as `{ kind: 'model', tier: 'mid' }` effects, so the model that
+    // answers them is `providerForTier('mid')` — a configured mid provider, else the run's
+    // own. Pricing them from `this.provider` regardless was M5's last form.
+    const pricing = runPricingFor(this.providerForTier('mid'));
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
     let usageCacheRead = initialCost.cacheReadTokens ?? 0;
     let usageCacheWrite = initialCost.cacheWriteTokens ?? 0;
+    // True once any call ran on a model this SDK cannot price (M5) — reported usage or not, since
+    // a call that reported nothing is spend of unknown size, not a measured $0. Then `usd` is a
+    // placeholder for the whole run, whatever the other calls were priced at.
+    let unpricedSpend = initialCost.priced === false;
     /**
      * Did any call this run return real evidence about what is IN the footage?
      *
@@ -9002,6 +9035,7 @@ export class Orchestrator {
               : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
+          if (pricing === undefined) unpricedSpend = true;
           if (turn.usage) {
             const supersededCost = costFromUsage(
               turn.usage,
@@ -9023,6 +9057,7 @@ export class Orchestrator {
         // an aborted request does not silently discard it either.
         pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
+        if (pricing === undefined) unpricedSpend = true;
         if (turn.usage) {
           const cost = costFromUsage(turn.usage, pricing?.primaryTier ?? 'mid', pricing?.prices);
           usageTokens += cost.tokens;
@@ -9522,7 +9557,15 @@ export class Orchestrator {
             // accumulator (the same closure `runTurn` above folds each turn's into).
             onUsage: (usage) => {
               modelCalls += 1;
-              const cost = costFromUsage(usage, 'large', pricing?.prices);
+              // Priced by the model that served the repair (M5), not by the `large` label:
+              // with no `large` provider configured, the repair runs on the run's own model.
+              const repairPricing = self.pricingForCall('large');
+              if (repairPricing === undefined) unpricedSpend = true;
+              const cost = costFromUsage(
+                usage,
+                repairPricing?.tier ?? 'large',
+                repairPricing?.prices,
+              );
               usageTokens += cost.tokens;
               usageUsd += cost.usd;
               usageCacheRead += cost.cacheRead;
@@ -9611,7 +9654,7 @@ export class Orchestrator {
           tokens: usageTokens,
           usd: usageUsd,
           modelCalls,
-          priced: pricing !== undefined,
+          priced: !unpricedSpend,
           cacheReadTokens: usageCacheRead,
           cacheWriteTokens: usageCacheWrite,
         });
@@ -9744,7 +9787,7 @@ export class Orchestrator {
         tokens: usageTokens,
         usd: usageUsd,
         modelCalls,
-        priced: pricing !== undefined,
+        priced: !unpricedSpend,
         cacheReadTokens: usageCacheRead,
         cacheWriteTokens: usageCacheWrite,
       });
