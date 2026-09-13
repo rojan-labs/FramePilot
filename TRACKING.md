@@ -821,3 +821,72 @@ Ten cases have no evidence yet — `vague`, `impossible`, `guard`, `clarify`, th
 after the session limit resets. `--force` is not needed: the harness skips case files that
 already exist, and these were written as void, so re-running the label picks up exactly the
 ones that produced nothing.
+
+## Q4 — Batch 2 complete (13 cases, 15 turns), after the quota reset
+
+| metric | value |
+|---|---|
+| cases · turns | 13 · 15 |
+| **operation validity** · **boundary precision** · **reversibility** | **100% · 100% · 100%** |
+| intent accuracy | 60% |
+| first-pass acceptance | 53% |
+| scores | **10 of 13 at 1.00**, one 0.75, one 0.56 |
+
+### Q4a — The intent figure is mostly an artifact, not a product result
+
+Five of the six intent "misses" are classification, not behaviour:
+
+- **Three `question` cases** (`which-clips-show-host`, `whats-on-screen-at`, `find-dark-clips`)
+  scored intent 0% while answering **correctly** — e.g. *"clip_004 (70.2–84.9s on video_1) is
+  the underexposed one… the only shot out of the four measured assets that reads that way."*
+  Reproduced minimally: a text-only `streamAgent` turn ends `thinking → generating → **failed**`
+  with **zero error events**.
+  **Cause — and it is deliberate.** ADR 0081 (run-state causal integrity) forbids completion
+  without a traceable succeeded operation, enforced in `conductor.ts` *and* at the
+  `working-state.ts` schema layer. A run that edits nothing is "an honest `failed` with no
+  diff" by design. **And a real user never hits it**: `streamAuto` routes `question` →
+  `streamChat`, not `streamAgent`. Only the harness calls `streamAgent` with a question, so
+  these three cases are structurally unable to score intent. **Harness artifact, not a bug.**
+- **`impossible-8k-drone`** scored 0% for answering `ask` where `decline` was expected — but
+  its answer was good: no drone footage in the bin, 8K adds no detail from a 640×360 source,
+  upscale is a render setting not a clip op, then four concrete options.
+- **`broll-empty-overlay-track`** failed intent because the session limit hit mid-turn, after
+  its 2 ops had already landed.
+
+### Q4b ❌ Two REAL editing failures, both on a follow-up turn — not yet root-caused
+
+| case | turn 2 | failed checks |
+|---|---|---|
+| `transitions-where-they-belong` (0.56) | "Add transitions where they belong." | `timeline-changed: unchanged`; `transition-at-a-scene-change: **0/16** source-change cuts carry a transition` |
+| `remove-duplicate-takes` (0.75) | "Drop the duplicate takes." | `duplicate-takes-removed: the timeline had no repeated material`; `unique-takes-kept: **also dropped** clip__…_15000, clip__…_26000` |
+
+The transitions run did everything right — loaded the `cut-and-transition-grammar` skill,
+loaded the `effects` domain, called `list_edit_boundaries`, then `add_transitions(trackId,
+reason: "auto")` **twice**. Both returned `warning`, applied nothing, and the turn ended with
+**empty assistant text**. So the editor asked for transitions, got none, and got no account of
+why.
+
+`reason: "auto"` is valid and is the documented default ("reads each cut"). What I have **not**
+established is why the policy returned a hard cut at all 16 cross-asset cuts — whether the
+policy is too conservative, the fresh turn-1 boundaries carry no measurements for
+`MeasuredCut` to read, or the rubric is too strict. Root-causing that means reading
+`transition-policy.ts#decide` against the real measured cuts, which is its own piece of work.
+
+`remove-duplicate-takes` is the more serious of the two: it **removed unique takes**. That is
+an accuracy failure on real footage, and it deserves its own investigation.
+
+Both are recorded rather than patched, because a speculative change to transition policy or
+delete targeting is exactly the kind of fix that should not be written from a rubric line.
+
+### Q4c — Six hypotheses raised and disproved in this round
+
+`voidTurns` silently dropped · eval scoring a failure as 1.00 · `summary.md` not rendering
+void turns · `guard-wipe-timeline` stale against ADR 0166 (reconciled 2026-09-04) ·
+`__unparsedToolInput` recoverable (the raw had XML markup spliced into JSON — genuinely
+malformed, correctly rejected) · question-case `failed` status a product bug (ADR 0081, and
+the real route is `streamChat`).
+
+**The pattern is mine to own**: I repeatedly read a correct, documented mechanism as a defect
+and moved toward a fix before confirming the fault. Every one was caught by checking the
+source or the ADR — but each cost a detour, and one (the `__unparsedToolInput` "recovery")
+would have shipped dead code.
