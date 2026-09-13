@@ -133,6 +133,18 @@ describe('Capability Pack worker protocol', () => {
         retryable: false,
       }),
     ).toMatchObject({ code: 'target_lost', retryable: false });
+    // A deterministic size-bound refusal carries its own stable code so the host can
+    // branch on it instead of matching `detail` text.
+    expect(
+      CapabilityPackWorkerFailureSchema.parse({
+        type: 'failure',
+        protocolVersion: 1,
+        requestId: base.requestId,
+        code: 'output_too_large',
+        detail: 'worker output line exceeded its 1 MiB bound.',
+        retryable: false,
+      }),
+    ).toMatchObject({ code: 'output_too_large', retryable: false });
   });
 
   describe('visual.embed and visual.text', () => {
