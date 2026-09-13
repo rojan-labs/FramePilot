@@ -583,9 +583,20 @@ function projectChecks(
     // `project.fp.json`. Validating a shape here would be a second, weaker copy of that.
     case 'set_ai_memory':
       break;
-    case 'add_marker':
-      if (markers?.some((marker) => marker.id === op.id)) {
-        issue('duplicate_marker', `Marker id already exists: ${op.id}`);
+    case 'add_marker': {
+      // Mirrors `project-operations.ts`: restating an IDENTICAL marker is a no-op there,
+      // so flagging it here would reject a patch the apply path would have accepted.
+      const clash = markers?.find((marker) => marker.id === op.id);
+      if (
+        clash !== undefined &&
+        !(clash.time === op.time && clash.label === op.label && clash.color === op.color)
+      ) {
+        issue(
+          'duplicate_marker',
+          `Marker id already exists: ${op.id}. It sits at ${Number(clash.time.toFixed(3))}s` +
+            `${clash.label === undefined ? '' : ` labelled "${clash.label}"`}. Use a different ` +
+            'id, or remove_marker first if you meant to move it.',
+        );
       }
       if (!Number.isFinite(op.time) || op.time < 0) {
         issue(
@@ -594,6 +605,7 @@ function projectChecks(
         );
       }
       break;
+    }
     case 'remove_marker':
       if (!markerExists(op.id)) issue('missing_marker', `Unknown marker '${op.id}'.`);
       break;

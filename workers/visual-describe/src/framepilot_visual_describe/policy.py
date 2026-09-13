@@ -44,6 +44,7 @@ from .schema import (
     CAMERA_ANGLES,
     CAMERA_MOVEMENTS,
     CONFIDENCE_LEVELS,
+    DESCRIBE_INSTRUCTION,
     DESCRIBED_JSON_SCHEMA,
     MAX_FIELD_CHARS,
     MAX_ON_SCREEN_TEXT_CHARS,
@@ -103,11 +104,30 @@ def keyframe_times(span: ShotSpan, *, max_frames: int = MAX_KEYFRAMES_PER_SHOT) 
     return ordered
 
 
+#: Shorter than this, a field matching the instruction is a coincidence ("sky"), not a copy.
+MIN_ECHO_CHARS: Final = 8
+
+
 def _text(value: Any, limit: int) -> str:
     if not isinstance(value, str):
         return ""
     collapsed = " ".join(value.split())
     return collapsed[:limit].rstrip() if len(collapsed) > limit else collapsed
+
+
+def _described(value: Any, limit: int) -> str:
+    """A free-text field, or ``""`` when the model only repeated the instruction back.
+
+    Measured on the local SmolVLM2-2.2B pack with real camera keyframes: under the grammar
+    it returned the prompt's own wording as every free-text value. That is not a description
+    of anything, and stored it would be counted as coverage — so it is blanked here, the
+    same way any other undescribed field is, whatever the prompt happens to say.
+    """
+    text = _text(value, limit)
+    probe = text.lower().rstrip(".")
+    if len(probe) >= MIN_ECHO_CHARS and probe in DESCRIBE_INSTRUCTION.lower():
+        return ""
+    return text
 
 
 def _closed(value: Any, vocabulary: Sequence[str]) -> str | None:
@@ -127,7 +147,7 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
     """
     if not isinstance(payload, Mapping):
         raise DescribeFailedError(f"shot {shot_index}: the model did not return an object.")
-    summary = _text(payload.get("summary"), MAX_SUMMARY_CHARS)
+    summary = _described(payload.get("summary"), MAX_SUMMARY_CHARS)
     if not summary:
         # Parsed, but describes nothing. Distinguished from a malformed answer because only
         # one of the two is worth trying again — see `ShotNotDescribableError`.
@@ -148,15 +168,15 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
     return ShotDescription(
         shot_index=shot_index,
         summary=summary,
-        subject=_text(payload.get("subject"), MAX_FIELD_CHARS),
-        action=_text(payload.get("action"), MAX_FIELD_CHARS),
-        setting=_text(payload.get("setting"), MAX_FIELD_CHARS),
+        subject=_described(payload.get("subject"), MAX_FIELD_CHARS),
+        action=_described(payload.get("action"), MAX_FIELD_CHARS),
+        setting=_described(payload.get("setting"), MAX_FIELD_CHARS),
         camera=Camera(
             shot_size=_closed(camera_map.get("shotSize"), SHOT_SIZES),
             angle=_closed(camera_map.get("angle"), CAMERA_ANGLES),
             movement=_closed(camera_map.get("movement"), CAMERA_MOVEMENTS),
         ),
-        mood=_text(payload.get("mood"), MAX_FIELD_CHARS),
+        mood=_described(payload.get("mood"), MAX_FIELD_CHARS),
         on_screen_text=on_screen,
         quality=tuple(quality),
         confidence=level if level in CONFIDENCE_LEVELS else DEFAULT_CONFIDENCE,

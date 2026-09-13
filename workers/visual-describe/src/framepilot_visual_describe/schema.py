@@ -72,17 +72,14 @@ MAX_QUALITY_ITEMS: Final = 6
 
 DESCRIBED_SCHEMA_NAME: Final = "shot_description"
 
+#: Names no field on purpose: per-field ``field: hint.`` lines were emitted verbatim as the
+#: field values by SmolVLM2 under the grammar. See the canonical copy for the measurement.
 DESCRIBE_INSTRUCTION: Final = (
-    "You are describing ONE shot of video from its keyframes, for an editor's index. "
-    "Fill every field of the schema. State only what is visibly on screen — no intent, "
-    "no story, no narration, no guessing at what happens next. "
-    "summary: at most two sentences, the shot as an editor would note it. "
-    "subject: who or what the shot is of. action: what they are doing. "
-    "setting: where it is. mood: the visual feel, not an emotion you infer. "
-    "onScreenText: every piece of text legible in frame, transcribed VERBATIM and never "
-    "paraphrased; an empty list when there is none. "
-    "camera and quality: choose only from the listed values, and choose 'unknown' rather "
-    "than guessing. confidence: how sure you are of this description overall."
+    "Describe this video shot from its keyframes for an editor's index. "
+    "State only what is visibly on screen: no intent, no story, no narration, no guessing "
+    "at what happens next. Transcribe any legible on-screen text VERBATIM, never "
+    "paraphrased, and leave that list empty when there is none. For camera and quality "
+    "choose only from the allowed values, and choose unknown rather than guessing."
 )
 
 

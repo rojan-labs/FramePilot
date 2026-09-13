@@ -140,6 +140,35 @@ def test_setup_asr_progress_line_omits_the_percentage_when_the_size_is_unknown(
     assert "%" not in err
 
 
+def test_render_prints_progress_to_stderr_and_keeps_stdout_json(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    # A multi-minute export used to print nothing until it finished — indistinguishable
+    # from a hang. The engine already reports progress; the CLI simply never listened.
+    from framepilot_engine import cli
+    from framepilot_engine.render.pipeline import RenderJob, RenderState
+
+    def fake_render(project: Any, opts: Any, *, base_dir: Path, progress: Any = None) -> RenderJob:
+        assert progress is not None
+        progress("encoding", 0.5)
+        progress("validating", 1.0)
+        return RenderJob(id="job", project_id=project.id, state=RenderState.COMPLETED)
+
+    monkeypatch.setattr(cli, "render", fake_render)
+    project_path = tmp_path / "project.fp.json"
+    ProjectFile.save(
+        Project.model_validate({"id": "p1", "name": "P", "fps": 30, "timeline": {"tracks": []}}),
+        project_path,
+    )
+
+    assert main(["render", str(project_path), "--output", "out.mp4"]) == 0
+
+    captured = capsys.readouterr()
+    assert "encoding: 50%" in captured.err
+    assert "validating: 100%" in captured.err
+    assert json.loads(captured.out)["state"] == "completed"
+
+
 def test_setup_asr_reports_checksum_error(
     monkeypatch: pytest.MonkeyPatch, tmp_path: Path, capsys: pytest.CaptureFixture[str]
 ) -> None:

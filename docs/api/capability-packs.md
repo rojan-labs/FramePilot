@@ -31,8 +31,11 @@ deletes the partial and starts clean.
 Verified artifacts extract only into a fresh disposable staging directory. Raw artifacts must be
 the one signed entrypoint. ZIP extraction accepts exactly the signed file allowlist; it rejects
 absolute, traversal, backslash, duplicate, extra, missing, symbolic-link, over-count, over-size, and
-over-expansion entries and writes every file with no-overwrite semantics. Failure or cancellation
-removes the whole staging directory. The production ZIP reader and its transitive helper add about
+over-expansion entries and writes every file with no-overwrite semantics. Every file is written
+`0644` whatever mode bits the archive claims. After a verified macOS extraction the host marks
+exactly the signed entrypoint plus the artifact's optional signed `executables` list `0755`. That
+list must be a duplicate-free subset of `files`, and it is the only way a bundled interpreter or
+helper binary stays runnable. Failure or cancellation removes the whole staging directory. The production ZIP reader and its transitive helper add about
 140 KiB unpacked in the development installation and pass the dependency license gate; models and
 worker binaries remain outside the base app.
 
@@ -159,7 +162,11 @@ pnpm --filter @framepilot/capability-packs release:pack -- rollback signed.json 
 
 `prepare-artifact` inventories regular files only, rejects links and unapproved license identifiers,
 requires the declared entrypoint, hashes the archive and each unpacked file, and emits the signed
-file allowlist plus a deterministic file-level SBOM. The command applies the same artifact schema as
+file allowlist plus a deterministic file-level SBOM. For a macOS artifact it also derives
+`executables` from the staged payload's real execute bits, and it refuses an entrypoint that is not
+executable. The catalog `schemaVersion` stays `1` because the field is optional and additive. A host
+older than the field drops it while parsing, so the release digest no longer matches and the install
+fails closed. No signed catalog had been published when the field was added. The command applies the same artifact schema as
 the installer, including platform executable-trust identity and raw/ZIP constraints.
 `prepare-release` validates the assembled cross-platform release and derives its canonical logical
 release digest; the later signing step recomputes that digest independently.
@@ -176,6 +183,92 @@ envelope. Installed pinned releases remain on disk under the normal revocation p
 writes outputs through a sibling temporary file and atomic rename, and reports no private-key
 material. Platform worker builds, OS signing/notarization, CDN credentials, and the `latest` pointer
 remain release-infrastructure responsibilities and are not implied by this host-neutral tool.
+
+## Release pipeline (build → sign → record)
+
+What runs where:
+
+| Where                                                       | Trigger                                             | What it proves or produces                                                                                                                                                                                                                                                                                                                                             |
+| ----------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capability-pack-<pack>.yml` (all four packs)               | PR / push touching the worker                       | Unit suite, ruff, mypy with no ML stack and no weights; weights are not committed; the base engine does not import the worker. Tracking Lite and Subject Intelligence also run their decoded-media proof and SBOM drift check on every PR (small weights).                                                                                                             |
+| `capability-pack-visual-embed.yml` / `-visual-describe.yml` | `workflow_dispatch` only                            | Weight tier: fetch and verify every pin, Visual Embed's decoded-media proof, Visual Describe's standalone payload build. Dispatch-only because ~1.5–2.4 GiB of weights per run is an infrastructure-cost decision.                                                                                                                                                     |
+| `capability-pack-release.yml`                               | tag `capability-pack/<pack>/v<version>` or dispatch | Per pack on `macos-14`: `build-capability-pack.sh --stage payload` → codesign → `--stage finalize` → notarize → `framepilot-pack prepare-artifact` → `prepare-release`; then one catalog job: unsigned `catalog.json` → `sign-catalog` → `publication-plan`. Uploads the ZIP, its sha256, build receipt, handshake, signing status, artifact facts and release record. |
+
+`scripts/build-capability-pack.sh` builds a payload that is standalone by proof. It vendors the
+interpreter **and the standard library** and removes `pyvenv.cfg`. It also moves the payload and
+runs it with a scrubbed environment. It then checks that every import root lies inside the moved
+payload before running the worker's own health handshake from there.
+
+The entrypoint `bin/<entrypoint>` is a native launcher compiled from
+`scripts/pack-launcher/launcher.c` with the system `cc`, not uv's `#!/bin/sh` wrapper. It resolves
+its own real path and execs the sibling `bin/python` as `-P -c "from <module> import <function>;
+sys.exit(<function>())"`. The target comes from the wrapper it replaces. It forwards every argument
+and keeps the environment unchanged. `-P` stops the launch directory from shadowing worker modules.
+It exists because macOS keeps a script's code signature in extended attributes, and the host's ZIP
+install drops them. A Mach-O embeds its signature, so it survives. The release job signs every other
+Mach-O file first and the launcher last, then verifies it. There is no shell-wrapper fallback: the
+only release platform built is darwin. The script refuses:
+
+- a payload that references the repository or uv's managed CPython
+- a payload that contains a symbolic link, which the installer rejects
+- a payload that exceeds the manifest's `max_unpacked_mib`
+
+It ships only the files `pack/models.lock.toml` pins. The archive is a ZIP, the only multi-file
+format the installer accepts. `scripts/capability_pack_release.py` assembles the
+`prepare-artifact`, `prepare-release` and catalog inputs from the manifest, models lock, SBOM and
+build receipt. It refuses a pack without an SBOM record rather than hand-typing a license set.
+
+Which secret enables which step. Every credentialed step is skipped with a visible workflow
+warning when its secret is absent, and nothing is recorded as signed that was not:
+
+| Step                                                          | Requires                                                                                                                                                  |
+| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Developer ID codesign of every Mach-O file and the entrypoint | `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `CSC_NAME`                                                                                                           |
+| Notarization (`notarytool submit --wait`)                     | a signed payload plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`                                                                          |
+| Real `executableTrust.teamIdentifier` in the record           | `APPLE_TEAM_ID` (otherwise `UNSIGNED00`, and the catalog is never signed)                                                                                 |
+| `sign-catalog` + `publication-plan`                           | `CAPABILITY_PACK_CATALOG_SIGNING_KEY` (PEM secret), variable `CAPABILITY_PACK_CATALOG_KEY_ID`, and **every** release in the run code-signed and notarized |
+| Publishable artifact URLs                                     | variable `CAPABILITY_PACK_ARTIFACT_BASE_URL` (otherwise `https://capability-packs.invalid/unpublished`)                                                   |
+| `minAppVersion` on tag runs                                   | variable `CAPABILITY_PACK_MIN_APP_VERSION` (dispatch asks for it)                                                                                         |
+
+Still the maintainer's, and not done by any workflow:
+
+- **Uploading** artifacts and the digest-addressed catalog to the CDN, merging this run's releases
+  into the live catalog (a subset run carries only its own releases), and moving `latest`.
+- **Windows.** The build script is POSIX-only and Visual Describe pins no Windows runtime, so no
+  `win32-x64` artifact and no Authenticode signature is produced. The manifests' win32 rows are
+  not yet releasable.
+- **Visual Embed and Visual Describe SBOMs.** Neither worker has `tools/generate_sbom.py` or a
+  `pack/sbom/` record, so their release records fail closed at the license step.
+- **Size caps — decided 2026-09-14: raised.** Visual Embed's cap went from 1200 to 2000 MiB and
+  Visual Describe's from 2600 to 3000 MiB, so both measured payloads fit with roughly 10–12%
+  headroom and an unexpected growth still fails the build. The alternatives were not taken: an
+  fp16 or int8 SigLIP 2 text tower (about 540–800 MiB smaller, but new pins and backend support)
+  and moving the 500M low-memory pair (606.8 MiB) into a separate optional pack.
+
+  Measured 2026-09-14 on darwin-arm64. Health check passes from the relocated payload in all
+  three builds. Sizes are the sum of file bytes, which is what `prepare-artifact` records:
+
+  | Pack            | Before     | After    | Cap  | Weights (unchanged)                                 | Largest non-weight parts                |
+  | --------------- | ---------- | -------- | ---- | --------------------------------------------------- | --------------------------------------- |
+  | Tracking Lite   | —          | 178 MiB  | 400  | 0                                                   | OpenCV                                  |
+  | Visual Embed    | 1812.0 MiB | 1781 MiB | 2000 | 1501.6 MiB (SigLIP 2 fp32 text tower alone: 1077.1) | OpenCV 139, onnxruntime 76, Python 27   |
+  | Visual Describe | 2750.5 MiB | 2709 MiB | 3000 | 2499.8 MiB (2.2B pair 1893.0, 500M pair 606.8)      | OpenCV 137, llama runtime 31, Python 27 |
+
+  Visual Describe's llama.cpp dylibs still ship under both their versioned and unversioned names,
+  a 15.5 MiB duplicate forced by the no-symlink artifact rule unless `models.py` pins the
+  unversioned names instead.
+
+- **Install-time execute bits and a zip-surviving signature** were two blockers for any real
+  catalog install. Both are now fixed with the signed `executables` list and the native launcher
+  (see above). Proven on 2026-09-14 with an ad-hoc-signed Tracking Lite ZIP installed through the
+  real extractor: `codesign --verify --strict` passes on the extracted entrypoint, `bin/python` is
+  executable, and the host health check handshakes. The same install without `executables` fails
+  with `Permission denied`. Still unproven without credentials: the Team ID match, `spctl`
+  Gatekeeper assessment and notarization. Whether the hardened runtime (`--options runtime`) needs
+  entitlements for the interpreter's extension modules is also unproven, and needs a Developer ID run.
+- **Vendored interpreter licenses.** The release tool adds `PSF-2.0` for the vendored CPython.
+  The natives python-build-standalone links into it (OpenSSL, libffi, SQLite, xz, zlib, bzip2,
+  mpdecimal, ncurses) are not yet enumerated by any SBOM.
 
 ## Logical release pin
 

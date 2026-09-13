@@ -124,7 +124,14 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
     }
     return {};
   }
-  return { executor: createSidecarExecutor({ baseUrl }) };
+  return {
+    executor: createSidecarExecutor({
+      baseUrl,
+      // Routed only by the desktop's Capability Pack tracking executor. Offered here, both
+      // failed on their first call with "no implementation on this surface".
+      unroutableToolNames: ['detect_subjects', 'track_subject_automatically'],
+    }),
+  };
 }
 
 /**

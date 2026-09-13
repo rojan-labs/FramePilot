@@ -13,6 +13,7 @@ import type { Clip, Effect } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../editor/useEditor.js';
 import { Button } from '@framepilot/ui';
 import { professionalMaskEffectId } from '@framepilot/editor-core';
+import { silhouetteMasksToTrackSamples } from '@framepilot/ai-sdk';
 import type { TrackingSampleWire } from '@framepilot/shared-types';
 import { LabeledSelect } from './LabeledSelect.js';
 import { usePackJob } from './usePackJob.js';
@@ -53,10 +54,21 @@ export function MaskPackActions({
       (mask.params as Record<string, unknown>).shape === 'ellipse');
   const [mode, setMode] = useState<FollowMode>('box');
   const [localError, setLocalError] = useState<string | null>(null);
+  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
+  const firstFrame = Math.max(0, Math.round(clip.sourceStart * safeFps));
+  const lastFrameExclusive = Math.max(firstFrame + 1, Math.round(clip.sourceEnd * safeFps));
 
   const job = usePackJob({
     onComplete: (result) => {
-      if (result.kind !== 'tracking') {
+      // Main already converts silhouettes to a track; a raw segmentation from
+      // an older host goes through the identical agent-path conversion.
+      const samples: readonly TrackingSampleWire[] | undefined =
+        result.kind === 'tracking'
+          ? result.samples
+          : result.kind === 'segment'
+            ? silhouetteMasksToTrackSamples(result.masks)
+            : undefined;
+      if (samples === undefined || samples.length === 0) {
         setLocalError('This job did not return a track.');
         return;
       }
@@ -69,11 +81,10 @@ export function MaskPackActions({
         maskEffectId: professionalMaskEffectId(clip.id),
         target: mode === 'center' ? ('object' as const) : ('bounding_box' as const),
         engine: result.engine,
-        fps,
+        fps: safeFps,
         startSeconds: 0,
-        samples: result.samples.map(
-          (sample: TrackingSampleWire) => sample,
-        ),
+        firstFrame,
+        samples,
       };
       const compiled = compileTrackingCommand({
         timeline: editor.state.timeline,
@@ -103,10 +114,6 @@ export function MaskPackActions({
     mode === 'center'
       ? { point: { x: bounds.x + bounds.width / 2, y: bounds.y + bounds.height / 2 } }
       : { region: { ...bounds } };
-  const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;
-  const firstFrame = Math.max(0, Math.round(clip.sourceStart * safeFps));
-  const lastFrameExclusive = Math.max(firstFrame + 1, Math.round(clip.sourceEnd * safeFps));
-
   const run = (): void => {
     setLocalError(null);
     void job.run({ assetId: clip.assetId, capability, firstFrame, lastFrameExclusive, fps: safeFps, parameters });

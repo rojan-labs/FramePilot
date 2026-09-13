@@ -141,7 +141,8 @@ import {
   turnLearnedSomethingNew,
 } from './kernel/conductor.js';
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
-import { estimateUsd } from './kernel/cost/cost-meter.js';
+import { estimateUsd, runPricingFor } from './kernel/cost/cost-meter.js';
+import type { TierPrice } from './kernel/cost/cost-meter.js';
 import { EDIT_LOOK_TOOL_NAMES, stageAllowsTool, toolRole } from './kernel/stage-policy.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
@@ -296,16 +297,6 @@ export const EDIT_VARIATION_COUNT = 2;
  * {@link EDIT_VARIATION_COUNT} (one entry per candidate).
  */
 const VARIATION_TEMPERATURES: readonly (number | undefined)[] = [undefined, 0.9];
-
-/**
- * The `ModelTier` an `edit`-mode call is priced at for the variations run's combined-cost
- * accounting. `edit()`/`streamEdit()` do not run through the tier-routed effect runtime (that
- * machinery is for the recipe/planner DAG, P3.4) — they call the single injected provider
- * directly — so there is no per-call tier to read. `'mid'` mirrors `plan-driver.ts`'s
- * `DEFAULT_MODEL_TIER`, the same default an untiered EditProposer-class call already prices
- * at elsewhere in this codebase.
- */
-const VARIATION_PRICING_TIER: ModelTier = 'mid';
 
 /**
  * What one model call needs to know about its own context, beyond the payload.
@@ -468,6 +459,11 @@ export interface RunCostSeed {
   readonly usd: number;
   /** Model calls already made for this turn. Absent ⇒ unknown, counted as none. */
   readonly modelCalls?: number;
+  /** See {@link UsageEvent.priced} — `false` means `usd` is a placeholder, not a price. */
+  readonly priced?: boolean;
+  /** See {@link UsageEvent.cacheReadTokens}. Absent ⇒ the seed reported no split. */
+  readonly cacheReadTokens?: number;
+  readonly cacheWriteTokens?: number;
 }
 
 /**
@@ -487,8 +483,14 @@ function costFromUsage(
       }
     | undefined,
   tier: ModelTier = 'mid',
-): { tokens: number; usd: number } {
-  if (!usage) return { tokens: 0, usd: 0 };
+  /**
+   * The run's prices, or `undefined` when this SDK cannot price the model that served
+   * the call — see {@link RunPricing}. Unpriced means `usd` stays 0, which is what
+   * `budgetExhausted` has always documented and could never actually get.
+   */
+  prices?: Readonly<Record<ModelTier, TierPrice>>,
+): { tokens: number; usd: number; cacheRead: number; cacheCreation: number } {
+  if (!usage) return { tokens: 0, usd: 0, cacheRead: 0, cacheCreation: 0 };
   const input = usage.inputTokens ?? 0;
   const output = usage.outputTokens ?? 0;
   // Cached prompt tokens are real, billed tokens (`cost-meter.ts#TokenUsage`). Counting
@@ -498,7 +500,14 @@ function costFromUsage(
   const cacheCreation = usage.cacheCreationInputTokens ?? 0;
   return {
     tokens: input + output + cacheRead + cacheCreation,
-    usd: estimateUsd(tier, { input, output, cacheRead, cacheCreation }),
+    // Kept apart as well as summed: `tokens` alone cannot say whether the prompt cache is
+    // working, and the adapters report the split on every call.
+    cacheRead,
+    cacheCreation,
+    usd:
+      prices === undefined
+        ? 0
+        : estimateUsd(tier, { input, output, cacheRead, cacheCreation }, prices),
   };
 }
 
@@ -3464,6 +3473,26 @@ export class Orchestrator {
   }
 
   /**
+   * What ONE model call may honestly be charged at (TRACKING M5): the price class of the
+   * model that ACTUALLY serves `tier` — a configured tier provider, else the run's own — or
+   * `undefined` (unpriced) when this SDK cannot price that model.
+   *
+   * WHY per call, not per run: a tier is a routing label, not a model. The classifier was
+   * billed as `small` and the repair pass as `large` whatever served them, so an Opus run with
+   * no tier providers charged its own routing call at Haiku rates and a Sonnet run's repair at
+   * Opus rates, and a cheap classifier configured on another provider was priced from the run
+   * provider's table. A call is priced by the model that answered it, or not at all.
+   */
+  private pricingForCall(
+    tier: ModelTier,
+  ): { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> } | undefined {
+    const pricing = runPricingFor(this.providerForTier(tier));
+    return pricing === undefined
+      ? undefined
+      : { tier: pricing.primaryTier, prices: pricing.prices };
+  }
+
+  /**
    * Build the {@link EffectRuntime} for one run, wrapped
    * in {@link createRecordingEffectRuntime} when `recordEffects` is on (P7.3). `finish` must
    * be called once the run settles (on every terminal path) so a recording run always hands
@@ -3769,6 +3798,8 @@ export class Orchestrator {
     const messages = buildContext(this.budgeted(input, toolSchemaCost(tools)));
     const ctx = this.toolContext(input);
     const variants: EditResult[] = [];
+    // Same rule as the agent loop: an unpriced provider reports 0, not a tier-table guess.
+    const variationPricing = runPricingFor(this.provider);
     let tokens = 0;
     let usd = 0;
     for (const temperature of VARIATION_TEMPERATURES.slice(0, EDIT_VARIATION_COUNT)) {
@@ -3780,7 +3811,16 @@ export class Orchestrator {
         const inputTok = response.usage.inputTokens ?? 0;
         const outputTok = response.usage.outputTokens ?? 0;
         tokens += inputTok + outputTok;
-        usd += estimateUsd(VARIATION_PRICING_TIER, { input: inputTok, output: outputTok });
+        usd +=
+          variationPricing === undefined
+            ? 0
+            : // The class of the model that answered (M5) — these calls go straight to
+              // `this.provider`, so a fixed tier label mispriced every non-default model.
+              estimateUsd(
+                variationPricing.primaryTier,
+                { input: inputTok, output: outputTok },
+                variationPricing.prices,
+              );
       }
       const operations: AnyOperation[] = [];
       for (const call of response.toolCalls ?? []) {
@@ -4619,7 +4659,27 @@ export class Orchestrator {
           const note = unusableHostPayload('transcribe');
           return { ops: [], note, summary: note, status: 'failed', data: outcome.data };
         }
-        const ops: AnyOperation[] = [{ type: 'set_transcript', words: parsedWords.data }];
+        // Scoped to the transcribed asset, always. An unattributed `set_transcript` is a
+        // WHOLE-PROJECT replacement (`project-operations.ts`), and the desktop's hosted ASR
+        // adapters return words without an `assetId` — so transcribing one clip through
+        // groq/nvidia replaced every other asset's transcript with words belonging to none.
+        const transcribedAssetId =
+          typeof record.assetId === 'string' && record.assetId !== ''
+            ? record.assetId
+            : typeof call.arguments.assetId === 'string' && call.arguments.assetId !== ''
+              ? call.arguments.assetId
+              : undefined;
+        const words =
+          transcribedAssetId === undefined
+            ? parsedWords.data
+            : parsedWords.data.map((word) => ({ ...word, assetId: transcribedAssetId }));
+        const ops: AnyOperation[] = [
+          {
+            type: 'set_transcript',
+            words,
+            ...(transcribedAssetId === undefined ? {} : { assetId: transcribedAssetId }),
+          },
+        ];
         const probe = assembleEdit(ctx.project, ops, 'Transcribe media', 'agent');
         /* v8 ignore start -- set_transcript is a whole-array replace with no timeline
            references to check (see validator.ts), so a schema-valid word array can
@@ -5366,7 +5426,14 @@ export class Orchestrator {
         // edit happened: the user sees the call made no change, and the agent loop
         // feeds this note back so the model moves on to the real edit rather than
         // repeating the no-op or halting on it.
-        const note = `${desc} — nothing to change`;
+        // The tool's own account of WHY rides along. `add_transitions reason:"auto"` leaves a
+        // cut hard when nothing has recognised what either side shows, and said so only on
+        // the path that built operations — so a run where every cut stayed hard got
+        // "nothing to change", reissued the identical call, and ended with no text at all.
+        const note =
+          `${desc} — nothing to change` +
+          colorSolveNote(call.name, ctx, call.arguments) +
+          transitionsNote(call.name, ctx, call.arguments);
         return { ops, note, summary: note, status: 'warning' };
       }
       // Validate against the working copy NOW, not at turn end: an invalid call
@@ -7257,7 +7324,7 @@ export class Orchestrator {
           ...(autoOptions.controls ? { controls: autoOptions.controls } : {}),
         });
         return;
-      case 'edit':
+      case 'edit': {
         // Mark the turn as editing up front so an edit that ultimately applies nothing
         // still gets the sidebar's honest "nothing changed" notice — independent of which
         // statuses the delegated agent loop happens to emit (runOutcome.foldTurnEvent).
@@ -7265,13 +7332,31 @@ export class Orchestrator {
         // C1: the classifier call that routed here already spent real tokens — seed the
         // agent run's cost accumulator with it so the single terminal `usage` event this
         // run emits is the run's TRUE combined cost, not just the agent loop's own calls.
+        // Priced by the model that ACTUALLY routed (M5): `providerForTier('small')` is a
+        // configured cheap model or, with none configured, the run's own provider — never
+        // "whatever `small` costs" on someone else's price table.
+        const classifierPricing = this.pricingForCall('small');
+        const classifierCost = costFromUsage(
+          classifierUsage,
+          classifierPricing?.tier ?? 'small',
+          classifierPricing?.prices,
+        );
         yield* this.streamEditorRun(
           input,
           options,
           {
             route: 'agent',
             agentOptions: autoOptions.agentOptions ?? {},
-            initialCost: { ...costFromUsage(classifierUsage, 'small'), modelCalls: 1 },
+            initialCost: {
+              tokens: classifierCost.tokens,
+              usd: classifierCost.usd,
+              cacheReadTokens: classifierCost.cacheRead,
+              cacheWriteTokens: classifierCost.cacheCreation,
+              modelCalls: 1,
+              // A routing call on a model this SDK cannot price makes the whole run's dollar
+              // figure a placeholder, not a price.
+              priced: classifierPricing !== undefined,
+            },
           },
           {
             ...sharedEditorControls,
@@ -7279,6 +7364,7 @@ export class Orchestrator {
           },
         );
         return;
+      }
     }
   }
 
@@ -8458,8 +8544,21 @@ export class Orchestrator {
     // plain-number accumulator (no `CostLedger` needed — the agent loop's direct
     // provider calls have no per-call tier to fold by). Emitted once, in `finalize`/
     // `settle`, alongside the terminal diff.
+    // Resolved ONCE per run, here, because this is where the provider that will serve it
+    // is known. `undefined` ⇒ unpriced: tokens are still metered, the USD cap simply does
+    // not fire on a figure this SDK would have had to invent (see `RunPricing`).
+    // The editing turns run as `{ kind: 'model', tier: 'mid' }` effects, so the model that
+    // answers them is `providerForTier('mid')` — a configured mid provider, else the run's
+    // own. Pricing them from `this.provider` regardless was M5's last form.
+    const pricing = runPricingFor(this.providerForTier('mid'));
     let usageTokens = initialCost.tokens;
     let usageUsd = initialCost.usd;
+    let usageCacheRead = initialCost.cacheReadTokens ?? 0;
+    let usageCacheWrite = initialCost.cacheWriteTokens ?? 0;
+    // True once any call ran on a model this SDK cannot price (M5) — reported usage or not, since
+    // a call that reported nothing is spend of unknown size, not a measured $0. Then `usd` is a
+    // placeholder for the whole run, whatever the other calls were priced at.
+    let unpricedSpend = initialCost.priced === false;
     /**
      * Did any call this run return real evidence about what is IN the footage?
      *
@@ -8936,10 +9035,17 @@ export class Orchestrator {
               : retryPrompt.messages;
           // The attempt being replaced was still billed, so fold its usage in before it is
           // overwritten; the surviving attempt is folded in by the block below, once.
+          if (pricing === undefined) unpricedSpend = true;
           if (turn.usage) {
-            const supersededCost = costFromUsage(turn.usage);
+            const supersededCost = costFromUsage(
+              turn.usage,
+              pricing?.primaryTier ?? 'mid',
+              pricing?.prices,
+            );
             usageTokens += supersededCost.tokens;
             usageUsd += supersededCost.usd;
+            usageCacheRead += supersededCost.cacheRead;
+            usageCacheWrite += supersededCost.cacheCreation;
           }
           turn = yield* streamOnce(attempt, { ...retryPrompt, messages: retryMessages });
           modelCalls += 1;
@@ -8951,10 +9057,13 @@ export class Orchestrator {
         // an aborted request does not silently discard it either.
         pendingFrames = [];
         // C1: fold this turn's real model-call usage into the run's cost accumulator.
+        if (pricing === undefined) unpricedSpend = true;
         if (turn.usage) {
-          const cost = costFromUsage(turn.usage);
+          const cost = costFromUsage(turn.usage, pricing?.primaryTier ?? 'mid', pricing?.prices);
           usageTokens += cost.tokens;
           usageUsd += cost.usd;
+          usageCacheRead += cost.cacheRead;
+          usageCacheWrite += cost.cacheCreation;
         }
         if (unusable === 'truncated' && !turn.aborted) {
           // Publishing the fragment would make a cut-off sentence the run's last word.
@@ -9448,9 +9557,19 @@ export class Orchestrator {
             // accumulator (the same closure `runTurn` above folds each turn's into).
             onUsage: (usage) => {
               modelCalls += 1;
-              const cost = costFromUsage(usage, 'large');
+              // Priced by the model that served the repair (M5), not by the `large` label:
+              // with no `large` provider configured, the repair runs on the run's own model.
+              const repairPricing = self.pricingForCall('large');
+              if (repairPricing === undefined) unpricedSpend = true;
+              const cost = costFromUsage(
+                usage,
+                repairPricing?.tier ?? 'large',
+                repairPricing?.prices,
+              );
               usageTokens += cost.tokens;
               usageUsd += cost.usd;
+              usageCacheRead += cost.cacheRead;
+              usageCacheWrite += cost.cacheCreation;
             },
           });
           // Carried whether or not anything landed: a repair that RAN and produced nothing
@@ -9531,7 +9650,14 @@ export class Orchestrator {
         // C1: the run's real, combined cost (classifier + every turn + any repair pass) —
         // emitted once at the terminal boundary, mirroring `streamRecipe`/
         // the single terminal `emit.usage(...)` contract every route shares.
-        yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+        yield emit.usage({
+          tokens: usageTokens,
+          usd: usageUsd,
+          modelCalls,
+          priced: !unpricedSpend,
+          cacheReadTokens: usageCacheRead,
+          cacheWriteTokens: usageCacheWrite,
+        });
         // Say the refusal out loud. The per-turn path emits these as warnings through the
         // reducer (`onTurnResult`); a run that ends here has no turn left to carry them, and
         // silence is how "your edit was refused" becomes "your edit was applied".
@@ -9657,7 +9783,14 @@ export class Orchestrator {
       // C1: a run that threw mid-flight can still have spent real tokens (the classifier,
       // completed turns, a repair call) — settle honestly with whatever cost accrued
       // before the throw, same as `finalize`'s normal-exit emission.
-      yield emit.usage({ tokens: usageTokens, usd: usageUsd, modelCalls });
+      yield emit.usage({
+        tokens: usageTokens,
+        usd: usageUsd,
+        modelCalls,
+        priced: !unpricedSpend,
+        cacheReadTokens: usageCacheRead,
+        cacheWriteTokens: usageCacheWrite,
+      });
       // Per-step reasoning nodes each settled themselves (streamAssistant's abort-safe
       // settle) — no shared per-run node to close here.
       yield emit.status(aborted ? 'cancelled' : 'failed');

@@ -39,6 +39,36 @@ function valuesOf(
     .map((keyframe) => keyframe.value);
 }
 
+describe('convertTrackSamples firstFrame anchor', () => {
+  const late = [sample(4), sample(5), sample(6)];
+  const base = {
+    samples: late,
+    fps: 30,
+    startSeconds: 1,
+    durationSeconds: 10,
+    keyframePrefix: 'track__clip-1',
+  };
+
+  it('times the first usable sample from the requested first frame', () => {
+    const result = convertTrackSamples({ ...base, firstFrame: 2 });
+    if (result.status !== 'converted') throw new Error('expected conversion');
+    expect(Math.min(...result.keyframes.map((keyframe) => keyframe.time))).toBeCloseTo(1 + 2 / 30, 9);
+  });
+
+  it('keeps the legacy anchor (first usable sample) when firstFrame is absent', () => {
+    const result = convertTrackSamples(base);
+    if (result.status !== 'converted') throw new Error('expected conversion');
+    expect(Math.min(...result.keyframes.map((keyframe) => keyframe.time))).toBeCloseTo(1, 9);
+  });
+
+  it('rejects an anchor after the first measured frame', () => {
+    expect(convertTrackSamples({ ...base, firstFrame: 5 })).toMatchObject({
+      status: 'rejected',
+      code: 'invalid_policy',
+    });
+  });
+});
+
 describe('convertTrackSamples', () => {
   it('produces one keyframe per box property per tracked frame', () => {
     const result = convert([sample(0), sample(1), sample(2)]);

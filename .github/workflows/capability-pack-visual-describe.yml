@@ -1,0 +1,99 @@
+# Visual Describe Capability Pack verification.
+#
+# Mirrors the Tracking Lite and Subject Intelligence workflows: `workers/visual-describe`
+# is a standalone artifact project, not a workspace member, and neither the llama.cpp
+# runtime nor its ~2.4 GiB of GGUF weights may ever enter the base application.
+#
+# WHY THE WEIGHT TIER IS DISPATCH-ONLY: ~2.4 GiB of weights per run is an
+# infrastructure-cost decision nobody has made, so pull requests run the tier that needs
+# no OpenCV, no runtime binary and no weights.
+#
+# WHY macOS ONLY for the weight tier: `pack/models.lock.toml` pins exactly one runtime
+# archive, `llama-…-bin-macos-arm64.tar.gz`. There is no pinned Windows runtime, so a
+# Windows job could only fail; the manifest's win32 platform row is not yet buildable.
+#
+# WHY NO decoded_media STEP: this worker has no test carrying that marker, and
+# `pytest -m decoded_media` over zero tests exits non-zero. Its real proof is the pack's
+# own health handshake, which hashes every pinned artifact — runtime, nine dylibs and four
+# GGUF files — from a built, standalone payload.
+#
+# NO SBOM TIER YET: no `tools/generate_sbom.py` and no `pack/sbom/` record exist for this
+# worker; that gap is tracked in docs/api/capability-packs.md.
+name: Capability Pack — Visual Describe
+
+on:
+  pull_request:
+    paths:
+      - 'workers/visual-describe/**'
+      - '.github/workflows/capability-pack-visual-describe.yml'
+  push:
+    branches: [main]
+    paths:
+      - 'workers/visual-describe/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pack-visual-describe-${{ github.ref }}
+  cancel-in-progress: true
+
+defaults:
+  run:
+    working-directory: workers/visual-describe
+
+jobs:
+  protocol-and-policy:
+    name: Protocol and policy (no runtime, no weights)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Unit suite
+        run: uv run --python 3.13 --with pytest --no-project pytest -q
+      - name: Lint
+        run: uv run --python 3.13 --with ruff --no-project ruff check .
+      - name: Typecheck
+        # pytest too: this worker's `[tool.mypy] files` includes `tests`, which import it.
+        run: uv run --python 3.13 --with mypy --with pytest --no-project mypy
+      - name: Weights and runtime binaries must never be committed
+        working-directory: .
+        run: |
+          if git ls-files workers/visual-describe/models | grep -v '^workers/visual-describe/models/.gitignore$'; then
+            echo "::error::weights and the llama.cpp runtime must not be committed; they are fetched by digest"
+            exit 1
+          fi
+      - name: Base app must not depend on this worker
+        # The engine legitimately NAMES this pack; this guards imports, not mentions.
+        working-directory: .
+        run: |
+          if grep -rnE '^\s*(from|import)\s+framepilot_visual_describe' \
+              --include='*.py' engine/python/framepilot_engine; then
+            echo "::error::the base render engine must never import the Visual Describe worker"
+            exit 1
+          fi
+          if grep -n '"workers/' pnpm-workspace.yaml pyproject.toml; then
+            echo "::error::the worker must not be a workspace member"
+            exit 1
+          fi
+
+  # On demand only (see header). Builds the standalone payload, which fetches and verifies
+  # every pin and then runs the worker's health handshake FROM the payload.
+  standalone-proof:
+    name: Standalone payload proof (darwin-arm64)
+    if: github.event_name == 'workflow_dispatch'
+    needs: protocol-and-policy
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Build, verify pins and health-check the payload
+        working-directory: .
+        run: bash scripts/build-capability-pack.sh visual-describe "$RUNNER_TEMP/packs"
+      - name: Pins must still match after the build
+        run: uv run --no-dev python tools/fetch_models.py --check

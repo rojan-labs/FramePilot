@@ -7,6 +7,8 @@ import yauzl, { type Entry, type ZipFile } from 'yauzl';
 import { CapabilityPackArtifactSchema, type CapabilityPackArtifact } from '../contracts.js';
 
 const MAX_EXPANSION_RATIO = 200;
+const EXECUTABLE_MODE = 0o755;
+const DATA_FILE_MODE = 0o644;
 
 export interface CapabilityPackExtractionRequest {
   readonly artifact: CapabilityPackArtifact;
@@ -51,7 +53,7 @@ export async function extractCapabilityPack(
       artifact.format === 'raw'
         ? await extractRaw(stagingPath, artifact, requestInput.downloadedFilePath)
         : await extractZip(stagingPath, artifact, requestInput.downloadedFilePath, requestInput.signal);
-    if (artifact.os === 'darwin') await chmod(extracted.entrypointPath, 0o755);
+    if (artifact.os === 'darwin') await applySignedExecutableModes(stagingPath, artifact);
     return { stagingPath, ...extracted };
   } catch (error) {
     await rm(stagingPath, { recursive: true, force: true });
@@ -139,7 +141,7 @@ async function extractZip(
         const destination = resolveEntryPath(stagingPath, name);
         await mkdir(path.dirname(destination), { recursive: true });
         const input = await openEntry(zipFile, entry);
-        await pipeline(input, createWriteStream(destination, { flags: 'wx', mode: 0o644 }), {
+        await pipeline(input, createWriteStream(destination, { flags: 'wx', mode: DATA_FILE_MODE }), {
           ...(signal === undefined ? {} : { signal }),
         });
         zipFile.readEntry();
@@ -162,6 +164,22 @@ async function extractZip(
     installedBytes,
     fileCount: seen.size,
   };
+}
+
+/**
+ * Mark exactly the signed entrypoint plus the signed `executables` list 0755. Every file was
+ * written 0644 regardless of the archive's mode bits, so nothing an archive claims about
+ * itself can make a file runnable; only the signed record can. Runs after the full
+ * allowlist, size and completeness checks, so every path named here exists in staging.
+ */
+async function applySignedExecutableModes(
+  stagingPath: string,
+  artifact: CapabilityPackArtifact,
+): Promise<void> {
+  const executables = new Set([artifact.entrypoint, ...(artifact.executables ?? [])]);
+  for (const file of executables) {
+    await chmod(resolveEntryPath(stagingPath, file), EXECUTABLE_MODE);
+  }
 }
 
 function buildAllowedDirectories(allowed: ReadonlySet<string>): ReadonlySet<string> {

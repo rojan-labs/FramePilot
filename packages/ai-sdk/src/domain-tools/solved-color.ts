@@ -304,6 +304,9 @@ const normalizeExposureSchema = z
   })
   .strict();
 
+/** Clips named outright in a "nothing is measured" refusal before it summarises the rest. */
+const MAX_NAMED_CLIPS = 4;
+
 function planNormalizeExposure(
   args: z.infer<typeof normalizeExposureSchema>,
   ctx: ToolContext,
@@ -321,10 +324,25 @@ function planNormalizeExposure(
     measured.push({ clipId: clip.id, resolved });
   }
   if (measured.length === 0) {
+    // Name the CLIPS, not just the tool. The old sentence said "measure_color reads one
+    // clip; indexing measures them all" — true, and the model still did not call it. In
+    // run `3ed87ff0` it asked twice, was told twice, measured nothing, and fell back to
+    // 36 hand-picked `apply_color_grade` calls carrying identical numbers on every shot —
+    // guessed grades standing in for solved ones. In `3b340e68` it simply stopped.
+    //
+    // A remedy naming the tool leaves the caller to work out the arguments; one naming
+    // the arguments is a call it can make. Same reason `trim_clip` names both time
+    // domains and `split_clip` names the range that would work.
+    const names = clips.slice(0, MAX_NAMED_CLIPS).map((clip) => clip.id);
+    const rest = clips.length - names.length;
     throw new ToolRefusalError(
       `normalize_exposure: nothing on track "${args.trackId}" has been measured, so there is ` +
-        'no brightness to normalise toward. measure_color reads one clip; indexing measures ' +
-        'them all.',
+        'no brightness to normalise toward. ' +
+        (names.length === 0
+          ? `Track "${args.trackId}" has no picture clips to measure.`
+          : `Call measure_color on ${names.map((id) => `"${id}"`).join(', ')}` +
+            `${rest > 0 ? ` and the other ${String(rest)} clip${rest === 1 ? '' : 's'} on the track` : ''}` +
+            ', then call normalize_exposure again. Indexing the footage measures them all at once.'),
     );
   }
 

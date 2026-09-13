@@ -27,6 +27,20 @@ describe('the sidecar executor declares what it cannot route', () => {
     expect(declared).toBeDefined();
     expect([...(declared ?? [])].sort()).toEqual([...RENDER].sort());
   });
+
+  it('adds the tools a host names as unroutable, and the agent surface drops them', () => {
+    // The browser build has no Capability Pack tracking wrapper, and offered these anyway.
+    const hostOnly = ['detect_subjects', 'track_subject_automatically'];
+    const browser = createSidecarExecutor({
+      baseUrl: 'http://127.0.0.1:1',
+      unroutableToolNames: hostOnly,
+    });
+    expect([...(browser.unroutableTools?.() ?? [])].sort()).toEqual([...RENDER, ...hostOnly].sort());
+    const names = new Orchestrator(new MockProvider(), { executor: browser })
+      .agentTools('agent')
+      .map((t) => t.name);
+    for (const name of hostOnly) expect(names).not.toContain(name);
+  });
 });
 
 describe('agentTools honours the declaration', () => {

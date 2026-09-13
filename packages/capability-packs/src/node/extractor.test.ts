@@ -114,6 +114,50 @@ describe('extractCapabilityPack', () => {
     expect(result.fileCount).toBe(2);
   });
 
+  it('marks exactly the entrypoint and signed executables 0755, ignoring archive modes', async () => {
+    const root = await createRoot();
+    const files = {
+      'bin/worker': Buffer.from('launcher'),
+      'bin/python': Buffer.from('interpreter'),
+      'lib/claims-executable.py': Buffer.from('data'),
+      'NOTICE.txt': Buffer.from('MIT'),
+    };
+    const archive = await createZip(root, [
+      // The archive lies in both directions: it claims a data file is executable and the
+      // signed interpreter is not. Neither claim may survive extraction.
+      { name: 'bin/worker', bytes: files['bin/worker'], mode: 0o100644 },
+      { name: 'bin/python', bytes: files['bin/python'], mode: 0o100600 },
+      { name: 'lib/claims-executable.py', bytes: files['lib/claims-executable.py'], mode: 0o104777 },
+      { name: 'NOTICE.txt', bytes: files['NOTICE.txt'], mode: 0o100755 },
+    ]);
+    const names = Object.keys(files);
+    const unpacked = Object.values(files).reduce((sum, bytes) => sum + bytes.byteLength, 0);
+    const artifact = await zipArtifact(archive, names, unpacked, { executables: ['bin/python'] });
+
+    const result = await extractCapabilityPack(root, { artifact, downloadedFilePath: archive });
+
+    const modeOf = async (name: string): Promise<number> =>
+      (await stat(path.join(result.stagingPath, name))).mode & 0o7777;
+    expect(await modeOf('bin/worker')).toBe(0o755);
+    expect(await modeOf('bin/python')).toBe(0o755);
+    expect(await modeOf('lib/claims-executable.py')).toBe(0o644);
+    expect(await modeOf('NOTICE.txt')).toBe(0o644);
+  });
+
+  it('leaves a bundled interpreter non-executable when the signed record omits it', async () => {
+    const root = await createRoot();
+    const archive = await createZip(root, [
+      { name: 'bin/worker', bytes: Buffer.from('launcher'), mode: 0o100755 },
+      { name: 'bin/python', bytes: Buffer.from('interpreter'), mode: 0o100755 },
+    ]);
+    const artifact = await zipArtifact(archive, ['bin/worker', 'bin/python'], 19);
+
+    const result = await extractCapabilityPack(root, { artifact, downloadedFilePath: archive });
+
+    expect((await stat(path.join(result.stagingPath, 'bin/python'))).mode & 0o111).toBe(0);
+    expect((await stat(result.entrypointPath)).mode & 0o777).toBe(0o755);
+  });
+
   it('rejects unsigned extras and removes all staging output', async () => {
     const root = await createRoot();
     const archive = await createZip(root, [

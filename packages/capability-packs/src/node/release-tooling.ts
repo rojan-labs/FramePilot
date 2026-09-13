@@ -86,10 +86,12 @@ export async function preparePackArtifact(
   const denied = licenses.filter((license) => !allowed.has(license));
   if (denied.length > 0) throw new Error(`Capability Pack contains disallowed licenses: ${denied.join(', ')}.`);
   const root = path.resolve(input.payloadRoot);
-  const files = await inventoryPayload(root);
-  if (!files.some((file) => file.path === normalizeRelative(input.entrypoint))) {
+  const { files, executablePaths } = await inventoryPayload(root);
+  const entrypoint = normalizeRelative(input.entrypoint);
+  if (!files.some((file) => file.path === entrypoint)) {
     throw new Error('Capability Pack entrypoint is missing from the staged payload.');
   }
+  const executables = signedExecutables(input.os, entrypoint, executablePaths);
   const archive = await stat(input.archivePath);
   if (!archive.isFile()) throw new Error('Capability Pack archive is not a regular file.');
   const artifact = CapabilityPackArtifactSchema.parse({
@@ -100,9 +102,10 @@ export async function preparePackArtifact(
     sizeBytes: archive.size,
     unpackedSizeBytes: files.reduce((sum, file) => sum + file.bytes, 0),
     format: input.format,
-    entrypoint: normalizeRelative(input.entrypoint),
+    entrypoint,
     maxFileCount: files.length,
     files: files.map((file) => file.path),
+    ...(executables === undefined ? {} : { executables }),
     executableTrust: input.executableTrust,
   });
   return {
@@ -200,8 +203,34 @@ export function prepareReleaseForPublication(
   return CapabilityPackReleaseSchema.parse({ ...core, releaseDigest: releaseDigest(core) });
 }
 
-async function inventoryPayload(root: string): Promise<CapabilityPackSbomFile[]> {
+/**
+ * The signed `executables` list for a POSIX artifact, read from the staged payload's real
+ * mode bits: the installer ignores archive modes, so this record is the only way a bundled
+ * interpreter or helper binary stays runnable. Windows has no execute bit to carry.
+ */
+function signedExecutables(
+  os: PreparePackArtifactInput['os'],
+  entrypoint: string,
+  executablePaths: readonly string[],
+): string[] | undefined {
+  if (os === 'win32') return undefined;
+  if (!executablePaths.includes(entrypoint)) {
+    throw new Error(`Capability Pack entrypoint ${entrypoint} is not executable in the staged payload.`);
+  }
+  return [...executablePaths];
+}
+
+const ANY_EXECUTE_BIT = 0o111;
+
+interface PayloadInventory {
+  readonly files: CapabilityPackSbomFile[];
+  /** Sorted canonical paths of files carrying any execute bit. */
+  readonly executablePaths: string[];
+}
+
+async function inventoryPayload(root: string): Promise<PayloadInventory> {
   const output: CapabilityPackSbomFile[] = [];
+  const executablePaths: string[] = [];
   const walk = async (directory: string): Promise<void> => {
     for (const entry of await readdir(directory, { withFileTypes: true })) {
       const absolute = path.join(directory, entry.name);
@@ -209,13 +238,18 @@ async function inventoryPayload(root: string): Promise<CapabilityPackSbomFile[]>
       const relative = normalizeRelative(path.relative(root, absolute));
       if (details.isSymbolicLink()) throw new Error(`Capability Pack payload contains a symlink: ${relative}.`);
       if (details.isDirectory()) await walk(absolute);
-      else if (details.isFile()) output.push({ path: relative, bytes: details.size, sha256: await sha256File(absolute) });
-      else throw new Error(`Capability Pack payload contains an unsupported entry: ${relative}.`);
+      else if (details.isFile()) {
+        output.push({ path: relative, bytes: details.size, sha256: await sha256File(absolute) });
+        if ((details.mode & ANY_EXECUTE_BIT) !== 0) executablePaths.push(relative);
+      } else throw new Error(`Capability Pack payload contains an unsupported entry: ${relative}.`);
     }
   };
   await walk(root);
   if (output.length === 0) throw new Error('Capability Pack payload is empty.');
-  return output.sort((left, right) => compareCanonicalPath(left.path, right.path));
+  return {
+    files: output.sort((left, right) => compareCanonicalPath(left.path, right.path)),
+    executablePaths: executablePaths.sort(compareCanonicalPath),
+  };
 }
 
 function compareCanonicalPath(left: string, right: string): number {

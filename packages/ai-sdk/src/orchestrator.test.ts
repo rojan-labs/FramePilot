@@ -321,6 +321,61 @@ describe('agent mode', () => {
     expect(run.steps.some((s) => s.applied)).toBe(true);
   });
 
+  it('says WHY an automatic transition pass left every cut hard, not just "nothing to change"', async () => {
+    // Recorded run: `add_transitions reason:"auto"` over 16 cross-asset cuts with no labels
+    // built zero operations, returned only "nothing to change", was reissued verbatim, and
+    // the run ended with no text. The plan's own account of each cut must reach the model.
+    const twoAssets = makeProject({
+      assets: [
+        { id: 'asset_1', path: 'media/a.mp4', kind: 'video', durationSeconds: 30 },
+        { id: 'asset_2', path: 'media/b.mp4', kind: 'video', durationSeconds: 30 },
+      ],
+      timeline: {
+        tracks: [
+          {
+            id: 'video_1',
+            type: 'video',
+            clips: [
+              {
+                id: 'clip_a',
+                assetId: 'asset_1',
+                trackId: 'video_1',
+                start: 0,
+                end: 6,
+                sourceStart: 0,
+                sourceEnd: 6,
+                effects: [],
+                keyframes: [],
+              },
+              {
+                id: 'clip_b',
+                assetId: 'asset_2',
+                trackId: 'video_1',
+                start: 6,
+                end: 10,
+                sourceStart: 0,
+                sourceEnd: 4,
+                effects: [],
+                keyframes: [],
+              },
+            ],
+          },
+        ],
+      },
+    });
+    const provider = new ScriptedProvider([
+      { text: '', toolCalls: [call('add_transitions', { trackId: 'video_1', reason: 'auto' })] },
+      { text: 'Left the cut hard.', toolCalls: [] },
+    ]);
+    const run = await new Orchestrator(provider).agent(
+      { project: twoAssets, userPrompt: 'add transitions where they belong' },
+      { maxSteps: 3 },
+    );
+    expect(run.steps[0]?.applied).toBe(false);
+    expect(run.steps[0]?.note).toMatch(/nothing to change/);
+    expect(run.steps[0]?.note).toMatch(/deliberately left as hard cuts/);
+  });
+
   it('fails an analysis tool call HONESTLY when no host executor is connected', async () => {
     // analyze_silence/detect_scenes run ffmpeg on the engine sidecar, not in the
     // in-process orchestrator (render-vs-preview rule). Without an injected

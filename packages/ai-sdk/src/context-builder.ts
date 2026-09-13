@@ -9,6 +9,7 @@
 import { summarizeReferences, type ReferenceProfile } from './references/profile.js';
 import { createLogger, type Seconds } from '@framepilot/shared-types';
 import type { Clip, Project, Timeline } from '@framepilot/timeline-schema';
+import { repeatedSourceOf } from '@framepilot/editor-core';
 import type { AiMessage } from './providers/types.js';
 import type { ContextBudget, ContextTier } from './reliability/types.js';
 import { readMemory } from './memory-store.js';
@@ -368,6 +369,37 @@ export function pictureRowFacts(slice: PictureSlice): ReadonlyMap<string, string
     if (words !== '') facts.set(clip.clipId, words);
   }
   return facts;
+}
+
+/**
+ * Add `replays <clip> source` to the row of every picture clip that plays material an earlier
+ * clip already plays (editor-core `repeatedSourceOf`).
+ *
+ * WHY on the row (TRACKING Q5): the rows the model plans from were `id[start–end]` — no source
+ * range, nothing relating two clips — so asked to drop duplicate takes, a run deleted two
+ * different moments of one camera file. The fact is geometric and cheap; it belongs where the
+ * clip is named, not behind a tool call the model has no reason to make.
+ *
+ * With no repeats `facts` is returned as-is, so an ordinary project's prompt — and its cached
+ * prefix — does not move by a byte.
+ *
+ * @param project - The project whose picture clips to check.
+ * @param facts - The ledger's per-clip words, if any.
+ * @returns The row facts with repeat markers merged in, or `facts` unchanged.
+ */
+export function withRepeatedSourceFacts(
+  project: Project,
+  facts: ReadonlyMap<string, string> | undefined,
+): ReadonlyMap<string, string> | undefined {
+  const repeats = repeatedSourceOf(project);
+  if (repeats.size === 0) return facts;
+  const merged = new Map(facts ?? []);
+  for (const [clipId, original] of repeats) {
+    const marker = `replays ${original} source`;
+    const words = merged.get(clipId);
+    merged.set(clipId, words === undefined || words === '' ? marker : `${words} · ${marker}`);
+  }
+  return merged;
 }
 
 /**
@@ -1093,9 +1125,10 @@ export function assembleContext(input: ContextInput): AssembledContext {
   // budgeter's repeated re-renders cost one derivation), and the digest reads asset rows
   // only. With no ledger, `pictureRowFacts` is empty and the digest is omitted — the
   // assembled prompt is then byte-identical to what it has always been.
-  const rowFacts = input.ledger
-    ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger))
-    : undefined;
+  const rowFacts = withRepeatedSourceFacts(
+    project,
+    input.ledger ? pictureRowFacts(pictureFor(project, projectIndex, input.ledger)) : undefined,
+  );
   const pictureDigest = summarizePictureDigest(input.ledger) ?? '';
   // Priced here for the same reason: it rides the timeline tier and must not eat the
   // grounding slice that the transcript and clip retrievals are sized from.

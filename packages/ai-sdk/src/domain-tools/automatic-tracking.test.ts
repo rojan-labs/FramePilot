@@ -90,10 +90,35 @@ describe('track_subject_automatically tool', () => {
     expect(PROFESSIONAL_AUTOMATIC_TRACKING_TOOL.hostUiOnly).toBe(true);
   });
 
+  it('anchors keyframe times at the plan firstFrame when the opening frames were occluded', () => {
+    const project = projectWithMask();
+    const base = measurement();
+    const occludedOpening = base.samples.map((sample, index) =>
+      index < 2 ? { ...sample, occluded: true, confidence: 0 } : sample,
+    );
+    const ops = automaticTrackingOpsFromMeasurement(
+      measurement({
+        plan: { ...base.plan, firstFrame: base.samples[0]!.frame },
+        samples: occludedOpening,
+      }),
+      { project },
+    );
+    const steered = ops.find((op) => op.type === 'add_mask');
+    if (steered?.type !== 'add_mask') throw new Error('expected add_mask');
+    const firstTime = Math.min(...(steered.keyframes ?? []).map((keyframe) => keyframe.time));
+    expect(firstTime).toBeGreaterThan(0);
+  });
+
   it('compiles a measured region track into a validated, exactly invertible op', () => {
     const project = projectWithMask();
     const ops = automaticTrackingOpsFromMeasurement(measurement(), { project });
-    expect(ops).toHaveLength(1);
+    // track_object records the measurement; add_mask puts the motion on the
+    // mask effect the export actually animates.
+    expect(ops.map((candidate) => candidate.type)).toEqual(['track_object', 'add_mask']);
+    const steered = ops[1]!;
+    if (steered.type === 'add_mask') {
+      expect(steered.keyframes?.some((keyframe) => keyframe.property === 'x')).toBe(true);
+    }
     const op = ops[0]!;
     expect(op.type).toBe('track_object');
     if (op.type !== 'track_object') return;

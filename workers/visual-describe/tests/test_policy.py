@@ -103,6 +103,21 @@ class TestNormalise:
         assert normalise(answer(confidence="very sure"), 0).confidence == "medium"
         assert normalise(answer(confidence="HIGH"), 0).confidence == "high"
 
+    def test_a_summary_that_repeats_the_prompt_is_not_a_description(self) -> None:
+        # Measured on the local SmolVLM2-2.2B pack with real camera keyframes: under the
+        # grammar it returned the instruction's own wording as every free-text value.
+        with pytest.raises(DescribeFailedError, match="no summary"):
+            normalise(answer(summary="Describe this video shot from its keyframes."), 0)
+
+    def test_a_field_that_repeats_the_prompt_is_left_undescribed(self) -> None:
+        described = normalise(
+            answer(subject="for an editor's index", setting="a snowy ski slope", mood="sky"), 0
+        )
+        assert described.subject == ""
+        assert described.setting == "a snowy ski slope"
+        # Too short to be a copy: a real one-word answer that happens to appear in the prompt.
+        assert described.mood == "sky"
+
     def test_free_text_fields_default_to_empty_not_to_a_sentence(self) -> None:
         described = normalise({"summary": "A shot."}, 0)
         assert (described.subject, described.action, described.setting, described.mood) == (

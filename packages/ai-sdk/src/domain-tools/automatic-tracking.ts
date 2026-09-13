@@ -58,6 +58,8 @@ export const AutomaticTrackingMeasurementSchema = z
       ]),
       fps: z.number().positive(),
       startSeconds: z.number().nonnegative(),
+      /** Requested first frame, which `startSeconds` belongs to (occluded openings stay timed). */
+      firstFrame: z.number().int().nonnegative().optional(),
     }),
     samples: z.array(TrackedSampleSchema).min(1),
     /** `${packId}@${version}` of the worker that measured these samples. */
@@ -191,6 +193,7 @@ export function automaticTrackingOpsFromMeasurement(
     engine: measurement.engine,
     fps: measurement.plan.fps,
     startSeconds: measurement.plan.startSeconds,
+    ...(measurement.plan.firstFrame === undefined ? {} : { firstFrame: measurement.plan.firstFrame }),
     samples: measurement.samples,
   } as const;
   const result = compileTrackingCommand({

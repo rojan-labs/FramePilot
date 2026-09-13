@@ -67,6 +67,71 @@ export const DEFAULT_TIER_PRICING: Readonly<Record<ModelTier, TierPrice>> = {
 };
 
 /**
+ * What one run can honestly charge for, or `undefined` — **this run is UNPRICED**.
+ *
+ * Unpriced is a real, correct answer, and `budgetExhausted` already documents it: *"An
+ * unpriced provider (usd stays 0) never trips this."* That invariant was unreachable,
+ * because {@link estimateUsd} always returned a number from the tier table no matter what
+ * had actually run, so every provider was "priced" — with ANTHROPIC's list prices.
+ *
+ * Two real failures came out of that:
+ *
+ * - Over-billing. Run `33f7e787` on `inclusionai/ling-3.0-flash` was STOPPED at 153 steps:
+ *   *"Reached this run's $26.50 budget ($26.61 spent)"*. That $26.61 was Anthropic Sonnet
+ *   rates applied to a cheap third-party model. The run was killed by a number nobody
+ *   was ever charged.
+ * - Under-billing. Every editing turn passed no tier at all, so the run's dominant cost
+ *   was metered at `mid` even when an opus-class model was serving it — 5x under, by this
+ *   table's own ratio — so the cap could not fire when it genuinely should have.
+ *
+ * {@link runPricingFor} therefore returns prices only where this SDK actually knows them,
+ * and `undefined` everywhere else. An unpriced run is still bounded: `maxSteps` and
+ * `maxWallMs` are unaffected. A dollar bound is simply not enforced with a number the
+ * product invented.
+ */
+export interface RunPricing {
+  /** The tier of the model serving the run's ordinary editing turns. */
+  readonly primaryTier: ModelTier;
+  readonly prices: Readonly<Record<ModelTier, TierPrice>>;
+}
+
+/** Anthropic's own class names, which {@link DEFAULT_TIER_PRICING} is priced against. */
+function anthropicTier(modelId: string): ModelTier | undefined {
+  const id = modelId.toLowerCase();
+  if (id.includes('opus')) return 'large';
+  if (id.includes('sonnet')) return 'mid';
+  if (id.includes('haiku')) return 'small';
+  return undefined;
+}
+
+/**
+ * The pricing a run may be metered with, or `undefined` when this SDK cannot price it.
+ *
+ * Priced: the `anthropic` provider on a recognised Claude model. {@link DEFAULT_TIER_PRICING}
+ * is Anthropic's list pricing, so that is the one case where the tier table describes what
+ * the caller is really charged.
+ *
+ * Unpriced, deliberately:
+ *
+ * - Every other provider. Their rates are not in this repo, and guessing them with
+ *   Anthropic's is what killed run `33f7e787`. A host that knows its rates supplies them.
+ * - `claude-agent-sdk`, even though it serves the same Claude models. It runs against the
+ *   user's Claude Code **subscription** — they are not billed per token at all — so a
+ *   per-token dollar figure is not a estimate of anything, and stopping their run at
+ *   "$5 spent" would stop it for money nobody spends.
+ * - Any Claude model whose class this cannot read, rather than falling back to a middle
+ *   guess. A wrong tier is how the under-billing above happened.
+ */
+export function runPricingFor(
+  provider: { readonly name: string; readonly modelId?: string | undefined },
+  prices: Readonly<Record<ModelTier, TierPrice>> = DEFAULT_TIER_PRICING,
+): RunPricing | undefined {
+  if (provider.name !== 'anthropic' || provider.modelId === undefined) return undefined;
+  const primaryTier = anthropicTier(provider.modelId);
+  return primaryTier === undefined ? undefined : { primaryTier, prices };
+}
+
+/**
  * Price a single model call in USD: `input × inputPerMTok + output × outputPerMTok`, per
  * million tokens. Pure — same usage + prices always yields the same dollar figure.
  */

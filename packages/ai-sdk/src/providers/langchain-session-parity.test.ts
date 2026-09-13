@@ -284,8 +284,12 @@ describe('whole-run behaviour through the Anthropic adapter, frozen', () => {
     // counted ONCE — `usageFromMetadata` subtracts them from LangChain's total and
     // `costFromUsage` adds them back as their own priced line (`cost-meter.ts`), so a
     // double count would read 440 here and a dropped one 240.
+    //
+    // CONFIG runs `claude-opus-4-8`, so this is priced at the `large` tier. It used to
+    // read 0.001299 — exactly a fifth — because every editing turn passed no tier at all
+    // and was metered at `mid` whatever model served it (`runPricingFor`).
     expect(usage).toEqual([
-      expect.objectContaining({ type: 'usage', tokens: 340, usd: 0.001299, modelCalls: 2 }),
+      expect.objectContaining({ type: 'usage', tokens: 340, usd: 0.006495, modelCalls: 2 }),
     ]);
   });
 });

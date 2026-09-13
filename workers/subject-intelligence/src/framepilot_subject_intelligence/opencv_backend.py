@@ -13,6 +13,7 @@ Determinism: one thread, OpenCL off, fixed seed. Same media in, same bytes out.
 from __future__ import annotations
 
 from collections.abc import Sequence
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any, Final
 
@@ -66,16 +67,36 @@ def _require_cv() -> Any:
 
 
 class _VideoFrameSource:
-    """Decodes exactly the approved frame range, in order, once."""
+    """Decodes exactly the approved range, in order, sampled on the request's frame grid.
 
-    def __init__(self, cv2: Any, path: str, first_frame: int, last_frame_exclusive: int) -> None:
+    The host numbers frames on the PROJECT frame rate, so request frame ``n`` is
+    source time ``n / fps``. Seeking by the file's own frame index read the wrong
+    moment whenever the file's rate differs from the project's. With ``fps``
+    given, each grid time maps to the file frame on screen at that time —
+    skipping frames when the file is faster, holding one when it is slower — so
+    the mask count and numbering match the request. Without ``fps`` (or when the
+    file reports no rate) the historical file-index behaviour is kept.
+    """
+
+    def __init__(
+        self,
+        cv2: Any,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
+    ) -> None:
         self._cv2 = cv2
         capture = cv2.VideoCapture(path)
         if not capture.isOpened():
             raise MediaUnreadableError(f"could not open approved media at {path}.")
         self._capture = capture
         self._remaining = last_frame_exclusive - first_frame
-        if first_frame > 0:
+        self._grid = _grid_mapping(float(capture.get(cv2.CAP_PROP_FPS)), fps, first_frame)
+        self._current: Any | None = None
+        if self._grid is not None:
+            capture.set(cv2.CAP_PROP_POS_FRAMES, self._grid.next_file_index)
+        elif first_frame > 0:
             capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
         self._width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         self._height = int(capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
@@ -94,14 +115,60 @@ class _VideoFrameSource:
     def read(self) -> Any | None:
         if self._remaining <= 0:
             return None
-        ok, frame = self._capture.read()
-        if not ok or frame is None:
-            return None
+        if self._grid is None:
+            ok, frame = self._capture.read()
+            if not ok or frame is None:
+                return None
+            self._remaining -= 1
+            return frame
+        target = self._grid.target_file_index()
+        while self._current is None or self._grid.current_file_index < target:
+            ok, frame = self._capture.read()
+            if not ok or frame is None:
+                # The media ends before this grid time: bounded by what exists,
+                # never padded with a repeated last frame.
+                return None
+            self._current = frame
+            self._grid.advance()
+        self._grid.emitted += 1
         self._remaining -= 1
-        return frame
+        return self._current
 
     def close(self) -> None:
         self._capture.release()
+
+
+#: Absorbs float error so a grid time exactly on a file frame maps to that frame.
+_GRID_EPSILON: Final = 1e-6
+
+
+@dataclass(slots=True)
+class _GridMapping:
+    """Request-grid frame ``first + emitted`` → the file frame on screen at that time."""
+
+    grid_fps: float
+    file_fps: float
+    first_frame: int
+    next_file_index: int
+    current_file_index: int = -1
+    emitted: int = 0
+
+    def target_file_index(self) -> int:
+        seconds = (self.first_frame + self.emitted) / self.grid_fps
+        return int(seconds * self.file_fps + _GRID_EPSILON)
+
+    def advance(self) -> None:
+        self.current_file_index = self.next_file_index
+        self.next_file_index += 1
+
+
+def _grid_mapping(file_fps: float, grid_fps: float | None, first_frame: int) -> _GridMapping | None:
+    if grid_fps is None or not grid_fps > 0.0 or not file_fps > 0.0 or file_fps != file_fps:
+        return None
+    start = int(first_frame / grid_fps * file_fps + _GRID_EPSILON)
+    return _GridMapping(
+        grid_fps=grid_fps, file_fps=file_fps, first_frame=first_frame, next_file_index=start
+    )
 
 
 class _ImageFrameSource:
@@ -174,11 +241,17 @@ class OpenCvBackend:
     def model_digests(self) -> dict[str, str]:
         return dict(self._digests)
 
-    def open_frames(self, path: str, first_frame: int, last_frame_exclusive: int) -> FrameSource:
+    def open_frames(
+        self,
+        path: str,
+        first_frame: int,
+        last_frame_exclusive: int,
+        fps: float | None = None,
+    ) -> FrameSource:
         frames = last_frame_exclusive - first_frame
         if Path(path).suffix.lower() in _IMAGE_SUFFIXES:
             return _ImageFrameSource(self._cv2, path, frames)
-        return _VideoFrameSource(self._cv2, path, first_frame, last_frame_exclusive)
+        return _VideoFrameSource(self._cv2, path, first_frame, last_frame_exclusive, fps)
 
     def detect_faces(self, frame: Any) -> Sequence[RawDetection]:
         cv2 = self._cv2

@@ -92,7 +92,7 @@ correctness is the operator's call against VU0.2's labels, and each case's `why`
 | `warmer-subtle`                 | `mission-montage`            | `warmer-subtle`                 | every picture clip carries a positive `temperature` under 0.5 and moves no exposure/contrast/saturation — the look table's own content (`LOOK_DELTAS.warmer` is a warmth delta and nothing else); no clip may move        |
 | `transitions-where-they-belong` | `mission-montage`, 2 turns   | `transitions-where-they-belong` | turn 1 builds the montage so the timeline has BOTH kinds of cut; then ≥1 source-change cut carries a transition and NO continuity cut does — the rule `chooseTransition` enforces by returning `null`                     |
 | `broll-over-sentence`           | `mission-talk` + montage bin | `broll-over-sentence`           | the cutaway covers the transcript span of the line the request named (target resolution by sentence, which `broll-first-20s` cannot test); duration kept; content away from the line preserved                            |
-| `remove-duplicate-takes`        | `mission-montage`, 2 turns   | `remove-duplicate-takes`        | turn 1 is asked for repeats, because no fixture ships duplicate takes; then no two clips play overlapping source of one asset AND every un-repeated shot survives                                                         |
+| `remove-duplicate-takes`        | `mission-montage` + `setup`  | `remove-duplicate-takes`        | the runner places the opening shot's source twice more (`setup: repeat-opening-shot`), because no fixture ships duplicate takes; then no two clips play overlapping source of one asset AND every un-repeated shot survives |
 | `which-clips-show-host`         | `mission-montage`            | `unchanged` (answer)            | answered, nothing edited, no frame rendered. Correctness → operator, against `tier1.json`                                                                                                                                 |
 | `whats-on-screen-at`            | `mission-montage`            | `unchanged` (answer)            | same; correctness → operator, against `tier2.json`                                                                                                                                                                        |
 | `find-dark-clips`               | `mission-montage`            | `unchanged` (answer)            | same; correctness → operator, against `tier0.json`'s PROPOSED exposure classes                                                                                                                                            |
@@ -107,9 +107,13 @@ Three honest departures from the table above as it was written:
   `mission-talk` actually contains, scores the PLACEMENT, and leaves the footage choice to
   the operator rather than faking a content check.
 - **`remove-duplicate-takes` does not read tier 1's `duplicateOf`.** That is a phash cluster
-  over two separate recordings and no fixture has one, so the case builds repeats in turn 1
-  and the rubric defines a duplicate as overlapping source of one asset — a fact the project
-  file proves.
+  over two separate recordings and no fixture has one, so the rubric defines a duplicate as
+  overlapping source of one asset — a fact the project file proves. **Revised 2026-09-13:** the
+  repeats are placed by the runner (`GoldenCase.setup`, `eval/case-setup.ts`), not built by a
+  first turn. Asking the model to "use the opening shot three times" measured the precondition
+  instead of the removal: three different moments of the shot left nothing to score, and
+  "drop the duplicate takes" right after that instruction naturally meant the repeats just
+  placed — which a recorded run deleted and was scored as destroying unique takes.
 
 ### VU0.4 Contracts and ask-list `[x]` (2026-09-07)
 

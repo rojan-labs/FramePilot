@@ -37,6 +37,7 @@ import type {
 } from '@framepilot/timeline-schema';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { PreviewEffectOverlay } from './PreviewEffectOverlay.js';
+import { clipMaskEffect, isIdentityMask, maskAt, maskCssImage } from '../preview/clip-mask.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
   EMPTY_POOL,
@@ -841,6 +842,37 @@ export function PreviewPlayer({
       : gradeFilter;
   // Soft-edged directional reveal — the CSS analog of the engine's wipe mask.
   const wipeMask = transition ? wipeCssMask(transition, transitionWipeProgress) : undefined;
+  // THE CLIP'S OWN MASK, resolved at the playhead exactly as the export's `_attach_mask`
+  // resolves it (see preview/clip-mask.ts). The monitor drew no mask at all, so a mask — and
+  // every tracked subject, whose motion lives on the mask's keyframes — was visible only in
+  // a render. On the element, not the frame: the export masks the clip's own picture before
+  // placing it, so the mask moves with the clip's transform, as a CSS mask on a transformed
+  // element does.
+  const clipMaskSource = videoClip ? clipMaskEffect(videoClip.effects) : null;
+  const clipMask = clipMaskSource ? maskAt(clipMaskSource, clipTime) : null;
+  const clipMaskImage =
+    clipMask && !isIdentityMask(clipMask)
+      ? maskCssImage(clipMask, resolution ?? { width: 1920, height: 1080 })
+      : undefined;
+  const visibleMaskLayers = [clipMaskImage, wipeMask].filter(
+    (layer): layer is string => layer !== undefined,
+  );
+  const visibleMaskStyle =
+    visibleMaskLayers.length === 0
+      ? {}
+      : {
+          maskImage: visibleMaskLayers.join(', '),
+          WebkitMaskImage: visibleMaskLayers.join(', '),
+          maskSize: '100% 100%',
+          WebkitMaskSize: '100% 100%',
+          maskRepeat: 'no-repeat',
+          WebkitMaskRepeat: 'no-repeat',
+          // Both a clip mask and a wipe: the picture shows only where BOTH keep it, which is
+          // the product the export's alpha takes (`rasterize_mask × wipe_band`).
+          ...(visibleMaskLayers.length > 1
+            ? { maskComposite: 'intersect', WebkitMaskComposite: 'source-in' }
+            : {}),
+        };
 
   // THE SHOT UNDERNEATH THE RAMP. A transition sits on butt-joined clips, so while the
   // incoming clip eases in the outgoing one has already ended — and every other slot is
@@ -993,9 +1025,7 @@ export function PreviewPlayer({
                       // Live clip transform (H4) composed with the transition
                       // envelope's translate/scale ramp at the playhead.
                       ...(isVisible && visibleTransform ? { transform: visibleTransform } : {}),
-                      ...(isVisible && wipeMask
-                        ? { maskImage: wipeMask, WebkitMaskImage: wipeMask }
-                        : {}),
+                      ...(isVisible ? visibleMaskStyle : {}),
                       // Crop fills the frame (see the note where `crop` is derived).
                       ...(isVisible && cropped
                         ? {
@@ -1047,6 +1077,16 @@ export function PreviewPlayer({
                 filter: gradeFilter,
                 opacity: imageReady ? 1 : 0,
                 ...(cssTransform ? { transform: cssTransform } : {}),
+                ...(clipMaskImage
+                  ? {
+                      maskImage: clipMaskImage,
+                      WebkitMaskImage: clipMaskImage,
+                      maskSize: '100% 100%',
+                      WebkitMaskSize: '100% 100%',
+                      maskRepeat: 'no-repeat',
+                      WebkitMaskRepeat: 'no-repeat',
+                    }
+                  : {}),
                 ...(cropped
                   ? {
                       objectFit: 'cover' as const,

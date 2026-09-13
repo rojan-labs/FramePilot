@@ -616,6 +616,13 @@ export interface ClipCompositing {
    * pay for one.
    */
   readonly catalogTransition: CatalogTransitionPair | null;
+  /**
+   * The clip's mask effect (the first, as the compiler picks it), or `null`.
+   *
+   * Kept as the EFFECT, not a resolved shape: a tracked mask animates through the effect's
+   * own keyframes, so the engine resolves it per frame with `maskAt`.
+   */
+  readonly mask: Effect | null;
 }
 
 /** Project a clip's compositing state for the canvas pass. */
@@ -627,6 +634,7 @@ export function clipCompositing(clip: Clip): ClipCompositing {
     blendMode: clipBlendMode(clip),
     transition: transitionFromClip(clip),
     catalogTransition: catalogTransitionPair(clip),
+    mask: clip.effects.find((effect) => effect.type === 'mask') ?? null,
   };
 }
 
@@ -669,6 +677,7 @@ export function catalogTransitionPair(clip: Clip): CatalogTransitionPair | null 
  */
 export function isIdentityCompositing(compositing: ClipCompositing): boolean {
   return (
+    compositing.mask === null &&
     compositing.keyframes.length === 0 &&
     isFullFrameCrop(compositing.crop) &&
     isIdentityGrade(compositing.grade) &&

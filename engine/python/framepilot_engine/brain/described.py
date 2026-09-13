@@ -121,17 +121,20 @@ DESCRIBED_SCHEMA_NAME: Final = "shot_description"
 #: adds the two rules the structure needs: on-screen text is transcribed verbatim, and the
 #: closed vocabularies are closed. Changing this wording changes what the whole tier-2
 #: surface can be asked about, so it is versioned with ``TIER2_VERSION``.
+#:
+#: WHY IT NAMES NO FIELD. The previous wording carried a ``field: hint.`` line per field
+#: ("summary: at most two sentences…", "subject: who or what the shot is of."). Under a
+#: JSON grammar a small VLM treats those as the values to emit: the local SmolVLM2-2.2B
+#: pack, on real camera keyframes at temperature 0, returned the hints VERBATIM in every
+#: free-text field of every shot — "subject": "who or what the shot is of". The same frames
+#: with this wording are described correctly. The field meanings already live in the
+#: schema's own ``description``s, which the grammar sees and the model does not copy.
 DESCRIBE_INSTRUCTION: Final = (
-    "You are describing ONE shot of video from its keyframes, for an editor's index. "
-    "Fill every field of the schema. State only what is visibly on screen — no intent, "
-    "no story, no narration, no guessing at what happens next. "
-    "summary: at most two sentences, the shot as an editor would note it. "
-    "subject: who or what the shot is of. action: what they are doing. "
-    "setting: where it is. mood: the visual feel, not an emotion you infer. "
-    "onScreenText: every piece of text legible in frame, transcribed VERBATIM and never "
-    "paraphrased; an empty list when there is none. "
-    "camera and quality: choose only from the listed values, and choose 'unknown' rather "
-    "than guessing. confidence: how sure you are of this description overall."
+    "Describe this video shot from its keyframes for an editor's index. "
+    "State only what is visibly on screen: no intent, no story, no narration, no guessing "
+    "at what happens next. Transcribe any legible on-screen text VERBATIM, never "
+    "paraphrased, and leave that list empty when there is none. For camera and quality "
+    "choose only from the allowed values, and choose unknown rather than guessing."
 )
 
 

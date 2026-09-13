@@ -87,6 +87,11 @@ export interface ConvertTrackSamplesInput {
   readonly fps: number;
   /** Clip-relative time, in seconds, of the first tracked frame. */
   readonly startSeconds: number;
+  /**
+   * The requested first frame, which `startSeconds` belongs to. Defaults to the
+   * first USABLE sample's frame for callers that predate it.
+   */
+  readonly firstFrame?: number;
   /** Clip duration in seconds; keyframes may not fall outside it. */
   readonly durationSeconds: number;
   readonly keyframePrefix: string;
@@ -264,11 +269,21 @@ export function convertTrackSamples(input: ConvertTrackSamplesInput): TrackConve
   }
   facts.push({ name: 'clampedFrameCount', value: clampedFrames });
 
-  // 4. Place the boxes in clip time.
+  // 4. Place the boxes in clip time, anchored at the REQUESTED first frame: when
+  // the opening frames were occluded, the first usable sample is later than
+  // `startSeconds`, not at it.
+  const anchorFrame = input.firstFrame ?? firstFrame;
+  if (!Number.isInteger(anchorFrame) || anchorFrame > firstFrame) {
+    return rejected(
+      'invalid_policy',
+      `Track firstFrame ${anchorFrame} must be an integer at or before the first measured frame ${firstFrame}.`,
+      facts,
+    );
+  }
   const keyframes: Keyframe[] = [];
   for (let index = 0; index < limited.length; index += 1) {
     const frame = firstFrame + index;
-    const time = input.startSeconds + (frame - firstFrame) / input.fps;
+    const time = input.startSeconds + (frame - anchorFrame) / input.fps;
     if (time < -EPSILON || time > input.durationSeconds + EPSILON) {
       return rejected(
         'invalid_geometry',

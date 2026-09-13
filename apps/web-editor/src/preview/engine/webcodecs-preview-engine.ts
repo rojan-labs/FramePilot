@@ -35,6 +35,7 @@ import { AudioMasterClock } from '../clock/audio-clock.js';
 import { GlEffectChain } from '../effects/gl-effect-chain.js';
 import type { TimedEffectLayer } from '../effects/gl-effect-chain.js';
 import { cropFillPlacement } from '../crop-fill.js';
+import { isIdentityMask, maskAt, paintClipMask } from '../clip-mask.js';
 import { heldFrameIsPreviousSegment } from '../held-frame.js';
 import {
   type ClipCompositing,
@@ -70,6 +71,30 @@ export interface Resolution {
 }
 
 const DEFAULT_RESOLUTION: Resolution = { width: 1280, height: 720 };
+
+/**
+ * The offscreen layer a MASKED picture is drawn into before it reaches the monitor.
+ *
+ * A mask is a `destination-in` pass, which clears everything outside its shape — on the
+ * monitor canvas that would also erase the held frame a transition reveals the clip over.
+ * So the picture is masked on its own layer and then composited. One layer, resized on
+ * demand and never disposed: only one picture segment is active at a time.
+ */
+let sharedMaskLayer: CanvasRenderingContext2D | null = null;
+
+function maskLayer(width: number, height: number): CanvasRenderingContext2D | null {
+  sharedMaskLayer ??= document.createElement('canvas').getContext('2d');
+  /* v8 ignore next -- a 2d context on a fresh canvas is only null when the browser refuses one
+     entirely, in which case the engine never started. */
+  if (sharedMaskLayer === null) return null;
+  const { canvas } = sharedMaskLayer;
+  if (canvas.width !== width || canvas.height !== height) {
+    canvas.width = width;
+    canvas.height = height;
+  }
+  sharedMaskLayer.clearRect(0, 0, width, height);
+  return sharedMaskLayer;
+}
 
 /** Intrinsic pixel size of a picture source (a decoded `VideoFrame` or a
  * still `<img>`), for the letterbox `contain` fit. */
@@ -711,16 +736,17 @@ export class WebCodecsPreviewEngine {
     by: number,
     bw: number,
     bh: number,
+    target: CanvasRenderingContext2D = this.ctx2d,
   ): void {
     const { w: sw, h: sh } = sourceDims(source);
     if (sw <= 0 || sh <= 0) {
-      this.ctx2d.drawImage(source, bx, by, bw, bh);
+      target.drawImage(source, bx, by, bw, bh);
       return;
     }
     const scale = Math.min(bw / sw, bh / sh);
     const dw = sw * scale;
     const dh = sh * scale;
-    this.ctx2d.drawImage(source, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
+    target.drawImage(source, bx + (bw - dw) / 2, by + (bh - dh) / 2, dw, dh);
   }
 
   /** Copy what is on the canvas now, as the held frame belonging to `forSegmentStart`. */
@@ -855,8 +881,21 @@ export class WebCodecsPreviewEngine {
         : NO_TRANSITION,
     );
 
-    ctx.save();
-    if (compositing) {
+    // THE CLIP'S MASK, resolved at this frame exactly as the export's `_attach_mask` resolves
+    // it (`clip-mask.ts`). Nothing drew one here, so every mask — and every tracked subject,
+    // whose motion lives on the mask's keyframes — was visible only in a render. A masked
+    // picture is drawn on its own layer (see `maskLayer`) and masked INSIDE the transform
+    // below, in the clip's own frame, because the export masks the picture before it places
+    // it: the mask moves, scales and rotates with the clip.
+    const liveMask = compositing?.mask ? maskAt(compositing.mask, clipTime) : null;
+    const mask = liveMask !== null && !isIdentityMask(liveMask) ? liveMask : null;
+    const layer = mask !== null ? maskLayer(cw, ch) : null;
+    const pictureCtx = layer ?? ctx;
+
+    pictureCtx.save();
+    // On a layer the blend mode belongs to the composite onto the monitor, not to a draw
+    // over an empty layer — so it is applied below instead.
+    if (compositing && layer === null) {
       ctx.globalCompositeOperation = WebCodecsPreviewEngine.blendCompositeOp(compositing.blendMode);
     }
     // Grade and transition blur share `ctx.filter` (a space-separated list).
@@ -867,8 +906,8 @@ export class WebCodecsPreviewEngine {
     const blurPx = transition ? blurRadiusAt(transition, clipTime, Math.min(cw, ch)) : 0;
     const blurFilter = blurPx > 0.5 ? `blur(${blurPx.toFixed(2)}px)` : '';
     const filter = [gradeFilter, blurFilter].filter((f) => f.length > 0).join(' ');
-    ctx.filter = filter.length > 0 ? filter : 'none';
-    if (picture.alpha < 1) ctx.globalAlpha = picture.alpha;
+    pictureCtx.filter = filter.length > 0 ? filter : 'none';
+    if (picture.alpha < 1) pictureCtx.globalAlpha = picture.alpha;
     // Centered transform, matching the DOM's `transform-origin: center`. Crop and
     // drawImage both run in this transformed space, so the crop scales/rotates
     // WITH the picture, exactly as `clip-path` on a CSS-transformed element does.
@@ -878,9 +917,9 @@ export class WebCodecsPreviewEngine {
     // declaration) — which is the export's resize → rotate(expand=False) →
     // position pipeline. `rotationRad` is already in the canvas's
     // clockwise-positive convention; see `pictureTransformAt` for why that matters.
-    ctx.translate(cw / 2 + picture.dxPx, ch / 2 + picture.dyPx);
-    if (picture.rotationRad !== 0) ctx.rotate(picture.rotationRad);
-    ctx.scale(picture.scale, picture.scale);
+    pictureCtx.translate(cw / 2 + picture.dxPx, ch / 2 + picture.dyPx);
+    if (picture.rotationRad !== 0) pictureCtx.rotate(picture.rotationRad);
+    pictureCtx.scale(picture.scale, picture.scale);
     // CROP FILLS, as it does in the export: the cropped region is scaled up to the frame,
     // not masked in place over a letterboxed full frame. Masking is what made a 9:16 slice of
     // 16:9 footage read as a small picture floating in black on the monitor while exporting
@@ -889,7 +928,7 @@ export class WebCodecsPreviewEngine {
     if (compositing && !isFullFrameCrop(compositing.crop)) {
       const { w: srcW, h: srcH } = sourceDims(picture2d);
       const { source, destination } = cropFillPlacement(srcW, srcH, cw, ch, compositing.crop);
-      ctx.drawImage(
+      pictureCtx.drawImage(
         picture2d,
         source.x,
         source.y,
@@ -901,9 +940,23 @@ export class WebCodecsPreviewEngine {
         destination.height,
       );
     } else {
-      this.drawContain(picture2d, -cw / 2, -ch / 2, cw, ch);
+      this.drawContain(picture2d, -cw / 2, -ch / 2, cw, ch, pictureCtx);
     }
-    ctx.restore();
+    // Still inside the picture's transform, so the frame box is the clip's own frame.
+    if (layer !== null && mask !== null) {
+      paintClipMask(layer, mask, { x: -cw / 2, y: -ch / 2, width: cw, height: ch });
+    }
+    pictureCtx.restore();
+    if (layer !== null) {
+      ctx.save();
+      if (compositing) {
+        ctx.globalCompositeOperation = WebCodecsPreviewEngine.blendCompositeOp(
+          compositing.blendMode,
+        );
+      }
+      ctx.drawImage(layer.canvas, 0, 0);
+      ctx.restore();
+    }
     if (transition?.kind === 'wipe') {
       this.applyWipeMask(transition, wipeProgressAt(transition, clipTime));
     }

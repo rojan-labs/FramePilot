@@ -182,16 +182,24 @@ export class CapabilityPackTrackingService {
     const lease = await this.options.store.acquireLease(record.identity);
     try {
       const runWorker = this.options.runWorker ?? runCapabilityPackWorker;
-      const result = await runWorker({
-        entrypoint,
-        mediaRoot: options.mediaRoot,
-        request,
-        ...(options.signal === undefined ? {} : { signal: options.signal }),
-        ...(binding.extraEnvironment === undefined
-          ? {}
-          : { extraEnvironment: binding.extraEnvironment(installRoot) }),
-        ...(options.onProgress === undefined ? {} : { onProgress: options.onProgress }),
-      });
+      const runOne = (
+        chunk: CapabilityPackWorkerRequest,
+        onProgress: ((progress: CapabilityPackWorkerProgress) => void) | undefined,
+      ): Promise<CapabilityPackWorkerResult> =>
+        runWorker({
+          entrypoint,
+          mediaRoot: options.mediaRoot,
+          request: chunk,
+          ...(options.signal === undefined ? {} : { signal: options.signal }),
+          ...(binding.extraEnvironment === undefined
+            ? {}
+            : { extraEnvironment: binding.extraEnvironment(installRoot) }),
+          ...(onProgress === undefined ? {} : { onProgress }),
+        });
+      const result =
+        request.capability === 'subject.segment'
+          ? await runSegmentationInChunks(request, runOne, options.onProgress)
+          : await runOne(request, options.onProgress);
       log.action('trackingComplete', {
         capability: request.capability,
         pack: record.identity.version,
@@ -227,6 +235,67 @@ export class CapabilityPackTrackingService {
   }
 }
 
+/**
+ * Longest frame span one `subject.segment` worker run may cover.
+ *
+ * The worker answers in ONE JSON line capped at 1 MiB, and each RLE silhouette
+ * (≤512px long edge) costs roughly 5 KB — so ~200 frames overflowed and the
+ * whole run failed. 150 frames keeps a full-detail run well under the cap.
+ */
+export const SEGMENT_CHUNK_FRAMES = 150;
+
+type RunOneWorker = (
+  request: CapabilityPackWorkerRequest,
+  onProgress: ((progress: CapabilityPackWorkerProgress) => void) | undefined,
+) => Promise<CapabilityPackWorkerResult>;
+
+/**
+ * Run a segmentation as consecutive ≤{@link SEGMENT_CHUNK_FRAMES} requests and
+ * concatenate the masks. Each chunk is an exact sub-range of the approved
+ * request (same id, revision, media handle), so the worker client's identity
+ * checks still apply per run; progress is reported against the whole range.
+ */
+async function runSegmentationInChunks(
+  request: Extract<CapabilityPackWorkerRequest, { capability: 'subject.segment' }>,
+  runOne: RunOneWorker,
+  onProgress: ((progress: CapabilityPackWorkerProgress) => void) | undefined,
+): Promise<CapabilityPackWorkerResult> {
+  const { media } = request;
+  const totalFrames = media.lastFrameExclusive - media.firstFrame;
+  if (totalFrames <= SEGMENT_CHUNK_FRAMES) return runOne(request, onProgress);
+  const masks: Extract<CapabilityPackWorkerResult, { masks: unknown }>['masks'][number][] = [];
+  let last: Extract<CapabilityPackWorkerResult, { masks: unknown }> | undefined;
+  for (let first = media.firstFrame; first < media.lastFrameExclusive; first += SEGMENT_CHUNK_FRAMES) {
+    const end = Math.min(first + SEGMENT_CHUNK_FRAMES, media.lastFrameExclusive);
+    const done = first - media.firstFrame;
+    const chunk: CapabilityPackWorkerRequest = {
+      ...request,
+      media: {
+        ...media,
+        firstFrame: first,
+        lastFrameExclusive: end,
+        sourceStartSeconds: media.sourceStartSeconds + done / media.fps,
+        sourceEndSeconds: media.sourceStartSeconds + (end - media.firstFrame) / media.fps,
+      },
+    };
+    const result = await runOne(
+      chunk,
+      onProgress === undefined
+        ? undefined
+        : (progress) =>
+            onProgress({
+              ...progress,
+              completed: Math.min(totalFrames, done + progress.completed),
+              total: totalFrames,
+            }),
+    );
+    if (!('masks' in result)) return result;
+    masks.push(...result.masks);
+    last = result;
+  }
+  return { ...last!, masks };
+}
+
 /** The newest healthy, fully installed release of one pack. Quarantined or removing packs never run. */
 function resolveInstalledPack(
   records: readonly InstalledCapabilityPack[],
@@ -254,10 +323,20 @@ function classify(error: unknown): [TrackingFailureCode, string, boolean] {
       default:
         // `target_lost`, `media_unreadable` and friends arrive as the worker's own
         // typed code; they are honest outcomes, not infrastructure faults.
-        return ['worker_failed', workerDetail(error), error.workerCode === 'internal_error'];
+        return ['worker_failed', workerDetail(error), isRetryableWorkerFault(error)];
     }
   }
   return ['worker_failed', errorMessage(error), false];
+}
+
+/**
+ * An `internal_error` is retryable unless it is a size bound: the same request
+ * over the same media produces the same oversized output every time, so
+ * offering "retry" would only repeat the failure.
+ */
+function isRetryableWorkerFault(error: CapabilityPackWorkerRuntimeError): boolean {
+  if (error.workerCode !== 'internal_error') return false;
+  return !/exceeded its .*bound/i.test(error.message);
 }
 
 function workerDetail(error: CapabilityPackWorkerRuntimeError): string {

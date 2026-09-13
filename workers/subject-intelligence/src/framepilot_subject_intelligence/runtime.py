@@ -75,6 +75,7 @@ def execute_request(
             request.media.absolute_path,
             request.media.first_frame,
             request.media.last_frame_exclusive,
+            fps=request.media.fps,
         )
     except MediaUnreadableError as error:
         raise ProtocolError("media_unreadable", str(error), retryable=False) from error

@@ -12,6 +12,7 @@ import type { AiEvent } from './events.js';
 import type { AiCompletionRequest, AiProvider, AiResponse, ToolCall } from './providers/types.js';
 import type { ContextInput } from './context-builder.js';
 import { makeProject } from './__fixtures__/project.js';
+import { estimateUsd } from './kernel/cost/cost-meter.js';
 import { createAskUserGate } from './run-controls.js';
 import type { HostToolExecutor } from './tool-executor.js';
 
@@ -342,7 +343,9 @@ describe('Orchestrator.streamAuto', () => {
     // run's ONE terminal `usage` event must still carry the classifier's spend, not a
     // fabricated zero.
     class UsageProvider implements AiProvider {
-      public readonly name = 'mock' as const;
+      // Priced identity: an unpriced provider reports usd 0 by design (`runPricingFor`).
+      public readonly name = 'anthropic' as const;
+      public readonly modelId = 'claude-opus-5';
       private index = 0;
       public async complete(): Promise<AiResponse> {
         this.index += 1;
@@ -490,5 +493,57 @@ describe('Orchestrator.streamAuto — tiered model routing (goal.md Workstream E
 
     expect(base.calls).toBe(2);
     expect(assistantTexts(events)).toContain('It is a 12-second clip.');
+  });
+
+  describe('each call is priced by the model that served it, not its tier label (TRACKING M5)', () => {
+    class PricedProvider implements AiProvider {
+      public readonly name = 'anthropic' as const;
+      public calls = 0;
+      public constructor(
+        public readonly modelId: string,
+        private readonly responses: readonly AiResponse[],
+      ) {}
+      public async complete(): Promise<AiResponse> {
+        const response = this.responses[Math.min(this.calls, this.responses.length - 1)]!;
+        this.calls += 1;
+        return response;
+      }
+    }
+    const classifierUsage = { inputTokens: 20, outputTokens: 5 };
+    const usageOf = (events: readonly AiEvent[]) =>
+      events.find((e) => e.type === 'usage') as { usd: number; priced?: boolean } | undefined;
+
+    it('bills routing on an Opus run at Opus rates when no small provider is configured', async () => {
+      // It used to be billed as `small` whatever served it — an Opus call at Haiku rates.
+      const base = new PricedProvider('claude-opus-5', [
+        { text: '{"route":"edit"}', usage: classifierUsage },
+        { text: 'done' },
+      ]);
+      const usage = usageOf(await collect(new Orchestrator(base).streamAuto(input, opts)));
+      expect(usage?.usd).toBeCloseTo(estimateUsd('large', { input: 20, output: 5 }), 10);
+      expect(usage?.priced).toBe(true);
+    });
+
+    it('bills a configured Haiku classifier at its own small rate', async () => {
+      const base = new PricedProvider('claude-opus-5', [{ text: 'done' }]);
+      const small = new PricedProvider('claude-haiku-4-5', [
+        { text: '{"route":"edit"}', usage: classifierUsage },
+      ]);
+      const usage = usageOf(
+        await collect(new Orchestrator(base, { tierProviders: { small } }).streamAuto(input, opts)),
+      );
+      expect(usage?.usd).toBeCloseTo(estimateUsd('small', { input: 20, output: 5 }), 10);
+    });
+
+    it('marks the run unpriced when the classifier ran on a model this SDK cannot price', async () => {
+      // The base is priced; the routing call is not. Its spend is unknown, so the run's dollar
+      // figure is a placeholder — and the old code priced it from the BASE provider's table.
+      const base = new PricedProvider('claude-opus-5', [{ text: 'done' }]);
+      const small = new ScriptedProvider([{ text: '{"route":"edit"}', usage: classifierUsage }]);
+      const usage = usageOf(
+        await collect(new Orchestrator(base, { tierProviders: { small } }).streamAuto(input, opts)),
+      );
+      expect(usage?.priced).toBe(false);
+    });
   });
 });

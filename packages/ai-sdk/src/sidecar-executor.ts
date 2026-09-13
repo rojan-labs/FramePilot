@@ -169,6 +169,14 @@ function timeoutForTool(toolName: string, configured: number | undefined): numbe
 }
 
 export interface SidecarExecutorOptions {
+  /**
+   * Tools this HOST cannot run on top of the render actions every sidecar executor refuses.
+   *
+   * The registry is shared across surfaces, but some host tools are routed by a wrapper
+   * only one host has — the desktop's Capability Pack tracking executor, for one. A surface
+   * without that wrapper must say so before the model spends a turn calling them.
+   */
+  readonly unroutableToolNames?: readonly string[];
   /** Sidecar base URL (e.g. `http://127.0.0.1:8765`). */
   readonly baseUrl: string;
   /** Injectable `fetch` (defaults to the global) for testing / Electron net. */
@@ -188,7 +196,7 @@ export interface SidecarExecutorOptions {
    */
   readonly visualIndexCredentials?: () => Pick<
     VisualIndexRequestInput,
-    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider'
+    'nvidiaKeys' | 'twelveLabsKey' | 'captionProvider' | 'visualEmbedPack' | 'visualDescribePack'
   >;
   /**
    * Host-side override for `transcribe`. WHY: the local `whisper-cli` engine runs
@@ -458,10 +466,11 @@ export function searchBody(
 
 /**
  * Settle a `POST /brain/search` response into a tool outcome (plan B2.2).
- * Transcript/marker hits are already timeline seconds (the canonical transcript
- * is timeline-time); asset hits are enriched with the clip placements of that
- * asset via {@link indexFor}'s `clipsOfAsset` seam, so the model can jump from
- * "this file matched" to actual timeline positions. `available: false` (no
+ * Transcript words are stored in ASSET (source) seconds (`TranscriptWordSchema`,
+ * `captions/derive.ts#mapTranscript`), not timeline seconds, so a transcript hit is
+ * enriched exactly like an asset hit: with the clip placements of its asset via
+ * {@link indexFor}'s `clipsOfAsset` seam, so the model can map "this was said" onto
+ * where that footage actually sits on the timeline. `available: false` (no
  * sandbox root / unusable brain) settles to an honest failure with the engine's
  * reason — never a fabricated empty result.
  */
@@ -477,7 +486,7 @@ export function unwrapSearch(toolName: string, project: Project, data: unknown):
   const index = indexFor(project);
   const hits = (Array.isArray(record.hits) ? record.hits : []).map((hit) => {
     const h = (hit ?? {}) as Record<string, unknown>;
-    if (h.type !== 'asset' || typeof h.assetId !== 'string') return h;
+    if ((h.type !== 'asset' && h.type !== 'transcript') || typeof h.assetId !== 'string') return h;
     const placements = index
       .clipsOfAsset(h.assetId)
       .map(({ clip }) => ({ clipId: clip.id, start: clip.start, end: clip.end }));
@@ -502,7 +511,10 @@ export function unwrapSearch(toolName: string, project: Project, data: unknown):
  * that omits them silently falls back to the (empty) built-in `sqlite-vec` store even
  * when the footage was indexed through TwelveLabs. Keys never enter model context or logs.
  */
-export type VisualQueryCredentials = Pick<VisualIndexRequestInput, 'nvidiaKeys' | 'twelveLabsKey'>;
+export type VisualQueryCredentials = Pick<
+  VisualIndexRequestInput,
+  'nvidiaKeys' | 'twelveLabsKey' | 'visualEmbedPack'
+>;
 
 /**
  * The `POST /brain/visual/search` body for a `search_visual` call (plan MI5.1).
@@ -511,6 +523,8 @@ export type VisualQueryCredentials = Pick<VisualIndexRequestInput, 'nvidiaKeys' 
  * forwarded (matching `index_media`) so search reaches whichever backend indexed the
  * footage — the TwelveLabs backend when `twelveLabsKey` is set, else the built-in
  * NVIDIA vector store; each still falls back to its env key when the host holds none.
+ * The local visual-embed pack handle rides along too: footage the pack indexed lives
+ * in the pack's own vector space, and only the pack can embed a query into it.
  */
 export function visualSearchBody(
   project: Project,
@@ -527,6 +541,7 @@ export function visualSearchBody(
   if (Array.isArray(args.timeRange)) body.timeRange = args.timeRange;
   if (credentials?.nvidiaKeys) body.nvidiaKeys = credentials.nvidiaKeys;
   if (credentials?.twelveLabsKey) body.twelveLabsKey = credentials.twelveLabsKey;
+  if (credentials?.visualEmbedPack) body.visualEmbedPack = credentials.visualEmbedPack;
   return body;
 }
 
@@ -586,6 +601,11 @@ function packetT0(packet: unknown): number {
  * what to do INSTEAD. A no-op that does not close itself off invites the same call again.
  */
 const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
+  no_api_key:
+    'footage search needs an embeddings key or the Visual Embed pack, and this project has ' +
+    'neither, so no query can be matched against the footage in this run. Do not call this ' +
+    'again. Look at moments directly with get_frame, use the transcript for anything that ' +
+    'was said, and tell the editor that visual search is not set up.',
   not_indexed:
     'this clip has not been indexed, so there is nothing to describe yet. Indexing runs in ' +
     'the background and may not finish during this run — do not call this again for the ' +
@@ -990,12 +1010,37 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
   const total = result.last?.total ?? 0;
   const cursor = result.last?.cursor ?? 0;
   switch (result.status) {
-    case 'done':
+    case 'done': {
+      // "Done" is a statement about the job cursor, not about what can now be searched.
+      // With no embedding key and no local pack, only the keyless measured tier runs: the
+      // job finishes, and search_visual / describe_footage / map_footage then answer
+      // no_api_key / not indexed. Telling the model "you can search_visual now" sent it
+      // straight into those three refusals.
+      const labelledTier = result.last?.tiers?.labelled;
+      const labelledShots = result.last?.coverage?.labelled ?? 0;
+      const nothingSearchable =
+        indexed === 0 &&
+        labelledShots === 0 &&
+        typeof labelledTier === 'string' &&
+        labelledTier.startsWith('skipped');
+      if (nothingSearchable) {
+        return {
+          status: 'warning',
+          summary:
+            `Measured the footage (${total} asset${total === 1 ? '' : 's'}), but nothing was ` +
+            `labelled or embedded (${labelledTier}), so search_visual, describe_footage and ` +
+            'map_footage have nothing to read in this run. Do not call them, and do not call ' +
+            'index_media again. Look at moments directly with get_frame, and tell the editor ' +
+            'that footage search needs an embeddings key or the Visual Embed pack.',
+          data: result.last,
+        };
+      }
       return {
         status: 'completed',
         summary: `Indexed the footage — ${indexed} span${indexed === 1 ? '' : 's'} across ${total} asset${total === 1 ? '' : 's'}. You can search_visual now.`,
         data: result.last,
       };
+    }
     case 'nothing-to-index':
       return {
         status: 'warning',
@@ -1412,6 +1457,10 @@ export async function chargeAnalysisBudget(
 export function createSidecarExecutor(options: SidecarExecutorOptions): HostToolExecutor {
   const fetchFn = options.fetchFn ?? fetch;
   const now = options.now ?? Date.now;
+  const unroutable: ReadonlySet<string> =
+    options.unroutableToolNames === undefined || options.unroutableToolNames.length === 0
+      ? RENDER_ACTIONS
+      : new Set([...RENDER_ACTIONS, ...options.unroutableToolNames]);
   const dispatch: HostToolExecutor = {
     async run(
       call: ToolCall,
@@ -1664,7 +1713,7 @@ export function createSidecarExecutor(options: SidecarExecutorOptions): HostTool
     // `planSidecarCall` is a pure function of the tool name and has no route for these, so
     // the answer is knowable before any call — say it where the descriptors are chosen
     // rather than after the model has already spent a turn asking.
-    unroutableTools: () => RENDER_ACTIONS,
+    unroutableTools: () => unroutable,
   };
 }
 

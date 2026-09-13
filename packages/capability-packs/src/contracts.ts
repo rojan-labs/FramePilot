@@ -53,6 +53,13 @@ export const CapabilityPackArtifactSchema = CapabilityPackPlatformSchema.extend(
   entrypoint: RelativePackPathSchema,
   maxFileCount: z.number().int().positive().max(100_000),
   files: z.array(RelativePackPathSchema).min(1).max(100_000),
+  /**
+   * Files the installer marks executable (0755) besides the entrypoint, which always is.
+   * The archive's own mode bits are never trusted, so a pack's bundled interpreter or
+   * helper binary can only run if the SIGNED record names it here. Optional and additive:
+   * a record without it installs exactly as before (only the entrypoint executable).
+   */
+  executables: z.array(RelativePackPathSchema).max(100_000).optional(),
   executableTrust: ExecutableTrustSchema,
 }).superRefine((artifact, context) => {
   if (!artifact.files.includes(artifact.entrypoint)) {
@@ -62,12 +69,30 @@ export const CapabilityPackArtifactSchema = CapabilityPackPlatformSchema.extend(
       message: 'entrypoint must appear in the artifact file allowlist',
     });
   }
-  if (new Set(artifact.files).size !== artifact.files.length) {
+  const signedFiles = new Set(artifact.files);
+  if (signedFiles.size !== artifact.files.length) {
     context.addIssue({
       code: z.ZodIssueCode.custom,
       path: ['files'],
       message: 'artifact file allowlist contains duplicates',
     });
+  }
+  if (artifact.executables !== undefined) {
+    if (new Set(artifact.executables).size !== artifact.executables.length) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['executables'],
+        message: 'artifact executables contain duplicates',
+      });
+    }
+    const unsigned = artifact.executables.filter((file) => !signedFiles.has(file));
+    if (unsigned.length > 0) {
+      context.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['executables'],
+        message: `artifact executables must appear in the file allowlist: ${unsigned.slice(0, 5).join(', ')}`,
+      });
+    }
   }
   if (artifact.unpackedSizeBytes < artifact.sizeBytes && artifact.format === 'raw') {
     context.addIssue({

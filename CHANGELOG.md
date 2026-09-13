@@ -22,6 +22,45 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The on-device footage understanding packs now actually run in the desktop app.** With
+  Visual Embed and Visual Describe installed, imported footage is labelled and described on
+  your machine — no API key, and no frame leaves the computer — and searching your footage
+  uses the same local model that indexed it. Before, both packs installed and passed their
+  health check but the app never called them.
+- **Local shot descriptions describe the shot.** The on-device describer was returning
+  fragments of its own instructions ("who or what the shot is of") instead of what was in
+  the frame. It now writes what it sees, and a description that only repeats the prompt is
+  discarded rather than saved.
+- **Downloadable packs can actually be installed.** Tracking, subject detection and the
+  on-device footage understanding packs could not have run once installed from the pack
+  catalog: the bundled runtime was not self-contained, was not marked runnable, lost its code
+  signature on macOS, and most packs could not find their own models during the install check.
+  All four are fixed and proven with a real install.
+- **The assistant can tell a repeated take from a different moment.** Asked to remove
+  duplicate takes, it could delete two different shots from the same camera file, because it
+  had no way to see which clips play the same footage twice. It now sees exactly which clips
+  repeat another and leaves distinct moments alone.
+- **The run cost shown for an AI edit matches the model that did the work.** Parts of a run
+  were priced as a fixed model class, so a run on a large model under-reported its cost and
+  some quick internal steps were priced as the wrong model.
+- **Masks show in the preview.** Masks — and tracked masks following their subject — used
+  to appear only in an exported video; the preview showed the whole frame. They now play in
+  the preview with the same shape, softness, inversion and motion as the export.
+- **Tracked masks now follow the subject in your export.** A successful track used to be
+  saved without moving the mask. "Follow silhouette" in the Inspector works, long clips no
+  longer fail to segment, tracking stays in sync on footage whose frame rate differs from
+  the project's, and following a point keeps the mask the size you drew it.
+- **Transcribing a clip with the AI no longer erases other clips' transcripts.** With a
+  hosted speech-to-text provider selected, asking the assistant to transcribe one clip
+  replaced the words of every other clip in the project.
+- **Local transcription can be set up on builds without the downloadable pack.** Settings
+  used to stop at "catalog is not configured"; it now uses the local whisper setup.
+- **Clearer answers for footage with no sound.** Beat and silence detection on a
+  video-only clip is reported as "no audio track" instead of failing, and transcribing one
+  no longer shows a wall of ffmpeg output.
+- **The assistant stops chasing searches that cannot work.** Without footage search set
+  up, it now says so instead of repeatedly trying visual search.
+- **`framepilot render` shows progress** while it works.
 - **FAQ rows are separated when closed.** The dividers were nested inside `<details>`, so
   they only appeared once a question was already open.
 - **A tool being thrown away no longer appears twice.** It lingered on the intro's orbit

@@ -396,7 +396,7 @@ const trackingMaskCapabilities = [
     keyframeable: true,
     inspectable: false,
     editable: true,
-    operationTypes: ['track_object'] satisfies OperationType[],
+    operationTypes: ['track_object', 'add_mask'] satisfies OperationType[],
     tool: 'track_subject_automatically',
     compiler: 'editor-core:compileTrackingCommand:apply_tracked_mask',
     verifier: 'ai-sdk:temporal-review:tracker-motion',

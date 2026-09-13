@@ -83,7 +83,11 @@ from framepilot_engine.audio.mixing import (
     fade_gain_at,
     sample_envelope,
 )
-from framepilot_engine.effects.speed_curve import has_speed_ramp, source_time_at
+from framepilot_engine.effects.speed_curve import (
+    has_speed_ramp,
+    integrate_rate,
+    source_time_at,
+)
 from framepilot_engine.effects.transform import (
     OPACITY,
     ROTATION,
@@ -199,14 +203,43 @@ def ramped_time_map(ramp: list[Any], max_source: float) -> Any:
     def _scalar(t: float) -> float:
         return source_time_at(ramp, 0.0, float(t), max_source)
 
+    # The audio array is the whole reason this needs care. `source_time_at` inverts the
+    # curve by BISECTION — INVERSION_STEPS passes, each one re-normalising the ramp and
+    # Simpson-integrating every segment — so mapping it per sample costs ~60 integrations
+    # per sample. Picture asks 30 times a second and never noticed; audio asks 44,100
+    # times a second, and a single 3.3s ramped clip is then ~8 million integrations. That
+    # is what made a 61-second export run for over half an hour at 100% CPU with no
+    # output, indistinguishable from a hang (measured on project_raw_mttqrhhzjy9w).
+    #
+    # The curve is strictly increasing (rates are positive, which is exactly why it is
+    # invertible at all), so it can be inverted ONCE into a monotonic table and applied to
+    # the whole array by `np.interp` in C. The table is built lazily: a ramped clip whose
+    # audio is never pulled should not pay for it.
+    #
+    # `np.interp` clamps outside the table, which is the behaviour `source_time_at`
+    # already has at both ends — 0 before the start, `max_source` past the end, holding
+    # the last frame rather than reading off the asset.
+    table: list[Any] = []
+
+    def _lookup() -> tuple[Any, Any]:
+        if not table:
+            # ~1ms of source per step, bounded so a long clip cannot blow the table up.
+            steps = max(2, min(1 << 16, math.ceil(max_source * 1000.0) + 1))
+            sources = np.linspace(0.0, max_source, steps)
+            timeline = np.fromiter(
+                (integrate_rate(ramp, 0.0, float(x)) for x in sources),
+                dtype=np.float64,
+                count=steps,
+            )
+            table.extend((timeline, sources))
+        return table[0], table[1]
+
     def _map(t: Any) -> Any:
         if np.ndim(t) == 0:
             return _scalar(t)
         times = np.asarray(t, dtype=np.float64)
-        mapped = np.fromiter(
-            (_scalar(x) for x in times.ravel()), dtype=np.float64, count=times.size
-        )
-        return mapped.reshape(times.shape)
+        timeline, sources = _lookup()
+        return np.interp(times, timeline, sources).reshape(times.shape)
 
     return _map
 

@@ -85,6 +85,14 @@ def test_the_instruction_keeps_the_visible_only_discipline() -> None:
     assert "no narration" in DESCRIBE_INSTRUCTION
 
 
+def test_the_instruction_gives_the_model_no_field_value_to_copy() -> None:
+    # A `field: hint.` line per field was emitted verbatim AS the field's value by the local
+    # SmolVLM2 pack under the grammar ("subject": "who or what the shot is of"). The
+    # meanings belong in the schema's descriptions; the instruction must not restate them.
+    for field in DESCRIBED_JSON_SCHEMA["properties"]:
+        assert f"{field}:" not in DESCRIBE_INSTRUCTION
+
+
 # --- parsing ----------------------------------------------------------------------
 
 

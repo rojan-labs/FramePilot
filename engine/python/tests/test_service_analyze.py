@@ -259,7 +259,7 @@ def test_analyze_audio_only_asset_skips_video_kinds(
     assert statuses["loudness"] == "ok"
 
 
-def test_analyze_silent_video_skips_audio_kinds(
+def test_analyze_silent_video_reports_audio_kinds_unavailable(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     _patch_all_analyzers(
@@ -272,8 +272,10 @@ def test_analyze_silent_video_skips_audio_kinds(
     resp = _post_analyze(client, project_path, depth="deep")
     assert resp.status_code == 200
     statuses = _statuses(resp.json())
+    # UNAVAILABLE, the same verdict the per-analysis routes give a file with no audio track:
+    # the agent host settles it as a warning, where SKIPPED settled as a hard failure.
     for kind in ("silence", "loudness", "beats", "transcription"):
-        assert statuses[kind] == "skipped"
+        assert statuses[kind] == "unavailable"
     for kind in ("probe", "scenes", "black", "freeze"):
         assert statuses[kind] == "ok"
 

@@ -1559,7 +1559,10 @@
       "type": "usage",
       "tokens": 0,
       "usd": 0,
-      "modelCalls": 3
+      "modelCalls": 3,
+      "priced": false,
+      "cacheReadTokens": 0,
+      "cacheWriteTokens": 0
     },
     {
       "id": "turn_golden:assistant",

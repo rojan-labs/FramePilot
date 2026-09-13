@@ -17,6 +17,7 @@ import {
   TRANSITION_EFFECT_TYPE,
   TRANSITION_OUT_EFFECT_TYPE,
   coverageVerdict,
+  repeatedSourcePairs,
   type ShapedClip,
   type SourceShape,
 } from '@framepilot/editor-core';
@@ -1399,23 +1400,15 @@ export function checkContentPreservedOutside(
   };
 }
 
-/** Source seconds two clips of one asset must share before they are the same take twice. */
-const DUPLICATE_OVERLAP_SECONDS = 0.5;
-
-/** Pairs of picture clips that play the same material of the same asset twice. */
+/**
+ * Pairs of picture clips that play the same material of the same asset twice.
+ *
+ * The SAME definition the agent reads on its clip rows and in `get_clips` (editor-core
+ * `source-repeats.ts`): scoring a run against a notion of "duplicate" the product never told
+ * the agent about is how a correct deletion was once scored as destroying unique takes.
+ */
 export function duplicateTakePairs(project: Project): readonly (readonly [Clip, Clip])[] {
-  const clips = pictureClips(project);
-  const pairs: (readonly [Clip, Clip])[] = [];
-  for (let i = 0; i < clips.length; i++) {
-    for (let j = i + 1; j < clips.length; j++) {
-      const a = clips[i]!;
-      const b = clips[j]!;
-      if (a.assetId !== b.assetId) continue;
-      const overlap = Math.min(a.sourceEnd, b.sourceEnd) - Math.max(a.sourceStart, b.sourceStart);
-      if (overlap > DUPLICATE_OVERLAP_SECONDS) pairs.push([a, b]);
-    }
-  }
-  return pairs;
+  return repeatedSourcePairs(project);
 }
 
 /**

@@ -149,7 +149,9 @@ def test_media_is_always_closed_even_when_tracking_fails() -> None:
 
 def test_an_unexpected_fault_still_produces_one_typed_failure() -> None:
     class ExplodingBackend(ScriptedBackend):
-        def open_frames(self, path: str, first_frame: int, last: int):  # type: ignore[override]
+        def open_frames(  # type: ignore[override]
+            self, path: str, first_frame: int, last: int, fps: float | None = None
+        ):
             raise RuntimeError("decoder exploded")
 
     failure = terminal(run(request_line(), ExplodingBackend()))

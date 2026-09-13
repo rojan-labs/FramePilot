@@ -1228,6 +1228,15 @@ class VisualSearchRequest(BaseModel):
         description="TwelveLabs API key; when set, search is served by TwelveLabs instead of "
         "the built-in vector store. Falls back to TWELVELABS_API_KEY. Never logged.",
     )
+    visual_embed_pack: str | None = Field(
+        default=None,
+        alias="visualEmbedPack",
+        description="JSON handle for an installed, host-verified framepilot.visual-embed "
+        "Capability Pack — the same handle `/brain/visual/index` takes. Footage indexed by "
+        "the local pack lives in the pack's vector space, so only the pack can embed a "
+        "query that searches it. Falls back to FRAMEPILOT_PACK_VISUAL_EMBED. Never logged "
+        "beyond its pack id.",
+    )
     project_path: str | None = Field(
         default=None, description="Saved project supplying clips + transcript (optional)."
     )
@@ -1963,14 +1972,23 @@ def create_app(
         always visible in the engine console when debugging.
         """
         start = time.monotonic()
-        _log.info("ACT → %s %s", request.method, request.url.path)
+        # The desktop app polls /health every 5s for the whole time it is open. At INFO
+        # that is three lines every five seconds (in, out, and uvicorn's own access line)
+        # forever, which buries the render/analyze/transcribe calls this log exists to
+        # show — an idle hour of logs is ~2000 heartbeat lines and nothing else. A
+        # liveness probe is only worth a line when it says something: a SUCCEEDING probe
+        # goes to DEBUG, while a failing or slow one stays at INFO below, because "health
+        # started returning 503" is exactly the signal someone reads these logs for.
+        probe = request.url.path == "/health"
+        (_log.debug if probe else _log.info)("ACT → %s %s", request.method, request.url.path)
         try:
             response = await call_next(request)
         except Exception:  # pragma: no cover - re-raised after logging
             _log.exception("ERR ✗ %s %s raised", request.method, request.url.path)
             raise
         elapsed_ms = (time.monotonic() - start) * 1000
-        _log.info(
+        quiet = probe and response.status_code == status.HTTP_200_OK
+        (_log.debug if quiet else _log.info)(
             "ACT ← %s %s → %s (%.0f ms)",
             request.method,
             request.url.path,
@@ -2853,6 +2871,32 @@ def create_app(
             # A read that cannot answer degrades to the hosted default rather than failing
             # the request: this only decides WHICH rows to look at.
             return MODEL_ID
+        return MODEL_ID
+
+    def _visual_query_space(
+        resolved_root: Path, project_id: str, *, hosted_ready: bool, local_ready: bool
+    ) -> str:
+        """Which vector space a search QUERY must be embedded into.
+
+        A query vector is only comparable with vectors from the model that embedded it.
+        :func:`_spans_model_id` answers "what is stored", which is enough for reads that
+        need no query; a search also needs an arm that can embed into that space, and on a
+        pack-only machine the hosted one never can. So: the space that holds rows AND has
+        a ready embedder, hosted winning a tie as it does there. A brain with nothing
+        indexed yet gets the space its next index slice will write — the local pack's when
+        one is installed, because indexing prefers the pack too.
+        """
+        try:
+            with open_brain(resolved_root, project_id) as store:
+                hosted_rows = bool(store.list_visual_spans(model=MODEL_ID))
+                local_rows = bool(store.list_visual_spans(model=LOCAL_MODEL_ID))
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError):
+            # The search's own brain read reports the failure honestly; this only picks a space.
+            hosted_rows = local_rows = False
+        if hosted_rows and hosted_ready:
+            return MODEL_ID
+        if local_ready and (local_rows or not hosted_rows):
+            return LOCAL_MODEL_ID
         return MODEL_ID
 
     def _shot_phash(shot: ShotRecord) -> int:
@@ -3980,7 +4024,13 @@ def create_app(
                     ).describer
                 )
                 still_backend = (
-                    resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys),
+                    resolve_visual_embedder(
+                        req.nvidia_keys or settings.nvidia_embeddings_keys,
+                        pack=parse_pack_handle(
+                            req.visual_embed_pack or settings.visual_embed_pack,
+                            require=(CAPABILITY_EMBED, CAPABILITY_TEXT),
+                        ),
+                    ),
                     producer,
                 )
                 return still_backend
@@ -5491,22 +5541,44 @@ def create_app(
         tl = resolve_twelvelabs(req.twelve_labs_key or settings.twelvelabs_api_key)
         if tl.client is not None:
             return _tl_search(tl.client, req, root.resolve())
+        local_pack = parse_pack_handle(
+            req.visual_embed_pack or settings.visual_embed_pack,
+            require=(CAPABILITY_EMBED, CAPABILITY_TEXT),
+        )
         embedder_res = resolve_visual_embedder(req.nvidia_keys or settings.nvidia_embeddings_keys)
-        if embedder_res.client is None:
-            # No embedding key: the query cannot be embedded — reported honestly.
+        query_space = _visual_query_space(
+            root.resolve(),
+            req.project_id,
+            hosted_ready=embedder_res.client is not None,
+            local_ready=local_pack is not None,
+        )
+        query_vector: list[float]
+        if query_space == LOCAL_MODEL_ID and local_pack is not None:
+            try:
+                query_vector = LocalVisualEmbedClient(local_pack).embed_query(req.query)
+            except PackWorkerError as exc:
+                _log.warning("Visual search stopped: local pack failed (%s)", exc.code)
+                return VisualSearchResponse(
+                    available=False,
+                    reason=f"The local visual-embed pack could not embed the query: {exc.detail}",
+                )
+        elif embedder_res.client is not None:
+            try:
+                query_vector = embedder_res.client.embed_query(req.query)
+            except KeyRingExhaustedError as exc:
+                _log.warning("Visual search stopped: embedding keys exhausted")
+                return VisualSearchResponse(
+                    available=True, reason=exc.last_error or EXHAUSTED_REASON
+                )
+            except VisualEmbedError as exc:
+                return VisualSearchResponse(available=False, reason=str(exc))
+        else:
+            # Neither arm can embed a query into the space this brain holds — reported honestly.
             return VisualSearchResponse(available=True, reason=embedder_res.reason)
 
         project_doc: Project | None = None
         if req.project_path is not None or req.project is not None:
             project_doc = load_project_document(req.project_path, req.project)
-
-        try:
-            query_vector = embedder_res.client.embed_query(req.query)
-        except KeyRingExhaustedError as exc:
-            _log.warning("Visual search stopped: embedding keys exhausted")
-            return VisualSearchResponse(available=True, reason=exc.last_error or EXHAUSTED_REASON)
-        except VisualEmbedError as exc:
-            return VisualSearchResponse(available=False, reason=str(exc))
 
         text_res = embedder_resolution()
         try:
@@ -5520,6 +5592,7 @@ def create_app(
                     VISUAL_SEARCH_POOL,
                     asset_ids=req.asset_ids,
                     time_range=req.time_range,
+                    model=query_space,
                 )
                 caption_fts = store.search_captions(req.query, limit=VISUAL_SEARCH_POOL)
                 transcript_fts = store.search_transcript(req.query, limit=VISUAL_SEARCH_POOL)
@@ -5529,7 +5602,7 @@ def create_app(
                     semantic = semantic_hits(
                         text_res.embedder, req.query, rows, limit=VISUAL_SEARCH_POOL
                     )
-                spans = store.list_visual_spans(model=_spans_model_id(store))
+                spans = store.list_visual_spans(model=query_space)
                 captions = [
                     caption
                     for caption in store.list_visual_captions()
@@ -6317,8 +6390,14 @@ def create_app(
         }
         needs_video = kind in {AnalysisKind.SCENES, AnalysisKind.BLACK, AnalysisKind.FREEZE}
         if needs_audio and not info.has_audio:
+            # UNAVAILABLE, not SKIPPED: this is the same fact the per-analysis routes report
+            # when the analyzer raises NoAudioStreamError, and the agent host settles it as a
+            # warning there. As SKIPPED it settled as a hard failure — and stock video, which
+            # is usually video-only, is exactly what "detect beats on the stock clip" targets.
             return AnalysisEntry(
-                kind=kind, status=AnalysisEntryStatus.SKIPPED, reason="Asset has no audio stream."
+                kind=kind,
+                status=AnalysisEntryStatus.UNAVAILABLE,
+                reason=f"{media_path.name} has no audio track, so there is nothing to analyse.",
             )
         if needs_video and (not info.has_video or info.is_image):
             return AnalysisEntry(
@@ -7069,6 +7148,14 @@ def create_app(
             raise HTTPException(status.HTTP_503_SERVICE_UNAVAILABLE, str(exc)) from exc
         except AsrError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except FileNotFoundError as exc:
+            # The content-hash cache opens the media first, so a file removed from disk used
+            # to escape as a 500 carrying a raw traceback message.
+            raise HTTPException(
+                status.HTTP_404_NOT_FOUND,
+                f"The media for asset {resolved_id} is missing from disk ({media_path.name}). "
+                "Relink or re-import it, then transcribe again.",
+            ) from exc
         _log.info("ACT transcribe: asset=%s → %d words", resolved_id, len(words))
         # Stamp the attribution here (schema v12, ADR 0076): this is the one place
         # that knows which asset was transcribed, and an unattributed transcript is

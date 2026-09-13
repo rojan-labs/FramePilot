@@ -50,9 +50,12 @@ opencv = "opencv-contrib-python-headless"
 numpy = "numpy"
 
 [artifact]
-# ~410 MiB of weights on top of the runtime and onnxruntime's natives. The ceiling leaves
-# room for the embedded interpreter without leaving room for a surprise.
-max_unpacked_mib = 1200
+# Measured 2026-09-14 (darwin-arm64): the built payload is 1781 MiB, of which 1501.6 MiB is
+# pinned weights (the SigLIP 2 fp32 text tower alone is 1077.1). The old 1200 MiB ceiling came
+# from a pre-build estimate of ~410 MiB of weights and could never be met. Raised by maintainer
+# decision rather than shrinking the model; the ceiling keeps ~12% headroom so a surprise still
+# fails the build.
+max_unpacked_mib = 2000
 license_notice = "LICENSES.md"
 sbom = "pack/sbom"
 download_discloses = ["size", "licenses", "model provenance", "local-only execution"]

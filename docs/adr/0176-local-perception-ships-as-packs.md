@@ -69,7 +69,10 @@ with no tier-1 producer at all — worse than the duplication it removes. It goe
 - Two segmentations now coexist (sampler spans, shot ledger), so captions are joined to
   spans by **time overlap** rather than by index. Index equality across two different
   segmentations was a confident, invisible lie waiting to be told.
-- Install size grows only for users who ask: ~370 MB for tier 1, ~1.5 GB for tier 2.
+- Install size grows only for users who ask. Measured on real builds (2026-09-14, darwin-arm64):
+  ~1.8 GiB for tier 1 and ~2.7 GiB for tier 2, well above the ~370 MB / ~1.5 GB first estimated,
+  because the SigLIP 2 text tower is fp32 and tier 2 ships both the default and low-RAM models.
+  The manifest caps were raised to 2000 and 3000 MiB rather than shrinking either model.
 - The licence surface grows in a way `pnpm license:scan` **cannot see** — it walks
   `node_modules` manifests and cannot read a GGUF, a wheel or a native binary. Each pack
   carries a hand-reviewed `LICENSES.md` with per-artifact verification status, and the
@@ -108,6 +111,14 @@ them tiers 1 and 2 have exactly one producer each, both hosted, and the keyless 
 claim this ADR exists to make is unreachable by any user. They are inert unless a pack
 handle is configured (`FRAMEPILOT_PACK_VISUAL_EMBED` / `_DESCRIBE`, both empty by default),
 so the default install is unaffected either way.
+
+**Updated 2026-09-13 — the desktop host now supplies the handles.** Until then the env vars
+were the only route, so on desktop both packs installed, passed health and never ran. The
+host builds a handle for the newest installed + healthy release of each pack and sends it on
+every index and search request; unattended import fills the tier an installed LOCAL pack
+provides (installing it is the consent, and it spends nothing). Search embeds its query with
+the pack whenever the brain's vectors are in the pack's space. The default install is still
+unaffected: no pack installed, no handle sent.
 
 ## Rejected alternatives
 

@@ -24,6 +24,23 @@ describe('Capability Pack contracts', () => {
     expect(CapabilityPackArtifactSchema.parse(artifact)).toEqual(artifact);
   });
 
+  it('accepts a signed executables list drawn from the file allowlist', () => {
+    const withExecutables = { ...artifact, executables: ['bin/tracking-worker'] };
+    expect(CapabilityPackArtifactSchema.parse(withExecutables)).toEqual(withExecutables);
+  });
+
+  it.each([
+    ['executable outside the allowlist', { ...artifact, executables: ['bin/python3'] }],
+    [
+      'duplicate executables',
+      { ...artifact, executables: ['bin/tracking-worker', 'bin/tracking-worker'] },
+    ],
+    ['traversal executable', { ...artifact, executables: ['../bin/python3'] }],
+    ['absolute executable', { ...artifact, executables: ['/bin/sh'] }],
+  ])('rejects %s', (_label, input) => {
+    expect(CapabilityPackArtifactSchema.safeParse(input).success).toBe(false);
+  });
+
   it.each([
     ['insecure transport', { ...artifact, url: 'http://packs.framepilot.ai/worker.zip' }],
     ['absolute entrypoint', { ...artifact, entrypoint: '/bin/worker' }],

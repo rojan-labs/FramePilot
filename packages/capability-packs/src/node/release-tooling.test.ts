@@ -93,8 +93,9 @@ describe('preparePackArtifact', () => {
     const payload = path.join(root, 'payload');
     const archive = path.join(root, 'worker.zip');
     await mkdir(path.join(payload, 'bin'), { recursive: true });
-    await writeFile(path.join(payload, 'bin', 'worker'), 'worker bytes');
-    await writeFile(path.join(payload, 'NOTICE.txt'), 'MIT');
+    await writeFile(path.join(payload, 'bin', 'worker'), 'worker bytes', { mode: 0o755 });
+    await writeFile(path.join(payload, 'bin', 'python'), 'interpreter', { mode: 0o755 });
+    await writeFile(path.join(payload, 'NOTICE.txt'), 'MIT', { mode: 0o644 });
     await writeFile(archive, 'archive bytes');
     const archiveDigest = createHash('sha256').update('archive bytes').digest('hex');
 
@@ -114,16 +115,44 @@ describe('preparePackArtifact', () => {
     });
 
     expect(prepared.artifact.sha256).toBe(archiveDigest);
-    expect(prepared.artifact.files).toEqual(['NOTICE.txt', 'bin/worker']);
-    expect(prepared.artifact.maxFileCount).toBe(2);
+    expect(prepared.artifact.files).toEqual(['NOTICE.txt', 'bin/python', 'bin/worker']);
+    expect(prepared.artifact.executables).toEqual(['bin/python', 'bin/worker']);
+    expect(prepared.artifact.maxFileCount).toBe(3);
     expect(prepared.sbom.licenses).toEqual(['MIT']);
     expect(prepared.sbom.files.map((file) => file.path)).toEqual([
       'NOTICE.txt',
+      'bin/python',
       'bin/worker',
     ]);
-    expect(prepared.sbom.files[1]?.sha256).toBe(
+    expect(prepared.sbom.files[2]?.sha256).toBe(
       createHash('sha256').update('worker bytes').digest('hex'),
     );
+  });
+
+  it('refuses a macOS payload whose entrypoint is not executable', async () => {
+    const root = await mkdtemp(path.join(os.tmpdir(), 'framepilot-pack-noexec-'));
+    const payload = path.join(root, 'payload');
+    const archive = path.join(root, 'worker.zip');
+    await mkdir(path.join(payload, 'bin'), { recursive: true });
+    await writeFile(path.join(payload, 'bin', 'worker'), 'worker', { mode: 0o644 });
+    await writeFile(archive, 'archive');
+
+    await expect(
+      preparePackArtifact({
+        packId: 'framepilot.tracking-lite',
+        version: '1.0.0',
+        payloadRoot: payload,
+        archivePath: archive,
+        url: `https://packs.framepilot.ai/artifacts/${'a'.repeat(64)}/worker.zip`,
+        os: 'darwin',
+        arch: 'arm64',
+        format: 'zip',
+        entrypoint: 'bin/worker',
+        executableTrust: { kind: 'macos_codesign', teamIdentifier: 'ABCDE12345' },
+        licenses: ['MIT'],
+        allowedLicenses: ['MIT'],
+      }),
+    ).rejects.toThrow('is not executable in the staged payload');
   });
 
   it('rejects disallowed licenses and symlinks before publication', async () => {
