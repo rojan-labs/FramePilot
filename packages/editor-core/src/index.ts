@@ -10,6 +10,9 @@ export * from './patch.js';
 export * from './history.js';
 export * from './validator.js';
 export * from './keyframes.js';
+// Which picture clips replay material another already plays — the one definition the agent's
+// clip rows, `get_clips` and the duplicate-takes rubric share (TRACKING Q5).
+export * from './source-repeats.js';
 export * from './speed-curve.js';
 // The one authoritative caption segmenter, shared by the Captions panel and the
 // AI `add_captions` recipe so they cannot disagree (ADR 0071).

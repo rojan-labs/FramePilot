@@ -23,6 +23,7 @@ import {
   mapSequenceTime,
   mapSourceTime,
   mapTranscript,
+  repeatedSourceOf,
   speechAssetIdsFor,
 } from '@framepilot/editor-core';
 import type { Operation } from '@framepilot/editor-core';
@@ -158,6 +159,7 @@ const clipDeleteOp = (
 const clipRow = (
   clip: Track['clips'][number],
   picture?: PictureBlockView,
+  replaysSourceOf?: string,
 ): Record<string, unknown> => ({
   id: clip.id,
   trackId: clip.trackId,
@@ -176,6 +178,11 @@ const clipRow = (
   // what the key's absence already says, and "not measured" must not read as "measured
   // and unremarkable".
   ...(picture === undefined ? {} : { picture }),
+  // The earlier clip whose SOURCE this one plays again — a repeated take (TRACKING Q5). The
+  // row had source in/out but nothing joined two rows, so "drop the duplicate takes" was
+  // answered from asset identity and deleted two different moments of one camera file.
+  // Omitted when the clip repeats nothing, which is the common case.
+  ...(replaysSourceOf === undefined ? {} : { replaysSourceOf }),
 });
 
 const deleteSchema = z.object({ trackId: z.string(), start: seconds, end: seconds }).strict();
@@ -1083,8 +1090,11 @@ export const TIMELINE_TOOLS: readonly ToolSpec[] = [
       const limit = a.limit ?? GET_CLIPS_DEFAULT_LIMIT;
       const page = matched.slice(offset, offset + limit);
       const slice = pictureOf(ctx);
+      const repeats = repeatedSourceOf(ctx.project);
       return {
-        clips: page.map((clip) => clipRow(clip, pictureBlockFor(slice, clip.id, 'compact'))),
+        clips: page.map((clip) =>
+          clipRow(clip, pictureBlockFor(slice, clip.id, 'compact'), repeats.get(clip.id)),
+        ),
         total: matched.length,
         hasMore: offset + page.length < matched.length,
       };
