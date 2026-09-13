@@ -213,7 +213,9 @@ function composeProject(goldenCase) {
     brollAssetIds = assets.filter((a) => a.kind === 'video' && !placed.has(a.id)).map((a) => a.id);
   }
   const musicAssetId = goldenCase.musicAssetName ? assets.find((a) => basename(a.path) === goldenCase.musicAssetName)?.id : undefined;
-  const project = parseProject({ ...base, assets });
+  // The case's own precondition (e.g. repeated takes), placed before turn 1 — see
+  // `eval/case-setup.ts`. On replay too: the recording assumes the same starting timeline.
+  const project = sdk.applyCaseSetup(parseProject({ ...base, assets }), goldenCase.setup);
   return { project, brollAssetIds, musicAssetId };
 }
 

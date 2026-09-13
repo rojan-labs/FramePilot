@@ -116,11 +116,22 @@ export interface GoldenTurn {
   readonly answer?: string;
 }
 
+/**
+ * A deterministic starting state a case needs and no committed fixture ships, applied by
+ * the runner in memory before the first turn (see `eval/case-setup.ts`).
+ *
+ * `repeat-opening-shot` — the opening shot's exact source range placed twice more after the
+ * track's last clip: genuinely repeated material, in the rubric's own sense of a duplicate.
+ */
+export type GoldenCaseSetup = 'repeat-opening-shot';
+
 export interface GoldenCase {
   readonly id: string;
   readonly category: GoldenCategory;
   /** Fixture project id under `tests/fixtures/mission/projects`. */
   readonly project: string;
+  /** Starting state applied to the fixture before turn 1. Absent ⇒ the fixture as shipped. */
+  readonly setup?: GoldenCaseSetup;
   /**
    * Compose: add this fixture project's un-placed video assets to the bin as b-roll.
    * The runner does this in memory; no fixture is written.
@@ -562,21 +573,21 @@ export const GOLDEN_CASES: readonly GoldenCase[] = [
     id: 'remove-duplicate-takes',
     category: 'duplicates',
     project: 'mission-montage',
+    setup: 'repeat-opening-shot',
     why:
-      'No committed fixture ships two takes of one action, so the repeats are BUILT by the ' +
-      'first turn, which asks for them in as many words. That makes the case honest about ' +
-      'what it measures: a duplicate here is two clips playing overlapping source of the same ' +
+      'No committed fixture ships two takes of one action, so the repeats are PLACED by the ' +
+      'runner before the only turn: the opening shot\'s exact source range, twice more after ' +
+      'the last clip. A duplicate here is two clips playing overlapping source of the same ' +
       'asset — a fact the project file proves — not tier 1\'s phash `duplicateOf`, which ' +
-      'clusters two separate recordings and has no fixture to run against. Both halves are ' +
-      'scored, because deleting most of the programme also removes every duplicate: the ' +
-      'repeated material must be gone AND every un-repeated shot must survive.',
+      'clusters two separate recordings and has no fixture to run against. The repeats used to ' +
+      'be built by a first turn ("use the opening shot three times"), and that made the case ' +
+      'measure the wrong thing twice over: a model that placed three DIFFERENT moments of that ' +
+      'shot left nothing for the rubric to score, and "drop the duplicate takes" straight after ' +
+      'that instruction naturally means "the repeats you just placed" — which a run correctly ' +
+      'deleted and was scored as destroying unique takes. Both halves are scored, because ' +
+      'deleting most of the programme also removes every duplicate: the repeated material must ' +
+      'be gone AND every un-repeated shot must survive.',
     turns: [
-      {
-        prompt:
-          'Build a 30-second montage from this footage, and use the opening shot three times.',
-        rubric: 'montage-30s',
-        intent: 'edit',
-      },
       {
         prompt: 'Drop the duplicate takes.',
         rubric: 'remove-duplicate-takes',
