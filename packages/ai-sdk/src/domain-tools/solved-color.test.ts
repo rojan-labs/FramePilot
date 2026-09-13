@@ -268,6 +268,23 @@ describe('normalize_exposure', () => {
     const ctx = context({ ledger: ledger({ a: measured(0.5) }) });
     expect(() => ops('normalize_exposure', { trackId: 'audio_1' }, ctx)).toThrow(/audio track/);
   });
+
+  it('names the CLIPS to measure when nothing on the track has been', () => {
+    // The old refusal named the tool — "measure_color reads one clip; indexing measures
+    // them all" — and the model did not act on it: run `3ed87ff0` asked twice, measured
+    // nothing, and fell back to 36 hand-picked apply_color_grade calls carrying identical
+    // numbers on every shot. A remedy naming the arguments is a call it can make.
+    const ctx = context({ ledger: ledger({}) });
+    let thrown: unknown;
+    try {
+      ops('normalize_exposure', { trackId: 'v1' }, ctx);
+    } catch (error) {
+      thrown = error;
+    }
+    const message = (thrown as Error).message;
+    expect(message).toMatch(/Call measure_color on "shot_a"/);
+    expect(message).toMatch(/then call normalize_exposure again/);
+  });
 });
 
 // --- apply_look -------------------------------------------------------------
