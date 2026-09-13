@@ -1,6 +1,9 @@
 # TRACKING.md — 1.0 Readiness Loop
 
-**Session:** 2026-09-13 · main @ `5f4b4da1` · Opus 5
+**Session:** started 2026-09-13 from main @ `5f4b4da1` · Opus 5 · **last updated 2026-09-14**
+**Branch:** `fix/release-1.0-audit-2026-09-13` (worktree `../FramePilot-release-audit`) → **PR #117**,
+open and mergeable · 58 commits over `main` · CI on `9e75fd8b`: 23 checks pass, 3 dispatch-only
+jobs skipped; the Vercel check fails exactly as it does on every other PR.
 **Goal:** run FramePilot end to end, confirm capability packs, audit the edits the agent
 made in the real projects under `~/Documents/FramePilot Projects`, then loop find→fix
 until the app is release-ready for 1.0 — aggressively better at editing, faster, more precise.
@@ -20,6 +23,66 @@ turned out wrong stays in, marked `DISPROVED`, so nobody re-chases it.
 | ⚠️ | Risk / accepted for 1.0 with a note |
 | ❓ | Open, not yet measured |
 | 🚫 | DISPROVED — hypothesis chased and closed |
+
+---
+
+## Status at a glance — the current truth
+
+Sections A–S below are the chronological log. Where a later section changed an earlier verdict,
+the earlier heading now points forward; **this table is what holds today**.
+
+### Fixed on this branch
+
+| ID | What was wrong | Commit(s) |
+|---|---|---|
+| G1 | the desktop startup log reported the wrong AI provider | `2fb8b200` |
+| F1 | project-file auditor promoted to `scripts/audit-project.mjs` | `2fb8b200` |
+| J1 | successful `/health` probes buried the request log | `8f9541dc` |
+| L4 | trimming a speed-ramped clip was refused | `c79889a9` |
+| M1 · E2 · H2 | the render was ~10⁶× slow on ramped audio — a 61 s export now takes 77.7 s | `84ff4719` |
+| L1 · N2 | 14% of perceptual reviews failed — the same ramp bug | `84ff4719` |
+| M2 · N1 | non-Anthropic runs were priced at invented Anthropic rates | `2023d700` |
+| Q2 | an unpriced run was reported as a real $0 | `ab4ecae8` |
+| M5 | each call was priced by its tier label, not by the model that served it | `d59cc710` |
+| M4 | the `usage` event had no prompt-cache read/write split | `22ec3d84` |
+| N4 | restating a marker threw away the whole patch | `7ea55250` |
+| O1 | a title that overran the frame was refused instead of fitted | `54509997` |
+| O3 | `normalize_exposure`'s refusal did not name the clips to measure | `b2c4fe04` |
+| H1 | the CLI render printed no progress | `a1c4772e` |
+| R1 | the visual-embed/describe packs never ran on desktop; search used the wrong vector space | `c8a5aa20` `b7cb08dd` `0dccf35f` |
+| R2 | the local describer returned its own prompt as every field | `0408680b` |
+| S1 | `/analyze` on video-only media, `index_media` over-claiming, no `no_api_key` guidance, transcript time base | `a1c4772e` `14414c1e` |
+| S2 | hosted agent transcription wiped other assets' transcripts; local-whisper setup and cache; silent/missing media | `ca3e10e4` `2402a8cf` `a1c4772e` |
+| S3 | tracking: the mask never moved, Follow silhouette failed, segment overflow, fps window, point-track size, timing, speed | `f494917e` `0374ec43` `b98a7d0b` `ba8a4baf` `dc453d8a` `29092bfb` |
+| S3 · preview | masks and tracked motion were not drawn in either preview player | `eb9c5f5c` |
+| S5.1 | the browser build offered desktop-only tracking tools | `b67388c9` |
+| Q4b · transitions | a zero-op `add_transitions` gave no reason, so the run retried and ended with no text | `ca3e10e4` |
+| Q5 | the agent could not tell a repeated take from a different moment; the eval scored a precondition | `7c33bc7a` `39596077` |
+| B1 · O4 · P1–P4 | no pack could be installed from a catalog (5 blockers); pack CI and release pipeline | `4b412900` `f9019e66` `8a249d5d` `254b69c4` `9f341daf` `a0f5409c` `d1f5aa12` `051b8a37` |
+| P2 | two packs exceeded their size caps — **decided: caps raised** (2000 / 3000 MiB) | `9e75fd8b` |
+| CI | an unused `type: ignore` failed CI mypy | `57d157ef` |
+
+### Still open — needs a decision, a credential, or its own piece of work
+
+| ID | Item | Waiting on |
+|---|---|---|
+| D10 | desktop never records accepted/rejected edits in AI memory (§S4) | **maintainer**: with auto-apply every validated patch counts as "accepted" — record it or not? |
+| L5 | `split_clip` / `delete_range` keep a small drift on speed-ramped clips | **maintainer**: needs a schema that can express a partial ease |
+| Q4b | `transitions-where-they-belong` cannot pass on the mission fixture, which has no tier-1 labels | **maintainer**: label the fixture, or accept it; "different asset = location change" is ruled out by ADR 0175 |
+| P4 | pack signing and publishing | **credentials**: Apple Developer ID, notarization, catalog signing key, then a first signed run (Gatekeeper, entitlements); SBOM generators for both visual packs; a Windows builder; manual CDN upload and catalog merge |
+| S2 · S5 | the local-whisper pack cannot be installed until a signed catalog is published; the packaged sidecar still searches PATH for `whisper-cli` | release blocker if the packaged app must transcribe without Homebrew |
+| R4 | the describer invents `onScreenText`; tier 2 takes ~90 s per short shot; no lease across an engine-started worker run; `find_similar` is not pack-aware | each is its own piece of work |
+| S3 residual | `add_mask` reorders the clip's effects; segment overflow is detected by message text; variable-frame-rate drift | minor |
+| S5 | `/analyze`'s wrong-kind skip names no asset that would work | minor |
+| A3 | `.env` names a stale provider and model | deliberately untouched — the user's own gitignored config |
+| A4 · E4 | the default model (sonnet-5 vs opus-5) | decision |
+| E3 | editing latency is not measured | not started |
+| D11 | the camera track's `sfx` role — verify against a render | not verified |
+| G2 | a sandbox error does not say the sidecar was started for a different root | minor |
+| A5 | the `framepilot` MCP server failed to connect during the session | not investigated |
+| eval | the golden cases have not been re-run since M5, Q5 and the duplicate-takes rework | a paid run for new scores |
+| security | the NVIDIA-embeddings and TwelveLabs keys were printed into an audit session's tool output | **rotate both keys** |
+| CI | the Vercel deployment check fails on every PR | outside this branch |
 
 ---
 
@@ -51,6 +114,7 @@ the pack, into the repo working tree:
 These are `register-local` dev registrations. They work on this machine only; moving or
 deleting the repo breaks all four packs, and a shipped 1.0 pack must be self-contained.
 Not a bug in the app — a release-blocking property of how these particular packs were installed.
+**→ Superseded:** the real gap and its fix are in §O4 and §P4.
 
 **B2 — my own false alarm, recorded so it is not repeated:** an initial sweep reported all
 four entrypoints exiting `127`. That was **my test harness**, not the packs: macOS has no
@@ -129,7 +193,7 @@ video-track-mix-roles rule). Verify against the render before judging.
 | # | Item | State |
 |---|------|-------|
 | E1 | Run the app end to end (desktop + sidecar) | ✅ **done** — see §G |
-| E2 | Render the target project and inspect the output | 🔄 in flight — see §H |
+| E2 | Render the target project and inspect the output | ✅ **done** — 77.7 s export, all 11 `validate-render` checks pass (§M1) |
 | E3 | Editing speed / latency measurement | ❓ |
 | E4 | Decide sonnet-5 vs opus-5 (A4) | ❓ |
 
@@ -137,9 +201,9 @@ video-track-mix-roles rule). Verify against the render before judging.
 
 | # | Idea | Why |
 |---|------|-----|
-| F1 | Promote `audit.mjs` to `scripts/audit-project.mjs` | A project-file linter that found 0 errors on 6 real projects is a cheap permanent regression net, and it reuses the engine's own arithmetic rather than reimplementing it |
+| F1 🔧 `2fb8b200` | Promote `audit.mjs` to `scripts/audit-project.mjs` | A project-file linter that found 0 errors on 6 real projects is a cheap permanent regression net, and it reuses the engine's own arithmetic rather than reimplementing it |
 | F2 | Reconcile `.env` provider keys with `ai-config.json` (A3) | One source of truth; `.env` currently names a stale model id |
-| F3 | Ship self-contained packs (B1) | 1.0 blocker for anyone who is not this machine |
+| F3 🔧 §P4 | Ship self-contained packs (B1) | 1.0 blocker for anyone who is not this machine |
 
 
 ---
@@ -210,13 +274,13 @@ ACT encode: 1080x1920@30 h264_videotoolbox (hardware) -movflags +faststart
 
 ✅ Hardware encode (VideoToolbox) is being selected, which is the right call on this machine.
 
-**H1 ❓ The CLI render is silent while it works.** No progress output at all between start
+**H1 🔧 (fixed `a1c4772e`, §S4) The CLI render is silent while it works.** No progress output at all between start
 and finish on a multi-minute job. For a 1.0 CLI that is a usability gap — indistinguishable
 from a hang, which is exactly how I first read it. Needs confirming whether the desktop
 render path surfaces progress (it has `/render/jobs/{job_id}`) before calling this a defect
 of the product rather than of the CLI.
 
-**H2 ❓ Throughput.** The render is genuinely CPU-bound — 100% CPU with 10+ child
+**H2 ✅ (measured in §M1 — 77.7 s once the ramp fix landed) Throughput.** The render is genuinely CPU-bound — 100% CPU with 10+ child
 processes (per-clip ffmpeg work) — not hung. Elapsed time for the 61s vertical output is
 being measured; result pending. A first attempt died when its foreground tool call timed
 out, which is a harness artefact, not an engine fault.
@@ -253,6 +317,10 @@ I checked.
 
 ## K. Loop status — what I'd do next, in priority order
 
+> **Update 2026-09-14:** items 1–3 are done (§M1, `a1c4772e`, §P4). Item 4 is root-caused and
+> waits on a maintainer decision (§S4). Item 5 is deliberately untouched (A3). See "Status at a
+> glance" for everything that remains.
+
 1. **Finish the render measurement (H2)** and, if 61s of output really costs minutes,
    profile where: per-clip ffmpeg spawn, the grade chain, or the ramp resampling.
 2. **Render progress reporting (H1)** — the CLI is silent for the whole job.
@@ -285,17 +353,18 @@ perceptually checked"), but the accuracy guarantee is the thing silently skipped
 the engine's own message blames queueing: *"The engine serializes one batch at a time."*
 
 Not fixed here — it needs the temporal-evidence path profiled, which is its own piece of work.
+**→ Later fixed:** it was the same bug as the slow render (§N2, `84ff4719`).
 
 ### L2 — Why edits don't land, by operation (all-time, with last-seen)
 
 | op | n | last seen | still live? |
 |----|---|-----------|-------------|
-| `add_text_layer` | 9 | 2026-09-09 | yes — text that doesn't fit the frame |
+| `add_text_layer` | 9 | 2026-09-09 | **FIXED, see O1** — text that doesn't fit the frame |
 | `add_clip` | 8 | 2026-09-08 | yes — unknown asset id |
-| `add_marker` | 6 | 2026-09-09 | yes — duplicate marker id |
+| `add_marker` | 6 | 2026-09-09 | **FIXED, see N4** — duplicate marker id |
 | `delete_clip` | 6 | 2026-08-28 | no |
 | `caption_the_edit` | 5 | 2026-09-04 | **closed, see L3** |
-| `normalize_exposure` | 3 | 2026-09-12 | yes — called before anything is measured |
+| `normalize_exposure` | 3 | 2026-09-12 | **refusal now names the clips, see O3** — called before anything is measured |
 | `set_clip_speed_ramp` | 3 | 2026-09-12 | yes |
 | `add_clips` | 3 | 2026-09-06 | yes — duplicate shot over the same moment |
 | `trim_clip` | 2 | 2026-09-12 | **FIXED, see L4** |
@@ -346,7 +415,7 @@ area. Resolving it properly needs a schema that can express a partial ease, whic
 schema change and therefore a maintainer decision. The fix is scoped to `trim_clip` via an
 explicit flag; split and delete_range keep their exact partition and their existing drift.
 
-**L6 ❓ Cost.** The 09-12 opus-5 run: **1.81M tokens, $5.04, 38 model calls** for one
+**L6 🔧 Cost (see M5 and N1 — the reported $5.04 was itself mispriced).** The 09-12 opus-5 run: **1.81M tokens, $5.04, 38 model calls** for one
 conversation. Worth a budget look before 1.0.
 
 ---
@@ -389,7 +458,7 @@ cross-runtime) · ruff clean · mypy clean.
 The TypeScript mirror was checked for the same hazard — `sourceTimeAt` has only scalar
 call sites there, so the preview path is unaffected.
 
-## M2 ❌ COST — the dollar figure is fabricated for every non-Anthropic provider
+## M2 🔧 COST — the dollar figure is fabricated for every non-Anthropic provider (fixed in §N1, `2023d700`)
 
 **This is not theoretical. A real run was killed by it:**
 
@@ -416,7 +485,7 @@ Consequences: the spend shown to the user is wrong for most providers, and runs 
 models are terminated as though they were Opus. Measured totals across 255 runs —
 **$193.54 / 38.5M tokens** — are unreliable in the dollar column; the token column is honest.
 
-**Not fixed here, deliberately.** The fix is to thread real prices from `ai-config.json`
+**Not fixed here, deliberately** (fixed afterwards on request — §N1). The fix is to thread real prices from `ai-config.json`
 through `AgentOptions` → `ConductorConfig` → `costFromUsage`, and to treat a provider with
 unknown prices as genuinely unpriced so the USD cap cannot fire on a number we invented.
 That is multi-file plumbing into a **shipped budget feature**, which `CLAUDE.md` says to
@@ -436,7 +505,7 @@ Across every run that reported context usage:
 No run came close to exhausting its window, and none was truncated for context. **Context
 is not a problem in this product today** — worth stating plainly rather than "fixing".
 
-## M4 ❓ TOKEN EFFICIENCY — one clear lever, not yet acted on
+## M4 🔧 TOKEN EFFICIENCY — cache split now reported (`22ec3d84`); model choice and call count remain the lever
 
 Token spend concentrates in small-context models: the three most expensive runs are all
 `ling-3.0-flash` (128k) at 149–156 model calls and ~34k tokens/call, versus opus-5 (1M) at
@@ -448,7 +517,7 @@ carries only `{tokens, usd, modelCalls}`, with no cache-read/cache-write split, 
 `cost-meter.ts#TokenUsage` models both. Adding that to the event is the prerequisite for
 any honest cache-efficiency work.
 
-## M5 ❌ COST (second, independent defect) — every editing turn is priced as `mid`, whatever model ran
+## M5 🔧 COST (second, independent defect) — every editing turn is priced as `mid`, whatever model ran (resolved to the core at the end of this section, `d59cc710`)
 
 `costFromUsage(usage, tier: ModelTier = 'mid')`. The call sites:
 
@@ -574,14 +643,14 @@ An identical marker now applies as a no-op. A genuine conflict still refuses, bu
 is already there and what was asked for, instead of only the id — which is what left the
 captured runs reissuing the identical call.
 
-## N5 — still open, in order
+## N5 — open at the time, in order (each since resolved or decided — see the notes)
 
 | # | Item | Note |
 |---|------|------|
-| 1 | `add_text_layer` doesn't fit (9×) | refusal already gives exact numbers; the question is whether the tool should auto-fit — product decision |
-| 2 | `add_clip` unknown asset (8×) | model naming assets that aren't in the bin |
-| 3 | `normalize_exposure` before measuring (3×) | ordering precondition; auto-measure is a product decision |
-| 4 | Self-contained capability packs (B1) | the genuine 1.0 blocker — current packs are `register-local` and work on this machine only |
+| 1 | `add_text_layer` doesn't fit (9×) | refusal already gives exact numbers; the question is whether the tool should auto-fit — product decision — **fixed, O1 `54509997`** |
+| 2 | `add_clip` unknown asset (8×) | model naming assets that aren't in the bin — **no fix warranted, O2** |
+| 3 | `normalize_exposure` before measuring (3×) | ordering precondition; auto-measure is a product decision — **refusal names the clips, O3 `b2c4fe04`** |
+| 4 | Self-contained capability packs (B1) | the genuine 1.0 blocker — current packs are `register-local` and work on this machine only — **resolved up to credentials, P4** |
 | 5 | `.env` staleness (A3) | deliberately not edited — it is the user's own gitignored config, holding live keys |
 
 ---
@@ -641,7 +710,7 @@ host-executed analysis (the sidecar reads frames) and `buildOps` is synchronous,
 mutate tool cannot obtain a measurement mid-call. Letting it request one is a change to the
 tool/host boundary, not a message fix, and was left alone.
 
-## O4 ⚠️ Capability packs — I had this wrong; the real gap is narrower and still a blocker
+## O4 🔧 Capability packs — I had this wrong; the real gap is narrower (resolved up to credentials in §P4)
 
 **Correction to B1.** I wrote that the packs "aren't self-contained" as though the design
 were at fault. It is not. `workers/*/pack/manifest.toml` specifies exactly the right thing:
@@ -670,7 +739,7 @@ visual embed/describe — can only reach a machine through `register-local`, whi
 entrypoint shebang at this repo's dev venv. That is precisely what I measured on this
 machine, and it is why it works here and nowhere else.
 
-**Not attempted.** Building a cross-platform signed, notarized pack pipeline needs signing
+**Not attempted here** (later done up to the credential boundary — §P4). Building a cross-platform signed, notarized pack pipeline needs signing
 identities, notarization credentials and a distribution decision. That is release
 engineering and a maintainer call, not a code fix.
 
@@ -680,7 +749,9 @@ engineering and a maintainer call, not a code fix.
 
 ## P1 🔧 There is now a build · `4b412900`
 
-`scripts/build-capability-pack.sh` produces a genuinely standalone pack artifact.
+`scripts/build-capability-pack.sh` produces a genuinely standalone pack artifact. **(It did
+not: the payload still used this machine's Python and was archived in a format the installer
+rejects — corrected in §P4, rows 1–2.)**
 
 Three things make the payload independent of this repo, and the script **asserts all
 three** rather than trusting them:
@@ -712,7 +783,7 @@ disagree.
 | `visual-embed` | **1821 MiB** | 1200 | ✅ health OK — **over its own cap** |
 | `visual-describe` | **2755 MiB** | 2600 | ✅ health OK — **over its own cap** |
 
-## P2 ❌ Two packs exceed their own declared size cap
+## P2 ✅ Two packs exceed their own declared size cap — decided: caps raised to 2000 / 3000 MiB (`9e75fd8b`)
 
 Not visible before, because nothing built them. `visual-embed`'s SigLIP2 **text** encoder
 alone is 1078 MiB of its 1502 MiB of weights.
@@ -727,7 +798,7 @@ build job exists to catch.
 |---|---|
 | **Signing / notarization** | needs an Apple Developer ID and notarization credentials |
 | **Publishing** | needs the signed-catalog endpoint and a distribution decision |
-| **CI wiring** | `visual-embed` / `visual-describe` still have no workflow; adding one means ~4.2 GiB of weight downloads per run, which is an infra-cost call |
+| **CI wiring** | 🔧 done (`8a249d5d`, `051b8a37`): protocol, lint and typecheck for both visual packs on every PR; the weight-fetching proofs are dispatch-only |
 
 The build now emits the unsigned artifact and the digest those steps consume, so the
 remaining work is credentialed release engineering rather than missing capability.
@@ -868,7 +939,7 @@ reading a correct mechanism as a broken one.
 | "A total provider failure scores 1.00 — the eval can't tell success from doing nothing" | 🚫 Void turns are excluded from every rate before scoring; the 1.00s I saw were on turns already removed from the aggregate. |
 | "`summary.md` never renders `voidTurns`" | 🚫 It renders it **in bold**. I grepped for the word "void"; the rendered wording is "turns the provider never answered". |
 
-### Still owed
+### Still owed (since completed — §Q4)
 
 Ten cases have no evidence yet — `vague`, `impossible`, `guard`, `clarify`, the three
 `question` cases, `transitions`, `duplicates`, `broll-over-sentence`. They need a re-run
@@ -907,7 +978,7 @@ Five of the six intent "misses" are classification, not behaviour:
 - **`broll-empty-overlay-track`** failed intent because the session limit hit mid-turn, after
   its 2 ops had already landed.
 
-### Q4b ❌ Two REAL editing failures, both on a follow-up turn — not yet root-caused
+### Q4b 🔧 Two REAL editing failures, both on a follow-up turn — root-caused in §S4; duplicates fixed in §Q5
 
 | case | turn 2 | failed checks |
 |---|---|---|
@@ -945,7 +1016,7 @@ and moved toward a fix before confirming the fault. Every one was caught by chec
 source or the ADR — but each cost a detour, and one (the `__unparsedToolInput` "recovery")
 would have shipped dead code.
 
-## Q5 ❌ Root-caused: "drop the duplicates" deleted unique footage because nothing can identify a duplicate
+## Q5 🔧 Root-caused: "drop the duplicates" deleted unique footage because nothing can identify a duplicate (resolved at the end of this section)
 
 `remove-duplicate-takes`, turn 2 — the full chain, from the recorded calls:
 
@@ -985,7 +1056,8 @@ falls back to asset identity — which destroys distinct footage.
 Closing it means a deterministic duplicate-take fact or tool on the product side. That is a
 **new capability**, so it goes through the product-scope gate in
 `.agents/rules/product-discipline.mdc` with the maintainer, not into this branch. Recorded
-with the evidence above so the gate has something concrete to judge.
+with the evidence above so the gate has something concrete to judge. **The maintainer then
+asked for it on this branch — see the resolution below.**
 
 **Severity note:** of everything found this session, this is the one that *destroys user
 footage* on a plausible instruction. I would rank it above the remaining pack-pipeline work.
@@ -1120,7 +1192,7 @@ decisions, left unchanged. Re-verified independently after the fixes: editor-cor
 ai-sdk tracking + golden 8, desktop tracking 19, web MaskPackActions 3, engine mask render,
 and the capability/eval suites the changed capability table feeds (40) — all pass.
 
-**Preview masks — 🔧 fixed after this pass.** Neither preview player drew a mask at all, so a
+**Preview masks — 🔧 fixed after this pass (`eb9c5f5c`).** Neither preview player drew a mask at all, so a
 tracked mask moved in the export only. `apps/web-editor/src/preview/clip-mask.ts` resolves a
 clip's mask per frame exactly as `render/masks.py` does (keyframed x/y/width/height/feather/
 opacity, feather = blur of `feather × min(side)`, invert, polygon ≥ 3 points) and both players
@@ -1140,7 +1212,7 @@ variable-frame-rate file may drift slightly on the time grid.
 | item | verdict | action |
 |---|---|---|
 | Q4b transitions | **wiring bug** (zero-op result dropped the plan's own note → identical retry → empty text) **+ fixture limit** (mission ledger has no tier-1 labels, so `sameSetting` is null at every cut) | note fixed `ca3e10e4`; treating "different asset" as a location change is a guess ADR 0175 rules out → **maintainer** |
-| Q5 duplicate takes | **eval case**: turn 1 placed non-overlapping windows, so by the rubric's own definition nothing was a duplicate, and "drop the duplicate takes" right after "use the opening shot three times" naturally means those repeats | 🔧 `39596077` the runner places the repeats (`setup: repeat-opening-shot`) and the case is one "drop the duplicate takes" turn. Product fact (a "replays <clip> source" marker on the context row) still proposed, not landed — it shifts prompt goldens |
+| Q5 duplicate takes | **eval case**: turn 1 placed non-overlapping windows, so by the rubric's own definition nothing was a duplicate, and "drop the duplicate takes" right after "use the opening shot three times" naturally means those repeats | 🔧 `39596077` the runner places the repeats (`setup: repeat-opening-shot`) and the case is one "drop the duplicate takes" turn. The product fact landed too: `7c33bc7a` (`replays <clip> source` on the context row, `replaysSourceOf` in `get_clips`) |
 | D10 AI memory | **bug on desktop**: `recordAccepted` runs only in `AiSidebar.applyPatch`, which returns early when Electron commits the patch; Electron never records acceptance | **maintainer**: with auto-apply every validated patch is "accepted", so recording it is weak signal |
 | H1 silent CLI render | bug | `a1c4772e` |
 | M4 cache split | bug | `22ec3d84` |
@@ -1148,7 +1220,7 @@ variable-frame-rate file may drift slightly on the time grid.
 
 ## S5 — recorded, not fixed
 
-- Browser build advertises `detect_subjects` / `track_subject_automatically`, which fail there.
+- ~~Browser build advertises `detect_subjects` / `track_subject_automatically`, which fail there.~~ 🔧 `b67388c9`.
 - `/analyze` wrong-kind skip reason names no asset that would work.
 - The local-whisper pack cannot be installed until a signed catalog is published (release blocker if the packaged app should transcribe locally without Homebrew).
 - The packaged sidecar still searches PATH for `whisper-cli` (docs say it never adopts one).
