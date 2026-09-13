@@ -568,3 +568,93 @@ captured runs reissuing the identical call.
 | 3 | `normalize_exposure` before measuring (3×) | ordering precondition; auto-measure is a product decision |
 | 4 | Self-contained capability packs (B1) | the genuine 1.0 blocker — current packs are `register-local` and work on this machine only |
 | 5 | `.env` staleness (A3) | deliberately not edited — it is the user's own gitignored config, holding live keys |
+
+---
+
+# O. Open-items pass
+
+## O1 🔧 `add_text_layer` — fits the title instead of refusing it · `54509997`
+
+The tool measured the text against its box and threw, **naming the largest size that would
+fit**. The model does not act on that. Run `160b7557` asked for five titles, was refused
+once each, **retried none**, and the export shipped with no titles at all.
+
+| run | `add_text_layer` calls | overlays that landed |
+|-----|-----------------------|----------------------|
+| `160b7557` | 10 | **0** |
+| `b5be5130` | 24 | 6 |
+| `c200d9df` | 30 | 5 |
+
+Refusing spends a whole model call to be told a number `largestFittingSizePercent` has
+already computed. A title one size smaller is an ordinary typographic compromise; a missing
+title is a hole in the edit. Widening the box is preferred where it suffices (it keeps the
+requested size), capped at 92% so a title never touches both frame edges; shrinking is the
+fallback. The result is **re-measured** rather than assumed, and the chosen values ride the
+ops so the patch states the size really used.
+
+Checked against every real refusal in the captured runs: **11 of 11 now land, none
+overflowing.** Previously none landed.
+
+```
+BILLION-DOLLAR  14/80 -> 6.3/80  FITS      PRINCIPLES  18/54 -> 6.1/54  FITS
+SUBSCRIBERS     15/78 -> 7.5/78  FITS      MASTER      16/82 -> 13.1/82 FITS
+557,000         18/58 -> 9.7/58  FITS      SCHOOL      14/88 -> 13.5/88 FITS
+```
+
+## O2 ✅ `add_clip` — mostly correct refusals, no fix warranted
+
+Of the 11 captured failures: seven are the **single-picture-layer constraint** (ADR 0140) —
+*"a second copy of the same shot over the same moment cannot be seen behind the first"* —
+which is the product working as designed; the real answer is picture-in-picture, already
+deferred as SUC-P1. Three are from 2026-07-19 (image clips with a source range that
+outran their slot) and have not recurred. One is a genuine model error (naming a music
+asset not in the bin). No systemic defect; nothing changed.
+
+## O3 🔧 `normalize_exposure` — the refusal now names the clips · `b2c4fe04`
+
+Same failure mode as O1: the message named the *tool* (*"measure_color reads one clip"*) and
+the model did not act on it. Run `3ed87ff0` called it twice, measured nothing, then fell
+back to **36 hand-picked `apply_color_grade` calls carrying identical numbers on every
+shot** — guessed grades standing in for solved ones, which is the whole thing the solver
+exists to avoid. Run `3b340e68` called it twice and stopped.
+
+It now names the clips (up to four, then a count) and says to call `normalize_exposure`
+again afterwards.
+
+**Scope note:** the tool genuinely cannot measure for itself. `measure_color` is a
+host-executed analysis (the sidecar reads frames) and `buildOps` is synchronous, so a
+mutate tool cannot obtain a measurement mid-call. Letting it request one is a change to the
+tool/host boundary, not a message fix, and was left alone.
+
+## O4 ⚠️ Capability packs — I had this wrong; the real gap is narrower and still a blocker
+
+**Correction to B1.** I wrote that the packs "aren't self-contained" as though the design
+were at fault. It is not. `workers/*/pack/manifest.toml` specifies exactly the right thing:
+
+> *"The build embeds a self-contained interpreter so the worker never depends on a user's
+> Python."*
+
+— along with a signed catalog record, Apple Developer ID + notarization (and Authenticode
+for win32), an SBOM, a 400 MiB unpacked cap, and three verification tiers that must pass
+before an artifact may be signed.
+
+What is actually missing is the **build**:
+
+| | tracking-lite | subject-intelligence | visual-embed | visual-describe |
+|---|---|---|---|---|
+| verification workflow | ✅ | ✅ | ❌ none | ❌ none |
+| artifact build / sign / publish | ❌ | ❌ | ❌ | ❌ |
+
+The two workflows that exist run unit/lint/typecheck, a decoded-media pixel proof, and an
+SBOM drift check — then upload **the SBOM**. No step embeds an interpreter, signs,
+notarizes, or publishes; `release.yml` does not build packs either. So the manifest's
+"artifact hash produced by the build job" refers to a job that does not exist.
+
+**Consequence for 1.0:** every pack-backed capability — tracking, subject detect/segment,
+visual embed/describe — can only reach a machine through `register-local`, which points the
+entrypoint shebang at this repo's dev venv. That is precisely what I measured on this
+machine, and it is why it works here and nowhere else.
+
+**Not attempted.** Building a cross-platform signed, notarized pack pipeline needs signing
+identities, notarization credentials and a distribution decision. That is release
+engineering and a maintainer call, not a code fix.
