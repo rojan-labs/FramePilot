@@ -1,0 +1,338 @@
+# Capability Pack release pipeline: build → standalone proof → (sign) → archive →
+# (notarize) → prepare-artifact → release record → catalog → (sign catalog) → plan.
+#
+# Nothing here publishes. It produces reviewable, digest-addressed outputs; uploading
+# artifacts to the CDN and moving the `latest` catalog pointer stay a maintainer step
+# (docs/api/capability-packs.md, "Release pipeline").
+#
+# Triggers:
+#   tag       capability-pack/<pack>/v<version>   e.g. capability-pack/visual-embed/v1.0.0
+#             (the version must equal the pack's manifest version, or the run fails)
+#   dispatch  choose packs; nothing is built on pull requests — each run pulls up to
+#             ~2.4 GiB of pinned weights per pack, which is an infrastructure-cost decision.
+#
+# Credentialed steps run ONLY when their secrets exist and otherwise skip with a visible
+# warning. Nothing is ever recorded as signed that was not signed.
+#   macOS Developer ID codesign:  MAC_CERT_P12 (base64 .p12), MAC_CERT_PASSWORD, CSC_NAME
+#   macOS notarization:           APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
+#   catalog signing (Ed25519):    CAPABILITY_PACK_CATALOG_SIGNING_KEY (PEM), and the
+#                                 repository variable CAPABILITY_PACK_CATALOG_KEY_ID
+#   Windows Authenticode:         WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD — NOT USABLE YET:
+#                                 no Windows pack builder exists (see windows-x64 job).
+# Repository variables (non-secret):
+#   CAPABILITY_PACK_ARTIFACT_BASE_URL  https CDN base for artifact URLs
+#   CAPABILITY_PACK_MIN_APP_VERSION    minimum app version for tag-triggered runs
+name: Capability Pack — Release
+
+on:
+  push:
+    tags: ['capability-pack/*/v*']
+  workflow_dispatch:
+    inputs:
+      packs:
+        description: 'Space-separated packs to build'
+        required: true
+        default: 'tracking-lite subject-intelligence visual-embed visual-describe'
+      min_app_version:
+        description: 'Minimum FramePilot app version the release record requires (semver)'
+        required: true
+      catalog_expires_in_days:
+        description: 'Catalog lifetime in days'
+        required: false
+        default: '30'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: capability-pack-release-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PNPM_VERSION: '9.12.0'
+  NODE_VERSION: '22.15.0'
+  PACK_CLI: packages/capability-packs/dist/node/release-cli.js
+
+jobs:
+  plan:
+    name: Plan
+    runs-on: ubuntu-latest
+    outputs:
+      packs: ${{ steps.plan.outputs.packs }}
+      min_app_version: ${{ steps.plan.outputs.min_app_version }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - id: plan
+        shell: bash
+        env:
+          INPUT_PACKS: ${{ inputs.packs }}
+          INPUT_MIN_APP_VERSION: ${{ inputs.min_app_version }}
+          VAR_MIN_APP_VERSION: ${{ vars.CAPABILITY_PACK_MIN_APP_VERSION }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" == refs/tags/capability-pack/* ]]; then
+            rest="${GITHUB_REF#refs/tags/capability-pack/}"
+            packs="${rest%%/*}"; tag_version="${rest#*/v}"
+            manifest="workers/$packs/pack/manifest.toml"
+            [[ -f "$manifest" ]] || { echo "::error::tag names unknown pack '$packs'"; exit 1; }
+            manifest_version="$(sed -n 's/^version = "\(.*\)"/\1/p' "$manifest" | head -1)"
+            if [[ "$tag_version" != "$manifest_version" ]]; then
+              echo "::error::tag version $tag_version != $manifest manifest version $manifest_version"
+              exit 1
+            fi
+            min_app="${VAR_MIN_APP_VERSION:-}"
+          else
+            packs="$INPUT_PACKS"; min_app="$INPUT_MIN_APP_VERSION"
+          fi
+          if ! [[ "$min_app" =~ ^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$ ]]; then
+            echo "::error::minimum app version '$min_app' is not semver (dispatch input or CAPABILITY_PACK_MIN_APP_VERSION)"
+            exit 1
+          fi
+          json="["; sep=""
+          for pack in $packs; do
+            [[ -f "workers/$pack/pack/manifest.toml" ]] || { echo "::error::unknown pack '$pack'"; exit 1; }
+            json+="${sep}\"$pack\""; sep=","
+          done
+          json+="]"
+          echo "packs=$json" >> "$GITHUB_OUTPUT"
+          echo "min_app_version=$min_app" >> "$GITHUB_OUTPUT"
+
+  build-darwin-arm64:
+    name: ${{ matrix.pack }} (darwin-arm64)
+    needs: plan
+    runs-on: macos-14 # Apple Silicon
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        pack: ${{ fromJSON(needs.plan.outputs.packs) }}
+    env:
+      PACK: ${{ matrix.pack }}
+      OUT: ${{ github.workspace }}/dist/capability-packs
+      # Projected to job env because a step's `if:` cannot read `secrets` directly.
+      MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+      CSC_NAME: ${{ secrets.CSC_NAME }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      ARTIFACT_BASE_URL: ${{ vars.CAPABILITY_PACK_ARTIFACT_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Build the framepilot-pack release CLI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter '@framepilot/capability-packs...' run build
+
+      - name: Build payload, assert standalone, verify pins, relocated health check
+        run: bash scripts/build-capability-pack.sh "$PACK" "$OUT" --stage payload
+
+      - name: Signing credentials absent — the artifact stays UNSIGNED
+        if: env.MAC_CERT_P12 == '' || env.CSC_NAME == ''
+        run: echo "::warning title=Unsigned pack::MAC_CERT_P12/CSC_NAME are not configured; $PACK is not code-signed and the host's executable-trust check will refuse it."
+      - name: Import the Developer ID certificate
+        if: env.MAC_CERT_P12 != '' && env.CSC_NAME != ''
+        uses: apple-actions/import-codesign-certs@v7
+        with:
+          p12-file-base64: ${{ env.MAC_CERT_P12 }}
+          p12-password: ${{ secrets.MAC_CERT_PASSWORD }}
+      - name: Code-sign every Mach-O file and the entrypoint
+        id: codesign
+        if: env.MAC_CERT_P12 != '' && env.CSC_NAME != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          payload="$OUT/$PACK/payload"
+          # Libraries first, the entrypoint last, so nothing is signed before what it loads.
+          while IFS= read -r -d '' file; do
+            if file -b "$file" | grep -q 'Mach-O'; then
+              codesign --force --timestamp --options runtime --sign "$CSC_NAME" "$file"
+            fi
+          done < <(find "$payload" -type f -print0)
+          entrypoint="$(sed -n 's/^entrypoint = "\(.*\)"/\1/p' "workers/$PACK/pack/manifest.toml" | head -1)"
+          codesign --force --timestamp --options runtime --sign "$CSC_NAME" "$payload/bin/$entrypoint"
+          echo "signed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Re-verify the (signed) payload, enforce the size cap, archive
+        run: bash scripts/build-capability-pack.sh "$PACK" "$OUT" --stage finalize
+
+      - name: Notarization credentials absent — skipping notarization
+        if: steps.codesign.outputs.signed != 'true' || env.APPLE_ID == '' || env.APPLE_TEAM_ID == ''
+        run: echo "::warning title=Not notarized::$PACK was not notarized (needs a signed payload plus APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID). Gatekeeper will refuse it."
+      - name: Notarize the archive
+        id: notarize
+        if: steps.codesign.outputs.signed == 'true' && env.APPLE_ID != '' && env.APPLE_TEAM_ID != ''
+        shell: bash
+        env:
+          APPLE_APP_SPECIFIC_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+        run: |
+          set -euo pipefail
+          archive="$OUT/$PACK/$(python3 -c 'import json,sys; print(json.load(open(sys.argv[1]))["archive"])' "$OUT/$PACK/build-receipt.json")"
+          xcrun notarytool submit "$archive" --apple-id "$APPLE_ID" \
+            --password "$APPLE_APP_SPECIFIC_PASSWORD" --team-id "$APPLE_TEAM_ID" --wait
+          echo "notarized=true" >> "$GITHUB_OUTPUT"
+
+      - name: Record the true signing state
+        shell: bash
+        env:
+          SIGNED: ${{ steps.codesign.outputs.signed == 'true' }}
+          NOTARIZED: ${{ steps.notarize.outputs.notarized == 'true' }}
+        run: |
+          printf '{"pack":"%s","platform":"darwin-arm64","codesigned":%s,"notarized":%s}\n' \
+            "$PACK" "$SIGNED" "$NOTARIZED" > "$OUT/$PACK/signing-status.json"
+          cat "$OUT/$PACK/signing-status.json"
+
+      - name: prepare-artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${ARTIFACT_BASE_URL:-}"
+          if [[ -z "$base" ]]; then
+            base="https://capability-packs.invalid/unpublished"
+            echo "::warning title=No artifact base URL::CAPABILITY_PACK_ARTIFACT_BASE_URL is unset; the record uses $base and cannot be published."
+          fi
+          # The schema requires a ten-character Team ID. Without a real one the record is
+          # unmistakably unsigned, and the catalog job refuses to sign it (signing-status).
+          team="${APPLE_TEAM_ID:-UNSIGNED00}"
+          python3 scripts/capability_pack_release.py artifact-input --pack "$PACK" \
+            --build-dir "$OUT/$PACK" --base-url "$base" --team-id "$team" \
+            --out "$OUT/$PACK/artifact-input.json"
+          node "$PACK_CLI" prepare-artifact "$OUT/$PACK/artifact-input.json" "$OUT/$PACK/artifact.json"
+          shasum -a 256 "$OUT/$PACK"/*.zip > "$OUT/$PACK/archive.sha256"
+
+      - name: Unsigned catalog release record (prepare-release)
+        shell: bash
+        env:
+          MIN_APP_VERSION: ${{ needs.plan.outputs.min_app_version }}
+        run: |
+          set -euo pipefail
+          notice="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/workers/$PACK/LICENSES.md"
+          python3 scripts/capability_pack_release.py release-core --pack "$PACK" \
+            --artifact "$OUT/$PACK/artifact.json" --min-app-version "$MIN_APP_VERSION" \
+            --notice-url "$notice" --out "$OUT/$PACK/release-core.json"
+          node "$PACK_CLI" prepare-release "$OUT/$PACK/release-core.json" "$OUT/$PACK/release.json"
+
+      - name: Upload artifact, digest and record
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-${{ matrix.pack }}-darwin-arm64
+          path: |
+            dist/capability-packs/${{ matrix.pack }}/*.zip
+            dist/capability-packs/${{ matrix.pack }}/archive.sha256
+            dist/capability-packs/${{ matrix.pack }}/build-receipt.json
+            dist/capability-packs/${{ matrix.pack }}/handshake.json
+            dist/capability-packs/${{ matrix.pack }}/health-check.stderr
+            dist/capability-packs/${{ matrix.pack }}/signing-status.json
+            dist/capability-packs/${{ matrix.pack }}/artifact.json
+            dist/capability-packs/${{ matrix.pack }}/release.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload the record alone for the catalog job
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-record-${{ matrix.pack }}
+          path: |
+            dist/capability-packs/${{ matrix.pack }}/release.json
+            dist/capability-packs/${{ matrix.pack }}/signing-status.json
+          if-no-files-found: error
+
+  windows-x64:
+    name: win32-x64 (not buildable)
+    needs: plan
+    runs-on: ubuntu-latest
+    steps:
+      # Stated, not faked: scripts/build-capability-pack.sh is POSIX-only (bash, bin/
+      # layout, a copied Mach-O/ELF interpreter), and Visual Describe pins no Windows
+      # runtime. Authenticode (WIN_CSC_LINK) has nothing to sign until a Windows builder
+      # exists, so the manifests' win32 rows cannot be released from this workflow.
+      - run: echo "::warning title=No Windows pack build::No Windows Capability Pack builder exists; win32-x64 artifacts and Authenticode signing are not produced."
+
+  catalog:
+    name: Catalog, signature and publication plan
+    needs: [plan, build-darwin-arm64]
+    runs-on: ubuntu-latest
+    env:
+      CATALOG_SIGNING_KEY: ${{ secrets.CAPABILITY_PACK_CATALOG_SIGNING_KEY }}
+      CATALOG_KEY_ID: ${{ vars.CAPABILITY_PACK_CATALOG_KEY_ID }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Build the framepilot-pack release CLI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter '@framepilot/capability-packs...' run build
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: capability-pack-record-*
+          path: records
+      - name: Assemble the unsigned catalog
+        shell: bash
+        env:
+          EXPIRES_IN_DAYS: ${{ inputs.catalog_expires_in_days || '30' }}
+        run: |
+          set -euo pipefail
+          args=()
+          for release in records/*/release.json; do args+=(--release "$release"); done
+          python3 scripts/capability_pack_release.py catalog "${args[@]}" \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+            --expires-in-days "$EXPIRES_IN_DAYS" --out catalog.json
+          # Every release in one catalog: a subset run does not carry the releases already
+          # live, so merging with the published catalog is a maintainer step.
+          echo "::notice title=Partial catalog::catalog.json contains only this run's releases."
+      - name: Decide whether the catalog may be signed
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          reasons=()
+          [[ -n "$CATALOG_SIGNING_KEY" ]] || reasons+=("CAPABILITY_PACK_CATALOG_SIGNING_KEY is not configured")
+          [[ -n "$CATALOG_KEY_ID" ]] || reasons+=("CAPABILITY_PACK_CATALOG_KEY_ID is not configured")
+          for status in records/*/signing-status.json; do
+            if ! python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if s["codesigned"] and s["notarized"] else 1)' "$status"; then
+              reasons+=("$(dirname "$status" | xargs basename) is not code-signed and notarized")
+            fi
+          done
+          if (( ${#reasons[@]} > 0 )); then
+            for reason in "${reasons[@]}"; do echo "::warning title=Catalog not signed::$reason"; done
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: sign-catalog and publication-plan
+        if: steps.gate.outputs.sign == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          umask 077
+          key="$RUNNER_TEMP/catalog-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$CATALOG_SIGNING_KEY" > "$key"
+          node "$PACK_CLI" sign-catalog catalog.json "$key" "$CATALOG_KEY_ID" signed-catalog.json
+          node "$PACK_CLI" publication-plan signed-catalog.json publication-plan.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-catalog
+          path: |
+            catalog.json
+            signed-catalog.json
+            publication-plan.json
+          if-no-files-found: warn
