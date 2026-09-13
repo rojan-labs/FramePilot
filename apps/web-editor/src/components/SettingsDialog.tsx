@@ -444,7 +444,7 @@ function ProviderKeyField({
           className="setting-text-input"
           spellCheck={false}
           {...(signsInSeparately
-            ? { list: `ai-model-options-${name}`, placeholder: 'claude-opus-5' }
+            ? { list: `ai-model-options-${name}`, placeholder: 'claude-sonnet-5' }
             : {})}
           value={info?.model ?? ''}
           onChange={(event) => setModel(name, event.target.value)}

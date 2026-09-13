@@ -28,8 +28,12 @@ export const ANTHROPIC_DEFAULT_MODEL = 'claude-opus-4-8';
  * against the generated catalog, and an alias matches nothing — which would leave the
  * context meter reading "assumed" on every turn and, per ADR 0169's sibling rule in
  * `orchestrator.ts`, stop the run budget from being sized at all.
+ *
+ * Sonnet, not Opus (maintainer decision 2026-09-14, TRACKING A4/E4): this provider spends
+ * the user's subscription quota, and an Opus run burned it fast enough to cut a golden
+ * batch short mid-case (TRACKING §Q3) while Sonnet scored 100% validity on the same cases.
  */
-export const CLAUDE_AGENT_SDK_DEFAULT_MODEL = 'claude-opus-5';
+export const CLAUDE_AGENT_SDK_DEFAULT_MODEL = 'claude-sonnet-5';
 
 /** Groq — OpenAI-compatible endpoint and default model. */
 export const GROQ_BASE_URL = 'https://api.groq.com/openai/v1';
