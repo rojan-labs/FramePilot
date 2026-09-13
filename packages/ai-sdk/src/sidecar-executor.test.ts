@@ -361,6 +361,22 @@ describe('unwrapSearch', () => {
     ]);
   });
 
+  it('gives a transcript hit its asset placements, because transcript times are asset time', () => {
+    const outcome = unwrapSearch('search_media', project, {
+      available: true,
+      hits: [
+        { type: 'transcript', assetId: 'asset_1', start: 2, end: 3, snippet: 'hook', score: 1 },
+      ],
+    });
+    const [hit] = (outcome.data as { hits: Array<Record<string, unknown>> }).hits;
+    expect(hit?.placements).toEqual(
+      project.timeline.tracks
+        .flatMap((track) => track.clips)
+        .filter((clip) => clip.assetId === 'asset_1')
+        .map((clip) => ({ clipId: clip.id, start: clip.start, end: clip.end })),
+    );
+  });
+
   it('surfaces the degraded-FTS reason in the summary and singularizes', () => {
     const outcome = unwrapSearch('search_media', project, {
       available: true,
@@ -787,6 +803,46 @@ describe('visual grounding (MI6.1)', () => {
         true,
       );
       expect(outcome.summary).toContain('1 span across 1 asset.');
+    });
+
+    it('warns, instead of inviting a search, when only the keyless measured tier ran', () => {
+      // Measured live: with no embeddings key and no local pack the job finishes with
+      // indexed 0 and `labelled: skipped: no_api_key`, and the next search_visual,
+      // describe_footage and map_footage all refuse. "You can search_visual now" sent the
+      // model straight into those three refusals.
+      const outcome = interpretIndexLoop(
+        result({
+          status: 'done',
+          last: {
+            available: true,
+            indexed: 0,
+            total: 2,
+            tiers: { measured: 'ok', labelled: 'skipped: no_api_key', described: 'skipped' },
+            coverage: { measured: 2, labelled: 0, described: 0, total: 2 },
+          } as never,
+        }),
+        true,
+      );
+      expect(outcome.status).toBe('warning');
+      expect(outcome.summary).not.toContain('search_visual now');
+      expect(outcome.summary).toContain('no_api_key');
+    });
+
+    it('still reports completion when a local pack labelled the footage', () => {
+      const outcome = interpretIndexLoop(
+        result({
+          status: 'done',
+          last: {
+            available: true,
+            indexed: 0,
+            total: 2,
+            tiers: { measured: 'ok', labelled: 'ok', described: 'ok' },
+            coverage: { measured: 2, labelled: 2, described: 2, total: 2 },
+          } as never,
+        }),
+        true,
+      );
+      expect(outcome.status).toBe('completed');
     });
 
     it('warns honestly when there is no media to index, and does NOT blame a key', () => {

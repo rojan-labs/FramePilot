@@ -458,10 +458,11 @@ export function searchBody(
 
 /**
  * Settle a `POST /brain/search` response into a tool outcome (plan B2.2).
- * Transcript/marker hits are already timeline seconds (the canonical transcript
- * is timeline-time); asset hits are enriched with the clip placements of that
- * asset via {@link indexFor}'s `clipsOfAsset` seam, so the model can jump from
- * "this file matched" to actual timeline positions. `available: false` (no
+ * Transcript words are stored in ASSET (source) seconds (`TranscriptWordSchema`,
+ * `captions/derive.ts#mapTranscript`), not timeline seconds, so a transcript hit is
+ * enriched exactly like an asset hit: with the clip placements of its asset via
+ * {@link indexFor}'s `clipsOfAsset` seam, so the model can map "this was said" onto
+ * where that footage actually sits on the timeline. `available: false` (no
  * sandbox root / unusable brain) settles to an honest failure with the engine's
  * reason — never a fabricated empty result.
  */
@@ -477,7 +478,7 @@ export function unwrapSearch(toolName: string, project: Project, data: unknown):
   const index = indexFor(project);
   const hits = (Array.isArray(record.hits) ? record.hits : []).map((hit) => {
     const h = (hit ?? {}) as Record<string, unknown>;
-    if (h.type !== 'asset' || typeof h.assetId !== 'string') return h;
+    if ((h.type !== 'asset' && h.type !== 'transcript') || typeof h.assetId !== 'string') return h;
     const placements = index
       .clipsOfAsset(h.assetId)
       .map(({ clip }) => ({ clipId: clip.id, start: clip.start, end: clip.end }));
@@ -592,6 +593,11 @@ function packetT0(packet: unknown): number {
  * what to do INSTEAD. A no-op that does not close itself off invites the same call again.
  */
 const VISUAL_REASON_GUIDANCE: Readonly<Record<string, string>> = {
+  no_api_key:
+    'footage search needs an embeddings key or the Visual Embed pack, and this project has ' +
+    'neither, so no query can be matched against the footage in this run. Do not call this ' +
+    'again. Look at moments directly with get_frame, use the transcript for anything that ' +
+    'was said, and tell the editor that visual search is not set up.',
   not_indexed:
     'this clip has not been indexed, so there is nothing to describe yet. Indexing runs in ' +
     'the background and may not finish during this run — do not call this again for the ' +
@@ -996,12 +1002,37 @@ export function interpretIndexLoop(result: VisualIndexLoopResult, wait: boolean)
   const total = result.last?.total ?? 0;
   const cursor = result.last?.cursor ?? 0;
   switch (result.status) {
-    case 'done':
+    case 'done': {
+      // "Done" is a statement about the job cursor, not about what can now be searched.
+      // With no embedding key and no local pack, only the keyless measured tier runs: the
+      // job finishes, and search_visual / describe_footage / map_footage then answer
+      // no_api_key / not indexed. Telling the model "you can search_visual now" sent it
+      // straight into those three refusals.
+      const labelledTier = result.last?.tiers?.labelled;
+      const labelledShots = result.last?.coverage?.labelled ?? 0;
+      const nothingSearchable =
+        indexed === 0 &&
+        labelledShots === 0 &&
+        typeof labelledTier === 'string' &&
+        labelledTier.startsWith('skipped');
+      if (nothingSearchable) {
+        return {
+          status: 'warning',
+          summary:
+            `Measured the footage (${total} asset${total === 1 ? '' : 's'}), but nothing was ` +
+            `labelled or embedded (${labelledTier}), so search_visual, describe_footage and ` +
+            'map_footage have nothing to read in this run. Do not call them, and do not call ' +
+            'index_media again. Look at moments directly with get_frame, and tell the editor ' +
+            'that footage search needs an embeddings key or the Visual Embed pack.',
+          data: result.last,
+        };
+      }
       return {
         status: 'completed',
         summary: `Indexed the footage — ${indexed} span${indexed === 1 ? '' : 's'} across ${total} asset${total === 1 ? '' : 's'}. You can search_visual now.`,
         data: result.last,
       };
+    }
     case 'nothing-to-index':
       return {
         status: 'warning',
