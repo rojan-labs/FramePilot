@@ -212,6 +212,7 @@ import { StockQuotaStore } from './media/stock-quota.js';
 import {
   LedgerClient,
   hostedTranscriptionUnavailable,
+  silhouetteMasksToTrackSamples,
   localMusicAssetRefusal,
   sourcingFailureNote,
   unusableHostPayload,
@@ -1073,10 +1074,22 @@ function registerIpcHandlers(): void {
           };
         }
         if ('masks' in result) {
+          // The Inspector's "Follow silhouette" steers a box mask, so the
+          // bitmaps become per-frame silhouette bounds here — the same
+          // conversion the agent executor uses — and travel as a track.
+          const samples = silhouetteMasksToTrackSamples(result.masks);
+          if (samples.length === 0) {
+            return {
+              ok: false,
+              code: 'worker_failed',
+              error: 'Segmentation found no subject inside the mask on any frame.',
+              retryable: false,
+            };
+          }
           return {
             ok: true,
-            kind: 'segment',
-            masks: result.masks,
+            kind: 'tracking',
+            samples,
             engine: `${outcome.identity.id}@${outcome.identity.version}`,
             backend: result.backend,
             projectRevision: revision,
