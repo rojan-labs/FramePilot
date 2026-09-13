@@ -1054,8 +1054,18 @@ decisions, left unchanged. Re-verified independently after the fixes: editor-cor
 ai-sdk tracking + golden 8, desktop tracking 19, web MaskPackActions 3, engine mask render,
 and the capability/eval suites the changed capability table feeds (40) — all pass.
 
-**Residual, recorded:** the web **preview renders no masks at all** (static or tracked), so a
-tracked mask moves in the export only; `add_mask` moves the mask effect to the end of the
+**Preview masks — 🔧 fixed after this pass.** Neither preview player drew a mask at all, so a
+tracked mask moved in the export only. `apps/web-editor/src/preview/clip-mask.ts` resolves a
+clip's mask per frame exactly as `render/masks.py` does (keyframed x/y/width/height/feather/
+opacity, feather = blur of `feather × min(side)`, invert, polygon ≥ 3 points) and both players
+apply it in the clip's own frame, before placement, as the export does: the DOM `<video>` pool
+as an SVG `mask-image` (intersected with a wipe when both run), the WebCodecs canvas engine on
+an offscreen layer so `destination-in` cannot erase the transition's held frame. Verified in
+real Chromium: canvas alpha 255 inside the ellipse and 0 outside, the CSS mask cuts the element
+to the ellipse, and a keyframed mask resolves 0.1 → 0.3 → 0.5 across the clip. Web tests: 10
+new + 476 existing preview/selector tests pass.
+
+**Residual, recorded:** `add_mask` moves the mask effect to the end of the
 clip's effect list; overflow is detected by message text, not a protocol code; a
 variable-frame-rate file may drift slightly on the time grid.
 
@@ -1064,7 +1074,7 @@ variable-frame-rate file may drift slightly on the time grid.
 | item | verdict | action |
 |---|---|---|
 | Q4b transitions | **wiring bug** (zero-op result dropped the plan's own note → identical retry → empty text) **+ fixture limit** (mission ledger has no tier-1 labels, so `sameSetting` is null at every cut) | note fixed `ca3e10e4`; treating "different asset" as a location change is a guess ADR 0175 rules out → **maintainer** |
-| Q5 duplicate takes | **eval case**: turn 1 placed non-overlapping windows, so by the rubric's own definition nothing was a duplicate, and "drop the duplicate takes" right after "use the opening shot three times" naturally means those repeats | **maintainer** to re-seed the case. Product fact (a "replays <clip> source" marker on the context row) is cheap but shifts prompt goldens — proposed, not landed |
+| Q5 duplicate takes | **eval case**: turn 1 placed non-overlapping windows, so by the rubric's own definition nothing was a duplicate, and "drop the duplicate takes" right after "use the opening shot three times" naturally means those repeats | 🔧 `39596077` the runner places the repeats (`setup: repeat-opening-shot`) and the case is one "drop the duplicate takes" turn. Product fact (a "replays <clip> source" marker on the context row) still proposed, not landed — it shifts prompt goldens |
 | D10 AI memory | **bug on desktop**: `recordAccepted` runs only in `AiSidebar.applyPatch`, which returns early when Electron commits the patch; Electron never records acceptance | **maintainer**: with auto-apply every validated patch is "accepted", so recording it is weak signal |
 | H1 silent CLI render | bug | `a1c4772e` |
 | M4 cache split | bug | `22ec3d84` |

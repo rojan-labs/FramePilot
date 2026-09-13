@@ -31,6 +31,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   fragments of its own instructions ("who or what the shot is of") instead of what was in
   the frame. It now writes what it sees, and a description that only repeats the prompt is
   discarded rather than saved.
+- **Masks show in the preview.** Masks — and tracked masks following their subject — used
+  to appear only in an exported video; the preview showed the whole frame. They now play in
+  the preview with the same shape, softness, inversion and motion as the export.
 - **Tracked masks now follow the subject in your export.** A successful track used to be
   saved without moving the mask. "Follow silhouette" in the Inspector works, long clips no
   longer fail to segment, tracking stays in sync on footage whose frame rate differs from
