@@ -447,3 +447,43 @@ Prompt-cache hit rate **cannot be measured from the transcripts** — the `usage
 carries only `{tokens, usd, modelCalls}`, with no cache-read/cache-write split, even though
 `cost-meter.ts#TokenUsage` models both. Adding that to the event is the prerequisite for
 any honest cache-efficiency work.
+
+## M5 ❌ COST (second, independent defect) — every editing turn is priced as `mid`, whatever model ran
+
+`costFromUsage(usage, tier: ModelTier = 'mid')`. The call sites:
+
+| site | tier | what it prices |
+|------|------|----------------|
+| `orchestrator.ts:7274` | `'small'` | the classifier call |
+| `orchestrator.ts:8940` | *default* `'mid'` | a superseded (retried) editing turn |
+| `orchestrator.ts:8955` | *default* `'mid'` | **every editing turn** |
+| `orchestrator.ts:9451` | `'large'` | the repair pass |
+
+There is no `tier` variable in scope anywhere near 8940/8955 — the main agent turns simply
+take the default. So the run's dominant cost is always billed at the `mid` rate
+(`$3`/`$15` per MTok) no matter which model is configured.
+
+**This one hits the current setup directly.** `ai-config.json` runs `claude-opus-5`, an
+opus-class (`large`) model, which the app's own table prices at `$15`/`$75` — **5× the rate
+it is actually charged at**. The 09-12 run reported **$5.04**; by the product's own pricing
+table it should have reported roughly five times that.
+
+So the two cost defects push in opposite directions, which is why neither is obvious:
+
+- **M2** over-bills non-Anthropic providers (Anthropic rates on a cheap model) → killed a
+  real run at a fictional $26.61.
+- **M5** under-bills large models (mid rate on an opus-class model) → the budget that is
+  supposed to bound an expensive run does not fire when it should.
+
+Together: the USD figure is not trustworthy in either direction, and `DEFAULT_MAX_RUN_USD`
+is guarding with it.
+
+**Recommended fix (one change, covers both):** give `costFromUsage` the *actual* model, not
+a hard-coded tier — resolve `{tier, prices}` from the active provider/model, thread it via
+`AgentOptions` → `ConductorConfig` (where `maxUsd` already lives), and make a model with no
+known price genuinely **unpriced** (`usd = 0`), which restores the invariant
+`budgetExhausted` already documents: *"An unpriced provider (usd stays 0) never trips this."*
+Then the USD cap only ever fires on a number the product can actually stand behind.
+
+Not landed: it is multi-file plumbing into a shipped budget feature, and the
+"what happens when prices are unknown" half is a product decision. Ready to land on request.
