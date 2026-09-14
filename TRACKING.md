@@ -1608,3 +1608,48 @@ save 3.7 s on edit turns. **Not changed.**
 - **Quality at `low` effort** (U4.4) is still unmeasured; the same re-run reads it off the
   self-check outcomes.
 
+---
+
+# X. To the core — the check in the result, the process before the prompt (2026-09-15)
+
+Branch `perf/ai-context-latency-core-2026-09-15`, PR #122 (stacked on #121). Same corpus as §W plus
+the whole desktop set since 2026-09-01 (985 calls, all providers) and three live SDK benchmarks.
+
+## X1 — 89 calls asked a pure function to confirm an edit; 14 steps did nothing else (188 s)
+
+`verify_transitions` / `verify_captions` are pure over the project, and their descriptions said
+"Run this before saying a transition was added". Since 09-01: 89 model calls issued one (2,340 s of
+call wall, most of it steps that also did other work), 14 steps issued nothing else (188 s). On the
+Claude runs of §W3, four of the 13 post-edit re-reads were exactly this.
+
+**Landed:** the orchestrator runs the verifier on the post-patch project for the tools each verifier
+is about (`add_transition(s)`; `caption_the_edit`, `add_caption_layer`, `auto_emphasize_captions`,
+`set_track_caption_style`, `set_caption_style`) and the result carries `· verified: all good, 3
+transition(s)` or the first three problems — `kernel/verification-note.ts`. Both descriptions now
+say the result already carries the check. Python description mirror regenerated.
+
+## X2 — ~0.9 s of every call is spawning `claude`, and the SDK can spawn before it has a prompt
+
+| measurement | cold | warm (process up, prompt fed later) |
+|---|---|---|
+| first stream event, trivial prompt, `effort: low` | 2,237 ms (one cold start 6,833 ms) | 1,244–1,479 ms from feed |
+| same, process NOT iterated until the feed | — | 1,287–1,400 ms |
+
+`query()` spawns on the call itself, and accepts the prompt as an `AsyncIterable`. So the adapter
+now starts the next process the moment a tool-bearing call finishes — same model, system prompt and
+tool descriptors, prompt pending — and the next `run()` with a matching key feeds it. On the
+recorded runs the tool block was unchanged on 78 of 119 successive calls, so ~2 of 3 agent steps
+take the warm process. Mismatch → abandon and spawn cold (what every call did before). Idle 60 s →
+abandon. No tools → never pre-spawn. Cancelled/failed call → abandon. `FRAMEPILOT_AGENT_SDK_PREWARM=0`
+turns it off. Tests: 46 in `claude-agent-sdk.test.ts`, including handover, mismatch, idle, switch.
+
+**Predicted, not claimed:** ≈ 0.9 s × ~8 matched calls ≈ 7 s per p50 turn; §W1's fixed-cost fit is
+the number that should drop on the next recorded runs (`--since=<date> --provider=claude-agent-sdk`).
+
+## X3 — Not changed
+
+- **The classifier's own spawn** (3.7 s): its key never matches an agent step's, and warming a
+  no-tool process after every chat reply would leave a process behind for nothing.
+- **Cache misses on tool-block changes** (41 of 128 calls): cost, not latency (§W1). A run-stable
+  tool block would remove the structural withholding ADR 0075 relies on.
+

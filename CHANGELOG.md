@@ -19,6 +19,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   says where the clips landed, and an edit that changed nothing says what the clip already
   holds. In recent runs one step in ten was the assistant reading back what it had just done,
   each a wait of ten to forty seconds.
+- **Transitions and captions are checked the moment they land.** Every transition or
+  caption edit now reports "verified" (or the first problems) in its own result, so the
+  assistant no longer spends a separate step asking whether the edit took.
+- **Claude (your Claude Code login) answers faster between steps.** The next Claude
+  process is started while the current step's tools run, which takes about a second off
+  every model call in an agent turn. Set `FRAMEPILOT_AGENT_SDK_PREWARM=0` to turn it off.
 - **The assistant makes more of its edits in one go.** While carrying out a plan it is asked to
   issue every edit it already knows in the same step, instead of one edit per step with a full
   round trip between them.

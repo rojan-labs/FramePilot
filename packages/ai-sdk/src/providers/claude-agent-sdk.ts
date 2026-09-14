@@ -72,6 +72,24 @@
  *   be silently dropped. {@link supportsVision} must therefore report `false` for this
  *   provider rather than inferring `true` from the `claude-*` model id.
  *
+ * ## Why the next process is spawned before its prompt exists
+ *
+ * Every call spawns a fresh `claude` process, and that spawn is ~0.9 s of the ~3.9 s a
+ * call costs before its first thinking token (TRACKING.md §W1; measured directly against
+ * SDK 0.3.268: first stream event 2.2 s cold, 1.3 s when the process was already up). The
+ * orchestrator makes twelve calls in a median turn, so the spawns alone are ~11 s of it.
+ *
+ * The SDK accepts the prompt as an `AsyncIterable`, and spawns on `query()` whether or not
+ * the iterable has produced anything yet. So when a call finishes, this adapter starts the
+ * NEXT query at once, with the same system prompt and tool set and a prompt that is a
+ * promise, while the orchestrator runs the step's tools and builds the next transcript.
+ * The next `run()` with a matching system prompt and tools resolves that promise instead
+ * of spawning; a mismatch (a stage that withheld tools, a domain that loaded) aborts the
+ * warm process and spawns cold, which is what happened on every call before. The warm
+ * process is abandoned after {@link PREWARM_IDLE_MS} so a finished run leaves nothing
+ * behind, and never spawned for a call with no tools (the classifier, a chat reply) whose
+ * successor is never shaped like it. `FRAMEPILOT_AGENT_SDK_PREWARM=0` turns it off.
+ *
  * @see docs/adr/0171-the-login-you-already-have.md
  */
 import { createLogger } from '@framepilot/shared-types';
@@ -125,6 +143,42 @@ export const SANDBOX_OPTIONS = Object.freeze({
   /** Only FramePilot's own MCP server; never one discovered from the user's machine. */
   strictMcpConfig: true,
 });
+
+/** How long a pre-spawned process may wait for a prompt before it is abandoned. */
+export const PREWARM_IDLE_MS = 60_000;
+
+/** Whether the adapter pre-spawns the next process (see the module header). */
+export function prewarmEnabled(
+  env: Readonly<Record<string, string | undefined>> = process.env,
+): boolean {
+  return env['FRAMEPILOT_AGENT_SDK_PREWARM'] !== '0';
+}
+
+/**
+ * The identity a warm process must share with the call that uses it: everything fixed at
+ * spawn. The prompt is fed later; the model is part of the options too.
+ */
+export function warmProcessKey(
+  model: string,
+  systemPrompt: string,
+  tools: readonly ToolDescriptor[],
+): string {
+  return JSON.stringify([
+    model,
+    systemPrompt,
+    tools.map((t) => [t.name, t.description, t.parameters]),
+  ]);
+}
+
+/** A `claude` process started ahead of the prompt it will answer. */
+interface WarmProcess {
+  readonly key: string;
+  readonly controller: AbortController;
+  readonly messages: AsyncIterable<AgentSdkMessage>;
+  /** Resolve the prompt the process is waiting for. */
+  readonly feed: (prompt: string) => void;
+  readonly idleTimer: ReturnType<typeof setTimeout>;
+}
 
 /** Strip the `mcp__framepilot__` namespace the Agent SDK adds to every MCP tool name. */
 export function stripToolPrefix(name: string): string {
@@ -342,11 +396,81 @@ interface ModelUsageEntry {
 export class ConcreteClaudeAgentSdkProvider implements AiProvider {
   public readonly name = 'claude-agent-sdk' as const;
 
+  private warm: WarmProcess | undefined;
+
   public constructor(
     private readonly config: ProviderConfig,
     private readonly loadAgentSdk: () => Promise<AgentSdkModule> = defaultAgentSdkLoader,
     private readonly loadMcp: () => Promise<McpModule> = defaultMcpLoader,
+    private readonly prewarm: boolean = prewarmEnabled(),
   ) {}
+
+  /** Abandon a pre-spawned process, if one is waiting. Safe to call at any time. */
+  public dispose(): void {
+    const warm = this.warm;
+    if (!warm) return;
+    this.warm = undefined;
+    clearTimeout(warm.idleTimer);
+    warm.controller.abort();
+    log.debug('claude agent sdk warm process abandoned');
+  }
+
+  /**
+   * Start the next process now, with the spawn-time shape of the call that just finished,
+   * and a prompt that arrives later. Replaces any warm process already waiting.
+   */
+  private spawnWarm(
+    key: string,
+    query: AgentSdkModule['query'],
+    buildOptions: (controller: AbortController) => Promise<Record<string, unknown>>,
+  ): void {
+    this.dispose();
+    const controller = new AbortController();
+    let feed: (prompt: string) => void = () => {};
+    const pending = new Promise<string>((resolve) => {
+      feed = resolve;
+    });
+    async function* input(): AsyncGenerator<AgentSdkUserMessage> {
+      const content = await pending;
+      yield {
+        type: 'user',
+        message: { role: 'user', content },
+        parent_tool_use_id: null,
+        session_id: '',
+      };
+    }
+    void buildOptions(controller).then(
+      (options) => {
+        // `query()` spawns the process on the call itself; nothing is read until `run()`
+        // takes it over. A warm process that is never taken is aborted by the idle timer.
+        const messages = query({ prompt: input(), options });
+        const idleTimer = setTimeout(() => {
+          if (this.warm?.controller === controller) this.dispose();
+        }, PREWARM_IDLE_MS);
+        idleTimer.unref?.();
+        this.warm = { key, controller, messages, feed, idleTimer };
+        log.debug('claude agent sdk warm process spawned');
+      },
+      (error: unknown) => {
+        log.warn('claude agent sdk could not pre-spawn; the next call spawns cold', {
+          error: error instanceof Error ? error.message : String(error),
+        });
+      },
+    );
+  }
+
+  /** Hand over the waiting process when it matches; abandon it when it does not. */
+  private takeWarm(key: string): WarmProcess | undefined {
+    const warm = this.warm;
+    if (!warm) return undefined;
+    if (warm.key !== key) {
+      this.dispose();
+      return undefined;
+    }
+    this.warm = undefined;
+    clearTimeout(warm.idleTimer);
+    return warm;
+  }
 
   /**
    * Answered synchronously from config, never by asking the CLI.
@@ -405,27 +529,20 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     request: AiCompletionRequest,
     signal?: AbortSignal,
   ): AsyncIterable<ProviderChunk> {
-    const controller = new AbortController();
-    const forwardAbort = (): void => {
-      controller.abort();
-    };
-    if (signal?.aborted === true) forwardAbort();
-    signal?.addEventListener('abort', forwardAbort, { once: true });
-
     const { systemPrompt, prompt } = renderMessages(request.messages);
     const tools = request.tools ?? [];
-    const text: string[] = [];
-    let truncated = false;
-    let yieldedToolCall = false;
-
-    try {
-      const { query } = await this.loadAgentSdk();
+    const key = warmProcessKey(this.modelId, systemPrompt, tools);
+    // Everything fixed at spawn, built afresh per process: the MCP server instance is bound
+    // to the process it is handed to, so a warm spawn gets its own.
+    const buildOptions = async (
+      abortController: AbortController,
+    ): Promise<Record<string, unknown>> => {
       const options: Record<string, unknown> = {
         ...SANDBOX_OPTIONS,
         tools: [],
         settingSources: [],
         model: this.modelId,
-        abortController: controller,
+        abortController,
         includePartialMessages: true,
         systemPrompt: { type: 'custom', prompt: systemPrompt },
         hooks: { PreToolUse: [{ hooks: [deferToolExecution] }] },
@@ -440,8 +557,34 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
           },
         };
       }
+      return options;
+    };
 
-      for await (const message of query({ prompt, options })) {
+    const warm = this.takeWarm(key);
+    const controller = warm?.controller ?? new AbortController();
+    const forwardAbort = (): void => {
+      controller.abort();
+    };
+    if (signal?.aborted === true) forwardAbort();
+    signal?.addEventListener('abort', forwardAbort, { once: true });
+
+    const text: string[] = [];
+    let truncated = false;
+    let yieldedToolCall = false;
+    let finished = false;
+
+    try {
+      const { query } = await this.loadAgentSdk();
+      let messages: AsyncIterable<AgentSdkMessage>;
+      if (warm) {
+        warm.feed(prompt);
+        messages = warm.messages;
+        log.debug('claude agent sdk call taken by a warm process');
+      } else {
+        messages = query({ prompt, options: await buildOptions(controller) });
+      }
+
+      for await (const message of messages) {
         // Incremental deltas, so the editor renders as the model writes rather than in
         // one lump at the end.
         if (message.type === 'stream_event') {
@@ -493,6 +636,12 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
           });
         }
       }
+      finished = true;
+      // A call with tools is an agent step, and the next step is usually shaped like it
+      // (78 of 119 successive calls on the recorded runs kept the same tool block).
+      if (this.prewarm && tools.length > 0 && signal?.aborted !== true) {
+        this.spawnWarm(key, query, buildOptions);
+      }
       yield { type: 'done', text: text.join(''), ...(truncated ? { truncated } : {}) };
     } catch (error) {
       // A genuine user cancel must stay an AbortError so the retry loop and the
@@ -510,9 +659,12 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
       // away an edit that had already landed correctly; only turn-exhaustion with nothing
       // usable produced (no tool call got out) is still a real failure worth retrying.
       if (yieldedToolCall && /reached maximum number of turns/i.test(String(error))) {
-        log.debug('claude agent sdk exhausted its turn budget after deferring tool calls; treating as done', {
-          error: String(error),
-        });
+        log.debug(
+          'claude agent sdk exhausted its turn budget after deferring tool calls; treating as done',
+          {
+            error: String(error),
+          },
+        );
         yield { type: 'usage', usage: usageFromModelUsage({}) };
         yield { type: 'done', text: text.join('') };
         return;
@@ -521,6 +673,8 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     } finally {
       signal?.removeEventListener('abort', forwardAbort);
       controller.abort();
+      // A cancelled or failed call is not a step whose successor is predictable.
+      if (!finished) this.dispose();
     }
   }
 }
@@ -554,9 +708,17 @@ interface HookOutput {
 /** The slice of `@anthropic-ai/claude-agent-sdk` this adapter uses. */
 export interface AgentSdkModule {
   query(params: {
-    prompt: string;
+    prompt: string | AsyncIterable<AgentSdkUserMessage>;
     options: Record<string, unknown>;
   }): AsyncIterable<AgentSdkMessage>;
+}
+
+/** The one user message a warm process is fed (the SDK's `SDKUserMessage`). */
+export interface AgentSdkUserMessage {
+  type: 'user';
+  message: { role: 'user'; content: string };
+  parent_tool_use_id: null;
+  session_id: string;
 }
 
 interface AgentSdkMessage {

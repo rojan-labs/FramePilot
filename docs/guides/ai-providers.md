@@ -144,6 +144,20 @@ meter sizes the window by matching the id against the model catalog, and an alia
 nothing. It is deliberately absent from the browser's provider list, so it cannot be
 mistaken for an `anthropic` variant with a different credential.
 
+### The warm process
+
+Every call spawns a fresh `claude` process, and that spawn is about 0.9 s of the
+~3.9 s a call costs before its first thinking token (TRACKING.md §W1). Once a
+tool-bearing call finishes, the provider starts the next process at once — same
+system prompt, same tool set, prompt still pending — while the orchestrator runs
+the step's tools and builds the next transcript. The next call with a matching
+shape feeds that process instead of spawning; a mismatch (a stage that withheld
+tools, a newly loaded domain) abandons it and spawns cold. A process nobody takes
+within 60 s is abandoned, and a call with no tools (the classifier, a chat reply)
+never pre-spawns. `FRAMEPILOT_AGENT_SDK_PREWARM=0` turns it off. Measured
+against SDK 0.3.268: first stream event 2.2 s cold, 1.3 s warm.
+
+
 ## NVIDIA
 
 ```bash

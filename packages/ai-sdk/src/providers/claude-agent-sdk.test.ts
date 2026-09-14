@@ -14,7 +14,10 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   ConcreteClaudeAgentSdkProvider,
+  PREWARM_IDLE_MS,
   SANDBOX_OPTIONS,
+  prewarmEnabled,
+  warmProcessKey,
   buildToolServer,
   classifyAgentSdkError,
   renderMessages,
@@ -232,8 +235,18 @@ describe('tool calls', () => {
         type: 'assistant',
         message: {
           content: [
-            { type: 'tool_use', id: 't1', name: 'mcp__framepilot__caption_the_edit', input: { preset: 'subtitle' } },
-            { type: 'tool_use', id: 't2', name: 'mcp__framepilot__discover_caption_styles', input: {} },
+            {
+              type: 'tool_use',
+              id: 't1',
+              name: 'mcp__framepilot__caption_the_edit',
+              input: { preset: 'subtitle' },
+            },
+            {
+              type: 'tool_use',
+              id: 't2',
+              name: 'mcp__framepilot__discover_caption_styles',
+              input: {},
+            },
           ],
         },
       },
@@ -274,12 +287,24 @@ describe('tool calls', () => {
             type: 'assistant',
             message: {
               content: [
-                { type: 'tool_use', id: 't1', name: 'mcp__framepilot__caption_the_edit', input: { preset: 'subtitle' } },
-                { type: 'tool_use', id: 't2', name: 'mcp__framepilot__discover_caption_styles', input: {} },
+                {
+                  type: 'tool_use',
+                  id: 't1',
+                  name: 'mcp__framepilot__caption_the_edit',
+                  input: { preset: 'subtitle' },
+                },
+                {
+                  type: 'tool_use',
+                  id: 't2',
+                  name: 'mcp__framepilot__discover_caption_styles',
+                  input: {},
+                },
               ],
             },
           };
-          throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)');
+          throw new Error(
+            'Claude Code returned an error result: Reached maximum number of turns (1)',
+          );
         })();
       },
     } as unknown as AgentSdkModule;
@@ -301,14 +326,18 @@ describe('tool calls', () => {
         // so the missing yield is the fixture, not an oversight.
         // eslint-disable-next-line require-yield
         return (async function* () {
-          throw new Error('Claude Code returned an error result: Reached maximum number of turns (1)');
+          throw new Error(
+            'Claude Code returned an error result: Reached maximum number of turns (1)',
+          );
         })();
       },
     } as unknown as AgentSdkModule;
     const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
       Promise.resolve(module),
     );
-    await expect(provider.complete({ messages: [{ role: 'user', content: 'go' }] })).rejects.toThrow();
+    await expect(
+      provider.complete({ messages: [{ role: 'user', content: 'go' }] }),
+    ).rejects.toThrow();
   });
 
   it('still throws for a result subtype with no usable output', async () => {
@@ -318,7 +347,9 @@ describe('tool calls', () => {
     const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
       Promise.resolve(module),
     );
-    await expect(provider.complete({ messages: [{ role: 'user', content: 'go' }] })).rejects.toThrow();
+    await expect(
+      provider.complete({ messages: [{ role: 'user', content: 'go' }] }),
+    ).rejects.toThrow();
   });
 });
 
@@ -573,6 +604,163 @@ describe('tool declaration', () => {
 
     const servers = calls[0]?.options['mcpServers'] as Record<string, { type: string }>;
     expect(servers['framepilot']?.type).toBe('sdk');
-    expect(mcpLoader).toHaveBeenCalledOnce();
+    // Once for this process and once for the one pre-spawned for the next step: an MCP
+    // server instance is bound to the process it is handed to.
+    expect(mcpLoader).toHaveBeenCalledTimes(2);
+    expect(typeof calls[1]?.prompt).not.toBe('string');
+    provider.dispose();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// The warm process (module header, "Why the next process is spawned before its prompt")
+// ---------------------------------------------------------------------------
+
+describe('warm process', () => {
+  const tools = [{ name: 'trim_clip', description: 'Trim.', parameters: { type: 'object' } }];
+  const mcpModule = {
+    Server: class {
+      public setRequestHandler(): void {}
+    },
+    ListToolsRequestSchema: 'list',
+    CallToolRequestSchema: 'call',
+  } as unknown as McpModule;
+
+  /** A fake SDK that also records what a warm process was fed, and when it was spawned. */
+  function warmFakeSdk(frames: readonly unknown[]): {
+    module: AgentSdkModule;
+    calls: { prompt: unknown; options: Record<string, unknown> }[];
+    fed: string[];
+  } {
+    const calls: { prompt: unknown; options: Record<string, unknown> }[] = [];
+    const fed: string[] = [];
+    const module = {
+      query(params: { prompt: unknown; options: Record<string, unknown> }) {
+        calls.push(params);
+        return (async function* () {
+          if (typeof params.prompt !== 'string') {
+            for await (const m of params.prompt as AsyncIterable<{
+              message: { content: string };
+            }>) {
+              fed.push(m.message.content);
+              break;
+            }
+          }
+          for (const frame of frames) yield frame as never;
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    return { module, calls, fed };
+  }
+
+  const provider = (module: AgentSdkModule, prewarm?: boolean) =>
+    new ConcreteClaudeAgentSdkProvider(
+      { name: 'claude-agent-sdk' },
+      async () => Promise.resolve(module),
+      async () => Promise.resolve(mcpModule),
+      prewarm,
+    );
+
+  /** Let the pre-spawn's option build settle (it awaits the MCP loader). */
+  const settle = () => new Promise((r) => setTimeout(r, 0));
+
+  it('spawns the next process as soon as a tool-bearing call finishes, prompt pending', async () => {
+    const { module, calls, fed } = warmFakeSdk(textFrames);
+    const p = provider(module);
+    await p.complete({ messages: [{ role: 'user', content: 'step 1' }], tools });
+    await settle();
+    expect(calls).toHaveLength(2);
+    expect(typeof calls[1]?.prompt).not.toBe('string');
+    expect(fed).toEqual([]);
+    p.dispose();
+  });
+
+  it('feeds the waiting process when the next call has the same system prompt and tools', async () => {
+    const { module, calls, fed } = warmFakeSdk(textFrames);
+    const p = provider(module);
+    const messages: AiMessage[] = [{ role: 'system', content: 'contract' }];
+    await p.complete({ messages: [...messages, { role: 'user', content: 'step 1' }], tools });
+    await settle();
+    const warmController = calls[1]?.options['abortController'] as AbortController;
+    await p.complete({ messages: [...messages, { role: 'user', content: 'step 2' }], tools });
+    await settle();
+    // No cold spawn for step 2: the second query IS the one that answered it …
+    expect(fed).toEqual(['[user]\nstep 2']);
+    // … and a third was pre-spawned for step 3.
+    expect(calls).toHaveLength(3);
+    expect(warmController.signal.aborted).toBe(true); // released after the turn, like any process
+    p.dispose();
+    expect((calls[2]?.options['abortController'] as AbortController).signal.aborted).toBe(true);
+  });
+
+  it('abandons the waiting process and spawns cold when the tool set changed', async () => {
+    const { module, calls, fed } = warmFakeSdk(textFrames);
+    const p = provider(module);
+    await p.complete({ messages: [{ role: 'user', content: 'step 1' }], tools });
+    await settle();
+    const warmController = calls[1]?.options['abortController'] as AbortController;
+    await p.complete({
+      messages: [{ role: 'user', content: 'step 2' }],
+      tools: [
+        ...tools,
+        { name: 'split_clip', description: 'Split.', parameters: { type: 'object' } },
+      ],
+    });
+    await settle();
+    expect(warmController.signal.aborted).toBe(true);
+    expect(fed).toEqual([]);
+    expect(calls[2]?.prompt).toBe('[user]\nstep 2'); // cold
+    expect(calls).toHaveLength(4); // … and its own successor was pre-spawned
+    p.dispose();
+  });
+
+  it('never pre-spawns after a call with no tools — the classifier, a chat reply', async () => {
+    const { module, calls } = warmFakeSdk(textFrames);
+    const p = provider(module);
+    await p.complete({ messages: [{ role: 'user', content: 'route this' }] });
+    await settle();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('does nothing when switched off', async () => {
+    const { module, calls } = warmFakeSdk(textFrames);
+    const p = provider(module, false);
+    await p.complete({ messages: [{ role: 'user', content: 'step 1' }], tools });
+    await settle();
+    expect(calls).toHaveLength(1);
+  });
+
+  it('abandons a process nobody took within the idle window', async () => {
+    vi.useFakeTimers();
+    try {
+      const { module, calls } = warmFakeSdk(textFrames);
+      const p = provider(module);
+      await p.complete({ messages: [{ role: 'user', content: 'step 1' }], tools });
+      await vi.advanceTimersByTimeAsync(0);
+      const warmController = calls[1]?.options['abortController'] as AbortController;
+      expect(warmController.signal.aborted).toBe(false);
+      await vi.advanceTimersByTimeAsync(PREWARM_IDLE_MS);
+      expect(warmController.signal.aborted).toBe(true);
+      // The next call spawns cold, not on the dead process.
+      await p.complete({ messages: [{ role: 'user', content: 'step 2' }], tools });
+      expect(calls[2]?.prompt).toBe('[user]\nstep 2');
+      p.dispose();
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('reads the switch from the environment', () => {
+    expect(prewarmEnabled({})).toBe(true);
+    expect(prewarmEnabled({ FRAMEPILOT_AGENT_SDK_PREWARM: '0' })).toBe(false);
+    expect(prewarmEnabled({ FRAMEPILOT_AGENT_SDK_PREWARM: '1' })).toBe(true);
+  });
+
+  it('keys a process on model, system prompt and the full tool descriptors', () => {
+    const a = warmProcessKey('m', 'sys', tools);
+    expect(warmProcessKey('m', 'sys', tools)).toBe(a);
+    expect(warmProcessKey('m2', 'sys', tools)).not.toBe(a);
+    expect(warmProcessKey('m', 'sys2', tools)).not.toBe(a);
+    expect(warmProcessKey('m', 'sys', [{ ...tools[0]!, description: 'Trim a clip.' }])).not.toBe(a);
   });
 });
