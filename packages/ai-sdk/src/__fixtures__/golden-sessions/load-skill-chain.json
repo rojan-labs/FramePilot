@@ -609,7 +609,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "c1",
-      "summary": "Deleted range Video 1 · 0s–3s"
+      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)"
     },
     {
       "id": "turn_golden:diff:8",
@@ -892,7 +892,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11830,
+      "usedTokens": 11841,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -974,7 +974,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 131,
+            "tokenEstimate": 142,
             "included": true
           },
           {
@@ -989,9 +989,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11830,
+          "estimatedInputTokensBeforeSend": 11841,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179978,
+          "estimatedRemainingCapacity": 179967,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },

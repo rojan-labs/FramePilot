@@ -426,7 +426,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "c1",
-      "summary": "Deleted range Video 1 · 0s–3s"
+      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)"
     },
     {
       "id": "turn_golden:diff:7",
@@ -729,7 +729,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11779,
+      "usedTokens": 11789,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -818,7 +818,7 @@
             "id": "s12",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 13,
+            "tokenEstimate": 23,
             "included": true
           },
           {
@@ -833,9 +833,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11779,
+          "estimatedInputTokensBeforeSend": 11789,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180029,
+          "estimatedRemainingCapacity": 180019,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -1049,7 +1049,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 9791,
+      "usedTokens": 9801,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1145,7 +1145,7 @@
             "id": "s13",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 16,
+            "tokenEstimate": 26,
             "included": true
           },
           {
@@ -1160,9 +1160,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 9791,
+          "estimatedInputTokensBeforeSend": 9801,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 182017,
+          "estimatedRemainingCapacity": 182007,
           "toolSchemaTokensRebilled": 5039,
           "calculationSource": "local_estimate"
         },

@@ -149,6 +149,7 @@ import {
   stageAllowsTool,
   toolRole,
 } from './kernel/stage-policy.js';
+import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -5516,11 +5517,13 @@ export class Orchestrator {
       // them, the music bed and the title card each placed twice.
       const callKey = appliedCallKey(call);
       if (!changed && host.appliedCalls?.has(callKey) === true) {
+        const holds = currentPlacement(normalized, ctx.project);
         const note =
           `${desc} — already done, and doing it again moved nothing. This run has ` +
           'made this exact call before and the project is unchanged by it, so the ' +
-          'operations were not applied a second time. Read the current state with ' +
-          'get_timeline or get_clips, and go on to the next part of the request.';
+          'operations were not applied a second time.' +
+          (holds === '' ? '' : ` It holds: ${holds}.`) +
+          ' Go on to the next part of the request.';
         orchestratorLog.warn('withheld a repeated call that changed nothing', {
           tool: call.name,
           opCount: normalized.length,
@@ -5546,10 +5549,9 @@ export class Orchestrator {
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
         colorSolveNote(call.name, ctx, call.arguments) +
         transitionsNote(call.name, ctx, call.arguments) +
-        (changed
-          ? ''
-          : ' — nothing moved: the project already said exactly this. Read the current ' +
-            'value with get_timeline or get_clips before setting it again.');
+        // Where things landed, or what they already hold. Either answer is what the model
+        // used to spend a whole round trip reading back (`kernel/placement-note.ts`).
+        (changed ? placementNote(normalized, ctx.project, applied) : unchangedNote(normalized, ctx.project));
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,

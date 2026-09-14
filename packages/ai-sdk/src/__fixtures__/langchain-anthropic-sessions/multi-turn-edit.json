@@ -412,7 +412,7 @@
       "turnId": "turn_parity",
       "type": "tool_result",
       "toolCallId": "c1",
-      "summary": "Deleted range Video 1 · 0s–2s"
+      "summary": "Deleted range Video 1 · 0s–2s · now: clip_a on video_1 2s–6s (src 2s–6s)"
     },
     {
       "id": "turn_parity:diff:5",
@@ -676,7 +676,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11661,
+      "usedTokens": 11672,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -758,7 +758,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 12,
+            "tokenEstimate": 23,
             "included": true
           },
           {
@@ -773,9 +773,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11661,
+          "estimatedInputTokensBeforeSend": 11672,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860339,
+          "estimatedRemainingCapacity": 860328,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -894,7 +894,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 12,
+            "tokenEstimate": 23,
             "included": true
           },
           {
@@ -909,7 +909,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11661,
+          "estimatedInputTokensBeforeSend": 11672,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 7167,
@@ -974,7 +974,7 @@
       "turnId": "turn_parity",
       "type": "tool_result",
       "toolCallId": "c2",
-      "summary": "Deleted range Video 1 · 8s–9s"
+      "summary": "Deleted range Video 1 · 8s–9s · now: clip_b__l on video_1 6s–8s (src 6s–8s); clip_b__r on video_1 9s–10s (src 9s–10s); clip_b removed from video_1"
     },
     {
       "id": "turn_parity:diff:10",
@@ -1266,7 +1266,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11679,
+      "usedTokens": 11719,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1348,7 +1348,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 22,
+            "tokenEstimate": 62,
             "included": true
           },
           {
@@ -1363,9 +1363,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11679,
+          "estimatedInputTokensBeforeSend": 11719,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860321,
+          "estimatedRemainingCapacity": 860281,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1493,7 +1493,7 @@
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 22,
+            "tokenEstimate": 62,
             "included": true
           },
           {
@@ -1508,7 +1508,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11679,
+          "estimatedInputTokensBeforeSend": 11719,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
