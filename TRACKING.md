@@ -1452,3 +1452,26 @@ real dialogue to measure against.
 - **`track_object` attaches a tracker with no motion**, and the self-check then flags it. This is
   by design (the description says so and names `track_subject_automatically`), so it is policy,
   not a defect.
+
+## V5 ❌ A look over unmeasured shots repeats one remedy ten times, and the run hand-grades instead
+
+On Claude runs since 09-01 (5 runs, 348 tool calls), the refusals still live are mostly already
+fixed (`measure_color` "unavailable this turn" ×17 was 09-03, fixed by `6b41ff40` on 09-06). One
+is not: `apply_look` came back "nothing to change" 4 times, most recently in run `55bf6774`
+today, right beside the refused `normalize_exposure`.
+
+The result named all ten clips, each with its own copy of "not measured yet, so the look has no
+baseline to move from — measure_color reads it, or wait for indexing". That is ~1,500
+characters saying "ten calls, or wait for something that is not running". The next step issued
+ten `apply_color_grade` calls, eight of them at `exposure: 0.3`.
+
+`match_color` (unmeasured target) and `normalize_exposure` (partially measured track) build the
+same per-shot skip line.
+
+**Fix (U7):** `colorSolveNote` gathers every skip that is only "not measured" into one sentence:
+it names the shots (up to 24), says to call `measure_color` for each in one step because they
+dispatch together, then to call the same tool again, and never to hand-pick
+`apply_color_grade` numbers. Other skip reasons keep their per-shot lines.
+
+**U6 landed** as `109c1e19`: `dead_air` and `marker_labels` take the shared loop verdict and
+report `skipped`. Critic suites 177/177, goldens unchanged (no golden fixture carries a loop).

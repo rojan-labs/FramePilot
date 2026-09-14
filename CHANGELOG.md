@@ -15,10 +15,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Fewer pauses while the assistant browses effects and transitions.** It can now look up
   several styles at once instead of one per step, and each step was a wait of ten to thirty
   seconds.
-- **Evening out exposure no longer leads to guessed grades.** When shots have not been
-  measured yet, the assistant is now told every shot to measure, all at once, instead of
-  four and "the rest" — which it used to skip, grading every shot with the same made-up
-  numbers.
+- **Evening out exposure, matching shots and applying a look no longer lead to guessed
+  grades.** When shots have not been measured yet, the assistant is now told once which shots
+  to measure, to measure them all at once, and then to try again. It used to get a separate
+  "measure this, or wait for indexing" line for every shot, skip it, and grade every shot
+  with the same made-up numbers.
+- **The self-check stops judging your edit against words nobody said.** When speech
+  recognition invents a transcript for audio with no speech (wind, music), the check now
+  skips "dead air" and "markers match the words" instead of warning about silence before a
+  fake first word and markers that don't match invented dialogue.
 - **"Claude (your Claude Code login)" now defaults to Claude Sonnet 5.** It spends your Claude
   subscription, and Opus used it up fast enough to stop long sessions part-way. A model you
   picked yourself is kept.
