@@ -15,6 +15,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 - **Fewer pauses while the assistant browses effects and transitions.** It can now look up
   several styles at once instead of one per step, and each step was a wait of ten to thirty
   seconds.
+- **The assistant stops re-reading the timeline after its own edits.** Every edit's result now
+  says where the clips landed, and an edit that changed nothing says what the clip already
+  holds. In recent runs one step in ten was the assistant reading back what it had just done,
+  each a wait of ten to forty seconds.
+- **The assistant makes more of its edits in one go.** While carrying out a plan it is asked to
+  issue every edit it already knows in the same step, instead of one edit per step with a full
+  round trip between them.
 - **Evening out exposure, matching shots and applying a look no longer lead to guessed
   grades.** When shots have not been measured yet, the assistant is now told once which shots
   to measure, to measure them all at once, and then to try again. It used to get a separate

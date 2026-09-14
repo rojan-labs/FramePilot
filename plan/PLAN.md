@@ -13,7 +13,13 @@ then deterministic **render + validation**, then the **AI layer** on top, then
 **professional compositing**, then **full agent mode**. The AI layer is only
 powerful if the editing engine is structured, testable, and deterministic.
 
-**Status snapshot (2026-09-09, AGENT-RUN-DEFECTS — run a53b7c1f tooling report):** five
+**Status snapshot (2026-09-15, latency · accuracy · precision pass — `perf/ai-latency-accuracy-2026-09-14`, PR #121):**
+agent turns decomposed per model call (TRACKING.md §U–§W): thinking effort follows the run
+stage, mutation results carry where clips landed so the run stops reading back after edits,
+execution steps are asked to batch their known edits, and every call now records its effort
+and cache figures for the re-measure (U8.5) that will price the change.
+
+_Previous snapshot (2026-09-09, AGENT-RUN-DEFECTS — run a53b7c1f tooling report):_ five
 defects captured in one desktop agent run (project `project_raw_mttqrhhzjy9w`, deepseek via
 OpenRouter) fixed on `fix/agent-tooling-report-2026-09-09`.
 
@@ -9974,6 +9980,10 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] U4.3 — **re-scoped**: a multi-clip `measure_color` would change the per-clip evidence shape read by picture-facts, the color controller, the novelty key, perception metrics and the log/tool-card summaries. Analysis calls in one step already dispatch together, so the gap was the refusal naming only 4 clips — it now names up to 24 and asks for them in one step — `fix(ai-sdk): name every unmeasured clip…`
 - [ ] U4.4 — re-measure with `measure-edit-latency.mjs` after real use; no latency win is claimed before then
 - [x] U8.1 — a mutation's result says where the touched clips now sit (`· now: id on track start–end (src in–out)`), and a no-op states the value the clip already holds instead of "read it with get_timeline or get_clips" — `kernel/placement-note.ts`. Evidence: TRACKING.md §W3 — 14 of 128 recent Claude calls were a read-only step straight after a mutation (234 s), nine a bare `get_clips`/`get_timeline`
+- [x] U8.2 — the context manifest records `reasoningEffort` as sent and `cacheWriteInputTokens` — `83ef6c30`; a recorded run can now be split by effort, which is what U4.4 needs
+- [x] U8.3 — `measure-edit-latency.mjs` decomposes per model call (fixed-cost fit, time to first token, classifier, re-reads after an applied edit, tool-less steps; by stage / effort / provider; `--since=`, `--provider=`) — `dcaecd7f`; TRACKING.md §W1–W4 are its output
+- [x] U8.4 — execution-stage briefing asks for every known edit in THIS step and says results carry placement — `9ddafa68`; +63 tokens per execution-stage request. Evidence: §W2, the median apply step carried one tool call
+- [ ] U8.5 — re-measure after real use on this build (`--since=<date> --provider=claude-agent-sdk`): the by-effort split answers U4.4, and W3's re-read count and W2's one-call apply steps are the two counts that should fall
 - [x] U6 — the self-check's `dead_air` and `marker_labels` honour the transcript-loop verdict (skipped under a loop) — `109c1e19`; critic suites 177/177, goldens unchanged. Evidence: TRACKING.md §V3, 5 of 8 recent Claude self-checks judged edits against a fabricated transcript
 - [x] U7 — `match_color` / `normalize_exposure` / `apply_look` give every unmeasured shot ONE remedy (measure all in one step, then retry; never hand-grade) instead of a per-shot "measure_color reads it, or wait for indexing". `a290d581`; solved-color 19/19 + picture/packet/transition facts 29/29, typecheck. Evidence: TRACKING.md §V5
 - [x] V2 — DISPROVED: compaction's payload cliff does not drive re-reads (14% of wasted steps past it vs 19% of all steps; 30 of 37 on one weak model, none on Claude) — `compactAgentLog` unchanged
