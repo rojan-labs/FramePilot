@@ -518,20 +518,17 @@ def test_brain_similar_recalls_visual_captions_and_survives_a_second_call(
             ]
         )
 
-    def _query() -> dict[str, object]:
-        return client.post(
+    def _caption_hits() -> int:
+        body = client.post(
             "/brain/similar",
             json={"projectId": "p1", "query": "budget", "project": _project_doc()},
         ).json()
+        return sum(1 for hit in body["hits"] if hit["type"] == "caption")
 
-    first = _query()
-    assert any(hit["type"] == "caption" for hit in first["hits"]), first["hits"]
+    assert _caption_hits() > 0
 
-    second = _query()
-    assert any(hit["type"] == "caption" for hit in second["hits"]), (
-        "the caption vanished on the second call: reindex clobbered it",
-        second["hits"],
-    )
+    # The second call reindexes again; before the fix that reindex erased the captions.
+    assert _caption_hits() > 0, "the caption vanished on the second call: reindex clobbered it"
 
 
 def test_brain_similar_never_embeds_a_legacy_status_only_caption(

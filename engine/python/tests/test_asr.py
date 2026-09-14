@@ -276,7 +276,7 @@ def test_packaged_sidecar_never_searches_path(monkeypatch: pytest.MonkeyPatch) -
     host path is accepted. A PATH hit here would be an unreviewed, unversioned
     binary running outside the signed-pack trust chain."""
     monkeypatch.delenv("FRAMEPILOT_WHISPER_CLI", raising=False)
-    monkeypatch.setattr(asr.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("sys.frozen", True, raising=False)
 
     def fake_which(name: str) -> str | None:
         # Even a PATH hit must not be adopted in packaged mode.
@@ -294,7 +294,7 @@ def test_packaged_sidecar_accepts_the_installed_pack_override(
     """The desktop app injects `FRAMEPILOT_WHISPER_CLI` from the installed
     `framepilot.local-whisper` pack (or an explicit host path); packaged mode
     must still accept that — only the bare-name PATH search is disabled."""
-    monkeypatch.setattr(asr.sys, "frozen", True, raising=False)
+    monkeypatch.setattr("sys.frozen", True, raising=False)
     monkeypatch.setenv("FRAMEPILOT_WHISPER_CLI", "/Installed/local-whisper/bin/whisper-cli")
     assert asr.find_whisper_cli() == "/Installed/local-whisper/bin/whisper-cli"
     assert asr.whisper_cli_available() is True
@@ -304,7 +304,7 @@ def test_dev_mode_still_falls_back_to_path(monkeypatch: pytest.MonkeyPatch) -> N
     """Outside a frozen build, the PATH fallback documented for source
     development is unchanged."""
     monkeypatch.delenv("FRAMEPILOT_WHISPER_CLI", raising=False)
-    monkeypatch.setattr(asr.sys, "frozen", False, raising=False)
+    monkeypatch.setattr("sys.frozen", False, raising=False)
 
     def fake_which(name: str) -> str | None:
         return f"/usr/bin/{name}" if name == "whisper-cli" else None
