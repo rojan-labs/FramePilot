@@ -43,7 +43,8 @@ const LOOP_MIN_SHARE = 0.5;
  * That matters well beyond one fixture. The transcript is what grounds a highlight
  * selection, a silence pass and every caption, so a run that trusts a hallucinated one cuts
  * confidently on words nobody said, and every check that reads the transcript — `dead_air`,
- * `word_severed` — agrees with it. Detecting the loop is what lets the run say so instead.
+ * `word_severed`, `marker_labels` — agrees with it. Detecting the loop is what lets the run
+ * say so instead, and lets those checks stand down (the Critic threads the loop into them).
  *
  * Deliberately conservative, because a chorus, a chant and a drill are all legitimately
  * repetitive: the phrase must repeat back to back at least {@link LOOP_MIN_REPEATS} times AND
