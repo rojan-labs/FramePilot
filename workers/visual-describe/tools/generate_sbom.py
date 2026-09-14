@@ -342,7 +342,10 @@ def build_sbom(
             "description": f"{model.role}. {model.copyright}",
             "properties": [
                 {"name": "framepilot:bytes", "value": str(model.size)},
-                {"name": "framepilot:licenseVerified", "value": str(model.license_verified).lower()},
+                {
+                    "name": "framepilot:licenseVerified",
+                    "value": str(model.license_verified).lower(),
+                },
             ],
         }
         if model.url:
@@ -384,7 +387,8 @@ def build_licenses_markdown(components: list[Component], models: list[ModelRecor
     ]
     lines.extend(
         f"| {model.name} | `{model.file}` | {model.license_id} "
-        f"| {'✅' if model.license_verified else '❌ open — see notes'} | {model.size} | `{model.sha256}` |"
+        f"| {'✅' if model.license_verified else '❌ open — see notes'} "
+        f"| {model.size} | `{model.sha256}` |"
         for model in models
     )
     lines += [
