@@ -57,6 +57,20 @@ describe('memory store', () => {
     expect(memory.rejectedEdits).toEqual([{ patchId: 'p2', reason: 'aggressive zoom' }]);
   });
 
+  it('records an auto-applied accept with its origin, honestly labelled', () => {
+    const project = recordAccepted(makeProject(), patch('p1', 'tighten intro'), {
+      origin: 'auto_applied',
+    });
+    expect(readMemory(project).acceptedEdits).toEqual([
+      { patchId: 'p1', reason: 'tighten intro', origin: 'auto_applied' },
+    ]);
+  });
+
+  it('an explicit accept omits origin entirely (unchanged shape)', () => {
+    const project = recordAccepted(makeProject(), patch('p1', 'tighten intro'));
+    expect(readMemory(project).acceptedEdits[0]).not.toHaveProperty('origin');
+  });
+
   it('writeMemory replaces the whole record', () => {
     const project = writeMemory(makeProject(), {
       targetAudience: 'founders',

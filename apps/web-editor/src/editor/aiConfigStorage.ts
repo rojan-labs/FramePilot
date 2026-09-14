@@ -60,7 +60,7 @@ export const URL_REQUIRED_PROVIDERS: readonly AiProviderName[] = ['openai-compat
 /** Display label + default model per chat/reasoning provider. */
 export const PROVIDER_META: Record<AiProviderName, { label: string; defaultModel: string }> = {
   anthropic: { label: 'Claude (Anthropic)', defaultModel: 'claude-opus-4-8' },
-  'claude-agent-sdk': { label: 'Claude (your Claude Code login)', defaultModel: 'claude-opus-5' },
+  'claude-agent-sdk': { label: 'Claude (your Claude Code login)', defaultModel: 'claude-sonnet-5' },
   nvidia: { label: 'NVIDIA NIM', defaultModel: 'meta/llama-3.1-70b-instruct' },
   openrouter: { label: 'OpenRouter', defaultModel: 'openai/gpt-4o-mini' },
   'vercel-gateway': { label: 'Vercel AI Gateway', defaultModel: 'anthropic/claude-sonnet-4.6' },

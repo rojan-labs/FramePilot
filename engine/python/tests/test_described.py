@@ -168,6 +168,53 @@ def test_free_text_fields_default_to_empty_not_to_a_sentence() -> None:
 
 def test_an_unreadable_confidence_falls_back_to_the_middle_bucket() -> None:
     assert parse_described(answer(confidence="very sure"), model="m").p == 0.7
+
+
+# --- invented on-screen text (VU6.2 follow-up: onScreenText was never scored) -----
+
+
+@pytest.mark.parametrize(
+    "placeholder",
+    ["unknown", "Unknown", "none", "N/A", "no text", "No Visible Text.", "nothing"],
+)
+def test_on_screen_text_normalises_placeholder_sentinels_to_absent(placeholder: str) -> None:
+    # The schema forbids an empty string in the array, so a model with nothing to
+    # transcribe writes the WORD for that instead of leaving the array empty. Quoting it
+    # back as content is the same failure as inventing a person: closed here, not by
+    # prompting alone.
+    facts = parse_described(answer(onScreenText=[placeholder]), model="m")
+    assert facts.on_screen_text == []
+
+
+def test_on_screen_text_rejects_a_line_that_only_repeats_the_shots_own_prose() -> None:
+    # A long line whose every token already appears in summary/subject/action/setting/mood
+    # is presumed copied from the model's own narration, not read off the frame: real
+    # on-screen text almost always contributes a token the prose never used.
+    facts = parse_described(
+        answer(
+            subject="a red vintage bicycle",
+            onScreenText=["red vintage bicycle"],
+        ),
+        model="m",
+    )
+    assert facts.on_screen_text == []
+
+
+def test_on_screen_text_keeps_a_short_line_even_if_it_overlaps_the_prose() -> None:
+    # Below MIN_ON_SCREEN_ECHO_CHARS the overlap is presumed coincidence ("EXIT", "STOP"),
+    # not an echo, because the cost of dropping something real outweighs the risk.
+    facts = parse_described(answer(subject="exit", onScreenText=["EXIT"]), model="m")
+    assert facts.on_screen_text == ["EXIT"]
+
+
+def test_on_screen_text_keeps_a_line_with_one_token_the_prose_never_used() -> None:
+    # Real captions almost always contribute at least one token beyond the prose (a name, a
+    # number); that one new token is enough to clear the model of inventing it.
+    facts = parse_described(
+        answer(subject="a red vintage bicycle", onScreenText=["red vintage bicycle 42"]),
+        model="m",
+    )
+    assert facts.on_screen_text == ["red vintage bicycle 42"]
     assert parse_described(answer(confidence=" LOW "), model="m").p == 0.5
 
 

@@ -128,7 +128,7 @@ describe('the options actually sent to the SDK', () => {
     const provider = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' });
     // An alias like `opus` matches no catalog key, which would pin the context meter to
     // "assumed" forever — see provider-defaults.ts.
-    expect(provider.modelId).toBe('claude-opus-5');
+    expect(provider.modelId).toBe('claude-sonnet-5');
     expect(provider.modelId).not.toBe('opus');
   });
 

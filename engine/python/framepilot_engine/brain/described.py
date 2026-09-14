@@ -53,7 +53,10 @@ __all__ = [
     "MAX_ON_SCREEN_TEXT_ITEMS",
     "MAX_QUALITY_ITEMS",
     "MAX_SUMMARY_CHARS",
+    "MIN_ECHO_CHARS",
     "MIN_MULTI_FRAME_SPAN",
+    "MIN_ON_SCREEN_ECHO_CHARS",
+    "PLACEHOLDER_ON_SCREEN_TEXT",
     "QUALITY_VOCABULARY",
     "UNKNOWN",
     "DescribedParseError",
@@ -113,6 +116,36 @@ MAX_FIELD_CHARS: Final = 160
 MAX_ON_SCREEN_TEXT_ITEMS: Final = 16
 MAX_ON_SCREEN_TEXT_CHARS: Final = 200
 MAX_QUALITY_ITEMS: Final = 6
+
+#: Shorter than this, a field matching the instruction (or the shot's own prose) is a
+#: coincidence ("sky"), not a copy. Mirrored in the worker's ``policy.py``.
+MIN_ECHO_CHARS: Final = 8
+
+#: Same idea, one field over: an ``onScreenText`` line this short can share every token
+#: with the shot's own narrated prose by pure coincidence ("EXIT", "STOP"), and the cost of
+#: dropping something real is worse than keeping one short coincidental line. A longer line
+#: that is STILL a pure subset of the prose is almost never real on-screen text — a sign,
+#: slate or lower-third virtually always contributes at least one token (a proper noun, a
+#: number) the model's own summary/subject/action/setting never used.
+MIN_ON_SCREEN_ECHO_CHARS: Final = 8
+
+#: Sentinel values a model emits when it has nothing to transcribe but the grammar forbids
+#: an empty string in the array (``minLength: 1``, see the schema below). Normalised to
+#: "no line", never stored as content: a literal "unknown" quoted back to the editor as
+#: on-screen text is exactly the invented-caption failure this module exists to close.
+PLACEHOLDER_ON_SCREEN_TEXT: Final[frozenset[str]] = frozenset({
+    "unknown",
+    "none",
+    "n/a",
+    "na",
+    "no text",
+    "no visible text",
+    "no on-screen text",
+    "nothing",
+    "empty",
+    "no text visible",
+    "not applicable",
+})
 
 DESCRIBED_SCHEMA_NAME: Final = "shot_description"
 
@@ -270,6 +303,23 @@ def _text(value: Any, limit: int) -> str:
     return collapsed[:limit].rstrip() if len(collapsed) > limit else collapsed
 
 
+def _described(value: Any, limit: int) -> str:
+    """A free-text field, or ``""`` when the model only repeated the instruction back.
+
+    Mirrors the worker's ``policy._described`` (VU6.2 local pack, R2): measured on the
+    local SmolVLM2-2.2B pack with real camera keyframes, the model returned the prompt's
+    own wording as every free-text value under the grammar. A hosted producer is far less
+    likely to do this, but ``parse_described`` is the ONE funnel all three producers pass
+    through, so the guard belongs here too rather than only in the local pack's own
+    pre-filter.
+    """
+    text = _text(value, limit)
+    probe = text.lower().rstrip(".")
+    if len(probe) >= MIN_ECHO_CHARS and probe in DESCRIBE_INSTRUCTION.lower():
+        return ""
+    return text
+
+
 def _closed(value: Any, vocabulary: Sequence[str]) -> str | None:
     """One closed-vocabulary value, or ``None`` for unknown/out-of-vocabulary.
 
@@ -283,8 +333,40 @@ def _closed(value: Any, vocabulary: Sequence[str]) -> str | None:
 
 
 
-def _on_screen_text(raw: Any) -> list[str]:
-    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded.
+def _is_placeholder_on_screen_text(text: str) -> bool:
+    """Whether ``text`` is a sentinel for "nothing legible" rather than real content.
+
+    The schema forbids an empty string in the array (``minLength: 1``), so a model with
+    nothing to transcribe sometimes writes the word for that instead — ``"unknown"``,
+    ``"none"``, ``"n/a"`` — rather than leaving the array empty as instructed. Quoting that
+    back to the editor as on-screen text IS the invented-caption failure this module
+    exists to close, so it is normalised to absent here, at the one funnel every producer
+    passes through.
+    """
+    normalised = text.strip().lower().rstrip(".")
+    return normalised in PLACEHOLDER_ON_SCREEN_TEXT
+
+
+def _is_prose_echo(text: str, prose_tokens: frozenset[str]) -> bool:
+    """Whether ``text`` looks copied from the shot's own narrated fields, not read off-frame.
+
+    A model that has nothing to transcribe sometimes fills ``onScreenText`` with words
+    lifted from its own ``summary``/``subject``/``action``/``setting``/``mood`` rather than
+    leaving the array empty. Real on-screen text — a sign, a lower-third, a slate — is
+    almost never a pure subset of the model's own narration of the shot: it almost always
+    contributes at least one token (a name, a number, a distinct word) the prose never
+    used. A short line is exempted (:data:`MIN_ON_SCREEN_ECHO_CHARS`): it is too easy to
+    overlap by coincidence ("EXIT", "STOP"), and dropping something real costs more than
+    keeping one short coincidental line.
+    """
+    if len(text) < MIN_ON_SCREEN_ECHO_CHARS or not prose_tokens:
+        return False
+    tokens = {token for token in text.lower().split() if token.isalnum()}
+    return bool(tokens) and tokens.issubset(prose_tokens)
+
+
+def _on_screen_text(raw: Any, *, prose: str = "") -> list[str]:
+    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded, not invented.
 
     Verbatim: only whitespace is collapsed and the length capped. Nothing here may "tidy" a
     rendered lower-third, or a solver reading a title would be reading our paraphrase of it.
@@ -298,16 +380,27 @@ def _on_screen_text(raw: Any) -> list[str]:
     CONTENT — never to tidy or paraphrase it — not a promise to repeat a decoder's stutter
     back to the editor as sixteen separate readings.
 
+    Not invented: a line that is a bare placeholder (:func:`_is_placeholder_on_screen_text`)
+    or that reads as a copy of the shot's own narrated prose (:func:`_is_prose_echo`) is
+    dropped rather than stored — this module has no per-frame pixel signal to corroborate a
+    borderline line against, so the conservative default is to treat an unsubstantiated
+    echo as invented, never as evidence.
+
     :param raw: The model's ``onScreenText`` value, of any shape.
+    :param prose: The shot's own narrated fields (summary/subject/action/setting/mood),
+        space-joined, used only to detect an echo. Empty disables the echo check.
     :returns: The distinct legible lines, in the order first seen, at most
         :data:`MAX_ON_SCREEN_TEXT_ITEMS`.
     """
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
         return []
+    prose_tokens = frozenset(token for token in prose.lower().split() if token.isalnum())
     seen: list[str] = []
     for item in raw:
         text = _text(item, MAX_ON_SCREEN_TEXT_CHARS)
         if not text or text in seen:
+            continue
+        if _is_placeholder_on_screen_text(text) or _is_prose_echo(text, prose_tokens):
             continue
         seen.append(text)
         if len(seen) >= MAX_ON_SCREEN_TEXT_ITEMS:
@@ -340,7 +433,12 @@ def parse_described(
     camera_map: Mapping[str, Any] = raw_camera if isinstance(raw_camera, Mapping) else {}
     shot_size = _closed(camera_map.get("shotSize"), [s.value for s in ShotSize])
     movement = _closed(camera_map.get("movement"), [m.value for m in CameraMovement])
-    on_screen = _on_screen_text(payload.get("onScreenText"))
+    subject = _described(payload.get("subject"), MAX_FIELD_CHARS)
+    action = _described(payload.get("action"), MAX_FIELD_CHARS)
+    setting = _described(payload.get("setting"), MAX_FIELD_CHARS)
+    mood = _described(payload.get("mood"), MAX_FIELD_CHARS)
+    prose = " ".join((summary, subject, action, setting, mood))
+    on_screen = _on_screen_text(payload.get("onScreenText"), prose=prose)
     quality_raw = payload.get("quality")
     quality: list[str] = []
     if isinstance(quality_raw, Sequence) and not isinstance(quality_raw, (str, bytes)):
@@ -356,15 +454,15 @@ def parse_described(
         tier2_version=tier2_version,
         model=model,
         summary=summary,
-        subject=_text(payload.get("subject"), MAX_FIELD_CHARS),
-        action=_text(payload.get("action"), MAX_FIELD_CHARS),
-        setting=_text(payload.get("setting"), MAX_FIELD_CHARS),
+        subject=subject,
+        action=action,
+        setting=setting,
         camera=CameraFacts(
             shot_size=ShotSize(shot_size) if shot_size else None,
             angle=_closed(camera_map.get("angle"), CAMERA_ANGLES),
             movement=CameraMovement(movement) if movement else None,
         ),
-        mood=_text(payload.get("mood"), MAX_FIELD_CHARS),
+        mood=mood,
         on_screen_text=on_screen,
         quality=quality,
         p=probability,

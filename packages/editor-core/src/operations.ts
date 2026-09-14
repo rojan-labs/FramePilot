@@ -65,6 +65,7 @@ import {
   clipTimelineDuration,
   hasSpeedRamp,
   integrateRate,
+  normalizeRamp,
   rateAt,
   sourceTimeAt,
 } from './speed-curve.js';
@@ -1460,6 +1461,227 @@ function solveHeadSource(clip: Clip, endSource: Seconds, duration: Seconds): Sec
   return (lo + hi) / 2;
 }
 
+/**
+ * The two adjacent control points whose segment straddles `t`, or `undefined` when
+ * `t` lands exactly on a point or outside the curve's own span. There the rate is
+ * already flat (`rateAt`'s extrapolation rule, or the exact value a real point
+ * carries) and cutting it introduces no area error — only a cut strictly INSIDE an
+ * eased segment does, which is the case {@link solveFreeEndpointRate} exists for.
+ */
+function enclosingSegment(
+  sorted: readonly SpeedPoint[],
+  t: Seconds,
+): { readonly a: SpeedPoint; readonly b: SpeedPoint } | undefined {
+  for (let i = 0; i < sorted.length - 1; i += 1) {
+    const a = sorted[i]!;
+    const b = sorted[i + 1]!;
+    if (t > a.sourceTime + EPSILON && t < b.sourceTime - EPSILON) return { a, b };
+  }
+  return undefined;
+}
+
+/**
+ * The rate for the free end of a two-point probe segment `[fixed, free]` (or
+ * `[free, fixed]`) so that segment integrates to exactly `target` seconds — using
+ * the one degree of freedom {@link SpeedPointSchema} already has (a point's own
+ * `rate`) to conserve AREA where a schema change would be needed to conserve SHAPE.
+ *
+ * `split_clip` and `delete_range` must partition the source **exactly** (L5): the
+ * seam is not free to move the way a `trim_clip` cut is (`solveEndSource` moves the
+ * seam itself, which those two ops cannot do). So the piece's rebased curve has to
+ * match the ORIGINAL curve's own integral over its exact retained span some other
+ * way. It cannot keep the original easing between the original endpoint RATES — an
+ * `ease-in-out` restricted to part of its span sweeps a different area, which is
+ * the whole L4/L5 bug — but the schema already lets any point carry any positive
+ * rate, and `target` (computed straight off the original curve via
+ * {@link integrateRate}) is exactly the area that one still-free number needs to
+ * reproduce.
+ *
+ * `durationFor` is strictly monotonically decreasing in `rate`: raising the free
+ * endpoint's rate raises the interpolated rate at every point strictly between the
+ * two ends (a genuine average pull, not just at the boundary), so it always plays
+ * that footage sooner. That single-crossing property is what makes the bisection
+ * every other speed-curve inversion in this module uses apply here too — and,
+ * since `1/rate → ∞` as `rate → 0⁺` and `→ 0` as `rate → ∞`, any positive `target`
+ * is reachable, so the exponential bracket below is guaranteed to terminate.
+ */
+function solveFreeEndpointRate(
+  fixed: SpeedPoint,
+  fixedIsStart: boolean,
+  freeSourceTime: Seconds,
+  easing: SpeedPoint['easing'],
+  target: Seconds,
+): number {
+  const from = Math.min(fixed.sourceTime, freeSourceTime);
+  const to = Math.max(fixed.sourceTime, freeSourceTime);
+  const durationFor = (rate: number): number => {
+    const probe: readonly SpeedPoint[] = fixedIsStart
+      ? [
+          { id: '__probe_fixed', sourceTime: fixed.sourceTime, rate: fixed.rate, easing },
+          { id: '__probe_free', sourceTime: freeSourceTime, rate, easing: 'linear' },
+        ]
+      : [
+          { id: '__probe_free', sourceTime: freeSourceTime, rate, easing },
+          { id: '__probe_fixed', sourceTime: fixed.sourceTime, rate: fixed.rate, easing: 'linear' },
+        ];
+    return integrateRate(probe, from, to);
+  };
+
+  const seed = fixed.rate;
+  let lo: number;
+  let hi: number;
+  if (durationFor(seed) > target) {
+    lo = seed;
+    hi = seed * 2;
+    while (durationFor(hi) > target) hi *= 2;
+  } else {
+    hi = seed;
+    lo = seed / 2;
+    while (durationFor(lo) < target) lo /= 2;
+  }
+  for (let i = 0; i < INVERSION_STEPS; i += 1) {
+    const mid = (lo + hi) / 2;
+    if (durationFor(mid) > target) lo = mid;
+    else hi = mid;
+  }
+  return (lo + hi) / 2;
+}
+
+/**
+ * The synthetic point that closes a piece's TAIL (schema v15, ADR 0090; area fix for
+ * L5). `undefined` when nothing past `consumed + span` needs cutting off.
+ *
+ * When the cut lands strictly inside an eased segment, the naive held-rate point
+ * (this clip's own `rateAt` at the cut) reproduces the right VALUE but not the right
+ * AREA — see {@link solveFreeEndpointRate}. Its rate is solved instead, so this
+ * piece's own curve integrates, over its own retained span, to exactly what the
+ * ORIGINAL curve integrated to over that same span — which is what the seam these
+ * two ops cannot move already guarantees is the right answer.
+ */
+function tailSyntheticPoint(
+  sorted: readonly SpeedPoint[],
+  clipId: string,
+  consumed: Seconds,
+  span: Seconds,
+): SpeedPoint | undefined {
+  const cutAt = consumed + span;
+  if (!sorted.some((p) => p.sourceTime >= cutAt - EPSILON)) return undefined;
+  const enclosing = enclosingSegment(sorted, cutAt);
+  const rate = enclosing
+    ? solveFreeEndpointRate(
+        enclosing.a,
+        true,
+        cutAt,
+        enclosing.a.easing,
+        integrateRate(sorted, enclosing.a.sourceTime, cutAt),
+      )
+    : rateAt(sorted, cutAt);
+  return {
+    id: `${clipId}__ramp_tail`,
+    sourceTime: span,
+    rate,
+    easing: 'linear',
+  };
+}
+
+/**
+ * The synthetic point that opens a piece's HEAD after `consumed` source seconds are
+ * dropped (schema v15, ADR 0090; area fix for L5) — see {@link tailSyntheticPoint}
+ * for the mirror case and {@link solveFreeEndpointRate} for why a rate is solved
+ * rather than read straight off the original curve.
+ */
+function headSyntheticPoint(
+  sorted: readonly SpeedPoint[],
+  clipId: string,
+  consumed: Seconds,
+): SpeedPoint {
+  const enclosing = enclosingSegment(sorted, consumed);
+  const rate = enclosing
+    ? solveFreeEndpointRate(
+        enclosing.b,
+        false,
+        consumed,
+        enclosing.a.easing,
+        integrateRate(sorted, consumed, enclosing.b.sourceTime),
+      )
+    : rateAt(sorted, consumed);
+  return {
+    id: `${clipId}__ramp_head`,
+    sourceTime: 0,
+    rate,
+    easing:
+      enclosing?.a.easing ??
+      [...sorted].reverse().find((p) => p.sourceTime <= consumed + EPSILON)?.easing ??
+      'linear',
+  };
+}
+
+/**
+ * The synthetic head+tail pair for a piece cut on BOTH edges, when both cuts land
+ * strictly inside the SAME eased segment — `undefined` otherwise, so the caller
+ * falls back to solving each edge independently.
+ *
+ * Only `trim_clip` can reach this: `split_clip` and `delete_range` each cut a piece
+ * on exactly one edge (their `truncateClip` calls never combine a head trim with a
+ * tail trim on the same piece), but a two-sided `trim_clip` moves both edges in one
+ * call, and a clip whose ramp is a single eased segment spanning its whole footage
+ * makes any interior trim land both cuts in that one segment (review finding on
+ * `3de8a146`).
+ *
+ * There, {@link headSyntheticPoint} and {@link tailSyntheticPoint} each solve their
+ * rate against the ORIGINAL far control point (`b` for the head, `a` for the tail) —
+ * but neither original point survives the rebase; the retained curve runs
+ * head-synthetic → tail-synthetic directly, with nothing of the original segment
+ * between them. Solved independently, each targets the area over a sub-interval
+ * that includes territory the OTHER cut already removed, so neither reproduces the
+ * actual retained area.
+ *
+ * Fixed instead: pin the head at the curve's own held rate at the cut (the value a
+ * single-sided cut would already use) and solve the tail's rate — the one
+ * remaining free number — against the integral the ACTUAL retained window
+ * `[consumed, consumed + span]` has on the original curve. One joint solve in place
+ * of two independent, individually-wrong ones.
+ */
+function jointSyntheticPoints(
+  sorted: readonly SpeedPoint[],
+  clipId: string,
+  consumed: Seconds,
+  span: Seconds,
+): { readonly head: SpeedPoint; readonly tail: SpeedPoint } | undefined {
+  const cutAt = consumed + span;
+  const headSegment = enclosingSegment(sorted, consumed);
+  const tailSegment = enclosingSegment(sorted, cutAt);
+  if (
+    !headSegment ||
+    !tailSegment ||
+    headSegment.a !== tailSegment.a ||
+    headSegment.b !== tailSegment.b
+  ) {
+    return undefined;
+  }
+  const easing = headSegment.a.easing;
+  const head: SpeedPoint = {
+    id: `${clipId}__ramp_head`,
+    sourceTime: 0,
+    rate: rateAt(sorted, consumed),
+    easing,
+  };
+  const tailRate = solveFreeEndpointRate(
+    head,
+    true,
+    span,
+    easing,
+    integrateRate(sorted, consumed, cutAt),
+  );
+  const tail: SpeedPoint = {
+    id: `${clipId}__ramp_tail`,
+    sourceTime: span,
+    rate: tailRate,
+    easing: 'linear',
+  };
+  return { head, tail };
+}
+
 function rebaseSpeedRamp(
   clip: Clip,
   consumed: Seconds,
@@ -1475,6 +1697,7 @@ function rebaseSpeedRamp(
 ): SpeedPoint[] | undefined {
   const ramp = clip.speedRamp;
   if (!ramp || ramp.length === 0) return clip.speedRamp;
+  const sorted = normalizeRamp(ramp);
   const headTrimmed = Math.abs(consumed) >= EPSILON;
   const inside = (p: SpeedPoint): boolean =>
     p.sourceTime > consumed + EPSILON &&
@@ -1482,30 +1705,23 @@ function rebaseSpeedRamp(
   const later = ramp
     .filter(inside)
     .map((p) => (headTrimmed ? { ...clone(p), sourceTime: p.sourceTime - consumed } : clone(p)));
-  const tailCut =
-    span !== undefined && ramp.some((p) => p.sourceTime >= consumed + span - EPSILON)
-      ? [
-          {
-            id: `${clip.id}__ramp_tail`,
-            sourceTime: span,
-            rate: rateAt(ramp, consumed + span),
-            easing: 'linear' as const,
-          },
-        ]
-      : [];
+
+  if (headTrimmed && span !== undefined) {
+    const joint = jointSyntheticPoints(sorted, clip.id, consumed, span);
+    // `later` is necessarily empty here: `jointSyntheticPoints` only returns a pair
+    // when both cuts share the same enclosing segment, and adjacent control points
+    // by definition have nothing else between them.
+    if (joint) return [joint.head, joint.tail];
+  }
+
+  const tailPoint =
+    span !== undefined ? tailSyntheticPoint(sorted, clip.id, consumed, span) : undefined;
+  const tailCut = tailPoint ? [tailPoint] : [];
   if (!headTrimmed) {
     const kept = ramp.filter((p) => p.sourceTime <= consumed + EPSILON).map(clone);
     return [...kept, ...later, ...tailCut];
   }
-  const rateAtCut = rateAt(ramp, consumed);
-  const head: SpeedPoint = {
-    id: `${clip.id}__ramp_head`,
-    sourceTime: 0,
-    rate: rateAtCut,
-    // The easing of whichever segment the cut fell inside, so the surviving part
-    // of that segment keeps its shape rather than reverting to linear.
-    easing: [...ramp].reverse().find((p) => p.sourceTime <= consumed + EPSILON)?.easing ?? 'linear',
-  };
+  const head = headSyntheticPoint(sorted, clip.id, consumed);
   return [head, ...later, ...tailCut];
 }
 
@@ -2120,10 +2336,18 @@ function applyAddMask(timeline: Timeline, op: AddMaskOp): Timeline {
     params,
     keyframes: op.keyframes ? op.keyframes.map(clone) : [],
   };
-  return replaceClipAt(timeline, loc, {
-    ...loc.clip,
-    effects: [...loc.clip.effects.filter((candidate) => candidate.id !== effect.id), effect],
-  });
+  // Replace an existing mask IN PLACE (`set_effect_params`'s pattern), not by
+  // filter-then-push: a re-stated mask — e.g. the tracking command that reissues
+  // `<clip>__mask` every time the tracked region updates (S3) — used to drop off
+  // the end of the effect list on every restatement, silently reordering it behind
+  // any effect (grade, blur, ...) that composites in list order and was added
+  // after the mask originally landed there.
+  const existingIndex = loc.clip.effects.findIndex((candidate) => candidate.id === effect.id);
+  const effects =
+    existingIndex === -1
+      ? [...loc.clip.effects, effect]
+      : loc.clip.effects.map((candidate, index) => (index === existingIndex ? effect : candidate));
+  return replaceClipAt(timeline, loc, { ...loc.clip, effects });
 }
 
 function applyTrackObject(timeline: Timeline, op: TrackObjectOp): Timeline {
@@ -2137,10 +2361,16 @@ function applyTrackObject(timeline: Timeline, op: TrackObjectOp): Timeline {
     params,
     keyframes: op.keyframes ? op.keyframes.map(clone) : [],
   };
-  return replaceClipAt(timeline, loc, {
-    ...loc.clip,
-    effects: [...loc.clip.effects.filter((candidate) => candidate.id !== effect.id), effect],
-  });
+  // Replace an existing tracker IN PLACE (same fix as `add_mask`, S3 residual): a
+  // restated `object_track` (e.g. every tracked-region update) used to filter the
+  // existing effect out and push the new one to the end, silently reordering it
+  // behind any effect added afterward — effects composite in list order.
+  const existingIndex = loc.clip.effects.findIndex((candidate) => candidate.id === effect.id);
+  const effects =
+    existingIndex === -1
+      ? [...loc.clip.effects, effect]
+      : loc.clip.effects.map((candidate, index) => (index === existingIndex ? effect : candidate));
+  return replaceClipAt(timeline, loc, { ...loc.clip, effects });
 }
 
 function applyRestoreClips(timeline: Timeline, op: RestoreClipsOp): Timeline {

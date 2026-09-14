@@ -16,6 +16,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 import framepilot_engine.service as service_module
+from framepilot_engine.brain.models import VisualCaptionRow
 from framepilot_engine.brain.store import open_brain
 from framepilot_engine.config import Settings
 from framepilot_engine.media.probe import MediaInfo, StreamInfo
@@ -485,6 +486,82 @@ def test_brain_similar_semantic_recall_without_keyword_overlap(
     ).json()
     semantic_top = body["hits"][0]
     assert semantic_top["start"] == 5.0 and semantic_top["score"] > body["hits"][1]["score"]
+
+
+def test_brain_similar_recalls_visual_captions_and_survives_a_second_call(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """R4.4: find_similar must be pack-aware for a keyless, pack-only brain.
+
+    ADR 0064 keeps raw image-vector recall OUT of find_similar; the caption TEXT channel
+    (MI3.2) is the only route by which a local-pack-described, keyless project's footage
+    can surface here at all. ``reindex_project_embeddings`` used to omit captions, and the
+    agent loop calls find_similar with its live project on EVERY turn, so the very next
+    call after an index pass silently deleted the caption rows that pass had just
+    written (``replace_embeddings`` swaps the whole model's rows). This asserts both
+    halves: the caption is found, and calling find_similar again does not erase it.
+    """
+    _fake_embedder(monkeypatch)
+    client, _src = _sandboxed_client(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store.upsert_asset("asset_1", path="clip.mp4")
+        store.upsert_visual_captions(
+            [
+                VisualCaptionRow(
+                    asset_id="asset_1",
+                    scene_index=0,
+                    t0=0.0,
+                    t1=2.0,
+                    text="the budget spreadsheet on screen",
+                    model="vlm:test",
+                )
+            ]
+        )
+
+    def _caption_hits() -> int:
+        body = client.post(
+            "/brain/similar",
+            json={"projectId": "p1", "query": "budget", "project": _project_doc()},
+        ).json()
+        return sum(1 for hit in body["hits"] if hit["type"] == "caption")
+
+    assert _caption_hits() > 0
+
+    # The second call reindexes again; before the fix that reindex erased the captions.
+    assert _caption_hits() > 0, "the caption vanished on the second call: reindex clobbered it"
+
+
+def test_brain_similar_never_embeds_a_legacy_status_only_caption(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A legacy status-only caption row (the deleted prose path's leftovers) is not embedded.
+
+    ``is_informative_caption`` already keeps this out of ``search_visual``'s caption FTS
+    lane; the same filter must apply to the embedding rows ``find_similar`` reads, or a
+    row that carries no visual evidence would still be recallable as if it did.
+    """
+    _fake_embedder(monkeypatch)
+    client, _src = _sandboxed_client(tmp_path)
+    with open_brain(tmp_path, "p1") as store:
+        store.upsert_asset("asset_1", path="clip.mp4")
+        store.upsert_visual_captions(
+            [
+                VisualCaptionRow(
+                    asset_id="asset_1",
+                    scene_index=0,
+                    t0=0.0,
+                    t1=2.0,
+                    text="Safety: safe.",
+                    model="vlm:test",
+                )
+            ]
+        )
+
+    client.post("/brain/index", json={"projectId": "p1", "project": _project_doc()})
+
+    with open_brain(tmp_path, "p1") as store:
+        rows = store.list_embeddings("fake:test")
+    assert not any(row.owner_type == "caption" for row in rows), rows
 
 
 def test_brain_similar_unavailable_without_projects_root() -> None:

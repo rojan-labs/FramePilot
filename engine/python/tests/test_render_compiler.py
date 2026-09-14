@@ -1429,6 +1429,47 @@ def test_compile_muted_video_track_drops_footage_audio(
 
 
 @pytest.mark.usefixtures("require_ffprobe")
+@pytest.mark.parametrize("role", [None, "dialogue", "music", "sfx"])
+def test_compile_track_role_never_changes_the_mix(
+    tmp_project_dir: Path, media_factory: Callable[..., Path], role: str | None
+) -> None:
+    """§D11: ``Track.role`` (schema v17) is authored mix-intent metadata for the
+    AI layer (``resolveDuckRoles`` in ai-sdk resolves an explicit "duck X under
+    Y" request to a ``duckUnderTrackId``/``duckAmountDb`` clip effect) — the
+    render compiler itself never reads it. A camera track labelled ``sfx``
+    instead of ``dialogue`` must render byte-identically to one labelled
+    anything else, or left unlabelled: only ``muted``/``duckUnderTrackId``/
+    per-clip ``audio_gain`` control the mix.
+
+    Verified against a real project (D11, TRACKING.md): a music-led montage
+    with its camera track labelled ``sfx`` and every camera clip at a static
+    ``audio_gain: -24dB`` under an unducked music bed measured, on an actual
+    render, with the camera audio alone at ``max_volume=-38.6 dBFS`` (present,
+    just quiet) and the full mix matching the music-only mix's
+    ``max_volume=-3.1 dBFS`` / integrated loudness ``-16.7 LUFS`` — the label
+    made no measurable difference; the explicit gain did.
+    """
+    video_src = media_factory("v.mp4", seconds=1.0, with_audio=True)
+    (tmp_project_dir / "v.mp4").write_bytes(video_src.read_bytes())
+
+    track: dict[str, Any] = {
+        "id": "v",
+        "type": "video",
+        "clips": [_clip("c1", "v", 0, 1, asset="a1")],
+    }
+    if role is not None:
+        track["role"] = role
+    project = _project([track], assets=[{"id": "a1", "path": "v.mp4", "kind": "video"}])
+
+    composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    try:
+        assert composite.audio is not None
+        assert len(composite.audio.clips) == 1
+    finally:
+        close_clip_tree(composite)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
 def test_compile_renders_opacity_keyframes(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:

@@ -23,9 +23,22 @@ const log = createLogger('ai-sdk:memory-store');
 export interface MemoryEdit {
   readonly patchId: string;
   readonly reason: string;
+  /**
+   * How the edit was accepted. Omitted for a human's explicit accept/reject gesture
+   * (the historical, still-default shape, so every entry written before this existed
+   * still parses byte-identical). `auto_applied` is a validated patch the host committed
+   * under an auto-commit run policy with no separate human gesture — still a real,
+   * on-disk edit, but a weaker taste signal than a person choosing to keep it, so it is
+   * labelled rather than silently folded into the same bucket as an explicit accept.
+   */
+  readonly origin?: 'auto_applied' | undefined;
 }
 
-const MemoryEditSchema = z.object({ patchId: z.string(), reason: z.string() });
+const MemoryEditSchema = z.object({
+  patchId: z.string(),
+  reason: z.string(),
+  origin: z.literal('auto_applied').optional(),
+});
 
 /**
  * Where a remembered preference came from, and how long it is allowed to last.
@@ -155,15 +168,34 @@ export function setExportPlatforms(project: Project, platforms: readonly string[
   return writeMemory(project, { ...readMemory(project), exportPlatforms: [...platforms] });
 }
 
-const toEdit = (patch: Patch): MemoryEdit => ({ patchId: patch.patchId, reason: patch.reason });
+const toEdit = (patch: Patch, origin?: 'auto_applied'): MemoryEdit => ({
+  patchId: patch.patchId,
+  reason: patch.reason,
+  ...(origin === undefined ? {} : { origin }),
+});
 
-/** Record that the user accepted a proposed patch (learning signal). */
-export function recordAccepted(project: Project, patch: Patch): Project {
+/**
+ * Record that the user accepted a proposed patch (learning signal).
+ *
+ * @param options.origin - Pass `'auto_applied'` when the host committed this patch under
+ *   an auto-commit run policy, with no separate human accept gesture (desktop's durable
+ *   agent runs). Omit it for an explicit accept — the default, and the only shape this
+ *   ever wrote before auto-commit existed.
+ */
+export function recordAccepted(
+  project: Project,
+  patch: Patch,
+  options?: { readonly origin?: 'auto_applied' },
+): Project {
   const memory = readMemory(project);
-  log.action('recordAccepted → memory write', { patchId: patch.patchId, reason: patch.reason });
+  log.action('recordAccepted → memory write', {
+    patchId: patch.patchId,
+    reason: patch.reason,
+    origin: options?.origin ?? 'manual',
+  });
   return writeMemory(project, {
     ...memory,
-    acceptedEdits: [...memory.acceptedEdits, toEdit(patch)],
+    acceptedEdits: [...memory.acceptedEdits, toEdit(patch, options?.origin)],
   });
 }
 

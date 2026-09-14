@@ -38,6 +38,10 @@ FailureCode = Literal[
     "hardware_unsupported",
     "invalid_request",
     "internal_error",
+    # A refusal to emit a result line that would exceed MAX_LINE_BYTES. Kept distinct
+    # from "internal_error" so the host can branch on this code rather than matching
+    # the detail text (see encode_line below and worker-protocol.ts on the host side).
+    "output_too_large",
 ]
 ProgressPhase = Literal["decode", "initialize", "track", "detect", "segment", "encode"]
 
@@ -417,5 +421,8 @@ def encode_line(message: dict[str, Any]) -> str:
     """Serialize one output line, refusing to emit anything past the transport bound."""
     encoded = json.dumps(message, separators=(",", ":"), allow_nan=False, sort_keys=True)
     if len(encoded.encode("utf-8")) + 1 > MAX_LINE_BYTES:
-        raise ProtocolError("internal_error", "worker output line exceeded its 1 MiB bound.")
+        # A deterministic, non-retryable refusal — the same request over the same
+        # media produces the same oversized line every time. `output_too_large` lets
+        # the host recognise that without matching this message's text.
+        raise ProtocolError("output_too_large", "worker output line exceeded its 1 MiB bound.")
     return f"{encoded}\n"

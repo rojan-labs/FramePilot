@@ -27,3 +27,20 @@ def test_dotdot_escape_raises(tmp_path: Path) -> None:
 def test_absolute_outside_base_raises(tmp_path: Path) -> None:
     with pytest.raises(PathTraversalError):
         resolve_within(tmp_path, "/etc/passwd")
+
+
+def test_escape_message_names_configured_root_and_hints_other_sidecar(
+    tmp_path: Path,
+) -> None:
+    """§G2: the refusal must name this engine's configured root and hint that a
+    request for a path outside it may belong to a sidecar started for a
+    different projects root — without revealing anything beyond what the
+    caller already supplied (base/candidate/resolved, as before).
+    """
+    with pytest.raises(PathTraversalError) as excinfo:
+        resolve_within(tmp_path, "../escape.key")
+
+    message = str(excinfo.value)
+    assert str(tmp_path.resolve()) in message
+    assert "configured for projects root" in message
+    assert "different projects root" in message

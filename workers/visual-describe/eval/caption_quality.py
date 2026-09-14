@@ -169,6 +169,34 @@ def score(name: str, shot: dict[str, Any]) -> list[dict[str, Any]]:
         "detail": f"copied the prompt into {echoed!r}" if echoed else "no field repeats the prompt",
     })
 
+    # Sibling failure to `no_instruction_echo`, one field over: `onScreenText` filled with
+    # a word lifted from the shot's own summary/subject/action/setting/mood rather than
+    # left empty. `normalise` (policy.py) is supposed to close this deterministically
+    # (placeholder normalisation + prose-subset rejection); this check catches a regression
+    # in that filter reaching production, not just the unit fixtures that exercise it directly.
+    prose_tokens = {
+        tok
+        for field in FREE_TEXT_FIELDS
+        for tok in str(shot.get(field) or "").lower().split()
+        if tok.isalnum()
+    }
+    echoed_text = [
+        item
+        for item in text_items
+        if len(item) >= 8
+        and (tokens := {t for t in item.lower().split() if t.isalnum()})
+        and tokens.issubset(prose_tokens)
+    ]
+    checks.append({
+        "check": "no_prose_echo",
+        "ok": not echoed_text,
+        "detail": (
+            f"onScreenText repeats the shot's own prose: {echoed_text!r}"
+            if echoed_text
+            else "no onScreenText line is a bare copy of the shot's own prose"
+        ),
+    })
+
     if name in EMPTY_FIXTURES:
         checks.append({
             "check": "no_person",

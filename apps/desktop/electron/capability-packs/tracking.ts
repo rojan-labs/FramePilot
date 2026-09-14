@@ -333,8 +333,15 @@ function classify(error: unknown): [TrackingFailureCode, string, boolean] {
  * An `internal_error` is retryable unless it is a size bound: the same request
  * over the same media produces the same oversized output every time, so
  * offering "retry" would only repeat the failure.
+ *
+ * A worker that refuses to emit an over-large result line reports the stable
+ * `output_too_large` failure code (see `worker-protocol.ts`) — branch on that
+ * directly rather than matching `detail` text. The message-text match below is
+ * kept only as a fallback for packs installed before that code existed, which
+ * still report the same overflow as a generic `internal_error`.
  */
 function isRetryableWorkerFault(error: CapabilityPackWorkerRuntimeError): boolean {
+  if (error.workerCode === 'output_too_large') return false;
   if (error.workerCode !== 'internal_error') return false;
   return !/exceeded its .*bound/i.test(error.message);
 }

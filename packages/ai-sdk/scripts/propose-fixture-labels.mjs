@@ -24,7 +24,11 @@
  *    measurable without the tier-1 embedding pack or a tier-2 captioner, neither of which
  *    runs here. Emitting a guess would be worse than emitting nothing, because the guess
  *    would be read as a label. So every field is `null` with `"source": "unlabelled"`, one
- *    row per shot, ready for the human pass.
+ *    row per shot, ready for the human pass. The exception: `mission-montage`'s rows in
+ *    `tier1.json` were labelled for real on 2026-09-14 by running the installed
+ *    `framepilot.visual-embed` pack through `POST /brain/visual/index` (TRACKING.md Q4b) —
+ *    this script cannot reproduce that run itself, so {@link preserveRealTier1} keeps those
+ *    rows across a regeneration instead of blanking them back to a scaffold.
  *
  * ## How a human fills them in
  *
@@ -39,7 +43,7 @@
  */
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -274,8 +278,40 @@ function main() {
       });
     }
 
-    writeFiles(tier0Shots, tier1Shots, tier2Shots, unmeasured);
+    writeFiles(tier0Shots, preserveRealTier1(tier1Shots), tier2Shots, unmeasured);
   });
+}
+
+/**
+ * Keep any row a real tier-1 run already labelled, rather than blanking it back to a
+ * scaffold on the next regeneration.
+ *
+ * `tier1.json` for `mission-montage` stopped being all-null on 2026-09-14 (TRACKING.md
+ * Q4b): the installed `framepilot.visual-embed` pack ran for real, through
+ * `POST /brain/visual/index`, over that project's five timeline assets. This script has no
+ * way to reproduce that run itself — it needs the pack, the sidecar and a fixture-relative
+ * project — so regenerating tier0 (a fixture-media change, say) must not silently erase
+ * that work by overwriting `source: "proposed"` rows back to `source: "unlabelled"`. A row
+ * this script itself never proposes is exactly the case a blind overwrite gets wrong.
+ *
+ * @param {object[]} freshRows - The scaffold rows just built (every field `null`).
+ * @returns {object[]} `freshRows`, with any id that was already labelled for real kept
+ *   as-is. A shot id absent from the OLD file (a genuinely new shot) stays a fresh scaffold.
+ */
+function preserveRealTier1(freshRows) {
+  const oldPath = join(OUT_DIR, 'tier1.json');
+  if (!existsSync(oldPath)) return freshRows;
+  let previous;
+  try {
+    previous = JSON.parse(readFileSync(oldPath, 'utf8'));
+  } catch {
+    return freshRows;
+  }
+  const real = new Map(
+    (previous.shots ?? []).filter((s) => s.source !== 'unlabelled').map((s) => [s.id, s]),
+  );
+  if (real.size === 0) return freshRows;
+  return freshRows.map((row) => real.get(row.id) ?? row);
 }
 
 /** The cuts of `mission-montage`, which is the fixture the transition case runs against. */

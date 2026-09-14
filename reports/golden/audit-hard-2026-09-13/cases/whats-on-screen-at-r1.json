@@ -1,0 +1,248 @@
+{
+  "scenario": "whats-on-screen-at",
+  "category": "question",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "What's on screen at 0:42?",
+      "rubric": "unchanged",
+      "expectedIntent": "answer",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "answer",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 2,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 32921,
+          "output": 655,
+          "total": 33576
+        },
+        "usd": null,
+        "latency": {
+          "firstProgressMs": 2510,
+          "doneMs": 13960
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": false,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 0,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 0,
+            "grounded": 0,
+            "guessed": 0,
+            "rate": null
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "At 0:42 you're about 2.2 seconds into clip_002 on video_1 (asset_002, \"b1-4k30-22s.mov\"), which runs from 39.8s to 61.43s. That's the handheld-labeled segment of the sequence — it's a landscape 4K source, center-cropped to fill your 9:16 frame. Beyond the handheld motion tag, no shot description or subject labeling has been run on this footage yet, so I can't tell you specifically who or what is in frame — only that it's the handheld clip immediately following your opening \"fast·punchy\" shot.",
+      "recording": "reports/golden/audit-hard-2026-09-13/recordings/whats-on-screen-at-r1-t1.json",
+      "calls": [
+        {
+          "tool": "get_clips",
+          "status": "completed",
+          "args": "start: 39, end: 62"
+        }
+      ],
+      "metrics": {
+        "wallMs": 13960,
+        "modelCalls": 2,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 32921,
+          "input": 4199,
+          "output": 655,
+          "cacheRead": 28722,
+          "cacheCreate": 20204
+        },
+        "perCall": [
+          {
+            "ttftMs": 2505,
+            "wallMs": 5052,
+            "input": 2011,
+            "output": 241,
+            "cacheRead": 11667
+          },
+          {
+            "ttftMs": 4878,
+            "wallMs": 8883,
+            "input": 2188,
+            "output": 414,
+            "cacheRead": 17055
+          }
+        ],
+        "summary": {
+          "turnCount": 2,
+          "ttftMs": {
+            "p50": 2505,
+            "p95": 4878,
+            "min": 2505,
+            "max": 4878
+          },
+          "wallMs": {
+            "p50": 5052,
+            "p95": 8883,
+            "min": 5052,
+            "max": 8883
+          },
+          "inputTokensPerTurn": {
+            "p50": 2011,
+            "p95": 2188,
+            "min": 2011,
+            "max": 2188
+          },
+          "outputTokensPerTurn": {
+            "p50": 241,
+            "p95": 414,
+            "min": 241,
+            "max": 414
+          },
+          "cacheHitRate": 0.8724522341362656,
+          "cacheReportingTurns": 2
+        },
+        "usd": null,
+        "usageTokens": 53780,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "get_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 4,
+        "contextByType": [
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2431,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2431,
+            "retrieved_evidence": 584,
+            "latest_user_message": 52,
+            "skill": 1689,
+            "tool_schemas": 7329
+          }
+        ],
+        "contextUsedTokens": [
+          11981,
+          2011,
+          12085,
+          2188
+        ],
+        "contextCachedTokens": [
+          null,
+          11667,
+          null,
+          17055
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

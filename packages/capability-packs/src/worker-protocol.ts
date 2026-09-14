@@ -432,6 +432,14 @@ export const CapabilityPackWorkerFailureSchema = z
       'hardware_unsupported',
       'invalid_request',
       'internal_error',
+      // A worker refusing to emit a result line that would exceed
+      // `CAPABILITY_PACK_WORKER_MAX_LINE_BYTES`. Distinct from `internal_error` so the
+      // host can recognise a deterministic size-bound refusal by this code instead of
+      // pattern-matching `detail` text (packs built before this code existed still
+      // report the same condition as `internal_error`; the host keeps a message-text
+      // fallback for those — see `isRetryableWorkerFault` in
+      // apps/desktop/electron/capability-packs/tracking.ts).
+      'output_too_large',
     ]),
     detail: z.string().min(1).max(2_000),
     retryable: z.boolean(),

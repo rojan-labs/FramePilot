@@ -48,6 +48,7 @@ import logging
 import os
 import re
 import subprocess
+import sys
 import tempfile
 import threading
 from collections.abc import Callable, Iterator, Sequence
@@ -120,13 +121,33 @@ _WHISPER_CLI_ENV = "FRAMEPILOT_WHISPER_CLI"
 _WHISPER_BINARY_NAMES = ("whisper-cli", "whisper-cpp", "main")
 
 
+def _running_packaged() -> bool:
+    """True when this engine process is the PyInstaller-bundled binary.
+
+    PyInstaller sets ``sys.frozen`` on the frozen executable (the same signal
+    :mod:`framepilot_engine.brain.vector_store` already uses for its bundled
+    ``_MEIPASS`` data lookup) — no separate env var is needed, and unlike an
+    env var it cannot be left unset by an out-of-date spawn path.
+    """
+    return bool(getattr(sys, "frozen", False))
+
+
 def find_whisper_cli() -> str:
     """Locate the ``whisper-cli`` binary (whisper.cpp CLI).
 
-    Discovery order: an explicit ``FRAMEPILOT_WHISPER_CLI`` override, then
-    ``whisper-cli``/``whisper-cpp``/``main`` on ``PATH`` (the names whisper.cpp has
-    shipped its CLI under across versions/package managers, e.g. Homebrew's
-    ``whisper-cpp`` formula installs ``whisper-cli``).
+    Discovery order: an explicit ``FRAMEPILOT_WHISPER_CLI`` override (set by
+    the desktop app either from an installed ``framepilot.local-whisper``
+    Capability Pack or an explicit host-chosen path — see
+    ``apps/desktop/electron/capability-packs/service.ts``), then, **in dev
+    only**, ``whisper-cli``/``whisper-cpp``/``main`` on ``PATH`` (the names
+    whisper.cpp has shipped its CLI under across versions/package managers,
+    e.g. Homebrew's ``whisper-cpp`` formula installs ``whisper-cli``).
+
+    A packaged sidecar never searches ``PATH``: ``docs/api/capability-packs.md``
+    documents that the bundled sidecar "never opportunistically adopts a
+    colocated whisper-cli", and a PATH hit there would be an unreviewed,
+    unversioned binary running against user media outside the signed-pack
+    trust chain the rest of local transcription goes through.
 
     :returns: An absolute path or bare command name runnable as whisper-cli.
     :raises WhisperCliNotFoundError: If no candidate binary is found anywhere.
@@ -136,6 +157,13 @@ def find_whisper_cli() -> str:
     override = os.environ.get(_WHISPER_CLI_ENV, "").strip()
     if override:
         return override
+    if _running_packaged():
+        raise WhisperCliNotFoundError(
+            "No local transcription is installed. Install the "
+            "framepilot.local-whisper Capability Pack (Settings → AI → Local "
+            "transcription), or choose a hosted transcription provider in "
+            "Settings → AI."
+        )
     for name in _WHISPER_BINARY_NAMES:
         found = shutil.which(name)
         if found:

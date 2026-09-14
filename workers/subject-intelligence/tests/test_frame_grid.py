@@ -9,6 +9,8 @@ Needs only OpenCV, not the pinned models.
 
 from __future__ import annotations
 
+import shutil
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -64,3 +66,183 @@ def test_the_range_stops_at_the_end_of_the_media(tmp_path: Path) -> None:
 def test_without_a_grid_rate_the_file_index_is_used(tmp_path: Path) -> None:
     path = _write(tmp_path / "legacy.avi", 60.0, 20)
     assert _file_indices(path, 5, 8, None) == [5, 6, 7]
+
+
+# --- variable-frame-rate: the file has no single nominal fps -------------
+
+
+def _build_vfr_fixture(tmp_path: Path) -> Path:
+    """A 30fps segment (15 frames) followed by a 15fps segment (15 frames), spliced
+    so the combined file's real per-frame timestamps are genuinely piecewise —
+    30 then 15 fps — rather than one nominal rate. `ffmpeg`'s concat filter with
+    `-fps_mode vfr` keeps each input's own frame timing instead of resampling to a
+    constant rate, and MJPEG-in-Matroska preserves that timing on readback.
+    """
+    seg1 = tmp_path / "seg1.mp4"
+    seg2 = tmp_path / "seg2.mp4"
+    _write_from(seg1, 30.0, start=0, count=15)
+    _write_from(seg2, 15.0, start=15, count=15)
+    out = tmp_path / "vfr.mkv"
+    result = subprocess.run(
+        [
+            "ffmpeg",
+            "-y",
+            "-i",
+            str(seg1),
+            "-i",
+            str(seg2),
+            "-filter_complex",
+            "[0:v][1:v]concat=n=2:v=1:a=0[outv]",
+            "-map",
+            "[outv]",
+            "-fps_mode",
+            "vfr",
+            "-c:v",
+            "mjpeg",
+            "-q:v",
+            "2",
+            str(out),
+        ],
+        capture_output=True,
+        text=True,
+        check=False,
+    )
+    assert result.returncode == 0, result.stderr
+    return out
+
+
+def _write_from(path: Path, fps: float, start: int, count: int) -> Path:
+    writer = cv2.VideoWriter(str(path), cv2.VideoWriter_fourcc(*"mp4v"), fps, (WIDTH, HEIGHT))
+    assert writer.isOpened()
+    for offset in range(count):
+        index = start + offset
+        writer.write(np.full((HEIGHT, WIDTH, 3), index * STEP, dtype=np.uint8))
+    writer.release()
+    return path
+
+
+def _probe_real_timestamps(path: Path) -> list[tuple[int, float]]:
+    """Ground truth: every real decoded frame's own (index, presentation seconds),
+    read straight off the file with no grid involved."""
+    capture = cv2.VideoCapture(str(path))
+    truth: list[tuple[int, float]] = []
+    try:
+        while True:
+            ok, frame = capture.read()
+            if not ok or frame is None:
+                break
+            index = round(float(frame.mean()) / STEP)
+            seconds = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            truth.append((index, seconds))
+    finally:
+        capture.release()
+    return truth
+
+
+def _expected_hold_sequence(
+    truth: list[tuple[int, float]], grid_fps: float, count: int, first_frame: int = 0
+) -> list[tuple[int, float]]:
+    """What a correct grid-fps reader must return: for each grid time
+    (first_frame + n) / grid_fps, the most recent real frame at or before that
+    time (a plain "as of" join against the ground-truth timestamps)."""
+    expected: list[tuple[int, float]] = []
+    cursor = 0
+    for n in range(count):
+        target = (first_frame + n) / grid_fps
+        while cursor + 1 < len(truth) and truth[cursor + 1][1] <= target + 1e-6:
+            cursor += 1
+        if truth[cursor][1] > target + 1e-6:
+            break
+        expected.append(truth[cursor])
+    return expected
+
+
+def test_variable_frame_rate_is_sampled_by_real_timestamp_not_nominal_index(
+    tmp_path: Path,
+) -> None:
+    """The old sampler walked file frames one-by-one and compared their ORDINAL
+    against `target_seconds * file_fps`, using cv2's single nominal fps for the
+    whole file. A VFR file has no single nominal fps — here the file reports an
+    averaged ~20fps though the real content is 30fps then 15fps — so that
+    comparison silently samples the wrong instant once playback crosses into the
+    slower segment. The fix compares each decoded frame's own presentation
+    timestamp instead, which is what this test pins down against an independently
+    probed ground truth.
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not available to build the VFR fixture")
+    path = _build_vfr_fixture(tmp_path)
+    truth = _probe_real_timestamps(path)
+    assert len(truth) == 30, "fixture must decode to 15 + 15 real frames"
+    # The real per-frame gaps are piecewise 1/30 then 1/15 even though the
+    # container reports a single nominal fps for the whole file — that single
+    # number is exactly what the old index-counting sampler trusted.
+    assert truth[1][1] - truth[0][1] == pytest.approx(1 / 30.0, abs=1e-3)
+    assert truth[-1][1] - truth[-2][1] == pytest.approx(1 / 15.0, abs=1e-3)
+
+    grid_fps = 20.0
+    request_count = 24
+    expected = _expected_hold_sequence(truth, grid_fps, request_count)
+
+    source = _VideoFrameSource(cv2, str(path), 0, request_count, grid_fps)
+    actual: list[int] = []
+    try:
+        while (frame := source.read()) is not None:
+            actual.append(round(float(frame.mean()) / STEP))
+    finally:
+        source.close()
+
+    assert actual == [index for index, _seconds in expected]
+    # Every sample lands on a real frame within half a (local) frame duration of
+    # its requested grid time — never a stale hold reaching back further than that.
+    frame_tolerance = 1e-3  # absorbs float rounding in the encoder/decoder round trip
+    for n, (_index, seconds) in enumerate(expected):
+        target = n / grid_fps
+        local_frame_seconds = 1 / 30.0 if target < 0.5 else 1 / 15.0
+        assert -frame_tolerance <= target - seconds < local_frame_seconds + frame_tolerance
+
+
+def test_a_seek_that_overshoots_into_the_slower_section_is_corrected(
+    tmp_path: Path,
+) -> None:
+    """A request starting well inside the file, past the fps boundary, is where a
+    nominal-rate seek estimate overshoots hardest: the file reports one single
+    fps (30, the first segment's declared rate) for the whole file, but content
+    from frame 15 on really runs at 15fps. Seeking by
+    ``target_seconds * reported_fps`` for a target inside that slower section
+    computes an index the real content has not reached yet by the time it
+    matters — `VideoCapture` only reads forward, so an uncorrected overshoot
+    here would silently answer every requested grid frame with content that is
+    already too late (or, as here, with no frame at all).
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not available to build the VFR fixture")
+    path = _build_vfr_fixture(tmp_path)
+    truth = _probe_real_timestamps(path)
+
+    grid_fps = 20.0
+    first_frame = 26  # target = 1.3s, inside the real 15fps section (>= 0.5s)
+    request_count = 3
+    target_seconds = first_frame / grid_fps
+
+    # The overshoot this test exists to catch: naive seconds->index arithmetic
+    # using the file's one reported rate (30) computes an index past the last
+    # real frame (29) for a target that is well within the fixture's duration.
+    naive_seek_index = int(target_seconds * 30.0)
+    assert naive_seek_index > 29
+    assert target_seconds < truth[-1][1]
+
+    expected = _expected_hold_sequence(truth, grid_fps, request_count, first_frame=first_frame)
+    assert len(expected) == request_count, "the chosen grid frames must exist in the fixture"
+
+    source = _VideoFrameSource(
+        cv2, str(path), first_frame, first_frame + request_count, grid_fps
+    )
+    actual: list[int] = []
+    try:
+        while (frame := source.read()) is not None:
+            actual.append(round(float(frame.mean()) / STEP))
+    finally:
+        source.close()
+
+    assert actual == [index for index, _seconds in expected]

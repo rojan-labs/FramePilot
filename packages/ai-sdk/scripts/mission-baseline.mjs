@@ -59,6 +59,8 @@ const {
   LedgerClient,
   summarizeFootageMap,
   scoreMissionScenario,
+  buildSameSettingByCut,
+  joinShotSettingFacts,
   summarizeRunMetrics,
   pictureClips,
   GOLDEN_CASES,
@@ -92,6 +94,7 @@ const OUT = resolve(REPO, String(args.out ?? join('reports', 'golden', `${LABEL}
 const DUMP_DIR = args['dump-events'] ? resolve(REPO, String(args['dump-events'] === true ? join('reports', 'golden', LABEL, 'events') : args['dump-events'])) : null;
 const BASE_URL = process.env.FRAMEPILOT_PYTHON_API_URL ?? 'http://127.0.0.1:8799';
 const FIXTURES = join(REPO, 'tests', 'fixtures', 'mission', 'projects');
+const LABELS_DIR = join(REPO, 'tests', 'fixtures', 'mission', 'labels');
 const providerName = REPLAY ? 'replay' : (process.env.FRAMEPILOT_AI_PROVIDER ?? 'deepseek');
 const modelName = REPLAY ? 'replay' : (resolveProviderConfig(providerName).model ?? 'provider default');
 
@@ -589,6 +592,30 @@ async function detectedBeatTimes(project, assetId) {
   }
 }
 
+/**
+ * `sameSettingByCut` for `scoreMissionScenario` — real `setting` labels, joined once and
+ * reused for every case (TRACKING.md Q4b).
+ *
+ * `tests/fixtures/mission/labels/tier0.json` carries each shot's `t0`/`t1` (asset seconds);
+ * `tier1.json` carries its `setting`, real for `mission-montage`'s five timeline assets
+ * (`propose-fixture-labels.mjs`'s header explains the provenance) and `null` scaffold for
+ * everything else. `buildSameSettingByCut` (`eval/mission-rubric.ts`) does the actual
+ * per-cut join against the CURRENT project, so this only has to load and join the two flat
+ * files once. Absent files or a shape neither expects degrade to no labels — a rubric that
+ * cannot find a location change is the SAME honest "skipped" a genuinely unlabelled project
+ * gets, never a crashed run.
+ */
+function loadRealShotSettings() {
+  try {
+    const tier0 = JSON.parse(readFileSync(join(LABELS_DIR, 'tier0.json'), 'utf8'));
+    const tier1 = JSON.parse(readFileSync(join(LABELS_DIR, 'tier1.json'), 'utf8'));
+    return joinShotSettingFacts(tier0.shots, tier1.shots);
+  } catch (error) {
+    process.stderr.write(`  (no real shot-setting labels loaded: ${String(error?.message ?? error)})\n`);
+    return [];
+  }
+}
+const REAL_SHOT_SETTINGS = loadRealShotSettings();
 
 /**
  * Forget what earlier RUNS of this case decided, so three runs are three samples.
@@ -664,6 +691,10 @@ async function runCase(goldenCase, run) {
       musicAssetId,
       expectedHeadTrimSeconds: turn.expectedHeadTrimSeconds,
       captionStyle: turn.captionStyle,
+      // Keyed by clip ids, and the checks read the AFTER timeline: a map built from `project`
+      // misses every cut the turn created, so those cuts would score as unlabelled. The labels
+      // are per source time, so they resolve against any timeline built from these assets.
+      sameSettingByCut: buildSameSettingByCut(outcome.working, REAL_SHOT_SETTINGS),
     });
     const golden = measureGoldenTurn({
       events: outcome.events,

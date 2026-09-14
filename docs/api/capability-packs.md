@@ -190,85 +190,205 @@ What runs where:
 
 | Where                                                       | Trigger                                             | What it proves or produces                                                                                                                                                                                                                                                                                                                                             |
 | ----------------------------------------------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `capability-pack-<pack>.yml` (all four packs)               | PR / push touching the worker                       | Unit suite, ruff, mypy with no ML stack and no weights; weights are not committed; the base engine does not import the worker. Tracking Lite and Subject Intelligence also run their decoded-media proof and SBOM drift check on every PR (small weights).                                                                                                             |
-| `capability-pack-visual-embed.yml` / `-visual-describe.yml` | `workflow_dispatch` only                            | Weight tier: fetch and verify every pin, Visual Embed's decoded-media proof, Visual Describe's standalone payload build. Dispatch-only because ~1.5–2.4 GiB of weights per run is an infrastructure-cost decision.                                                                                                                                                     |
-| `capability-pack-release.yml`                               | tag `capability-pack/<pack>/v<version>` or dispatch | Per pack on `macos-14`: `build-capability-pack.sh --stage payload` → codesign → `--stage finalize` → notarize → `framepilot-pack prepare-artifact` → `prepare-release`; then one catalog job: unsigned `catalog.json` → `sign-catalog` → `publication-plan`. Uploads the ZIP, its sha256, build receipt, handshake, signing status, artifact facts and release record. |
+| `capability-pack-<pack>.yml` (all four packs)               | PR / push touching the worker                       | Unit suite, ruff, mypy with no ML stack and no weights; weights are not committed; the base engine does not import the worker. **All four packs** now also run an SBOM/license drift check (`tools/generate_sbom.py --check`) on every PR — the `cv` extra (onnxruntime/tokenizers/OpenCV, tens of MiB) is installed, but no pinned weight is ever downloaded for it, because the check is a metadata comparison against `pack/models.lock.toml`, not a hash of the installed weight file. Tracking Lite and Subject Intelligence additionally run their decoded-media proof on every PR (their weights are small enough to fetch there too). |
+| `capability-pack-visual-embed.yml` / `-visual-describe.yml` | `workflow_dispatch` only                            | Weight tier: fetch and verify every pin (cached by `actions/cache`, keyed on `pack/models.lock.toml`'s digest, so an unchanged pin never re-downloads), Visual Embed's decoded-media proof, Visual Describe's standalone payload build. Dispatch-only because ~1.5–2.5 GiB of weights per run is an infrastructure-cost decision. |
+| `capability-pack-release.yml`                               | tag `capability-pack/<pack>/v<version>` or dispatch | Per pack, per platform: darwin-arm64 on `macos-14` (`build-capability-pack.sh`), win32-x64 on `windows-latest` (`build-capability-pack.ps1`) — each `--stage payload` → codesign/signtool → `--stage finalize` → (notarize, darwin only) → `prepare-artifact`. A `release-record` job then combines whichever platforms actually built into ONE cross-platform release record per pack (`release-core` → `prepare-release`). Finally one `catalog` job: unsigned `catalog.json` → `sign-catalog` → `publication-plan` → merge into the live catalog → upload to the CDN → move `latest`. |
 
-`scripts/build-capability-pack.sh` builds a payload that is standalone by proof. It vendors the
-interpreter **and the standard library** and removes `pyvenv.cfg`. It also moves the payload and
-runs it with a scrubbed environment. It then checks that every import root lies inside the moved
-payload before running the worker's own health handshake from there.
+`scripts/build-capability-pack.sh` (darwin) and `scripts/build-capability-pack.ps1` (win32) each
+build a payload that is standalone by proof. Darwin vendors the interpreter **and the standard
+library** and removes `pyvenv.cfg`; win32 vendors the interpreter directory (`python.exe`, its DLL,
+`DLLs\`, `Lib\`) beside the venv for the same reason. Both move the payload and run it with a
+scrubbed environment, then check that every import root lies inside the moved payload before
+running the worker's own health handshake from there.
 
-The entrypoint `bin/<entrypoint>` is a native launcher compiled from
+The darwin entrypoint `bin/<entrypoint>` is a native launcher compiled from
 `scripts/pack-launcher/launcher.c` with the system `cc`, not uv's `#!/bin/sh` wrapper. It resolves
 its own real path and execs the sibling `bin/python` as `-P -c "from <module> import <function>;
 sys.exit(<function>())"`. The target comes from the wrapper it replaces. It forwards every argument
 and keeps the environment unchanged. `-P` stops the launch directory from shadowing worker modules.
 It exists because macOS keeps a script's code signature in extended attributes, and the host's ZIP
 install drops them. A Mach-O embeds its signature, so it survives. The release job signs every other
-Mach-O file first and the launcher last, then verifies it. There is no shell-wrapper fallback: the
-only release platform built is darwin. The script refuses:
+Mach-O file first and the launcher last, then verifies it. The win32 entrypoint `Scripts\<entrypoint>.exe`
+needs no such replacement: uv's Windows console-script launcher is already a real PE binary (a
+distlib stub with the script data appended), and an Authenticode signature lives in the PE's own
+certificate table, so it survives a ZIP round-trip with no help — `signtool` signs it directly. Both
+scripts refuse:
 
-- a payload that references the repository or uv's managed CPython
+- a payload that references the repository or uv's managed CPython/Python install
 - a payload that contains a symbolic link, which the installer rejects
 - a payload that exceeds the manifest's `max_unpacked_mib`
 
-It ships only the files `pack/models.lock.toml` pins. The archive is a ZIP, the only multi-file
+Each ships only the files `pack/models.lock.toml` pins. The archive is a ZIP, the only multi-file
 format the installer accepts. `scripts/capability_pack_release.py` assembles the
 `prepare-artifact`, `prepare-release` and catalog inputs from the manifest, models lock, SBOM and
-build receipt. It refuses a pack without an SBOM record rather than hand-typing a license set.
+build receipt, deriving the entrypoint's in-archive path (`bin/` on darwin, `Scripts/` on win32) and
+executable-trust kind (`macos_codesign` with a Team ID, `windows_authenticode` with a certificate
+SHA-256 thumbprint) from the artifact's own `os`. It refuses a pack without an SBOM record rather
+than hand-typing a license set — which is why **every** pack now needs one (see below).
 
 Which secret enables which step. Every credentialed step is skipped with a visible workflow
-warning when its secret is absent, and nothing is recorded as signed that was not:
+warning when its secret is absent, and nothing is recorded as signed, merged, or uploaded that was
+not:
 
-| Step                                                          | Requires                                                                                                                                                  |
-| ------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Developer ID codesign of every Mach-O file and the entrypoint | `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `CSC_NAME`                                                                                                           |
-| Notarization (`notarytool submit --wait`)                     | a signed payload plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`                                                                          |
-| Real `executableTrust.teamIdentifier` in the record           | `APPLE_TEAM_ID` (otherwise `UNSIGNED00`, and the catalog is never signed)                                                                                 |
-| `sign-catalog` + `publication-plan`                           | `CAPABILITY_PACK_CATALOG_SIGNING_KEY` (PEM secret), variable `CAPABILITY_PACK_CATALOG_KEY_ID`, and **every** release in the run code-signed and notarized |
-| Publishable artifact URLs                                     | variable `CAPABILITY_PACK_ARTIFACT_BASE_URL` (otherwise `https://capability-packs.invalid/unpublished`)                                                   |
-| `minAppVersion` on tag runs                                   | variable `CAPABILITY_PACK_MIN_APP_VERSION` (dispatch asks for it)                                                                                         |
+| Step                                                           | Requires                                                                                                                                                    |
+| --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| macOS Developer ID codesign of every Mach-O file + the entrypoint | `MAC_CERT_P12`, `MAC_CERT_PASSWORD`, `CSC_NAME`                                                                                                             |
+| macOS notarization (`notarytool submit --wait`)                  | a signed payload plus `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD`, `APPLE_TEAM_ID`                                                                            |
+| Real `executableTrust.teamIdentifier` in the darwin record        | `APPLE_TEAM_ID` (otherwise `UNSIGNED00`, and that platform can never enter a signed catalog)                                                                |
+| Windows Authenticode signing (`signtool sign`)                    | `WIN_CSC_LINK` (base64 `.pfx`), `WIN_CSC_KEY_PASSWORD` — **wired but unproven, see the checklist below**                                                    |
+| Real `executableTrust.certificateSha256` in the win32 record      | a successful `signtool` sign (otherwise `UNSIGNED00`)                                                                                                       |
+| `sign-catalog` + `publication-plan`                               | `CAPABILITY_PACK_CATALOG_SIGNING_KEY` (PEM secret), variable `CAPABILITY_PACK_CATALOG_KEY_ID`, and **every** platform of every release in the run signed to its own bar (darwin: codesigned **and** notarized; win32: codesigned) |
+| Publishable artifact URLs                                        | variable `CAPABILITY_PACK_ARTIFACT_BASE_URL` (otherwise `https://capability-packs.invalid/unpublished`)                                                     |
+| `minAppVersion` on tag runs                                       | variable `CAPABILITY_PACK_MIN_APP_VERSION` (dispatch asks for it)                                                                                           |
+| Merging into the live catalog                                    | variable `CAPABILITY_PACK_CATALOG_URL` (otherwise the merge treats "nothing published yet" and starts from an empty catalog — safe, but only really correct on the very first release) |
+| Uploading artifacts + the catalog to the CDN, and moving `latest` | `CAPABILITY_PACK_CDN_ACCESS_KEY_ID`, `CAPABILITY_PACK_CDN_SECRET_ACCESS_KEY`, variable `CAPABILITY_PACK_CDN_BUCKET` (S3-compatible: AWS S3, Cloudflare R2, Backblaze B2, MinIO, … all work); `CAPABILITY_PACK_CDN_ENDPOINT` for a non-AWS endpoint; `CAPABILITY_PACK_CATALOG_LATEST_KEY` to move the live pointer (otherwise the digest-addressed catalog is uploaded but `latest` stays where it was) |
 
-Still the maintainer's, and not done by any workflow:
+### SBOMs — all four packs now generate one
 
-- **Uploading** artifacts and the digest-addressed catalog to the CDN, merging this run's releases
-  into the live catalog (a subset run carries only its own releases), and moving `latest`.
-- **Windows.** The build script is POSIX-only and Visual Describe pins no Windows runtime, so no
-  `win32-x64` artifact and no Authenticode signature is produced. The manifests' win32 rows are
-  not yet releasable.
-- **Visual Embed and Visual Describe SBOMs.** Neither worker has `tools/generate_sbom.py` or a
-  `pack/sbom/` record, so their release records fail closed at the license step.
-- **Size caps — decided 2026-09-14: raised.** Visual Embed's cap went from 1200 to 2000 MiB and
-  Visual Describe's from 2600 to 3000 MiB, so both measured payloads fit with roughly 10–12%
-  headroom and an unexpected growth still fails the build. The alternatives were not taken: an
-  fp16 or int8 SigLIP 2 text tower (about 540–800 MiB smaller, but new pins and backend support)
-  and moving the 500M low-memory pair (606.8 MiB) into a separate optional pack.
+`tools/generate_sbom.py` exists for all four workers (Tracking Lite, Subject Intelligence, Visual
+Embed, Visual Describe), sharing one mechanism: read installed distribution metadata + `uv.lock` +
+(where the pack ships weights) `pack/models.lock.toml`; verify the compiled model pins agree with
+the lock file and that every model carries a licence a commercial desktop product may redistribute
+(MIT/Apache-2.0/BSD-3-Clause — `--check` fails otherwise, which is how the AGPL-3.0 YOLO default was
+kept out of Subject Intelligence and stays enforced for the two newer packs); verify the OpenCV
+wheel's own `LICENSE-3RD-PARTY.txt` still names every bundled native (FFmpeg and friends); and write
+`pack/sbom/<platform>.cdx.json` + `LICENSES.md`. Visual Embed's and Visual Describe's generators also
+record a `licenseVerified` flag per weight (from `pack/models.lock.toml`) so the hand-reviewed
+caveat about the SigLIP 2 ONNX export's unverified upstream licence — and the GGUF quantisation/mmproj
+licences — survives as generated content instead of being lost when the record stops being hand-typed.
 
-  Measured 2026-09-14 on darwin-arm64. Health check passes from the relocated payload in all
-  three builds. Sizes are the sum of file bytes, which is what `prepare-artifact` records:
+Only a `darwin-arm64.cdx.json` is committed for each pack today. **No `win32-x64.cdx.json` exists
+for any of the four packs yet**, which means `capability_pack_release.py`'s `pack_licenses()` will
+refuse a win32 artifact at `prepare-artifact` until one is generated — on a real Windows machine
+(or a `windows-latest` CI run) with the `cv` extra installed, the same way the darwin ones were
+produced. This is the one concrete blocker between "the Windows job is wired" and "the Windows job
+produces a signed artifact" (see the checklist below).
 
-  | Pack            | Before     | After    | Cap  | Weights (unchanged)                                 | Largest non-weight parts                |
-  | --------------- | ---------- | -------- | ---- | --------------------------------------------------- | --------------------------------------- |
-  | Tracking Lite   | —          | 178 MiB  | 400  | 0                                                   | OpenCV                                  |
-  | Visual Embed    | 1812.0 MiB | 1781 MiB | 2000 | 1501.6 MiB (SigLIP 2 fp32 text tower alone: 1077.1) | OpenCV 139, onnxruntime 76, Python 27   |
-  | Visual Describe | 2750.5 MiB | 2709 MiB | 3000 | 2499.8 MiB (2.2B pair 1893.0, 500M pair 606.8)      | OpenCV 137, llama runtime 31, Python 27 |
+### Windows — wired, not yet proven
 
-  Visual Describe's llama.cpp dylibs still ship under both their versioned and unversioned names,
-  a 15.5 MiB duplicate forced by the no-symlink artifact rule unless `models.py` pins the
-  unversioned names instead.
+`build-windows-x64` in `capability-pack-release.yml` runs `scripts/build-capability-pack.ps1` on
+`windows-latest`: relocatable venv, vendor the interpreter directory, strip non-entrypoint console
+scripts, fetch pinned weights (cached), `signtool`-sign when `WIN_CSC_LINK`/`WIN_CSC_KEY_PASSWORD`
+are configured, re-verify, zip, `prepare-artifact`. It has `continue-on-error: true`, and
+`release-record` only includes a platform whose build actually produced an `artifact.json` — so a
+Windows failure today degrades to a visible warning and a darwin-only release, never a broken
+pipeline.
 
-- **Install-time execute bits and a zip-surviving signature** were two blockers for any real
-  catalog install. Both are now fixed with the signed `executables` list and the native launcher
-  (see above). Proven on 2026-09-14 with an ad-hoc-signed Tracking Lite ZIP installed through the
-  real extractor: `codesign --verify --strict` passes on the extracted entrypoint, `bin/python` is
-  executable, and the host health check handshakes. The same install without `executables` fails
-  with `Permission denied`. Still unproven without credentials: the Team ID match, `spctl`
-  Gatekeeper assessment and notarization. Whether the hardened runtime (`--options runtime`) needs
-  entitlements for the interpreter's extension modules is also unproven, and needs a Developer ID run.
-- **Vendored interpreter licenses.** The release tool adds `PSF-2.0` for the vendored CPython.
-  The natives python-build-standalone links into it (OpenSSL, libffi, SQLite, xz, zlib, bzip2,
-  mpdecimal, ncurses) are not yet enumerated by any SBOM.
+**This was authored, reviewed, and YAML/PowerShell-syntax-checked in a session with no Windows
+machine available, and has never executed.** Concretely still open:
+
+- No `win32-x64.cdx.json` SBOM exists yet (see above) — the very first Windows CI run will fail at
+  `prepare-artifact` until one is generated and committed.
+- Whether `uv venv --relocatable`'s Windows layout, and vendoring `python.exe` + its DLL + `DLLs\` +
+  `Lib\` from the interpreter directory named in `pyvenv.cfg`'s `home`, actually produces a payload
+  that imports cleanly once moved and run under a scrubbed environment (the `Invoke-HealthCheck`
+  function's job) is unconfirmed.
+- Whether `signtool` signing `Scripts\python.exe` and the entrypoint `.exe` (no native-launcher
+  replacement needed — see above) actually satisfies the host's future Windows executable-trust
+  check is unconfirmed; the host-side Windows trust check itself is unimplemented (`packages/capability-packs`
+  currently verifies `macos_codesign` identities; a `windows_authenticode` verifier is a separate,
+  not-yet-written piece of work outside this release pipeline).
+- The first real `windows-latest` run is the actual proof. Until then, treat every claim in
+  `build-capability-pack.ps1`'s header comment as "should," not "does."
+
+### CDN publish and catalog merge — automated, gated, unit-tested
+
+The `catalog` job now does everything the release pipeline used to leave to a person, each gated on
+its own secret (table above):
+
+1. **Merge**, via `scripts/capability_pack_catalog_merge.py` — a small, dependency-free module with
+   its own pytest suite (`capability_pack_catalog_merge_test.py`, 10 cases): fetch whatever is
+   currently live at `CAPABILITY_PACK_CATALOG_URL` (a missing or unreachable URL reads as "nothing
+   published yet," not an error), replace this run's exact `(packId, version)` entries, and leave
+   every other pack/version in the live catalog untouched. Covered explicitly: adding a genuinely
+   new pack version, replacing the very same version (e.g. a re-signed digest), and preserving
+   every entry the run did not touch — plus deterministic ordering regardless of input order, and
+   accepting either a bare catalog or a `{catalog, signature}` envelope as "current."
+2. **Re-sign** the merged catalog with the same `CAPABILITY_PACK_CATALOG_SIGNING_KEY`, and re-run
+   `publication-plan` on the merged result (the per-run `catalog.json`'s own digest is not what gets
+   published — the merged one is).
+3. **Upload**: match each `publication-plan.json` artifact to a downloaded build by its own SHA-256
+   (never by filename or path, so two platforms of the same pack can never be confused), `aws s3 cp`
+   it to its immutable object key; upload the merged signed catalog to its own digest-addressed key;
+   and, only when `CAPABILITY_PACK_CATALOG_LATEST_KEY` is configured, overwrite that one stable
+   object — this is what "moving `latest`" means in practice, a plain overwrite of a well-known
+   object, not a separate pointer-file indirection.
+
+None of steps 1–3 has run against a real CDN in this session — no credentials exist to run them
+with — so the first real run with `CAPABILITY_PACK_CDN_*` configured is still the proof that the
+S3-compatible API calls, the object-key layout `publication-plan` produces, and whatever CDN/bucket
+policy fronts it all agree with each other.
+
+### Size caps — decided 2026-09-14: raised
+
+Visual Embed's cap went from 1200 to 2000 MiB and Visual Describe's from 2600 to 3000 MiB, so both
+measured payloads fit with roughly 10–12% headroom and an unexpected growth still fails the build.
+The alternatives were not taken: an fp16 or int8 SigLIP 2 text tower (about 540–800 MiB smaller, but
+new pins and backend support) and moving the 500M low-memory pair (606.8 MiB) into a separate
+optional pack.
+
+Measured 2026-09-14 on darwin-arm64. Health check passes from the relocated payload in all three
+builds. Sizes are the sum of file bytes, which is what `prepare-artifact` records:
+
+| Pack            | Before     | After    | Cap  | Weights (unchanged)                                 | Largest non-weight parts                |
+| --------------- | ---------- | -------- | ---- | --------------------------------------------------- | --------------------------------------- |
+| Tracking Lite   | —          | 178 MiB  | 400  | 0                                                   | OpenCV                                  |
+| Visual Embed    | 1812.0 MiB | 1781 MiB | 2000 | 1501.6 MiB (SigLIP 2 fp32 text tower alone: 1077.1) | OpenCV 139, onnxruntime 76, Python 27   |
+| Visual Describe | 2750.5 MiB | 2709 MiB | 3000 | 2499.8 MiB (2.2B pair 1893.0, 500M pair 606.8)      | OpenCV 137, llama runtime 31, Python 27 |
+
+Visual Describe's llama.cpp dylibs still ship under both their versioned and unversioned names, a
+15.5 MiB duplicate forced by the no-symlink artifact rule unless `models.py` pins the unversioned
+names instead.
+
+Install-time execute bits and a zip-surviving signature were two blockers for any real catalog
+install. Both are fixed with the signed `executables` list and the native launcher (see above).
+Proven on 2026-09-14 with an ad-hoc-signed Tracking Lite ZIP installed through the real extractor:
+`codesign --verify --strict` passes on the extracted entrypoint, `bin/python` is executable, and the
+host health check handshakes. The same install without `executables` fails with `Permission denied`.
+
+Vendored interpreter licenses: the release tool adds `PSF-2.0` for the vendored CPython. The
+natives python-build-standalone links into it (OpenSSL, libffi, SQLite, xz, zlib, bzip2, mpdecimal,
+ncurses) are not yet enumerated by any SBOM.
+
+### What is left — a credential and a first signed run, nothing else
+
+Everything above this line is code, wired and (Windows and CDN publish aside) verified locally.
+What remains is provisioning real credentials and watching the first real signed run confirm what
+only a signed, notarized, Gatekeeper-checked artifact can confirm:
+
+- [ ] **Apple Developer ID application certificate** — `MAC_CERT_P12` (base64-encoded `.p12`),
+      `MAC_CERT_PASSWORD`, `CSC_NAME` (the certificate's common name, e.g.
+      `Developer ID Application: Your Name (TEAMID1234)`).
+- [ ] **Apple notarization credentials** — `APPLE_ID`, `APPLE_APP_SPECIFIC_PASSWORD` (an
+      app-specific password for that Apple ID, not the account password), `APPLE_TEAM_ID` (the
+      10-character Team ID).
+- [ ] **Authenticode code-signing certificate** — `WIN_CSC_LINK` (base64-encoded `.pfx`),
+      `WIN_CSC_KEY_PASSWORD`. Needs a first `windows-latest` run to prove `build-capability-pack.ps1`
+      and the `signtool` step actually work (see "Windows — wired, not yet proven" above); a
+      win32-x64 SBOM must also exist first (see "SBOMs" above).
+- [ ] **Capability-pack catalog signing key** — an Ed25519 private key as
+      `CAPABILITY_PACK_CATALOG_SIGNING_KEY` (PEM), plus the repository variables
+      `CAPABILITY_PACK_CATALOG_KEY_ID` and `CAPABILITY_PACK_MIN_APP_VERSION`. The
+      application's embedded root public key(s) must delegate to this key before any installed app
+      will trust a catalog it signs (see "Catalog trust and key rotation" above).
+- [ ] **CDN credentials and layout** — `CAPABILITY_PACK_CDN_ACCESS_KEY_ID`,
+      `CAPABILITY_PACK_CDN_SECRET_ACCESS_KEY`, and the repository variables
+      `CAPABILITY_PACK_CDN_BUCKET`, `CAPABILITY_PACK_CDN_ENDPOINT` (omit for AWS S3 itself),
+      `CAPABILITY_PACK_ARTIFACT_BASE_URL` (the public read URL artifacts resolve under),
+      `CAPABILITY_PACK_CATALOG_URL` (the public read URL the live catalog resolves at — must match
+      what a packaged app's `FRAMEPILOT_CAPABILITY_PACK_CATALOG_URL` is configured to fetch), and
+      `CAPABILITY_PACK_CATALOG_LATEST_KEY` (the object key `CAPABILITY_PACK_CATALOG_URL` serves).
+- [ ] **A first real signed run**, after all of the above exist: tag or dispatch
+      `capability-pack-release.yml` for one pack (Tracking Lite is the smallest and cheapest) and
+      confirm, on a real Mac: `codesign --verify --strict` and `spctl --assess` both pass on the
+      installed entrypoint, notarization succeeds (`notarytool submit --wait` exits 0 and the ticket
+      staples), and the installed pack's worker handshakes through the real (not ad-hoc) signature.
+      Confirm on a real Windows machine, once the Windows leg is proven: the signed `.exe` launches
+      without a SmartScreen/Defender block strong enough to fail the install, and the worker
+      handshakes there too. Whether the interpreter's extension modules need hardened-runtime
+      entitlements on macOS (`--options runtime` is already passed; whether that alone suffices for
+      every bundled `.so`/`.dylib` is unproven without a real Developer ID run) is part of this
+      first-run confirmation, not a separate task.
 
 ## Logical release pin
 

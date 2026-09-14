@@ -211,10 +211,50 @@ def resolve_model(model_id: str, directory: Path) -> Path:
     return path
 
 
+#: The two size classes a run picks between (VU6.1's low-memory step). Verifying the
+#: variant NOT selected this run hashes ~0.6-1.9 GiB nobody is about to load; used only
+#: by :func:`verify_needed`, so the health check (:func:`verify_all`) still proves the
+#: WHOLE pack, unused variant included.
+_VLM_VARIANTS: Final = (("vlm", "mmproj"), ("vlm-small", "mmproj-small"))
+
+
 def verify_all(directory: Path) -> dict[str, str]:
-    """Verify every pinned artifact and return the digest map for evidence lineage."""
+    """Verify every pinned artifact and return the digest map for evidence lineage.
+
+    Used by the health check (``--framepilot-health-check``), which is meant to prove
+    the WHOLE pack is intact — runtime, both weight size classes, every dylib — once, not
+    on the hot describe path. :func:`verify_needed` is the one that path calls.
+    """
     digests: dict[str, str] = {}
     for pinned in PINNED_MODELS:
         resolve_model(pinned.id, directory)
         digests[pinned.file] = pinned.sha256
     return digests
+
+
+def verify_needed(directory: Path, *, small: bool) -> dict[str, Path]:
+    """Verify only the artifacts THIS run will load, and return their resolved paths.
+
+    A describe request hashes multi-gigabyte GGUF files on every worker process launch
+    (VU6.4: one process per request), which is the dominant fixed cost on a short clip's
+    request (few shots, so the fixed hash tax is not amortised over much inference). Both
+    size classes are pinned so a low-memory machine can fall back mid-run, but only ONE is
+    ever loaded per process — verifying the other is pure waste that a health check
+    already covers once, out of the hot path. The runtime binary and its dylibs are always
+    verified, because they are always loaded regardless of ``small``.
+
+    Returning the resolved :class:`Path` per id (not just a digest) lets the one caller
+    that needs both — :class:`~framepilot_visual_describe.llama_backend.LlamaDescribeBackend`
+    — read the already-verified path straight back rather than calling
+    :func:`resolve_model` a second time and hashing the same file twice.
+
+    :param small: Which size class this process resolved to load (:data:`LOW_MEMORY_BYTES`).
+    :returns: ``{pinned_id: path}`` for exactly the artifacts this run verified — never a
+        size class it did not load, so lineage never claims a check that did not happen.
+    """
+    skip = {name for pair in _VLM_VARIANTS if pair != _VLM_VARIANTS[int(small)] for name in pair}
+    return {
+        pinned.id: resolve_model(pinned.id, directory)
+        for pinned in PINNED_MODELS
+        if pinned.id not in skip
+    }

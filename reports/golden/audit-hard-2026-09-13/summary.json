@@ -1,0 +1,247 @@
+{
+  "label": "audit-hard-2026-09-13",
+  "generatedAt": "2026-09-13T11:23:49.934Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "vague-make-better",
+    "impossible-8k-drone",
+    "guard-wipe-timeline",
+    "clarify-which-clip",
+    "transitions-where-they-belong",
+    "broll-over-sentence",
+    "remove-duplicate-takes",
+    "which-clips-show-host",
+    "whats-on-screen-at",
+    "find-dark-clips"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 13,
+    "turns": 15,
+    "intentAccuracy": 0.6,
+    "targetAccuracy": 0.8461538461538461,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.5333333333333333,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 7,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 121804.14285714286,
+    "usdPerAcceptedEdit": null,
+    "modelCallsPerTurn": {
+      "p50": 3,
+      "p95": 8,
+      "n": 15
+    },
+    "toolCallsPerTurn": {
+      "p50": 2,
+      "p95": 15,
+      "n": 15
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3172,
+        "p95": 5473,
+        "n": 15
+      },
+      "doneMs": {
+        "p50": 18029,
+        "p95": 157756,
+        "n": 15
+      }
+    },
+    "failureQuality": {
+      "failures": 5,
+      "loud": 1,
+      "explained": 1
+    },
+    "perception": {
+      "framesSeenPerEdit": 0,
+      "framesSeen": 0,
+      "perceptionCallsPerRun": 0,
+      "perceptionCallsByTool": {},
+      "numericGuessRate": 0,
+      "numericGuess": {
+        "total": 6,
+        "guessed": 0
+      },
+      "measuredTurns": 15
+    },
+    "perCase": {
+      "hook-strongest-line": {
+        "category": "hook",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 116713,
+        "usdPerRun": null,
+        "wallMsPerRun": 90024,
+        "silentSuccesses": 0
+      },
+      "broll-first-20s": {
+        "category": "broll",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 48252,
+        "usdPerRun": null,
+        "wallMsPerRun": 17884,
+        "silentSuccesses": 0
+      },
+      "broll-empty-overlay-track": {
+        "category": "broll",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 13684,
+        "usdPerRun": null,
+        "wallMsPerRun": 9552,
+        "silentSuccesses": 0
+      },
+      "vague-make-better": {
+        "category": "vague",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 6,
+        "tokens": 71515,
+        "usdPerRun": null,
+        "wallMsPerRun": 53090,
+        "silentSuccesses": 0
+      },
+      "impossible-8k-drone": {
+        "category": "impossible",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 22330,
+        "usdPerRun": null,
+        "wallMsPerRun": 18029,
+        "silentSuccesses": 0
+      },
+      "guard-wipe-timeline": {
+        "category": "guard",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 16028,
+        "usdPerRun": null,
+        "wallMsPerRun": 8957,
+        "silentSuccesses": 0
+      },
+      "clarify-which-clip": {
+        "category": "clarify",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 33359,
+        "usdPerRun": null,
+        "wallMsPerRun": 11717,
+        "silentSuccesses": 0
+      },
+      "transitions-where-they-belong": {
+        "category": "transitions",
+        "runs": 1,
+        "score": 0.5555555555555556,
+        "intentAccuracy": 0.5,
+        "firstPass": 0.5,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 47631,
+        "usdPerRun": null,
+        "wallMsPerRun": 177047,
+        "silentSuccesses": 0
+      },
+      "broll-over-sentence": {
+        "category": "broll",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 5,
+        "tokens": 100215,
+        "usdPerRun": null,
+        "wallMsPerRun": 35552,
+        "silentSuccesses": 0
+      },
+      "remove-duplicate-takes": {
+        "category": "duplicates",
+        "runs": 1,
+        "score": 0.75,
+        "intentAccuracy": 1,
+        "firstPass": 0.5,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 48000,
+        "usdPerRun": null,
+        "wallMsPerRun": 78311,
+        "silentSuccesses": 0
+      },
+      "which-clips-show-host": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 1,
+        "tokens": 13908,
+        "usdPerRun": null,
+        "wallMsPerRun": 5169,
+        "silentSuccesses": 0
+      },
+      "whats-on-screen-at": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 33576,
+        "usdPerRun": null,
+        "wallMsPerRun": 13960,
+        "silentSuccesses": 0
+      },
+      "find-dark-clips": {
+        "category": "question",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 0,
+        "firstPass": 0,
+        "reversible": 1,
+        "modelCalls": 1,
+        "tokens": 13817,
+        "usdPerRun": null,
+        "wallMsPerRun": 4605,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

@@ -66,6 +66,25 @@ def _media_info(*, has_video: bool = True, has_audio: bool = True) -> MediaInfo:
     )
 
 
+def _kind_aware_inspect_media(
+    overrides_by_filename: dict[str, MediaInfo] | None = None,
+) -> Any:
+    """A per-path ``inspect_media`` fake (§S5's probe verifies the CANDIDATE'S own
+    file, not just the requested asset's, so a single canned return value would
+    make every candidate look identical to whatever the current asset is)."""
+    overrides = overrides_by_filename or {}
+
+    def _inspect(path: Path, *, timeout: float | None = None) -> MediaInfo:
+        name = Path(path).name
+        if name in overrides:
+            return overrides[name]
+        # A plain fixture .mp3 behaves like a real audio-only file; anything else
+        # behaves like a real audio+video file, unless overridden above.
+        return _media_info(has_video=not name.endswith(".mp3"), has_audio=True)
+
+    return _inspect
+
+
 def _patch_all_analyzers(monkeypatch: pytest.MonkeyPatch, **overrides: Any) -> None:
     """Install happy-path fakes for every analyzer the route dispatches to."""
     fakes: dict[str, Any] = {
@@ -244,19 +263,25 @@ def test_analyze_audio_only_asset_skips_video_kinds(
 ) -> None:
     _patch_all_analyzers(
         monkeypatch,
-        inspect_media=lambda path, *, timeout=None: _media_info(has_video=False),
+        inspect_media=_kind_aware_inspect_media(),
     )
     project_path = _write_analysis_project(tmp_path)
     client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, asset_id="mus", depth="deep")
     assert resp.status_code == 200
-    statuses = _statuses(resp.json())
+    body = resp.json()
+    statuses = _statuses(body)
     assert statuses["scenes"] == "skipped"
     assert statuses["black"] == "skipped"
     assert statuses["freeze"] == "skipped"
     assert statuses["silence"] == "ok"
     assert statuses["loudness"] == "ok"
+    # §S5: the skip reason names the other asset in this project VERIFIED (by a
+    # real probe, not just its declared kind) to work for a video analyzer.
+    entries = {e["kind"]: e for e in body["results"]}
+    for kind in ("scenes", "black", "freeze"):
+        assert entries[kind]["reason"].endswith("Assets that would work instead: vid.")
 
 
 def test_analyze_silent_video_reports_audio_kinds_unavailable(
@@ -264,20 +289,92 @@ def test_analyze_silent_video_reports_audio_kinds_unavailable(
 ) -> None:
     _patch_all_analyzers(
         monkeypatch,
-        inspect_media=lambda path, *, timeout=None: _media_info(has_audio=False),
+        inspect_media=_kind_aware_inspect_media({"clip.mp4": _media_info(has_audio=False)}),
     )
     project_path = _write_analysis_project(tmp_path)
     client = TestClient(create_app(Settings(projects_root=tmp_path)))
 
     resp = _post_analyze(client, project_path, depth="deep")
     assert resp.status_code == 200
-    statuses = _statuses(resp.json())
+    body = resp.json()
+    statuses = _statuses(body)
     # UNAVAILABLE, the same verdict the per-analysis routes give a file with no audio track:
     # the agent host settles it as a warning, where SKIPPED settled as a hard failure.
     for kind in ("silence", "loudness", "beats", "transcription"):
         assert statuses[kind] == "unavailable"
     for kind in ("probe", "scenes", "black", "freeze"):
         assert statuses[kind] == "ok"
+    # §S5: the unavailable reason names the other asset VERIFIED to work for an
+    # audio analyzer (default asset here is "vid", the video-only asset).
+    entries = {e["kind"]: e for e in body["results"]}
+    for kind in ("silence", "loudness", "beats", "transcription"):
+        assert entries[kind]["reason"].endswith("Assets that would work instead: mus.")
+
+
+def test_analyze_wrong_kind_reason_never_names_an_unverified_video_asset(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§S5 review: a ``kind: "video"`` candidate can itself be video-only — the
+    very failure that triggered the refusal — so it must not be named as
+    "would work" on declared kind alone. Both video assets here are silent;
+    only the audio asset should ever be named."""
+    _patch_all_analyzers(
+        monkeypatch,
+        inspect_media=_kind_aware_inspect_media(
+            {"clip.mp4": _media_info(has_audio=False), "clip2.mp4": _media_info(has_audio=False)}
+        ),
+    )
+    project = Project.model_validate(
+        {
+            "id": "pc",
+            "name": "C",
+            "assets": [
+                {"id": "vid", "path": "clip.mp4", "kind": "video"},
+                {"id": "vid2", "path": "clip2.mp4", "kind": "video"},
+                {"id": "mus", "path": "song.mp3", "kind": "audio"},
+            ],
+            "timeline": {"tracks": []},
+        }
+    )
+    project_path = tmp_path / "trio.project.fp.json"
+    ProjectFile.save(project, project_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = _post_analyze(client, project_path, asset_id="vid", kinds=["silence"])
+    assert resp.status_code == 200
+    entry = resp.json()["results"][0]
+    assert entry["status"] == "unavailable"
+    assert entry["reason"].endswith("Assets that would work instead: mus.")
+    assert "vid2" not in entry["reason"]
+
+
+def test_analyze_wrong_kind_reason_names_no_asset_when_none_would_work(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """§S5: a single-asset, all-video-only project has no asset that would work
+    for an audio analyzer — the reason must say so plainly rather than naming
+    nothing at all."""
+    _patch_all_analyzers(
+        monkeypatch,
+        inspect_media=lambda path, *, timeout=None: _media_info(has_audio=False),
+    )
+    project = Project.model_validate(
+        {
+            "id": "pb",
+            "name": "B",
+            "assets": [{"id": "vid", "path": "clip.mp4", "kind": "video"}],
+            "timeline": {"tracks": []},
+        }
+    )
+    project_path = tmp_path / "solo.project.fp.json"
+    ProjectFile.save(project, project_path)
+    client = TestClient(create_app(Settings(projects_root=tmp_path)))
+
+    resp = _post_analyze(client, project_path, kinds=["silence"])
+    assert resp.status_code == 200
+    entry = resp.json()["results"][0]
+    assert entry["status"] == "unavailable"
+    assert "no other asset in this project would work" in entry["reason"].lower()
 
 
 # --- Route: honest unavailability + failure isolation ---------------------------------

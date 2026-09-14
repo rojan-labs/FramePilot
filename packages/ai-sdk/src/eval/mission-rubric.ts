@@ -137,6 +137,18 @@ export interface RubricContext {
   readonly expectedHeadTrimSeconds?: number;
   /** `captions-styled`: the style words the request used, as schema values. */
   readonly captionStyle?: { readonly textTransform?: string; readonly position?: string };
+  /**
+   * `transitions-where-they-belong`: whether the two shots touching each picture cut were
+   * labelled with the SAME `setting` — keyed `${fromClipId}→${toClipId}`, the same key
+   * `checkNoTransitionOnContinuityCuts` prints. `true`/`false` only when tier 1 (or an
+   * eye) actually labelled both sides; a cut absent from the map is unmeasured, never a
+   * guess. Deliberately NOT derived from asset identity — two clips from different source
+   * files are not necessarily a different place, and ADR 0175 rules out treating "different
+   * asset" as "location change". Built from the real, committed labels in
+   * `tests/fixtures/mission/labels/tier1.json` (TRACKING.md Q4b) for the fixture project
+   * this scenario runs against; absent entirely for any project nothing has labelled.
+   */
+  readonly sameSettingByCut?: ReadonlyMap<string, boolean>;
 }
 
 const FRAME_EPSILON = 1e-6;
@@ -1204,7 +1216,13 @@ export function checkWarmedEveryClip(project: Project, maxTemperature: number): 
 interface PictureCutPair {
   readonly from: Clip;
   readonly to: Clip;
-  /** The two clips come from different assets — a scene change by construction. */
+  /**
+   * A transition belongs here because the two sides are a CONFIRMED different `setting`
+   * (real tier-1 labels, `RubricContext.sameSettingByCut`) — never guessed from the two
+   * clips playing different assets (ADR 0175: a second camera angle of the same place is a
+   * different asset and the same setting). `false` when the cut is unlabelled, same as when
+   * the labels agree: there is nothing here to call a scene change.
+   */
   readonly sceneChange: boolean;
   /** Same asset, contiguous source — a continuity cut, where a dissolve is the amateur tell. */
   readonly continuity: boolean;
@@ -1213,8 +1231,22 @@ interface PictureCutPair {
 /** Source seconds two cut halves may be apart and still count as contiguous. */
 const CONTINUITY_GAP_SECONDS = 0.5;
 
-/** Every butt cut on every picture track, in timeline order. */
-export function pictureCutPairs(project: Project): readonly PictureCutPair[] {
+/** The key `sameSettingByCut` and `checkNoTransitionOnContinuityCuts`'s offender list both use. */
+export function cutKey(from: Clip, to: Clip): string {
+  return `${from.id}→${to.id}`;
+}
+
+/**
+ * Every butt cut on every picture track, in timeline order.
+ *
+ * @param sameSettingByCut - Real `setting` agreement per cut (`RubricContext.sameSettingByCut`).
+ *   Absent, or a cut missing from it, means unlabelled — `sceneChange` is then `false`
+ *   rather than a guess from asset identity.
+ */
+export function pictureCutPairs(
+  project: Project,
+  sameSettingByCut?: ReadonlyMap<string, boolean>,
+): readonly PictureCutPair[] {
   const pairs: PictureCutPair[] = [];
   for (const track of pictureTracks(project)) {
     const clips = [...track.clips].sort((a, b) => a.start - b.start);
@@ -1223,16 +1255,118 @@ export function pictureCutPairs(project: Project): readonly PictureCutPair[] {
       const to = clips[i]!;
       if (Math.abs(to.start - from.end) > 0.05) continue;
       const sameAsset = from.assetId === to.assetId;
+      const sameSetting = sameSettingByCut?.get(cutKey(from, to)) ?? null;
       pairs.push({
         from,
         to,
-        sceneChange: !sameAsset,
+        sceneChange: sameSetting === false,
         continuity:
           sameAsset && Math.abs(to.sourceStart - from.sourceEnd) <= CONTINUITY_GAP_SECONDS,
       });
     }
   }
   return pairs;
+}
+
+/**
+ * One shot's real, committed `setting` label — the shape
+ * `tests/fixtures/mission/labels/tier0.json` (`t0`/`t1`, ASSET seconds) and `tier1.json`
+ * (`setting`) join into, by shot id. `asset` is the content-relative key those files key
+ * shots by (`mission-montage/camera-4k60-40s.mov`), not a project's own `asset_00N` id.
+ */
+export interface ShotSettingFact {
+  readonly asset: string;
+  readonly shotIndex: number;
+  /** ASSET seconds, inclusive. */
+  readonly t0: number;
+  /** ASSET seconds, exclusive. */
+  readonly t1: number;
+  /** `null` means this shot has no real label — never matched against anything. */
+  readonly setting: string | null;
+}
+
+/** One shot row from a committed `tests/fixtures/mission/labels/tier0.json`. */
+export interface RawTier0Shot {
+  readonly id: string;
+  readonly t0: number;
+  readonly t1: number;
+}
+
+/** One shot row from a committed `tests/fixtures/mission/labels/tier1.json`. */
+export interface RawTier1Shot {
+  readonly id: string;
+  readonly asset: string;
+  readonly shotIndex: number;
+  readonly setting: string | null;
+}
+
+/**
+ * Join `tier0.json`'s shot boundaries onto `tier1.json`'s `setting` labels, by shot id —
+ * the two flat files {@link buildSameSettingByCut} actually needs, read straight from disk
+ * by a caller (a script or a test) and handed here rather than parsed inside this pure
+ * module. A shot tier 0 never measured, or tier 1 never labelled (`setting: null`), is left
+ * out: it has nothing this cut-matching can use.
+ */
+export function joinShotSettingFacts(
+  tier0Shots: readonly RawTier0Shot[],
+  tier1Shots: readonly RawTier1Shot[],
+): readonly ShotSettingFact[] {
+  const boundsById = new Map(tier0Shots.map((s) => [s.id, s]));
+  const facts: ShotSettingFact[] = [];
+  for (const shot of tier1Shots) {
+    if (shot.setting === null) continue;
+    const bounds = boundsById.get(shot.id);
+    if (!bounds) continue;
+    facts.push({ asset: shot.asset, shotIndex: shot.shotIndex, t0: bounds.t0, t1: bounds.t1, setting: shot.setting });
+  }
+  return facts;
+}
+
+/** `Asset.path` is project-relative (`media/<project>/<file>`); labels key by content alone. */
+function labelAssetKey(assetPath: string): string {
+  return assetPath.startsWith('media/') ? assetPath.slice('media/'.length) : assetPath;
+}
+
+/** How much of a clip's tail end, in source seconds, counts as "still playing" at a cut. */
+const OUTGOING_SHOT_EPSILON_SECONDS = 0.1;
+
+/**
+ * `RubricContext.sameSettingByCut` for one project, from real per-shot `setting` labels.
+ *
+ * Pure — the same join `propose-fixture-labels.mjs#montageCuts` does to propose
+ * `cuts.json`'s structure, generalised to whatever clip boundaries the CURRENT timeline
+ * has: a live run can re-cut `mission-montage`'s five assets into any number of clips, and
+ * every one of them still plays footage this function can look up by (asset, source
+ * seconds), because the lookup is keyed on the footage, not on a clip id. A cut where
+ * either side falls outside every labelled shot, or the label itself is `null`, is left out
+ * of the map entirely — unlabelled, never guessed.
+ */
+export function buildSameSettingByCut(
+  project: Project,
+  shots: readonly ShotSettingFact[],
+): ReadonlyMap<string, boolean> {
+  const keyByAssetId = new Map(project.assets.map((a) => [a.id, labelAssetKey(a.path)]));
+  const shotsByKey = new Map<string, ShotSettingFact[]>();
+  for (const shot of shots) {
+    if (shot.setting === null) continue;
+    const bucket = shotsByKey.get(shot.asset);
+    if (bucket) bucket.push(shot);
+    else shotsByKey.set(shot.asset, [shot]);
+  }
+  const settingAt = (assetId: string, sourceSeconds: number): string | null => {
+    const key = keyByAssetId.get(assetId);
+    const candidates = key === undefined ? undefined : shotsByKey.get(key);
+    const shot = candidates?.find((s) => s.t0 <= sourceSeconds && sourceSeconds < s.t1);
+    return shot?.setting ?? null;
+  };
+  const result = new Map<string, boolean>();
+  for (const { from, to } of pictureCutPairs(project)) {
+    const outgoing = settingAt(from.assetId, Math.max(from.sourceStart, from.sourceEnd - OUTGOING_SHOT_EPSILON_SECONDS));
+    const incoming = settingAt(to.assetId, to.sourceStart);
+    if (outgoing === null || incoming === null) continue;
+    result.set(cutKey(from, to), outgoing === incoming);
+  }
+  return result;
 }
 
 /** Does this cut carry a transition, on either side of it? */
@@ -1250,15 +1384,25 @@ function cutHasTransition(pair: PictureCutPair): boolean {
  * positive one. Deliberately "at least one" rather than "at every one": the policy is
  * allowed to leave a scene change hard (a montage that dissolves eight times is worse than
  * one that dissolves twice), and a rubric demanding all of them would fail the better edit.
+ *
+ * @param sameSettingByCut - See {@link RubricContext.sameSettingByCut}. Absent means every
+ *   cut is unlabelled, so the check has no confirmed scene change to look for — the same
+ *   honest "nothing to score" a fully-continuous timeline gets, never a fallback guess from
+ *   asset identity (ADR 0175).
  */
-export function checkTransitionAtASceneChange(project: Project): RubricCheck {
-  const pairs = pictureCutPairs(project);
+export function checkTransitionAtASceneChange(
+  project: Project,
+  sameSettingByCut?: ReadonlyMap<string, boolean>,
+): RubricCheck {
+  const pairs = pictureCutPairs(project, sameSettingByCut);
   const changes = pairs.filter((pair) => pair.sceneChange);
   if (changes.length === 0) {
     return {
       id: 'transition-at-a-scene-change',
       ok: false,
-      detail: 'no cut in this timeline changes source, so there is nothing to score',
+      detail:
+        'no cut in this timeline is a CONFIRMED location change (unlabelled footage, or ' +
+        'every labelled cut agrees on setting), so there is nothing to score',
       weight: 2,
       facet: 'target',
       skipped: true,
@@ -1679,7 +1823,7 @@ export function scoreMissionScenario(scenario: MissionScenarioId, ctx: RubricCon
     case 'transitions-where-they-belong':
       return scored(scenario, [
         checkChanged(ctx),
-        checkTransitionAtASceneChange(p),
+        checkTransitionAtASceneChange(p, ctx.sameSettingByCut),
         checkNoTransitionOnContinuityCuts(p),
         // A transition is an effect on the incoming clip; it never moves a clip. So a run
         // that also re-cut the programme did something it was not asked to do.

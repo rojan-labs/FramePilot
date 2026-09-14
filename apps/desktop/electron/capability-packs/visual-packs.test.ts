@@ -8,6 +8,7 @@ import {
   VISUAL_EMBED_PACK_ID,
   autoEnrolmentTiers,
   resolveVisualPackHandles,
+  resolveVisualPackIdentities,
 } from './visual-packs.js';
 
 const roots: string[] = [];
@@ -128,6 +129,50 @@ describe('resolveVisualPackHandles', () => {
     });
 
     expect(handles).toEqual({});
+  });
+});
+
+describe('resolveVisualPackIdentities', () => {
+  it('names the identity behind each field resolveVisualPackHandles would resolve', () => {
+    const embed = record(VISUAL_EMBED_PACK_ID, '1.0.0');
+    const describePack = record(VISUAL_DESCRIBE_PACK_ID, '1.0.0');
+
+    const identities = resolveVisualPackIdentities([embed, describePack]);
+
+    expect(identities.visualEmbedPack).toEqual(embed.identity);
+    expect(identities.visualDescribePack).toEqual(describePack.identity);
+  });
+
+  it('agrees with resolveVisualPackHandles on the newest healthy release', async () => {
+    const root = await createRoot();
+    const older = record(VISUAL_EMBED_PACK_ID, '1.0.0');
+    const newer = record(VISUAL_EMBED_PACK_ID, '1.2.0');
+    const quarantined = record(VISUAL_EMBED_PACK_ID, '2.0.0', { state: 'quarantined' });
+    for (const pack of [older, newer, quarantined]) {
+      await install(root, pack, 'framepilot-visual-embed');
+    }
+    const records = [older, quarantined, newer];
+
+    const handles = await resolveVisualPackHandles({
+      records,
+      storageRoot: root,
+      cacheRoot: path.join(root, 'cache'),
+      os: 'darwin',
+    });
+    const identities = resolveVisualPackIdentities(records);
+
+    expect(JSON.parse(handles.visualEmbedPack ?? '{}').version).toBe(
+      identities.visualEmbedPack?.version,
+    );
+    expect(identities.visualEmbedPack?.version).toBe('1.2.0');
+  });
+
+  it('names no identity for an unhealthy pack', () => {
+    const unhealthy = record(VISUAL_EMBED_PACK_ID, '1.0.0', {
+      health: { checkedAt: timestamp, workerProtocolVersion: 1, status: 'unhealthy' },
+    });
+
+    expect(resolveVisualPackIdentities([unhealthy])).toEqual({});
   });
 });
 

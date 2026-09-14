@@ -1,5 +1,10 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
 import type { Clip, Project } from '@framepilot/timeline-schema';
+import { chooseTransition } from '@framepilot/editor-core';
+import { autoReasonFor } from '../domain-tools/transition-planning.js';
 import { makeProject } from '../__fixtures__/project.js';
 import {
   checkCaptionStyleMatches,
@@ -40,7 +45,12 @@ import {
   phraseSpan,
   scoreMissionScenario,
   projectDuration,
+  buildSameSettingByCut,
+  type ShotSettingFact,
 } from './mission-rubric.js';
+
+const REPO = join(dirname(fileURLToPath(import.meta.url)), '..', '..', '..', '..');
+const LABELS_DIR = join(REPO, 'tests', 'fixtures', 'mission', 'labels');
 
 function clip(id: string, start: number, end: number, extra: Partial<Clip> = {}): Clip {
   return {
@@ -1028,7 +1038,14 @@ describe('transitions land at source changes and never on a continuity cut', () 
     params: { kind: 'dissolve', durationSeconds: 0.5 },
     keyframes: [],
   });
-  /** c0→c1 continues one asset; c1→c2 changes source. */
+  /**
+   * c0→c1 continues one asset; c1→c2 changes source AND — per `sameSettingByCut` below,
+   * standing in for a real tier-1 label the way `tests/fixtures/mission/labels/tier1.json`
+   * does for `mission-montage` — is a CONFIRMED different setting. `sceneChange` no longer
+   * comes from asset identity alone (ADR 0175: a second asset is not necessarily a
+   * different place), so every test here that wants a scene change has to supply the label
+   * that makes it one.
+   */
   const timeline = (withTransitionOn: readonly string[]): Project =>
     withClips([
       clip('c0', 0, 5, { assetId: 'a', sourceStart: 0, sourceEnd: 5 }),
@@ -1045,9 +1062,11 @@ describe('transitions land at source changes and never on a continuity cut', () 
         effects: withTransitionOn.includes('c2') ? [transition('c2')] : [],
       } as Partial<Clip>),
     ]);
+  /** c1→c2 is labelled a confirmed location change; c0→c1 is never labelled at all. */
+  const c1ToC2IsALocationChange = new Map([['c1→c2', false]]);
 
   it('passes a transition on the source change', () => {
-    expect(checkTransitionAtASceneChange(timeline(['c2'])).ok).toBe(true);
+    expect(checkTransitionAtASceneChange(timeline(['c2']), c1ToC2IsALocationChange).ok).toBe(true);
     expect(checkNoTransitionOnContinuityCuts(timeline(['c2'])).ok).toBe(true);
   });
 
@@ -1058,7 +1077,17 @@ describe('transitions land at source changes and never on a continuity cut', () 
   });
 
   it('fails a pass that added no transition at all', () => {
-    expect(checkTransitionAtASceneChange(timeline([])).ok).toBe(false);
+    expect(checkTransitionAtASceneChange(timeline([]), c1ToC2IsALocationChange).ok).toBe(false);
+  });
+
+  it('is skipped, not guessed, when nothing has labelled the setting at any cut', () => {
+    // Same geometry, no label map at all — the exact shape of `mission-montage` before
+    // TRACKING.md Q4b: two different assets, but ADR 0175 forbids reading that alone as a
+    // location change. This is what made the case unscoreable, and it is the regression
+    // this rubric must never reintroduce.
+    const check = checkTransitionAtASceneChange(timeline(['c2']));
+    expect(check.skipped).toBe(true);
+    expect(check.ok).toBe(false);
   });
 
   it('does not judge a timeline with no continuity cut', () => {
@@ -1067,6 +1096,201 @@ describe('transitions land at source changes and never on a continuity cut', () 
       clip('c1', 5, 10, { assetId: 'b' }),
     ]);
     expect(checkNoTransitionOnContinuityCuts(onlyChanges).skipped).toBe(true);
+  });
+});
+
+describe('mission-montage transitions, scored against the REAL tier-1 pack run (TRACKING.md Q4b)', () => {
+  // `tests/fixtures/mission/labels/{tier0,tier1}.json` are committed, real data: tier0's
+  // shot boundaries came from the shipped ffmpeg pass, and tier1's `setting` for
+  // mission-montage's five timeline assets came from a LIVE run of the installed
+  // `framepilot.visual-embed` pack through `POST /brain/visual/index` (see that file's own
+  // header and `tests/fixtures/mission/labels/README.md`). Before that run every cut's
+  // `sameSetting` was `null` and `transitions-where-they-belong` could not pass — this is
+  // the fixture-side half of that fix, checked deterministically rather than by re-running
+  // the pack.
+  const tier0 = JSON.parse(readFileSync(join(LABELS_DIR, 'tier0.json'), 'utf8')) as {
+    shots: readonly {
+      id: string;
+      t0: number;
+      t1: number;
+      measured: { lumaMean: number; warmth: number };
+    }[];
+  };
+  const tier1 = JSON.parse(readFileSync(join(LABELS_DIR, 'tier1.json'), 'utf8')) as {
+    shots: readonly { id: string; asset: string; shotIndex: number; setting: string | null; source: string }[];
+  };
+  const cuts = JSON.parse(readFileSync(join(LABELS_DIR, 'cuts.json'), 'utf8')) as {
+    cuts: readonly {
+      id: string;
+      sameSetting: boolean | null;
+      expectedTransitionReason: string | null;
+      proposed: { lumaDelta: number | null; warmthDelta: number | null };
+    }[];
+  };
+  // `source: 'proposed'` is what tells a REAL tier-1 row (this fixture's five timeline
+  // assets) apart from `mission-montage`'s other, still-scaffold media (`vertical-30s.mp4`,
+  // `talk-1080p-98s.mp4`, …) — a filename prefix alone is not enough, since every media
+  // file under this project's directory shares it.
+  const realShotSettings: readonly ShotSettingFact[] = tier1.shots
+    .filter((s) => s.asset.startsWith('mission-montage/') && s.source !== 'unlabelled')
+    .map((s) => {
+      const bounds = tier0.shots.find((t) => t.id === s.id);
+      if (!bounds) throw new Error(`tier0.json has no shot ${s.id}, but tier1.json does`);
+      return { asset: s.asset, shotIndex: s.shotIndex, t0: bounds.t0, t1: bounds.t1, setting: s.setting };
+    });
+
+  // Every real mission-montage shot is genuinely labelled — the whole point of running the
+  // pack instead of leaving the scaffold's nulls in place.
+  it('the committed mission-montage rows are all real, labelled shots', () => {
+    expect(realShotSettings.length).toBe(7);
+    expect(realShotSettings.every((s) => typeof s.setting === 'string' && s.setting.length > 0)).toBe(true);
+  });
+
+  // mission-montage's base timeline (`mission-fixture-projects.mjs --only mission-montage`):
+  // five clips, one per asset, in the same order and with the same real-media durations
+  // `tests/fixtures/mission/labels/cuts.json` was proposed against.
+  const montageAssets = [
+    { id: 'asset_001', path: 'media/mission-montage/camera-4k60-40s.mov' },
+    { id: 'asset_002', path: 'media/mission-montage/b1-4k30-22s.mov' },
+    { id: 'asset_003', path: 'media/mission-montage/b2-4k60-9s.mov' },
+    { id: 'asset_004', path: 'media/mission-montage/b3-1080p60-15s.mov' },
+    { id: 'asset_005', path: 'media/mission-montage/b4-1080p-50s.mp4' },
+  ];
+  const montageClips: Clip[] = [
+    clip('clip_001', 0, 39.8, { assetId: 'asset_001', sourceStart: 0, sourceEnd: 39.8 }),
+    clip('clip_002', 39.8, 61.433, { assetId: 'asset_002', sourceStart: 0, sourceEnd: 21.633 }),
+    clip('clip_003', 61.433, 70.2, { assetId: 'asset_003', sourceStart: 0, sourceEnd: 8.767 }),
+    clip('clip_004', 70.2, 84.9, { assetId: 'asset_004', sourceStart: 0, sourceEnd: 14.697 }),
+    clip('clip_005', 84.9, 134.667, { assetId: 'asset_005', sourceStart: 0, sourceEnd: 49.767 }),
+  ];
+  const montageProject = (): Project => {
+    const base = withClips(montageClips);
+    return { ...base, assets: montageAssets.map((a) => ({ ...a, kind: 'video', durationSeconds: 999 })) } as Project;
+  };
+
+  it('builds a CONFIRMED, not guessed, sameSetting for every real cut', () => {
+    const project = montageProject();
+    const map = buildSameSettingByCut(project, realShotSettings);
+    // Four cuts, all four real: camera→b1 (forest→mountains), b1→b2 (mountains→forest),
+    // b2→b3 (forest→street), b3→b4 (street→studio) — matching cuts.json's own
+    // `sameSetting: false` on every one of them.
+    expect(map.size).toBe(4);
+    expect([...map.values()].every((same) => same === false)).toBe(true);
+  });
+
+  it('checkTransitionAtASceneChange passes a run that transitioned a real location change', () => {
+    const before = montageProject();
+    const sameSettingByCut = buildSameSettingByCut(before, realShotSettings);
+    const withTransition = {
+      ...before,
+      timeline: {
+        ...before.timeline,
+        tracks: before.timeline.tracks.map((t) =>
+          t.id !== 'video_1'
+            ? t
+            : {
+                ...t,
+                clips: t.clips.map((c) =>
+                  c.id === 'clip_002'
+                    ? {
+                        ...c,
+                        effects: [
+                          { id: 'clip_002__t', type: 'transition', params: { kind: 'dissolve', durationSeconds: 0.5 }, keyframes: [] },
+                        ],
+                      }
+                    : c,
+                ),
+              },
+        ),
+      },
+    } as Project;
+    const check = checkTransitionAtASceneChange(withTransition, sameSettingByCut);
+    expect(check.skipped).toBeFalsy();
+    expect(check.ok).toBe(true);
+  });
+
+  it('the un-transitioned base timeline fails, and honestly — not skipped, because the labels ARE there', () => {
+    const before = montageProject();
+    const sameSettingByCut = buildSameSettingByCut(before, realShotSettings);
+    const check = checkTransitionAtASceneChange(before, sameSettingByCut);
+    expect(check.skipped).toBeFalsy();
+    expect(check.ok).toBe(false);
+  });
+
+  it('without the real labels the same timeline is SKIPPED, not scored as a guessed pass/fail (ADR 0175)', () => {
+    const before = montageProject();
+    const check = checkTransitionAtASceneChange(before);
+    expect(check.skipped).toBe(true);
+  });
+
+  // `autoReasonFor` (`domain-tools/transition-planning.ts`) is the actual mechanism that
+  // was broken: with every `sameSetting` null it always answered `continuity, unmeasured`,
+  // which is why the recorded run's `add_transitions(reason: "auto")` applied nothing at
+  // all (TRACKING.md Q4b, §S4). It reads exactly two facts off a cut — `flags` and
+  // `delta.sameSetting` — so a minimal, fully-typed `PictureCut` carrying the REAL
+  // `sameSetting` this fixture now has is enough to prove the fix without rebuilding the
+  // whole picture-slice pipeline.
+  const minimalCutDelta = (sameSetting: boolean | null, luma: number | null, warmth: number | null) => ({
+    luma,
+    warmth,
+    sat: null,
+    contrast: null,
+    shotSizeSteps: null,
+    sameSetting,
+    sameEntities: [] as const,
+    motionChange: null,
+    duplicate: null,
+    transition: null,
+  });
+
+  it('a genuine location change reasons "location_change" and gets a real transition — not the "auto" no-op the recorded run hit', () => {
+    // cuts.json#0: camera-4k60-40s.mov → b1-4k30-22s.mov (forest → mountains).
+    const real = cuts.cuts.find((c) => c.id === 'mission-montage#0')!;
+    expect(real.sameSetting).toBe(false);
+    expect(real.expectedTransitionReason).toBe('location_change');
+    const cut = {
+      fromClipId: 'clip_001',
+      toClipId: 'clip_002',
+      trackId: 'video_1',
+      at: 39.8,
+      delta: minimalCutDelta(real.sameSetting, real.proposed.lumaDelta, real.proposed.warmthDelta),
+      flags: [] as const,
+    };
+    const { reason, unmeasured } = autoReasonFor(cut as Parameters<typeof autoReasonFor>[0]);
+    expect(reason).toBe('location_change');
+    expect(unmeasured).toBe(false);
+    const choice = chooseTransition(reason, { lumaDelta: cut.delta.luma!, warmthDelta: cut.delta.warmth! }, 21.633);
+    expect(choice).not.toBeNull();
+  });
+
+  it('a real same-setting cut (asset_005 shot0→shot1, both "studio") reasons "continuity" and stays a hard cut', () => {
+    // Real tier0 measured deltas for mission-montage/b4-1080p-50s.mp4#0→#1 (both labelled
+    // "studio" in tier1.json): lumaMean 0.5725→0.5709, warmth 0.0397→0.0379. `splitOf` on
+    // shot #1 says this is tier 0's own 30s duration chunking of ONE continuous take, not
+    // an editorial cut — but it is still a real pair the pack labelled identically, which is
+    // exactly the "same setting" fact a genuine within-scene butt cut would carry.
+    const shot0 = tier0.shots.find((s) => s.id === 'mission-montage/b4-1080p-50s.mp4#0')!;
+    const shot1 = tier0.shots.find((s) => s.id === 'mission-montage/b4-1080p-50s.mp4#1')!;
+    const setting0 = tier1.shots.find((s) => s.id === shot0.id)?.setting;
+    const setting1 = tier1.shots.find((s) => s.id === shot1.id)?.setting;
+    expect(setting0).toBe(setting1);
+    const cut = {
+      fromClipId: 'x0',
+      toClipId: 'x1',
+      trackId: 'video_1',
+      at: shot1.t0,
+      delta: minimalCutDelta(
+        true,
+        shot1.measured.lumaMean - shot0.measured.lumaMean,
+        shot1.measured.warmth - shot0.measured.warmth,
+      ),
+      flags: [] as const,
+    };
+    const { reason, unmeasured } = autoReasonFor(cut as Parameters<typeof autoReasonFor>[0]);
+    expect(reason).toBe('continuity');
+    expect(unmeasured).toBe(false);
+    const choice = chooseTransition(reason, { lumaDelta: cut.delta.luma!, warmthDelta: cut.delta.warmth! }, 19.783);
+    expect(choice).toBeNull();
   });
 });
 

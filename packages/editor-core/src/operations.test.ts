@@ -20,6 +20,7 @@ import {
 } from './operations.js';
 import { evaluateKeyframes } from './keyframes.js';
 import { clipTimelineDuration } from './speed-curve.js';
+import { validatePatch } from './validator.js';
 
 // --- fixtures --------------------------------------------------------------
 
@@ -1451,6 +1452,60 @@ describe('clip-attribute operations', () => {
     expect(effects.find((effect) => effect.id === 'a__mask')?.params.shape).toBe('rectangle');
     expect(effects.find((effect) => effect.id === 'a__track')?.params.target).toBe('object');
   });
+
+  it('S3 residual: restating add_mask keeps the mask at its ORIGINAL index, rather than moving it to the end', () => {
+    // The tracking command re-states `<clip>__mask` on every tracked-region update
+    // (commit f494917e). `add_mask` used to filter the existing mask out and push
+    // the new one back on, which silently moved it BEHIND any effect added after it
+    // (a grade, a blur...) — effects composite in list order, so that is a visible
+    // re-ordering of the stack, not just bookkeeping.
+    const withMaskFirst = applyOperation(baseTimeline(), {
+      type: 'add_mask',
+      clipId: 'a',
+      shape: 'ellipse',
+    });
+    const withGradeAfter = applyOperation(withMaskFirst, {
+      type: 'apply_color_grade',
+      clipId: 'a',
+      effect: { id: 'a__grade', type: 'color_grade', params: { exposure: 0.2 }, keyframes: [] },
+    });
+    const restated = applyOperation(withGradeAfter, {
+      type: 'add_mask',
+      clipId: 'a',
+      shape: 'rectangle',
+    });
+    const ids = findClipById(restated, 'a')!.effects.map((e) => e.id);
+    expect(ids.indexOf('a__mask')).toBe(0);
+    expect(ids.indexOf('a__grade')).toBe(1);
+    expect(findClipById(restated, 'a')!.effects[0]?.params.shape).toBe('rectangle');
+  });
+
+  it('S3 residual: restating track_object keeps the tracker at its ORIGINAL index, rather than moving it to the end', () => {
+    // Same defect as add_mask, same fix: `object_track` is re-stated on every
+    // tracked-region update, and used to filter the existing effect out and push
+    // the new one to the end, silently reordering it behind any effect added
+    // afterward — effects composite in list order.
+    const withTrackFirst = applyOperation(baseTimeline(), {
+      type: 'track_object',
+      clipId: 'a',
+      target: 'face',
+    });
+    const withGradeAfter = applyOperation(withTrackFirst, {
+      type: 'apply_color_grade',
+      clipId: 'a',
+      effect: { id: 'a__grade', type: 'color_grade', params: { exposure: 0.2 }, keyframes: [] },
+    });
+    const restated = applyOperation(withGradeAfter, {
+      type: 'track_object',
+      clipId: 'a',
+      target: 'object',
+      engine: 'manual',
+    });
+    const ids = findClipById(restated, 'a')!.effects.map((e) => e.id);
+    expect(ids.indexOf('a__track')).toBe(0);
+    expect(ids.indexOf('a__grade')).toBe(1);
+    expect(findClipById(restated, 'a')!.effects[0]?.params.target).toBe('object');
+  });
 });
 
 // --- restore_clips (inverse primitive) ------------------------------------
@@ -2708,8 +2763,247 @@ describe('set_clip_speed_ramp', () => {
     const left = track.clips[0]!;
     const leftSpan = left.sourceEnd - left.sourceStart;
     // The left piece ends where the cut fell on the curve, at the rate the curve had there.
+    // (For a LINEAR segment the area-conserving solve and the plain held-rate value
+    // coincide exactly — see the eased cases below for where they diverge.)
     expect(left.speedRamp?.at(-1)).toMatchObject({ sourceTime: leftSpan });
     expect(left.speedRamp?.at(-1)?.rate).toBeCloseTo(2 - 1.5 * (leftSpan / 5), 2);
+  });
+
+  /** The exact fixture from run `3ed87ff0` (L4/L5): a 3-point EASED whip-into-slow-mo. */
+  const easedRamped = (): Timeline => ({
+    tracks: [
+      {
+        id: 'v1',
+        type: 'video',
+        clips: [
+          clip({
+            id: 'a',
+            trackId: 'v1',
+            start: 55.233333333333334,
+            end: 58.266666666666666,
+            sourceStart: 462,
+            sourceEnd: 465.31668157155883,
+            speedRamp: [
+              { id: 'r0', sourceTime: 0, rate: 1.8, easing: 'ease-in-out' },
+              { id: 'r1', sourceTime: 0.9, rate: 0.35, easing: 'ease-in-out' },
+              { id: 'r2', sourceTime: 1.4, rate: 1.6, easing: 'ease-in-out' },
+            ],
+          }),
+        ],
+      },
+    ],
+  });
+
+  it('L5: split_clip past an EASED control point still partitions the source exactly and conserves each piece\'s own area', () => {
+    // Before the fix, the piece straddling the cut carried a synthetic point at the
+    // HELD rate (the naive `rateAt` value) — the right VALUE but not the right AREA,
+    // because an `ease-in-out` restricted to part of its span sweeps a different area
+    // than the same easing between the same endpoint values over the full span. The
+    // piece's own curve then integrated to something other than its timeline slot.
+    const before = findClipById(easedRamped(), 'a')!;
+    // Cut inside the middle segment (0.9s–1.4s source), past its control point at 0.9s —
+    // exactly the shape of trim that used to drift in L4.
+    const at = before.start + 1.2;
+    const split = applyOperation(easedRamped(), { type: 'split_clip', clipId: 'a', at });
+    const [left, right] = split.tracks[0]!.clips;
+
+    // (a) the source seam is exact — the whole point of NOT moving it, unlike trim_clip.
+    expect(left!.sourceEnd).toBe(right!.sourceStart);
+
+    // (b) each piece's own (rebased) curve integrates to its own timeline slot, within
+    // the validator's own `speed_duration_mismatch` tolerance (1e-6) — residual far
+    // below one frame (~0.03s @30fps).
+    expect(clipTimelineDuration(left!)).toBeCloseTo(left!.end - left!.start, 6);
+    expect(clipTimelineDuration(right!)).toBeCloseTo(right!.end - right!.start, 6);
+
+    // (c) the pieces still sum to the original clip's duration.
+    expect((left!.end - left!.start) + (right!.end - right!.start)).toBeCloseTo(
+      before.end - before.start,
+      9,
+    );
+
+    // The validator (which independently recomputes each clip's implied duration)
+    // agrees: no `speed_duration_mismatch`.
+    const result = validatePatch(easedRamped(), {
+      operations: [{ type: 'split_clip', clipId: 'a', at }],
+    });
+    expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
+    expect(result.valid).toBe(true);
+  });
+
+  it('L5: split_clip round-trips an eased ramp exactly through invert, even where it had to solve a synthetic rate', () => {
+    const before = findClipById(easedRamped(), 'a')!;
+    const at = before.start + 1.2;
+    expectRoundTrip(easedRamped(), { type: 'split_clip', clipId: 'a', at });
+  });
+
+  it('L5: delete_range through the middle of an EASED segment conserves each remainder\'s own area', () => {
+    // Same defect as the split case, but `delete_range` produces TWO remainders
+    // around a gap, and (unlike split) each one loses a real chunk of footage, not
+    // just a re-partition — so both a head cut (right remainder) and a tail cut
+    // (left remainder) land inside the same eased segment here.
+    const before = findClipById(easedRamped(), 'a')!;
+    const gapStart = before.start + 1.0;
+    const gapEnd = before.start + 1.2;
+    const deleted = applyOperation(easedRamped(), {
+      type: 'delete_range',
+      trackId: 'v1',
+      start: gapStart,
+      end: gapEnd,
+    });
+    const [left, right] = deleted.tracks[0]!.clips;
+    expect(left!.id).toBe('a__l');
+    expect(right!.id).toBe('a__r');
+
+    // (a) each remainder's own source range is a real, exact sub-partition — no gap
+    // or overlap in SOURCE time either (the footage itself must still add up).
+    expect(right!.sourceStart).toBeGreaterThan(left!.sourceEnd);
+
+    // (b) each remainder's own curve integrates to its own timeline slot.
+    expect(clipTimelineDuration(left!)).toBeCloseTo(left!.end - left!.start, 6);
+    expect(clipTimelineDuration(right!)).toBeCloseTo(right!.end - right!.start, 6);
+
+    // (c) the remainders' timeline durations sum to the original minus the deleted gap.
+    expect((left!.end - left!.start) + (right!.end - right!.start)).toBeCloseTo(
+      before.end - before.start - (gapEnd - gapStart),
+      9,
+    );
+
+    const result = validatePatch(easedRamped(), {
+      operations: [
+        { type: 'delete_range', trackId: 'v1', start: gapStart, end: gapEnd },
+      ],
+    });
+    expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
+    expect(result.valid).toBe(true);
+  });
+
+  it('L5 review finding: trim_clip cutting BOTH edges inside the SAME eased segment still conserves area', () => {
+    // A two-sided `trim_clip` moves the head AND the tail in one call, which is the
+    // most direct way to reach this: any interior two-sided trim of a clip whose
+    // ramp is ONE eased segment spanning its whole footage cuts both edges inside
+    // that one segment. When that happens neither original control point survives
+    // the rebase, which is why `rebaseSpeedRamp` now solves the pair JOINTLY
+    // (`jointSyntheticPoints`) instead of independently — see the next test for the
+    // narrower way `split_clip`/`delete_range` can also land here.
+    //
+    // Built through `set_clip_speed_ramp` so `end` is DERIVED from the curve — a
+    // clip's stored duration must match its own curve's integral, or the fixture
+    // asserts against a state the product can never actually reach.
+    const wholeClipIsOneSegment = applyOperation(
+      {
+        tracks: [
+          {
+            id: 'v1',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', trackId: 'v1', start: 0, end: 10, sourceStart: 0, sourceEnd: 10 }),
+            ],
+          },
+        ],
+      },
+      {
+        type: 'set_clip_speed_ramp',
+        clipId: 'a',
+        ramp: [
+          { id: 'p1', sourceTime: 0, rate: 0.5, easing: 'ease-in-out' },
+          { id: 'p2', sourceTime: 10, rate: 4, easing: 'ease-in-out' },
+        ],
+      },
+    );
+    const before = findClipById(wholeClipIsOneSegment, 'a')!;
+    const after = applyOperation(wholeClipIsOneSegment, {
+      type: 'trim_clip',
+      clipId: 'a',
+      start: before.start + 1,
+      end: before.end - 1,
+    });
+    const a = findClipById(after, 'a')!;
+
+    // Proves the scenario was actually EXERCISED, not vacuously skipped: neither
+    // original control point (`p1`/`p2`) survives — the rebased curve is exactly
+    // the synthetic head/tail pair `jointSyntheticPoints` produces.
+    expect(a.speedRamp?.map((p) => p.id)).toEqual(['a__ramp_head', 'a__ramp_tail']);
+
+    expect(clipTimelineDuration(a)).toBeCloseTo(a.end - a.start, 6);
+
+    const result = validatePatch(wholeClipIsOneSegment, {
+      operations: [
+        { type: 'trim_clip', clipId: 'a', start: before.start + 1, end: before.end - 1 },
+      ],
+    });
+    expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
+    expect(result.valid).toBe(true);
+  });
+
+  it('L5 review finding: split_clip/delete_range can ALSO reach a same-segment double cut, via a boundary artifact — and still conserve area', () => {
+    // `jointSyntheticPoints` exists for `trim_clip` (previous test). `split_clip`
+    // and `delete_range` each cut a piece on exactly ONE edge SEMANTICALLY — the
+    // other edge stays pinned to the original clip's own start or end — but this
+    // scenario turns out to be reachable there too, in a narrower way: `truncateClip`
+    // computes the untouched edge's source position by INVERTING the curve
+    // (`sourceOffsetForTimeline` / bisection), which can land a hair short of the
+    // exact original control point in floating point even when nothing was
+    // conceptually cut there. `rebaseSpeedRamp` then sees a "real" point just past
+    // that computed boundary and adds a synthetic point for it too — so a piece
+    // CAN carry both a head-cut and a tail-cut synthetic point despite only one
+    // edge actually moving. This asserts the invariant that matters (each piece's
+    // own curve still integrates to its own timeline slot) rather than the
+    // narrower, false claim that both-cuts-in-one-segment cannot happen here.
+    const wholeClipIsOneSegment = applyOperation(
+      {
+        tracks: [
+          {
+            id: 'v1',
+            type: 'video',
+            clips: [
+              clip({ id: 'a', trackId: 'v1', start: 0, end: 10, sourceStart: 0, sourceEnd: 10 }),
+            ],
+          },
+        ],
+      },
+      {
+        type: 'set_clip_speed_ramp',
+        clipId: 'a',
+        ramp: [
+          { id: 'p1', sourceTime: 0, rate: 0.5, easing: 'ease-in-out' },
+          { id: 'p2', sourceTime: 10, rate: 4, easing: 'ease-in-out' },
+        ],
+      },
+    );
+    const before = findClipById(wholeClipIsOneSegment, 'a')!;
+    const cutAt = before.start + (before.end - before.start) / 2;
+
+    const split = applyOperation(wholeClipIsOneSegment, {
+      type: 'split_clip',
+      clipId: 'a',
+      at: cutAt,
+    });
+    expect(split.tracks[0]!.clips).toHaveLength(2);
+    for (const piece of split.tracks[0]!.clips) {
+      expect(clipTimelineDuration(piece)).toBeCloseTo(piece.end - piece.start, 6);
+    }
+    const splitResult = validatePatch(wholeClipIsOneSegment, {
+      operations: [{ type: 'split_clip', clipId: 'a', at: cutAt }],
+    });
+    expect(splitResult.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
+
+    const gapStart = before.start + (before.end - before.start) * 0.4;
+    const gapEnd = before.start + (before.end - before.start) * 0.6;
+    const deleted = applyOperation(wholeClipIsOneSegment, {
+      type: 'delete_range',
+      trackId: 'v1',
+      start: gapStart,
+      end: gapEnd,
+    });
+    expect(deleted.tracks[0]!.clips).toHaveLength(2);
+    for (const piece of deleted.tracks[0]!.clips) {
+      expect(clipTimelineDuration(piece)).toBeCloseTo(piece.end - piece.start, 6);
+    }
+    const deleteResult = validatePatch(wholeClipIsOneSegment, {
+      operations: [{ type: 'delete_range', trackId: 'v1', start: gapStart, end: gapEnd }],
+    });
+    expect(deleteResult.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
   });
 
   it('round-trips clearing a ramp back to constant speed', () => {
@@ -2898,7 +3192,12 @@ describe('edge ops are speed-aware (ADR 0046 known limitation, fixed in v15)', (
     ]) {
       const after = applyOperation(ramped, { type: 'trim_clip', clipId: 'a', start, end });
       const a = findClipById(after, 'a')!;
-      expect(clipTimelineDuration(a)).toBeCloseTo(a.end - a.start, 9);
+      // 6 places, matching the validator's own `SPEED_EPSILON` (1e-6): `rebaseSpeedRamp`
+      // now solves an area-conserving synthetic point (L5) INSIDE `solveEndSource`'s own
+      // bisection, so the two nested searches compound to ~1e-8 here — negligible next to
+      // a frame (~0.03s) and well inside what the validator actually enforces, but no
+      // longer near machine epsilon the way a single un-nested bisection was.
+      expect(clipTimelineDuration(a)).toBeCloseTo(a.end - a.start, 6);
       expect(a.end - a.start).toBeCloseTo(end - start, 9);
     }
   });

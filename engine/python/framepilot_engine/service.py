@@ -28,7 +28,7 @@ import re
 import signal
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -251,7 +251,7 @@ from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.singleflight import AsyncSingleFlight, SingleFlight
-from framepilot_engine.timeline.models import Project, ProjectFile, ProjectFileError
+from framepilot_engine.timeline.models import Asset, Project, ProjectFile, ProjectFileError
 from framepilot_engine.validation.render_validation import (
     ExpectedRender,
     ValidationReport,
@@ -2320,12 +2320,26 @@ def create_app(
             return _embedder_cache[0]
 
     def reindex_project_embeddings(store: BrainStore, project: Project) -> tuple[int, str | None]:
-        """Rebuild the embeddings for one project document (plan B3.2).
+        """Rebuild the embeddings for one project document (plan B3.2/MI3.2).
 
-        Embeds the transcript's utterances plus each brain-known asset's
-        bin-summary digest in one batch. Honest degradation: with no embedder
-        the rows are left untouched and the reason is reported, never a
+        Embeds the transcript's utterances, each brain-known asset's bin-summary digest,
+        and every INFORMATIVE indexed visual caption, in one batch. Honest degradation:
+        with no embedder the rows are left untouched and the reason is reported, never a
         fabricated count.
+
+        Captions matter here specifically for ``find_similar`` (R4.4): a keyless,
+        pack-only brain (the local ``framepilot.visual-describe`` pack, no hosted key, no
+        image-vector search per ADR 0064) can answer "moments like X" about its footage
+        ONLY through this text-embedded caption channel — there is no other route from a
+        visual fact into this function's space. ``replace_embeddings`` swaps ALL rows for
+        the model, so this MUST run captions alongside utterances/digests every time: a
+        caller that reindexed without them (as this used to, and as ``/brain/similar``
+        calls on every turn because the agent loop always posts its live working copy)
+        was silently deleting the caption rows a visual-index pass had just written,
+        making a pack-only brain's footage unfindable again within one turn of being
+        indexed. ``is_informative_caption`` keeps a placeholder/invented caption
+        (R4.1) out of this recall space exactly as it already keeps one out of
+        ``search_visual``'s caption FTS lane.
 
         :returns: ``(rows_written, unavailable_reason)``.
         """
@@ -2341,7 +2355,12 @@ def create_app(
             )
             for asset in store.list_assets()
         ]
-        rows = build_embedding_rows(resolution.embedder, utterances, digests)
+        captions = [
+            caption
+            for caption in store.list_visual_captions()
+            if is_informative_caption(caption.text)
+        ]
+        rows = build_embedding_rows(resolution.embedder, utterances, digests, captions)
         return store.replace_embeddings(resolution.embedder.model_id, rows), None
 
     @app.post("/brain/index", response_model=BrainIndexResponse)
@@ -3411,31 +3430,6 @@ def create_app(
         for (asset_id, content_hash), rows in by_asset.items():
             store.upsert_shots(asset_id, content_hash, "labelled", rows)
         return changed
-
-    def _reindex_embeddings_with_captions(store: BrainStore, project: Project) -> None:
-        """Rebuild the unified text-recall space including captions (plan MI3.2).
-
-        ``replace_embeddings`` swaps ALL rows for the model, so captions can only
-        be text-embedded alongside the transcript utterances and asset digests —
-        embedding captions alone would clobber the transcript space. That is why
-        this runs only when a project document is supplied (utterances need it).
-        """
-        resolution = embedder_resolution()
-        if resolution.embedder is None:
-            return
-        utterances = segment_utterances(list(project.transcript))
-        digests = [
-            AssetDigest(
-                asset_id=asset.id,
-                path=asset.path,
-                text=asset_section(asset, store.list_analysis(asset.id)),
-            )
-            for asset in store.list_assets()
-        ]
-        rows = build_embedding_rows(
-            resolution.embedder, utterances, digests, captions=store.list_visual_captions()
-        )
-        store.replace_embeddings(resolution.embedder.model_id, rows)
 
     def _timeline_order(req: VisualIndexRequest) -> dict[str, float] | None:
         """Each timeline asset's first appearance in seconds, or ``None`` without a project.
@@ -4681,7 +4675,7 @@ def create_app(
                         ),
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
-                        _reindex_embeddings_with_captions(
+                        reindex_project_embeddings(
                             store, load_project_document(req.project_path, req.project)
                         )
                     elif captioned:
@@ -6365,6 +6359,94 @@ def create_app(
         media_path = sandbox(str(media_base / asset.path))
         return asset.id, media_path
 
+    #: Bound on how many candidates §S5's wrong-kind reason will actually probe —
+    #: even a bin with dozens of same-kind assets pays for at most this many
+    #: ffprobes on the (rare) wrong-kind path before giving up on finding more.
+    _COMPATIBLE_ASSET_PROBE_LIMIT = 8
+    #: How many verified-compatible ids the reason names.
+    _COMPATIBLE_ASSET_NAME_LIMIT = 5
+
+    def _make_asset_media_prober(
+        brain: BrainStore | None,
+        assets_by_id: Mapping[str, Asset],
+        media_base: Path,
+        timeout: float,
+    ) -> Callable[[str], MediaInfo | None]:
+        """Build a cheap ``asset_id -> MediaInfo | None`` lookup for §S5 candidates.
+
+        Checks the brain's cached probe first (already paid for by an earlier
+        ``/analyze`` pass on that asset); only falls back to a fresh ffprobe when
+        there is no cache and no brain. Returns ``None`` (never guesses) when the
+        asset is unknown or its file cannot be probed — a candidate this can't
+        verify is never named as "would work".
+        """
+
+        def probe(asset_id: str) -> MediaInfo | None:
+            if brain is not None:
+                row = brain.get_asset(asset_id)
+                if row is not None and row.probe is not None:
+                    try:
+                        return MediaInfo.model_validate(row.probe)
+                    except PydanticValidationError:
+                        pass
+            asset = assets_by_id.get(asset_id)
+            if asset is None:
+                return None
+            try:
+                path = sandbox(str(media_base / asset.path))
+                return inspect_media(path, timeout=timeout)
+            except (FileNotFoundError, FFmpegError, OSError, PathTraversalError):
+                return None
+
+        return probe
+
+    def _assets_compatible_with(
+        assets: list[Asset],
+        *,
+        exclude_id: str,
+        needs_audio: bool,
+        needs_video: bool,
+        probe: Callable[[str], MediaInfo | None] | None,
+    ) -> str:
+        """Name up to a few other project assets *verified* to fit this analyzer.
+
+        Used to turn a wrong-media-kind skip/unavailable reason into something
+        actionable (§S5): a caller who tried a video-only asset on an
+        audio-only analyzer should be told *which* asset would actually work, not
+        just that this one doesn't. Declared ``kind`` only narrows the search —
+        a ``kind: "video"`` asset can itself be video-only, which is exactly the
+        failure that triggered this reason, so nothing is named without a real
+        probe (cached or fresh) confirming it actually has the needed stream.
+        """
+        declared_compatible = (a for a in assets if a.id != exclude_id)
+        if needs_audio:
+            declared_compatible = (a for a in declared_compatible if a.kind in {"video", "audio"})
+        if needs_video:
+            declared_compatible = (a for a in declared_compatible if a.kind == "video")
+
+        verified: list[str] = []
+        if probe is not None:
+            probed = 0
+            for asset in declared_compatible:
+                if (
+                    probed >= _COMPATIBLE_ASSET_PROBE_LIMIT
+                    or len(verified) >= _COMPATIBLE_ASSET_NAME_LIMIT
+                ):
+                    break
+                info = probe(asset.id)
+                probed += 1
+                if info is None:
+                    continue
+                if needs_audio and not info.has_audio:
+                    continue
+                if needs_video and (not info.has_video or info.is_image):
+                    continue
+                verified.append(asset.id)
+
+        if not verified:
+            return "No other asset in this project would work for this analysis either."
+        return f"Assets that would work instead: {', '.join(verified)}."
+
     def run_analyzer(
         kind: AnalysisKind,
         media_path: Path,
@@ -6372,6 +6454,8 @@ def create_app(
         *,
         timeout: float,
         asset_id: str | None = None,
+        other_assets: list[Asset] | None = None,
+        probe_asset: Callable[[str], MediaInfo | None] | None = None,
     ) -> AnalysisEntry:
         """Run one analyzer for the unified pass, mapping every outcome to a
         typed :class:`AnalysisEntry` (plan B1.2).
@@ -6394,17 +6478,27 @@ def create_app(
             # when the analyzer raises NoAudioStreamError, and the agent host settles it as a
             # warning there. As SKIPPED it settled as a hard failure — and stock video, which
             # is usually video-only, is exactly what "detect beats on the stock clip" targets.
-            return AnalysisEntry(
-                kind=kind,
-                status=AnalysisEntryStatus.UNAVAILABLE,
-                reason=f"{media_path.name} has no audio track, so there is nothing to analyse.",
-            )
+            reason = f"{media_path.name} has no audio track, so there is nothing to analyse."
+            if other_assets is not None and asset_id is not None:
+                reason += " " + _assets_compatible_with(
+                    other_assets,
+                    exclude_id=asset_id,
+                    needs_audio=True,
+                    needs_video=False,
+                    probe=probe_asset,
+                )
+            return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.UNAVAILABLE, reason=reason)
         if needs_video and (not info.has_video or info.is_image):
-            return AnalysisEntry(
-                kind=kind,
-                status=AnalysisEntryStatus.SKIPPED,
-                reason="Asset has no video timeline to analyse.",
-            )
+            reason = "Asset has no video timeline to analyse."
+            if other_assets is not None and asset_id is not None:
+                reason += " " + _assets_compatible_with(
+                    other_assets,
+                    exclude_id=asset_id,
+                    needs_audio=False,
+                    needs_video=True,
+                    probe=probe_asset,
+                )
+            return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.SKIPPED, reason=reason)
 
         duration = info.duration_seconds
         try:
@@ -6489,6 +6583,20 @@ def create_app(
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
+        # Loaded once so a wrong-media-kind skip/unavailable reason (§S5) can name
+        # other assets in the project that would work for that analyzer, instead
+        # of only saying this one doesn't. Best-effort: a load failure here must
+        # never block the pass itself, since resolve_asset_media already proved
+        # the project loads.
+        other_assets: list[Asset] | None
+        probe_asset: Callable[[str], MediaInfo | None] | None
+        try:
+            other_project, other_media_base, _label = resolve_project_source(req)
+            other_assets = other_project.assets
+        except HTTPException:
+            other_assets = None
+            other_media_base = None
+
         # Brain persistence is best-effort (plan B0.5/B1.3): any failure to open
         # or hash degrades to a fresh, unpersisted pass — never a request error.
         root = settings.projects_root
@@ -6505,6 +6613,17 @@ def create_app(
                     exc,
                 )
                 brain = None
+
+        probe_asset = (
+            _make_asset_media_prober(
+                brain,
+                {a.id: a for a in other_assets},
+                other_media_base,
+                timeout,
+            )
+            if other_assets is not None and other_media_base is not None
+            else None
+        )
 
         entries: list[AnalysisEntry] = []
         persisted = False
@@ -6536,7 +6655,15 @@ def create_app(
                             )
                         )
                         continue
-                entry = run_analyzer(kind, media_path, info, timeout=timeout, asset_id=resolved_id)
+                entry = run_analyzer(
+                    kind,
+                    media_path,
+                    info,
+                    timeout=timeout,
+                    asset_id=resolved_id,
+                    other_assets=other_assets,
+                    probe_asset=probe_asset,
+                )
                 entries.append(entry)
                 if (
                     brain is not None

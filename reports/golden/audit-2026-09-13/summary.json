@@ -1,0 +1,124 @@
+{
+  "label": "audit-2026-09-13",
+  "generatedAt": "2026-09-13T10:12:12.693Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "montage-30s",
+    "trim-first-clip-10s",
+    "captions-plain",
+    "match-color-to-first-clip"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 4,
+    "turns": 4,
+    "intentAccuracy": 1,
+    "targetAccuracy": 1,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 1,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 4,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 86989.5,
+    "usdPerAcceptedEdit": 0,
+    "modelCallsPerTurn": {
+      "p50": 3,
+      "p95": 10,
+      "n": 4
+    },
+    "toolCallsPerTurn": {
+      "p50": 2,
+      "p95": 11,
+      "n": 4
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 2814,
+        "p95": 11688,
+        "n": 4
+      },
+      "doneMs": {
+        "p50": 12701,
+        "p95": 67003,
+        "n": 4
+      }
+    },
+    "failureQuality": {
+      "failures": 0,
+      "loud": 0,
+      "explained": 0
+    },
+    "perception": {
+      "framesSeenPerEdit": 0,
+      "framesSeen": 0,
+      "perceptionCallsPerRun": 0,
+      "perceptionCallsByTool": {},
+      "numericGuessRate": 0,
+      "numericGuess": {
+        "total": 1,
+        "guessed": 0
+      },
+      "measuredTurns": 4
+    },
+    "perCase": {
+      "montage-30s": {
+        "category": "montage",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 28145,
+        "usdPerRun": 0,
+        "wallMsPerRun": 67003,
+        "silentSuccesses": 0
+      },
+      "trim-first-clip-10s": {
+        "category": "trim",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 26765,
+        "usdPerRun": 0,
+        "wallMsPerRun": 6593,
+        "silentSuccesses": 0
+      },
+      "captions-plain": {
+        "category": "captions",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 10,
+        "tokens": 274646,
+        "usdPerRun": 0,
+        "wallMsPerRun": 63632,
+        "silentSuccesses": 0
+      },
+      "match-color-to-first-clip": {
+        "category": "color",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 3,
+        "tokens": 18402,
+        "usdPerRun": 0,
+        "wallMsPerRun": 12701,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

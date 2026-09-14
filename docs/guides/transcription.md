@@ -29,6 +29,13 @@ hosted providers are opt-in and always disclosed in Settings.
    binary (`whisper-cpp`/`main`), the engine also looks for those, or you can point directly at
    it with `FRAMEPILOT_WHISPER_CLI=/path/to/whisper-cli`.
 
+   **This PATH search only happens when the engine runs from source (dev).** The packaged
+   desktop sidecar (a frozen PyInstaller build) never searches `PATH` for `whisper-cli` —
+   it accepts only `FRAMEPILOT_WHISPER_CLI` (set by the desktop app once the
+   `framepilot.local-whisper` Capability Pack is installed, or an explicit path) and refuses,
+   naming the Capability Pack install path and the hosted-provider alternative, when neither
+   is present. See [`docs/api/capability-packs.md`](../api/capability-packs.md#local-whisper-migration).
+
 2. Download + verify the professional default model (`large-v3-turbo-q5_0`, ~548MiB) — an
    **explicit** step, never a silent download on first transcribe:
 

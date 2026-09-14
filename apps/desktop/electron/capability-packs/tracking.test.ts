@@ -293,7 +293,23 @@ describe('CapabilityPackTrackingService', () => {
     expect((outcome as { detail: string }).detail).toContain('target_lost');
   });
 
-  it('does not offer a retry for a deterministic worker output overflow', async () => {
+  it('does not offer a retry for a worker output overflow reported by its stable code', async () => {
+    const { service } = harness({
+      runWorker: async () => {
+        throw new CapabilityPackWorkerRuntimeError(
+          'worker_failed',
+          'worker output line exceeded its 1 MiB bound.',
+          'output_too_large',
+        );
+      },
+    });
+
+    const outcome = await service.run(request(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+
+    expect(outcome).toMatchObject({ status: 'failed', code: 'worker_failed', retryable: false });
+  });
+
+  it('falls back to matching the message when an older pack reports overflow as a plain internal_error', async () => {
     const { service } = harness({
       runWorker: async () => {
         throw new CapabilityPackWorkerRuntimeError(

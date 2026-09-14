@@ -17,8 +17,10 @@
 # own health handshake, which hashes every pinned artifact — runtime, nine dylibs and four
 # GGUF files — from a built, standalone payload.
 #
-# NO SBOM TIER YET: no `tools/generate_sbom.py` and no `pack/sbom/` record exist for this
-# worker; that gap is tracked in docs/api/capability-packs.md.
+# SBOM DRIFT, EVERY PR, NO WEIGHTS: `tools/generate_sbom.py --check` compares
+# `pack/models.lock.toml`'s pins (weights AND the llama.cpp runtime/dylibs) against the
+# digests compiled into `models.py` — a metadata comparison, not a download — so it can
+# run in the `cv`-extra tier below with no weight or runtime binary ever fetched.
 name: Capability Pack — Visual Describe
 
 on:
@@ -80,8 +82,31 @@ jobs:
             exit 1
           fi
 
+  # Runs on every PR too, but never fetches a pinned weight or runtime binary:
+  # `generate_sbom.py --check` compares the lock file's digests against the ones compiled
+  # into models.py, which is a metadata comparison. The `cv` extra is installed so the
+  # OpenCV third-party notice can be read and verified against the bundled-natives list.
+  sbom-drift:
+    name: License / SBOM drift (no weights)
+    needs: protocol-and-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Install the CV extra from the exact lock (no weights)
+        run: uv sync --extra cv --no-dev --locked --python 3.13
+      - name: License and SBOM record must match the resolved environment
+        # --check only: this never writes a platform SBOM, because ubuntu-x64 is not a
+        # platform this pack ships (see pack/manifest.toml's [[platforms]]). The committed
+        # darwin-arm64 record is regenerated on the shipped runner, in
+        # capability-pack-release.yml.
+        run: uv run --extra cv --no-dev python tools/generate_sbom.py --check
+
   # On demand only (see header). Builds the standalone payload, which fetches and verifies
-  # every pin and then runs the worker's health handshake FROM the payload.
+  # every pin (weights are cached, keyed on the pins themselves) and then runs the
+  # worker's health handshake FROM the payload.
   standalone-proof:
     name: Standalone payload proof (darwin-arm64)
     if: github.event_name == 'workflow_dispatch'
@@ -92,6 +117,11 @@ jobs:
         with:
           persist-credentials: false
       - uses: astral-sh/setup-uv@v7
+      - name: Cache pinned model weights and the llama.cpp runtime
+        uses: actions/cache@v4
+        with:
+          path: workers/visual-describe/models
+          key: visual-describe-weights-darwin-arm64-${{ hashFiles('workers/visual-describe/pack/models.lock.toml') }}
       - name: Build, verify pins and health-check the payload
         working-directory: .
         run: bash scripts/build-capability-pack.sh visual-describe "$RUNNER_TEMP/packs"

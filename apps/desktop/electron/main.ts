@@ -94,6 +94,7 @@ import {
   type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
+import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
   IpcChannels,
   type AiConfig,
@@ -171,7 +172,9 @@ import {
   autoEnrolmentTiers as autoEnrolmentTiersFor,
   type VisualIndexTier,
   type VisualPackHandles,
+  type VisualPackIdentities,
 } from './capability-packs/visual-packs.js';
+import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
@@ -726,24 +729,44 @@ function registerIpcHandlers(): void {
   let capabilityPackService: Promise<CapabilityPackDesktopService>;
   /**
    * Handles for the installed local perception packs (ADR 0176), refreshed whenever the
-   * pack store changes. A handle whose pack was since removed is harmless: the engine
-   * checks the entrypoint exists and treats a missing one as "no local pack".
+   * pack store changes. A handle whose pack was since removed between two SEPARATE
+   * requests is harmless: the engine checks the entrypoint exists and treats a missing one
+   * as "no local pack". `visualPackIdentities` is the same resolution's identities, read
+   * alongside the handles so a request that is ABOUT to use one can hold it open for the
+   * length of its own run (`visual-pack-lease.ts`, R4.3) — the gap that comment used to
+   * leave: a removal mid-flight, not a removal between requests.
    */
   let visualPackHandles: VisualPackHandles = {};
+  let visualPackIdentities: VisualPackIdentities = {};
   const refreshVisualPackHandles = async (service: CapabilityPackDesktopService): Promise<void> => {
     try {
-      visualPackHandles = await service.visualPackHandles(
-        path.join(app.getPath('userData'), 'capability-pack-cache'),
-      );
+      const cacheRoot = path.join(app.getPath('userData'), 'capability-pack-cache');
+      const [handles, identities] = await Promise.all([
+        service.visualPackHandles(cacheRoot),
+        service.visualPackIdentities(),
+      ]);
+      visualPackHandles = handles;
+      visualPackIdentities = identities;
       aiLog.action('visual packs resolved', {
         embed: visualPackHandles.visualEmbedPack !== undefined,
         describe: visualPackHandles.visualDescribePack !== undefined,
       });
     } catch (error) {
       visualPackHandles = {};
+      visualPackIdentities = {};
       aiLog.error('visual pack handles unavailable', { error: errorMessage(error) });
     }
   };
+  /**
+   * `electronFetch`, but a call whose body names a visual pack handle holds that pack's
+   * lease for its own round trip (R4.3) — see `visual-pack-lease.ts` for why this cannot
+   * simply wrap a local worker launch the way `tracking.ts` does.
+   */
+  const visualLeaseFetch: typeof fetch = withVisualPackLease(
+    electronFetch,
+    () => visualPackIdentities,
+    async (identity) => (await capabilityPackService).acquireVisualPackLease(identity),
+  );
   const createCapabilityPackService = async (
     rootPath: string,
   ): Promise<CapabilityPackDesktopService> =>
@@ -2405,7 +2428,7 @@ function registerIpcHandlers(): void {
     // waited, starving the render/analysis/asset-media calls the same run depends on.
     enrol: async ({ projectId, assetIds, signal }) => {
       const result = await runVisualIndexLoop({
-        client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch }),
+        client: new VisualIndexClient({ baseUrl: engineBaseUrl, fetchFn: visualLeaseFetch }),
         // Credentials still ride along, but they no longer decide WHETHER this runs:
         // they decide which tiers the engine can add on top of the keyless measurement
         // (ADR 0175).
@@ -2534,7 +2557,10 @@ function registerIpcHandlers(): void {
 
   const sidecarToolExecutor = createSidecarExecutor({
     baseUrl: engineBaseUrl,
-    fetchFn: electronFetch,
+    // Holds a visual pack's lease for the round trip of any call whose body names it
+    // (R4.3) — `search_visual`/`describe_footage`/`map_footage`/`index_media` all ride
+    // through this one executor, so wrapping it here covers every agent-driven call.
+    fetchFn: visualLeaseFetch,
     visualIndexCredentials,
     hostTranscribe,
     hostMusicSearch,
@@ -2650,7 +2676,9 @@ function registerIpcHandlers(): void {
   );
   const desktopVisualIndex = new VisualIndexClient({
     baseUrl: engineBaseUrl,
-    fetchFn: electronFetch,
+    // Same lease-holding wrap as the agent path (R4.3): a manually triggered index run is
+    // still an engine-started run once the request lands.
+    fetchFn: visualLeaseFetch,
   });
   ipcMain.handle(
     IpcChannels.visualIndex,
@@ -3078,11 +3106,17 @@ function registerIpcHandlers(): void {
               });
               return { event: refusedEvent, durableSequence: durableEvent.sequence };
             }
+            // Captured because `committed.project` below may be a transport-compaction
+            // envelope rather than a full `Project` (project-command-service.ts strips it
+            // on a same-revision, non-rebased commit) — the callback always receives the
+            // real thing, which is what the memory follow-up write below needs.
+            let committedProject: Project | undefined;
             const committed = await projectCommands.commitPatch(
               project.id,
               autoExpectedRevision,
               patch,
               async (nextProject) => {
+                committedProject = nextProject;
                 projectWatcher.markSelfWrite(target.path, nextProject);
                 await writeProjectFile(target.path, nextProject);
                 await projectWatcher.watch(target.path);
@@ -3158,17 +3192,62 @@ function registerIpcHandlers(): void {
               state: committed.rebased ? 'rebased' : 'committed',
               projectRevision: committed.revision,
             });
+            // D10: auto-commit has no separate human accept gesture — the run's patch
+            // policy already decided this patch may be written, so the write above IS
+            // the acceptance. Record it as a learning signal through the same Memory
+            // Store API the manual (renderer-driven) accept path uses, honestly labelled
+            // `auto_applied` rather than folded in as an indistinguishable human accept.
+            // This is a second, patch-less, revision-bumping write — the same shape the
+            // browser path already uses for a memory-only change that carries no
+            // timeline `Patch` to replay (App.tsx's "full-document autosave" fallback).
+            // A failure here must never undo or fail the edit itself, which already
+            // landed: log it and fall back to the project/revision as committed.
+            let finalProject: unknown = committed.project;
+            let finalRevision = committed.revision;
+            if (committedProject) {
+              const withMemory = recordAutoAcceptedMemory(committedProject, patch);
+              const memoryWrite = await projectCommands.write(
+                withMemory,
+                committed.revision,
+                async () => {
+                  projectWatcher.markSelfWrite(target.path, withMemory);
+                  await writeProjectFile(target.path, withMemory);
+                  await projectWatcher.watch(target.path);
+                  await recovery.snapshot({
+                    path: target.path,
+                    project: withMemory,
+                    savedAt: Date.now(),
+                  });
+                  await activeProject.record({
+                    path: target.path,
+                    projectId: withMemory.id,
+                    updatedAt: Date.now(),
+                  });
+                },
+              );
+              if (memoryWrite.ok) {
+                finalProject = withMemory;
+                finalRevision = memoryWrite.revision;
+                autoExpectedRevision = memoryWrite.revision;
+              } else {
+                aiLog.warn('AI memory write for an auto-applied accept failed; the edit stands', {
+                  runId: durableRunId,
+                  patchId: patch.patchId,
+                  code: memoryWrite.code,
+                });
+              }
+            }
             indexProjectBrain(committed.project.id, target.path);
             event.sender.send(IpcChannels.projectChanged, {
               path: target.path,
-              project: committed.project,
-              revision: committed.revision,
+              project: finalProject,
+              revision: finalRevision,
             } satisfies ProjectChangedEvent);
             const committedEvent = {
               ...transportEvent,
               commit: {
                 state: 'committed' as const,
-                revision: committed.revision,
+                revision: finalRevision,
                 rebased: committed.rebased,
               },
             };

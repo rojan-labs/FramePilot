@@ -1,0 +1,96 @@
+{
+  "label": "closeout-2026-09-14",
+  "generatedAt": "2026-09-14T01:55:20.209Z",
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5",
+  "runsPerScenario": 1,
+  "replayed": false,
+  "cases": [
+    "transitions-where-they-belong",
+    "remove-duplicate-takes"
+  ],
+  "crashed": [],
+  "summary": {
+    "cases": 2,
+    "turns": 3,
+    "intentAccuracy": 1,
+    "targetAccuracy": 1,
+    "boundaryPrecision": 1,
+    "validityRate": 1,
+    "firstPassAcceptance": 0.6666666666666666,
+    "silentSuccesses": 0,
+    "reversibility": 1,
+    "acceptedEdits": 2,
+    "voidTurns": 0,
+    "timedOutTurns": 0,
+    "tokensPerAcceptedEdit": 77317.5,
+    "usdPerAcceptedEdit": null,
+    "modelCallsPerTurn": {
+      "p50": 4,
+      "p95": 8,
+      "n": 3
+    },
+    "toolCallsPerTurn": {
+      "p50": 5,
+      "p95": 10,
+      "n": 3
+    },
+    "latency": {
+      "firstProgressMs": {
+        "p50": 3423,
+        "p95": 11010,
+        "n": 3
+      },
+      "doneMs": {
+        "p50": 25955,
+        "p95": 78656,
+        "n": 3
+      }
+    },
+    "failureQuality": {
+      "failures": 0,
+      "loud": 0,
+      "explained": 0
+    },
+    "perception": {
+      "framesSeenPerEdit": 0,
+      "framesSeen": 0,
+      "perceptionCallsPerRun": 0,
+      "perceptionCallsByTool": {},
+      "numericGuessRate": 0,
+      "numericGuess": {
+        "total": 4,
+        "guessed": 0
+      },
+      "measuredTurns": 3
+    },
+    "perCase": {
+      "transitions-where-they-belong": {
+        "category": "transitions",
+        "runs": 1,
+        "score": 0.875,
+        "intentAccuracy": 1,
+        "firstPass": 0.5,
+        "reversible": 1,
+        "modelCalls": 2,
+        "tokens": 6129,
+        "usdPerRun": null,
+        "wallMsPerRun": 48546,
+        "silentSuccesses": 0
+      },
+      "remove-duplicate-takes": {
+        "category": "duplicates",
+        "runs": 1,
+        "score": 1,
+        "intentAccuracy": 1,
+        "firstPass": 1,
+        "reversible": 1,
+        "modelCalls": 8,
+        "tokens": 102569,
+        "usdPerRun": null,
+        "wallMsPerRun": 78656,
+        "silentSuccesses": 0
+      }
+    }
+  }
+}

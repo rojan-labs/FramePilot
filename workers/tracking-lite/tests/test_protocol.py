@@ -183,3 +183,12 @@ def test_failure_and_encoding_stay_within_transport_bounds() -> None:
     line = encode_line(message)
     assert line.endswith("\n")
     assert json.loads(line)["code"] == "target_lost"
+
+
+def test_an_oversized_output_line_is_refused() -> None:
+    # `output_too_large` is a stable code precisely so the host does not have to match
+    # this message's text to recognise a deterministic size-bound refusal.
+    with pytest.raises(ProtocolError, match="1 MiB") as excinfo:
+        encode_line({"type": "progress", "detail": "x" * (1024 * 1024 + 10)})
+    assert excinfo.value.code == "output_too_large"
+    assert excinfo.value.retryable is False
