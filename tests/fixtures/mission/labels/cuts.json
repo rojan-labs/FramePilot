@@ -3,7 +3,7 @@
   "kind": "cuts",
   "generatedAt": "2026-09-07",
   "generator": "packages/ai-sdk/scripts/propose-fixture-labels.mjs",
-  "note": "The cuts of mission-montage. Structure and measured deltas are derived from tier 0; sameSetting and expectedTransitionReason are a human pass and are null.",
+  "note": "The cuts of mission-montage. Structure and measured deltas are derived from tier 0. sameSetting now comes from the REAL tier-1 pack run recorded in tier1.json (TRACKING.md Q4b, 2026-09-14) \u2014 every one of these four cuts turns out to change location (street/forest/mountains/studio), so every expectedTransitionReason is 'location_change'. Neither is a human pass; both are machine output, unverified.",
   "project": "mission-montage",
   "cutCount": 4,
   "cuts": [
@@ -22,8 +22,8 @@
         "lumaDelta": 0.1011,
         "warmthDelta": -0.1472
       },
-      "sameSetting": null,
-      "expectedTransitionReason": null
+      "sameSetting": false,
+      "expectedTransitionReason": "location_change"
     },
     {
       "id": "mission-montage#1",
@@ -40,8 +40,8 @@
         "lumaDelta": -0.1065,
         "warmthDelta": 0.1276
       },
-      "sameSetting": null,
-      "expectedTransitionReason": null
+      "sameSetting": false,
+      "expectedTransitionReason": "location_change"
     },
     {
       "id": "mission-montage#2",
@@ -58,8 +58,8 @@
         "lumaDelta": -0.3035,
         "warmthDelta": -0.0798
       },
-      "sameSetting": null,
-      "expectedTransitionReason": null
+      "sameSetting": false,
+      "expectedTransitionReason": "location_change"
     },
     {
       "id": "mission-montage#3",
@@ -76,8 +76,8 @@
         "lumaDelta": 0.4454,
         "warmthDelta": 0.0162
       },
-      "sameSetting": null,
-      "expectedTransitionReason": null
+      "sameSetting": false,
+      "expectedTransitionReason": "location_change"
     }
   ]
 }
