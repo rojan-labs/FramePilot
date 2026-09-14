@@ -16,7 +16,12 @@
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, Project } from '@framepilot/timeline-schema';
 import { DEFAULT_STOCK_STILL_SECONDS, type HistoryEntry } from '@framepilot/editor-core';
-import type { InteractionKeyframeRef, SourceMonitorInteraction } from '@framepilot/ai-sdk';
+import {
+  readMemory,
+  recordRejected,
+  type InteractionKeyframeRef,
+  type SourceMonitorInteraction,
+} from '@framepilot/ai-sdk';
 import { WorkspaceShell, useDockHeight } from '@framepilot/ui';
 import { useEditor } from '../editor/useEditor.js';
 import { useEditorShortcuts } from '../editor/useShortcuts.js';
@@ -26,6 +31,7 @@ import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import { useEditMode } from '../editor/useEditMode.js';
 import { useTrackLayout } from '../editor/useTrackLayout.js';
 import { assetIdsOf } from '../editor/project.js';
+import { agentPatchesUndone } from '../editor/undo-rejection.js';
 import { requestAiCaptionEmphasis } from '../editor/ai.js';
 import { withOrientation } from '../editor/orientation.js';
 import { selectionRange, webCodecsPreviewEligible } from '../editor/selectors.js';
@@ -389,6 +395,37 @@ export function Editor({
     editor.state.transcript,
     editor.state.history,
   ]);
+
+  // D10 follow-up: a GLOBAL undo (Cmd+Z, menu Undo, the History panel's click-to-jump —
+  // anything that calls `editor.undo()`/`goto` other than AiSidebar's own "Undo run"
+  // button, which already records this) is the same negative learning signal Undo run
+  // carries: the user watched the edit on the timeline and took it back.
+  //
+  // This reacts to `project.history` (the PROP the effect above just lifted), not
+  // `editor.state.history` directly. Folding this into that same effect would call
+  // `onProjectChange` twice in ONE commit from the same stale, pre-lift `project`
+  // closure — the second call would win and silently drop whichever update it didn't
+  // itself carry forward. Reacting to the prop instead makes this a LATER, separate
+  // render that reads the just-lifted `project` fresh, the same ordering `undoRun`
+  // gets for free from being a button handler followed by this component's effect.
+  //
+  // The `next` this calls `onProjectChange` with carries `project`'s OWN
+  // timeline/history unchanged, so the differ in `manual-patch-sync.ts` sees zero
+  // patches and this falls through to the full-document autosave — the same path
+  // `undoRun` relies on for the exact same reason (an aiMemory delta has no `Patch` to
+  // replay), and the one that actually reaches disk on both browser and desktop.
+  const previousProjectHistory = useRef(project.history);
+  useEffect(() => {
+    const previous = previousProjectHistory.current;
+    previousProjectHistory.current = project.history;
+    if (!onProjectChange) return;
+    const undone = agentPatchesUndone(previous, project.history);
+    if (undone.length === 0) return;
+    const alreadyRejected = new Set(readMemory(project).rejectedEdits.map((edit) => edit.patchId));
+    const toRecord = undone.filter((patch) => !alreadyRejected.has(patch.patchId));
+    if (toRecord.length === 0) return;
+    onProjectChange(toRecord.reduce((proj, patch) => recordRejected(proj, patch), project));
+  }, [project, onProjectChange]);
   const { editMode, rippleOnDelete, setEditMode, toggleRippleOnDelete } = useEditMode();
   const [tool, setTool] = useState<Tool>('select');
   const trackLayout = useTrackLayout();
