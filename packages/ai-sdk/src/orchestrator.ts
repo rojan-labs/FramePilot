@@ -213,8 +213,7 @@ import type {
 } from './providers/types.js';
 import {
   capabilitiesFor,
-  isRouterAlias,
-  supportsVision,
+  isRouterAlias, supportsVision,
   type CapabilitySource,
 } from './providers/model-capabilities.js';
 import {
@@ -2925,10 +2924,9 @@ export function summarizeReadResult(
       const note = typeof obj.note === 'string' ? [obj.note] : [];
       const units = typeof obj.units === 'string' ? [`units: ${obj.units}`] : [];
       if (templates.length === 0)
-        return [
-          ...note,
-          `no caption templates match (${String(obj.matched ?? 0)} in catalog)`,
-        ].join('\n');
+        return [...note, `no caption templates match (${String(obj.matched ?? 0)} in catalog)`].join(
+          '\n',
+        );
       const matched = Number(obj.matched ?? templates.length);
       const head =
         matched > 0
@@ -3493,9 +3491,7 @@ export class Orchestrator {
    */
   private pricingForCall(
     tier: ModelTier,
-  ):
-    | { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> }
-    | undefined {
+  ): { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> } | undefined {
     const pricing = runPricingFor(this.providerForTier(tier));
     return pricing === undefined
       ? undefined
