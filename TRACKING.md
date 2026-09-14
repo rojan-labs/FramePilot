@@ -1361,3 +1361,24 @@ image-clip source/duration rejections (29, last 07-18 — not live).
 | U4.1 | latency | reasoning effort follows the run stage: `low` while executing a locked plan (`apply`/`enhance`) with no pending action recovery; `medium` for interpret/inspect/analyze/plan/verify/repair and any recovery step |
 | U4.2 | call count | `discover_effects` / `discover_transitions` take several queries in one call |
 | U4.3 | precision | `measure_color` measures several clips in one call, so a refused `normalize_exposure` is one step from solved rather than ten |
+
+## U5 — Landed, and what is still owed
+
+| slice | commit | verification |
+|---|---|---|
+| U4.1 stage-scoped effort | `e9066c5b` | stage-policy 39/39, output-room 23/23 (asserts `medium, low, low, medium` across plan → apply → apply → recovery), streamAgent-golden + golden-corpus + session-parity 17/17 unchanged, typecheck, eslint |
+| U4.2 batched discovery | `d71370a8` | effect-tools / describe / tool-registry / tool-parity / tool-domains / input-contract / router 140 + 228 pass, Python parity 191 pass, typecheck, eslint, ruff; goldens unchanged (effects domain not loaded in any golden session) |
+| U4.3 exposure refusal (re-scoped) | `b9db418d` | solved-color 18/18, eslint |
+
+**Residual — recorded, deliberately not changed:**
+
+- **Quality at `low` effort is unmeasured.** The stage machine locks the plan before `apply`, which
+  is the argument; a live or golden run is the proof, and none was run on this branch.
+- **Latency and call-count wins are unmeasured.** Every number in §U1 is from runs recorded
+  before these commits. Re-measure with `measure-edit-latency.mjs` after real use (U4.4).
+- **A reordered `queries` batch is a "new" call to the novelty guard.** `callNoveltyKey`
+  stringifies arguments in order. Not sorted on purpose: that key is shared by every guard, and
+  order is meaningful for other tools' arrays (`reorder_clips`).
+- **The compact `discover_styles` surface still takes one `query`**, because it also routes to
+  `discover_caption_styles`, which has no batch form.
+- **Cache writes ≈ reads on claude-agent-sdk** (§U1): cost, not latency, on an unpriced provider.

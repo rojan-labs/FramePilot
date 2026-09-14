@@ -12,6 +12,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   decided an edit, the steps that apply it now think briefly instead of at length; deciding,
   checking and fixing a failed step still get the full effort. Most of an agent turn's wait
   was the model thinking, including on steps that only placed what it had already chosen.
+- **Fewer pauses while the assistant browses effects and transitions.** It can now look up
+  several styles at once instead of one per step, and each step was a wait of ten to thirty
+  seconds.
 - **Evening out exposure no longer leads to guessed grades.** When shots have not been
   measured yet, the assistant is now told every shot to measure, all at once, instead of
   four and "the rest" — which it used to skip, grading every shot with the same made-up
