@@ -59,12 +59,17 @@ function releaseCore(): CapabilityPackReleaseCore {
   };
 }
 
+const DAY_MS = 24 * 60 * 60 * 1000;
+
 function catalog(): CapabilityPackCatalog {
   const core = releaseCore();
+  // Dated relative to now: `verifySignedCatalog` refuses an expired catalog, and a fixed
+  // expiry turned this test red the day it passed (2026-09-14) on every branch.
+  const now = Date.now();
   return {
     schemaVersion: 1,
-    generatedAt: '2026-08-14T00:00:00.000Z',
-    expiresAt: '2026-09-14T00:00:00.000Z',
+    generatedAt: new Date(now - DAY_MS).toISOString(),
+    expiresAt: new Date(now + 30 * DAY_MS).toISOString(),
     releases: [{ ...core, releaseDigest: releaseDigest(core) }],
     delegatedKeys: [],
   };
