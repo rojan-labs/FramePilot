@@ -282,8 +282,14 @@ describe('normalize_exposure', () => {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toMatch(/Call measure_color on "shot_a"/);
+    expect(message).toMatch(/In one step, call measure_color once for each of "shot_a"/);
     expect(message).toMatch(/then call normalize_exposure again/);
+    // Every clip, not four and a count: run `55bf6774` was told "and the other 6 clips",
+    // could not issue that without another lookup, and hand-graded ten clips instead.
+    for (const id of ['shot_a', 'shot_b', 'shot_c']) expect(message).toContain(`"${id}"`);
+    expect(message).not.toMatch(/other \d+ clip/);
+    // Indexing is the slowest route to a measurement; the refusal must not lead there.
+    expect(message).not.toMatch(/Indexing/);
   });
 });
 

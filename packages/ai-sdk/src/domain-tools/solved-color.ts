@@ -304,8 +304,14 @@ const normalizeExposureSchema = z
   })
   .strict();
 
-/** Clips named outright in a "nothing is measured" refusal before it summarises the rest. */
-const MAX_NAMED_CLIPS = 4;
+/**
+ * Clips named outright in a "nothing is measured" refusal before it summarises the rest.
+ *
+ * High enough to cover an ordinary track whole. At four, run `55bf6774` was told
+ * "…and the other 6 clips" — a remedy it could not issue without another lookup — and its
+ * next step graded ten clips by hand, eight at an identical `exposure: 0.3`.
+ */
+const MAX_NAMED_CLIPS = 24;
 
 function planNormalizeExposure(
   args: z.infer<typeof normalizeExposureSchema>,
@@ -333,6 +339,11 @@ function planNormalizeExposure(
     // A remedy naming the tool leaves the caller to work out the arguments; one naming
     // the arguments is a call it can make. Same reason `trim_clip` names both time
     // domains and `split_clip` names the range that would work.
+    //
+    // "In one step" is the half that decides latency and precision alike: analysis calls in
+    // one step dispatch together (the orchestrator's concurrency batches), so the whole
+    // remedy costs one round trip. Pointing at indexing instead sent the caller toward the
+    // slowest route there is.
     const names = clips.slice(0, MAX_NAMED_CLIPS).map((clip) => clip.id);
     const rest = clips.length - names.length;
     throw new ToolRefusalError(
@@ -340,9 +351,10 @@ function planNormalizeExposure(
         'no brightness to normalise toward. ' +
         (names.length === 0
           ? `Track "${args.trackId}" has no picture clips to measure.`
-          : `Call measure_color on ${names.map((id) => `"${id}"`).join(', ')}` +
-            `${rest > 0 ? ` and the other ${String(rest)} clip${rest === 1 ? '' : 's'} on the track` : ''}` +
-            ', then call normalize_exposure again. Indexing the footage measures them all at once.'),
+          : `In one step, call measure_color once for each of ${names.map((id) => `"${id}"`).join(', ')}` +
+            `${rest > 0 ? ` (and the other ${String(rest)} clip${rest === 1 ? '' : 's'} on the track — get_clips lists them)` : ''}` +
+            ' — they run together — then call normalize_exposure again. Do not hand-pick ' +
+            'apply_color_grade numbers in its place.'),
     );
   }
 
