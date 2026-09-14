@@ -70,12 +70,18 @@ class _VideoFrameSource:
     """Decodes exactly the approved range, in order, sampled on the request's frame grid.
 
     The host numbers frames on the PROJECT frame rate, so request frame ``n`` is
-    source time ``n / fps``. Seeking by the file's own frame index read the wrong
-    moment whenever the file's rate differs from the project's. With ``fps``
-    given, each grid time maps to the file frame on screen at that time —
-    skipping frames when the file is faster, holding one when it is slower — so
-    the mask count and numbering match the request. Without ``fps`` (or when the
-    file reports no rate) the historical file-index behaviour is kept.
+    source time ``n / fps``. With ``fps`` given, each grid time maps to the file
+    frame on screen at that time — skipping frames when the file is faster,
+    holding one when it is slower — so the mask count and numbering match the
+    request. Without ``fps`` (or when the file reports no rate) the historical
+    file-index behaviour is kept.
+
+    The skip/hold decision compares each decoded frame's actual presentation
+    timestamp (``CAP_PROP_POS_MSEC``), not ``file frame index / nominal fps``:
+    on variable-frame-rate media a frame's ordinal drifts from its real
+    timestamp, so counting frames at a nominal rate would silently sample the
+    wrong instant. Constant-frame-rate media reports timestamps that already
+    fall on ``index / fps``, so this reads the same frames as before there.
     """
 
     def __init__(
@@ -92,10 +98,25 @@ class _VideoFrameSource:
             raise MediaUnreadableError(f"could not open approved media at {path}.")
         self._capture = capture
         self._remaining = last_frame_exclusive - first_frame
-        self._grid = _grid_mapping(float(capture.get(cv2.CAP_PROP_FPS)), fps, first_frame)
+        file_fps = float(capture.get(cv2.CAP_PROP_FPS))
+        self._grid = _grid_mapping(file_fps, fps, first_frame)
         self._current: Any | None = None
+        #: The real timestamp of `_current`, so `read()` can tell whether the held
+        #: frame actually reaches the requested grid time or is only being held
+        #: because the media ended before a fresher one arrived.
+        self._current_seconds: float = float("-inf")
+        #: One frame read ahead of `_current`, paired with its real timestamp, so
+        #: `read()` can tell whether a fresher frame is still at or before the
+        #: requested grid time before consuming it. `None` once the media is
+        #: exhausted.
+        self._pending: tuple[Any, float] | None = None
         if self._grid is not None:
-            capture.set(cv2.CAP_PROP_POS_FRAMES, self._grid.next_file_index)
+            # A coarse, nominal-rate seek to land near the range's start; the
+            # timestamp-driven read loop below corrects any drift this estimate
+            # has on variable-frame-rate media.
+            assert fps is not None  # `_grid_mapping` only returns non-None when fps is set.
+            seek_index = _approximate_seek_index(file_fps, fps, first_frame)
+            capture.set(cv2.CAP_PROP_POS_FRAMES, seek_index)
         elif first_frame > 0:
             capture.set(cv2.CAP_PROP_POS_FRAMES, first_frame)
         self._width = int(capture.get(cv2.CAP_PROP_FRAME_WIDTH))
@@ -112,6 +133,15 @@ class _VideoFrameSource:
     def height(self) -> int:
         return self._height
 
+    def _pull(self) -> None:
+        """Decode one more frame into `_pending`, or clear it at end of media."""
+        ok, frame = self._capture.read()
+        if not ok or frame is None:
+            self._pending = None
+            return
+        timestamp_seconds = self._capture.get(self._cv2.CAP_PROP_POS_MSEC) / 1000.0
+        self._pending = (frame, timestamp_seconds)
+
     def read(self) -> Any | None:
         if self._remaining <= 0:
             return None
@@ -121,15 +151,27 @@ class _VideoFrameSource:
                 return None
             self._remaining -= 1
             return frame
-        target = self._grid.target_file_index()
-        while self._current is None or self._grid.current_file_index < target:
-            ok, frame = self._capture.read()
-            if not ok or frame is None:
-                # The media ends before this grid time: bounded by what exists,
-                # never padded with a repeated last frame.
-                return None
-            self._current = frame
-            self._grid.advance()
+        target = self._grid.target_seconds()
+        if self._current is None and self._pending is None:
+            self._pull()
+        # Consume the read-ahead frame while it is still at or before the grid
+        # time (or there is no current answer yet): that is what makes this a
+        # hold — a fresher frame already at/before `target` always wins, and a
+        # frame past `target` is left buffered for a later call instead of
+        # being decided on prematurely.
+        while self._pending is not None and (
+            self._current is None or self._pending[1] <= target + _GRID_EPSILON
+        ):
+            self._current, self._current_seconds = self._pending
+            self._pull()
+        if self._current is None or (
+            self._pending is None and self._current_seconds < target - _GRID_EPSILON
+        ):
+            # Either nothing has been decoded yet, or the held frame does not
+            # reach this grid time and the media ended before a fresher one
+            # arrived: bounded by what exists, never padded with a repeated
+            # last frame.
+            return None
         self._grid.emitted += 1
         self._remaining -= 1
         return self._current
@@ -144,31 +186,30 @@ _GRID_EPSILON: Final = 1e-6
 
 @dataclass(slots=True)
 class _GridMapping:
-    """Request-grid frame ``first + emitted`` → the file frame on screen at that time."""
+    """The source time requested for grid frame ``first + emitted``."""
 
     grid_fps: float
-    file_fps: float
     first_frame: int
-    next_file_index: int
-    current_file_index: int = -1
     emitted: int = 0
 
-    def target_file_index(self) -> int:
-        seconds = (self.first_frame + self.emitted) / self.grid_fps
-        return int(seconds * self.file_fps + _GRID_EPSILON)
-
-    def advance(self) -> None:
-        self.current_file_index = self.next_file_index
-        self.next_file_index += 1
+    def target_seconds(self) -> float:
+        return (self.first_frame + self.emitted) / self.grid_fps
 
 
 def _grid_mapping(file_fps: float, grid_fps: float | None, first_frame: int) -> _GridMapping | None:
     if grid_fps is None or not grid_fps > 0.0 or not file_fps > 0.0 or file_fps != file_fps:
         return None
-    start = int(first_frame / grid_fps * file_fps + _GRID_EPSILON)
-    return _GridMapping(
-        grid_fps=grid_fps, file_fps=file_fps, first_frame=first_frame, next_file_index=start
-    )
+    return _GridMapping(grid_fps=grid_fps, first_frame=first_frame)
+
+
+def _approximate_seek_index(file_fps: float, grid_fps: float, first_frame: int) -> int:
+    """A coarse starting point for the seek, computed at the file's nominal rate.
+
+    Only used to avoid decoding from the start of the file; it does not need to be
+    exact, because the per-frame timestamp check in ``_VideoFrameSource.read`` is
+    what actually decides which frame answers each grid time.
+    """
+    return int(first_frame / grid_fps * file_fps + _GRID_EPSILON)
 
 
 class _ImageFrameSource:
