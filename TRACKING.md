@@ -1382,3 +1382,73 @@ image-clip source/duration rejections (29, last 07-18 — not live).
 - **The compact `discover_styles` surface still takes one `query`**, because it also routes to
   `discover_caption_styles`, which has no batch form.
 - **Cache writes ≈ reads on claude-agent-sdk** (§U1): cost, not latency, on an unpriced provider.
+
+---
+
+# V. Deeper loop — round trips and self-check precision (2026-09-14)
+
+Source: the same 418 desktop conversations, now decomposed per model call (2,250 calls with
+provider-reported output tokens). Scripts kept in the session scratchpad; each claim below names
+the measurement.
+
+## V1 — Where model-call time goes, by what the call did
+
+| call class | calls | wall share | mean wall | mean output tok |
+|---|---:|---:|---:|---:|
+| read/lookup only | 1,076 | **35.9%** | 17.8 s | 1,925 |
+| mutate only | 508 | 31.9% | 33.5 s | 4,185 |
+| mixed read + mutate | 274 | 17.2% | 33.6 s | 5,879 |
+| recall_evidence only | 254 | 7.7% | 16.2 s | 1,872 |
+| final text, no tool | 80 | 5.6% | 37.5 s | 3,585 |
+| load_tools / load_skill only | 58 | 1.7% | 15.4 s | 1,019 |
+
+- **Pre-loading tool domains is not worth it**: meta-only calls are 1.7% of wall time. Not pursued.
+- **Final-text calls are covered by U4.1**: since 09-01, 27 of 34 of them run in the `apply` stage,
+  which now thinks at `low`.
+
+## V2 🚫 DISPROVED — "compaction's payload cliff makes the agent re-read what it already read"
+
+Since 09-01, 32 of 45 turns repeated an identical read. Split by whether an edit landed between
+the first read and the repeat: **527 after an edit** (a legitimate refresh) and **227 with no
+edit between**. **37 steps** consisted entirely of no-edit repeats, each a wasted round trip.
+
+The hypothesis: `compactAgentLog` clears every payload except the 2 freshest steps' once the log
+passes its budget (≤ 24k tokens), so the model loses what it read and asks again.
+
+It is wrong:
+
+| | past the cliff (per-turn message ≥ 20k tok) |
+|---|---|
+| all agent steps since 09-01 | 195 of 1,006 (**19%**) |
+| wasted re-read steps | 5 of 37 (**14%**) |
+
+Wasted re-reads are *less* likely past the cliff than steps in general. And **30 of 37** come
+from one free model (`inclusionai/ling-3.0-flash`); **none** come from a Claude model. That is
+model behaviour on a weak model, not a harness defect. `compactAgentLog` left unchanged.
+
+## V3 ❌ The self-check judges the edit against a transcript it has already called fabricated
+
+On Claude-model runs since 09-01, **5 of 8** self-checked turns carried the
+`transcript_reliable` loop verdict. In **all 5**, `dead_air` and `marker_labels` also warned —
+against those same fabricated words.
+
+Run `55bf6774` is a GoPro snowboard montage whose audio is just wind. Its transcript is "I'll try
+to follow you later." ×397, covering 91% of the recording. The run was told:
+
+- "Dead air: 95 frames (3.173s) before the first word … ripple_delete the head/tail range"
+- "15 marker(s) name words that are not spoken within 2s of them … move the marker"
+
+Both findings are false, and the editor saw both. `critique()` detects the loop once and passes
+it to `transcript_reliable` and `word_severed` (which already drops to `warn` under a loop, run
+`cc907070`), but **not** to `checkDeadAir` or `checkMarkerLabels`. `transcript-loop.ts`'s own
+comment names `dead_air` as a check that "agrees with" a fabricated transcript. A loop is detected
+only at ≥ 8 back-to-back repeats **and** ≥ 50% of the span, so under a detected loop there is no
+real dialogue to measure against.
+
+**Fix (U6):** both checks take the shared verdict and report `skipped` under a loop.
+
+## V4 ⚠️ Recorded, not changed
+
+- **`track_object` attaches a tracker with no motion**, and the self-check then flags it. This is
+  by design (the description says so and names `track_subject_automatically`), so it is policy,
+  not a defect.
