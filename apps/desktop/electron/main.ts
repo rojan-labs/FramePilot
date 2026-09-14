@@ -94,6 +94,7 @@ import {
   type ProviderConfig,
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
+import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
   IpcChannels,
   type AiConfig,
@@ -3078,11 +3079,17 @@ function registerIpcHandlers(): void {
               });
               return { event: refusedEvent, durableSequence: durableEvent.sequence };
             }
+            // Captured because `committed.project` below may be a transport-compaction
+            // envelope rather than a full `Project` (project-command-service.ts strips it
+            // on a same-revision, non-rebased commit) — the callback always receives the
+            // real thing, which is what the memory follow-up write below needs.
+            let committedProject: Project | undefined;
             const committed = await projectCommands.commitPatch(
               project.id,
               autoExpectedRevision,
               patch,
               async (nextProject) => {
+                committedProject = nextProject;
                 projectWatcher.markSelfWrite(target.path, nextProject);
                 await writeProjectFile(target.path, nextProject);
                 await projectWatcher.watch(target.path);
@@ -3158,17 +3165,62 @@ function registerIpcHandlers(): void {
               state: committed.rebased ? 'rebased' : 'committed',
               projectRevision: committed.revision,
             });
+            // D10: auto-commit has no separate human accept gesture — the run's patch
+            // policy already decided this patch may be written, so the write above IS
+            // the acceptance. Record it as a learning signal through the same Memory
+            // Store API the manual (renderer-driven) accept path uses, honestly labelled
+            // `auto_applied` rather than folded in as an indistinguishable human accept.
+            // This is a second, patch-less, revision-bumping write — the same shape the
+            // browser path already uses for a memory-only change that carries no
+            // timeline `Patch` to replay (App.tsx's "full-document autosave" fallback).
+            // A failure here must never undo or fail the edit itself, which already
+            // landed: log it and fall back to the project/revision as committed.
+            let finalProject: unknown = committed.project;
+            let finalRevision = committed.revision;
+            if (committedProject) {
+              const withMemory = recordAutoAcceptedMemory(committedProject, patch);
+              const memoryWrite = await projectCommands.write(
+                withMemory,
+                committed.revision,
+                async () => {
+                  projectWatcher.markSelfWrite(target.path, withMemory);
+                  await writeProjectFile(target.path, withMemory);
+                  await projectWatcher.watch(target.path);
+                  await recovery.snapshot({
+                    path: target.path,
+                    project: withMemory,
+                    savedAt: Date.now(),
+                  });
+                  await activeProject.record({
+                    path: target.path,
+                    projectId: withMemory.id,
+                    updatedAt: Date.now(),
+                  });
+                },
+              );
+              if (memoryWrite.ok) {
+                finalProject = withMemory;
+                finalRevision = memoryWrite.revision;
+                autoExpectedRevision = memoryWrite.revision;
+              } else {
+                aiLog.warn('AI memory write for an auto-applied accept failed; the edit stands', {
+                  runId: durableRunId,
+                  patchId: patch.patchId,
+                  code: memoryWrite.code,
+                });
+              }
+            }
             indexProjectBrain(committed.project.id, target.path);
             event.sender.send(IpcChannels.projectChanged, {
               path: target.path,
-              project: committed.project,
-              revision: committed.revision,
+              project: finalProject,
+              revision: finalRevision,
             } satisfies ProjectChangedEvent);
             const committedEvent = {
               ...transportEvent,
               commit: {
                 state: 'committed' as const,
-                revision: committed.revision,
+                revision: finalRevision,
                 rebased: committed.rebased,
               },
             };
