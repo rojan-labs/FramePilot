@@ -1282,4 +1282,23 @@ now taken with a detached `git worktree`.
 
 ## T5 — golden re-run
 
-_Pending — filled in when the run finishes._
+The two cases the open items were about, re-run after every fix landed:
+`claude-agent-sdk` / `claude-sonnet-5`, sidecar built from this branch on :8812, rooted at the
+worktree's fixtures (so the real Q4b labels were in the brain), ai-sdk dist rebuilt first.
+Result: `reports/golden/closeout-2026-09-14/summary.md`.
+
+| case · turn | before (§Q4) | now |
+|---|---|---|
+| `transitions-where-they-belong` · turn 2 "Add transitions where they belong." | **0.56** — 0/16 scene-change cuts carried a transition, no text | **1.00**, first pass |
+| `transitions-where-they-belong` · turn 1 (montage) | — | 0.88 — `min-clips`: 5 picture clips, needs ≥ 6 |
+| `remove-duplicate-takes` "Drop the duplicate takes." | **0.75** — deleted two unique takes | **1.00**, first pass |
+
+| metric | value |
+|---|---|
+| intent · target · boundary · operation validity · reversibility | 100% · 100% · 100% · 100% · 100% |
+| first-pass acceptance | 67% (the one miss is turn 1's clip count) |
+| silent successes · failures | 0 · 0 |
+| grade/transition numbers with no measured basis | 0% of 4 |
+
+**Not claimed:** one run per case (not a floor), and turn 1's 5-clip montage is a separate,
+pre-existing prompt-following miss that nothing on this branch touched.
