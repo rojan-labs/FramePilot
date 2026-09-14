@@ -9969,9 +9969,9 @@ surfaces → color solver) as the first vertical slice before any pack work.
 Branch `perf/ai-latency-accuracy-2026-09-14`. Evidence: `TRACKING.md` §U (418 conversations;
 model calls 91% of turn wall time; a call's latency is its thinking tokens at ~85 tok/s).
 
-- [~] U4.1 — reasoning effort follows the run stage (`low` executing a locked plan, `medium` deciding/repairing/recovering)
+- [x] U4.1 — reasoning effort follows the run stage (`low` executing a locked plan, `medium` deciding/repairing/recovering) — `e9066c5b`; `agentStepReasoningEffort` in `kernel/stage-policy.ts`; quality at `low` not yet measured (U4.4)
 - [~] U4.2 — `discover_effects` / `discover_transitions` answer several queries in one call
-- [ ] U4.3 — `measure_color` measures several clips in one call (a refused `normalize_exposure` stops being ten calls from solved)
+- [x] U4.3 — **re-scoped**: a multi-clip `measure_color` would change the per-clip evidence shape read by picture-facts, the color controller, the novelty key, perception metrics and the log/tool-card summaries. Analysis calls in one step already dispatch together, so the gap was the refusal naming only 4 clips — it now names up to 24 and asks for them in one step — `fix(ai-sdk): name every unmeasured clip…`
 - [ ] U4.4 — re-measure with `measure-edit-latency.mjs` after real use; no latency win is claimed before then
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)

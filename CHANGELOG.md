@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The assistant spends less time thinking while it carries out a plan.** Once it has
+  decided an edit, the steps that apply it now think briefly instead of at length; deciding,
+  checking and fixing a failed step still get the full effort. Most of an agent turn's wait
+  was the model thinking, including on steps that only placed what it had already chosen.
+- **Evening out exposure no longer leads to guessed grades.** When shots have not been
+  measured yet, the assistant is now told every shot to measure, all at once, instead of
+  four and "the rest" — which it used to skip, grading every shot with the same made-up
+  numbers.
 - **"Claude (your Claude Code login)" now defaults to Claude Sonnet 5.** It spends your Claude
   subscription, and Opus used it up fast enough to stop long sessions part-way. A model you
   picked yourself is kept.
