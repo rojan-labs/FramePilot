@@ -78,6 +78,13 @@ describe('verificationNote', () => {
     );
   });
 
+  it('costs a log line, never the edit, when a verifier throws', () => {
+    verifyCaptions.mockImplementation(() => {
+      throw new Error('cue_1 has no source asset');
+    });
+    expect(verificationNote('caption_the_edit', project)).toBe('');
+  });
+
   it('runs no verifier for a tool neither check is about', () => {
     expect(verificationNote('trim_clip', project)).toBe('');
     expect(verificationNote('apply_effect', project)).toBe('');

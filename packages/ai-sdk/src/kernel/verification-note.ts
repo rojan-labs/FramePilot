@@ -17,6 +17,7 @@
  * — and a failing check into the first problems, named, in the same breath as the edit
  * that caused them. The read tools stay available for a re-check after other edits.
  */
+import { createLogger } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import {
   DEFAULT_CAPTION_TOLERANCE_SECONDS,
@@ -24,6 +25,8 @@ import {
   verifyTransitions,
   type VerificationIssue,
 } from '../verify.js';
+
+const log = createLogger('ai-sdk:kernel:verification-note');
 
 /** Tools whose landed edit is what `verifyTransitions` checks. */
 const TRANSITION_TOOLS: ReadonlySet<string> = new Set(['add_transition', 'add_transitions']);
@@ -56,17 +59,28 @@ function problems(issues: readonly VerificationIssue[]): string {
  * @returns The suffix for the result note and card, or `''`.
  */
 export function verificationNote(toolName: string, applied: Project): string {
-  if (TRANSITION_TOOLS.has(toolName)) {
-    const report = verifyTransitions(applied);
-    return report.ok
-      ? ` · verified: all good, ${String(report.transitionCount)} transition(s)`
-      : ` · verified: ${problems(report.issues)}`;
-  }
-  if (CAPTION_TOOLS.has(toolName)) {
-    const report = verifyCaptions(applied, DEFAULT_CAPTION_TOLERANCE_SECONDS);
-    return report.ok
-      ? ` · verified: in sync, ${String(report.cueCount)} cue(s)`
-      : ` · verified: ${problems(report.issues)}`;
+  // A check that throws costs the run one log line, never its edit: the operations have
+  // already applied and validated, and the verifier is an extra the model can still ask
+  // for. (A cue with no source asset, as a fixture builds, once threw here and turned a
+  // landed style change into an error note.)
+  try {
+    if (TRANSITION_TOOLS.has(toolName)) {
+      const report = verifyTransitions(applied);
+      return report.ok
+        ? ` · verified: all good, ${String(report.transitionCount)} transition(s)`
+        : ` · verified: ${problems(report.issues)}`;
+    }
+    if (CAPTION_TOOLS.has(toolName)) {
+      const report = verifyCaptions(applied, DEFAULT_CAPTION_TOLERANCE_SECONDS);
+      return report.ok
+        ? ` · verified: in sync, ${String(report.cueCount)} cue(s)`
+        : ` · verified: ${problems(report.issues)}`;
+    }
+  } catch (error) {
+    log.warn('verification note skipped — the verifier threw; the edit stands', {
+      tool: toolName,
+      error: error instanceof Error ? error.message : String(error),
+    });
   }
   return '';
 }
