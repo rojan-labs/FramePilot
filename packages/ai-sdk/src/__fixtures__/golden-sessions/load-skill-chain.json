@@ -234,7 +234,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -559,7 +560,8 @@
           "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue analyze: finish the analysis the plan depends on."
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -892,7 +894,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11830,
+      "usedTokens": 11904,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -967,14 +969,14 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 367,
+            "tokenEstimate": 431,
             "included": true
           },
           {
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 131,
+            "tokenEstimate": 141,
             "included": true
           },
           {
@@ -989,9 +991,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11830,
+          "estimatedInputTokensBeforeSend": 11904,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 179978,
+          "estimatedRemainingCapacity": 179904,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -1010,7 +1012,8 @@
           "evidenceHandles": 1,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {

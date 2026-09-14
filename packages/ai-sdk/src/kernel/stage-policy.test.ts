@@ -12,6 +12,7 @@ import { fileURLToPath } from 'node:url';
 import {
   PRECONDITION_TOOL_NAMES,
   EXECUTION_MEASUREMENT_TOOL_NAMES,
+  agentStepReasoningEffort,
   executedAnEdit,
   settledStageFor,
   stageAdvanceFor,
@@ -21,7 +22,7 @@ import {
   toolRole,
 } from './stage-policy.js';
 import { TOOL_REGISTRY, getTool } from '../tool-registry.js';
-import { RUN_STAGES, isExecutionStage } from './working-state.js';
+import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
 
 describe('toolRole', () => {
   it('separates reading the arrangement from reading the content', () => {
@@ -400,5 +401,45 @@ describe('executedAnEdit — bookkeeping is not execution', () => {
     expect(executedAnEdit([{ type: 'add_layer' }, { type: 'add_clip' }])).toBe(true);
     expect(executedAnEdit([{ type: 'set_track_caption_style' }])).toBe(true);
     expect(executedAnEdit([])).toBe(true);
+  });
+});
+
+describe('agentStepReasoningEffort (TRACKING.md §U1)', () => {
+  // The whole table, so a stage added to RUN_STAGES has to be placed deliberately.
+  const EXPECTED_WITHOUT_RECOVERY: Record<RunStage, 'low' | 'medium'> = {
+    interpret: 'medium',
+    inspect: 'medium',
+    analyze: 'medium',
+    plan: 'medium',
+    apply: 'low',
+    enhance: 'low',
+    verify: 'medium',
+    repair: 'medium',
+    complete: 'medium',
+  };
+
+  it('thinks at low only while executing a locked plan (apply/enhance)', () => {
+    for (const stage of RUN_STAGES) {
+      expect(agentStepReasoningEffort({ stage }), stage).toBe(EXPECTED_WITHOUT_RECOVERY[stage]);
+      expect(agentStepReasoningEffort({ stage, actionRecovery: false }), stage).toBe(
+        EXPECTED_WITHOUT_RECOVERY[stage],
+      );
+    }
+  });
+
+  it('keeps repair at medium even though it is an execution stage', () => {
+    expect(isExecutionStage('repair')).toBe(true);
+    expect(agentStepReasoningEffort({ stage: 'repair' })).toBe('medium');
+  });
+
+  it('thinks at medium on every action-recovery step, whatever the stage', () => {
+    for (const stage of RUN_STAGES) {
+      expect(agentStepReasoningEffort({ stage, actionRecovery: true }), stage).toBe('medium');
+    }
+    expect(agentStepReasoningEffort({ actionRecovery: true })).toBe('medium');
+  });
+
+  it('keeps medium when the handler was told no stage', () => {
+    expect(agentStepReasoningEffort({})).toBe('medium');
   });
 });

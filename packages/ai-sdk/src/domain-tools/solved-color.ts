@@ -79,6 +79,8 @@ interface SolvedGrade {
 interface SkippedClip {
   readonly clipId: string;
   readonly why: string;
+  /** Left alone only because nothing has measured it — grouped into one remedy by the note. */
+  readonly unmeasured?: true;
 }
 
 /** What a solved colour call decided, before any operation exists. */
@@ -208,7 +210,25 @@ export function colorSolveNote(toolName: string, ctx: ToolContext, rawArgs: unkn
     );
   }
 
-  for (const skip of plan.skipped) parts.push(`${skip.clipId}: ${skip.why}`);
+  // Unmeasured shots get ONE remedy, not one per shot. Run `55bf6774`'s apply_look named all
+  // ten clips, each with "measure_color reads it, or wait for indexing" — ~1,500 characters
+  // that said "ten calls, or wait for something that is not running" — and the next step
+  // hand-graded the ten clips, eight at an identical exposure: 0.3. Analysis calls in one
+  // step dispatch together, so the whole remedy is one round trip; saying so is the point.
+  const unmeasured = plan.skipped.filter((skip) => skip.unmeasured === true);
+  if (unmeasured.length > 0) {
+    const named = unmeasured.slice(0, MAX_NAMED_CLIPS).map((skip) => `"${skip.clipId}"`);
+    const rest = unmeasured.length - named.length;
+    parts.push(
+      `nothing has measured ${named.join(', ')}${rest > 0 ? ` or ${String(rest)} more` : ''}, ` +
+        `so ${toolName} left ${unmeasured.length === 1 ? 'it' : 'them'} alone — in one step, ` +
+        'call measure_color once for each (they run together), then call ' +
+        `${toolName} again; do not hand-pick apply_color_grade numbers in its place`,
+    );
+  }
+  for (const skip of plan.skipped) {
+    if (skip.unmeasured !== true) parts.push(`${skip.clipId}: ${skip.why}`);
+  }
 
   if (plan.grades.length > 0) {
     parts.push(
@@ -270,6 +290,7 @@ function planMatchColor(args: z.infer<typeof matchColorSchema>, ctx: ToolContext
       skipped.push({
         clipId,
         why: 'nothing has measured it, so it was left alone — measure_color reads it',
+        unmeasured: true,
       });
       continue;
     }
@@ -304,8 +325,14 @@ const normalizeExposureSchema = z
   })
   .strict();
 
-/** Clips named outright in a "nothing is measured" refusal before it summarises the rest. */
-const MAX_NAMED_CLIPS = 4;
+/**
+ * Clips named outright in a "nothing is measured" refusal before it summarises the rest.
+ *
+ * High enough to cover an ordinary track whole. At four, run `55bf6774` was told
+ * "…and the other 6 clips" — a remedy it could not issue without another lookup — and its
+ * next step graded ten clips by hand, eight at an identical `exposure: 0.3`.
+ */
+const MAX_NAMED_CLIPS = 24;
 
 function planNormalizeExposure(
   args: z.infer<typeof normalizeExposureSchema>,
@@ -318,7 +345,7 @@ function planNormalizeExposure(
   for (const clip of clips) {
     const resolved = measurementFor(ctx, slice, clip.id);
     if (resolved === undefined) {
-      skipped.push({ clipId: clip.id, why: 'not measured yet, so it was left alone' });
+      skipped.push({ clipId: clip.id, why: 'not measured yet, so it was left alone', unmeasured: true });
       continue;
     }
     measured.push({ clipId: clip.id, resolved });
@@ -333,6 +360,11 @@ function planNormalizeExposure(
     // A remedy naming the tool leaves the caller to work out the arguments; one naming
     // the arguments is a call it can make. Same reason `trim_clip` names both time
     // domains and `split_clip` names the range that would work.
+    //
+    // "In one step" is the half that decides latency and precision alike: analysis calls in
+    // one step dispatch together (the orchestrator's concurrency batches), so the whole
+    // remedy costs one round trip. Pointing at indexing instead sent the caller toward the
+    // slowest route there is.
     const names = clips.slice(0, MAX_NAMED_CLIPS).map((clip) => clip.id);
     const rest = clips.length - names.length;
     throw new ToolRefusalError(
@@ -340,9 +372,10 @@ function planNormalizeExposure(
         'no brightness to normalise toward. ' +
         (names.length === 0
           ? `Track "${args.trackId}" has no picture clips to measure.`
-          : `Call measure_color on ${names.map((id) => `"${id}"`).join(', ')}` +
-            `${rest > 0 ? ` and the other ${String(rest)} clip${rest === 1 ? '' : 's'} on the track` : ''}` +
-            ', then call normalize_exposure again. Indexing the footage measures them all at once.'),
+          : `In one step, call measure_color once for each of ${names.map((id) => `"${id}"`).join(', ')}` +
+            `${rest > 0 ? ` (and the other ${String(rest)} clip${rest === 1 ? '' : 's'} on the track — get_clips lists them)` : ''}` +
+            ' — they run together — then call normalize_exposure again. Do not hand-pick ' +
+            'apply_color_grade numbers in its place.'),
     );
   }
 
@@ -430,9 +463,8 @@ function planApplyLook(args: z.infer<typeof applyLookSchema>, ctx: ToolContext):
     if (resolved === undefined) {
       skipped.push({
         clipId,
-        why:
-          'not measured yet, so the look has no baseline to move from — measure_color reads ' +
-          'it, or wait for indexing',
+        why: 'not measured yet, so the look has no baseline to move from',
+        unmeasured: true,
       });
       continue;
     }

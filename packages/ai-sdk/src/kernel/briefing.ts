@@ -29,10 +29,20 @@ import {
   type RunWorkingState,
   type VerificationRecord,
   committedDecisions,
+  isExecutionStage,
   isRequestEcho,
   requestEcho,
 } from './working-state.js';
 import { type ToolRole } from './stage-policy.js';
+
+/**
+ * The pacing line shown in every execution-stage briefing (apply / enhance / repair).
+ * Exported so the tests and the golden manifests pin the exact text the model reads.
+ */
+export const EXECUTION_PACE =
+  'Carry out every remaining edit whose arguments you already know in THIS step, as ' +
+  'separate tool calls: they apply in order, and each result says where its clips landed, ' +
+  'so nothing needs reading back between them. One edit per step is a round trip wasted.';
 
 /** Characters of a distilled statement — one line, never a payload. */
 const STATEMENT_CHARS = 180;
@@ -295,7 +305,14 @@ export function buildStateBriefing(
   const completed = state.completedStages.length
     ? ` (finished: ${state.completedStages.join(' → ')})`
     : '';
-  sections.push(`STAGE\nYou are at "${state.stage}"${completed}. Continue from here.`);
+  // While a locked plan is being carried out, the step's size IS its latency. The
+  // contract already says independent calls belong in one turn; this repeats it at the
+  // point of action, because the median apply step on the recorded Claude runs carried
+  // ONE tool call (TRACKING.md §W2 — 87 apply steps, 3.9 s fixed cost each before any
+  // thinking). The results now carry where each clip landed (`placement-note.ts`), which
+  // is what removes the reason to read between edits.
+  const pace = isExecutionStage(state.stage) ? ` ${EXECUTION_PACE}` : '';
+  sections.push(`STAGE\nYou are at "${state.stage}"${completed}. Continue from here.${pace}`);
 
   if (state.facts.length > 0) {
     sections.push(`ESTABLISHED — do not gather again\n${state.facts.map(renderFact).join('\n')}`);

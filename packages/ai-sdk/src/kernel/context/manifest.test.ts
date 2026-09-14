@@ -183,6 +183,23 @@ describe('withProviderUsage', () => {
     expect(settled.usage).toMatchObject({ cachedInputTokens: 1_800, reasoningTokens: 400 });
   });
 
+  it('records cache writes beside cache reads, so a rebuilt prefix is visible per call', () => {
+    const settled = withProviderUsage(buildManifest(input()), {
+      inputTokens: 11_812,
+      cacheReadInputTokens: 17_000,
+      cacheCreationInputTokens: 34_000,
+    });
+    expect(settled.usage).toMatchObject({
+      cachedInputTokens: 17_000,
+      cacheWriteInputTokens: 34_000,
+    });
+  });
+
+  it('leaves cache writes absent, never zero, when the provider reports none', () => {
+    const settled = withProviderUsage(buildManifest(input()), { inputTokens: 2_310 });
+    expect('cacheWriteInputTokens' in settled.usage).toBe(false);
+  });
+
   it('does not mutate the manifest it was given', () => {
     const before = buildManifest(input());
     withProviderUsage(before, { inputTokens: 2_310 });
@@ -271,6 +288,15 @@ describe('buildRequestManifest', () => {
     reservedOutputTokens: 128_000,
     request,
   };
+
+  it('records the reasoning effort the request carries, and nothing when it carries none', () => {
+    expect(buildRequestManifest(base).reasoningEffort).toBeUndefined();
+    const lowEffort = buildRequestManifest({
+      ...base,
+      request: { ...request, reasoningEffort: 'low' as const },
+    });
+    expect(lowEffort.reasoningEffort).toBe('low');
+  });
 
   it('itemises a payload the assembler never produced, so agent calls are accounted for', () => {
     const manifest = buildRequestManifest(base);

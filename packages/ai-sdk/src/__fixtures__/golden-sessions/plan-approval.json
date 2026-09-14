@@ -356,7 +356,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 2
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -729,7 +730,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11779,
+      "usedTokens": 11853,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -811,14 +812,14 @@
             "id": "s11",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 419,
+            "tokenEstimate": 482,
             "included": true
           },
           {
             "id": "s12",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 13,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -833,9 +834,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11779,
+          "estimatedInputTokensBeforeSend": 11853,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180029,
+          "estimatedRemainingCapacity": 179955,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -854,7 +855,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -1049,7 +1051,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 9791,
+      "usedTokens": 9865,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1131,7 +1133,7 @@
             "id": "s11",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 383,
+            "tokenEstimate": 447,
             "included": true
           },
           {
@@ -1145,7 +1147,7 @@
             "id": "s13",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 16,
+            "tokenEstimate": 26,
             "included": true
           },
           {
@@ -1160,9 +1162,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 9791,
+          "estimatedInputTokensBeforeSend": 9865,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 182017,
+          "estimatedRemainingCapacity": 181943,
           "toolSchemaTokensRebilled": 5039,
           "calculationSource": "local_estimate"
         },
@@ -1181,7 +1183,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Tighten the intro"
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {

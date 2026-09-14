@@ -65,6 +65,26 @@ export const filterString = (): z.ZodPipe<
   z.ZodOptional<z.ZodString>
 > => z.preprocess(blankToUndefined, z.string().optional());
 
+/**
+ * Drop blank entries from a model-supplied string list, and read a list left empty by
+ * that as "not provided" — the list form of {@link blankToUndefined}. `["", "glow"]` is a
+ * one-entry list; `[]` and `[""]` are no filter at all. A non-array passes through
+ * untouched, so the schema still rejects it.
+ */
+export const blankEntriesToUndefined = (value: unknown): unknown => {
+  if (!Array.isArray(value)) return value;
+  const kept = value
+    .map((entry) => (typeof entry === 'string' ? entry.trim() : entry))
+    .filter((entry) => entry !== '');
+  return kept.length === 0 ? undefined : kept;
+};
+
+/** An optional list of string selectors, at most `max` entries (see above). */
+export const filterStringList = (
+  max: number,
+): z.ZodPipe<z.ZodTransform<unknown, unknown>, z.ZodOptional<z.ZodArray<z.ZodString>>> =>
+  z.preprocess(blankEntriesToUndefined, z.array(z.string()).max(max).optional());
+
 export const seconds = numeric(z.number().nonnegative());
 
 /** Deterministic id so identical inputs yield identical effect/keyframe ids. */

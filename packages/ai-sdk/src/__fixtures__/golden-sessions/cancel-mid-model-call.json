@@ -234,7 +234,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {

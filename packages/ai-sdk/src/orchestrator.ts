@@ -143,7 +143,13 @@ import {
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd, runPricingFor } from './kernel/cost/cost-meter.js';
 import type { TierPrice } from './kernel/cost/cost-meter.js';
-import { EDIT_LOOK_TOOL_NAMES, stageAllowsTool, toolRole } from './kernel/stage-policy.js';
+import {
+  EDIT_LOOK_TOOL_NAMES,
+  agentStepReasoningEffort,
+  stageAllowsTool,
+  toolRole,
+} from './kernel/stage-policy.js';
+import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -5511,19 +5517,22 @@ export class Orchestrator {
       // them, the music bed and the title card each placed twice.
       const callKey = appliedCallKey(call);
       if (!changed && host.appliedCalls?.has(callKey) === true) {
-        const note =
+        const summary =
           `${desc} — already done, and doing it again moved nothing. This run has ` +
           'made this exact call before and the project is unchanged by it, so the ' +
-          'operations were not applied a second time. Read the current state with ' +
-          'get_timeline or get_clips, and go on to the next part of the request.';
+          'operations were not applied a second time. Go on to the next part of the request.';
+        // The model's copy also carries what the clips hold, so it can set a different
+        // value without a read; the card keeps the sentence (`kernel/placement-note.ts`).
+        const holds = currentPlacement(normalized, ctx.project);
+        const note = holds === '' ? summary : `${summary} It holds: ${holds}.`;
         orchestratorLog.warn('withheld a repeated call that changed nothing', {
           tool: call.name,
           opCount: normalized.length,
         });
-        return { ops: [], note, summary: note, status: 'warning', satisfied: true };
+        return { ops: [], note, summary, status: 'warning', satisfied: true };
       }
       host.appliedCalls?.add(callKey);
-      const note =
+      const outcomeLine =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
@@ -5540,11 +5549,18 @@ export class Orchestrator {
         // back to re-grade or to fill in the transitions it withheld on purpose. Computed
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
         colorSolveNote(call.name, ctx, call.arguments) +
-        transitionsNote(call.name, ctx, call.arguments) +
+        transitionsNote(call.name, ctx, call.arguments);
+      // The card gets the sentence; the model's copy also gets where things landed, or what
+      // they already hold — either answer is what it used to spend a whole round trip reading
+      // back (`kernel/placement-note.ts`). Clip ids are precision for the model, noise on a card.
+      const summary = changed
+        ? outcomeLine
+        : `${outcomeLine} — nothing moved: the project already said exactly this.`;
+      const note =
+        outcomeLine +
         (changed
-          ? ''
-          : ' — nothing moved: the project already said exactly this. Read the current ' +
-            'value with get_timeline or get_clips before setting it again.');
+          ? placementNote(normalized, ctx.project, applied)
+          : unchangedNote(normalized, ctx.project));
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -5558,7 +5574,7 @@ export class Orchestrator {
       return {
         ops: normalized,
         note,
-        summary: note,
+        summary,
         status: 'completed',
         // A tool whose op count the model cannot influence does not spend the run's
         // blast-radius budget (see `ToolSpec.derivedFanOut`).
@@ -6571,7 +6587,9 @@ export class Orchestrator {
       // The pre-send account (ADR 0080): every section, its cost, what compaction
       // removed, and the durable memory that outlives this request — so a change in the
       // number always arrives with its cause attached.
-      manifest = this.manifestFor(request, sink, modelCall);
+      // `modelRequest`, not `request`: the manifest records the effort AS SENT, and the
+      // default this method applies to a displayed-reasoning call is part of what is sent.
+      manifest = this.manifestFor(modelRequest, sink, modelCall);
       yield emit.contextUsage({
         usedTokens: manifest.usage.estimatedInputTokensBeforeSend,
         contextWindow: manifest.usage.modelContextLimit,
@@ -8970,6 +8988,13 @@ export class Orchestrator {
               tools: effect.actionRecovery
                 ? self.agentTools('action-recovery', undefined, loadedToolDomains)
                 : self.agentTools(turnScope, effect.stage, loadedToolDomains),
+              // Thinking is the step's latency (TRACKING.md §U1: apply steps spent 16k–25k
+              // hidden tokens, ≈190–330 s, at `medium`), so a step executing a locked plan
+              // thinks at `low`; planning, repair and any recovery step keep `medium`.
+              reasoningEffort: agentStepReasoningEffort({
+                stage: effect.stage,
+                actionRecovery: effect.actionRecovery,
+              }),
             },
             runSignal,
             // Per-step thinking (U3, redesign §12): each step captures the model's

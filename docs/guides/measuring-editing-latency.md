@@ -41,6 +41,35 @@ Aggregates (p50/p90/max) are reported overall, by `model` (n ≥ 5 only), and
 split before/after 2026-09-13 (the date the ramp-render fix — `84ff4719` —
 landed, which also fixed the review timeouts per `N2`).
 
+### Per model call
+
+A turn's seconds are its model calls, so the script also reads each call
+on its own. Every call is bracketed by two `context_usage` events sharing a
+`manifest.requestId` — `estimated: true` at send, `estimated: false` when
+the provider's usage arrives — and from that pair and what sits between
+and after it the script records:
+
+- **wall time** (settle − send) and **time to first token** (the first
+  `reasoning_delta` / `assistant_delta` after the send);
+- **output tokens**, uncached input, cache reads and writes, and whether
+  the tool block was re-billed — from the settled manifest's `usage`;
+- **stage** and **reasoning effort as sent** — from the manifest;
+- **the tool calls the step issued** — `tool_call` ids emitted after the
+  settle and before the next send (one per id; a call is emitted twice);
+- **whether it applied an edit** — a `timeline_action` in that window.
+
+From those it reports the **fixed cost of a call** (the intercept of a
+least-squares fit of wall time over output tokens, with the implied output
+rate), the classifier's own wall time (`user_message` → the `classify`
+usage event), the two round-trip shapes that produce no edit — a step of
+nothing but arrangement reads (`get_clips`, `get_timeline`, …) straight
+after a step that applied an edit, and a step with no tool call before the
+turn's last — and the split by stage, by effort, by stage × effort and by
+provider. `--since=YYYY-MM-DD` keeps only conversations updated from that
+day; `--provider=<name>` narrows the per-call section to one adapter,
+because a fixed cost is a property of the adapter (a subprocess spawn, a
+gateway hop), not of the corpus.
+
 ## Honesty rules this script follows
 
 - **No imputation.** A turn missing a field (no `usage` event, no terminal
@@ -62,7 +91,8 @@ landed, which also fixed the review timeouts per `N2`).
 
 ```bash
 node packages/ai-sdk/scripts/measure-edit-latency.mjs \
-  [conversations-dir] [--out=path/to/report.md]
+  [conversations-dir] [--out=path/to/report.md] \
+  [--since=YYYY-MM-DD] [--provider=claude-agent-sdk]
 ```
 
 Defaults: `conversations-dir` is
@@ -73,7 +103,8 @@ report — only aggregate numbers are written.
 
 Unit tests (`packages/ai-sdk/scripts/measure-edit-latency.test.mjs`) exercise
 the pure aggregation functions — `classifyToolKind`, `summarize`,
-`extractTurns`, `aggregate` — against a synthetic event fixture, so the
+`extractTurns`, `aggregate`, `extractCalls`, `fitFixedOverhead`,
+`aggregateCalls` — against a synthetic event fixture, so the
 math is covered without touching real user transcripts:
 
 ```bash
@@ -99,3 +130,18 @@ This is measurement only — no optimization was made here. A follow-up for
 editing turn (fewer, larger tool-using turns; or a cheaper/faster classifier
 so weak models don't need as many corrective calls), re-measured with this
 same script for a real before/after.
+
+## What the per-call run found (2026-09-15)
+
+`--since=2026-09-01 --provider=claude-agent-sdk` over the five Claude runs
+recorded on the desktop (11 turns, 128 calls), written up as TRACKING.md
+§W: a call costs about 3.9 s before its first thinking token and then runs
+at ~89 output tokens/s; that fixed cost is flat whether or not the tool
+block was re-billed, so prefill and cache are not the lever; the classifier
+is one such spawn (3.7 s for 28 tokens); the median apply step carried one
+tool call; and 13 of the 128 calls were a read-back of the arrangement
+right after an applied edit. The last two are what `kernel/placement-note.ts`
+and the execution-stage pacing line address — re-measure with the same
+flags after real use on that build, and read the by-effort table for the
+effect of stage-scoped thinking effort.
+

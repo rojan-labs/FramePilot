@@ -191,8 +191,8 @@ describe('match_color', () => {
     const args = { targetClipIds: ['shot_b', 'shot_c'], referenceClipId: 'shot_a' };
     expect(ops('match_color', args, ctx)).toHaveLength(1);
     const note = colorSolveNote('match_color', ctx, args);
-    expect(note).toContain('shot_c');
-    expect(note).toContain('nothing has measured it');
+    expect(note).toContain('nothing has measured "shot_c", so match_color left it alone');
+    expect(note).toContain('then call match_color again');
   });
 
   it('says the match is partial, and which axes ran out, when the solve clamps', () => {
@@ -282,8 +282,14 @@ describe('normalize_exposure', () => {
       thrown = error;
     }
     const message = (thrown as Error).message;
-    expect(message).toMatch(/Call measure_color on "shot_a"/);
+    expect(message).toMatch(/In one step, call measure_color once for each of "shot_a"/);
     expect(message).toMatch(/then call normalize_exposure again/);
+    // Every clip, not four and a count: run `55bf6774` was told "and the other 6 clips",
+    // could not issue that without another lookup, and hand-graded ten clips instead.
+    for (const id of ['shot_a', 'shot_b', 'shot_c']) expect(message).toContain(`"${id}"`);
+    expect(message).not.toMatch(/other \d+ clip/);
+    // Indexing is the slowest route to a measurement; the refusal must not lead there.
+    expect(message).not.toMatch(/Indexing/);
   });
 });
 
@@ -323,7 +329,26 @@ describe('apply_look', () => {
     const ctx = context({ ledger: ledger({ a: measured(0.5) }) });
     const args = { clipIds: ['shot_a', 'shot_b'], look: 'warmer' };
     expect(ops('apply_look', args, ctx)).toHaveLength(1);
-    expect(colorSolveNote('apply_look', ctx, args)).toContain('shot_b: not measured yet');
+    const note = colorSolveNote('apply_look', ctx, args);
+    expect(note).toContain('nothing has measured "shot_b", so apply_look left it alone');
+    expect(note).toContain('in one step, call measure_color once for each');
+    expect(note).not.toContain('"shot_a"');
+  });
+
+  it('gives every unmeasured shot ONE remedy, not one sentence per shot', () => {
+    // Run `55bf6774`: ten clips, each with its own "measure_color reads it, or wait for
+    // indexing", and the next step hand-graded all ten instead.
+    const ctx = context({ ledger: ledger({}) });
+    const args = { clipIds: ['shot_a', 'shot_b', 'shot_c'], look: 'punchier' };
+    expect(ops('apply_look', args, ctx)).toHaveLength(0);
+    const note = colorSolveNote('apply_look', ctx, args);
+    for (const id of ['shot_a', 'shot_b', 'shot_c']) {
+      expect(note.split(`"${id}"`)).toHaveLength(2);
+    }
+    expect(note.match(/in one step/g)).toHaveLength(1);
+    expect(note).toContain('then call apply_look again');
+    expect(note).toContain('do not hand-pick apply_color_grade numbers');
+    expect(note).not.toMatch(/wait for indexing/);
   });
 });
 

@@ -35,7 +35,12 @@
 import { createLogger } from '@framepilot/shared-types';
 import { type AssembledSection, estimateTokens } from '../../context-builder.js';
 import type { CapabilitySource } from '../../providers/model-capabilities.js';
-import type { AiCompletionRequest, AiMessage, ProviderName } from '../../providers/types.js';
+import type {
+  AiCompletionRequest,
+  AiMessage,
+  ProviderName,
+  ReasoningEffort,
+} from '../../providers/types.js';
 import {
   type RunWorkingState,
   committedDecisions,
@@ -106,6 +111,15 @@ export interface RequestTokenUsage {
   readonly providerReportedOutputTokens?: number;
   /** Prompt-cache hits, when the provider reports them. Part of input, not extra. */
   readonly cachedInputTokens?: number;
+  /**
+   * Prompt-cache WRITES this request, when the provider reports them.
+   *
+   * Reads alone cannot tell a stable prefix from one that is rebuilt every call: a call
+   * that reads 17k and writes 34k is caching its transcript for a next request that never
+   * matches it. On claude-agent-sdk the per-turn totals showed writes at 1.07–2.0× reads
+   * (TRACKING.md §U1), and without this figure per call the reason could only be guessed.
+   */
+  readonly cacheWriteInputTokens?: number;
   readonly reasoningTokens?: number;
   /** limit − (reported ?? estimated) input − reservation, floored at zero. */
   readonly estimatedRemainingCapacity: number;
@@ -184,6 +198,17 @@ export interface ContextManifest {
   readonly usage: RequestTokenUsage;
   readonly compaction: CompactionRecord;
   readonly memory?: DurableMemoryStatus;
+  /**
+   * The thinking effort this request asked for, as sent on the wire.
+   *
+   * A call's latency is its hidden thinking (TRACKING.md §U1: ~85 output tokens per
+   * second, nearly all of it reasoning), and `kernel/stage-policy.ts` lowers it while a
+   * locked plan is being carried out. Recording the setting beside the reported output
+   * tokens is what lets a recorded run be split by effort — the only way the policy's
+   * effect on latency and on precision can be measured rather than assumed. Absent when
+   * the request carried none (the provider's default applies).
+   */
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -250,6 +275,8 @@ export interface ManifestInput {
    * one is not an index into the other and no section may claim a cache side from it.
    */
   readonly assembledSections?: boolean;
+  /** See {@link ContextManifest.reasoningEffort}. */
+  readonly reasoningEffort?: ReasoningEffort;
 }
 
 /**
@@ -325,6 +352,7 @@ export function buildManifest(input: ManifestInput): ContextManifest {
       removedSections,
     },
     ...(input.memory ? { memory: input.memory } : {}),
+    ...(input.reasoningEffort ? { reasoningEffort: input.reasoningEffort } : {}),
   };
 
   log.debug('context.manifest.built', {
@@ -494,6 +522,7 @@ export function buildRequestManifest(input: RequestManifestInput): ContextManife
     ...(input.memory ? { memory: input.memory } : {}),
     ...(boundaryIndex < 0 ? {} : { cacheBoundaryIndex: boundaryIndex }),
     ...(input.assembled ? { assembledSections: true } : {}),
+    ...(input.request.reasoningEffort ? { reasoningEffort: input.request.reasoningEffort } : {}),
   });
 }
 
@@ -532,11 +561,14 @@ export function withProviderUsage(
      * for exactly this reason, whatever the provider actually did.
      */
     readonly cacheReadInputTokens?: number;
+    /** Cache writes this request (`reliability/types.ts#Usage`). */
+    readonly cacheCreationInputTokens?: number;
     readonly reasoningTokens?: number;
   },
 ): ContextManifest {
   const reportedInput = usage.inputTokens;
   const cachedInput = usage.cachedInputTokens ?? usage.cacheReadInputTokens;
+  const cacheWrite = usage.cacheCreationInputTokens;
   const effectiveInput = reportedInput ?? manifest.usage.estimatedInputTokensBeforeSend;
   const next: ContextManifest = {
     ...manifest,
@@ -547,6 +579,7 @@ export function withProviderUsage(
         ? { providerReportedOutputTokens: usage.outputTokens }
         : {}),
       ...(cachedInput !== undefined ? { cachedInputTokens: cachedInput } : {}),
+      ...(cacheWrite !== undefined ? { cacheWriteInputTokens: cacheWrite } : {}),
       ...(usage.reasoningTokens !== undefined ? { reasoningTokens: usage.reasoningTokens } : {}),
       estimatedRemainingCapacity: remainingCapacity(
         manifest.usage.modelContextLimit,

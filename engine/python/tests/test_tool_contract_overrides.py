@@ -62,6 +62,9 @@ def test_effect_contract_bounds_are_strict() -> None:
     rejects("resize_effect", {"layerId": "fx", "start": 3, "end": 2})
     rejects("discover_effects", {"limit": 81})
     rejects("discover_transitions", {"limit": 81})
+    validate("discover_effects", {"queries": ["vhs"] * 8, "categories": ["glitch"]})
+    rejects("discover_effects", {"queries": ["vhs"] * 9})
+    rejects("discover_transitions", {"categories": ["wipe"] * 9})
     # The ceiling is the catalog's own size, so the whole catalog is reachable in one
     # call — a lower bound made the template ids past the cut unusable, and
     # set_track_caption_style rejects an id the model was never shown.

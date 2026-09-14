@@ -8,6 +8,29 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The assistant spends less time thinking while it carries out a plan.** Once it has
+  decided an edit, the steps that apply it now think briefly instead of at length; deciding,
+  checking and fixing a failed step still get the full effort. Most of an agent turn's wait
+  was the model thinking, including on steps that only placed what it had already chosen.
+- **Fewer pauses while the assistant browses effects and transitions.** It can now look up
+  several styles at once instead of one per step, and each step was a wait of ten to thirty
+  seconds.
+- **The assistant stops re-reading the timeline after its own edits.** Every edit's result now
+  says where the clips landed, and an edit that changed nothing says what the clip already
+  holds. In recent runs one step in ten was the assistant reading back what it had just done,
+  each a wait of ten to forty seconds.
+- **The assistant makes more of its edits in one go.** While carrying out a plan it is asked to
+  issue every edit it already knows in the same step, instead of one edit per step with a full
+  round trip between them.
+- **Evening out exposure, matching shots and applying a look no longer lead to guessed
+  grades.** When shots have not been measured yet, the assistant is now told once which shots
+  to measure, to measure them all at once, and then to try again. It used to get a separate
+  "measure this, or wait for indexing" line for every shot, skip it, and grade every shot
+  with the same made-up numbers.
+- **The self-check stops judging your edit against words nobody said.** When speech
+  recognition invents a transcript for audio with no speech (wind, music), the check now
+  skips "dead air" and "markers match the words" instead of warning about silence before a
+  fake first word and markers that don't match invented dialogue.
 - **"Claude (your Claude Code login)" now defaults to Claude Sonnet 5.** It spends your Claude
   subscription, and Opus used it up fast enough to stop long sessions part-way. A model you
   picked yourself is kept.

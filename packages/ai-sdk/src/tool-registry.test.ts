@@ -686,6 +686,20 @@ describe('discover_transitions', () => {
     expect(hold?.default).toBe(0.45);
   });
 
+  it('answers several queries and categories in one call, counting each query', () => {
+    // Run `55bf6774` asked `{category:"wipe"}` and `{category:"spatial"}` as two calls.
+    const byCategory = discover({ categories: ['wipe', 'basic'], limit: 80 });
+    expect(new Set(byCategory.transitions.map((t) => t.category))).toEqual(
+      new Set(['wipe', 'basic']),
+    );
+    const batch = discover({ queries: ['dissolve', 'zzzznotathing'], limit: 80 }) as Result & {
+      queries?: { query: string; matched: number }[];
+    };
+    expect(batch.transitions.map((t) => t.kind)).toContain('cross-dissolve');
+    expect(batch.queries?.[1]).toEqual({ query: 'zzzznotathing', matched: 0 });
+    expect(batch.queries?.[0]?.matched).toBe(batch.matched);
+  });
+
   it('returns an empty result for a miss rather than throwing', () => {
     const result = discover({ query: 'zzzznotathing' });
     expect(result.matched).toBe(0);

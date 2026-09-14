@@ -1885,13 +1885,21 @@ function markerToken(raw: string): string {
  * A label counts as placed when any of its content words — not the editorial vocabulary
  * ("hook", "payoff") it is described with — is spoken within a few seconds of it.
  */
-function checkMarkerLabels(project: Project): CriticCheck {
+function checkMarkerLabels(project: Project, loop: TranscriptLoop | undefined): CriticCheck {
   const labelled = project.markers.filter(
     (marker): marker is typeof marker & { readonly label: string } =>
       typeof marker.label === 'string' && marker.label.trim() !== '',
   );
   if (labelled.length === 0) {
     return check('marker_labels', 'Markers sit where their words are spoken', 'skipped', 'No labelled markers.');
+  }
+  if (loop !== undefined) {
+    return check(
+      'marker_labels',
+      'Markers sit where their words are spoken',
+      'skipped',
+      transcriptLoopSkipDetail(loop, 'marker placement'),
+    );
   }
   const mapped = mapTranscript(
     buildTimelineMap(project.timeline),
@@ -2229,7 +2237,20 @@ function checkWordSevered(
  * never be `skipped` for want of a render. A run that also gathered `analyze_silence`
  * evidence gets a sharper answer through {@link CritiqueOptions.silences}.
  */
-function checkDeadAir(project: Project, fps: number, options: CritiqueOptions): CriticCheck {
+function checkDeadAir(
+  project: Project,
+  fps: number,
+  options: CritiqueOptions,
+  loop: TranscriptLoop | undefined,
+): CriticCheck {
+  if (loop !== undefined) {
+    return check(
+      'dead_air',
+      'No dead air at head or tail',
+      'skipped',
+      transcriptLoopSkipDetail(loop, 'dead air'),
+    );
+  }
   const mapped = mapTranscript(
     buildTimelineMap(project.timeline),
     project.transcript,
@@ -2636,6 +2657,26 @@ export function reconcileInheritedFailures(
   return { checks, ok, summary };
 }
 
+/**
+ * The `skipped` detail for a check that measures the edit against transcribed words when the
+ * transcript is a detected recognition loop.
+ *
+ * WHY skip outright rather than judge the words outside the loop: run `cc907070` showed
+ * those are hallucinated too — 49 of 2,431 words over pure wind, the same recogniser
+ * guessing at the same audio (see `checkWordSevered`). And judging the loop itself is worse:
+ * on eight self-checked Claude desktop runs since 2026-09-01, all five that carried the loop
+ * warning also warned "dead air before the first word" and "markers name words not spoken"
+ * — run `55bf6774`, a GoPro montage whose audio is wind, was told to ripple_delete its head
+ * and move 15 markers to match "I'll try to follow you later." ×397.
+ */
+function transcriptLoopSkipDetail(loop: TranscriptLoop, measured: string): string {
+  return (
+    `The transcript is "${loop.phrase}" repeated over ${String(Math.round(loop.share * 100))}% ` +
+    'of the recording — speech recognition looping over quiet audio — so there is no real ' +
+    `dialogue to measure ${measured} against. Re-transcribe before relying on it.`
+  );
+}
+
 /** The transcript grounding every word-level edit is not obviously fabricated. */
 function checkTranscriptReliable(project: Project, loop: TranscriptLoop | undefined): CriticCheck {
   const words = project.transcript;
@@ -2675,8 +2716,9 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
   // project's rate. `Project.fps` is required by the schema; the guard is for a
   // hand-built fixture that lies about it, which must not turn a review into a crash.
   const fps = Number.isFinite(project.fps) && project.fps > 0 ? project.fps : 30;
-  // Detected ONCE and shared: `transcript_reliable` reports the loop and `word_severed`
-  // has to honour the same verdict, and the scan is quadratic in the transcript.
+  // Detected ONCE and shared: `transcript_reliable` reports the loop and `word_severed`,
+  // `dead_air` and `marker_labels` have to honour the same verdict, and the scan is
+  // quadratic in the transcript.
   const loop = detectTranscriptLoop(project.transcript);
   const checks: CriticCheck[] = [
     checkRequestMatch(options),
@@ -2695,11 +2737,11 @@ export function critique(project: Project, options: CritiqueOptions = {}): Criti
     // Editorial checks (Phase 4) — "is this a good cut?", after "is it well-formed?".
     checkJumpCut(project, fps),
     checkWordSevered(project, fps, loop),
-    checkDeadAir(project, fps, options),
+    checkDeadAir(project, fps, options, loop),
     checkTransitionFit(project, fps),
     checkAudioSlam(project, fps),
     checkShotRhythm(project, fps),
-    checkMarkerLabels(project),
+    checkMarkerLabels(project, loop),
     checkCaptionVerify(project),
   ];
   const fails = checks.filter((c) => c.status === 'fail').length;

@@ -2103,6 +2103,64 @@ describe('detectTranscriptLoop — ASR hallucination, not speech', () => {
       expect(idOf(report, 'word_severed')?.detail).not.toContain('loop artefacts');
     });
   });
+
+  /**
+   * Run `55bf6774`: a GoPro snowboard montage whose audio is wind, transcribed as "I'll try
+   * to follow you later." ×397 over 91% of it. `transcript_reliable` warned — and in the same
+   * report `dead_air` warned about 3.17s "before the first word" and `marker_labels` about 15
+   * markers naming words "not spoken". Both measured the edit against words nobody said.
+   */
+  describe('dead_air and marker_labels honour the loop verdict', () => {
+    const loopProject = (markers: { time: number; label: string }[] = []) =>
+      makeProject({
+        // Starts at 3s, so a dead_air that trusted it would warn about a 3s head.
+        transcript: repeated("i'll try to follow you later", 120, 3).map((word) => ({
+          ...word,
+          assetId: 'asset_1',
+        })),
+        markers: markers.map((marker, i) => ({ id: `m${String(i)}`, ...marker })),
+      } as never);
+
+    it('skips dead_air and names the loop', () => {
+      const report = critique(loopProject(), {});
+      expect(idOf(report, 'transcript_reliable')?.status).toBe('warn');
+      const deadAir = idOf(report, 'dead_air');
+      expect(deadAir?.status).toBe('skipped');
+      expect(deadAir?.detail).toContain('"i\'ll try to follow you later" repeated over');
+      expect(deadAir?.detail).toContain('speech recognition looping over quiet audio');
+      expect(deadAir?.detail).toContain('dead air');
+      expect(deadAir?.detail).toContain('Re-transcribe');
+    });
+
+    it('skips marker_labels and names the loop', () => {
+      const report = critique(loopProject([{ time: 0, label: 'Summit — first drop' }]), {});
+      const markers = idOf(report, 'marker_labels');
+      expect(markers?.status).toBe('skipped');
+      expect(markers?.detail).toContain('speech recognition looping over quiet audio');
+      expect(markers?.detail).toContain('marker placement');
+    });
+
+    it('still says a project has no labelled markers when that is the reason', () => {
+      expect(idOf(critique(loopProject(), {}), 'marker_labels')?.detail).toBe(
+        'No labelled markers.',
+      );
+    });
+
+    it('still judges dead_air and marker_labels on a clean transcript', () => {
+      const report = critique(
+        makeProject({
+          transcript: [
+            { word: 'hello', start: 3, end: 3.5, assetId: 'asset_1' },
+            { word: 'there', start: 3.5, end: 4, assetId: 'asset_1' },
+          ],
+          markers: [{ id: 'm0', time: 0, label: 'Summit — first drop' }],
+        } as never),
+        {},
+      );
+      expect(idOf(report, 'dead_air')?.status).toBe('warn');
+      expect(idOf(report, 'marker_labels')?.status).toBe('warn');
+    });
+  });
 });
 
 /**

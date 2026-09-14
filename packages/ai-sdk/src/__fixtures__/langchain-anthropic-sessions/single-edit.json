@@ -234,7 +234,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -355,7 +356,8 @@
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
-          "cachedInputTokens": 40
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
         },
         "compaction": {
           "occurred": false,
@@ -371,7 +373,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -676,7 +679,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11657,
+      "usedTokens": 11732,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -751,14 +754,14 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 320,
+            "tokenEstimate": 383,
             "included": true
           },
           {
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 12,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -773,9 +776,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11657,
+          "estimatedInputTokensBeforeSend": 11732,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860343,
+          "estimatedRemainingCapacity": 860268,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -794,7 +797,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -896,14 +900,14 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 320,
+            "tokenEstimate": 383,
             "included": true
           },
           {
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 12,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -918,14 +922,15 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11657,
+          "estimatedInputTokensBeforeSend": 11732,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
-          "cachedInputTokens": 40
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
         },
         "compaction": {
           "occurred": false,
@@ -942,7 +947,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {

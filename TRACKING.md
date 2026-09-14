@@ -1314,3 +1314,297 @@ pre-existing prompt-following miss that nothing on this branch touched.
 
 Lesson kept: scoped local runs must use the **CI command** for lint/type steps (`uv run mypy .`
 in `engine/python`, the pack's own `ruff check .`), because both include tests.
+
+---
+
+# U. Latency · accuracy · precision pass (2026-09-14)
+
+Branch `perf/ai-latency-accuracy-2026-09-14` (worktree `../FramePilot-ai-latency`).
+
+## U1 — Where a turn's time actually goes (measured)
+
+`node packages/ai-sdk/scripts/measure-edit-latency.mjs <conversations>` over 418 conversations /
+785 turns: **model calls are 91.2% of wall time**, host tools 6.8%, review 2.0%.
+
+Per-call decomposition of the two freshest runs (`55bf6774`, claude-sonnet-5; `3ed87ff0`,
+claude-opus-5), from each call's `context_usage` pair (`providerReportedOutputTokens`, wall ms):
+
+| finding | evidence |
+|---|---|
+| a call's latency is its **output tokens ÷ ~85 tok/s** | every segment lands at 47–95 tok/s |
+| the output is **hidden thinking**, not tool arguments | seg-3 of `55bf6774`: **14,768** output tokens, 10 tool calls with 520 chars of arguments, **164.7 s** |
+| input is small and cached — prefill is not the cost | 2.6k–13.7k uncached input per call |
+| **apply-stage steps think as hard as planning** | sonnet turn: apply steps 7,980 + 4,828 + 1,037 + 2,254 tok (≈190 s); opus turn `014f`: 8 apply steps ≈ 25k tok (≈330 s) — all at `reasoningEffort: 'medium'`, the only value `orchestrator.ts` ever sends |
+| **catalog ping-pong** costs whole round trips | turn "add effects and transitions": 5 of 12 calls were one-or-two-query `discover_effects`/`discover_transitions` lookups (≈95 s of 212 s), one refused by the novelty guard as a repeat |
+
+Cache: `cacheWriteTokens` is 1.07–2.0× `cacheReadTokens` on claude-agent-sdk. Recorded, **not
+chased** — prefill is not where the seconds are, and this provider is unpriced (subscription).
+
+## U2 — Precision: a refused solver becomes guessed grades
+
+`55bf6774` turn 1: `normalize_exposure` refused ("nothing on track v1 has been measured … call
+measure_color on … and the other 6 clips"), and the **next** step applied `apply_color_grade`
+to 10 clips, eight of them `exposure: 0.3` — numbers with no measured basis, exactly what O3
+tried to stop by naming the clips. `measure_color` takes ONE `clipId`, so obeying the refusal
+means ten calls; the model takes the cheaper wrong path.
+
+## U3 — Accuracy: top live refusal classes (last seen)
+
+`add_stock` over picture (48, 09-08 — already names a free slot and the add_clip layer route,
+ADR 0169; left as is) · `add_music` on a bin track (13, 09-08 — message is already actionable) ·
+image-clip source/duration rejections (29, last 07-18 — not live).
+
+## U4 — Plan
+
+| slice | lever | change |
+|---|---|---|
+| U4.1 | latency | reasoning effort follows the run stage: `low` while executing a locked plan (`apply`/`enhance`) with no pending action recovery; `medium` for interpret/inspect/analyze/plan/verify/repair and any recovery step |
+| U4.2 | call count | `discover_effects` / `discover_transitions` take several queries in one call |
+| U4.3 | precision | `measure_color` measures several clips in one call, so a refused `normalize_exposure` is one step from solved rather than ten |
+
+## U5 — Landed, and what is still owed
+
+| slice | commit | verification |
+|---|---|---|
+| U4.1 stage-scoped effort | `e9066c5b` | stage-policy 39/39, output-room 23/23 (asserts `medium, low, low, medium` across plan → apply → apply → recovery), streamAgent-golden + golden-corpus + session-parity 17/17 unchanged, typecheck, eslint |
+| U4.2 batched discovery | `d71370a8` | effect-tools / describe / tool-registry / tool-parity / tool-domains / input-contract / router 140 + 228 pass, Python parity 191 pass, typecheck, eslint, ruff; goldens unchanged (effects domain not loaded in any golden session) |
+| U4.3 exposure refusal (re-scoped) | `b9db418d` | solved-color 18/18, eslint |
+
+**Residual — recorded, deliberately not changed:**
+
+- **Quality at `low` effort is unmeasured.** The stage machine locks the plan before `apply`, which
+  is the argument; a live or golden run is the proof, and none was run on this branch.
+- **Latency and call-count wins are unmeasured.** Every number in §U1 is from runs recorded
+  before these commits. Re-measure with `measure-edit-latency.mjs` after real use (U4.4).
+- **A reordered `queries` batch is a "new" call to the novelty guard.** `callNoveltyKey`
+  stringifies arguments in order. Not sorted on purpose: that key is shared by every guard, and
+  order is meaningful for other tools' arrays (`reorder_clips`).
+- **The compact `discover_styles` surface still takes one `query`**, because it also routes to
+  `discover_caption_styles`, which has no batch form.
+- **Cache writes ≈ reads on claude-agent-sdk** (§U1): cost, not latency, on an unpriced provider.
+
+---
+
+# V. Deeper loop — round trips and self-check precision (2026-09-14)
+
+Source: the same 418 desktop conversations, now decomposed per model call (2,250 calls with
+provider-reported output tokens). Scripts kept in the session scratchpad; each claim below names
+the measurement.
+
+## V1 — Where model-call time goes, by what the call did
+
+| call class | calls | wall share | mean wall | mean output tok |
+|---|---:|---:|---:|---:|
+| read/lookup only | 1,076 | **35.9%** | 17.8 s | 1,925 |
+| mutate only | 508 | 31.9% | 33.5 s | 4,185 |
+| mixed read + mutate | 274 | 17.2% | 33.6 s | 5,879 |
+| recall_evidence only | 254 | 7.7% | 16.2 s | 1,872 |
+| final text, no tool | 80 | 5.6% | 37.5 s | 3,585 |
+| load_tools / load_skill only | 58 | 1.7% | 15.4 s | 1,019 |
+
+- **Pre-loading tool domains is not worth it**: meta-only calls are 1.7% of wall time. Not pursued.
+- **Final-text calls are covered by U4.1**: since 09-01, 27 of 34 of them run in the `apply` stage,
+  which now thinks at `low`.
+
+## V2 🚫 DISPROVED — "compaction's payload cliff makes the agent re-read what it already read"
+
+Since 09-01, 32 of 45 turns repeated an identical read. Split by whether an edit landed between
+the first read and the repeat: **527 after an edit** (a legitimate refresh) and **227 with no
+edit between**. **37 steps** consisted entirely of no-edit repeats, each a wasted round trip.
+
+The hypothesis: `compactAgentLog` clears every payload except the 2 freshest steps' once the log
+passes its budget (≤ 24k tokens), so the model loses what it read and asks again.
+
+It is wrong:
+
+| | past the cliff (per-turn message ≥ 20k tok) |
+|---|---|
+| all agent steps since 09-01 | 195 of 1,006 (**19%**) |
+| wasted re-read steps | 5 of 37 (**14%**) |
+
+Wasted re-reads are *less* likely past the cliff than steps in general. And **30 of 37** come
+from one free model (`inclusionai/ling-3.0-flash`); **none** come from a Claude model. That is
+model behaviour on a weak model, not a harness defect. `compactAgentLog` left unchanged.
+
+## V3 ❌ The self-check judges the edit against a transcript it has already called fabricated
+
+On Claude-model runs since 09-01, **5 of 8** self-checked turns carried the
+`transcript_reliable` loop verdict. In **all 5**, `dead_air` and `marker_labels` also warned —
+against those same fabricated words.
+
+Run `55bf6774` is a GoPro snowboard montage whose audio is just wind. Its transcript is "I'll try
+to follow you later." ×397, covering 91% of the recording. The run was told:
+
+- "Dead air: 95 frames (3.173s) before the first word … ripple_delete the head/tail range"
+- "15 marker(s) name words that are not spoken within 2s of them … move the marker"
+
+Both findings are false, and the editor saw both. `critique()` detects the loop once and passes
+it to `transcript_reliable` and `word_severed` (which already drops to `warn` under a loop, run
+`cc907070`), but **not** to `checkDeadAir` or `checkMarkerLabels`. `transcript-loop.ts`'s own
+comment names `dead_air` as a check that "agrees with" a fabricated transcript. A loop is detected
+only at ≥ 8 back-to-back repeats **and** ≥ 50% of the span, so under a detected loop there is no
+real dialogue to measure against.
+
+**Fix (U6):** both checks take the shared verdict and report `skipped` under a loop.
+
+## V4 ⚠️ Recorded, not changed
+
+- **`track_object` attaches a tracker with no motion**, and the self-check then flags it. This is
+  by design (the description says so and names `track_subject_automatically`), so it is policy,
+  not a defect.
+
+## V5 ❌ A look over unmeasured shots repeats one remedy ten times, and the run hand-grades instead
+
+On Claude runs since 09-01 (5 runs, 348 tool calls), the refusals still live are mostly already
+fixed (`measure_color` "unavailable this turn" ×17 was 09-03, fixed by `6b41ff40` on 09-06). One
+is not: `apply_look` came back "nothing to change" 4 times, most recently in run `55bf6774`
+today, right beside the refused `normalize_exposure`.
+
+The result named all ten clips, each with its own copy of "not measured yet, so the look has no
+baseline to move from — measure_color reads it, or wait for indexing". That is ~1,500
+characters saying "ten calls, or wait for something that is not running". The next step issued
+ten `apply_color_grade` calls, eight of them at `exposure: 0.3`.
+
+`match_color` (unmeasured target) and `normalize_exposure` (partially measured track) build the
+same per-shot skip line.
+
+**Fix (U7):** `colorSolveNote` gathers every skip that is only "not measured" into one sentence:
+it names the shots (up to 24), says to call `measure_color` for each in one step because they
+dispatch together, then to call the same tool again, and never to hand-pick
+`apply_color_grade` numbers. Other skip reasons keep their per-shot lines.
+
+**U6 landed** as `109c1e19`: `dead_air` and `marker_labels` take the shared loop verdict and
+report `skipped`. Critic suites 177/177, goldens unchanged (no golden fixture carries a loop).
+
+## V6 ⚠️ A fitted slow-motion ramp can push the model's own points off the end — recorded, not changed
+
+Every `set_clip_speed_ramp` refusal across all runs was pulled with its arguments and result. The
+`cc907070` ones (a weak free model) are overlap refusals from the old length-changing form, which
+the `keepDuration: true` default already fixes. The rest are one mechanism:
+
+| run | model | point | fitted source range |
+|---|---|---|---|
+| `3ed87ff0` 09-12 | claude-opus-5 | 2.4 s | 1.97 s |
+| `0016e59f` 09-07 | ling-3.0-flash | 8 s, then 5 s | 5.90 s, then 4.13 s |
+
+`applySetClipSpeedRamp` (`editor-core/src/operations.ts:2886`) fits the curve into the clip's slot.
+When the curve plays slower than the slot allows, `sourceEnd` shrinks to what the slot can play.
+The validator (`validator.ts:501`) then rejects any point the model placed past the new end, even
+though the tool's own contract ("points along the clip in SOURCE seconds from its own start") made
+it valid when written. Slow motion is the tool's stated purpose and exactly the case that shrinks
+the span. The model cannot compute the fitted length in advance, because it depends on the curve
+it is writing.
+
+**Why not changed on this branch:**
+
+- **Impact on the default models is one round trip.** The only Claude failure recovered on its next
+  call.
+- **Every fix trades something the editor cares about:**
+  - *Truncating at the fitted end* keeps the slow-motion on the exact source moment but drops the
+    ramp-out. It needs L5's area-conserving synthetic point for eased segments, mirrored in
+    `engine/python/.../timeline/operations.py:1613`.
+  - *Scaling the curve into the fitted span* keeps the shape but moves the slow-motion off the
+    impact the model aimed at.
+  - *A sharper refusal* still leaves the model iterating, because the curve refits every time the
+    points move.
+- **It changes the semantics of a shipped operation on both runtimes.**
+
+**Recommendation if it recurs on Claude runs:** truncate inside the op (source-position precision
+over curve shape), and have the tool result say which points were past the playable end.
+
+---
+
+# W. Round-trip anatomy — what a call costs before it thinks (2026-09-15)
+
+Source: the five `claude-agent-sdk` conversations recorded since 2026-09-01 (11 turns, 128 model
+calls), decomposed per call by `node packages/ai-sdk/scripts/measure-edit-latency.mjs
+--since=2026-09-01 --provider=claude-agent-sdk` (U8.3), plus two direct benchmarks of the
+installed SDK (0.3.268). Every number below names its measurement; every recorded run predates
+this branch, so §W6's wins are predictions until U8.5 re-measures.
+
+## W1 — A call costs 3.9 s before its first thinking token, and prefill is not why
+
+| finding | evidence |
+|---|---|
+| **fixed cost per call ≈ 3.9 s**, then ~89 output tokens/s | least-squares `wall = 3,860 ms + 11.26 ms × outputTokens` over 128 calls |
+| time to first token p50 **3.46 s**, p90 4.80 s | first `reasoning_delta`/`assistant_delta` after the send |
+| the tool block changing does **not** move it | TTFT 3.71 s over the 41 calls that re-billed the tool block vs 3.75 s over the 78 that did not; slope 0.03 ms per uncached input token |
+| ~0.9 s of it is the `claude` subprocess | SDK direct, trivial prompt, `effort: 'low'`: init 0.84–0.96 s, first stream event 2.2–2.3 s, done 2.3 s (one cold start: 4.3 s / 5.5 s) |
+| a p50 turn carries ≈ 50 s of it | 12 calls + the classifier, at 3.9 s each, of a 272 s p50 turn (543 s p90) |
+
+Cache mechanics, now visible per call: every change of the tool block — a stage withholding
+analysis tools, a `load_tools` adding a domain — zeroes that call's cache reads and rewrites the
+~35k prefix (41 of 128 calls; reads 42–44k on a hit, `null` on a miss, `toolSchemaTokensRebilled`
+9–18k). That is cost on a subscription provider, not latency: §U1's "cache writes ≈ reads" is
+explained and stands as recorded.
+
+## W2 — The median apply step carries one tool call
+
+`apply` is 87 of the 128 calls and **64% of wall time** (mean 22.8 s, 1,685 output tokens).
+Tool calls per apply step: none ×12, **one ×37**, two ×16, three or more ×22. The system contract
+already says "Put every INDEPENDENT call you already know you need in ONE turn"
+(`prompts.ts`); at the point of action the briefing said only `You are at "apply". Continue from
+here.` Fix: U8.4.
+
+## W3 — 13 of 128 calls re-read the arrangement straight after an applied edit (199 s)
+
+Steps whose only tool calls were `get_clips` / `get_timeline` / `get_project_state` /
+`list_edit_boundaries` / `verify_transitions`, immediately after a step that applied an edit
+(`timeline_action` in its window): `275404ab` ×2, `3ed87ff0` ×5 (turn `014f`: steps 8, 10, 12,
+15, 17), `55bf6774` ×3, `b5be5130` ×1, `c68947dc` ×2 — 8–37 s each. Two causes, both in the
+result text the model reads:
+
+- a landed edit answered with its intent only: `Added transition Video 2`, `Trimmed clip
+  raw_skating.mp4 · 3.033s–5.2s` — no id, no placement, so the model read the timeline to learn
+  what it had just done (`55bf6774` turn `323c`: `get_timeline` twice after one effect layer);
+- a no-op answered with an instruction to read: "nothing moved … **Read the current value with
+  get_timeline or get_clips** before setting it again" (`3ed87ff0` turn `014f`, three trims).
+
+Fix: U8.1 — the result carries where the touched clips now sit, and a no-op carries the value
+the clip already holds. Six further calls (104 s) were text-only re-summaries under "The request
+is not met yet — continuing"; those were the 09-03 false positives of `reframe_coverage` on a
+partially reframed timeline, since fixed (`critic.ts` "a partially reframed timeline is the
+normal result of mixing sources"), and the recovery is already latched to one turn per
+declaration (`conductor.ts`).
+
+## W4 — The classifier is one spawn
+
+3.75 s p50 (4.71 s p90) for a median 28 output tokens — 1.4% of a p50 turn. Classification
+settles 69 ms before the first agent send (`55bf6774`), so there is no context assembly to
+overlap it with, and a speculative first agent step would spend tokens on every non-edit turn to
+save 3.7 s on edit turns. **Not changed.**
+
+## W5 — Considered and not changed
+
+- **Pre-warming the next subprocess** (~0.9 s × 13 ≈ 12 s per p50 turn, 4%). The SDK fixes the
+  system prompt and the MCP tool set at spawn, and the tool set is not known until the step
+  settles — it moved on 41 of 128 calls. A warm process with the wrong tools is a wasted spawn.
+- **Making the transcript cacheable.** TTFT is flat in uncached input tokens (W1); the whole
+  per-turn user message (~12k tokens) is rebuilt each call by design (briefing + compacted log).
+  Nothing to win on latency.
+- **`low` effort for `analyze`/`plan`.** Those calls are the editorial decisions — `add_marker
+  ×10` at 14,768 thinking tokens (165 s), `trim_clip ×14` at 11,513 (147 s). Cutting them is an
+  accuracy bet no golden run has priced.
+- **A multi-clip `measure_color`** (`275404ab` measured two clips per step for eight steps): analysis
+  calls in one step already dispatch together, and the refusal now asks for all of them at once
+  (U4.3). The 09-03 run predates that wording.
+
+## W6 — Landed
+
+| slice | commit | change | verification |
+|---|---|---|---|
+| U8.1 · round trips | `370c1f66` | a mutation's result says where its clips landed (`· now: id on track start–end (src in–out)`, capped at 12); a no-op states the value held; the repeated-call refusal likewise — `kernel/placement-note.ts` | placement-note 11/11, repeated-failure 39/39, orchestrator + stream suites 440 pass, goldens regenerated (+11 tokens per mutation result), typecheck, eslint |
+| U8.2 · measurability | `83ef6c30` | the context manifest records `reasoningEffort` as sent and `cacheWriteInputTokens` beside the reads | manifest 33/33, output-room 23/23, goldens regenerated (every agent call now shows `medium` or `low`) |
+| U8.3 · measurability | `dcaecd7f` | `measure-edit-latency.mjs` decomposes per model call: fixed-cost fit, TTFT, classifier, re-reads after an applied edit, tool-less steps, by stage / effort / provider; `--since=`, `--provider=` | 24/24 script tests; this section's numbers are its output |
+| U8.4 · round trips | `9ddafa68` | execution-stage briefing asks for every known edit in THIS step, as separate calls, and says results carry placement | briefing 45/45, continuity, stage-policy, goldens regenerated (+63 tokens per execution-stage request) |
+
+## W7 — Owed
+
+- **U8.5 — re-measure after real use.** `node packages/ai-sdk/scripts/measure-edit-latency.mjs
+  --since=<first day on this build> --provider=claude-agent-sdk`. The by-effort table now splits
+  `low` from `medium` (U4.1's effect, unmeasured until now), and W3's 13 re-read calls / W2's
+  one-call apply steps are the two counts that should fall. Predicted, not claimed: ≈ 18 s per
+  turn from W3 alone (199 s over 11 turns).
+- **Quality at `low` effort** (U4.4) is still unmeasured; the same re-run reads it off the
+  self-check outcomes.
+
