@@ -13,7 +13,10 @@
  */
 import { lstat, mkdir } from 'node:fs/promises';
 import path from 'node:path';
-import type { InstalledCapabilityPack } from '@framepilot/capability-packs';
+import type {
+  CapabilityPackInstallIdentity,
+  InstalledCapabilityPack,
+} from '@framepilot/capability-packs';
 import { compareSemver, resolveInside } from './pack-paths.js';
 
 export const VISUAL_EMBED_PACK_ID = 'framepilot.visual-embed';
@@ -90,6 +93,35 @@ export async function resolveVisualPackHandles(
     });
   }
   return handles;
+}
+
+/** The install identity behind each field of {@link VisualPackHandles}, when resolved. */
+export interface VisualPackIdentities {
+  readonly visualEmbedPack?: CapabilityPackInstallIdentity;
+  readonly visualDescribePack?: CapabilityPackInstallIdentity;
+}
+
+/**
+ * Which installed pack each {@link VisualPackHandles} field currently names (R4.3).
+ *
+ * Uses the EXACT SAME selection as {@link resolveVisualPackHandles} (the newest
+ * `installed`+`healthy` release) so the two can never disagree about which pack a handle
+ * refers to. Kept separate rather than folded into the handle itself: the handle is what
+ * crosses the wire to the engine, and an `InstalledCapabilityPack.identity` — with its
+ * `artifactDigest`/platform fields the engine's handle schema does not carry — is what
+ * `store.acquireLease` needs to hold that pack open for the run using it
+ * (`visual-pack-lease.ts`).
+ */
+export function resolveVisualPackIdentities(
+  records: readonly InstalledCapabilityPack[],
+): VisualPackIdentities {
+  const identities: { -readonly [K in keyof VisualPackIdentities]: CapabilityPackInstallIdentity } =
+    {};
+  for (const binding of VISUAL_PACK_BINDINGS) {
+    const record = newestHealthy(records, binding.packId);
+    if (record !== undefined) identities[binding.field] = record.identity;
+  }
+  return identities;
 }
 
 export type VisualIndexTier = 'measured' | 'labelled' | 'described';

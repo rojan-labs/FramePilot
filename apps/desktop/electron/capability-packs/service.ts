@@ -11,6 +11,7 @@ import {
   capabilityPackIdentityKey,
   type CapabilityPackEvictionPlan,
   type CapabilityPackInstallApproval,
+  type CapabilityPackInstallIdentity,
   type CapabilityPackRelease,
   type CapabilityPackProjectPin,
 } from '@framepilot/capability-packs';
@@ -20,6 +21,7 @@ import {
   FileCapabilityPackStore,
   prepareCapabilityPackRelocation,
   removeCommittedPackDirectory,
+  type CapabilityPackLease,
   type CapabilityPackRelocationProgress,
   type PreparedCapabilityPackRelocation,
   type TrustedCatalogKey,
@@ -41,7 +43,12 @@ import type {
 import { createLogger } from '@framepilot/shared-types';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { CapabilityPackTrackingService } from './tracking.js';
-import { resolveVisualPackHandles, type VisualPackHandles } from './visual-packs.js';
+import {
+  resolveVisualPackHandles,
+  resolveVisualPackIdentities,
+  type VisualPackHandles,
+  type VisualPackIdentities,
+} from './visual-packs.js';
 
 const CATALOG_MAX_BYTES = 10 * 1024 * 1024;
 const PROPOSAL_TTL_MS = 15 * 60 * 1_000;
@@ -210,6 +217,29 @@ export class CapabilityPackDesktopService {
       cacheRoot,
       os: this.platform.os,
     });
+  }
+
+  /**
+   * Which installed pack each {@link visualPackHandles} field currently names (R4.3).
+   *
+   * Read alongside `visualPackHandles` so a caller can hold a lease for exactly the pack
+   * a handle it is about to send actually refers to — see `visual-pack-lease.ts`.
+   */
+  async visualPackIdentities(): Promise<VisualPackIdentities> {
+    return resolveVisualPackIdentities(await this.store.list());
+  }
+
+  /**
+   * Hold one installed pack open against removal for as long as the caller needs it.
+   *
+   * The SAME mechanism the tracking packs use around a chunked worker call
+   * (`tracking.ts`, commit b98a7d0b); this is the seam a visual-index/search/describe
+   * call — driven by the ENGINE, not launched directly by this process — uses instead
+   * (`visual-pack-lease.ts`), because the desktop cannot wrap an engine-internal
+   * subprocess loop directly.
+   */
+  async acquireVisualPackLease(identity: CapabilityPackInstallIdentity): Promise<CapabilityPackLease> {
+    return this.store.acquireLease(identity);
   }
 
   get storageRoot(): string {
