@@ -339,7 +339,10 @@ class AdjustAudioArgs(BaseModel):
 class DiscoverEffectsArgs(BaseModel):
     model_config = _STRICT
     query: FilterStr = None
+    # Several looks in one call (TS `discover_effects`, host-delegated here).
+    queries: list[str] | None = None
     category: FilterStr = None
+    categories: list[str] | None = None
     shelf: Literal["popular", "recommended"] | None = None
     limit: int | None = None
 
@@ -347,7 +350,9 @@ class DiscoverEffectsArgs(BaseModel):
 class DiscoverTransitionsArgs(BaseModel):
     model_config = _STRICT
     query: FilterStr = None
+    queries: list[str] | None = None
     category: FilterStr = None
+    categories: list[str] | None = None
     shelf: Literal["popular", "recommended"] | None = None
     limit: int | None = None
 

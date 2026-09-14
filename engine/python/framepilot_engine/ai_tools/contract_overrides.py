@@ -175,7 +175,10 @@ class _GetClipsArgs(_WindowArgs):
 class _DiscoverEffectsArgs(BaseModel):
     model_config = _STRICT
     query: FilterStr = None
+    # Same ceiling as TS MAX_CATALOG_LOOKS (domain-tools/graphics.ts).
+    queries: list[str] | None = Field(default=None, max_length=8)
     category: FilterStr = None
+    categories: list[str] | None = Field(default=None, max_length=8)
     shelf: Literal["popular", "recommended"] | None = None
     limit: int | None = Field(default=None, gt=0, le=80)
 

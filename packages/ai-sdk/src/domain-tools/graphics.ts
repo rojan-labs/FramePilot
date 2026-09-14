@@ -45,7 +45,7 @@ import {
   type TransitionReason,
   planTransitions,
 } from './transition-planning.js';
-import { filterString, id, numeric, seconds } from './tool-args.js';
+import { filterString, filterStringList, id, numeric, seconds } from './tool-args.js';
 
 /**
  * The widest a text box may be widened to in order to keep the size the editor asked for.
@@ -175,6 +175,95 @@ function resolveSingleTransition(
   };
 }
 
+/**
+ * Most looks one discover call answers. Run `55bf6774` ("add effects and transitions")
+ * spent 5 of 12 model calls — ≈95 s of 212 s — asking the catalogs one or two queries
+ * at a time, because each call took exactly one `query` and one `category`. Eight
+ * covers every look a single editorial decision weighs without inviting a catalog dump.
+ */
+const MAX_CATALOG_LOOKS = 8;
+/** Entries returned per look when the caller names no `limit`. */
+const CATALOG_PAGE_PER_LOOK = 20;
+/** The schema's own `limit` ceiling; a default never exceeds what a caller may ask for. */
+const CATALOG_PAGE_CEILING = 80;
+
+const catalogBrowseArgs = z
+  .object({
+    query: filterString(),
+    queries: filterStringList(MAX_CATALOG_LOOKS),
+    category: filterString(),
+    categories: filterStringList(MAX_CATALOG_LOOKS),
+    /** Only the shelves a person would see first. */
+    shelf: z.enum(['popular', 'recommended']).optional(),
+    limit: numeric(z.number().int().positive().max(CATALOG_PAGE_CEILING)).optional(),
+  })
+  .strict();
+
+type CatalogBrowseArgs = z.infer<typeof catalogBrowseArgs>;
+
+interface BrowsableEntry {
+  readonly id: string;
+  readonly category: string;
+  readonly popular?: boolean;
+  readonly recommended?: boolean;
+}
+
+/** `single` then `many`, trimmed blanks already gone, exact duplicates dropped in order. */
+function looksOf(single: string | undefined, many: readonly string[] | undefined): string[] {
+  return [...new Set([...(single === undefined ? [] : [single]), ...(many ?? [])])];
+}
+
+/**
+ * One browse over a catalog: the union of every query's matches (deduped by id, first
+ * seen wins, so a single query reads exactly as it always did), then the union of the
+ * categories, then the shelf, then the page.
+ */
+function browseCatalog<T extends BrowsableEntry>(
+  catalog: readonly T[],
+  search: (query: string) => readonly T[],
+  args: CatalogBrowseArgs,
+): {
+  readonly results: readonly T[];
+  readonly limited: readonly T[];
+  readonly asked: { query?: string; queries?: { query: string; matched: number }[] };
+} {
+  const queries = looksOf(args.query, args.queries);
+  const categories = looksOf(args.category, args.categories);
+  const perQuery = queries.map((query) => ({ query, matches: search(query) }));
+
+  let results: readonly T[] = catalog;
+  if (perQuery.length > 0) {
+    const seen = new Set<string>();
+    results = perQuery
+      .flatMap(({ matches }) => matches)
+      .filter((entry) => !seen.has(entry.id) && seen.add(entry.id) !== undefined);
+  }
+  if (categories.length > 0) results = results.filter((e) => categories.includes(e.category));
+  if (args.shelf === 'popular') results = results.filter((e) => e.popular === true);
+  if (args.shelf === 'recommended') results = results.filter((e) => e.recommended === true);
+
+  // The default page scales with the number of looks asked for: a batch of four queries
+  // capped at the single-look 20 would silently truncate the later looks, and the model
+  // would re-ask for them one call at a time — the round trips batching exists to remove.
+  // Still capped at the schema ceiling so a batch never dumps the whole catalog.
+  const looks = Math.max(1, queries.length, categories.length);
+  const limit = args.limit ?? Math.min(CATALOG_PAGE_PER_LOOK * looks, CATALOG_PAGE_CEILING);
+
+  // Echoed so an empty result can say what was asked and how big the catalogue is:
+  // run `cc907070` searched "sharpness", "unsharp mask", "sharpen clarity unsharp",
+  // "sharpen focus clarity", "clarity", "sharpen" — seven ways of asking for an
+  // effect this build does not have — and each answer read "no effects match
+  // (0 in catalog)", which says neither. A batch reports each query's own count, so a
+  // look the catalog does not have stays visible inside a union that matched plenty.
+  const asked =
+    perQuery.length === 1
+      ? { query: perQuery[0]!.query }
+      : perQuery.length > 1
+        ? { queries: perQuery.map(({ query, matches }) => ({ query, matched: matches.length })) }
+        : {};
+  return { results, limited: results.slice(0, limit), asked };
+}
+
 export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
   readTool(
     {
@@ -185,39 +274,20 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'id, what it looks like, and its tunable parameters WITH their real ' +
         'ranges and defaults. Call this before apply_effect or adjust_effect — ' +
         'the ids and parameter names are not guessable, and out-of-range values ' +
-        'are rejected by the patch validator.',
+        'are rejected by the patch validator. Weighing several looks? Pass them ' +
+        'all as queries in one call.',
       capabilities: ['inspect', 'effects'],
     },
-    z
-      .object({
-        query: filterString(),
-        category: filterString(),
-        /** Only the shelves a person would see first. */
-        shelf: z.enum(['popular', 'recommended']).optional(),
-        limit: numeric(z.number().int().positive().max(80)).optional(),
-      })
-      .strict(),
+    catalogBrowseArgs,
     (a) => {
-      let results = a.query !== undefined ? searchEffects(a.query) : EFFECT_CATALOG;
-      if (a.category !== undefined) {
-        results = results.filter((e) => e.category === a.category);
-      }
-      if (a.shelf === 'popular') results = results.filter((e) => e.popular === true);
-      if (a.shelf === 'recommended') results = results.filter((e) => e.recommended === true);
-
       // Capped by default: the full catalog is 72 entries and dumping every
       // parameter of all of them would spend a large slice of the context window
       // on effects the model is not going to use.
-      const limited = results.slice(0, a.limit ?? 20);
+      const { results, limited, asked } = browseCatalog(EFFECT_CATALOG, searchEffects, a);
       return {
         matched: results.length,
         returned: limited.length,
-        // Echoed so an empty result can say what was asked and how big the catalogue is:
-        // run `cc907070` searched "sharpness", "unsharp mask", "sharpen clarity unsharp",
-        // "sharpen focus clarity", "clarity", "sharpen" — seven ways of asking for an
-        // effect this build does not have — and each answer read "no effects match
-        // (0 in catalog)", which says neither.
-        ...(a.query !== undefined ? { query: a.query } : {}),
+        ...asked,
         total: EFFECT_CATALOG.length,
         categories: EFFECT_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         effects: limited.map((effect) => ({
@@ -255,31 +325,20 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'category. Returns each transition’s id, what it does, its default ' +
         'length, and the parameters it actually reads. Call this before ' +
         'add_transition — the ids are not guessable, and a kind this build does ' +
-        'not know is refused outright rather than rendering as nothing.',
+        'not know is refused outright rather than rendering as nothing. Weighing ' +
+        'several looks? Pass them all as queries in one call.',
       capabilities: ['inspect'],
     },
-    z
-      .object({
-        query: filterString(),
-        category: filterString(),
-        shelf: z.enum(['popular', 'recommended']).optional(),
-        limit: numeric(z.number().int().positive().max(80)).optional(),
-      })
-      .strict(),
+    catalogBrowseArgs,
     (a) => {
-      let results = a.query !== undefined ? searchTransitions(a.query) : TRANSITION_CATALOG;
-      if (a.category !== undefined) results = results.filter((t) => t.category === a.category);
-      if (a.shelf === 'popular') results = results.filter((t) => t.popular === true);
-      if (a.shelf === 'recommended') results = results.filter((t) => t.recommended === true);
-
       // Capped by default, for the same reason discover_effects is: 78 entries
       // with every parameter would spend a large slice of the context window on
       // transitions the model is not going to use.
-      const limited = results.slice(0, a.limit ?? 20);
+      const { results, limited, asked } = browseCatalog(TRANSITION_CATALOG, searchTransitions, a);
       return {
         matched: results.length,
         returned: limited.length,
-        ...(a.query !== undefined ? { query: a.query } : {}),
+        ...asked,
         total: TRANSITION_CATALOG.length,
         categories: TRANSITION_CATEGORIES.map((c) => ({ id: c.id, label: c.label })),
         transitions: limited.map((transition) => ({

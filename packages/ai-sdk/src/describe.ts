@@ -214,8 +214,8 @@ const SUBJECT_ARG_KEYS: Record<string, readonly string[]> = {
   search_stock: ['query'],
   search_music: ['query'],
   discover_caption_styles: ['query', 'category'],
-  discover_effects: ['query', 'category', 'shelf'],
-  discover_transitions: ['query', 'category'],
+  discover_effects: ['query', 'queries', 'category', 'categories', 'shelf'],
+  discover_transitions: ['query', 'queries', 'category', 'categories'],
   recall_evidence: ['query'],
   // The catalog entry chosen, not the clip it lands on — "Adding a whip pan" tells the
   // user what they are getting; "Adding a transition" does not.
@@ -311,6 +311,13 @@ function toolCallSubject(
     const value = readPath(args, path);
     if (typeof value === 'string' && value.trim() !== '') {
       return { text: clampSubject(readableId(value)), fromArg: true };
+    }
+    // A batched browse (`queries: ["vhs", "grain"]`) is about every look it names.
+    const looks = Array.isArray(value)
+      ? value.filter((v): v is string => typeof v === 'string' && v.trim() !== '')
+      : [];
+    if (looks.length > 0) {
+      return { text: clampSubject(looks.map(readableId).join(', ')), fromArg: true };
     }
     // A `…Seconds` argument is a timecode, and a timecode IS the subject for a tool that
     // asks about one moment ("Looking at the frame at 12.40s").

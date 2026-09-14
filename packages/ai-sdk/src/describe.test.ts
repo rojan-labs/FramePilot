@@ -182,6 +182,13 @@ describe('describeToolCall', () => {
       expect(describeToolCall({ name: 'discover_effects', arguments: {} })).toBe(
         'Browsing effects',
       );
+      // A batched browse names every look, not a JSON array or nothing.
+      expect(
+        describeToolCall({
+          name: 'discover_transitions',
+          arguments: { queries: ['whip', '', 'dissolve'] },
+        }),
+      ).toBe('Browsing transitions for whip, dissolve');
     });
 
     it('regression: two catalogue searches are two different rows', () => {

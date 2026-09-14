@@ -16,6 +16,7 @@ import {
   EFFECT_CATALOG,
   findEffect,
   resolveParams,
+  searchEffects,
 } from '@framepilot/timeline-schema/effect-catalog';
 import { effectLayersOf, type Project, type Timeline } from '@framepilot/timeline-schema';
 import { getTool } from './tool-registry.js';
@@ -173,6 +174,95 @@ describe('discover_effects', () => {
     const result = read('discover_effects', { query: 'zzzznotathing' }) as Result;
     expect(result.matched).toBe(0);
     expect(result.effects).toEqual([]);
+  });
+
+  describe('several looks in one call', () => {
+    type Batch = Result & {
+      query?: string;
+      queries?: { query: string; matched: number }[];
+    };
+    const ids = (r: Result): string[] => r.effects.map((e) => e.effectId);
+
+    it('a single query reads exactly as before, whether as query or a one-entry queries', () => {
+      const single = read('discover_effects', { query: 'glow' }) as Batch;
+      expect(single.query).toBe('glow');
+      expect(single.queries).toBeUndefined();
+      expect(ids(single)).toEqual(searchEffects('glow').slice(0, 20).map((e) => e.id));
+      expect(read('discover_effects', { queries: ['glow'] })).toEqual(single);
+    });
+
+    it('unions queries, dedupes by id in first-seen order, and counts each query', () => {
+      const result = read('discover_effects', {
+        queries: ['glow', 'bloom', 'zzzznotathing'],
+        limit: 80,
+      }) as Batch;
+      const expected = [
+        ...new Set([...searchEffects('glow'), ...searchEffects('bloom')].map((e) => e.id)),
+      ];
+      expect(ids(result)).toEqual(expected);
+      expect(new Set(ids(result)).size).toBe(ids(result).length);
+      expect(result.matched).toBe(expected.length);
+      // The empty look stays visible inside a union that matched plenty.
+      expect(result.queries).toEqual([
+        { query: 'glow', matched: searchEffects('glow').length },
+        { query: 'bloom', matched: searchEffects('bloom').length },
+        { query: 'zzzznotathing', matched: 0 },
+      ]);
+      expect(result.query).toBeUndefined();
+    });
+
+    it('merges query into queries without echoing a duplicate', () => {
+      const result = read('discover_effects', { query: 'glow', queries: ['glow', 'vhs'] }) as Batch;
+      expect(result.queries?.map((q) => q.query)).toEqual(['glow', 'vhs']);
+    });
+
+    it('filters to the union of several categories', () => {
+      const [first, second] = [...new Set(EFFECT_CATALOG.map((e) => e.category))];
+      const result = read('discover_effects', {
+        categories: [first, second],
+        limit: 80,
+      }) as Result;
+      const cats = new Set(result.effects.map((e) => findEffect(e.effectId)?.category));
+      expect(cats).toEqual(new Set([first, second]));
+      expect(result.matched).toBe(
+        EFFECT_CATALOG.filter((e) => e.category === first || e.category === second).length,
+      );
+    });
+
+    it('scales the default page with the number of looks, capped at 80', () => {
+      // Single-letter queries match nearly the whole catalog, so the page size is what binds.
+      const one = read('discover_effects', { queries: ['a'] }) as Result;
+      expect(one.matched).toBeGreaterThan(40);
+      expect(one.returned).toBe(20);
+      const two = read('discover_effects', { queries: ['a', 'e'] }) as Result;
+      expect(two.returned).toBe(40);
+      // Eight looks would be a 160-entry page; the cap holds it to 80, which is larger
+      // than this 72-entry catalog, so every match comes back.
+      const eight = read('discover_effects', {
+        queries: ['a', 'e', 'i', 'o', 'u', 'r', 's', 't'],
+      }) as Result;
+      expect(eight.returned).toBe(Math.min(eight.matched, 80));
+      expect(eight.returned).toBeGreaterThan(40);
+      // An explicit limit still wins.
+      expect((read('discover_effects', { queries: ['a', 'e'], limit: 5 }) as Result).returned)
+        .toBe(5);
+    });
+
+    it('drops blank entries and treats an all-blank list as no filter', () => {
+      expect(read('discover_effects', { queries: ['', '  '] })).toEqual(
+        read('discover_effects', {}),
+      );
+    });
+
+    it('rejects more than eight looks per list, and a non-string entry', () => {
+      const tool = getTool('discover_effects')!;
+      expect(() => tool.parse({ queries: Array.from({ length: 9 }, (_, i) => `q${i}`) })).toThrow();
+      expect(() => tool.parse({ categories: Array.from({ length: 9 }, (_, i) => `c${i}`) }))
+        .toThrow();
+      expect(() => tool.parse({ queries: ['glow', 3] })).toThrow();
+      expect(() => tool.parse({ queries: Array.from({ length: 8 }, (_, i) => `q${i}`) })).not
+        .toThrow();
+    });
   });
 });
 
