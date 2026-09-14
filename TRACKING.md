@@ -1475,3 +1475,39 @@ dispatch together, then to call the same tool again, and never to hand-pick
 
 **U6 landed** as `109c1e19`: `dead_air` and `marker_labels` take the shared loop verdict and
 report `skipped`. Critic suites 177/177, goldens unchanged (no golden fixture carries a loop).
+
+## V6 ⚠️ A fitted slow-motion ramp can push the model's own points off the end — recorded, not changed
+
+Every `set_clip_speed_ramp` refusal across all runs was pulled with its arguments and result. The
+`cc907070` ones (a weak free model) are overlap refusals from the old length-changing form, which
+the `keepDuration: true` default already fixes. The rest are one mechanism:
+
+| run | model | point | fitted source range |
+|---|---|---|---|
+| `3ed87ff0` 09-12 | claude-opus-5 | 2.4 s | 1.97 s |
+| `0016e59f` 09-07 | ling-3.0-flash | 8 s, then 5 s | 5.90 s, then 4.13 s |
+
+`applySetClipSpeedRamp` (`editor-core/src/operations.ts:2886`) fits the curve into the clip's slot.
+When the curve plays slower than the slot allows, `sourceEnd` shrinks to what the slot can play.
+The validator (`validator.ts:501`) then rejects any point the model placed past the new end, even
+though the tool's own contract ("points along the clip in SOURCE seconds from its own start") made
+it valid when written. Slow motion is the tool's stated purpose and exactly the case that shrinks
+the span. The model cannot compute the fitted length in advance, because it depends on the curve
+it is writing.
+
+**Why not changed on this branch:**
+
+- **Impact on the default models is one round trip.** The only Claude failure recovered on its next
+  call.
+- **Every fix trades something the editor cares about:**
+  - *Truncating at the fitted end* keeps the slow-motion on the exact source moment but drops the
+    ramp-out. It needs L5's area-conserving synthetic point for eased segments, mirrored in
+    `engine/python/.../timeline/operations.py:1613`.
+  - *Scaling the curve into the fitted span* keeps the shape but moves the slow-motion off the
+    impact the model aimed at.
+  - *A sharper refusal* still leaves the model iterating, because the curve refits every time the
+    points move.
+- **It changes the semantics of a shipped operation on both runtimes.**
+
+**Recommendation if it recurs on Claude runs:** truncate inside the op (source-position precision
+over curve shape), and have the tool result say which points were past the playable end.
