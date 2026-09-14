@@ -9964,6 +9964,16 @@ surfaces → color solver) as the first vertical slice before any pack work.
   rewritten around the tiers; CHANGELOG current; evidence consolidated in
   `plan/visual-understanding/09-EVIDENCE.md`.
 
+## Discovered (2026-09-14) — agent turns think as hard while applying as while planning — `[~]` in progress
+
+Branch `perf/ai-latency-accuracy-2026-09-14`. Evidence: `TRACKING.md` §U (418 conversations;
+model calls 91% of turn wall time; a call's latency is its thinking tokens at ~85 tok/s).
+
+- [~] U4.1 — reasoning effort follows the run stage (`low` executing a locked plan, `medium` deciding/repairing/recovering)
+- [~] U4.2 — `discover_effects` / `discover_transitions` answer several queries in one call
+- [ ] U4.3 — `measure_color` measures several clips in one call (a refused `normalize_exposure` stops being ten calls from solved)
+- [ ] U4.4 — re-measure with `measure-edit-latency.mjs` after real use; no latency win is claimed before then
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)
