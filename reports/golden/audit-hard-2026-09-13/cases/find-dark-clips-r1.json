@@ -1,0 +1,215 @@
+{
+  "scenario": "find-dark-clips",
+  "category": "question",
+  "project": "mission-montage",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Which clips are underexposed?",
+      "rubric": "unchanged",
+      "expectedIntent": "answer",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-unchanged",
+          "ok": true,
+          "detail": "unchanged",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "answer",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "timeline-unchanged: unchanged"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 0,
+          "valid": 0,
+          "invalid": 0,
+          "rate": null
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 1,
+        "toolCalls": 0,
+        "tokens": {
+          "prompt": 13678,
+          "output": 139,
+          "total": 13817
+        },
+        "usd": null,
+        "latency": {
+          "firstProgressMs": 3011,
+          "doneMs": 4605
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "nothing applied, nothing to undo"
+        },
+        "failureQuality": {
+          "loud": false,
+          "explained": false,
+          "message": null
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 0,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 0,
+            "grounded": 0,
+            "guessed": 0,
+            "rate": null
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "Based on the exposure measurements already run across the footage, clip_004 (70.2–84.9s on video_1, sourced from asset_004) is the underexposed one — it's flagged dark and flat, the only shot out of the four measured assets that reads that way. The others (asset_001, 002, 003, 005) fall in a normal exposure range, so no other clips need a brightness fix right now.",
+      "recording": "reports/golden/audit-hard-2026-09-13/recordings/find-dark-clips-r1-t1.json",
+      "calls": [],
+      "metrics": {
+        "wallMs": 4605,
+        "modelCalls": 1,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 13678,
+          "input": 2011,
+          "output": 139,
+          "cacheRead": 11667,
+          "cacheCreate": 12686
+        },
+        "perCall": [
+          {
+            "ttftMs": 2463,
+            "wallMs": 4584,
+            "input": 2011,
+            "output": 139,
+            "cacheRead": 11667
+          }
+        ],
+        "summary": {
+          "turnCount": 1,
+          "ttftMs": {
+            "p50": 2463,
+            "p95": 2463,
+            "min": 2463,
+            "max": 2463
+          },
+          "wallMs": {
+            "p50": 4584,
+            "p95": 4584,
+            "min": 4584,
+            "max": 4584
+          },
+          "inputTokensPerTurn": {
+            "p50": 2011,
+            "p95": 2011,
+            "min": 2011,
+            "max": 2011
+          },
+          "outputTokensPerTurn": {
+            "p50": 139,
+            "p95": 139,
+            "min": 139,
+            "max": 139
+          },
+          "cacheHitRate": 0.8529755812253254,
+          "cacheReportingTurns": 1
+        },
+        "usd": null,
+        "usageTokens": 26503,
+        "toolCalls": 0,
+        "toolCallsByName": {},
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 2,
+        "contextByType": [
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 53,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2327,
+            "retrieved_evidence": 584,
+            "latest_user_message": 53,
+            "skill": 1689,
+            "tool_schemas": 7329
+          }
+        ],
+        "contextUsedTokens": [
+          11982,
+          2011
+        ],
+        "contextCachedTokens": [
+          null,
+          11667
+        ],
+        "diffs": 0,
+        "validDiffs": 0,
+        "operations": 0,
+        "errors": [],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 134.66666666666666,
+        "pictureClips": 5,
+        "tracks": [
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 5
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

@@ -1,0 +1,267 @@
+{
+  "scenario": "broll-empty-overlay-track",
+  "category": "broll",
+  "project": "mission-overlay",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Add b-roll from the bin over the first 20 seconds of the narration.",
+      "rubric": "broll-cutaway-empty-overlay",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "cutaway-in-window",
+          "ok": true,
+          "detail": "2 b-roll clip(s) inside 0–20s",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "stacked-picture-is-previewable",
+          "ok": true,
+          "detail": "2 stacked span(s), all full-frame",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "duration-kept",
+          "ok": true,
+          "detail": "528.73s → 528.73s",
+          "facet": "boundary"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "failed",
+          "ok": false
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "cutaway-in-window: 2 b-roll clip(s) inside 0–20s",
+            "stacked-picture-is-previewable: 2 stacked span(s), all full-frame"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "duration-kept: 528.73s → 528.73s",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 1,
+          "valid": 1,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": false,
+        "silentSuccess": false,
+        "modelCalls": 2,
+        "toolCalls": 1,
+        "tokens": {
+          "prompt": 13179,
+          "output": 505,
+          "total": 13684
+        },
+        "usd": null,
+        "latency": {
+          "firstProgressMs": 2467,
+          "doneMs": 9552
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 1 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": {
+          "loud": true,
+          "explained": true,
+          "message": "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again. — Claude Agent SDK request failed: Claude Code returned an error result: You've hit your session limit · resets 4:45pm (Asia/Katmandu)"
+        },
+        "score": 1,
+        "finalStatus": "failed",
+        "operations": 2,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 0,
+            "grounded": 0,
+            "guessed": 0,
+            "rate": null
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "Adding two b-roll cutaways over the opening narration: the 9-second clip covers the first stretch and the 15-second clip fills the rest of the first 20 seconds, giving viewers visual variety while the narration about the World Cup's prestige plays underneath.",
+      "recording": "reports/golden/audit-hard-2026-09-13/recordings/broll-empty-overlay-track-r1-t1.json",
+      "calls": [
+        {
+          "tool": "add_clips",
+          "status": "completed",
+          "args": "trackId: \"b_roll\", clips: [{\"assetId\":\"asset_002\",…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 9552,
+        "modelCalls": 2,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 13179,
+          "input": 1512,
+          "output": 505,
+          "cacheRead": 11667,
+          "cacheCreate": 14515
+        },
+        "perCall": [
+          {
+            "ttftMs": 2450,
+            "wallMs": 7575,
+            "input": 1512,
+            "output": 505,
+            "cacheRead": 11667
+          },
+          {
+            "ttftMs": 1943,
+            "wallMs": 1943,
+            "input": 0,
+            "output": 0,
+            "cacheRead": null
+          }
+        ],
+        "summary": {
+          "turnCount": 2,
+          "ttftMs": {
+            "p50": 1943,
+            "p95": 2450,
+            "min": 1943,
+            "max": 2450
+          },
+          "wallMs": {
+            "p50": 1943,
+            "p95": 7575,
+            "min": 1943,
+            "max": 7575
+          },
+          "inputTokensPerTurn": {
+            "p50": 0,
+            "p95": 1512,
+            "min": 0,
+            "max": 1512
+          },
+          "outputTokensPerTurn": {
+            "p50": 0,
+            "p95": 505,
+            "min": 0,
+            "max": 505
+          },
+          "cacheHitRate": 0.8852720236740269,
+          "cacheReportingTurns": 1
+        },
+        "usd": null,
+        "usageTokens": 28199,
+        "toolCalls": 1,
+        "toolCallsByName": {
+          "add_clips": 1
+        },
+        "repeatedToolCalls": 0,
+        "analysisFromCache": 0,
+        "contextRequests": 3,
+        "contextByType": [
+          {
+            "system": 2337,
+            "retrieved_evidence": 2287,
+            "latest_user_message": 63,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2337,
+            "retrieved_evidence": 2287,
+            "latest_user_message": 63,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2471,
+            "retrieved_evidence": 2303,
+            "latest_user_message": 63,
+            "skill": 1689,
+            "tool_schemas": 6708
+          }
+        ],
+        "contextUsedTokens": [
+          13705,
+          1512,
+          13234
+        ],
+        "contextCachedTokens": [
+          null,
+          11667,
+          null
+        ],
+        "diffs": 1,
+        "validDiffs": 1,
+        "operations": 2,
+        "errors": [
+          "FramePilot couldn't reach claude-agent-sdk. Check your connection (or the proxy/bridge you use) and try again."
+        ],
+        "finalStatus": "failed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 528.7333333333333,
+        "pictureClips": 3,
+        "tracks": [
+          {
+            "id": "b_roll",
+            "type": "video",
+            "clips": 2
+          },
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}

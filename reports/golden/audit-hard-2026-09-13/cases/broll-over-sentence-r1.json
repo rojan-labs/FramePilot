@@ -1,0 +1,361 @@
+{
+  "scenario": "broll-over-sentence",
+  "category": "broll",
+  "project": "mission-talk",
+  "run": 1,
+  "replayed": false,
+  "turns": [
+    {
+      "turnIndex": 0,
+      "prompt": "Put b-roll from the bin over the line about the Champions League.",
+      "rubric": "broll-over-sentence",
+      "expectedIntent": "edit",
+      "score": 1,
+      "checks": [
+        {
+          "id": "timeline-changed",
+          "ok": true,
+          "detail": "changed",
+          "weight": 2
+        },
+        {
+          "id": "cutaway-covers-the-line",
+          "ok": true,
+          "detail": "1 b-roll clip(s) over \"champions league\" (26.5–27.5s)",
+          "weight": 2,
+          "facet": "target"
+        },
+        {
+          "id": "duration-kept",
+          "ok": true,
+          "detail": "528.73s → 528.73s",
+          "facet": "boundary"
+        },
+        {
+          "id": "content-outside-the-line-preserved",
+          "ok": true,
+          "detail": "0 clip(s) away from the line kept their content",
+          "facet": "target"
+        },
+        {
+          "id": "valid-refs",
+          "ok": true,
+          "detail": "0 dangling asset ref(s), 0 empty range(s)"
+        },
+        {
+          "id": "no-overlaps",
+          "ok": true,
+          "detail": "0 overlapping pair(s)"
+        },
+        {
+          "id": "cuts-on-frame-grid",
+          "ok": true,
+          "detail": "0 clip edge(s) off the 30 fps grid",
+          "facet": "boundary"
+        }
+      ],
+      "golden": {
+        "intent": {
+          "expected": "edit",
+          "observed": "edit",
+          "ok": true
+        },
+        "target": {
+          "ok": true,
+          "checks": [
+            "cutaway-covers-the-line: 1 b-roll clip(s) over \"champions league\" (26.5–27.5s)",
+            "content-outside-the-line-preserved: 0 clip(s) away from the line kept their content"
+          ]
+        },
+        "boundary": {
+          "ok": true,
+          "checks": [
+            "duration-kept: 528.73s → 528.73s",
+            "cuts-on-frame-grid: 0 clip edge(s) off the 30 fps grid"
+          ]
+        },
+        "validity": {
+          "diffs": 2,
+          "valid": 2,
+          "invalid": 0,
+          "rate": 1
+        },
+        "firstPass": true,
+        "silentSuccess": false,
+        "modelCalls": 5,
+        "toolCalls": 4,
+        "tokens": {
+          "prompt": 98180,
+          "output": 2035,
+          "total": 100215
+        },
+        "usd": null,
+        "latency": {
+          "firstProgressMs": 2542,
+          "doneMs": 35552
+        },
+        "reversibility": {
+          "ok": true,
+          "detail": "identical after 2 patch(es) undone (timeline.revision excluded — monotonic by design)"
+        },
+        "failureQuality": null,
+        "score": 1,
+        "finalStatus": "completed",
+        "operations": 2,
+        "perception": {
+          "framesSeen": 0,
+          "perceptionCalls": 0,
+          "perceptionCallsByTool": {},
+          "numericGuess": {
+            "total": 0,
+            "grounded": 0,
+            "guessed": 0,
+            "rate": null
+          }
+        }
+      },
+      "asked": [],
+      "assistantText": "**Applied 2 edits** in 2 steps — on your timeline now; each one can be undone.\n\n- Add layer Video 1\n- Added clip Video 1 · 25.4s–28.6s\n\n**Skipped:** 1 proposed change did not validate (Rejected \"add_clip\" — op 1 of 1 (add_clip, 25.4s–32.3s): Clips 'clip_001' and 'clip__video_1_broll_01_25400' overlap on track 'video_1'. Shorten one, move 'clip__video_1_broll_01_25400' later, or place it on another track.).\n\n**Never loaded:**\n- sourcing — the request mentions \"b-roll\", but load_tools was never called for it, so search_stock, add_stock, search_music, add_music were never offered.",
+      "recording": "reports/golden/audit-hard-2026-09-13/recordings/broll-over-sentence-r1-t1.json",
+      "calls": [
+        {
+          "tool": "get_mapped_transcript",
+          "status": "completed",
+          "args": "start: 0, end: 40"
+        },
+        {
+          "tool": "add_clip",
+          "status": "failed",
+          "args": "trackId: \"video_1\", assetId: \"broll_01\", start: 25.4, end: 32.3, sourceStart: 0"
+        },
+        {
+          "tool": "add_track",
+          "status": "completed",
+          "args": "type: \"video\", atIndex: 0"
+        },
+        {
+          "tool": "add_clip",
+          "status": "completed",
+          "args": "trackId: \"layer_video_3\", assetId: \"broll_01\", start: 25.4, end: 28.6, sourceSta…"
+        }
+      ],
+      "metrics": {
+        "wallMs": 35552,
+        "modelCalls": 5,
+        "tierCalls": {
+          "small": 0,
+          "mid": 0,
+          "large": 0
+        },
+        "tokens": {
+          "prompt": 98180,
+          "input": 17338,
+          "output": 2035,
+          "cacheRead": 80842,
+          "cacheCreate": 59442
+        },
+        "perCall": [
+          {
+            "ttftMs": 2523,
+            "wallMs": 3932,
+            "input": 1617,
+            "output": 166,
+            "cacheRead": 11667
+          },
+          {
+            "ttftMs": 2979,
+            "wallMs": 13297,
+            "input": 3667,
+            "output": 992,
+            "cacheRead": 19494
+          },
+          {
+            "ttftMs": 3435,
+            "wallMs": 6247,
+            "input": 3923,
+            "output": 315,
+            "cacheRead": 19494
+          },
+          {
+            "ttftMs": 3251,
+            "wallMs": 6662,
+            "input": 4012,
+            "output": 419,
+            "cacheRead": 19494
+          },
+          {
+            "ttftMs": 2852,
+            "wallMs": 5310,
+            "input": 4119,
+            "output": 143,
+            "cacheRead": 10693
+          }
+        ],
+        "summary": {
+          "turnCount": 5,
+          "ttftMs": {
+            "p50": 2979,
+            "p95": 3435,
+            "min": 2523,
+            "max": 3435
+          },
+          "wallMs": {
+            "p50": 6247,
+            "p95": 13297,
+            "min": 3932,
+            "max": 13297
+          },
+          "inputTokensPerTurn": {
+            "p50": 3923,
+            "p95": 4119,
+            "min": 1617,
+            "max": 4119
+          },
+          "outputTokensPerTurn": {
+            "p50": 315,
+            "p95": 992,
+            "min": 143,
+            "max": 992
+          },
+          "cacheHitRate": 0.8234059889997963,
+          "cacheReportingTurns": 5
+        },
+        "usd": null,
+        "usageTokens": 159657,
+        "toolCalls": 4,
+        "toolCallsByName": {
+          "get_mapped_transcript": 1,
+          "add_clip": 2,
+          "add_track": 1
+        },
+        "repeatedToolCalls": 1,
+        "analysisFromCache": 0,
+        "contextRequests": 10,
+        "contextByType": [
+          {
+            "system": 2327,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 2327,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3247,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3247,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3402,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3402,
+            "retrieved_evidence": 2347,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3444,
+            "retrieved_evidence": 2359,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3444,
+            "retrieved_evidence": 2359,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 7329
+          },
+          {
+            "system": 3487,
+            "retrieved_evidence": 2377,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 6708
+          },
+          {
+            "system": 3487,
+            "retrieved_evidence": 2377,
+            "latest_user_message": 62,
+            "skill": 1689,
+            "tool_schemas": 6708
+          }
+        ],
+        "contextUsedTokens": [
+          13754,
+          1617,
+          14674,
+          3667,
+          14829,
+          3923,
+          14883,
+          4012,
+          14323,
+          4119
+        ],
+        "contextCachedTokens": [
+          null,
+          11667,
+          null,
+          19494,
+          null,
+          19494,
+          null,
+          19494,
+          null,
+          10693
+        ],
+        "diffs": 2,
+        "validDiffs": 2,
+        "operations": 2,
+        "errors": [],
+        "finalStatus": "completed"
+      },
+      "timelineAfter": {
+        "durationSeconds": 528.7333333333333,
+        "pictureClips": 2,
+        "tracks": [
+          {
+            "id": "layer_video_3",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "video_1",
+            "type": "video",
+            "clips": 1
+          },
+          {
+            "id": "audio_1",
+            "type": "audio",
+            "clips": 0
+          }
+        ]
+      }
+    }
+  ],
+  "provider": "claude-agent-sdk",
+  "model": "claude-sonnet-5"
+}
