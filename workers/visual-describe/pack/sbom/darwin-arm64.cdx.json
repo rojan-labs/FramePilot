@@ -1,0 +1,923 @@
+{
+  "bomFormat": "CycloneDX",
+  "specVersion": "1.5",
+  "version": 1,
+  "metadata": {
+    "timestamp": "2026-09-13T20:10:22Z",
+    "component": {
+      "type": "application",
+      "name": "framepilot.visual-describe",
+      "version": "1.0.0",
+      "description": "Local structured shot descriptions from a small vision-language model: summary, subject, action, setting, camera, on-screen text. No key, no network."
+    },
+    "properties": [
+      {
+        "name": "framepilot:platform",
+        "value": "darwin-arm64"
+      }
+    ]
+  },
+  "components": [
+    {
+      "type": "library",
+      "name": "numpy",
+      "version": "2.5.3",
+      "purl": "pkg:pypi/numpy@2.5.3",
+      "licenses": [
+        {
+          "expression": "BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "012e66aca395d795496446e52aeeb5866312a5d4d3f27da270e5a0b43f70dc5c"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "09d5a423c71ad5feb5625844ad58050e35df43871004b52ac9c0ad44a56775be"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "09ffa5d903faeaa5c4dd05009cf81c8bab9f2cb37c548b8d39b65b4cfa7c97f7"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "0a59a421a32580a009e8a1751345bf829631b990dc1794b80514ab722b435def"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "116f96cadd935c6122e9228d676fe7ede19e741f5c8bb1c3cddbe0c51ccebea2"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1302b90c0e52281681b2975adfe8a860cb7b12216a27b4b0b4207c44bf7bccf0"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "15aa985ac73a8db02db7663381aa109510449d3819d37206caed27b33a65a8a6"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1aad64d99730d013cfc6debafed22783b4fc5a7f4b8bc744d2d8cf7dcc880551"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1c80eabb4035ecf4ca9cd49cde8a9fdd69a729e63e6474887d1523ade7aa277f"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1f3ed25271581281f2fccb1adcedfcde4c07362eec69189b50baf6f90e3ae159"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "1fb6f8fb9ff0b3a69f52c66ce397b0246583e9f28616231b0e32ca49259a5fa6"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "214045a5bf00113a146ab9ee9730c44501af6723cdf1f6830932f7b5ef2e7af0"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "26e15e4aecd8617dfbaecb37d223e365d7b39411fba20454be2670a96aa74cb5"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "2c25dfa72943e4336ddb6b0ee4277b47a0c85bede0807530ec68103bf58e2c10"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "2d8240cb4c16fd831074aa2b2cf9fc54664d826341d61c372245b96a74a49a9a"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "350ba9783ce969cf9f7ce6e6a9a58e1a6e2a19ca025b7ee448c4db727706212a"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "4c8a6d2ebce6305fd82fbefca827775437147052a976ee7c94b36a0c1b52ac6c"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "4f8929ee6c96bfbd7b4ed2032e0c03af86fe1826740ab61ddabf9072d06e57ff"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "536f963710a4e63934d80ac0dc4f478804a83e9a84b6828018f25d09953ada33"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "54a115e5a73b8fc44f0cebef486365a1894b5c9760685d4558b72b7c3eb846e0"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "595d020938c84e320bcf40ad71089e108eac0d377cd018e14a8c094f39e98d85"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "66a78fe4556c60aceda5916f9eacd638b18e9e681016ec302dcb4682d6d4d034"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "6b05c171afb3aa07adbd20abc00aea86fe375beb0fdb9ef780ec5b7f63bab1c0"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "6cef4bb1706dfec49243c05d921eefb4e190d41e2528b30d8035ea1f36b4c24a"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "6f24021b9f22bc6301c37b196974a92c1c18dccedb6fef3dd252e95f2d6adbe4"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "71b39d9f935b6ec0f8753e3e2afb51e3efba6f2e05b68b32a40754d24bcd4a3c"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "71cad2b2a7451ab79d8f5e71b453485b6775963d5cf794179144a7463fe6e8ec"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "76c2c1e6bfa5c84adc6434dfbf013aa92096a7985221762c8f11fedfd20fff58"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "8617bbfae4486cf99c9f899966699428d19da931d06ca94ad3da986c76e15997"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "86bff898a431c0fb71f7610b75726e75a54d47b37edc9d537f48de63bb3c0b90"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "8e4dd766076855b5ff7ea52fa5f07ce26286726e0f8bff446b7739d02e6ea204"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "92f30e89b8ee0ecf363033576c422b2f58fed6a80bed0aa48dff6d14c654663e"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "93e1f5447e2b1e479d7bd74701e84746b86450cff1fc368b132d195e2b8f8211"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "9a37475425b431b4d060f23b4f52cd2f3aef6bc7c654bd760adf0040eec9d435"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "9deb49575e5b0b94ed72c8a64ec4d033381adc27e9060ae842971f697ba96104"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "a5fa86b80fd24bcd1aff83ad23be44ea323de3f787be8f8b15d4a65621e25321"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "a6391fafaba97500887132cd582abc6e19452b1ac775a47caa7b24490e152058"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "a72f874bc9e10e4b8f80426fb49716d5141f64442a0c8418065093ec8017fbb0"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "ac7bb1c52d445bd4f8f7f97fefe6abc3a084dc4d63df50d79b17fa2b78e89297"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "adc1ada2662f8a5f960b8a10d9986897e7499ef07e06d4cfe7197f8cce923c07"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "b00eefbcf0f292945c4b4dec2ae845389ef5bcdcd596e6e4328051db5b5ba694"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "b0521d0f4aebb6e06189451025fa17a913287b13c03d5fe05c017333b654ea5b"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "b5d93cf48f687479941d12b69c873ad2cc76bbd487f0091c2200636497f34034"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "b7e18c623bb5c95acb3b3328861272816ba199fb531921c5d6d0b675f1fde9e3"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "bd4cb9ad3c7889b9b3fe0a9a9fb5d2ed26f9879bff2608d9f01aed147a20d231"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "be5a8381859b6da607c84f4f7d6847725f1cf1853ef8a2c9e115b7d58bef47dc"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "befa1ae5bd6030b3f512b43ff3fa5290bbed6b84411a44244b14adf835f5b89d"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "bf63afbe037eb5d2fe87fbcc7778e61da53ebaf21d938a4515aa73b62532a5d4"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "c00abe94c1a69d75d827dcf1c025b25c8a45d230b3bcd77a9020883a1b047653"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "c2381f82999704f818e2c987a865050e285ec3621262c66d40f5a96c8f899f8e"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "c76d5dde9f445058f83d0c02af00557a4db91de9a9a57c0df87d1535001d654b"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "cb189f09db39283b26bfd061ec16189e14f71c6755207f72a0f7540867afe5b9"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "ccb32e0525d29e8b0572eb84c9a57af0e7a4e615726927506f55063c62414034"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "ccbc4665079665c3cf3bab4db9f6b095370cd6437d66be549b6c2a1fd19e1958"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "d1c89973648c85069c5046ad460f7b8a00218b29a2e42359ac8cc63e9ab94832"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "e01c918ac3d48e18a927cf7b14a26a3e29ff2bdf2eacb976da0aecd6a43ed034"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "e6ab667ba76450084eb64013762c438ea76d9d29cc676dcd6c2e9892ba37f841"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "e931e4f499e0dc7ef29d269a8e5b35dd722e5d14be07df6240166ea7c6532fae"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f54660b0eb6b0b9f36e7fe1cdfdff472028dd0d14acd9b9b65098efbad059469"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f59a878c33d6b88122d80d239bb3b845d58708750b0cb06a09aebb9b18ec696c"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f7fabeb6cea87d65f3b926de33d03fb016cfdc29314c90974383b5582ae72891"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f9579f383d1bf9df80081e72760e84960a7fd4f88cf0c9e535a8597c9bb646f5"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "f9a2353b37a1a9e78fd82b27ad7e2a32a2d036604d18f02b05e3136c62ca3b09"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "fc36dc566135b5eceec4cf89758fcb719266a019ef07dae1754ae7c9f617ef3e"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "ffdc76bfcae6b255dff75202c5e7feaf95b40246bc0a17944facc1fecf9f79ab"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "opencv-contrib-python-headless",
+      "version": "5.0.0.93",
+      "purl": "pkg:pypi/opencv-contrib-python-headless@5.0.0.93",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "01331ae1a65a21d81310b5584900f73c3012ab4bdcf6aa26085c1870eea45da8"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "2ff190c4ebfa2839bdcaff1810061bc82f9ce5cf37e28953fb57fa5ed519b9d1"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "63ddadd47e36fbc903d5ac141d5c90bd305a8044188dd4936a73de80007c9e6c"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "68eb7b803f68998552a83b5f3c69bfb1c7d6c114dc30f828657bddc7ca68573a"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "72605e3ae78f66592705b1abe62e60f57dd9050787fdd99711b85a02760d5259"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "bf1e2b3c502b4fbe7b06e307bd15c4e7bea7da8895de19c189db01d53062f997"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "c035e12b6078b3351ad577e90a4ff4ead74155fa5470eb8df8f5b54a8ce7727f"
+        },
+        {
+          "alg": "SHA-256",
+          "content": "ca47e569680df6eb7317b54f463bc766832d3d87854988168673bb0c52d6d9d4"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "FFmpeg",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Media decode used by VideoCapture. Redistributed in every opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libbluray",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libgnutls",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libnettle",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libhogweed",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libintl",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libmp3lame",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libp11",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "librtmp",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libsoxr",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "library",
+      "name": "libtasn1",
+      "version": "bundled",
+      "licenses": [
+        {
+          "expression": "LGPL-2.1-or-later"
+        }
+      ],
+      "description": "Redistributed inside the macOS opencv-python wheel. Redistributed inside opencv_contrib_python_headless."
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "SmolVLM2-2.2B-Instruct multimodal projector, f16 GGUF",
+      "version": "mmproj-SmolVLM2-2.2B-Instruct-f16.gguf",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "db9a3a1648cab1ebc3af4a2b0c8145dd8faebf6f7dd7b16e7dc1842229f14ac4"
+        }
+      ],
+      "description": "visual.describe/default-projector. Hugging Face",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "872303680"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/1bc3c9f74ceafd4c8d4411cc9cf188bba3798f91/mmproj-SmolVLM2-2.2B-Instruct-f16.gguf"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "SmolVLM2-500M-Video-Instruct multimodal projector, f16 GGUF",
+      "version": "mmproj-SmolVLM2-500M-Video-Instruct-f16.gguf",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b5dc8ebe7cbeab66a5369693960a52515d7824f13d4063ceca78431f2a6b59b0"
+        }
+      ],
+      "description": "visual.describe/low-memory-projector. Hugging Face",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "199470624"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/ccd7aae53bcb1997355c2f094959e72b3642ce17/mmproj-SmolVLM2-500M-Video-Instruct-f16.gguf"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "llama.cpp multimodal CLI (llama-mtmd-cli)",
+      "version": "llama-mtmd-cli",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "b61a6f2b996b6068f36399ac5b54503856071596aef5ff3e665d311ead7e7884"
+        }
+      ],
+      "description": "visual.describe/runtime. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "85120"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/llama-mtmd-cli"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml.0.23.0.dylib",
+      "version": "libggml.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "98fa46f0bcd8c75a335f733c38cb79f911bc39412ba15ef52fee3ac051c14069"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "60128"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml-base.0.23.0.dylib",
+      "version": "libggml-base.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "40a133d388655a8826b298e244a083fcfc4cc219f4b51018b19e6d8ebb64d42c"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "732776"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml-base.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml-blas.0.23.0.dylib",
+      "version": "libggml-blas.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "414856968dcddae3a67e0f9c6dc012e5c4db13320c4d7ea5924dc1ad192dcfd6"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "58776"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml-blas.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml-cpu.0.23.0.dylib",
+      "version": "libggml-cpu.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "e63a7b4f8eaa5bbd8e93e524d1a828de22a42bead57ae79cfab46e2339571fb2"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "968688"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml-cpu.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml-metal.0.23.0.dylib",
+      "version": "libggml-metal.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "c23aa0bd992066b1bc81c2f4a58798fdc6b5384c1df9dba91812db72e95a1833"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "2128584"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml-metal.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libggml-rpc.0.23.0.dylib",
+      "version": "libggml-rpc.0.23.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "d998f743ae44021c8990a95765585d813bf161fcc8c7a527ed9f746e0f76d144"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "191808"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libggml-rpc.0.23.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libllama.0.4.0.dylib",
+      "version": "libllama.0.4.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "5279dde6e366d797f31fe699985d089ee4dbbbd6d5fd33c02defbc7ede0a34fb"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "3112080"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libllama.0.4.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libllama-common.0.4.0.dylib",
+      "version": "libllama-common.0.4.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "773df6d3afacf1b93bab1a5cad0bc327f537bdee959e9906a794cb9403f0b6e9"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "7641000"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libllama-common.0.4.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "library",
+      "name": "libmtmd.0.4.0.dylib",
+      "version": "libmtmd.0.4.0.dylib",
+      "licenses": [
+        {
+          "expression": "MIT"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6e902b5676376c466dc4a1ed66a3b2c675589b47a5292581a3bc7cec895516fa"
+        }
+      ],
+      "description": "visual.describe/runtime-library. Georgi Gerganov and the ggml authors",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "1378752"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://github.com/ggml-org/llama.cpp/releases/download/b10840/llama-{release}/libmtmd.0.4.0.dylib"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "SmolVLM2-2.2B-Instruct, Q4_K_M GGUF",
+      "version": "SmolVLM2-2.2B-Instruct-Q4_K_M.gguf",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "0cf76814555b8665149075b74ab6b5c1d428ea1d3d01c1918c12012e8d7c9f58"
+        }
+      ],
+      "description": "visual.describe/default-model. Hugging Face",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "1112602656"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-2.2B-Instruct-GGUF/resolve/1bc3c9f74ceafd4c8d4411cc9cf188bba3798f91/SmolVLM2-2.2B-Instruct-Q4_K_M.gguf"
+        }
+      ]
+    },
+    {
+      "type": "machine-learning-model",
+      "name": "SmolVLM2-500M-Video-Instruct, Q8_0 GGUF",
+      "version": "SmolVLM2-500M-Video-Instruct-Q8_0.gguf",
+      "licenses": [
+        {
+          "expression": "Apache-2.0"
+        }
+      ],
+      "hashes": [
+        {
+          "alg": "SHA-256",
+          "content": "6f67b8036b2469fcd71728702720c6b51aebd759b78137a8120733b4d66438bc"
+        }
+      ],
+      "description": "visual.describe/low-memory-model. Hugging Face",
+      "properties": [
+        {
+          "name": "framepilot:bytes",
+          "value": "436808704"
+        },
+        {
+          "name": "framepilot:licenseVerified",
+          "value": "false"
+        }
+      ],
+      "externalReferences": [
+        {
+          "type": "distribution",
+          "url": "https://huggingface.co/ggml-org/SmolVLM2-500M-Video-Instruct-GGUF/resolve/ccd7aae53bcb1997355c2f094959e72b3642ce17/SmolVLM2-500M-Video-Instruct-Q8_0.gguf"
+        }
+      ]
+    }
+  ]
+}

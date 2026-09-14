@@ -2,17 +2,20 @@
 #
 # Mirrors the Tracking Lite and Subject Intelligence workflows: `workers/visual-embed`
 # is a standalone artifact project, not a workspace member, and neither onnxruntime nor
-# its ~1.5 GiB of model weights may ever enter the base application's environment.
+# its ~1.8 GiB of model weights may ever enter the base application's environment.
 #
-# WHY THE WEIGHT TIER IS DISPATCH-ONLY (unlike the two smaller packs): this pack's pinned
-# weights are ~1.5 GiB per platform per run. Pulling that on every PR that touches the
-# worker is an infrastructure-cost decision nobody has made, so pull requests run the tier
-# that needs no ML stack and no weights, and the real-inference proof runs on demand and
-# inside `capability-pack-release.yml` before an artifact is produced.
-#
-# NO SBOM TIER YET: this worker has no `tools/generate_sbom.py` and no `pack/sbom/`
-# record, although its manifest names one. Adding a drift check without a generator
-# would be a check of nothing; that gap is tracked in docs/api/capability-packs.md.
+# THREE TIERS, split by cost rather than by mechanism:
+#   1. protocol/policy suite — no third-party dependency at all. Runs on every PR.
+#   2. license/SBOM drift check — the `cv` extra only (onnxruntime, tokenizers, OpenCV;
+#      tens of MiB), no pinned weight is fetched. Runs on every PR: `generate_sbom.py
+#      --check` compares `pack/models.lock.toml`'s pins against the digests compiled
+#      into `models.py`, which needs no downloaded weight file to do.
+#   3. real-inference proof — the actual ~1.8 GiB of pinned weights, per platform.
+#      `workflow_dispatch` and the release pipeline (`capability-pack-release.yml`) only:
+#      pulling that on every PR that touches the worker is an infrastructure-cost
+#      decision nobody has made. Weights are cached by `actions/cache`, keyed on the
+#      pinned digests in `pack/models.lock.toml`, so a re-run with unchanged pins never
+#      re-downloads them.
 name: Capability Pack — Visual Embed
 
 on:
@@ -55,7 +58,7 @@ jobs:
       - name: Typecheck
         run: uv run --python 3.13 --with mypy --no-project mypy
       - name: Weights must never be committed
-        # ~1.5 GiB of binaries with their own licences belong in a signed pack artifact,
+        # ~1.8 GiB of binaries with their own licences belong in a signed pack artifact,
         # not in every clone of the base repository.
         working-directory: .
         run: |
@@ -79,7 +82,29 @@ jobs:
             exit 1
           fi
 
-  # Tier 2, on demand only (see header): pinned weights + real inference, per platform,
+  # Tier 2 runs on every PR too, but never fetches a pinned weight: `generate_sbom.py
+  # --check` compares the lock file's digests against the ones compiled into models.py,
+  # which is a metadata comparison, not a download. The `cv` extra is installed so the
+  # OpenCV third-party notice can be read and verified against the bundled-natives list.
+  sbom-drift:
+    name: License / SBOM drift (no weights)
+    needs: protocol-and-policy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Install the CV extra from the exact lock (no weights)
+        run: uv sync --extra cv --no-dev --locked --python 3.13
+      - name: License and SBOM record must match the resolved environment
+        # --check only: this never writes a platform SBOM, because ubuntu-x64 is not a
+        # platform this pack ships (see pack/manifest.toml's [[platforms]]). The committed
+        # darwin-arm64/win32-x64 records are regenerated on the shipped runners, in
+        # capability-pack-release.yml.
+        run: uv run --extra cv --no-dev python tools/generate_sbom.py --check
+
+  # Tier 3, on demand only (see header): pinned weights + real inference, per platform,
   # because the artifact is platform bound.
   inference-proof:
     name: Real-inference proof (${{ matrix.platform }})
@@ -101,6 +126,13 @@ jobs:
       - uses: astral-sh/setup-uv@v7
       - name: Install the CV extra from the exact lock
         run: uv sync --extra cv --no-dev --locked --python 3.13
+      - name: Cache pinned model weights
+        # Keyed on the pins themselves, not a version number: a re-pin (new digest)
+        # naturally misses the cache and re-downloads; an unchanged pin never does.
+        uses: actions/cache@v4
+        with:
+          path: workers/visual-embed/models
+          key: visual-embed-weights-${{ matrix.platform }}-${{ hashFiles('workers/visual-embed/pack/models.lock.toml') }}
       - name: Fetch the pinned weights and verify every digest
         run: uv run --no-dev python tools/fetch_models.py
       - name: Weights must still match their pins
