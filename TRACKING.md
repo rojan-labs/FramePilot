@@ -1302,3 +1302,15 @@ Result: `reports/golden/closeout-2026-09-14/summary.md`.
 
 **Not claimed:** one run per case (not a floor), and turn 1's 5-clip montage is a separate,
 pre-existing prompt-following miss that nothing on this branch touched.
+
+## T6 — what CI caught that the scoped local runs did not
+
+| failure | cause | fix |
+|---|---|---|
+| visual-embed / visual-describe lint | two SBOM-generator lines over 100 chars; the agent's local ruff run did not use the pack's line length | `f9835350` |
+| visual-describe mypy | a tuple-trick lambda in a new test | `59919dd0` |
+| engine mypy (tests included in CI) | `asr.sys` implicit re-export; untyped `.json()` return in the caption-reindex test | `7df05d39` |
+| `release-cli.test.ts` | **not from this branch**: a catalog fixture with `expiresAt: 2026-09-14` verified against the real clock went red *today* on every branch, `main` included | `65d8e193` — dated relative to now; the other catalog tests already pin `now` |
+
+Lesson kept: scoped local runs must use the **CI command** for lint/type steps (`uv run mypy .`
+in `engine/python`, the pack's own `ruff check .`), because both include tests.
