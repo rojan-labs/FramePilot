@@ -691,7 +691,10 @@ async function runCase(goldenCase, run) {
       musicAssetId,
       expectedHeadTrimSeconds: turn.expectedHeadTrimSeconds,
       captionStyle: turn.captionStyle,
-      sameSettingByCut: buildSameSettingByCut(project, REAL_SHOT_SETTINGS),
+      // Keyed by clip ids, and the checks read the AFTER timeline: a map built from `project`
+      // misses every cut the turn created, so those cuts would score as unlabelled. The labels
+      // are per source time, so they resolve against any timeline built from these assets.
+      sameSettingByCut: buildSameSettingByCut(outcome.working, REAL_SHOT_SETTINGS),
     });
     const golden = measureGoldenTurn({
       events: outcome.events,
