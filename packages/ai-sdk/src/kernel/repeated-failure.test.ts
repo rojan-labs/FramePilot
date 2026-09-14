@@ -1355,13 +1355,14 @@ describe('a tool call that moved nothing says so', () => {
     expect(results).toHaveLength(2);
     // Setting −18 dB on a clip already at −18 dB.
     expect(results[0]?.summary).toContain('nothing moved');
-    // The value the clip already holds travels with the answer; the model is never sent
-    // off to read it (`kernel/placement-note.ts`).
+    // The value the clip already holds travels with the MODEL's copy of the answer, so it
+    // is never sent off to read it (`kernel/placement-note.ts`); the card keeps the sentence.
     expect(results[0]?.summary).not.toContain('get_timeline');
-    expect(results[0]?.summary).toContain('clip_a on');
+    expect(results[0]?.summary).not.toContain('clip_a on');
     // −12 dB is a real move, and must not be labelled as one that was not.
     expect(results[1]?.summary).not.toContain('nothing moved');
     expect(modelFacingText(provider)).toContain('the project already holds this — clip_a on');
+    expect(modelFacingText(provider)).not.toContain('get_timeline or get_clips');
   });
 });
 

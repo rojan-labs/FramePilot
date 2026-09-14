@@ -381,7 +381,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:4",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",
@@ -1117,7 +1117,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:12",
-      "summary": "Deleted range Video 1 · 0s–1s — nothing moved: the project already said exactly this. Set a different value, or go on to the next part of the request.",
+      "summary": "Deleted range Video 1 · 0s–1s — nothing moved: the project already said exactly this.",
       "toolCallId": "c2",
       "ts": 1000,
       "turnId": "turn_1",
@@ -5986,7 +5986,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:4",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",
@@ -6982,7 +6982,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:5",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",
@@ -7961,7 +7961,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:4",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",
@@ -8664,7 +8664,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:4",
-      "summary": "Deleted range Video 1 · 0s–2s · now: clip_a on video_1 2s–6s (src 2s–6s)",
+      "summary": "Deleted range Video 1 · 0s–2s",
       "toolCallId": "a",
       "ts": 1000,
       "turnId": "turn_1",
@@ -8696,7 +8696,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:5",
-      "summary": "Deleted range Video 1 · 4s–5s · now: clip_a__l on video_1 2s–4s (src 2s–4s); clip_a__r on video_1 5s–6s (src 5s–6s); clip_a removed from video_1",
+      "summary": "Deleted range Video 1 · 4s–5s",
       "toolCallId": "b",
       "ts": 1000,
       "turnId": "turn_1",
@@ -9372,7 +9372,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:6",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",
@@ -12585,7 +12585,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:result:7",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)",
+      "summary": "Deleted range Video 1 · 0s–3s",
       "toolCallId": "c1",
       "ts": 1000,
       "turnId": "turn_1",

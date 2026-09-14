@@ -415,7 +415,7 @@
       "turnId": "turn_parity",
       "type": "tool_result",
       "toolCallId": "c1",
-      "summary": "Deleted range Video 1 · 0s–3s · now: clip_a on video_1 3s–6s (src 3s–6s)"
+      "summary": "Deleted range Video 1 · 0s–3s"
     },
     {
       "id": "turn_parity:diff:5",

@@ -213,7 +213,8 @@ import type {
 } from './providers/types.js';
 import {
   capabilitiesFor,
-  isRouterAlias, supportsVision,
+  isRouterAlias,
+  supportsVision,
   type CapabilitySource,
 } from './providers/model-capabilities.js';
 import {
@@ -2924,9 +2925,10 @@ export function summarizeReadResult(
       const note = typeof obj.note === 'string' ? [obj.note] : [];
       const units = typeof obj.units === 'string' ? [`units: ${obj.units}`] : [];
       if (templates.length === 0)
-        return [...note, `no caption templates match (${String(obj.matched ?? 0)} in catalog)`].join(
-          '\n',
-        );
+        return [
+          ...note,
+          `no caption templates match (${String(obj.matched ?? 0)} in catalog)`,
+        ].join('\n');
       const matched = Number(obj.matched ?? templates.length);
       const head =
         matched > 0
@@ -3491,7 +3493,9 @@ export class Orchestrator {
    */
   private pricingForCall(
     tier: ModelTier,
-  ): { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> } | undefined {
+  ):
+    | { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> }
+    | undefined {
     const pricing = runPricingFor(this.providerForTier(tier));
     return pricing === undefined
       ? undefined
@@ -5517,21 +5521,22 @@ export class Orchestrator {
       // them, the music bed and the title card each placed twice.
       const callKey = appliedCallKey(call);
       if (!changed && host.appliedCalls?.has(callKey) === true) {
-        const holds = currentPlacement(normalized, ctx.project);
-        const note =
+        const summary =
           `${desc} — already done, and doing it again moved nothing. This run has ` +
           'made this exact call before and the project is unchanged by it, so the ' +
-          'operations were not applied a second time.' +
-          (holds === '' ? '' : ` It holds: ${holds}.`) +
-          ' Go on to the next part of the request.';
+          'operations were not applied a second time. Go on to the next part of the request.';
+        // The model's copy also carries what the clips hold, so it can set a different
+        // value without a read; the card keeps the sentence (`kernel/placement-note.ts`).
+        const holds = currentPlacement(normalized, ctx.project);
+        const note = holds === '' ? summary : `${summary} It holds: ${holds}.`;
         orchestratorLog.warn('withheld a repeated call that changed nothing', {
           tool: call.name,
           opCount: normalized.length,
         });
-        return { ops: [], note, summary: note, status: 'warning', satisfied: true };
+        return { ops: [], note, summary, status: 'warning', satisfied: true };
       }
       host.appliedCalls?.add(callKey);
-      const note =
+      const outcomeLine =
         summarizeOperations(normalized, names, call) +
         (call.name === 'caption_the_edit'
           ? captionStyleNote(applied, (call.arguments as { trackId?: unknown }).trackId)
@@ -5548,10 +5553,18 @@ export class Orchestrator {
         // back to re-grade or to fill in the transitions it withheld on purpose. Computed
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
         colorSolveNote(call.name, ctx, call.arguments) +
-        transitionsNote(call.name, ctx, call.arguments) +
-        // Where things landed, or what they already hold. Either answer is what the model
-        // used to spend a whole round trip reading back (`kernel/placement-note.ts`).
-        (changed ? placementNote(normalized, ctx.project, applied) : unchangedNote(normalized, ctx.project));
+        transitionsNote(call.name, ctx, call.arguments);
+      // The card gets the sentence; the model's copy also gets where things landed, or what
+      // they already hold — either answer is what it used to spend a whole round trip reading
+      // back (`kernel/placement-note.ts`). Clip ids are precision for the model, noise on a card.
+      const summary = changed
+        ? outcomeLine
+        : `${outcomeLine} — nothing moved: the project already said exactly this.`;
+      const note =
+        outcomeLine +
+        (changed
+          ? placementNote(normalized, ctx.project, applied)
+          : unchangedNote(normalized, ctx.project));
       orchestratorLog.action('tool produced ops', {
         tool: call.name,
         opCount: normalized.length,
@@ -5565,7 +5578,7 @@ export class Orchestrator {
       return {
         ops: normalized,
         note,
-        summary: note,
+        summary,
         status: 'completed',
         // A tool whose op count the model cannot influence does not spend the run's
         // blast-radius budget (see `ToolSpec.derivedFanOut`).

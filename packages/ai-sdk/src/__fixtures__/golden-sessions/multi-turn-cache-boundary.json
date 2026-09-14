@@ -285,7 +285,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "c1",
-      "summary": "Deleted range Video 1 · 0s–2s · now: clip_a on video_1 2s–6s (src 2s–6s)"
+      "summary": "Deleted range Video 1 · 0s–2s"
     },
     {
       "id": "turn_golden:diff:5",
@@ -718,7 +718,7 @@
       "turnId": "turn_golden",
       "type": "tool_result",
       "toolCallId": "c2",
-      "summary": "Deleted range Video 1 · 8s–9s · now: clip_b__l on video_1 6s–8s (src 6s–8s); clip_b__r on video_1 9s–10s (src 9s–10s); clip_b removed from video_1"
+      "summary": "Deleted range Video 1 · 8s–9s"
     },
     {
       "id": "turn_golden:diff:10",
