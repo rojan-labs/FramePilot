@@ -1677,3 +1677,22 @@ durable log's `occurredAt` trails the event's `ts` by 1 ms p50 / 67 ms p90 over 
   its context-usage pair (`requestId: repair:<step>`), so the next recording shows it;
 - a process warmed at one effort is never handed to a call at another (effort is part of the warm key).
 
+## X5 — Checked, not changed
+
+- **The desktop re-indexes the project brain on every auto-commit** (`indexProjectBrain` in
+  `main.ts`, ~12× per turn): FTS rebuild plus a drop-and-rebuild of every text embedding. On this
+  machine `FRAMEPILOT_EMBEDDINGS_MODEL_DIR` is unset, so the embedding half returns at once and the
+  FTS rebuild is milliseconds. With an embedder configured it would embed every utterance, digest
+  and caption per commit; a content fingerprint that skips an unchanged set is the fix if that
+  configuration is ever measured. Not on this branch: no run on this machine pays it.
+- **Host-side event handling** is not a lever: the durable log's `occurredAt` trails each event's
+  `ts` by 1 ms p50 / 67 ms p90 across run `17d23f52` (461 events), and the harness overhead between
+  model calls is 10 ms p50 / 167 ms p90 over 118 gaps.
+
+## X6 — The warm process also follows a turn-budget exit
+
+The SDK ends most multi-tool steps by exhausting its own `maxTurns: 1` after deferring the calls
+(the adapter's catch path treats that as done). That path spawned no warm process, so exactly the
+steps the pacing briefing asks for — several edits in one step — would have gone cold. Fixed:
+both endings pre-spawn; test added.
+

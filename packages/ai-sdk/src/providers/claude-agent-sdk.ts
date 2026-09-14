@@ -476,6 +476,22 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
     );
   }
 
+  /**
+   * Pre-spawn for the step after this one, when this one was a tool-bearing call that ended
+   * normally. A call with tools is an agent step, and the next step is usually shaped like
+   * it (78 of 119 successive calls on the recorded runs kept the same tool block).
+   */
+  private prewarmAfter(
+    key: string,
+    query: AgentSdkModule['query'],
+    buildOptions: (controller: AbortController) => Promise<Record<string, unknown>>,
+    tools: readonly ToolDescriptor[],
+    signal: AbortSignal | undefined,
+  ): void {
+    if (!this.prewarm || tools.length === 0 || signal?.aborted === true) return;
+    this.spawnWarm(key, query, buildOptions);
+  }
+
   /** Hand over the waiting process when it matches; abandon it when it does not. */
   private takeWarm(key: string): WarmProcess | undefined {
     const warm = this.warm;
@@ -655,11 +671,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
         }
       }
       finished = true;
-      // A call with tools is an agent step, and the next step is usually shaped like it
-      // (78 of 119 successive calls on the recorded runs kept the same tool block).
-      if (this.prewarm && tools.length > 0 && signal?.aborted !== true) {
-        this.spawnWarm(key, query, buildOptions);
-      }
+      this.prewarmAfter(key, query, buildOptions, tools, signal);
       yield { type: 'done', text: text.join(''), ...(truncated ? { truncated } : {}) };
     } catch (error) {
       // A genuine user cancel must stay an AbortError so the retry loop and the
@@ -679,10 +691,14 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
       if (yieldedToolCall && /reached maximum number of turns/i.test(String(error))) {
         log.debug(
           'claude agent sdk exhausted its turn budget after deferring tool calls; treating as done',
-          {
-            error: String(error),
-          },
+          { error: String(error) },
         );
+        // This is the ordinary end of a multi-tool step, not a failure (see above), so the
+        // next step is as predictable as after any other — and multi-tool steps are the
+        // ones the pacing briefing asks for.
+        finished = true;
+        const { query } = await this.loadAgentSdk();
+        this.prewarmAfter(key, query, buildOptions, tools, signal);
         yield { type: 'usage', usage: usageFromModelUsage({}) };
         yield { type: 'done', text: text.join('') };
         return;

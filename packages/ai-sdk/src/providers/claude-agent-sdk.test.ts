@@ -715,6 +715,40 @@ describe('warm process', () => {
     p.dispose();
   });
 
+  it('pre-spawns after a multi-tool step the SDK ends by exhausting its own turn budget', async () => {
+    let n = 0;
+    const calls: { prompt: unknown; options: Record<string, unknown> }[] = [];
+    const module = {
+      query(params: { prompt: unknown; options: Record<string, unknown> }) {
+        calls.push(params);
+        const first = n++ === 0;
+        return (async function* () {
+          if (!first) return;
+          yield {
+            type: 'assistant',
+            message: {
+              content: [
+                { type: 'tool_use', id: 'c1', name: 'mcp__framepilot__trim_clip', input: {} },
+              ],
+            },
+          } as never;
+          throw new Error(
+            'Claude Code returned an error result: Reached maximum number of turns (1)',
+          );
+        })();
+      },
+    } as unknown as AgentSdkModule;
+    const p = provider(module);
+    const chunks = await drain(
+      p.stream({ messages: [{ role: 'user', content: 'cut it' }], tools }),
+    );
+    expect(chunks.some((c) => c.type === 'tool-call')).toBe(true);
+    await settle();
+    expect(calls).toHaveLength(2);
+    expect(typeof calls[1]?.prompt).not.toBe('string');
+    p.dispose();
+  });
+
   it('never pre-spawns after a call with no tools — the classifier, a chat reply', async () => {
     const { module, calls } = warmFakeSdk(textFrames);
     const p = provider(module);
