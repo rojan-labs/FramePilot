@@ -13,6 +13,7 @@
  */
 import { describe, expect, it, vi } from 'vitest';
 import {
+  CLAUDE_AGENT_SDK_DEFAULT_EFFORT,
   ConcreteClaudeAgentSdkProvider,
   PREWARM_IDLE_MS,
   SANDBOX_OPTIONS,
@@ -756,11 +757,55 @@ describe('warm process', () => {
     expect(prewarmEnabled({ FRAMEPILOT_AGENT_SDK_PREWARM: '1' })).toBe(true);
   });
 
-  it('keys a process on model, system prompt and the full tool descriptors', () => {
-    const a = warmProcessKey('m', 'sys', tools);
-    expect(warmProcessKey('m', 'sys', tools)).toBe(a);
-    expect(warmProcessKey('m2', 'sys', tools)).not.toBe(a);
-    expect(warmProcessKey('m', 'sys2', tools)).not.toBe(a);
-    expect(warmProcessKey('m', 'sys', [{ ...tools[0]!, description: 'Trim a clip.' }])).not.toBe(a);
+  it('keys a process on model, effort, system prompt and the full tool descriptors', () => {
+    const a = warmProcessKey('m', 'sys', tools, 'low');
+    expect(warmProcessKey('m', 'sys', tools, 'low')).toBe(a);
+    expect(warmProcessKey('m2', 'sys', tools, 'low')).not.toBe(a);
+    expect(warmProcessKey('m', 'sys2', tools, 'low')).not.toBe(a);
+    expect(warmProcessKey('m', 'sys', tools, 'medium')).not.toBe(a);
+    expect(
+      warmProcessKey('m', 'sys', [{ ...tools[0]!, description: 'Trim a clip.' }], 'low'),
+    ).not.toBe(a);
+  });
+
+  it('does not hand a process warmed at one effort to a call at another', async () => {
+    const { module, calls, fed } = warmFakeSdk(textFrames);
+    const p = provider(module);
+    await p.complete({
+      messages: [{ role: 'user', content: 'step 1' }],
+      tools,
+      reasoningEffort: 'low',
+    });
+    await settle();
+    await p.complete({
+      messages: [{ role: 'user', content: 'step 2' }],
+      tools,
+      reasoningEffort: 'medium',
+    });
+    await settle();
+    expect(fed).toEqual([]);
+    expect(calls[2]?.options['effort']).toBe('medium');
+    p.dispose();
+  });
+});
+
+describe('reasoning effort', () => {
+  it('sends the effort the request names', async () => {
+    const { module, calls } = fakeSdk(textFrames);
+    const p = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    await p.complete({ messages: [{ role: 'user', content: 'hi' }], reasoningEffort: 'low' });
+    expect(calls[0]?.options['effort']).toBe('low');
+  });
+
+  it("sends medium, not the SDK's high, when the request names none", async () => {
+    const { module, calls } = fakeSdk(textFrames);
+    const p = new ConcreteClaudeAgentSdkProvider({ name: 'claude-agent-sdk' }, async () =>
+      Promise.resolve(module),
+    );
+    await p.complete({ messages: [{ role: 'user', content: 'route this' }] });
+    expect(calls[0]?.options['effort']).toBe(CLAUDE_AGENT_SDK_DEFAULT_EFFORT);
+    expect(CLAUDE_AGENT_SDK_DEFAULT_EFFORT).toBe('medium');
   });
 });

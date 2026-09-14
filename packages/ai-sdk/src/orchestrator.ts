@@ -5654,6 +5654,14 @@ export class Orchestrator {
     /** The run's effect boundary, shared so repair I/O remains observable and deduplicated. */
     effectRuntime: EffectRuntime;
     /**
+     * Where the repair call's context account goes (ADR 0080). The pass runs through
+     * `complete()`, which emits nothing on its own, so without this it was the one model
+     * call in a run that no recording, meter or latency decomposition ever saw — 26 s of it
+     * in run `c68947dc` (TRACKING.md §X4). Called twice: the estimate at send, the settled
+     * usage after.
+     */
+    onContextUsage?: (payload: Parameters<TurnEmitter['contextUsage']>[0]) => void;
+    /**
      * The run's skill ledger (ADR 0057), shared so the repair turn both KEEPS the
      * playbooks the run already loaded (they stay pinned in its context) and does not
      * re-fetch them. Non-optional for the same reason as `analysisBudget` above: both
@@ -5754,18 +5762,52 @@ export class Orchestrator {
       ).messages,
       { role: 'user' as const, content: instruction },
     ];
-    const response = await this.completeModel(
+    const repairRequest: AiCompletionRequest = {
+      messages,
       // The repair pass is the LAST TURN OF THE SAME RUN, so it advertises the same set
       // that run's execution turns did — the `repair` stage's, which withholds fresh
       // analysis of the footage exactly as `apply` does. Advertising the full registry
       // here would both hand the repair a surface no earlier turn had (a run that edited
       // on its first turn is at `apply` from then on) and break the prompt-prefix
       // stability the tool block's cache key depends on (E3.3).
-      { messages, tools: this.agentTools('agent', 'repair', args.loadedToolDomains) },
+      tools: this.agentTools('agent', 'repair', args.loadedToolDomains),
+      // A repair step thinks like any repair step (`kernel/stage-policy.ts`); with no
+      // effort named, the Agent SDK ran it at its own `high`.
+      reasoningEffort: agentStepReasoningEffort({ stage: 'repair' }),
+    };
+    const repairProvider = this.providerForTier('large');
+    const repairCapabilities = capabilitiesFor(repairProvider.name, repairProvider.modelId);
+    const repairManifest = buildRequestManifest({
+      requestId: `repair:${String(args.stepIndex)}`,
+      provider: repairProvider.name,
+      ...(repairProvider.modelId ? { model: repairProvider.modelId } : {}),
+      contextWindow: contextWindowFor(args.input, repairProvider),
+      windowSource: repairCapabilities.source,
+      reservedOutputTokens: reservedOutputFor(args.input, repairProvider),
+      request: repairRequest,
+      ...(args.taskMemory ? { memory: memoryStatusFrom(args.taskMemory) } : {}),
+    });
+    args.onContextUsage?.({
+      usedTokens: repairManifest.usage.estimatedInputTokensBeforeSend,
+      contextWindow: repairManifest.usage.modelContextLimit,
+      estimated: true,
+      manifest: repairManifest,
+    });
+    const response = await this.completeModel(
+      repairRequest,
       args.signal,
       args.effectRuntime,
       'large',
     );
+    if (response.usage?.inputTokens !== undefined) {
+      const settled = withProviderUsage(repairManifest, response.usage);
+      args.onContextUsage?.({
+        usedTokens: response.usage.inputTokens,
+        contextWindow: settled.usage.modelContextLimit,
+        estimated: false,
+        manifest: settled,
+      });
+    }
     // Reported UNCONDITIONALLY, `undefined` usage included: the call happened, and the
     // run's accumulator counts calls separately from tokens so a provider that priced
     // nothing still shows up as spend of unknown size rather than as no spend.
@@ -7242,7 +7284,9 @@ export class Orchestrator {
       request: { messages },
     });
     try {
-      const response = await provider.complete({ messages }, signal);
+      // A route is read off a two-line JSON contract; there is nothing to deliberate, and
+      // the call sits on every turn's critical path (3.7 s p50 on claude-agent-sdk, §W4).
+      const response = await provider.complete({ messages, reasoningEffort: 'low' }, signal);
       const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
         provider: provider.name,
@@ -9563,8 +9607,14 @@ export class Orchestrator {
         let report = reconcileInheritedFailures(inheritedFrom, critique(working, verifyOptions));
         const repairOps: AnyOperation[] = [];
         let repairOutcome: RepairOutcome | undefined;
+        // The repair call's context account, collected while `attemptRepair` runs and
+        // yielded the moment it returns — an awaited call cannot yield on its own.
+        const repairUsage: AiEvent[] = [];
         if ((agentOptions.autoRepair ?? true) && !report.ok) {
           const repair = await self.attemptRepair({
+            onContextUsage: (payload) => {
+              repairUsage.push(emit.contextUsage(payload));
+            },
             input,
             working,
             log,
@@ -9601,6 +9651,7 @@ export class Orchestrator {
               usageCacheWrite += cost.cacheCreation;
             },
           });
+          for (const event of repairUsage) yield event;
           // Carried whether or not anything landed: a repair that RAN and produced nothing
           // is a different fact from one that never ran, and it cost a large-model call.
           repairOutcome = repair?.outcome;

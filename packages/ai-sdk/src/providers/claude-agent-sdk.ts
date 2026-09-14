@@ -147,6 +147,19 @@ export const SANDBOX_OPTIONS = Object.freeze({
 /** How long a pre-spawned process may wait for a prompt before it is abandoned. */
 export const PREWARM_IDLE_MS = 60_000;
 
+/**
+ * The thinking effort a request gets when it names none.
+ *
+ * The SDK's own default is `high` — chosen for an interactive Claude Code session, where
+ * a person waits on one answer. Here every unlabelled request is a harness call that pays
+ * per second of thinking: the classifier, the repair pass, the caption-emphasis and vision
+ * judges, plan generation. The repair pass alone thought for 26 s and 12 s at that default
+ * to propose no change in the two slowest recorded Claude turns (TRACKING.md §X4). The
+ * orchestrator's displayed-reasoning path already treats `medium` as its floor, so the
+ * adapter does the same for the rest rather than inherit a default meant for someone else.
+ */
+export const CLAUDE_AGENT_SDK_DEFAULT_EFFORT = 'medium' as const;
+
 /** Whether the adapter pre-spawns the next process (see the module header). */
 export function prewarmEnabled(
   env: Readonly<Record<string, string | undefined>> = process.env,
@@ -162,9 +175,13 @@ export function warmProcessKey(
   model: string,
   systemPrompt: string,
   tools: readonly ToolDescriptor[],
+  effort: string,
 ): string {
+  // Effort is an option fixed at spawn too: a process warmed at `low` must not answer a
+  // `medium` call.
   return JSON.stringify([
     model,
+    effort,
     systemPrompt,
     tools.map((t) => [t.name, t.description, t.parameters]),
   ]);
@@ -531,7 +548,8 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
   ): AsyncIterable<ProviderChunk> {
     const { systemPrompt, prompt } = renderMessages(request.messages);
     const tools = request.tools ?? [];
-    const key = warmProcessKey(this.modelId, systemPrompt, tools);
+    const effort = request.reasoningEffort ?? CLAUDE_AGENT_SDK_DEFAULT_EFFORT;
+    const key = warmProcessKey(this.modelId, systemPrompt, tools, effort);
     // Everything fixed at spawn, built afresh per process: the MCP server instance is bound
     // to the process it is handed to, so a warm spawn gets its own.
     const buildOptions = async (
@@ -547,7 +565,7 @@ export class ConcreteClaudeAgentSdkProvider implements AiProvider {
         systemPrompt: { type: 'custom', prompt: systemPrompt },
         hooks: { PreToolUse: [{ hooks: [deferToolExecution] }] },
       };
-      if (request.reasoningEffort !== undefined) options['effort'] = request.reasoningEffort;
+      options['effort'] = effort;
       if (tools.length > 0) {
         options['mcpServers'] = {
           [MCP_SERVER_NAME]: {

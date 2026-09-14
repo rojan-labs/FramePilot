@@ -1658,3 +1658,22 @@ the number that should drop on the next recorded runs (`--since=<date> --provide
 - **Cache misses on tool-block changes** (41 of 128 calls): cost, not latency (§W1). A run-stable
   tool block would remove the structural withholding ADR 0075 relies on.
 
+## X4 — The repair pass was an invisible model call thinking at the SDK's `high`
+
+The two slowest Claude turns' self-check phases (26.1 s in `c68947dc`, 12.0 s in `275404ab`, §W
+measured them as silent gaps) were the repair pass: `attemptRepair` runs through `complete()`,
+which emits no `context_usage` pair, so no recording, meter or latency decomposition ever showed
+the call — and its request named no `reasoningEffort`, so `claude-agent-sdk` ran it at the SDK's
+own default, `high`. Both times it proposed no change. Host-side lag was ruled out first: the
+durable log's `occurredAt` trails the event's `ts` by 1 ms p50 / 67 ms p90 over that run.
+
+**Landed:**
+- the Agent SDK adapter sends `medium` for any request that names no effort
+  (`CLAUDE_AGENT_SDK_DEFAULT_EFFORT`); the SDK's `high` was a default for a person's session,
+  not for a harness paying per second — this also covers the caption-emphasis and vision judges
+  and plan generation;
+- the classifier asks for `low` (a two-line JSON route, on every turn's critical path);
+- the repair pass asks for `medium` (`agentStepReasoningEffort({ stage: 'repair' })`) and emits
+  its context-usage pair (`requestId: repair:<step>`), so the next recording shows it;
+- a process warmed at one effort is never handed to a call at another (effort is part of the warm key).
+
