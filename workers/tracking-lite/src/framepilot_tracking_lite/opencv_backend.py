@@ -237,7 +237,7 @@ def _seek_near_grid_start(
     seek_index = int(seek_seconds * file_fps + _GRID_EPSILON)
     half_frame_seconds = 0.5 / file_fps
     best_effort: tuple[DecodedFrame, float] | None = None
-    for _ in range(_MAX_SEEK_RETRIES):
+    for attempt in range(_MAX_SEEK_RETRIES):
         capture.set(cv2.CAP_PROP_POS_FRAMES, float(seek_index))
         ok, frame = capture.read()
         if ok and frame is not None:
@@ -248,7 +248,10 @@ def _seek_near_grid_start(
             best_effort = (decoded, timestamp_seconds)
         if seek_index <= 0:
             break
-        seek_index //= 2
+        # The final attempt seeks to the file's start: frame 0 can never overshoot, so a
+        # file whose reported rate is wildly wrong costs decode time instead of sampling
+        # the wrong instant.
+        seek_index = 0 if attempt == _MAX_SEEK_RETRIES - 2 else seek_index // 2
     return best_effort
 
 
