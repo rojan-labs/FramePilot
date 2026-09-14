@@ -24,9 +24,37 @@
 import { RUN_STAGES, type RunStage, isExecutionStage } from './working-state.js';
 import { type ToolRole, classifyTool } from '../tool-classification.js';
 import { getTool } from '../tool-registry.js';
+import type { ReasoningEffort } from '../providers/types.js';
 
 /** Upper bound on transitions one turn can earn — the machine has no cycles. */
 const RUN_STAGE_COUNT = RUN_STAGES.length;
+
+/** Execution stages whose steps carry out an already-locked plan (not `repair`). */
+const LOCKED_PLAN_EXECUTION_STAGES: ReadonlySet<RunStage> = new Set<RunStage>(['apply', 'enhance']);
+
+/**
+ * The reasoning effort one agent step asks the provider for.
+ *
+ * A step's wall time is its output tokens at ~85 tok/s, and that output is hidden
+ * thinking: recorded apply-stage steps spent 16k–25k thinking tokens per turn
+ * (≈190–330 s) at `medium` (TRACKING.md §U1). A step that only carries out a locked
+ * plan has already done its deciding, so `apply`/`enhance` think at `low`. `repair` is an
+ * execution stage too but stays `medium` — it exists because something failed — and so
+ * does ANY action-recovery step, for the same reason: a refused or circling action is
+ * exactly where the model needs to think. An unknown stage keeps today's `medium`.
+ *
+ * @param step.stage - The task stage the step runs in, if the handler was told one.
+ * @param step.actionRecovery - Whether this is a forced action-recovery step.
+ * @returns `'low'` for a plain apply/enhance step, `'medium'` otherwise.
+ */
+export function agentStepReasoningEffort(step: {
+  readonly stage?: RunStage | undefined;
+  readonly actionRecovery?: boolean | undefined;
+}): ReasoningEffort {
+  if (step.actionRecovery) return 'medium';
+  if (step.stage === undefined) return 'medium';
+  return LOCKED_PLAN_EXECUTION_STAGES.has(step.stage) ? 'low' : 'medium';
+}
 
 export type { ToolRole };
 

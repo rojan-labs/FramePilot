@@ -143,7 +143,12 @@ import {
 import { type AnalysisBudget, createAnalysisBudget } from './kernel/cost/analysis-caps.js';
 import { estimateUsd, runPricingFor } from './kernel/cost/cost-meter.js';
 import type { TierPrice } from './kernel/cost/cost-meter.js';
-import { EDIT_LOOK_TOOL_NAMES, stageAllowsTool, toolRole } from './kernel/stage-policy.js';
+import {
+  EDIT_LOOK_TOOL_NAMES,
+  agentStepReasoningEffort,
+  stageAllowsTool,
+  toolRole,
+} from './kernel/stage-policy.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -8970,6 +8975,13 @@ export class Orchestrator {
               tools: effect.actionRecovery
                 ? self.agentTools('action-recovery', undefined, loadedToolDomains)
                 : self.agentTools(turnScope, effect.stage, loadedToolDomains),
+              // Thinking is the step's latency (TRACKING.md §U1: apply steps spent 16k–25k
+              // hidden tokens, ≈190–330 s, at `medium`), so a step executing a locked plan
+              // thinks at `low`; planning, repair and any recovery step keep `medium`.
+              reasoningEffort: agentStepReasoningEffort({
+                stage: effect.stage,
+                actionRecovery: effect.actionRecovery,
+              }),
             },
             runSignal,
             // Per-step thinking (U3, redesign §12): each step captures the model's

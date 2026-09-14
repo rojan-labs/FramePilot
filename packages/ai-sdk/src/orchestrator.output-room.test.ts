@@ -99,6 +99,93 @@ describe('agent requests carry maxTokens', () => {
   });
 });
 
+describe('agent step reasoning effort follows the run stage (TRACKING.md §U1)', () => {
+  const toolCall = (id: string, name: string, args: Record<string, unknown>): ProviderChunk[] => [
+    { type: 'tool-call', call: { id, name, arguments: args } },
+    { type: 'done', text: '' },
+  ];
+
+  /** Streams one scripted chunk list per agent step (the last repeats); records requests. */
+  function scriptedAgentProvider(script: readonly (readonly ProviderChunk[])[]) {
+    const requests: AiCompletionRequest[] = [];
+    let step = 0;
+    const provider: AiProvider & { requests: AiCompletionRequest[] } = {
+      name: 'openai-compatible',
+      modelId: 'claude-sonnet-5',
+      requests,
+      async complete(request): Promise<AiResponse> {
+        requests.push(request);
+        return { text: 'Done.', usage: { inputTokens: 1, outputTokens: 1 } };
+      },
+      async *stream(request): AsyncGenerator<ProviderChunk> {
+        requests.push(request);
+        if (!request.tools?.length) {
+          yield { type: 'text-delta', text: 'Done.' };
+          yield { type: 'done', text: 'Done.' };
+          return;
+        }
+        const chunks = script[Math.min(step, script.length - 1)]!;
+        step += 1;
+        for (const chunk of chunks) yield chunk;
+      },
+    };
+    return provider;
+  }
+
+  const offers = (request: AiCompletionRequest, name: string): boolean =>
+    request.tools?.some((tool) => tool.name === name) ?? false;
+
+  it('thinks at low on apply steps, medium while planning and on a recovery step', async () => {
+    // Step 1 lands a clip (interpret → apply in one turn). Steps 2 and 3 run in `apply` and
+    // re-read the timeline; the second read is an all-from-cache repeat, so step 4 is a
+    // forced action-recovery turn — still in `apply`, and it must think at medium.
+    const provider = scriptedAgentProvider([
+      toolCall('a1', 'add_clip', {
+        trackId: 'video_1',
+        assetId: 'asset_1',
+        start: 10,
+        end: 14,
+        sourceStart: 0,
+        sourceEnd: 4,
+      }),
+      toolCall('r1', 'get_timeline', {}),
+      toolCall('r2', 'get_timeline', {}),
+      [
+        { type: 'text-delta', text: 'Done.' },
+        { type: 'done', text: 'Done.' },
+      ],
+    ]);
+    for await (const _ of new Orchestrator(provider).streamAgent(
+      { project: makeProject(), userPrompt: 'add a clip at ten seconds' },
+      { conversationId: 'c', turnId: 't' },
+      {},
+    )); /* drain */
+    const steps = provider.requests.filter((r) => r.tools && r.tools.length > 0);
+    expect(steps).toHaveLength(4);
+    const [planning, apply, applyAgain, recovery] = steps as [
+      AiCompletionRequest,
+      AiCompletionRequest,
+      AiCompletionRequest,
+      AiCompletionRequest,
+    ];
+
+    // Planning surface: analysis is still offered.
+    expect(offers(planning, 'get_transcript')).toBe(true);
+    expect(planning.reasoningEffort).toBe('medium');
+
+    // Execution surface: analysis withheld, inspection open — the run is in `apply`.
+    for (const step of [apply, applyAgain]) {
+      expect(offers(step, 'get_transcript')).toBe(false);
+      expect(offers(step, 'get_timeline')).toBe(true);
+      expect(step.reasoningEffort).toBe('low');
+    }
+
+    // Action-recovery surface: every read withheld. Recovery overrides the apply stage.
+    expect(offers(recovery, 'get_timeline')).toBe(false);
+    expect(recovery.reasoningEffort).toBe('medium');
+  });
+});
+
 describe('callMemoKey (P1.1c)', () => {
   it('treats detect_beats with a stray hardSync as the same question (ADR 0174)', () => {
     const a = callMemoKey({ id: '1', name: 'detect_beats', arguments: { assetId: 'm' } });
