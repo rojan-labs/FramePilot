@@ -28,7 +28,7 @@ import re
 import signal
 import threading
 import time
-from collections.abc import Callable, Iterable, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import asynccontextmanager
 from dataclasses import dataclass
@@ -6365,24 +6365,93 @@ def create_app(
         media_path = sandbox(str(media_base / asset.path))
         return asset.id, media_path
 
+    #: Bound on how many candidates §S5's wrong-kind reason will actually probe —
+    #: even a bin with dozens of same-kind assets pays for at most this many
+    #: ffprobes on the (rare) wrong-kind path before giving up on finding more.
+    _COMPATIBLE_ASSET_PROBE_LIMIT = 8
+    #: How many verified-compatible ids the reason names.
+    _COMPATIBLE_ASSET_NAME_LIMIT = 5
+
+    def _make_asset_media_prober(
+        brain: BrainStore | None,
+        assets_by_id: Mapping[str, Asset],
+        media_base: Path,
+        timeout: float,
+    ) -> Callable[[str], MediaInfo | None]:
+        """Build a cheap ``asset_id -> MediaInfo | None`` lookup for §S5 candidates.
+
+        Checks the brain's cached probe first (already paid for by an earlier
+        ``/analyze`` pass on that asset); only falls back to a fresh ffprobe when
+        there is no cache and no brain. Returns ``None`` (never guesses) when the
+        asset is unknown or its file cannot be probed — a candidate this can't
+        verify is never named as "would work".
+        """
+
+        def probe(asset_id: str) -> MediaInfo | None:
+            if brain is not None:
+                row = brain.get_asset(asset_id)
+                if row is not None and row.probe is not None:
+                    try:
+                        return MediaInfo.model_validate(row.probe)
+                    except PydanticValidationError:
+                        pass
+            asset = assets_by_id.get(asset_id)
+            if asset is None:
+                return None
+            try:
+                path = sandbox(str(media_base / asset.path))
+                return inspect_media(path, timeout=timeout)
+            except (FileNotFoundError, FFmpegError, OSError, PathTraversalError):
+                return None
+
+        return probe
+
     def _assets_compatible_with(
-        assets: list[Asset], *, exclude_id: str, kinds: set[str]
+        assets: list[Asset],
+        *,
+        exclude_id: str,
+        needs_audio: bool,
+        needs_video: bool,
+        probe: Callable[[str], MediaInfo | None] | None,
     ) -> str:
-        """Name up to a few other project assets whose declared kind fits ``kinds``.
+        """Name up to a few other project assets *verified* to fit this analyzer.
 
         Used to turn a wrong-media-kind skip/unavailable reason into something
         actionable (§S5): a caller who tried a video-only asset on an
-        audio-only analyzer should be told *which* asset would actually work,
-        not just that this one doesn't. Declared ``kind`` (not a fresh probe)
-        is the same cheap signal :func:`resolve_asset_media` already uses to
-        pick a default asset — no extra ffprobe pass per candidate.
+        audio-only analyzer should be told *which* asset would actually work, not
+        just that this one doesn't. Declared ``kind`` only narrows the search —
+        a ``kind: "video"`` asset can itself be video-only, which is exactly the
+        failure that triggered this reason, so nothing is named without a real
+        probe (cached or fresh) confirming it actually has the needed stream.
         """
-        candidates = [a.id for a in assets if a.id != exclude_id and a.kind in kinds]
-        if not candidates:
+        declared_compatible = (a for a in assets if a.id != exclude_id)
+        if needs_audio:
+            declared_compatible = (a for a in declared_compatible if a.kind in {"video", "audio"})
+        if needs_video:
+            declared_compatible = (a for a in declared_compatible if a.kind == "video")
+
+        verified: list[str] = []
+        if probe is not None:
+            probed = 0
+            for asset in declared_compatible:
+                if (
+                    probed >= _COMPATIBLE_ASSET_PROBE_LIMIT
+                    or len(verified) >= _COMPATIBLE_ASSET_NAME_LIMIT
+                ):
+                    break
+                info = probe(asset.id)
+                probed += 1
+                if info is None:
+                    continue
+                if needs_audio and not info.has_audio:
+                    continue
+                if needs_video and (not info.has_video or info.is_image):
+                    continue
+                verified.append(asset.id)
+
+        if not verified:
             return "No other asset in this project would work for this analysis either."
-        shown = ", ".join(candidates[:5])
-        more = f" (+{len(candidates) - 5} more)" if len(candidates) > 5 else ""
-        return f"Assets that would work instead: {shown}{more}."
+        return f"Assets that would work instead: {', '.join(verified)}."
 
     def run_analyzer(
         kind: AnalysisKind,
@@ -6392,6 +6461,7 @@ def create_app(
         timeout: float,
         asset_id: str | None = None,
         other_assets: list[Asset] | None = None,
+        probe_asset: Callable[[str], MediaInfo | None] | None = None,
     ) -> AnalysisEntry:
         """Run one analyzer for the unified pass, mapping every outcome to a
         typed :class:`AnalysisEntry` (plan B1.2).
@@ -6417,14 +6487,22 @@ def create_app(
             reason = f"{media_path.name} has no audio track, so there is nothing to analyse."
             if other_assets is not None and asset_id is not None:
                 reason += " " + _assets_compatible_with(
-                    other_assets, exclude_id=asset_id, kinds={"video", "audio"}
+                    other_assets,
+                    exclude_id=asset_id,
+                    needs_audio=True,
+                    needs_video=False,
+                    probe=probe_asset,
                 )
             return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.UNAVAILABLE, reason=reason)
         if needs_video and (not info.has_video or info.is_image):
             reason = "Asset has no video timeline to analyse."
             if other_assets is not None and asset_id is not None:
                 reason += " " + _assets_compatible_with(
-                    other_assets, exclude_id=asset_id, kinds={"video"}
+                    other_assets,
+                    exclude_id=asset_id,
+                    needs_audio=False,
+                    needs_video=True,
+                    probe=probe_asset,
                 )
             return AnalysisEntry(kind=kind, status=AnalysisEntryStatus.SKIPPED, reason=reason)
 
@@ -6516,10 +6594,14 @@ def create_app(
         # of only saying this one doesn't. Best-effort: a load failure here must
         # never block the pass itself, since resolve_asset_media already proved
         # the project loads.
+        other_assets: list[Asset] | None
+        probe_asset: Callable[[str], MediaInfo | None] | None
         try:
-            other_assets = resolve_project_source(req)[0].assets
+            other_project, other_media_base, _label = resolve_project_source(req)
+            other_assets = other_project.assets
         except HTTPException:
             other_assets = None
+            other_media_base = None
 
         # Brain persistence is best-effort (plan B0.5/B1.3): any failure to open
         # or hash degrades to a fresh, unpersisted pass — never a request error.
@@ -6537,6 +6619,17 @@ def create_app(
                     exc,
                 )
                 brain = None
+
+        probe_asset = (
+            _make_asset_media_prober(
+                brain,
+                {a.id: a for a in other_assets},
+                other_media_base,
+                timeout,
+            )
+            if other_assets is not None and other_media_base is not None
+            else None
+        )
 
         entries: list[AnalysisEntry] = []
         persisted = False
@@ -6575,6 +6668,7 @@ def create_app(
                     timeout=timeout,
                     asset_id=resolved_id,
                     other_assets=other_assets,
+                    probe_asset=probe_asset,
                 )
                 entries.append(entry)
                 if (
