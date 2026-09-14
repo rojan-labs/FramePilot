@@ -1643,6 +1643,11 @@ take the warm process. Mismatch → abandon and spawn cold (what every call did 
 abandon. No tools → never pre-spawn. Cancelled/failed call → abandon. `FRAMEPILOT_AGENT_SDK_PREWARM=0`
 turns it off. Tests: 46 in `claude-agent-sdk.test.ts`, including handover, mismatch, idle, switch.
 
+**Verified live through the shipped provider** (`dist/providers/claude-agent-sdk.js`, one tool
+offered, `effort: low`): cold call time-to-first-chunk 2,676 ms; the next two calls, taken by the
+warm process, 1,816 ms and 1,664 ms — one of them a deferred `trim_clip` tool call that came
+through the warm process intact.
+
 **Predicted, not claimed:** ≈ 0.9 s × ~8 matched calls ≈ 7 s per p50 turn; §W1's fixed-cost fit is
 the number that should drop on the next recorded runs (`--since=<date> --provider=claude-agent-sdk`).
 
