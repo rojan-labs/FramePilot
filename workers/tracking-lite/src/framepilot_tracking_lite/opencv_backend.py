@@ -96,15 +96,6 @@ class OpenCvFrameSource:
         self._remaining = last_frame_exclusive - first_frame
         file_fps = float(self._capture.get(cv2.CAP_PROP_FPS))
         self._grid = _grid_mapping(file_fps, fps, first_frame)
-        if self._grid is not None:
-            # A coarse, nominal-rate seek to land near the range's start; the
-            # timestamp-driven read loop below corrects any drift this estimate
-            # has on variable-frame-rate media.
-            assert fps is not None  # `_grid_mapping` only returns non-None when fps is set.
-            seek_index = _approximate_seek_index(file_fps, fps, first_frame)
-            self._capture.set(cv2.CAP_PROP_POS_FRAMES, float(seek_index))
-        elif first_frame > 0:
-            self._capture.set(cv2.CAP_PROP_POS_FRAMES, float(first_frame))
         self._current: DecodedFrame | None = None
         #: The real timestamp of `_current`, so `read()` can tell whether the held
         #: frame actually reaches the requested grid time or is only being held
@@ -115,6 +106,15 @@ class OpenCvFrameSource:
         #: requested grid time before consuming it. `None` once the media is
         #: exhausted.
         self._pending: tuple[DecodedFrame, float] | None = None
+        if self._grid is not None:
+            # A coarse, nominal-rate seek to land near the range's start,
+            # decode-verified and corrected if it overshot: the timestamp-driven
+            # read loop below only ever reads forward, so a seek that lands past
+            # the first requested grid time can never be recovered from later.
+            assert fps is not None  # `_grid_mapping` only returns non-None when fps is set.
+            self._pending = _seek_near_grid_start(self._capture, file_fps, fps, first_frame)
+        elif first_frame > 0:
+            self._capture.set(cv2.CAP_PROP_POS_FRAMES, float(first_frame))
         width = int(self._capture.get(cv2.CAP_PROP_FRAME_WIDTH))
         height = int(self._capture.get(cv2.CAP_PROP_FRAME_HEIGHT))
         if width <= 0 or height <= 0:
@@ -201,14 +201,55 @@ def _grid_mapping(file_fps: float, grid_fps: float | None, first_frame: int) -> 
     return _GridMapping(grid_fps=grid_fps, first_frame=first_frame)
 
 
-def _approximate_seek_index(file_fps: float, grid_fps: float, first_frame: int) -> int:
-    """A coarse starting point for the seek, computed at the file's nominal rate.
+#: Nominal frames subtracted from the coarse seek estimate as a safety margin.
+#: Scaled by the file's own reported rate rather than a flat second count, so it
+#: stays proportionate whether the file claims 24fps or 240fps.
+_SEEK_SAFETY_FRAMES: Final = 3.0
+#: Bounded retries for the overshoot-correction seek below, each halving the
+#: remaining distance back to the start of the file. `VideoCapture` only reads
+#: forward, so an unrecovered overshoot would silently answer every grid time
+#: in the request with a frame that is already too late.
+_MAX_SEEK_RETRIES: Final = 6
 
-    Only used to avoid decoding from the start of the file; it does not need to be
-    exact, because the per-frame timestamp check in ``OpenCvFrameSource.read`` is
-    what actually decides which frame answers each grid time.
+
+def _seek_near_grid_start(
+    capture: Any, file_fps: float, grid_fps: float, first_frame: int
+) -> tuple[DecodedFrame, float] | None:
+    """Seek close to the first requested grid time, then decode-verify the landing.
+
+    The estimate is nominal-rate arithmetic minus a small safety margin, so on
+    variable-frame-rate media running slower than the file's single reported
+    rate around this point, the seek still tends to land before the target
+    instant rather than after it. That is only a tendency, not a guarantee — the
+    file's reported rate can be arbitrarily wrong for the region actually being
+    sought into — so the first decoded frame is checked: if it is already past
+    the target by more than half a (nominal) frame, or the seek failed outright
+    (an index the real content does not reach yet, e.g. seeking too far into a
+    slower stretch), the seek point is halved back toward the start of the file
+    and retried, bounded so a genuinely degenerate file fails fast instead of
+    looping. Returns the accepted ``(frame, seconds)`` pair, the closest
+    best-effort pair if every retry still overshot, or ``None`` if nothing could
+    be decoded at all.
     """
-    return int(first_frame / grid_fps * file_fps + _GRID_EPSILON)
+    target_seconds = first_frame / grid_fps
+    margin_seconds = _SEEK_SAFETY_FRAMES / file_fps
+    seek_seconds = max(0.0, target_seconds - margin_seconds)
+    seek_index = int(seek_seconds * file_fps + _GRID_EPSILON)
+    half_frame_seconds = 0.5 / file_fps
+    best_effort: tuple[DecodedFrame, float] | None = None
+    for _ in range(_MAX_SEEK_RETRIES):
+        capture.set(cv2.CAP_PROP_POS_FRAMES, float(seek_index))
+        ok, frame = capture.read()
+        if ok and frame is not None:
+            timestamp_seconds = capture.get(cv2.CAP_PROP_POS_MSEC) / 1000.0
+            decoded = DecodedFrame(color=frame, gray=cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY))
+            if timestamp_seconds <= target_seconds + half_frame_seconds:
+                return (decoded, timestamp_seconds)
+            best_effort = (decoded, timestamp_seconds)
+        if seek_index <= 0:
+            break
+        seek_index //= 2
+    return best_effort
 
 
 class OpenCvRegionTracker:

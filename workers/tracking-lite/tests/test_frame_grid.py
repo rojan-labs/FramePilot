@@ -144,15 +144,15 @@ def _probe_real_timestamps(path: Path) -> list[tuple[int, float]]:
 
 
 def _expected_hold_sequence(
-    truth: list[tuple[int, float]], grid_fps: float, count: int
+    truth: list[tuple[int, float]], grid_fps: float, count: int, first_frame: int = 0
 ) -> list[tuple[int, float]]:
-    """What a correct grid-fps reader must return: for each grid time n/grid_fps,
-    the most recent real frame at or before that time (a plain "as of" join
-    against the ground-truth timestamps)."""
+    """What a correct grid-fps reader must return: for each grid time
+    (first_frame + n) / grid_fps, the most recent real frame at or before that
+    time (a plain "as of" join against the ground-truth timestamps)."""
     expected: list[tuple[int, float]] = []
     cursor = 0
     for n in range(count):
-        target = n / grid_fps
+        target = (first_frame + n) / grid_fps
         while cursor + 1 < len(truth) and truth[cursor + 1][1] <= target + 1e-6:
             cursor += 1
         if truth[cursor][1] > target + 1e-6:
@@ -201,3 +201,50 @@ def test_variable_frame_rate_is_sampled_by_real_timestamp_not_nominal_index(
         target = n / grid_fps
         local_frame_seconds = 1 / 30.0 if target < 0.5 else 1 / 15.0
         assert -frame_tolerance <= target - seconds < local_frame_seconds + frame_tolerance
+
+
+def test_a_seek_that_overshoots_into_the_slower_section_is_corrected(
+    tmp_path: Path,
+) -> None:
+    """A request starting well inside the file, past the fps boundary, is where a
+    nominal-rate seek estimate overshoots hardest: the file reports one single
+    fps (30, the first segment's declared rate) for the whole file, but content
+    from frame 15 on really runs at 15fps. Seeking by
+    ``target_seconds * reported_fps`` for a target inside that slower section
+    computes an index the real content has not reached yet by the time it
+    matters — `VideoCapture` only reads forward, so an uncorrected overshoot
+    here would silently answer every requested grid frame with content that is
+    already too late (or, as here, with no frame at all).
+    """
+    if shutil.which("ffmpeg") is None:
+        pytest.skip("ffmpeg is not available to build the VFR fixture")
+    path = _build_vfr_fixture(tmp_path)
+    truth = _probe_real_timestamps(path)
+
+    grid_fps = 20.0
+    first_frame = 26  # target = 1.3s, inside the real 15fps section (>= 0.5s)
+    request_count = 3
+    target_seconds = first_frame / grid_fps
+
+    # The overshoot this test exists to catch: naive seconds->index arithmetic
+    # using the file's one reported rate (30) computes an index past the last
+    # real frame (29) for a target that is well within the fixture's duration.
+    naive_seek_index = int(target_seconds * 30.0)
+    assert naive_seek_index > 29
+    assert target_seconds < truth[-1][1]
+
+    expected = _expected_hold_sequence(truth, grid_fps, request_count, first_frame=first_frame)
+    assert len(expected) == request_count, "the chosen grid frames must exist in the fixture"
+
+    source = OpenCvBackend().open_frames(
+        str(path), first_frame, first_frame + request_count, grid_fps
+    )
+    actual: list[int] = []
+    try:
+        while (frame := source.read()) is not None:
+            assert isinstance(frame, DecodedFrame)
+            actual.append(round(float(frame.gray.mean()) / STEP))
+    finally:
+        source.close()
+
+    assert actual == [index for index, _seconds in expected]
