@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **"Claude (your Claude Code login)" now defaults to Claude Sonnet 5.** It spends your Claude
+  subscription, and Opus used it up fast enough to stop long sessions part-way. A model you
+  picked yourself is kept.
+- **The assistant learns from what you keep and what you undo in the desktop app.** Edits
+  the assistant applies are now remembered as accepted, and undoing one (Cmd+Z, the Undo
+  menu or the History panel) is remembered as rejected. Before, the desktop app remembered
+  neither, so its sense of your taste never grew.
+
 - **The landing page's hero is one centred column.** The three-fact slate that sat beside
   the headline competed with it for the first screen; the work FramePilot is built for now
   closes the features section instead.
@@ -22,6 +30,23 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Splitting or cutting a range out of a speed-ramped clip keeps its timing exact.** The
+  pieces could come out a frame or two long or short, and the edit was refused.
+- **Masks and trackers stay where you put them.** Updating a mask or a tracked region moved
+  it behind any colour or blur added after it, which changed how the shot looked.
+- **Tracking and subject detection follow phone footage correctly.** Variable-frame-rate
+  video (most phone recordings) could be read at the wrong moment, so a mask drifted off
+  its subject.
+- **Local shot descriptions no longer invent on-screen text** such as "unknown" or words
+  borrowed from the description, and a shot with several keyframes is now described from
+  all of them instead of only the last. Describing footage also starts faster.
+- **Finding similar shots keeps finding locally described footage.** Each search was
+  quietly erasing the shot descriptions it needed.
+- **An on-device footage pack is not removed or updated while it is in use.**
+- **Clearer messages when something can't run:** analysing a clip with no audio names clips
+  that do have audio; local transcription that isn't installed says how to install it or
+  pick a hosted provider; and a project outside the engine's folder names the folder the
+  engine is using.
 - **The on-device footage understanding packs now actually run in the desktop app.** With
   Visual Embed and Visual Describe installed, imported footage is labelled and described on
   your machine — no API key, and no frame leaves the computer — and searching your footage

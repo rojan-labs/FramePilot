@@ -1,9 +1,9 @@
 # TRACKING.md — 1.0 Readiness Loop
 
 **Session:** started 2026-09-13 from main @ `5f4b4da1` · Opus 5 · **last updated 2026-09-14**
-**Branch:** `fix/release-1.0-audit-2026-09-13` (worktree `../FramePilot-release-audit`) → **PR #117**,
-open and mergeable · 58 commits over `main` · CI on `9e75fd8b`: 23 checks pass, 3 dispatch-only
-jobs skipped; the Vercel check fails exactly as it does on every other PR.
+**Branches:** the audit landed as **PR #117** (`fix/release-1.0-audit-2026-09-13`, merged). The
+close-out of every item it left open is `fix/tracking-closeout-2026-09-14` (worktree
+`../FramePilot-closeout`) — see §T.
 **Goal:** run FramePilot end to end, confirm capability packs, audit the edits the agent
 made in the real projects under `~/Documents/FramePilot Projects`, then loop find→fix
 until the app is release-ready for 1.0 — aggressively better at editing, faster, more precise.
@@ -62,27 +62,35 @@ the earlier heading now points forward; **this table is what holds today**.
 | P2 | two packs exceeded their size caps — **decided: caps raised** (2000 / 3000 MiB) | `9e75fd8b` |
 | CI | an unused `type: ignore` failed CI mypy | `57d157ef` |
 
-### Still open — needs a decision, a credential, or its own piece of work
+### Closed on `fix/tracking-closeout-2026-09-14` (§T)
+
+| ID | Resolution | Commit(s) |
+|---|---|---|
+| D10 | **decided: record it, labelled.** Desktop auto-commit records `accepted` with `origin: auto_applied`; any undo of an AI patch (Cmd+Z, menu, History panel, "Undo run") records `rejected` once | `3c28696d` `fda36e2d` |
+| L5 | **no schema change needed.** The synthetic point's *rate* is solved so each piece conserves area; the seam stays exact; a same-segment double cut is solved jointly | `3de8a146` `3fee9eab` |
+| Q4b | **decided: label the fixture with real measurements.** `mission-montage` indexed by the installed visual-embed pack; the rubric now needs a confirmed setting change, never asset identity | `8710d4f1` `4c8a1e47` `7787e6af` |
+| P4 | everything that needs no credential: visual-pack SBOM generators + PR drift check, weight caching, Windows release leg, CDN publish + catalog merge (tested, secret-gated) | `257f002c` `a1ac5101` `df05d461` |
+| S2 · S5 | packaged sidecar accepts only `FRAMEPILOT_WHISPER_CLI`, never PATH; the refusal names the pack and hosted providers | `d03c9019` |
+| R4 | invented `onScreenText` dropped; per-request double hashing removed (3.10 s → 1.38 s) and multi-keyframe `--image` bug fixed; lease held for an engine-started run; `find_similar`'s reindex no longer erases captions (ADR 0064 honoured) | `87c3ac5d` `c0a04dd2` `2efc6ee3` `319d1f0c` |
+| S3 residual | mask **and** tracker replace in place; `output_too_large` protocol code; VFR sampled by real timestamp, with a seek that cannot overshoot | `3de8a146` `3fee9eab` `7de5cc37` `07646099` `e9a4395c` `d76a661b` |
+| S5 | wrong-kind skip names only assets a probe **verified** would work | `34a96ae4` `46263240` |
+| A4 · E4 | **decided: `claude-sonnet-5`** is the Claude-login default (desktop config switched too; backup kept) | `0610d627` |
+| E3 | measured over 417 conversations — model round trips are 91% of a turn; the lever is call count | `abad60d8` |
+| D11 | **not a defect**: `Track.role` never reaches the mixer; measured on a real render; pinned by a test | `c545f941` |
+| G2 | the refusal names this engine's projects root and says another sidecar may be answering | `1ef47ee6` |
+| A5 | **not a defect**: the MCP server on :19789 is started by hand (`LOCAL_SETUP.md` §7); the app never starts it | — |
+| A3 | **not stale**: `claude-opus-4-8` is a catalog model id. `.env` left as the user's own (an edit was declined) | — |
+
+### Still open — needs a credential, a dashboard, or new infrastructure
 
 | ID | Item | Waiting on |
 |---|---|---|
-| D10 | desktop never records accepted/rejected edits in AI memory (§S4) | **maintainer**: with auto-apply every validated patch counts as "accepted" — record it or not? |
-| L5 | `split_clip` / `delete_range` keep a small drift on speed-ramped clips | **maintainer**: needs a schema that can express a partial ease |
-| Q4b | `transitions-where-they-belong` cannot pass on the mission fixture, which has no tier-1 labels | **maintainer**: label the fixture, or accept it; "different asset = location change" is ruled out by ADR 0175 |
-| P4 | pack signing and publishing | **credentials**: Apple Developer ID, notarization, catalog signing key, then a first signed run (Gatekeeper, entitlements); SBOM generators for both visual packs; a Windows builder; manual CDN upload and catalog merge |
-| S2 · S5 | the local-whisper pack cannot be installed until a signed catalog is published; the packaged sidecar still searches PATH for `whisper-cli` | release blocker if the packaged app must transcribe without Homebrew |
-| R4 | the describer invents `onScreenText`; tier 2 takes ~90 s per short shot; no lease across an engine-started worker run; `find_similar` is not pack-aware | each is its own piece of work |
-| S3 residual | `add_mask` reorders the clip's effects; segment overflow is detected by message text; variable-frame-rate drift | minor |
-| S5 | `/analyze`'s wrong-kind skip names no asset that would work | minor |
-| A3 | `.env` names a stale provider and model | deliberately untouched — the user's own gitignored config |
-| A4 · E4 | the default model (sonnet-5 vs opus-5) | decision |
-| E3 | editing latency is not measured | not started |
-| D11 | the camera track's `sfx` role — verify against a render | not verified |
-| G2 | a sandbox error does not say the sidecar was started for a different root | minor |
-| A5 | the `framepilot` MCP server failed to connect during the session | not investigated |
-| eval | the golden cases have not been re-run since M5, Q5 and the duplicate-takes rework | a paid run for new scores |
-| security | the NVIDIA-embeddings and TwelveLabs keys were printed into an audit session's tool output | **rotate both keys** |
-| CI | the Vercel deployment check fails on every PR | outside this branch |
+| P4 | signing, notarization, Authenticode, catalog signing, CDN upload | **credentials** — checklist in `docs/api/capability-packs.md`; then a first real signed run |
+| P4 · win32 | the Windows leg has never run; no `win32-x64` SBOM exists; the host has no Authenticode trust verifier | a `windows-latest` CI run, then the verifier |
+| S2 | the local-whisper pack installs only once a signed catalog exists | P4 |
+| R4 | tier 2 still reloads the model per request (5–40 s cold) | a resident model needs a bundled `llama-server` |
+| security | the NVIDIA-embeddings and TwelveLabs keys were printed into tool output — **again on 2026-09-14** by a redaction filter that matched only fields named `*key*` | **rotate both keys** |
+| CI | the Vercel check is "Deployment was blocked" on every PR while `main` deploys | Vercel dashboard: the PR commit author email is not recognised by the project |
 
 ---
 
@@ -1223,4 +1231,55 @@ variable-frame-rate file may drift slightly on the time grid.
 - ~~Browser build advertises `detect_subjects` / `track_subject_automatically`, which fail there.~~ 🔧 `b67388c9`.
 - `/analyze` wrong-kind skip reason names no asset that would work.
 - The local-whisper pack cannot be installed until a signed catalog is published (release blocker if the packaged app should transcribe locally without Homebrew).
-- The packaged sidecar still searches PATH for `whisper-cli` (docs say it never adopts one).
+- The packaged sidecar still searches PATH for `whisper-cli` (docs say it never adopts one). 🔧 `d03c9019`, §T.
+
+---
+
+# T. Close-out pass (2026-09-14)
+
+Every row of the "Still open" table, decided and executed without further questions. Code
+was written by Sonnet 5 subagents working disjoint files in one worktree; every commit was
+reviewed here before the next step, and three review findings went back as follow-ups.
+
+## T1 — decisions taken
+
+| item | decision | why |
+|---|---|---|
+| D10 | record auto-applied patches as accepted, labelled `auto_applied` | weak signal honestly labelled beats no signal; the label lets a consumer discount it |
+| L5 | solve the synthetic point's rate rather than change the schema | the schema already lets a point carry any rate — area is the invariant, shape was never representable |
+| Q4b | label the fixture with a real pack run | hand-authored labels would be the guess ADR 0175 rules out |
+| S2 | packaged mode never reads PATH | the documented security posture; hosted providers still transcribe |
+| A4 | Sonnet 5 default | subscription quota (§Q3); note E3's caveat below |
+| R4 · `find_similar` | fix the caption-erasing reindex, do **not** blend raw visual vectors | ADR 0064 decided against the blend with measurements |
+
+## T2 — review findings sent back, all fixed
+
+- **L5**: a piece cut at both edges inside one eased segment solved each rate against an
+  endpoint the other cut had removed. Reachable through `trim_clip` directly and through
+  `split_clip`/`delete_range` by a float boundary artifact → joint solve, `3fee9eab`.
+- **S5**: "assets that would work instead" named video assets that can be silent themselves
+  → verify by probe before naming, `46263240`.
+- **VFR**: six halvings can still overshoot on a badly mislabelled file → last retry seeks
+  frame 0, `d76a661b`.
+- **Q4b harness**: the same-setting map was built from the BEFORE project while the check reads
+  the AFTER timeline, so every cut a turn created scored as unlabelled → `7787e6af`.
+- **D10**: Cmd+Z / menu / History undo never recorded a rejection → `fda36e2d`.
+- **S3 tracker**: `track_object` had `add_mask`'s reorder bug → `3fee9eab`.
+
+## T3 — E3 caveat on the A4 decision
+
+Across the transcripts, `claude-sonnet-5` (n = 7 turns) ran **437.6 s** p50 to run end at
+23 calls/turn; `claude-opus-5` (n = 81) ran **154.6 s** at 10 calls. Seven turns, most of
+them eval cases, is too few to overturn the quota argument — but if Sonnet's call count holds
+on real sessions, it costs latency. Re-measure with `packages/ai-sdk/scripts/measure-edit-latency.mjs`
+after a week of use.
+
+## T4 — process note
+
+One subagent ran `git stash` to check a baseline, against this repo's rule; the stash was
+popped with nothing lost (verified: only the maintainer's own stash remains). Baselines are
+now taken with a detached `git worktree`.
+
+## T5 — golden re-run
+
+_Pending — filled in when the run finishes._
