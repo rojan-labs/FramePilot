@@ -2320,12 +2320,26 @@ def create_app(
             return _embedder_cache[0]
 
     def reindex_project_embeddings(store: BrainStore, project: Project) -> tuple[int, str | None]:
-        """Rebuild the embeddings for one project document (plan B3.2).
+        """Rebuild the embeddings for one project document (plan B3.2/MI3.2).
 
-        Embeds the transcript's utterances plus each brain-known asset's
-        bin-summary digest in one batch. Honest degradation: with no embedder
-        the rows are left untouched and the reason is reported, never a
+        Embeds the transcript's utterances, each brain-known asset's bin-summary digest,
+        and every INFORMATIVE indexed visual caption, in one batch. Honest degradation:
+        with no embedder the rows are left untouched and the reason is reported, never a
         fabricated count.
+
+        Captions matter here specifically for ``find_similar`` (R4.4): a keyless,
+        pack-only brain (the local ``framepilot.visual-describe`` pack, no hosted key, no
+        image-vector search per ADR 0064) can answer "moments like X" about its footage
+        ONLY through this text-embedded caption channel — there is no other route from a
+        visual fact into this function's space. ``replace_embeddings`` swaps ALL rows for
+        the model, so this MUST run captions alongside utterances/digests every time: a
+        caller that reindexed without them (as this used to, and as ``/brain/similar``
+        calls on every turn because the agent loop always posts its live working copy)
+        was silently deleting the caption rows a visual-index pass had just written,
+        making a pack-only brain's footage unfindable again within one turn of being
+        indexed. ``is_informative_caption`` keeps a placeholder/invented caption
+        (R4.1) out of this recall space exactly as it already keeps one out of
+        ``search_visual``'s caption FTS lane.
 
         :returns: ``(rows_written, unavailable_reason)``.
         """
@@ -2341,7 +2355,12 @@ def create_app(
             )
             for asset in store.list_assets()
         ]
-        rows = build_embedding_rows(resolution.embedder, utterances, digests)
+        captions = [
+            caption
+            for caption in store.list_visual_captions()
+            if is_informative_caption(caption.text)
+        ]
+        rows = build_embedding_rows(resolution.embedder, utterances, digests, captions)
         return store.replace_embeddings(resolution.embedder.model_id, rows), None
 
     @app.post("/brain/index", response_model=BrainIndexResponse)
@@ -3411,31 +3430,6 @@ def create_app(
         for (asset_id, content_hash), rows in by_asset.items():
             store.upsert_shots(asset_id, content_hash, "labelled", rows)
         return changed
-
-    def _reindex_embeddings_with_captions(store: BrainStore, project: Project) -> None:
-        """Rebuild the unified text-recall space including captions (plan MI3.2).
-
-        ``replace_embeddings`` swaps ALL rows for the model, so captions can only
-        be text-embedded alongside the transcript utterances and asset digests —
-        embedding captions alone would clobber the transcript space. That is why
-        this runs only when a project document is supplied (utterances need it).
-        """
-        resolution = embedder_resolution()
-        if resolution.embedder is None:
-            return
-        utterances = segment_utterances(list(project.transcript))
-        digests = [
-            AssetDigest(
-                asset_id=asset.id,
-                path=asset.path,
-                text=asset_section(asset, store.list_analysis(asset.id)),
-            )
-            for asset in store.list_assets()
-        ]
-        rows = build_embedding_rows(
-            resolution.embedder, utterances, digests, captions=store.list_visual_captions()
-        )
-        store.replace_embeddings(resolution.embedder.model_id, rows)
 
     def _timeline_order(req: VisualIndexRequest) -> dict[str, float] | None:
         """Each timeline asset's first appearance in seconds, or ``None`` without a project.
@@ -4681,7 +4675,7 @@ def create_app(
                         ),
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
-                        _reindex_embeddings_with_captions(
+                        reindex_project_embeddings(
                             store, load_project_document(req.project_path, req.project)
                         )
                     elif captioned:
