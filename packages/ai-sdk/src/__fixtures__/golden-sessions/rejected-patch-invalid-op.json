@@ -234,7 +234,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -529,7 +530,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue plan: commit the edit plan for the recorded objective."
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {

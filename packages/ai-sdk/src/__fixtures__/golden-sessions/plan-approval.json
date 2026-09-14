@@ -356,7 +356,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 2
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -854,7 +855,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -1181,7 +1183,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 2,
           "nextAction": "Tighten the intro"
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {

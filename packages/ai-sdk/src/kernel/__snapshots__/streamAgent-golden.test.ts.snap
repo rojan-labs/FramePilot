@@ -235,6 +235,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -666,6 +667,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -961,6 +963,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-3",
         "sections": [
           {
@@ -1419,6 +1422,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-4",
         "sections": [
           {
@@ -1719,6 +1723,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-5",
         "sections": [
           {
@@ -2019,6 +2024,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-6",
         "sections": [
           {
@@ -2523,6 +2529,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-7",
         "sections": [
           {
@@ -3190,6 +3197,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -3579,6 +3587,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -4124,6 +4133,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -4267,6 +4277,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1:retry-1",
         "sections": [
           {
@@ -4543,6 +4554,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -5019,6 +5031,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -5313,6 +5326,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -5826,6 +5840,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -6257,6 +6272,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -6803,6 +6819,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -7251,6 +7268,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -7797,6 +7815,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -8499,6 +8518,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -9179,6 +9199,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -9676,6 +9697,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -9996,6 +10018,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-3",
         "sections": [
           {
@@ -10924,6 +10947,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -11728,6 +11752,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-3",
         "sections": [
           {
@@ -12103,6 +12128,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -12412,6 +12438,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -12844,6 +12871,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "low",
         "requestId": "turn_1:assistant:seg-3",
         "sections": [
           {
@@ -13390,6 +13418,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -13722,6 +13751,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-2",
         "sections": [
           {
@@ -14063,6 +14093,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-3",
         "sections": [
           {
@@ -14620,6 +14651,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {
@@ -14895,6 +14927,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
         },
         "model": "unknown",
         "provider": "mock",
+        "reasoningEffort": "medium",
         "requestId": "turn_1:assistant:seg-1",
         "sections": [
           {

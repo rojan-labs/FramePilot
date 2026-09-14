@@ -6578,7 +6578,9 @@ export class Orchestrator {
       // The pre-send account (ADR 0080): every section, its cost, what compaction
       // removed, and the durable memory that outlives this request — so a change in the
       // number always arrives with its cause attached.
-      manifest = this.manifestFor(request, sink, modelCall);
+      // `modelRequest`, not `request`: the manifest records the effort AS SENT, and the
+      // default this method applies to a displayed-reasoning call is part of what is sent.
+      manifest = this.manifestFor(modelRequest, sink, modelCall);
       yield emit.contextUsage({
         usedTokens: manifest.usage.estimatedInputTokensBeforeSend,
         contextWindow: manifest.usage.modelContextLimit,

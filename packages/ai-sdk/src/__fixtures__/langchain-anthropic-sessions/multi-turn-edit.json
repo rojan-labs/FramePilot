@@ -234,7 +234,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -355,7 +356,8 @@
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
-          "cachedInputTokens": 40
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
         },
         "compaction": {
           "occurred": false,
@@ -371,7 +373,8 @@
           "facts": 0,
           "evidenceHandles": 0,
           "remainingObjectives": 1
-        }
+        },
+        "reasoningEffort": "medium"
       }
     },
     {
@@ -794,7 +797,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -916,7 +920,8 @@
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
-          "cachedInputTokens": 40
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
         },
         "compaction": {
           "occurred": false,
@@ -933,7 +938,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -1384,7 +1390,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
@@ -1515,7 +1522,8 @@
           "calculationSource": "provider_reported",
           "providerReportedInputTokens": 100,
           "providerReportedOutputTokens": 20,
-          "cachedInputTokens": 40
+          "cachedInputTokens": 40,
+          "cacheWriteInputTokens": 10
         },
         "compaction": {
           "occurred": false,
@@ -1532,7 +1540,8 @@
           "evidenceHandles": 0,
           "remainingObjectives": 1,
           "nextAction": "Continue apply: an edit has landed. Make the next edit the request still needs; if the request is now met, finish — reply with a short summary and no tool call."
-        }
+        },
+        "reasoningEffort": "low"
       }
     },
     {
