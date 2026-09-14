@@ -1314,3 +1314,50 @@ pre-existing prompt-following miss that nothing on this branch touched.
 
 Lesson kept: scoped local runs must use the **CI command** for lint/type steps (`uv run mypy .`
 in `engine/python`, the pack's own `ruff check .`), because both include tests.
+
+---
+
+# U. Latency · accuracy · precision pass (2026-09-14)
+
+Branch `perf/ai-latency-accuracy-2026-09-14` (worktree `../FramePilot-ai-latency`).
+
+## U1 — Where a turn's time actually goes (measured)
+
+`node packages/ai-sdk/scripts/measure-edit-latency.mjs <conversations>` over 418 conversations /
+785 turns: **model calls are 91.2% of wall time**, host tools 6.8%, review 2.0%.
+
+Per-call decomposition of the two freshest runs (`55bf6774`, claude-sonnet-5; `3ed87ff0`,
+claude-opus-5), from each call's `context_usage` pair (`providerReportedOutputTokens`, wall ms):
+
+| finding | evidence |
+|---|---|
+| a call's latency is its **output tokens ÷ ~85 tok/s** | every segment lands at 47–95 tok/s |
+| the output is **hidden thinking**, not tool arguments | seg-3 of `55bf6774`: **14,768** output tokens, 10 tool calls with 520 chars of arguments, **164.7 s** |
+| input is small and cached — prefill is not the cost | 2.6k–13.7k uncached input per call |
+| **apply-stage steps think as hard as planning** | sonnet turn: apply steps 7,980 + 4,828 + 1,037 + 2,254 tok (≈190 s); opus turn `014f`: 8 apply steps ≈ 25k tok (≈330 s) — all at `reasoningEffort: 'medium'`, the only value `orchestrator.ts` ever sends |
+| **catalog ping-pong** costs whole round trips | turn "add effects and transitions": 5 of 12 calls were one-or-two-query `discover_effects`/`discover_transitions` lookups (≈95 s of 212 s), one refused by the novelty guard as a repeat |
+
+Cache: `cacheWriteTokens` is 1.07–2.0× `cacheReadTokens` on claude-agent-sdk. Recorded, **not
+chased** — prefill is not where the seconds are, and this provider is unpriced (subscription).
+
+## U2 — Precision: a refused solver becomes guessed grades
+
+`55bf6774` turn 1: `normalize_exposure` refused ("nothing on track v1 has been measured … call
+measure_color on … and the other 6 clips"), and the **next** step applied `apply_color_grade`
+to 10 clips, eight of them `exposure: 0.3` — numbers with no measured basis, exactly what O3
+tried to stop by naming the clips. `measure_color` takes ONE `clipId`, so obeying the refusal
+means ten calls; the model takes the cheaper wrong path.
+
+## U3 — Accuracy: top live refusal classes (last seen)
+
+`add_stock` over picture (48, 09-08 — already names a free slot and the add_clip layer route,
+ADR 0169; left as is) · `add_music` on a bin track (13, 09-08 — message is already actionable) ·
+image-clip source/duration rejections (29, last 07-18 — not live).
+
+## U4 — Plan
+
+| slice | lever | change |
+|---|---|---|
+| U4.1 | latency | reasoning effort follows the run stage: `low` while executing a locked plan (`apply`/`enhance`) with no pending action recovery; `medium` for interpret/inspect/analyze/plan/verify/repair and any recovery step |
+| U4.2 | call count | `discover_effects` / `discover_transitions` take several queries in one call |
+| U4.3 | precision | `measure_color` measures several clips in one call, so a refused `normalize_exposure` is one step from solved rather than ten |
