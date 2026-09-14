@@ -107,6 +107,27 @@ def keyframe_times(span: ShotSpan, *, max_frames: int = MAX_KEYFRAMES_PER_SHOT) 
 #: Shorter than this, a field matching the instruction is a coincidence ("sky"), not a copy.
 MIN_ECHO_CHARS: Final = 8
 
+#: Same idea, one field over: an ``onScreenText`` line this short can share every token
+#: with the shot's own narrated prose by pure coincidence ("EXIT", "STOP"). Mirrored in the
+#: engine's ``described.py``.
+MIN_ON_SCREEN_ECHO_CHARS: Final = 8
+
+#: Sentinel values the model emits when it has nothing to transcribe but the grammar
+#: forbids an empty string in the array (``minLength: 1``). Mirrored in ``described.py``.
+PLACEHOLDER_ON_SCREEN_TEXT: Final[frozenset[str]] = frozenset({
+    "unknown",
+    "none",
+    "n/a",
+    "na",
+    "no text",
+    "no visible text",
+    "no on-screen text",
+    "nothing",
+    "empty",
+    "no text visible",
+    "not applicable",
+})
+
 
 def _text(value: Any, limit: int) -> str:
     if not isinstance(value, str):
@@ -154,8 +175,13 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
         raise ShotNotDescribableError(f"shot {shot_index}: the model returned no summary.")
     raw_camera = payload.get("camera")
     camera_map: Mapping[str, Any] = raw_camera if isinstance(raw_camera, Mapping) else {}
+    subject = _described(payload.get("subject"), MAX_FIELD_CHARS)
+    action = _described(payload.get("action"), MAX_FIELD_CHARS)
+    setting = _described(payload.get("setting"), MAX_FIELD_CHARS)
+    mood = _described(payload.get("mood"), MAX_FIELD_CHARS)
+    prose = " ".join((summary, subject, action, setting, mood))
     raw_text = payload.get("onScreenText")
-    on_screen = tuple(_on_screen_text(raw_text))
+    on_screen = tuple(_on_screen_text(raw_text, prose=prose))
     raw_quality = payload.get("quality")
     quality: list[str] = []
     if isinstance(raw_quality, Sequence) and not isinstance(raw_quality, (str, bytes)):
@@ -168,15 +194,15 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
     return ShotDescription(
         shot_index=shot_index,
         summary=summary,
-        subject=_described(payload.get("subject"), MAX_FIELD_CHARS),
-        action=_described(payload.get("action"), MAX_FIELD_CHARS),
-        setting=_described(payload.get("setting"), MAX_FIELD_CHARS),
+        subject=subject,
+        action=action,
+        setting=setting,
         camera=Camera(
             shot_size=_closed(camera_map.get("shotSize"), SHOT_SIZES),
             angle=_closed(camera_map.get("angle"), CAMERA_ANGLES),
             movement=_closed(camera_map.get("movement"), CAMERA_MOVEMENTS),
         ),
-        mood=_described(payload.get("mood"), MAX_FIELD_CHARS),
+        mood=mood,
         on_screen_text=on_screen,
         quality=tuple(quality),
         confidence=level if level in CONFIDENCE_LEVELS else DEFAULT_CONFIDENCE,
@@ -184,8 +210,32 @@ def normalise(payload: Mapping[str, Any] | Any, shot_index: int) -> ShotDescript
 
 
 
-def _on_screen_text(raw: Any) -> list[str]:
-    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded.
+def _is_placeholder_on_screen_text(text: str) -> bool:
+    """Whether ``text`` is a sentinel for "nothing legible" rather than real content.
+
+    Mirrors ``described._is_placeholder_on_screen_text``: the schema forbids an empty
+    string in the array, so a model with nothing to transcribe sometimes writes the word
+    for that ("unknown", "none", "n/a") instead of leaving the array empty as instructed.
+    """
+    normalised = text.strip().lower().rstrip(".")
+    return normalised in PLACEHOLDER_ON_SCREEN_TEXT
+
+
+def _is_prose_echo(text: str, prose_tokens: frozenset[str]) -> bool:
+    """Whether ``text`` looks copied from the shot's own narrated fields, not read off-frame.
+
+    Mirrors ``described._is_prose_echo``: real on-screen text almost always contributes at
+    least one token the model's own summary/subject/action/setting/mood never used. A short
+    line is exempted (:data:`MIN_ON_SCREEN_ECHO_CHARS`) — too easy to overlap by coincidence.
+    """
+    if len(text) < MIN_ON_SCREEN_ECHO_CHARS or not prose_tokens:
+        return False
+    tokens = {token for token in text.lower().split() if token.isalnum()}
+    return bool(tokens) and tokens.issubset(prose_tokens)
+
+
+def _on_screen_text(raw: Any, *, prose: str = "") -> list[str]:
+    """Normalise ``onScreenText``: verbatim per line, deduplicated, bounded, not invented.
 
     Verbatim: whitespace collapsed, length capped, nothing else. Nothing here may "tidy" a
     lower-third, or a solver reading a title reads our paraphrase of it.
@@ -199,15 +249,25 @@ def _on_screen_text(raw: Any) -> list[str]:
     paraphrase it — not a promise to repeat a decoder's stutter back to the editor as
     sixteen separate readings.
 
+    Not invented: a bare placeholder (:func:`_is_placeholder_on_screen_text`) or a line
+    that reads as a copy of the shot's own narrated prose (:func:`_is_prose_echo`) is
+    dropped rather than stored — this is the first place the model's raw JSON is seen, so
+    it is the cheapest place to close the failure the eval calls ``no_false_text``.
+
     :param raw: The model's ``onScreenText`` value, of any shape.
+    :param prose: The shot's own narrated fields (summary/subject/action/setting/mood),
+        space-joined, used only to detect an echo. Empty disables the echo check.
     :returns: The distinct legible lines, in the order first seen.
     """
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
         return []
+    prose_tokens = frozenset(token for token in prose.lower().split() if token.isalnum())
     seen: list[str] = []
     for item in raw:
         text = _text(item, MAX_ON_SCREEN_TEXT_CHARS)
         if not text or text in seen:
+            continue
+        if _is_placeholder_on_screen_text(text) or _is_prose_echo(text, prose_tokens):
             continue
         seen.append(text)
         if len(seen) >= MAX_ON_SCREEN_TEXT_ITEMS:

@@ -69,6 +69,46 @@ class TestSchemaParity:
         ):
             assert getattr(mirror, name) == getattr(engine_described, name), name
 
+
+class TestOnScreenTextNormalisationParity:
+    """Both copies must drop the same invented ``onScreenText`` lines the same way.
+
+    R2 fixed the free-text fields collapsing to the prompt's own hint; this closes the
+    sibling failure — ``onScreenText`` filled with a placeholder or the shot's own prose —
+    and the two producers (local pack, engine) must agree on it exactly like they agree on
+    keyframe choice.
+    """
+
+    @pytest.fixture(scope="class")
+    @classmethod
+    def policy(cls) -> ModuleType:
+        return _pack("policy")
+
+    def test_the_bounds_are_identical(self, policy: ModuleType) -> None:
+        assert policy.MIN_ECHO_CHARS == engine_described.MIN_ECHO_CHARS
+        assert policy.MIN_ON_SCREEN_ECHO_CHARS == engine_described.MIN_ON_SCREEN_ECHO_CHARS
+
+    def test_the_placeholder_vocabulary_is_identical(self, policy: ModuleType) -> None:
+        assert policy.PLACEHOLDER_ON_SCREEN_TEXT == engine_described.PLACEHOLDER_ON_SCREEN_TEXT
+
+    @pytest.mark.parametrize(
+        ("raw", "prose"),
+        [
+            (["unknown"], ""),
+            (["N/A", "none"], "a shot of a desk"),
+            (["red vintage bicycle"], "a red vintage bicycle at rest"),
+            (["EXIT"], "exit"),
+            (["red vintage bicycle 42"], "a red vintage bicycle at rest"),
+            (["SALE 50%", "SALE 50%"], ""),
+        ],
+    )
+    def test_both_copies_normalise_identically(
+        self, policy: ModuleType, raw: list[str], prose: str
+    ) -> None:
+        assert policy._on_screen_text(raw, prose=prose) == engine_described._on_screen_text(
+            raw, prose=prose
+        )
+
     def test_the_pack_ships_the_ledger_tier_version(self, mirror: ModuleType) -> None:
         # A request naming another version is refused by the worker, so these coming apart
         # would make every description request fail rather than silently mismatch.

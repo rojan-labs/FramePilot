@@ -127,6 +127,34 @@ class TestNormalise:
             "",
         )
 
+    @pytest.mark.parametrize(
+        "placeholder",
+        ["unknown", "Unknown", "none", "N/A", "no text", "No Visible Text.", "nothing"],
+    )
+    def test_on_screen_text_normalises_placeholder_sentinels_to_absent(
+        self, placeholder: str
+    ) -> None:
+        # The schema forbids an empty string in the array, so a model with nothing to
+        # transcribe writes the WORD for that instead of leaving the array empty.
+        described = normalise(answer(onScreenText=[placeholder]), 0)
+        assert described.on_screen_text == ()
+
+    def test_on_screen_text_rejects_a_line_that_only_repeats_the_shots_own_prose(self) -> None:
+        described = normalise(
+            answer(subject="a red vintage bicycle", onScreenText=["red vintage bicycle"]), 0
+        )
+        assert described.on_screen_text == ()
+
+    def test_on_screen_text_keeps_a_short_line_even_if_it_overlaps_the_prose(self) -> None:
+        described = normalise(answer(subject="exit", onScreenText=["EXIT"]), 0)
+        assert described.on_screen_text == ("EXIT",)
+
+    def test_on_screen_text_keeps_a_line_with_one_token_the_prose_never_used(self) -> None:
+        described = normalise(
+            answer(subject="a red vintage bicycle", onScreenText=["red vintage bicycle 42"]), 0
+        )
+        assert described.on_screen_text == ("red vintage bicycle 42",)
+
 
 class TestDescribeShots:
     def test_every_requested_shot_is_described_in_order(self) -> None:
