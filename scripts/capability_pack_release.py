@@ -151,8 +151,14 @@ def artifact_input(args: argparse.Namespace) -> dict[str, Any]:
     )
     if receipt["os"] == "darwin":
         trust = {"kind": "macos_codesign", "teamIdentifier": args.team_id}
+        # scripts/build-capability-pack.sh lays the venv out at payload/bin/, uv's POSIX
+        # convention.
+        entrypoint_dir = "bin"
     else:
         trust = {"kind": "windows_authenticode", "certificateSha256": args.team_id}
+        # scripts/build-capability-pack.ps1 lays the venv out at payload/Scripts/, uv's
+        # own Windows convention — NOT `bin/`, which does not exist in that payload.
+        entrypoint_dir = "Scripts"
     return {
         "packId": pack["id"],
         "version": pack["version"],
@@ -162,7 +168,7 @@ def artifact_input(args: argparse.Namespace) -> dict[str, Any]:
         "os": receipt["os"],
         "arch": receipt["arch"],
         "format": receipt["format"],
-        "entrypoint": f"bin/{platform['entrypoint']}",
+        "entrypoint": f"{entrypoint_dir}/{platform['entrypoint']}",
         "executableTrust": trust,
         "licenses": pack_licenses(args.pack, receipt["os"], receipt["arch"]),
         "allowedLicenses": list(ALLOWED_LICENSES),

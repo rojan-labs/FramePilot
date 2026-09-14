@@ -17,8 +17,14 @@
 #   macOS notarization:           APPLE_ID, APPLE_APP_SPECIFIC_PASSWORD, APPLE_TEAM_ID
 #   catalog signing (Ed25519):    CAPABILITY_PACK_CATALOG_SIGNING_KEY (PEM), and the
 #                                 repository variable CAPABILITY_PACK_CATALOG_KEY_ID
-#   Windows Authenticode:         WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD — NOT USABLE YET:
-#                                 no Windows pack builder exists (see windows-x64 job).
+#   Windows Authenticode (base64 .pfx): WIN_CSC_LINK, WIN_CSC_KEY_PASSWORD — WIRED BUT
+#                                 UNPROVEN: build-windows-x64 runs scripts/build-capability-
+#                                 pack.ps1, a from-scratch translation of the POSIX build
+#                                 script that has never executed on a real Windows runner
+#                                 (docs/api/capability-packs.md, "Release pipeline"). It has
+#                                 `continue-on-error: true` so a first real failure there
+#                                 does not block a darwin-only release; release-record then
+#                                 emits a darwin-only record with a visible warning.
 # Repository variables (non-secret):
 #   CAPABILITY_PACK_ARTIFACT_BASE_URL  https CDN base for artifact URLs
 #   CAPABILITY_PACK_MIN_APP_VERSION    minimum app version for tag-triggered runs
@@ -216,19 +222,11 @@ jobs:
           node "$PACK_CLI" prepare-artifact "$OUT/$PACK/artifact-input.json" "$OUT/$PACK/artifact.json"
           shasum -a 256 "$OUT/$PACK"/*.zip > "$OUT/$PACK/archive.sha256"
 
-      - name: Unsigned catalog release record (prepare-release)
-        shell: bash
-        env:
-          MIN_APP_VERSION: ${{ needs.plan.outputs.min_app_version }}
-        run: |
-          set -euo pipefail
-          notice="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/workers/$PACK/LICENSES.md"
-          python3 scripts/capability_pack_release.py release-core --pack "$PACK" \
-            --artifact "$OUT/$PACK/artifact.json" --min-app-version "$MIN_APP_VERSION" \
-            --notice-url "$notice" --out "$OUT/$PACK/release-core.json"
-          node "$PACK_CLI" prepare-release "$OUT/$PACK/release-core.json" "$OUT/$PACK/release.json"
-
-      - name: Upload artifact, digest and record
+      # release-core/prepare-release run once per pack, in the `release-record` job below,
+      # over WHICHEVER platform artifact.json files this run actually produced — a release
+      # is a cross-platform record (`artifacts: [...]`), and darwin is not necessarily the
+      # only platform in it.
+      - name: Upload artifact, digest and receipt
         if: always()
         uses: actions/upload-artifact@v7
         with:
@@ -241,10 +239,225 @@ jobs:
             dist/capability-packs/${{ matrix.pack }}/health-check.stderr
             dist/capability-packs/${{ matrix.pack }}/signing-status.json
             dist/capability-packs/${{ matrix.pack }}/artifact.json
-            dist/capability-packs/${{ matrix.pack }}/release.json
           if-no-files-found: warn
           retention-days: 14
-      - name: Upload the record alone for the catalog job
+      - name: Upload this platform's artifact + signing status for the release-record job
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-platform-${{ matrix.pack }}-darwin-arm64
+          path: |
+            dist/capability-packs/${{ matrix.pack }}/artifact.json
+            dist/capability-packs/${{ matrix.pack }}/signing-status.json
+          if-no-files-found: error
+
+  build-windows-x64:
+    name: ${{ matrix.pack }} (win32-x64)
+    needs: plan
+    runs-on: windows-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        pack: ${{ fromJSON(needs.plan.outputs.packs) }}
+    env:
+      PACK: ${{ matrix.pack }}
+      OUT: ${{ github.workspace }}/dist/capability-packs
+      # Projected to job env because a step's `if:` cannot read `secrets` directly.
+      WIN_CSC_LINK: ${{ secrets.WIN_CSC_LINK }}
+      WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+      ARTIFACT_BASE_URL: ${{ vars.CAPABILITY_PACK_ARTIFACT_BASE_URL }}
+    # WRITTEN, NOT PROVEN (see scripts/build-capability-pack.ps1's header): this job has
+    # never run on a real windows-latest runner. `continue-on-error` keeps a build failure
+    # here from blocking darwin releases while that first real run is still owed; the
+    # release-record job below only includes a platform whose build actually succeeded.
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.13'
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Build the framepilot-pack release CLI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter '@framepilot/capability-packs...' run build
+
+      - name: Build payload, assert standalone, verify pins, relocated health check
+        shell: pwsh
+        run: ./scripts/build-capability-pack.ps1 $env:PACK $env:OUT -Stage payload
+
+      - name: Signing credentials absent — the artifact stays UNSIGNED
+        if: env.WIN_CSC_LINK == '' || env.WIN_CSC_KEY_PASSWORD == ''
+        run: echo "::warning title=Unsigned pack::WIN_CSC_LINK/WIN_CSC_KEY_PASSWORD are not configured; $env:PACK is not Authenticode-signed and the host's executable-trust check will refuse it."
+        shell: pwsh
+      - name: Code-sign the entrypoint and interpreter with signtool
+        id: codesign
+        if: env.WIN_CSC_LINK != '' && env.WIN_CSC_KEY_PASSWORD != ''
+        shell: pwsh
+        env:
+          WIN_CSC_KEY_PASSWORD: ${{ secrets.WIN_CSC_KEY_PASSWORD }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $pfxPath = Join-Path $env:RUNNER_TEMP 'win-cert.pfx'
+          [System.IO.File]::WriteAllBytes($pfxPath, [System.Convert]::FromBase64String($env:WIN_CSC_LINK))
+          $signtool = Get-ChildItem -Path 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter 'signtool.exe' |
+            Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1 -ExpandProperty FullName
+          if (-not $signtool) { throw 'signtool.exe not found on this runner image' }
+          $payload = Join-Path $env:OUT "$env:PACK/payload"
+          $manifest = "workers/$env:PACK/pack/manifest.toml"
+          $entrypointName = (Select-String -Path $manifest -Pattern '^entrypoint = "(.*\.exe)"' | Select-Object -Last 1).Matches[0].Groups[1].Value
+          $entrypoint = Join-Path $payload "Scripts/$entrypointName"
+          $pythonExe = Join-Path $payload 'Scripts/python.exe'
+          foreach ($file in @($entrypoint, $pythonExe)) {
+            & $signtool sign /f $pfxPath /p $env:WIN_CSC_KEY_PASSWORD /fd sha256 /tr http://timestamp.digicert.com /td sha256 $file
+            if ($LASTEXITCODE -ne 0) { throw "signtool failed on $file" }
+          }
+          # The signer's own certificate thumbprint is the "executable trust identity" this
+          # pack's artifact record carries (release-cli's schema, same role the ten-character
+          # Team ID plays for macOS) — read it back from the cert we just signed with, never
+          # typed by hand.
+          $thumbprint = (Get-PfxCertificate -FilePath $pfxPath -Password (ConvertTo-SecureString -String $env:WIN_CSC_KEY_PASSWORD -AsPlainText -Force)).Thumbprint
+          Remove-Item -Force $pfxPath
+          echo "signed=true" >> $env:GITHUB_OUTPUT
+          echo "WIN_CERT_THUMBPRINT=$thumbprint" >> $env:GITHUB_ENV
+
+      - name: Re-verify the (signed) payload, enforce the size cap, archive
+        shell: pwsh
+        run: ./scripts/build-capability-pack.ps1 $env:PACK $env:OUT -Stage finalize
+
+      - name: Record the true signing state
+        # Windows has no separate notarization step: Authenticode signing (optionally
+        # timestamped, as above) is the whole trust story, unlike Gatekeeper's two-step
+        # codesign + notarize. `notarized` stays null so a reader never mistakes an absent
+        # concept for a failed one.
+        shell: pwsh
+        env:
+          SIGNED: ${{ steps.codesign.outputs.signed == 'true' }}
+        run: |
+          $status = @{ pack = $env:PACK; platform = 'win32-x64'; codesigned = [bool]::Parse($env:SIGNED); notarized = $null }
+          $status | ConvertTo-Json -Compress | Set-Content -Path (Join-Path $env:OUT "$env:PACK/signing-status.json")
+          Get-Content (Join-Path $env:OUT "$env:PACK/signing-status.json")
+
+      - name: prepare-artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          base="${ARTIFACT_BASE_URL:-}"
+          if [[ -z "$base" ]]; then
+            base="https://capability-packs.invalid/unpublished"
+            echo "::warning title=No artifact base URL::CAPABILITY_PACK_ARTIFACT_BASE_URL is unset; the record uses $base and cannot be published."
+          fi
+          # Authenticode identity is the signer certificate's SHA-256 thumbprint, not a
+          # Team ID; UNSIGNED00 means exactly what it does for the macOS record: this
+          # platform's artifact is unmistakably unsigned.
+          thumb="${WIN_CERT_THUMBPRINT:-UNSIGNED00}"
+          python3 scripts/capability_pack_release.py artifact-input --pack "$PACK" \
+            --build-dir "$OUT/$PACK" --base-url "$base" --team-id "$thumb" \
+            --out "$OUT/$PACK/artifact-input.json"
+          node "$PACK_CLI" prepare-artifact "$OUT/$PACK/artifact-input.json" "$OUT/$PACK/artifact.json"
+          # Git Bash on windows-latest ships coreutils' sha256sum, not the shasum(1) Perl
+          # wrapper the macOS job uses; same output format (`<hash>  <filename>`).
+          sha256sum "$OUT/$PACK"/*.zip > "$OUT/$PACK/archive.sha256"
+
+      - name: Upload artifact, digest and receipt
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-${{ matrix.pack }}-win32-x64
+          path: |
+            dist/capability-packs/${{ matrix.pack }}/*.zip
+            dist/capability-packs/${{ matrix.pack }}/archive.sha256
+            dist/capability-packs/${{ matrix.pack }}/build-receipt.json
+            dist/capability-packs/${{ matrix.pack }}/handshake.json
+            dist/capability-packs/${{ matrix.pack }}/health-check.stderr
+            dist/capability-packs/${{ matrix.pack }}/signing-status.json
+            dist/capability-packs/${{ matrix.pack }}/artifact.json
+          if-no-files-found: warn
+          retention-days: 14
+      - name: Upload this platform's artifact + signing status for the release-record job
+        uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-platform-${{ matrix.pack }}-win32-x64
+          path: |
+            dist/capability-packs/${{ matrix.pack }}/artifact.json
+            dist/capability-packs/${{ matrix.pack }}/signing-status.json
+          if-no-files-found: error
+
+  release-record:
+    name: ${{ matrix.pack }} — release record (cross-platform)
+    needs: [plan, build-darwin-arm64, build-windows-x64]
+    if: always() && needs.build-darwin-arm64.result == 'success'
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        pack: ${{ fromJSON(needs.plan.outputs.packs) }}
+    env:
+      PACK_CLI: packages/capability-packs/dist/node/release-cli.js
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - name: Build the framepilot-pack release CLI
+        run: |
+          pnpm install --frozen-lockfile
+          pnpm --filter '@framepilot/capability-packs...' run build
+      - name: Download the darwin-arm64 platform record (required)
+        uses: actions/download-artifact@v7
+        with:
+          name: capability-pack-platform-${{ matrix.pack }}-darwin-arm64
+          path: platforms/darwin-arm64
+      - name: Download the win32-x64 platform record (present only when that job built one)
+        id: download-windows
+        uses: actions/download-artifact@v7
+        continue-on-error: true
+        with:
+          name: capability-pack-platform-${{ matrix.pack }}-win32-x64
+          path: platforms/win32-x64
+      - name: release-core + prepare-release, over whichever platforms actually built
+        env:
+          MIN_APP_VERSION: ${{ needs.plan.outputs.min_app_version }}
+        run: |
+          set -euo pipefail
+          mkdir -p "dist/capability-packs/${{ matrix.pack }}"
+          notice="https://github.com/$GITHUB_REPOSITORY/blob/$GITHUB_SHA/workers/${{ matrix.pack }}/LICENSES.md"
+          args=(--artifact platforms/darwin-arm64/artifact.json)
+          statuses=(platforms/darwin-arm64/signing-status.json)
+          if [[ -f platforms/win32-x64/artifact.json ]]; then
+            args+=(--artifact platforms/win32-x64/artifact.json)
+            statuses+=(platforms/win32-x64/signing-status.json)
+          else
+            echo "::warning title=No win32-x64 artifact::${{ matrix.pack }}'s release record covers darwin-arm64 only this run."
+          fi
+          python3 scripts/capability_pack_release.py release-core --pack "${{ matrix.pack }}" \
+            "${args[@]}" --min-app-version "$MIN_APP_VERSION" --notice-url "$notice" \
+            --out "dist/capability-packs/${{ matrix.pack }}/release-core.json"
+          node "$PACK_CLI" prepare-release "dist/capability-packs/${{ matrix.pack }}/release-core.json" \
+            "dist/capability-packs/${{ matrix.pack }}/release.json"
+          python3 -c '
+          import json, sys
+          out_dir, paths = sys.argv[1], sys.argv[2:]
+          combined = [json.load(open(p)) for p in paths]
+          json.dump(combined, open(out_dir + "/signing-status.json", "w"), indent=2)
+          ' "dist/capability-packs/${{ matrix.pack }}" "${statuses[@]}"
+          cat "dist/capability-packs/${{ matrix.pack }}/signing-status.json"
+      - name: Upload the record for the catalog job
         uses: actions/upload-artifact@v7
         with:
           name: capability-pack-record-${{ matrix.pack }}
@@ -253,24 +466,30 @@ jobs:
             dist/capability-packs/${{ matrix.pack }}/signing-status.json
           if-no-files-found: error
 
-  windows-x64:
-    name: win32-x64 (not buildable)
-    needs: plan
-    runs-on: ubuntu-latest
-    steps:
-      # Stated, not faked: scripts/build-capability-pack.sh is POSIX-only (bash, bin/
-      # layout, a copied Mach-O/ELF interpreter), and Visual Describe pins no Windows
-      # runtime. Authenticode (WIN_CSC_LINK) has nothing to sign until a Windows builder
-      # exists, so the manifests' win32 rows cannot be released from this workflow.
-      - run: echo "::warning title=No Windows pack build::No Windows Capability Pack builder exists; win32-x64 artifacts and Authenticode signing are not produced."
-
   catalog:
-    name: Catalog, signature and publication plan
-    needs: [plan, build-darwin-arm64]
+    name: Catalog, signature, publication plan and CDN publish
+    needs: [plan, release-record]
     runs-on: ubuntu-latest
     env:
       CATALOG_SIGNING_KEY: ${{ secrets.CAPABILITY_PACK_CATALOG_SIGNING_KEY }}
       CATALOG_KEY_ID: ${{ vars.CAPABILITY_PACK_CATALOG_KEY_ID }}
+      # Where the CURRENT live catalog can be read from (a plain public GET, same URL the
+      # desktop app's FRAMEPILOT_CAPABILITY_PACK_CATALOG_URL points at). Empty/unset reads
+      # as "nothing has ever been published" — the merge below treats that as an empty
+      # catalog rather than failing.
+      CATALOG_URL: ${{ vars.CAPABILITY_PACK_CATALOG_URL }}
+      # The stable object key the catalog URL resolves to — what "moving latest" means:
+      # overwriting this one object with the merged, newly-signed catalog. Distinct from
+      # the immutable, digest-addressed `catalogs/<digest>.json` objects publication-plan
+      # also produces, which are never overwritten once written.
+      CATALOG_LATEST_KEY: ${{ vars.CAPABILITY_PACK_CATALOG_LATEST_KEY }}
+      # CDN write credentials (S3-compatible: AWS S3, Cloudflare R2, Backblaze B2, MinIO, …
+      # all speak this API). Projected to job env so `if:` conditions can read them.
+      CDN_ACCESS_KEY_ID: ${{ secrets.CAPABILITY_PACK_CDN_ACCESS_KEY_ID }}
+      CDN_SECRET_ACCESS_KEY: ${{ secrets.CAPABILITY_PACK_CDN_SECRET_ACCESS_KEY }}
+      CDN_BUCKET: ${{ vars.CAPABILITY_PACK_CDN_BUCKET }}
+      CDN_ENDPOINT: ${{ vars.CAPABILITY_PACK_CDN_ENDPOINT }}
+      CDN_REGION: ${{ vars.CAPABILITY_PACK_CDN_REGION }}
     steps:
       - uses: actions/checkout@v7
         with:
@@ -312,9 +531,25 @@ jobs:
           reasons=()
           [[ -n "$CATALOG_SIGNING_KEY" ]] || reasons+=("CAPABILITY_PACK_CATALOG_SIGNING_KEY is not configured")
           [[ -n "$CATALOG_KEY_ID" ]] || reasons+=("CAPABILITY_PACK_CATALOG_KEY_ID is not configured")
+          # Each record's signing-status.json is now an ARRAY, one entry per platform that
+          # pack actually built (release-record job). A pack is releasable only when EVERY
+          # one of its built platforms passed its own trust bar: darwin needs codesign AND
+          # notarization; win32 has no separate notarization step, so codesign alone is its
+          # bar (see the "Record the true signing state" step in build-windows-x64).
           for status in records/*/signing-status.json; do
-            if ! python3 -c 'import json,sys; s=json.load(open(sys.argv[1])); sys.exit(0 if s["codesigned"] and s["notarized"] else 1)' "$status"; then
-              reasons+=("$(dirname "$status" | xargs basename) is not code-signed and notarized")
+            if ! python3 -c '
+          import json, sys
+          entries = json.load(open(sys.argv[1]))
+          for entry in entries:
+              signed = entry.get("codesigned")
+              if entry["platform"] == "darwin-arm64":
+                  ok = signed and entry.get("notarized")
+              else:
+                  ok = signed
+              if not ok:
+                  sys.exit(1)
+          ' "$status"; then
+              reasons+=("$(dirname "$status" | xargs basename) has an unsigned platform artifact")
             fi
           done
           if (( ${#reasons[@]} > 0 )); then
@@ -323,7 +558,7 @@ jobs:
           else
             echo "sign=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: sign-catalog and publication-plan
+      - name: sign-catalog and publication-plan (this run's releases only)
         if: steps.gate.outputs.sign == 'true'
         shell: bash
         run: |
@@ -342,3 +577,116 @@ jobs:
             signed-catalog.json
             publication-plan.json
           if-no-files-found: warn
+
+      # Everything from here on PUBLISHES (uploads to the CDN, moves `latest`). Each half
+      # is gated on its own secret and skips with a visible log line, never a failure,
+      # when that secret is absent — the same contract every credentialed step in this
+      # workflow already follows.
+      - name: Fetch the currently-published catalog (best effort)
+        if: steps.gate.outputs.sign == 'true'
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$CATALOG_URL" ]]; then
+            echo "::warning title=No live catalog URL::CAPABILITY_PACK_CATALOG_URL is unset; merging as if nothing has been published yet."
+            exit 0
+          fi
+          if curl -fsSL --retry 2 -o current-live-catalog.json "$CATALOG_URL"; then
+            echo "fetched the current live catalog from $CATALOG_URL"
+          else
+            echo "::warning title=No live catalog yet::Nothing readable at $CATALOG_URL yet (first release?); merging as if nothing has been published."
+          fi
+      - name: Merge this run's releases into the live catalog
+        if: steps.gate.outputs.sign == 'true'
+        shell: bash
+        env:
+          EXPIRES_IN_DAYS: ${{ inputs.catalog_expires_in_days || '30' }}
+        run: |
+          set -euo pipefail
+          current_arg=()
+          [[ -f current-live-catalog.json ]] && current_arg=(--current current-live-catalog.json)
+          python3 scripts/capability_pack_catalog_merge.py \
+            "${current_arg[@]}" --incoming catalog.json \
+            --generated-at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" --expires-in-days "$EXPIRES_IN_DAYS" \
+            --out merged-catalog.json
+          umask 077
+          key="$RUNNER_TEMP/catalog-signing-key.pem"
+          trap 'rm -f "$key"' EXIT
+          printf '%s\n' "$CATALOG_SIGNING_KEY" > "$key"
+          node "$PACK_CLI" sign-catalog merged-catalog.json "$key" "$CATALOG_KEY_ID" merged-signed-catalog.json
+          node "$PACK_CLI" publication-plan merged-signed-catalog.json merged-publication-plan.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: capability-pack-catalog-merged
+          path: |
+            merged-catalog.json
+            merged-signed-catalog.json
+            merged-publication-plan.json
+          if-no-files-found: warn
+
+      - name: CDN credentials absent — nothing is uploaded
+        if: steps.gate.outputs.sign == 'true' && (env.CDN_ACCESS_KEY_ID == '' || env.CDN_SECRET_ACCESS_KEY == '' || env.CDN_BUCKET == '')
+        run: echo "::warning title=Not published::CAPABILITY_PACK_CDN_ACCESS_KEY_ID/CAPABILITY_PACK_CDN_SECRET_ACCESS_KEY/CAPABILITY_PACK_CDN_BUCKET are not fully configured; the signed artifacts and catalog were built but not uploaded."
+      - name: Download every darwin-arm64 built artifact archive
+        if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
+        uses: actions/download-artifact@v7
+        with:
+          # Exact patterns, not a loose wildcard: `capability-pack-platform-*` and
+          # `capability-pack-record-*` (the slim per-platform/per-pack inputs to
+          # release-record) must NOT be swept in here — they carry no archive.sha256, so
+          # they would be harmless if matched, but an exact pattern says so instead of
+          # relying on that.
+          pattern: capability-pack-*-darwin-arm64
+          path: built
+      - name: Download every win32-x64 built artifact archive
+        if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
+        uses: actions/download-artifact@v7
+        continue-on-error: true # absent whenever build-windows-x64 did not produce one
+        with:
+          pattern: capability-pack-*-win32-x64
+          path: built
+      - name: Configure CDN (S3-compatible) credentials
+        if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
+        uses: aws-actions/configure-aws-credentials@v5
+        with:
+          aws-access-key-id: ${{ env.CDN_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ env.CDN_SECRET_ACCESS_KEY }}
+          aws-region: ${{ env.CDN_REGION || 'auto' }}
+      - name: Upload artifacts, the digest-addressed catalog, and move `latest`
+        if: steps.gate.outputs.sign == 'true' && env.CDN_ACCESS_KEY_ID != '' && env.CDN_SECRET_ACCESS_KEY != '' && env.CDN_BUCKET != ''
+        shell: bash
+        run: |
+          set -euo pipefail
+          endpoint_args=()
+          [[ -n "$CDN_ENDPOINT" ]] && endpoint_args=(--endpoint-url "$CDN_ENDPOINT")
+          # Every archive this run built, keyed by its own sha256 — the same digest
+          # publication-plan requires inside each artifact's URL, so matching by digest
+          # (not by filename or path) is what makes "which local file goes at which
+          # object key" unambiguous even across two platforms of the same pack.
+          declare -A by_digest
+          while IFS= read -r -d '' sha_file; do
+            read -r digest name < "$sha_file"
+            [[ -n "$digest" ]] || continue
+            by_digest["$digest"]="$(dirname "$sha_file")/$(basename "$name")"
+          done < <(find built -name 'archive.sha256' -print0)
+          python3 -c '
+          import json, sys
+          plan = json.load(open("merged-publication-plan.json"))
+          for artifact in plan["immutableArtifacts"]:
+              print(artifact["sha256"], artifact["objectKey"])
+          ' | while read -r digest object_key; do
+            local_path="${by_digest[$digest]:-}"
+            if [[ -z "$local_path" ]]; then
+              echo "::warning title=Artifact not found locally::no downloaded archive matches digest $digest for $object_key; a prior run's release may be missing from this run's download."
+              continue
+            fi
+            aws s3 cp "${endpoint_args[@]}" "$local_path" "s3://$CDN_BUCKET/$object_key" --only-show-errors
+          done
+          catalog_object_key="$(python3 -c 'import json; print(json.load(open("merged-publication-plan.json"))["catalogObjectKey"])')"
+          aws s3 cp "${endpoint_args[@]}" merged-signed-catalog.json "s3://$CDN_BUCKET/$catalog_object_key" --only-show-errors
+          if [[ -n "$CATALOG_LATEST_KEY" ]]; then
+            aws s3 cp "${endpoint_args[@]}" merged-signed-catalog.json "s3://$CDN_BUCKET/$CATALOG_LATEST_KEY" --only-show-errors
+            echo "moved latest -> $catalog_object_key (at $CATALOG_LATEST_KEY)"
+          else
+            echo "::warning title=latest not moved::CAPABILITY_PACK_CATALOG_LATEST_KEY is unset; the digest-addressed catalog was uploaded but the live pointer was not moved."
+          fi
