@@ -7274,6 +7274,9 @@ export class Orchestrator {
     // window is smaller, and a manifest reporting the large model's would understate
     // occupancy for the one request it describes.
     const capabilities = capabilitiesFor(provider.name, provider.modelId);
+    // A route is read off a two-line JSON contract; there is nothing to deliberate, and
+    // the call sits on every turn's critical path (3.7 s p50 on claude-agent-sdk, §W4).
+    const classifyRequest: AiCompletionRequest = { messages, reasoningEffort: 'low' };
     const manifest = buildRequestManifest({
       requestId: 'classify',
       provider: provider.name,
@@ -7281,12 +7284,10 @@ export class Orchestrator {
       contextWindow: contextWindowFor(input, provider),
       windowSource: capabilities.source,
       reservedOutputTokens: reservedOutputFor(input, provider),
-      request: { messages },
+      request: classifyRequest,
     });
     try {
-      // A route is read off a two-line JSON contract; there is nothing to deliberate, and
-      // the call sits on every turn's critical path (3.7 s p50 on claude-agent-sdk, §W4).
-      const response = await provider.complete({ messages, reasoningEffort: 'low' }, signal);
+      const response = await provider.complete(classifyRequest, signal);
       const classification = parseClassification(response.text) ?? FALLBACK_CLASSIFICATION;
       orchestratorLog.action('classifyCommand ← response', {
         provider: provider.name,
