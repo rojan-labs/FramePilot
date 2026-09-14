@@ -150,6 +150,7 @@ import {
   toolRole,
 } from './kernel/stage-policy.js';
 import { currentPlacement, placementNote, unchangedNote } from './kernel/placement-note.js';
+import { verificationNote } from './kernel/verification-note.js';
 import { classifyTool, isCatalogueSearch } from './tool-classification.js';
 import { deriveObjectiveText } from './kernel/continuation.js';
 import { catalogueSearchRefusal, shouldWithholdCatalogueSearch } from './kernel/loop-detector.js';
@@ -5549,7 +5550,10 @@ export class Orchestrator {
         // back to re-grade or to fill in the transitions it withheld on purpose. Computed
         // against `ctx.project`, the pre-patch working copy the tool itself decided from.
         colorSolveNote(call.name, ctx, call.arguments) +
-        transitionsNote(call.name, ctx, call.arguments);
+        transitionsNote(call.name, ctx, call.arguments) +
+        // The check the model used to spend a step asking for, run on the state the edit
+        // produced (`kernel/verification-note.ts`). On the card too: "verified" is the answer.
+        verificationNote(call.name, applied);
       // The card gets the sentence; the model's copy also gets where things landed, or what
       // they already hold — either answer is what it used to spend a whole round trip reading
       // back (`kernel/placement-note.ts`). Clip ids are precision for the model, noise on a card.

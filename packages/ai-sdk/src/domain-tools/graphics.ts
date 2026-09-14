@@ -376,8 +376,9 @@ export const GRAPHICS_TOOLS: readonly ToolSpec[] = [
         'Read back every transition actually present in timeline state and check each ' +
         'sits at a real cut, references the correct adjacent clips, and has a duration ' +
         'the boundary can carry. Also reports boundaries you may have intended to treat ' +
-        'but did not. Returns { ok, transitionCount, issues[] }. Run this before saying ' +
-        'a transition was added; a command being accepted is not proof it is visible.',
+        'but did not. Returns { ok, transitionCount, issues[] }. Every add_transition ' +
+        'result already carries this check as "verified: …", so call this only to ' +
+        're-check after other edits have moved the cuts.',
     },
     noArgs,
     (_args, ctx) => verifyTransitions(ctx.project),
