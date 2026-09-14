@@ -40,7 +40,7 @@ from .backend import (
     Frame,
     MediaUnreadableError,
 )
-from .models import models_directory, resolve_model, verify_all
+from .models import MODELS_BY_ID, models_directory, verify_needed
 from .schema import DESCRIBE_INSTRUCTION
 
 _log = logging.getLogger(__name__)
@@ -101,15 +101,23 @@ class LlamaDescribeBackend:
 
     def __init__(self, directory: Path | None = None) -> None:
         self._directory = directory if directory is not None else models_directory()
-        # Every artifact is hashed here, before anything is executed or loaded: a pack
-        # whose binary does not match its pin must not run even once.
-        self._digests = verify_all(self._directory)
-        self._runtime = resolve_model("runtime", self._directory)
         free = _free_memory_bytes()
         self._small = free is not None and free < LOW_MEMORY_BYTES
+        # Every artifact THIS run will load is hashed here, before anything is executed:
+        # a pack whose binary does not match its pin must not run even once. Only the
+        # size class this process resolved to (`self._small`) is verified — the other
+        # class's ~0.6-1.9 GiB of never-loaded weights would otherwise be hashed on every
+        # single describe request (VU6.4/R4.2); the health check still verifies both.
+        # `verify_needed` hands back the already-resolved paths so they are never hashed
+        # a second time here just to recover the `Path` (the original bug this replaces).
         suffix = "-small" if self._small else ""
-        self._model_path = resolve_model(f"vlm{suffix}", self._directory)
-        self._mmproj_path = resolve_model(f"mmproj{suffix}", self._directory)
+        paths = verify_needed(self._directory, small=self._small)
+        self._digests = {
+            path.name: MODELS_BY_ID[model_id].sha256 for model_id, path in paths.items()
+        }
+        self._runtime = paths["runtime"]
+        self._model_path = paths[f"vlm{suffix}"]
+        self._mmproj_path = paths[f"mmproj{suffix}"]
         self._model_id = SMALL_MODEL_ID if self._small else MODEL_ID
         try:
             import cv2  # noqa: F401
@@ -175,11 +183,17 @@ class LlamaDescribeBackend:
             raise DescribeFailedError("describe requires at least one frame.")
         with tempfile.TemporaryDirectory(prefix="fp-describe-") as scratch:
             root = Path(scratch)
-            image_arguments: list[str] = []
+            image_paths: list[str] = []
             for index, frame in enumerate(frames):
                 image_path = root / f"frame-{index}.jpg"
                 image_path.write_bytes(bytes(frame))
-                image_arguments += ["--image", str(image_path)]
+                image_paths.append(str(image_path))
+            # ONE `--image`, comma-separated: passing the flag once per frame is deprecated
+            # by this CLI version and silently keeps only the LAST value, so a 2-3 keyframe
+            # shot was being described from its last frame alone — the other frame(s) paid
+            # their JPEG-encode cost for nothing, and "man at a desk" and "man stands up and
+            # leaves" (the exact case multi-frame sampling exists for) read identically.
+            image_arguments = ["--image", ",".join(image_paths)] if image_paths else []
             schema_path = root / "schema.json"
             schema_path.write_text(json.dumps(schema), encoding="utf-8")
             command = [

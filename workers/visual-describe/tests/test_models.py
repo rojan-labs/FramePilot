@@ -14,10 +14,12 @@ from framepilot_visual_describe.models import (
     MODELS_BY_ID,
     PINNED_MODELS,
     UNPINNED_DIGEST,
+    PinnedModel,
     file_digest,
     models_directory,
     resolve_model,
     verify_all,
+    verify_needed,
 )
 
 LOCK_PATH = Path(__file__).resolve().parent.parent / "pack" / "models.lock.toml"
@@ -147,3 +149,89 @@ def test_the_unpinned_sentinel_cannot_collide_with_a_real_digest(tmp_path: Path)
     path = tmp_path / "blob"
     path.write_bytes(b"")
     assert file_digest(path) != UNPINNED_DIGEST
+
+
+# --- verify_needed (R4.2: don't hash the size class this run will not load) -----------
+
+
+def _fake_pack(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    """A minimal 4-artifact pack: one always-loaded lib plus both vlm/mmproj size classes.
+
+    Small fixture content (not real weights) so the test hashes kilobytes, not gigabytes;
+    only the SHAPE of ``PINNED_MODELS`` — a common artifact plus two competing size
+    classes — matters to what :func:`verify_needed` decides to skip.
+    """
+    content = {
+        "runtime": b"#!/bin/sh\necho fake\n",
+        "runtime-lib-common": b"fake shared library bytes",
+        "vlm": b"fake large vlm weights",
+        "mmproj": b"fake large mmproj weights",
+        "vlm-small": b"fake small vlm weights",
+        "mmproj-small": b"fake small mmproj weights",
+    }
+    fake_models = []
+    for model_id, data in content.items():
+        file_name = f"{model_id}.bin"
+        path = tmp_path / file_name
+        path.write_bytes(data)
+        if model_id == "runtime":
+            path.chmod(0o755)
+        fake_models.append(
+            PinnedModel(
+                id=model_id,
+                file=file_name,
+                sha256=file_digest(path),
+                license="MIT",
+                executable=model_id == "runtime",
+            )
+        )
+    monkeypatch.setattr("framepilot_visual_describe.models.PINNED_MODELS", tuple(fake_models))
+    monkeypatch.setattr(
+        "framepilot_visual_describe.models.MODELS_BY_ID",
+        {model.id: model for model in fake_models},
+    )
+
+
+def test_verify_needed_skips_the_size_class_this_run_will_not_load(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_pack(tmp_path, monkeypatch)
+    hashed: list[str] = []
+    real_digest = file_digest
+    monkeypatch.setattr(
+        "framepilot_visual_describe.models.file_digest",
+        lambda path: (hashed.append(path.name), real_digest(path))[1],
+    )
+    paths = verify_needed(tmp_path, small=False)
+    assert set(paths) == {"runtime", "runtime-lib-common", "vlm", "mmproj"}
+    assert "vlm-small.bin" not in hashed
+    assert "mmproj-small.bin" not in hashed
+    assert "vlm.bin" in hashed and "mmproj.bin" in hashed
+
+
+def test_verify_needed_picks_the_small_class_when_asked(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_pack(tmp_path, monkeypatch)
+    paths = verify_needed(tmp_path, small=True)
+    assert set(paths) == {"runtime", "runtime-lib-common", "vlm-small", "mmproj-small"}
+
+
+def test_verify_needed_returns_paths_that_need_no_second_hash(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # The bug this replaces: the caller used to call `resolve_model` a second time just to
+    # recover the `Path`, hashing the same multi-gigabyte file twice per request.
+    _fake_pack(tmp_path, monkeypatch)
+    paths = verify_needed(tmp_path, small=False)
+    assert paths["vlm"] == tmp_path / "vlm.bin"
+    assert paths["vlm"].read_bytes() == b"fake large vlm weights"
+
+
+def test_verify_needed_still_refuses_a_digest_mismatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _fake_pack(tmp_path, monkeypatch)
+    (tmp_path / "vlm.bin").write_bytes(b"tampered")
+    with pytest.raises(ModelUnavailableError, match="hashes to"):
+        verify_needed(tmp_path, small=False)
