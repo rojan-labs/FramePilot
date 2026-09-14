@@ -198,10 +198,12 @@ def test_verify_needed_skips_the_size_class_this_run_will_not_load(
     _fake_pack(tmp_path, monkeypatch)
     hashed: list[str] = []
     real_digest = file_digest
-    monkeypatch.setattr(
-        "framepilot_visual_describe.models.file_digest",
-        lambda path: (hashed.append(path.name), real_digest(path))[1],
-    )
+
+    def recording_digest(path: Path) -> str:
+        hashed.append(path.name)
+        return real_digest(path)
+
+    monkeypatch.setattr("framepilot_visual_describe.models.file_digest", recording_digest)
     paths = verify_needed(tmp_path, small=False)
     assert set(paths) == {"runtime", "runtime-lib-common", "vlm", "mmproj"}
     assert "vlm-small.bin" not in hashed
