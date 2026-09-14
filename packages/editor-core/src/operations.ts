@@ -1616,6 +1616,72 @@ function headSyntheticPoint(
   };
 }
 
+/**
+ * The synthetic head+tail pair for a piece cut on BOTH edges, when both cuts land
+ * strictly inside the SAME eased segment — `undefined` otherwise, so the caller
+ * falls back to solving each edge independently.
+ *
+ * Only `trim_clip` can reach this: `split_clip` and `delete_range` each cut a piece
+ * on exactly one edge (their `truncateClip` calls never combine a head trim with a
+ * tail trim on the same piece), but a two-sided `trim_clip` moves both edges in one
+ * call, and a clip whose ramp is a single eased segment spanning its whole footage
+ * makes any interior trim land both cuts in that one segment (review finding on
+ * `3de8a146`).
+ *
+ * There, {@link headSyntheticPoint} and {@link tailSyntheticPoint} each solve their
+ * rate against the ORIGINAL far control point (`b` for the head, `a` for the tail) —
+ * but neither original point survives the rebase; the retained curve runs
+ * head-synthetic → tail-synthetic directly, with nothing of the original segment
+ * between them. Solved independently, each targets the area over a sub-interval
+ * that includes territory the OTHER cut already removed, so neither reproduces the
+ * actual retained area.
+ *
+ * Fixed instead: pin the head at the curve's own held rate at the cut (the value a
+ * single-sided cut would already use) and solve the tail's rate — the one
+ * remaining free number — against the integral the ACTUAL retained window
+ * `[consumed, consumed + span]` has on the original curve. One joint solve in place
+ * of two independent, individually-wrong ones.
+ */
+function jointSyntheticPoints(
+  sorted: readonly SpeedPoint[],
+  clipId: string,
+  consumed: Seconds,
+  span: Seconds,
+): { readonly head: SpeedPoint; readonly tail: SpeedPoint } | undefined {
+  const cutAt = consumed + span;
+  const headSegment = enclosingSegment(sorted, consumed);
+  const tailSegment = enclosingSegment(sorted, cutAt);
+  if (
+    !headSegment ||
+    !tailSegment ||
+    headSegment.a !== tailSegment.a ||
+    headSegment.b !== tailSegment.b
+  ) {
+    return undefined;
+  }
+  const easing = headSegment.a.easing;
+  const head: SpeedPoint = {
+    id: `${clipId}__ramp_head`,
+    sourceTime: 0,
+    rate: rateAt(sorted, consumed),
+    easing,
+  };
+  const tailRate = solveFreeEndpointRate(
+    head,
+    true,
+    span,
+    easing,
+    integrateRate(sorted, consumed, cutAt),
+  );
+  const tail: SpeedPoint = {
+    id: `${clipId}__ramp_tail`,
+    sourceTime: span,
+    rate: tailRate,
+    easing: 'linear',
+  };
+  return { head, tail };
+}
+
 function rebaseSpeedRamp(
   clip: Clip,
   consumed: Seconds,
@@ -1639,6 +1705,15 @@ function rebaseSpeedRamp(
   const later = ramp
     .filter(inside)
     .map((p) => (headTrimmed ? { ...clone(p), sourceTime: p.sourceTime - consumed } : clone(p)));
+
+  if (headTrimmed && span !== undefined) {
+    const joint = jointSyntheticPoints(sorted, clip.id, consumed, span);
+    // `later` is necessarily empty here: `jointSyntheticPoints` only returns a pair
+    // when both cuts share the same enclosing segment, and adjacent control points
+    // by definition have nothing else between them.
+    if (joint) return [joint.head, joint.tail];
+  }
+
   const tailPoint =
     span !== undefined ? tailSyntheticPoint(sorted, clip.id, consumed, span) : undefined;
   const tailCut = tailPoint ? [tailPoint] : [];
@@ -2286,10 +2361,16 @@ function applyTrackObject(timeline: Timeline, op: TrackObjectOp): Timeline {
     params,
     keyframes: op.keyframes ? op.keyframes.map(clone) : [],
   };
-  return replaceClipAt(timeline, loc, {
-    ...loc.clip,
-    effects: [...loc.clip.effects.filter((candidate) => candidate.id !== effect.id), effect],
-  });
+  // Replace an existing tracker IN PLACE (same fix as `add_mask`, S3 residual): a
+  // restated `object_track` (e.g. every tracked-region update) used to filter the
+  // existing effect out and push the new one to the end, silently reordering it
+  // behind any effect added afterward — effects composite in list order.
+  const existingIndex = loc.clip.effects.findIndex((candidate) => candidate.id === effect.id);
+  const effects =
+    existingIndex === -1
+      ? [...loc.clip.effects, effect]
+      : loc.clip.effects.map((candidate, index) => (index === existingIndex ? effect : candidate));
+  return replaceClipAt(timeline, loc, { ...loc.clip, effects });
 }
 
 function applyRestoreClips(timeline: Timeline, op: RestoreClipsOp): Timeline {
