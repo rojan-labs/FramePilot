@@ -1696,3 +1696,11 @@ The SDK ends most multi-tool steps by exhausting its own `maxTurns: 1` after def
 steps the pacing briefing asks for — several edits in one step — would have gone cold. Fixed:
 both endings pre-spawn; test added.
 
+## X7 — The classifier's 3.7 s is spawn plus round trip, not thinking
+
+Live, through the shipped provider, on three representative prompts (an edit brief, a question,
+thanks): `low` 3.0 / 3.1 / 4.6 s, `medium` 3.1 / 2.7 / 3.3 s, 19–51 output tokens, every route
+correct at both. The call barely thinks at either setting, so `low` is safe and changes nothing
+measurable; what it costs is one process spawn and one API round trip, and its process cannot be
+warmed (X3). Recorded so nobody chases it again.
+
