@@ -7,7 +7,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import { estimateTokens } from '../context-builder.js';
-import { buildStateBriefing, distil } from './briefing.js';
+import { EXECUTION_PACE, buildStateBriefing, distil } from './briefing.js';
 import {
   advanceStage,
   commitDecision,
@@ -484,6 +484,19 @@ describe('buildStateBriefing', () => {
     expect(text).toContain('[x] cut to 90s');
     expect(text).toContain('[ ] add captions');
     expect(text).toContain('PASS duration ≤ 90s');
+  });
+
+  it('asks an executing run to batch its remaining edits, and a deciding run not to', () => {
+    let state = recordObjective(base(), { description: 'cut to 90s', stage: 'apply' });
+    state = advanceStage(state, 'inspect', 1);
+    state = advanceStage(state, 'analyze', 2);
+    expect(buildStateBriefing(state)).toContain('You are at "analyze"');
+    expect(buildStateBriefing(state)).not.toContain(EXECUTION_PACE);
+    state = advanceStage(state, 'plan', 3);
+    state = advanceStage(state, 'apply', 4);
+    const text = buildStateBriefing(state);
+    expect(text).toContain('You are at "apply"');
+    expect(text).toContain(EXECUTION_PACE);
   });
 
   it('reports a failed verification as a failure', () => {

@@ -730,7 +730,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 11789,
+      "usedTokens": 11853,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -812,14 +812,14 @@
             "id": "s11",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 419,
+            "tokenEstimate": 482,
             "included": true
           },
           {
             "id": "s12",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 23,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -834,9 +834,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 11789,
+          "estimatedInputTokensBeforeSend": 11853,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 180019,
+          "estimatedRemainingCapacity": 179955,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -1051,7 +1051,7 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "context_usage",
-      "usedTokens": 9801,
+      "usedTokens": 9865,
       "contextWindow": 200000,
       "estimated": true,
       "manifest": {
@@ -1133,7 +1133,7 @@
             "id": "s11",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 383,
+            "tokenEstimate": 447,
             "included": true
           },
           {
@@ -1162,9 +1162,9 @@
         "usage": {
           "modelContextLimit": 200000,
           "limitAssumed": true,
-          "estimatedInputTokensBeforeSend": 9801,
+          "estimatedInputTokensBeforeSend": 9865,
           "reservedOutputTokens": 8192,
-          "estimatedRemainingCapacity": 182007,
+          "estimatedRemainingCapacity": 181943,
           "toolSchemaTokensRebilled": 5039,
           "calculationSource": "local_estimate"
         },

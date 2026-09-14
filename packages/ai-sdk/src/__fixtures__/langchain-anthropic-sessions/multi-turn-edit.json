@@ -679,7 +679,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11672,
+      "usedTokens": 11736,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -754,14 +754,14 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 320,
+            "tokenEstimate": 383,
             "included": true
           },
           {
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 23,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -776,9 +776,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11672,
+          "estimatedInputTokensBeforeSend": 11736,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860328,
+          "estimatedRemainingCapacity": 860264,
           "toolSchemaTokensRebilled": 7167,
           "calculationSource": "local_estimate"
         },
@@ -891,14 +891,14 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 320,
+            "tokenEstimate": 383,
             "included": true
           },
           {
             "id": "s11",
             "type": "system",
             "label": "additional request content",
-            "tokenEstimate": 23,
+            "tokenEstimate": 24,
             "included": true
           },
           {
@@ -913,7 +913,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11672,
+          "estimatedInputTokensBeforeSend": 11736,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 7167,
@@ -1272,7 +1272,7 @@
       "ts": 1000,
       "turnId": "turn_parity",
       "type": "context_usage",
-      "usedTokens": 11719,
+      "usedTokens": 11782,
       "contextWindow": 1000000,
       "estimated": true,
       "manifest": {
@@ -1347,7 +1347,7 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 323,
+            "tokenEstimate": 386,
             "included": true
           },
           {
@@ -1369,9 +1369,9 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11719,
+          "estimatedInputTokensBeforeSend": 11782,
           "reservedOutputTokens": 128000,
-          "estimatedRemainingCapacity": 860281,
+          "estimatedRemainingCapacity": 860218,
           "toolSchemaTokensRebilled": 0,
           "calculationSource": "local_estimate"
         },
@@ -1493,7 +1493,7 @@
             "id": "s10",
             "type": "system",
             "label": "run briefing",
-            "tokenEstimate": 323,
+            "tokenEstimate": 386,
             "included": true
           },
           {
@@ -1515,7 +1515,7 @@
         "usage": {
           "modelContextLimit": 1000000,
           "limitAssumed": false,
-          "estimatedInputTokensBeforeSend": 11719,
+          "estimatedInputTokensBeforeSend": 11782,
           "reservedOutputTokens": 128000,
           "estimatedRemainingCapacity": 871900,
           "toolSchemaTokensRebilled": 0,
