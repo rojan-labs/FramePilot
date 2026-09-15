@@ -304,9 +304,9 @@ export const CAPTION_TOOLS: readonly ToolSpec[] = [
         'replaced, cues bridging a break in the SPEECH (two stretches of audio never ' +
         'spoken in one breath), and retained speech with no caption. A cue sitting over ' +
         'several picture cuts is fine and is not reported — only an audio discontinuity ' +
-        'is. Returns { ok, cueCount, issues[] }. Run this before saying captions are ' +
-        'done: an operation returning "applied" is not evidence that anything is ' +
-        'synchronized. Repair whatever it reports by re-running caption_the_edit, which ' +
+        'is. Returns { ok, cueCount, issues[] }. Every caption result already carries ' +
+        'this check as "verified: …", so call this only to re-check after other edits ' +
+        'have moved the speech. Repair whatever it reports by re-running caption_the_edit, which ' +
         're-derives every cue from the current timeline in one call — do not delete and ' +
         're-add cues one at a time. It checks timing, plus two things about the LOOK it ' +
         'can compute: a chip or shadow whose numbers are in the wrong unit ' +

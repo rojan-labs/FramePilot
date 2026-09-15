@@ -1608,3 +1608,99 @@ save 3.7 s on edit turns. **Not changed.**
 - **Quality at `low` effort** (U4.4) is still unmeasured; the same re-run reads it off the
   self-check outcomes.
 
+---
+
+# X. To the core — the check in the result, the process before the prompt (2026-09-15)
+
+Branch `perf/ai-context-latency-core-2026-09-15`, PR #122 (stacked on #121). Same corpus as §W plus
+the whole desktop set since 2026-09-01 (985 calls, all providers) and three live SDK benchmarks.
+
+## X1 — 89 calls asked a pure function to confirm an edit; 14 steps did nothing else (188 s)
+
+`verify_transitions` / `verify_captions` are pure over the project, and their descriptions said
+"Run this before saying a transition was added". Since 09-01: 89 model calls issued one (2,340 s of
+call wall, most of it steps that also did other work), 14 steps issued nothing else (188 s). On the
+Claude runs of §W3, four of the 13 post-edit re-reads were exactly this.
+
+**Landed:** the orchestrator runs the verifier on the post-patch project for the tools each verifier
+is about (`add_transition(s)`; `caption_the_edit`, `add_caption_layer`, `auto_emphasize_captions`,
+`set_track_caption_style`, `set_caption_style`) and the result carries `· verified: all good, 3
+transition(s)` or the first three problems — `kernel/verification-note.ts`. Both descriptions now
+say the result already carries the check. Python description mirror regenerated.
+
+## X2 — ~0.9 s of every call is spawning `claude`, and the SDK can spawn before it has a prompt
+
+| measurement | cold | warm (process up, prompt fed later) |
+|---|---|---|
+| first stream event, trivial prompt, `effort: low` | 2,237 ms (one cold start 6,833 ms) | 1,244–1,479 ms from feed |
+| same, process NOT iterated until the feed | — | 1,287–1,400 ms |
+
+`query()` spawns on the call itself, and accepts the prompt as an `AsyncIterable`. So the adapter
+now starts the next process the moment a tool-bearing call finishes — same model, system prompt and
+tool descriptors, prompt pending — and the next `run()` with a matching key feeds it. On the
+recorded runs the tool block was unchanged on 78 of 119 successive calls, so ~2 of 3 agent steps
+take the warm process. Mismatch → abandon and spawn cold (what every call did before). Idle 60 s →
+abandon. No tools → never pre-spawn. Cancelled/failed call → abandon. `FRAMEPILOT_AGENT_SDK_PREWARM=0`
+turns it off. Tests: 46 in `claude-agent-sdk.test.ts`, including handover, mismatch, idle, switch.
+
+**Verified live through the shipped provider** (`dist/providers/claude-agent-sdk.js`, one tool
+offered, `effort: low`): cold call time-to-first-chunk 2,676 ms; the next two calls, taken by the
+warm process, 1,816 ms and 1,664 ms — one of them a deferred `trim_clip` tool call that came
+through the warm process intact.
+
+**Predicted, not claimed:** ≈ 0.9 s × ~8 matched calls ≈ 7 s per p50 turn; §W1's fixed-cost fit is
+the number that should drop on the next recorded runs (`--since=<date> --provider=claude-agent-sdk`).
+
+## X3 — Not changed
+
+- **The classifier's own spawn** (3.7 s): its key never matches an agent step's, and warming a
+  no-tool process after every chat reply would leave a process behind for nothing.
+- **Cache misses on tool-block changes** (41 of 128 calls): cost, not latency (§W1). A run-stable
+  tool block would remove the structural withholding ADR 0075 relies on.
+
+## X4 — The repair pass was an invisible model call thinking at the SDK's `high`
+
+The two slowest Claude turns' self-check phases (26.1 s in `c68947dc`, 12.0 s in `275404ab`, §W
+measured them as silent gaps) were the repair pass: `attemptRepair` runs through `complete()`,
+which emits no `context_usage` pair, so no recording, meter or latency decomposition ever showed
+the call — and its request named no `reasoningEffort`, so `claude-agent-sdk` ran it at the SDK's
+own default, `high`. Both times it proposed no change. Host-side lag was ruled out first: the
+durable log's `occurredAt` trails the event's `ts` by 1 ms p50 / 67 ms p90 over that run.
+
+**Landed:**
+- the Agent SDK adapter sends `medium` for any request that names no effort
+  (`CLAUDE_AGENT_SDK_DEFAULT_EFFORT`); the SDK's `high` was a default for a person's session,
+  not for a harness paying per second — this also covers the caption-emphasis and vision judges
+  and plan generation;
+- the classifier asks for `low` (a two-line JSON route, on every turn's critical path);
+- the repair pass asks for `medium` (`agentStepReasoningEffort({ stage: 'repair' })`) and emits
+  its context-usage pair (`requestId: repair:<step>`), so the next recording shows it;
+- a process warmed at one effort is never handed to a call at another (effort is part of the warm key).
+
+## X5 — Checked, not changed
+
+- **The desktop re-indexes the project brain on every auto-commit** (`indexProjectBrain` in
+  `main.ts`, ~12× per turn): FTS rebuild plus a drop-and-rebuild of every text embedding. On this
+  machine `FRAMEPILOT_EMBEDDINGS_MODEL_DIR` is unset, so the embedding half returns at once and the
+  FTS rebuild is milliseconds. With an embedder configured it would embed every utterance, digest
+  and caption per commit; a content fingerprint that skips an unchanged set is the fix if that
+  configuration is ever measured. Not on this branch: no run on this machine pays it.
+- **Host-side event handling** is not a lever: the durable log's `occurredAt` trails each event's
+  `ts` by 1 ms p50 / 67 ms p90 across run `17d23f52` (461 events), and the harness overhead between
+  model calls is 10 ms p50 / 167 ms p90 over 118 gaps.
+
+## X6 — The warm process also follows a turn-budget exit
+
+The SDK ends most multi-tool steps by exhausting its own `maxTurns: 1` after deferring the calls
+(the adapter's catch path treats that as done). That path spawned no warm process, so exactly the
+steps the pacing briefing asks for — several edits in one step — would have gone cold. Fixed:
+both endings pre-spawn; test added.
+
+## X7 — The classifier's 3.7 s is spawn plus round trip, not thinking
+
+Live, through the shipped provider, on three representative prompts (an edit brief, a question,
+thanks): `low` 3.0 / 3.1 / 4.6 s, `medium` 3.1 / 2.7 / 3.3 s, 19–51 output tokens, every route
+correct at both. The call barely thinks at either setting, so `low` is safe and changes nothing
+measurable; what it costs is one process spawn and one API round trip, and its process cannot be
+warmed (X3). Recorded so nobody chases it again.
+
