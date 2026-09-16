@@ -31,6 +31,7 @@ import {
 } from '@framepilot/timeline-schema';
 import { getTransition } from '@framepilot/timeline-schema/transition-catalog';
 import { resolveCaptionCue } from './captions/cue.js';
+import { assetDisplaySize } from './mask-geometry.js';
 import { applyEasing, evaluateKeyframes } from './keyframes.js';
 import { CAPTION_ASSET_ID, TEXT_OVERLAY_ASSET_ID } from './operations.js';
 import { hasSpeedRamp, sourceTimeAt } from './speed-curve.js';
@@ -900,11 +901,9 @@ export function framePlanAt(
   const assetSizes = new Map<string, readonly [number, number]>();
   const assetDurations = new Map<string, number>();
   for (const asset of assets) {
-    const width = asset.media?.width;
-    const height = asset.media?.height;
-    if (typeof width === 'number' && typeof height === 'number' && width > 0 && height > 0) {
-      assetSizes.set(asset.id, [width, height]);
-    }
+    // Display-corrected (PAR + rotation, PX2.9): the size the compiler decodes and fits.
+    const display = assetDisplaySize(asset.media);
+    if (display !== null) assetSizes.set(asset.id, [display.width, display.height]);
     if (asset.durationSeconds !== undefined) assetDurations.set(asset.id, asset.durationSeconds);
   }
   const ctx: Context = {

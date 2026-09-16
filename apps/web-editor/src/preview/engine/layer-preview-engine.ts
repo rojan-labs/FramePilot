@@ -23,7 +23,7 @@ import { framePlanAt, type FramePlan, type FramePlanLayer } from '@framepilot/ed
 import type { Asset, Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
 import { DecodeWorkerClient } from '../decode/worker-client.js';
-import type { DecodedPicture } from '../decode/decoded-picture.js';
+import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import { GlEffectChain, type TimedEffectLayer } from '../effects/gl-effect-chain.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
@@ -458,12 +458,17 @@ export class LayerPreviewEngine {
         this.client.releasePicture(message);
         continue;
       }
+      const rotation = this.assetsById.get(assetId)?.media?.rotation ?? 0;
+      const picture =
+        message.picture.kind === 'i420' && rotation !== 0
+          ? rotateI420(message.picture, rotation)
+          : message.picture;
       this.cache.set(key, {
-        picture: message.picture,
+        picture,
         timestampUs: message.timestampUs,
         lastUsed: ++this.useCounter,
       });
-      this.cacheBytes += message.picture.byteLength;
+      this.cacheBytes += picture.byteLength;
     }
   }
 

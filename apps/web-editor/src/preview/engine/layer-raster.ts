@@ -117,15 +117,15 @@ function pyRound(value: number): number {
   return floor % 2 === 0 ? floor : floor + 1;
 }
 
+/** The compiler's `_even`: nearest even integer (Python `round`), at least 2. */
+const even = (value: number): number => Math.max(2, pyRound(value / 2) * 2);
+
 /** `fitted_decode_size`: the exact size a static fit decodes at, or `null` (never upscale). */
 export function fittedDecodeSize(source: PixelSize, target: PixelSize): PixelSize | null {
   if (source.width <= 0 || source.height <= 0) return null;
   const scale = Math.min(target.width / source.width, target.height / source.height);
   if (scale >= 1) return null;
-  return {
-    width: Math.max(2, pyRound((source.width * scale) / 2) * 2),
-    height: Math.max(2, pyRound((source.height * scale) / 2) * 2),
-  };
+  return { width: even(source.width * scale), height: even(source.height * scale) };
 }
 
 /** `decode_cap_for_clip`. */
@@ -138,16 +138,34 @@ export function decodeCapForClip(clip: Clip, target: PixelSize): number | null {
   return Math.ceil((longest / fraction) * DECODE_CAP_HEADROOM);
 }
 
-/** `_open_source_reader`'s capped decode size, or `null` when the source already fits. */
-export function cappedDecodeSize(source: PixelSize, cap: number | null): PixelSize | null {
-  if (cap === null) return null;
-  const longest = Math.max(source.width, source.height);
-  if (longest <= cap) return null;
+/**
+ * `_open_source_reader`'s decode size for a `source` (storage pixels, already turned upright)
+ * with pixel aspect ratio `par`, or `null` when ffmpeg decodes it as stored.
+ */
+export function readerDecodeSize(
+  source: PixelSize,
+  cap: number | null,
+  fitTarget: PixelSize | null,
+  par = 1,
+): PixelSize | null {
+  const display = { width: source.width * par, height: source.height };
+  const anamorphic = par !== 1;
+  if (fitTarget !== null) {
+    const exact = fittedDecodeSize(display, fitTarget);
+    if (exact !== null) return exact;
+    return anamorphic ? { width: even(display.width), height: even(display.height) } : null;
+  }
+  const longest = Math.max(display.width, display.height);
+  if (cap === null || longest <= cap) {
+    return anamorphic ? { width: even(display.width), height: even(display.height) } : null;
+  }
   const scale = cap / longest;
-  return {
-    width: Math.max(2, pyRound((source.width * scale) / 2) * 2),
-    height: Math.max(2, pyRound((source.height * scale) / 2) * 2),
-  };
+  return { width: even(display.width * scale), height: even(display.height * scale) };
+}
+
+/** `_open_source_reader`'s capped decode size for square pixels (kept for callers and tests). */
+export function cappedDecodeSize(source: PixelSize, cap: number | null): PixelSize | null {
+  return cap === null ? null : readerDecodeSize(source, cap, null, 1);
 }
 
 function hasTransitionEffect(clip: Clip): boolean {
@@ -174,15 +192,16 @@ export function decodeStepFor(
   source: PixelSize,
   target: PixelSize,
   role: FramePlanLayer['role'],
+  par = 1,
 ): DecodeStep {
   // `_underlay_layer` opens the neighbour with the export's own `max_decode_dimension` (None).
-  if (role === 'underlay') return { kind: 'native' };
-  if (isStaticFit(clip)) {
-    const exact = fittedDecodeSize(source, target);
-    return exact === null ? { kind: 'native' } : { kind: 'scaled', ...exact };
-  }
-  const capped = cappedDecodeSize(source, decodeCapForClip(clip, target));
-  return capped === null ? { kind: 'native' } : { kind: 'scaled', ...capped };
+  const size =
+    role === 'underlay'
+      ? readerDecodeSize(source, null, null, par)
+      : isStaticFit(clip)
+        ? readerDecodeSize(source, null, target, par)
+        : readerDecodeSize(source, decodeCapForClip(clip, target), null, par);
+  return size === null ? { kind: 'native' } : { kind: 'scaled', ...size };
 }
 
 /** `vfx.Crop` on a `width × height` frame: float bounds, `int()` slicing, numpy clamping. */
@@ -236,7 +255,7 @@ export function pictureRasterStep(
 
   const isVideo = source.assetKind === 'video';
   const decode: DecodeStep = isVideo
-    ? decodeStepFor(clip, size, target, layer.role)
+    ? decodeStepFor(clip, size, target, layer.role, asset.media?.pixelAspectRatio ?? 1)
     : { kind: 'native' };
   const decoded = decode.kind === 'scaled' ? decode : size;
   // A still is placed without its crop (the plan's own quirk note), and so is its mask.

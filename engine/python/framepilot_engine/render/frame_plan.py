@@ -567,7 +567,7 @@ class _Context:
     t: float
     target: tuple[int, int]
     asset_kinds: dict[str, str | None]
-    asset_sizes: dict[str, tuple[int, int]]
+    asset_sizes: dict[str, tuple[float, float]]
     asset_durations: dict[str, float | None]
     source_fps: Mapping[str, float]
 
@@ -579,7 +579,9 @@ def _crop_json(clip: Clip) -> dict[str, float] | None:
     return {"x": crop.x, "y": crop.y, "width": crop.width, "height": crop.height}
 
 
-def _cropped_size(clip: Clip, size: tuple[int, int], *, honour_crop: bool) -> tuple[float, float]:
+def _cropped_size(
+    clip: Clip, size: tuple[float, float], *, honour_crop: bool
+) -> tuple[float, float]:
     width, height = float(size[0]), float(size[1])
     crop = clip.crop if honour_crop else None
     if crop is None:
@@ -843,11 +845,13 @@ def frame_plan_at(
     if t != t or t in (float("inf"), float("-inf")):
         raise FramePlanError(f"Frame plan time must be finite, got {t!r}.")
     size = target or (project.resolution.width, project.resolution.height)
-    asset_sizes: dict[str, tuple[int, int]] = {}
+    # Display-corrected (PAR + rotation, PX2.9): the size the compiler decodes and fits.
+    asset_sizes: dict[str, tuple[float, float]] = {}
     for asset in project.assets:
         media = asset.media
-        if media is not None and media.width and media.height:
-            asset_sizes[asset.id] = (media.width, media.height)
+        display = media.display_size() if media is not None else None
+        if display is not None:
+            asset_sizes[asset.id] = display
     ctx = _Context(
         project=project,
         t=t,

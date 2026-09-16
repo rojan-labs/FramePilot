@@ -69,14 +69,8 @@
                       "value": 1.0,
                       "easing": "bezier",
                       "handles": {
-                        "out": [
-                          0.42,
-                          0.0
-                        ],
-                        "in": [
-                          0.0,
-                          0.0
-                        ]
+                        "out": [0.42, 0.0],
+                        "in": [0.0, 0.0]
                       }
                     },
                     {
@@ -86,14 +80,8 @@
                       "value": 1.5,
                       "easing": "linear",
                       "handles": {
-                        "out": [
-                          1.0,
-                          1.0
-                        ],
-                        "in": [
-                          0.58,
-                          1.0
-                        ]
+                        "out": [1.0, 1.0],
+                        "in": [0.58, 1.0]
                       }
                     },
                     {
@@ -177,23 +165,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        0.0,
-        0.75,
-        1.5,
-        2.0,
-        3.5
-      ],
+      "samples": [0.0, 0.75, 1.5, 2.0, 3.5],
       "expected": [
         {
           "time": 0.0,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -266,11 +244,7 @@
           "time": 0.75,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -343,11 +317,7 @@
           "time": 1.5,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -420,11 +390,7 @@
           "time": 2.0,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -497,11 +463,7 @@
           "time": 3.5,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -633,19 +595,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        1.0
-      ],
+      "samples": [1.0],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -744,19 +700,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        1.0
-      ],
+      "samples": [1.0],
       "expected": [
         {
           "time": 1.0,
           "width": 1080,
           "height": 1920,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -850,19 +800,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        1.0
-      ],
+      "samples": [1.0],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -1002,21 +946,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        0.5,
-        1.5,
-        2.5
-      ],
+      "samples": [0.5, 1.5, 2.5],
       "expected": [
         {
           "time": 0.5,
           "width": 1080,
           "height": 1080,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -1057,11 +993,7 @@
           "time": 1.5,
           "width": 1080,
           "height": 1080,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -1102,11 +1034,7 @@
           "time": 2.5,
           "width": 1080,
           "height": 1080,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -1247,19 +1175,13 @@
         },
         "transcript": []
       },
-      "samples": [
-        1.0
-      ],
+      "samples": [1.0],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [
-            0,
-            0,
-            0
-          ],
+          "background": [0, 0, 0],
           "layers": [
             {
               "kind": "picture",
@@ -1318,6 +1240,208 @@
                 "top": 180.0,
                 "width": 480.0,
                 "height": 360.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "anamorphic-pixel-aspect",
+      "row": "Geometry: anamorphic pixel aspect ratio",
+      "description": "Anamorphic 1440x1080 source with a 4:3 pixel aspect ratio (displays 1920x1080) in a landscape sequence: fitted by its display size, not its storage size.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "anam": 30
+        }
+      },
+      "project": {
+        "id": "fp-anamorphic-pixel-aspect",
+        "name": "anamorphic-pixel-aspect",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "anam",
+            "path": "media/anam.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1440,
+              "height": 1080,
+              "pixelAspectRatio": 1.3333333333333333,
+              "proxyPath": "proxies/anam.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "anam",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [1.0],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "anam",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "rotation-metadata",
+      "row": "Geometry: rotation metadata",
+      "description": "Phone clip stored 1920x1080 with a clockwise 90 degree display rotation (displays 1080x1920) in a landscape sequence: turned upright, then pillarboxed.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "phone": 30
+        }
+      },
+      "project": {
+        "id": "fp-rotation-metadata",
+        "name": "rotation-metadata",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "phone",
+            "path": "media/phone.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "rotation": 90,
+              "proxyPath": "proxies/phone.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "phone",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [1.0],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "phone",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
               },
               "opacity": 1.0,
               "blendMode": "normal",

@@ -47,12 +47,14 @@ import math
 import multiprocessing
 import os
 import signal
+import struct
 import subprocess
 import sys
 import threading
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -78,6 +80,8 @@ SENTINELS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     "orig": ((44, 236, 236), (44, 140, 140)),
     "land24": ((236, 140, 44), (140, 236, 44)),
     "png": ((140, 44, 236), (44, 140, 236)),
+    "anam": ((140, 140, 236), (140, 236, 140)),
+    "phone": ((236, 140, 140), (140, 140, 140)),
 }
 #: Bits of the frame counter. 12 bits index 4096 frames: a 60 s asset at 30 fps is 1800.
 COUNTER_BITS = 12
@@ -122,6 +126,10 @@ class VideoSpec:
     seconds: float
     primary: tuple[int, int, int]
     secondary: tuple[int, int, int]
+    #: Sample (pixel) aspect ratio written into the stream; 1 = square pixels.
+    pixel_aspect_ratio: float = 1.0
+    #: Clockwise display rotation written into the track matrix (``Asset.media.rotation``).
+    rotation: int = 0
 
 
 def input_hash() -> str:
@@ -170,6 +178,44 @@ def _even(value: int) -> int:
     return max(2, value - value % 2)
 
 
+def _sar(pixel_aspect_ratio: float) -> str:
+    fraction = Fraction(pixel_aspect_ratio).limit_denominator(1000)
+    return f"{fraction.numerator}/{fraction.denominator}"
+
+
+#: ISO BMFF ``tkhd`` display matrices (16.16 / 2.30) for a CLOCKWISE display rotation, as
+#: ffprobe reads them back (its ``rotation`` is counter-clockwise: -90 for a clockwise turn).
+_TKHD_MATRICES: dict[int, tuple[int, ...]] = {
+    90: (0, 0x10000, 0, -0x10000, 0, 0, 0, 0, 0x40000000),
+    180: (-0x10000, 0, 0, 0, -0x10000, 0, 0, 0, 0x40000000),
+    270: (0, -0x10000, 0, 0x10000, 0, 0, 0, 0, 0x40000000),
+}
+
+
+def set_display_rotation(path: Path, clockwise: int) -> None:
+    """Write a display rotation into the (single) video track's ``tkhd`` matrix.
+
+    Written into the container directly rather than through an ffmpeg option, whose name and
+    availability differ between the ffmpeg versions CI and workstations run.
+    """
+    matrix = _TKHD_MATRICES.get(clockwise % 360)
+    if matrix is None:
+        return
+    data = bytearray(path.read_bytes())
+    index = data.find(b"tkhd")
+    while index != -1:
+        version = data[index + 4]
+        # version/flags, times, track id, reserved, duration, reserved(8), layer, group, volume,
+        # reserved(2), then the 36-byte matrix.
+        offset = index + 4 + 4 + (28 if version == 1 else 20) + 8 + 2 + 2 + 2 + 2
+        width, height = struct.unpack(">II", data[offset + 36 : offset + 44])
+        if width and height:
+            data[offset : offset + 36] = struct.pack(">9i", *matrix)
+            path.write_bytes(bytes(data))
+            return
+        index = data.find(b"tkhd", index + 4)
+
+
 def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
     """Encode one sentinel asset the way ``media/derive.py`` encodes a preview proxy."""
     out = out_dir / spec.rel_path
@@ -192,6 +238,11 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
             *counter,
             "scale=out_color_matrix=bt709:out_range=tv",
             "format=yuv420p",
+            *(
+                [f"setsar={_sar(spec.pixel_aspect_ratio)}"]
+                if spec.pixel_aspect_ratio != 1.0
+                else []
+            ),
         ]
     )
     keyframe_interval = str(max(1, round(spec.fps) // 2))
@@ -252,6 +303,8 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
             str(out),
         ]
     )
+    if spec.rotation:
+        set_display_rotation(out, spec.rotation)
 
 
 def write_png_asset(out_dir: Path, rel_path: str, width: int, height: int) -> None:
@@ -335,6 +388,8 @@ def collect_media(
                     seconds=float(asset.get("durationSeconds") or 10.0),
                     primary=primary,
                     secondary=secondary,
+                    pixel_aspect_ratio=float(media.get("pixelAspectRatio") or 1.0),
+                    rotation=int(media.get("rotation") or 0),
                 )
                 if videos.setdefault(rel, spec) != spec:
                     raise ValueError(f"Cases disagree about the media facts of {rel!r}")

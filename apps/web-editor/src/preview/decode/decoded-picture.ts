@@ -111,3 +111,47 @@ export function pictureTransfer(picture: DecodedPicture): Transferable[] {
   if (picture.kind === 'frame') return [picture.frame];
   return [picture.y.buffer as ArrayBuffer];
 }
+
+function rotatePlane(
+  plane: Uint8Array,
+  width: number,
+  height: number,
+  clockwise: 90 | 180 | 270,
+): Uint8Array {
+  const out = new Uint8Array(plane.length);
+  if (clockwise === 180) {
+    for (let i = 0, n = width * height; i < n; i++) out[n - 1 - i] = plane[i]!;
+    return out;
+  }
+  // Output is height × width.
+  for (let y = 0; y < width; y++) {
+    for (let x = 0; x < height; x++) {
+      const source =
+        clockwise === 90
+          ? (height - 1 - x) * width + y // dst(x, y) = src(y, H-1-x)
+          : x * width + (width - 1 - y); // dst(x, y) = src(W-1-y, x)
+      out[y * height + x] = plane[source]!;
+    }
+  }
+  return out;
+}
+
+/**
+ * Turn an I420 picture upright by its clockwise display rotation (`Asset.media.rotation`), as
+ * ffmpeg's autorotate does before the export's scaler sees the planes (PX2.9). WebCodecs decodes
+ * the stored orientation, so the compositor would otherwise fit a phone clip sideways.
+ */
+export function rotateI420(picture: I420Picture, clockwise: number): I420Picture {
+  if (clockwise !== 90 && clockwise !== 180 && clockwise !== 270) return picture;
+  const cw = half(picture.width);
+  const ch = half(picture.height);
+  const quarter = clockwise !== 180;
+  return {
+    ...picture,
+    width: quarter ? picture.height : picture.width,
+    height: quarter ? picture.width : picture.height,
+    y: rotatePlane(picture.y, picture.width, picture.height, clockwise),
+    u: rotatePlane(picture.u, cw, ch, clockwise),
+    v: rotatePlane(picture.v, cw, ch, clockwise),
+  };
+}

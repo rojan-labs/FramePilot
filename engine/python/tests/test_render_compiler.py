@@ -2665,3 +2665,25 @@ def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
     )
     with pytest.raises(CompileError, match="Disable the mask to export now"):
         compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+def test_anamorphic_source_decodes_to_its_display_corrected_size() -> None:
+    """PX2.9: MoviePy ignores the sample aspect ratio, so the reader is opened square-pixelled."""
+    from framepilot_engine.render.compiler import _open_source_reader
+
+    # 3840x2160 storage with PAR 4/3 displays 5120x2160; fitted into 1920x1080 by height.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, (1920, 1080), 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (1920, 810))
+    # Unfitted and uncapped: still stretched, to even dimensions.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, None, 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (5120, 2160))
+    # Capped on the display size, not the storage size.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", 2560, None, 4 / 3)
+    assert _SizedReader.opened[-1] == ("big.mov", (2560, 1080))
+    # Square pixels behave exactly as before.
+    _SizedReader.opened.clear()
+    _open_source_reader(_SizedReader, "big.mov", None, None, 1.0)
+    assert _SizedReader.opened == [("big.mov", None)]

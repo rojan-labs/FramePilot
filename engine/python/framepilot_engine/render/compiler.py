@@ -505,6 +505,7 @@ def _underlay_layer(
     lut_base_dir: Path,
     max_decode_dimension: int | None,
     opened: list[Any],
+    pixel_aspect_ratio: float = 1.0,
 ) -> Any:
     """Build the picture that sits UNDER a transition ramp, from the neighbour's handle.
 
@@ -522,7 +523,9 @@ def _underlay_layer(
         failed compile still closes it.
     """
     start, _end = window
-    reader = _open_source_reader(video_file_clip_cls, path, max_decode_dimension)
+    reader = _open_source_reader(
+        video_file_clip_cls, path, max_decode_dimension, None, pixel_aspect_ratio
+    )
     opened.append(reader)
     # Which handle (past the out-point for "in", before the in-point for "out") and whether
     # any is left is decided in `frame_plan.underlay_material`, the same call the plan makes.
@@ -568,6 +571,14 @@ def _apply_transition_blur(
         return np.asarray(image)
 
     return source.transform(blurred, keep_duration=True)
+
+
+def _pixel_aspect_ratio(project: Project, clip: Clip) -> float:
+    """The clip asset's probed pixel aspect ratio (1 when square or unprobed)."""
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    par = media.pixel_aspect_ratio if media is not None else None
+    return float(par) if par else 1.0
 
 
 def _asset_media_size(project: Project, clip: Clip) -> tuple[float, float] | None:
@@ -1052,6 +1063,7 @@ def compile_timeline(
                             if max_decode_dimension is not None
                             else decode_cap_for_clip(clip, target),
                             target if static_fit else None,
+                            _pixel_aspect_ratio(project, clip),
                         )
                         opened.append(reader)
                         source = _subclipped_source(reader, clip)
@@ -1089,6 +1101,7 @@ def compile_timeline(
                                 lut_base_dir,
                                 max_decode_dimension,
                                 opened,
+                                _pixel_aspect_ratio(project, resolved_neighbour),
                             )
                             track_pictures.append((underlay, resolved_neighbour.blend_mode))
                         track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
@@ -1345,7 +1358,9 @@ def decode_cap_for_clip(clip: Clip, target: tuple[int, int]) -> int | None:
     return math.ceil(longest / fraction * DECODE_CAP_HEADROOM)
 
 
-def fitted_decode_size(source: tuple[int, int], target: tuple[int, int]) -> tuple[int, int] | None:
+def fitted_decode_size(
+    source: tuple[float, float], target: tuple[int, int]
+) -> tuple[int, int] | None:
     """The exact size a fit-to-frame clip is displayed at, for ffmpeg to decode straight to.
 
     A landscape 4K source in a 1080x1920 portrait frame is displayed at 1080x608. Decoding
@@ -1371,11 +1386,17 @@ def fitted_decode_size(source: tuple[int, int], target: tuple[int, int]) -> tupl
     )
 
 
+def _even(value: float) -> int:
+    """Nearest even integer (Python ``round`` on the half), at least 2: yuv420p needs even sizes."""
+    return max(2, round(value / 2) * 2)
+
+
 def _open_source_reader(
     video_file_clip_cls: Any,
     path: str,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
+    pixel_aspect_ratio: float = 1.0,
 ) -> Any:
     """Open a source, decoding no larger than the export actually needs.
 
@@ -1384,24 +1405,33 @@ def _open_source_reader(
     ffmpeg can be asked for exactly it, leaving MoviePy's per-frame resize a no-op. Any
     clip that moves, scales or is cropped falls back to ``max_decode_dimension``, which
     keeps headroom because the zoom it reaches is not knowable here.
+
+    ``pixel_aspect_ratio`` (PX2.9, ``Asset.media.pixelAspectRatio``): MoviePy reads storage
+    pixels and ignores the sample aspect ratio, so an anamorphic source is decoded straight
+    to its display-corrected size (width times PAR, even-rounded) and every later stage sees
+    square pixels. Rotation needs nothing here: ffmpeg autorotates and MoviePy swaps the size.
     """
     reader = video_file_clip_cls(path)
+    width, height = reader.size
+    par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
+    display = (width * par, height)
+    anamorphic = par != 1.0
     if fit_target is not None:
-        exact = fitted_decode_size(reader.size, fit_target)
+        exact = fitted_decode_size(display, fit_target)
+        if exact is None and anamorphic:
+            exact = (_even(display[0]), _even(display[1]))
         if exact is not None:
             reader.close()
             return video_file_clip_cls(path, target_resolution=exact)
         return reader
-    if max_decode_dimension is None:
-        return reader
-    width, height = reader.size
-    if max(width, height) <= max_decode_dimension:
-        return reader
-    scale = max_decode_dimension / max(width, height)
-    target = (
-        max(2, round(width * scale / 2) * 2),
-        max(2, round(height * scale / 2) * 2),
-    )
+    longest = max(display)
+    if max_decode_dimension is None or longest <= max_decode_dimension:
+        if not anamorphic:
+            return reader
+        reader.close()
+        return video_file_clip_cls(path, target_resolution=(_even(display[0]), _even(display[1])))
+    scale = max_decode_dimension / longest
+    target = (_even(display[0] * scale), _even(display[1] * scale))
     reader.close()
     return video_file_clip_cls(path, target_resolution=target)
 
