@@ -356,3 +356,58 @@ function legacyGeometryTransition(clip: Clip): boolean {
   const kind = typeof effect.params.kind === 'string' ? effect.params.kind : '';
   return readAlignment(effect.params) === 'start' && LEGACY_GEOMETRY_KINDS.has(kind);
 }
+
+/**
+ * A text overlay's raster placed as `_compile_text_clip` places it: `fit_to_frame=False` (base
+ * scale 1) around the layout centre, the clip's own transform applied when it animates.
+ *
+ * @param layer - A `text` layer of `framePlanAt` computed at `target`.
+ * @param clip - The text clip.
+ * @param raster - The rasterised overlay size.
+ * @param centre - The layout centre (`xPercent`/`yPercent` of the frame).
+ */
+export function textRasterStep(
+  layer: FramePlanLayer,
+  clip: Clip,
+  raster: PixelSize,
+  centre: { readonly x: number; readonly y: number },
+): PictureRasterStep | null {
+  const geometry = layer.geometry;
+  if (geometry === null || raster.width <= 0 || raster.height <= 0) return null;
+  const transformed = clip.keyframes.some((keyframe) =>
+    RENDERED_TRANSFORM_PROPERTIES.has(keyframe.property),
+  );
+  let resize: PixelSize | null = null;
+  let x: number;
+  let y: number;
+  if (!transformed) {
+    x = pyInt(centre.x - raster.width / 2);
+    y = pyInt(centre.y - raster.height / 2);
+  } else {
+    const scale = geometry.scale;
+    const width = pyInt(scale * raster.width);
+    const height = pyInt(scale * raster.height);
+    if (width <= 0 || height <= 0) return null;
+    if (width !== raster.width || height !== raster.height) resize = { width, height };
+    x = pyInt(geometry.anchorX - (raster.width * scale) / 2);
+    y = pyInt(geometry.anchorY - (raster.height * scale) / 2);
+  }
+  return {
+    assetId: `text:${clip.id}`,
+    assetKind: 'image',
+    frame: null,
+    decode: { kind: 'native' },
+    crop: null,
+    opacity: null,
+    wipe: null,
+    transitions: [],
+    resize,
+    rotation: clip.keyframes.some((keyframe) => keyframe.property === 'rotation')
+      ? geometry.rotation
+      : 0,
+    x,
+    y,
+    blendMode: layer.blendMode,
+    effects: [],
+  };
+}

@@ -26,10 +26,9 @@ import { DecodeWorkerClient } from '../decode/worker-client.js';
 import type { DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import { GlEffectChain, type TimedEffectLayer } from '../effects/gl-effect-chain.js';
-import type { OverlayClip } from '../../editor/patch-builders.js';
-import { paintTextOverlay } from './overlay-painter.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
-import { pictureRasterStep, type PixelSize } from './layer-raster.js';
+import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
+import { loadExportTextFont, rasterizeTextOverlay, type TextRaster } from './text-raster.js';
 import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
 import { mediaSrc } from '../../editor/media.js';
 import type {
@@ -60,8 +59,6 @@ export interface LayerEngineProject {
   readonly canvasSize: PixelSize;
   readonly projectFps?: number;
   readonly transcript?: readonly TranscriptWord[];
-  /** Text overlays by clip id (resolved params), for the interim canvas text raster. */
-  readonly overlays?: readonly OverlayClip[];
   /** Text clips not drawn into the frame (the selected one is edited in the DOM). */
   readonly hiddenOverlayIds?: ReadonlySet<string>;
 }
@@ -117,7 +114,6 @@ export class LayerPreviewEngine {
   private planTimeline: Timeline | null = null;
   private clipsById = new Map<string, Clip>();
   private assetsById = new Map<string, Asset>();
-  private overlaysById = new Map<string, OverlayClip>();
   private readonly sources = new Map<string, VideoSource>();
   private readonly loadingSources = new Map<string, Promise<void>>();
   private readonly images = new Map<string, ImageBitmap>();
@@ -127,7 +123,8 @@ export class LayerPreviewEngine {
   private cacheBytes = 0;
   private useCounter = 0;
   private readonly decoding = new Set<string>();
-  private textCanvas: HTMLCanvasElement | null = null;
+  private readonly textRasters = new Map<string, TextRaster | null>();
+  private textFontReady = false;
   private glEffects: GlEffectChain | null = null;
 
   private durationSec = 0;
@@ -208,7 +205,6 @@ export class LayerPreviewEngine {
       ),
     );
     this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
-    this.overlaysById = new Map((project.overlays ?? []).map((overlay) => [overlay.id, overlay]));
     this.durationSec = project.timeline.tracks.reduce(
       (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
       0,
@@ -254,6 +250,9 @@ export class LayerPreviewEngine {
       ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
       ...[...wantedImages].map((url) => this.loadImage(url)),
       ...[...wantedLuts].map((path) => this.loadLut(path)),
+      loadExportTextFont().then((ready) => {
+        this.textFontReady = ready;
+      }),
     ]);
     this.compositor?.setLuts(this.luts);
     if (this.disposed) return;
@@ -448,34 +447,36 @@ export class LayerPreviewEngine {
 
   // --- presentation --------------------------------------------------------------------------
 
-  private textRaster(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
-    if (layer.clipId === null) return null;
+  /** A text clip as the export rasterises and places it (PX2.3). */
+  private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
+    if (layer.clipId === null || !this.textFontReady) return null;
     if (this.project?.hiddenOverlayIds?.has(layer.clipId)) return null;
-    const overlay = this.overlaysById.get(layer.clipId);
-    if (!overlay) return null;
-    this.textCanvas ??= document.createElement('canvas');
-    const canvas = this.textCanvas;
-    if (canvas.width !== size.width) canvas.width = size.width;
-    if (canvas.height !== size.height) canvas.height = size.height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return null;
-    ctx.clearRect(0, 0, size.width, size.height);
-    paintTextOverlay(
-      ctx,
-      overlay.params,
-      layer.localTime,
-      overlay.end - overlay.start,
-      size.width,
-      size.height,
-    );
+    const clip = this.clipsById.get(layer.clipId);
+    const effect = clip?.effects.find((candidate) => candidate.type === 'text');
+    if (!clip || !effect) return null;
+    const key = `${size.width}x${size.height}|${JSON.stringify(effect.params)}`;
+    let raster = this.textRasters.get(key);
+    if (raster === undefined) {
+      raster = rasterizeTextOverlay(effect.params, size.width, size.height);
+      if (this.textRasters.size > 64) this.textRasters.clear();
+      this.textRasters.set(key, raster);
+    }
+    if (raster === null) return null;
+    const step = textRasterStep(layer, clip, raster, {
+      x: raster.layout.centreX,
+      y: raster.layout.centreY,
+    });
+    if (step === null) return null;
     return {
-      kind: 'raster',
-      key: `text:${layer.clipId}`,
-      image: canvas,
-      width: size.width,
-      height: size.height,
-      x: 0,
-      y: 0,
+      kind: 'picture',
+      step,
+      source: {
+        kind: 'image',
+        key: `text:${key}`,
+        image: raster.image,
+        width: raster.width,
+        height: raster.height,
+      },
     };
   }
 
@@ -493,7 +494,7 @@ export class LayerPreviewEngine {
     const presented: PresentedLayer[] = [];
     for (const layer of plan.layers) {
       if (layer.kind === 'text') {
-        const raster = this.textRaster(layer, size);
+        const raster = this.textLayer(layer, size);
         if (raster) layers.push(raster);
         continue;
       }

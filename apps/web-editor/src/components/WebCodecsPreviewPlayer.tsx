@@ -607,7 +607,6 @@ export function WebCodecsPreviewPlayer({
         canvasSize: { width: canvasWidth, height: canvasHeight },
         projectFps: fps,
         ...(transcript ? { transcript } : {}),
-        overlays,
         hiddenOverlayIds,
       })
       .then(() => {
@@ -626,7 +625,6 @@ export function WebCodecsPreviewPlayer({
     canvasHeight,
     fps,
     transcript,
-    overlays,
     hiddenOverlayIds,
   ]);
 
