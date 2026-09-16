@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Exports draw every shape mask exactly.** Rectangles (now with rotation and rounded corners),
+  ellipses and curved paths render in any number and any mode (add, subtract, intersect,
+  difference, lighten, darken), with invert, opacity, expansion, inner and outer feather,
+  per-vertex feather on paths, animated paths, and masks that limit a colour grade or LUT to part
+  of the picture. Edges use exact pixel coverage and a true distance feather, computed the same
+  way on every platform, so the preview can match the export byte for byte. Masks upgraded from
+  older projects still export exactly as before. Mask kinds that are not ready yet (AI mattes,
+  colour keys, split and gradient masks, track mattes, tracked or frame-fixed masks, masks on
+  adjustment layers) stop the export with "Disable the mask to export now" instead of rendering
+  something different from what you drew.
+
 - **Masks are now a stack on each clip (project format 22).** A clip can hold any number of masks —
   rectangles, ellipses, paths, and (coming) mattes, keys and track mattes — each with a mode,
   feathers and keyframes that stay glued to the footage through trims, splits and speed changes.

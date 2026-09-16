@@ -284,6 +284,35 @@ finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention,
 `editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
 mask from frame fractions. Operations are listed in `patch-format.md`.
 
+### How the export draws a stack (MK2)
+
+`render/mask_stack.py` evaluates the enabled masks at the asset source second the clip is playing
+(the speed stage's clock: speed, reverse, freeze and ramps) and draws each on the exact
+rasteriser `render/mask_raster.py`. The TypeScript preview rasteriser (MK3) must match it byte for
+byte against `tests/fixtures/mask-raster`.
+
+| Rule | Behaviour |
+| --- | --- |
+| Geometry | Source pixels mapped through the clip's crop onto the decoded frame; expansion and feathers scale by the smaller axis scale |
+| `rotation` | Degrees, clockwise on screen, about the centre; quarter turns are exact |
+| `roundness` | Corner radius `roundness × min(width, height) / 2` |
+| Path keyframes | Every number `a + (b − a) × p`, `p` the earlier keyframe's eased progress (ADR 0089, incl. two-sided bezier handles); vertex `i` pairs with vertex `i` |
+| Hard edge | Zero expansion and feathers: exact area coverage |
+| Feather | `s` = signed distance to the edge (outside positive) − expansion; alpha `falloff((outer − s) / (inner + outer))`; with no feather but an expansion, a one-pixel linear edge |
+| `featherPx` | When present, the per-vertex OUTER feather, interpolated along each segment (replaces `featherOuterPx`) |
+| `falloff` | `linear` x · `smooth` 3x² − 2x³ · `gaussian` from the shipped 4096-entry table |
+| Layer | invert (`1 − a`), then × opacity |
+| `mode` | The stack starts at zero: `add` min(1, a + m) · `subtract` max(0, a − m) · `intersect` a × m · `difference` \|a − m\| · `lighten` max · `darken` min |
+| Quantisation | Once, after the stack: `round(a × 255)`, ties to even |
+| `target: effect` | That effect (today `color_grade`, `lut`) runs on the whole frame and is mixed with the input by the stack's alpha |
+| `gaussian-legacy` | The v21 blur, byte-identical for migrated masks; rotation, roundness, curves, expansion, inner or per-vertex feather refuse with "Switch the mask's feather model to Distance" |
+
+Refused before rendering, with "Disable the mask to export now": `matte`, `key`, `linear`, `band`,
+`gradient` and `layer` masks, tracked masks, `space: 'frame'` masks and masks on effect layers.
+Known limits: where regions of opposite winding (or winding beyond one) share a pixel, as at the
+crossing of a self-intersecting path, coverage uses the pixel's net area; an animated mask migrated
+from a speed-ramped v21 clip matches v21 only at its keyframes.
+
 ## Schema versioning & migration
 
 **v21 → v22** converts `mask` effects into `Clip.masks` (see ADR 0178). The desktop app writes

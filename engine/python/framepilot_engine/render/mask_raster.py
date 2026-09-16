@@ -422,6 +422,13 @@ def coverage_alpha(polyline: Polyline, width: int, height: int) -> FloatArray:
     signed covered area. Pieces left of the frame add their whole ``dY`` to column 0. Heights
     are rounded at the (shared) piece endpoints, so a closed path's integers telescope and a
     row outside the shape sums to exactly zero.
+
+    The result is the pixel's NET winding area, clamped to 1. That equals nonzero coverage
+    wherever the winding inside a pixel stays within {0, +1} or {0, -1}: every simple path.
+    Where regions of opposite winding share a pixel (the crossing of a self-intersecting
+    path), their areas cancel; where a path overlaps itself with the same winding inside a
+    pixel, the overlap counts twice before the clamp. Both are recorded limits
+    (``test_mask_raster_vectors.py``).
     """
     alpha = np.zeros((height, width), dtype=np.float64)
     xs, ys = polyline.xs, polyline.ys
