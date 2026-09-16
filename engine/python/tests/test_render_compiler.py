@@ -2646,16 +2646,16 @@ def test_fitted_decode_size_is_always_even() -> None:
 
 
 @pytest.mark.usefixtures("require_ffprobe")
-def test_compile_refuses_a_mask_stack_the_interim_rasteriser_cannot_draw(
+def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
-    """Until MK2, a stack beyond one plain shape stops the export with a reason, not a guess."""
+    """A mask kind whose renderer has not shipped stops the export with a remedy, not a guess."""
     src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
     (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
     clip = _clip("c1", "v", 0, 1, asset="a1")
     clip["masks"] = [
         {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
-        {"kind": "ellipse", "id": "b", "cx": 160, "cy": 120, "rx": 50, "ry": 50},
+        {"kind": "key", "id": "k", "model": "luma"},
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
@@ -2663,5 +2663,5 @@ def test_compile_refuses_a_mask_stack_the_interim_rasteriser_cannot_draw(
             {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
         ],
     )
-    with pytest.raises(CompileError, match="more than one enabled mask"):
+    with pytest.raises(CompileError, match="Disable the mask to export now"):
         compile_timeline(project, _index(project, tmp_project_dir), REELS)

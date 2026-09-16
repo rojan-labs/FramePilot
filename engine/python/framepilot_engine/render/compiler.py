@@ -64,6 +64,7 @@ from __future__ import annotations
 
 import math
 from collections.abc import Callable, Mapping, Sequence
+from functools import partial
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING, Any, cast
@@ -135,10 +136,11 @@ from framepilot_engine.render.frame_plan import (
 from framepilot_engine.render.frame_plan import (
     transition_underlay_window as transition_underlay_window,
 )
-from framepilot_engine.render.masks import (
-    UnsupportedMaskStack,
-    legacy_mask_for_clip,
-    rasterize_mask,
+from framepilot_engine.render.mask_stack import (
+    ClipMaskStacks,
+    MaskStackRefusal,
+    clip_mask_stacks,
+    mix_by_alpha,
 )
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
@@ -577,26 +579,53 @@ def _asset_media_size(project: Project, clip: Clip) -> tuple[int, int] | None:
     return (media.width, media.height)
 
 
+def _clip_mask_stacks(clip: Clip, media_size: tuple[int, int] | None) -> ClipMaskStacks | None:
+    """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
+    try:
+        return clip_mask_stacks(clip, media_size)
+    except MaskStackRefusal as exc:
+        raise CompileError(str(exc)) from exc
+
+
+def _refuse_unrenderable_masks(project: Project) -> None:
+    """Refuse, before any reader opens, a mask stack the export cannot draw faithfully."""
+    kinds = _asset_kinds_from_project(project)
+    for track in project.timeline.tracks:
+        for layer in track.effect_layers or []:
+            enabled = [mask for mask in (layer.masks or []) if mask.enabled]
+            if enabled:
+                raise CompileError(
+                    f"Mask {enabled[0].id!r} on effect layer {layer.id!r}: masks on adjustment "
+                    "layers render once frame-space masks ship. Disable the mask to export now."
+                )
+        if track.type != TrackType.VIDEO or track.hidden:
+            continue
+        for clip in track.clips:
+            # Only video clips draw their stack (stills are placed without crop or mask).
+            if clip.masks and kinds.get(clip.asset_id) == "video":
+                _clip_mask_stacks(clip, _asset_media_size(project, clip))
+
+
 def _attach_mask(
     source: VideoClip,
     clip: Clip,
     transition: transitions.Transition | None,
     media_size: tuple[int, int] | None = None,
+    stacks: ClipMaskStacks | None = None,
 ) -> VideoClip:
     width, height = source.size
-    # Schema v22: the clip's mask stack, mapped onto the v21 rasteriser until MK2 ships the
-    # stack rasteriser; a stack it cannot draw faithfully refuses the export (ADR 0178).
-    try:
-        legacy_mask = legacy_mask_for_clip(clip, media_size)
-    except UnsupportedMaskStack as exc:
-        raise CompileError(str(exc)) from exc
-    geometry_animated = legacy_mask is not None and legacy_mask.animated
+    # Schema v22: the clip's alpha-target mask stack, drawn by the exact rasteriser
+    # (render/mask_stack.py, ADR 0178); a stack export cannot draw refuses before rendering.
+    if stacks is None:
+        stacks = _clip_mask_stacks(clip, media_size)
+    alpha_stack = stacks if stacks is not None and stacks.alpha else None
+    geometry_animated = alpha_stack is not None and alpha_stack.alpha_animated
     opacity_animated = OPACITY in animated_properties(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
     wipe_transition = transition is not None and transitions.affects_wipe(transition)
     static_opacity = evaluate_clip_transform(clip, 0.0).opacity
     nothing_to_mask = (
-        legacy_mask is None
+        alpha_stack is None
         and not opacity_animated
         and not fade_transition
         and not wipe_transition
@@ -620,10 +649,11 @@ def _attach_mask(
 
     def alpha_at(t: float) -> Any:
         opacity = opacity_at(t)
-        if legacy_mask is None:
+        stacked = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height)
+        if stacked is None:
             alpha = np.full((height, width), opacity, dtype=np.float64)
         else:
-            alpha = rasterize_mask(legacy_mask.spec_at(t), width, height) * opacity
+            alpha = stacked * opacity
         if wipe_transition:
             assert transition is not None
             reveal = transitions.wipe_progress_at(transition, t)
@@ -724,18 +754,60 @@ def _load_lut(path: Path, clip_id: str) -> CubeLut:
         raise CompileError(f"Clip {clip_id!r} has an invalid .cube LUT ({path}): {exc}") from exc
 
 
-def _apply_color_grade(source: VideoClip, clip: Clip, lut_base_dir: Path) -> VideoClip:
+def _apply_color_grade(
+    source: VideoClip,
+    clip: Clip,
+    lut_base_dir: Path,
+    stacks: ClipMaskStacks | None = None,
+) -> VideoClip:
     for effect in picture_effects(clip):
         if effect.type == "color_grade":
             grade = color_grade_from_params(effect.params)
-            if not grade.is_identity:
-                source = source.image_transform(
-                    lambda frame, grade=grade: apply_color_grade(frame, grade)
-                )
+            if grade.is_identity:
+                continue
+            apply: Callable[[np.ndarray], np.ndarray] = partial(apply_color_grade, grade=grade)
         else:
             lut = _load_lut(_resolve_lut_path(effect.params, lut_base_dir, clip.id), clip.id)
-            source = source.image_transform(lambda frame, lut=lut: apply_lut(frame, lut))
+            apply = partial(apply_lut, lut=lut)
+        if stacks is not None and stacks.by_effect.get(effect.id):
+            source = _masked_effect(source, stacks, effect.id, apply)
+        else:
+            source = source.image_transform(apply)
     return source
+
+
+def _masked_effect(
+    source: VideoClip,
+    stacks: ClipMaskStacks,
+    effect_id: str,
+    apply: Callable[[np.ndarray], np.ndarray],
+) -> VideoClip:
+    """Apply an effect only where its mask stack lets it through (v22 effect-target masks).
+
+    The effect runs on the whole frame and is mixed with the untouched frame by the stack's
+    alpha at the clip's source instant, so a face blur or sky grade stays glued to the picture.
+    """
+    width, height = source.size
+    static_alpha = (
+        None
+        if stacks.effect_animated(effect_id)
+        else stacks.effect_alpha_at(effect_id, 0.0, width, height)
+    )
+
+    def masked(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        frame = get_frame(t)
+        alpha = (
+            static_alpha
+            if static_alpha is not None
+            else stacks.effect_alpha_at(effect_id, t, width, height)
+        )
+        effected = apply(frame)
+        if alpha is None:
+            return effected
+        mixed: np.ndarray = mix_by_alpha(frame, effected, alpha)
+        return mixed
+
+    return source.transform(masked, keep_duration=True)
 
 
 def _audio_settings(clip: Clip) -> dict[str, Any]:
@@ -926,6 +998,7 @@ def compile_timeline(
     lut_base_dir = Path(asset_index.base_dir)
     total_clips = sum(len(track.clips) for track in project.timeline.tracks)
     prepared = 0
+    _refuse_unrenderable_masks(project)
 
     def _prepared_one() -> None:
         nonlocal prepared
@@ -983,12 +1056,13 @@ def compile_timeline(
                             footage = _apply_audio_effects(source.audio, clip, project.timeline)
                             audio_layers.append(footage.with_start(clip.start))
                         source = source.without_audio()
-                        source = _apply_color_grade(source, clip, lut_base_dir)
+                        stacks = _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                        source = _apply_color_grade(source, clip, lut_base_dir, stacks)
                         use_legacy = uses_legacy_transition_path(clip)
                         transition = legacy_transition(clip)
                         source = _apply_transition_blur(source, transition)
                         source = _attach_mask(
-                            source, clip, transition, _asset_media_size(project, clip)
+                            source, clip, transition, _asset_media_size(project, clip), stacks
                         )
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
