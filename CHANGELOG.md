@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Masks are now a stack on each clip (project format 22).** A clip can hold any number of masks —
+  rectangles, ellipses, paths, and (coming) mattes, keys and track mattes — each with a mode,
+  feathers and keyframes that stay glued to the footage through trims, splits and speed changes.
+  Opening an older project upgrades its masks automatically and renders them as before; the desktop
+  app first saves a copy of the original as `<project>.v21.backup.fp.json`. A project saved by a
+  newer FramePilot now says "Update FramePilot to open this project." Splitting or head-trimming a
+  clip also no longer slides its effect animations along the footage.
+
 - **One description of an exported frame, shared by the export and (next) the preview.** The render
   engine's per-frame decisions (which layers, in what order, which source frame, where, how
   opaque, which transition) now live in `render/frame_plan.py`, and the export compiler uses them

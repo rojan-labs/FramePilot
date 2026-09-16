@@ -257,7 +257,38 @@ Easing types (PRD §6.3): `linear`, `ease-in`, `ease-out`, `ease-in-out`, `hold`
 
 ---
 
+## Mask stack (schema v22, ADR 0178)
+
+`Clip.masks` and `EffectLayer.masks` are ordered stacks (top first) of `MaskLayer`, replacing the
+v21 `mask` effect type. Read them through `masksOf(owner)`; the field is optional and absent means
+no masks.
+
+| Field | Meaning |
+| --- | --- |
+| `id`, `name`, `color`, `enabled`, `locked` | Identity, overlay colour (never rendered), bypass, edit lock |
+| `target` | `{ kind: 'alpha' }` or `{ kind: 'effect', effectId }` (an effect on the same clip) |
+| `mode`, `opacity`, `invert` | `add`/`subtract`/`intersect`/`difference`/`lighten`/`darken` |
+| `expansionPx`, `featherInnerPx`, `featherOuterPx`, `falloff` | Edge controls, pixels |
+| `featherModel` | `distance`, or `gaussian-legacy` for masks migrated from v21 |
+| `space` | `source` (display-corrected source pixels, before crop) or `frame` (output pixels) |
+| `units` | Only `'normalized'`, on v21 masks whose media was never measured |
+| `keyframes` | `{ id, sourceTime, property, value, easing, handles? }`; `sourceTime` is ASSET source seconds |
+| `tracking` | `{ artifact: { key, sha256 }, method, referenceSourceTime, constraints, review }` |
+
+Kinds: `rectangle` (`cx, cy, width, height, rotation, roundness`), `ellipse` (`cx, cy, rx, ry,
+rotation`), `path` (`firstVertex`, `pathKeyframes[]` of `{ id, sourceTime, easing, points,
+vertexTypes, featherPx? }` — six numbers per vertex, tangents as offsets, types 0 corner / 1
+smooth / 2 broken), `matte` (`artifact, prompts, review, edgeShiftPx, decontaminate, edgeMode,
+finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention, finesse`),
+`linear`, `band`, `gradient`, and `layer` (`source: { kind: 'clip' | 'track' }, channel, finesse`).
+`editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
+mask from frame fractions. Operations are listed in `patch-format.md`.
+
 ## Schema versioning & migration
+
+**v21 → v22** converts `mask` effects into `Clip.masks` (see ADR 0178). The desktop app writes
+`<project>.v21.backup.fp.json` beside the project before the first migration and never overwrites
+it. A project from a newer FramePilot is refused with "Update FramePilot to open this project."
 
 - `Project.version` is the schema version. It is **bumped only with a migration**.
 - **No breaking schema change without a migration** (CI/agent rule; see
