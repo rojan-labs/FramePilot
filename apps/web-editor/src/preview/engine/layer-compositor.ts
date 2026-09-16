@@ -139,7 +139,11 @@ export class LayerCompositor {
    * @param size - The frame, in pixels (the canvas is resized to it).
    * @param layers - Back to front.
    */
-  render(size: PixelSize, layers: readonly CompositeLayer[]): CanvasImageSource {
+  render(
+    size: PixelSize,
+    layers: readonly CompositeLayer[],
+    output: 'bitmap' | 'pixels' = 'bitmap',
+  ): CanvasImageSource | ImageData {
     if (this.canvas.width !== size.width) this.canvas.width = size.width;
     if (this.canvas.height !== size.height) this.canvas.height = size.height;
     const r = this.resources;
@@ -168,6 +172,24 @@ export class LayerCompositor {
             : this.blend(frame, placed.target, placed.x, placed.y, size, mode);
       }
 
+      if (output === 'pixels') {
+        // Synchronous and exact: the frame target's rows are top-first, as ImageData's are. A
+        // paused frame is read this way because a bitmap handed across GPU contexts has been
+        // measured (CI) to reach the 2D canvas after a read of it.
+        const pixels = new Uint8ClampedArray(size.width * size.height * 4);
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, frame.framebuffer);
+        this.gl.readPixels(
+          0,
+          0,
+          size.width,
+          size.height,
+          this.gl.RGBA,
+          this.gl.UNSIGNED_BYTE,
+          pixels,
+        );
+        this.gl.bindFramebuffer(this.gl.FRAMEBUFFER, null);
+        return new ImageData(pixels, size.width, size.height);
+      }
       const present = r.program('present', PRESENT_FRAGMENT);
       this.gl.useProgram(present.handle);
       r.bind(present, 'u_frame', 0, frame.texture);
