@@ -1,0 +1,28 @@
+{
+  "recordedAt": "2026-09-17T02:36:38",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "model": "birefnet_hr_matting",
+  "size": 768,
+  "variant": "torch_cpu_fp32",
+  "comparedAgainst": "onnx_cpu_fp32",
+  "gate": {
+    "bandMeanAbs": "1/255",
+    "bandMaxAbs": "4/255"
+  },
+  "mediaLicence": "Sintel (c) Blender Foundation | durian.blender.org, CC-BY 3.0",
+  "sintel_000240": {
+    "seconds": 4.0
+  },
+  "sintel_000705": {
+    "seconds": 3.7
+  },
+  "peakRssMiB": 5410,
+  "footprintAtEndMiB": 1002.0
+}

@@ -1,0 +1,51 @@
+{
+  "recordedAt": "2026-09-17T02:36:50",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "model": "birefnet_hr_matting",
+  "size": 768,
+  "variant": "onnx_cpu_fp32",
+  "comparedAgainst": "onnx_cpu_fp32",
+  "gate": {
+    "bandMeanAbs": "1/255",
+    "bandMaxAbs": "4/255"
+  },
+  "mediaLicence": "Sintel (c) Blender Foundation | durian.blender.org, CC-BY 3.0",
+  "sessionCreateSeconds": 1.3,
+  "activeProvider": "CPUExecutionProvider",
+  "tiles": {
+    "sintel_000240": {
+      "bandPixels": 10493,
+      "bandMeanAbs": 2.8666283960148505e-06,
+      "bandMaxAbs": 6.16312026977539e-05,
+      "bandMeanAbs255": 0.0007,
+      "bandMaxAbs255": 0.0157,
+      "tileMeanAbs255": 0.0,
+      "tileMaxAbs255": 0.0157,
+      "pass": true,
+      "seconds": 4.1,
+      "firstRun": true
+    },
+    "sintel_000705": {
+      "bandPixels": 4823,
+      "bandMeanAbs": 1.6019501374416917e-07,
+      "bandMaxAbs": 8.083879947662354e-06,
+      "bandMeanAbs255": 0.0,
+      "bandMaxAbs255": 0.0021,
+      "tileMeanAbs255": 0.0,
+      "tileMaxAbs255": 0.0021,
+      "pass": true,
+      "seconds": 4.0,
+      "firstRun": false
+    }
+  },
+  "pass": true,
+  "peakRssMiB": 3964,
+  "footprintAtEndMiB": 76.0
+}

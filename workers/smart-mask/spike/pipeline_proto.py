@@ -44,6 +44,9 @@ PROTO_DIR = common.CACHE / "proto"
 #: BR0.7), so the pilot measurement passes a smaller static graph and records it.
 TILE = 2048
 TILE_OVERLAP = 256
+#: A crop up to this multiple of the model input is resized into one pass instead of tiled
+#: (with the 1024² pilot graph, a 1080p subject crop is one pass, as it would be at 2048²).
+RESIZE_UP_TO = 1.5
 CROP_PAD = 0.2
 GATE_DILATE_FRAC = 0.03
 EDGE_RADIUS_1080P = 6
@@ -160,7 +163,7 @@ def tiled_alpha(model: BiRefNetOnnx, crop: np.ndarray) -> np.ndarray:
     tiles of the model input size with overlap, blended with separable ramps."""
     tile = model.size
     ch, cw = crop.shape[:2]
-    if max(ch, cw) <= tile:
+    if max(ch, cw) <= RESIZE_UP_TO * tile:
         a = model(cv2.resize(crop, (tile, tile), interpolation=cv2.INTER_CUBIC))
         return cv2.resize(a, (cw, ch), interpolation=cv2.INTER_LINEAR)
     pad_h, pad_w = max(tile - ch, 0), max(tile - cw, 0)

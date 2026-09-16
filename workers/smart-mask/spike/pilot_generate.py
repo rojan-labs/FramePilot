@@ -28,7 +28,7 @@ import common
 
 W, H = 1920, 1080
 FPS = 24
-FRAMES = 48
+FRAMES = 32  # bounded by CPU-EP compute on the 16 GB machine (BR0.7)
 SS = 4  # spatial supersampling for subject rendering
 PILOT_DIR = common.CACHE / "pilot"
 BG_DIR = common.MEDIA / "bg"
