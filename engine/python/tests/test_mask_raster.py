@@ -216,11 +216,21 @@ def test_invert_then_opacity_and_round_half_even_quantisation() -> None:
 
 
 def test_the_shipped_gaussian_table_is_the_generated_one() -> None:
+    """The shipped table still describes the documented curve.
+
+    The renderer only ever READS the shipped data (``mask_falloff_gaussian.json``); it never
+    calls ``exp`` per pixel. Regenerating uses the platform's libm, whose ``exp`` may differ in
+    the last bit (measured on Windows), so this check allows 1e-15 and is not the byte gate:
+    the byte-exact vectors in ``test_mask_raster_vectors.py`` are.
+    """
     shipped = mr.gaussian_falloff_table()
-    generated = mr.generate_gaussian_falloff_table()
-    assert shipped.tolist() == generated
+    generated = np.asarray(mr.generate_gaussian_falloff_table())
+    assert shipped.shape == generated.shape
+    assert float(np.abs(shipped - generated).max()) <= 1e-15
     document = json.loads(mr._FALLOFF_TABLE_PATH.read_text(encoding="utf-8"))
-    assert document == mr.encode_falloff_table(generated)
+    assert document["size"] == mr.FALLOFF_TABLE_SIZE
+    assert document["k"] == mr.GAUSSIAN_FALLOFF_K
+    assert document["encoding"] == "float64-le-base64"
 
 
 def test_falloffs_are_monotone_and_pinned_at_the_ends() -> None:
