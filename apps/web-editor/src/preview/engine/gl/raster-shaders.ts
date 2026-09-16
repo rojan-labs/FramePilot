@@ -229,3 +229,169 @@ void main() {
   o_color = texelFetch(u_frame, ivec2(p.x, u_height - 1 - p.y), 0);
 }
 `;
+
+/**
+ * `render/color.py` `apply_color_grade` on an 8-bit layer (alpha passes through): exposure →
+ * white balance → contrast → shadows/highlights → saturation, then `round(clip(x) * 255)`.
+ * float32 throughout, as numpy's.
+ */
+export const GRADE_FRAGMENT = `${HEADER}
+uniform sampler2D u_source;
+uniform float u_exposure;
+uniform float u_contrast;
+uniform float u_saturation;
+uniform float u_temperature;
+uniform float u_tint;
+uniform float u_shadows;
+uniform float u_highlights;
+out vec4 o_color;
+const vec3 LUMA = vec3(0.2126, 0.7152, 0.0722);
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 texel = texelFetch(u_source, p, 0);
+  vec3 rgb = floor(texel.rgb * 255.0 + 0.5) / 255.0;
+  if (u_exposure != 0.0) rgb *= pow(2.0, u_exposure);
+  if (u_temperature != 0.0) {
+    rgb.r *= 1.0 + 0.3 * u_temperature;
+    rgb.b *= 1.0 - 0.3 * u_temperature;
+  }
+  if (u_tint != 0.0) rgb.g *= 1.0 + 0.3 * u_tint;
+  if (u_contrast != 0.0) rgb = (rgb - 0.5) * (1.0 + u_contrast) + 0.5;
+  if (u_shadows != 0.0 || u_highlights != 0.0) {
+    float lum = clamp(dot(clamp(rgb, 0.0, 1.0), LUMA), 0.0, 1.0);
+    float delta = 0.5 * (u_shadows * (1.0 - lum) * (1.0 - lum) + u_highlights * lum * lum);
+    rgb += delta;
+  }
+  if (u_saturation != 0.0) {
+    float lum = dot(rgb, LUMA);
+    rgb = lum + (rgb - lum) * (1.0 + u_saturation);
+  }
+  o_color = vec4(floor(clamp(rgb, 0.0, 1.0) * 255.0 + 0.5) / 255.0, texel.a);
+}
+`;
+
+/** `apply_lut`: trilinear lookup in an `RGBA32F` 3D table indexed `[r, g, b]`. */
+export const LUT_FRAGMENT = `${HEADER}
+precision highp sampler3D;
+uniform sampler2D u_source;
+uniform sampler3D u_table;
+uniform int u_size;
+uniform vec3 u_domainMin;
+uniform vec3 u_domainMax;
+out vec4 o_color;
+vec3 cell(ivec3 i) { return texelFetch(u_table, i, 0).rgb; }
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 texel = texelFetch(u_source, p, 0);
+  vec3 rgb = floor(texel.rgb * 255.0 + 0.5) / 255.0;
+  vec3 coords = (clamp(rgb, u_domainMin, u_domainMax) - u_domainMin) / (u_domainMax - u_domainMin);
+  vec3 pos = coords * float(u_size - 1);
+  ivec3 lo = ivec3(floor(pos));
+  ivec3 hi = min(lo + 1, ivec3(u_size - 1));
+  vec3 f = pos - vec3(lo);
+  vec3 c00 = cell(ivec3(lo.r, lo.g, lo.b)) * (1.0 - f.r) + cell(ivec3(hi.r, lo.g, lo.b)) * f.r;
+  vec3 c10 = cell(ivec3(lo.r, hi.g, lo.b)) * (1.0 - f.r) + cell(ivec3(hi.r, hi.g, lo.b)) * f.r;
+  vec3 c01 = cell(ivec3(lo.r, lo.g, hi.b)) * (1.0 - f.r) + cell(ivec3(hi.r, lo.g, hi.b)) * f.r;
+  vec3 c11 = cell(ivec3(lo.r, hi.g, hi.b)) * (1.0 - f.r) + cell(ivec3(hi.r, hi.g, hi.b)) * f.r;
+  vec3 c0 = c00 * (1.0 - f.g) + c10 * f.g;
+  vec3 c1 = c01 * (1.0 - f.g) + c11 * f.g;
+  vec3 outRgb = c0 * (1.0 - f.b) + c1 * f.b;
+  o_color = vec4(floor(clamp(outRgb, 0.0, 1.0) * 255.0 + 0.5) / 255.0, texel.a);
+}
+`;
+
+/**
+ * `_blend_layer_over`: the running frame is the base, the placed layer the blend, and its mask
+ * weights the blended colour: `base·(1−α) + clip(f(base, blend))·α`, truncated to 8 bits.
+ * Mode numbers follow {@link BLEND_MODE_INDEX}.
+ */
+export const BLEND_FRAGMENT = `${HEADER}
+uniform sampler2D u_frame;
+uniform sampler2D u_layer;
+uniform ivec2 u_position;
+uniform ivec2 u_size;
+uniform int u_mode;
+out vec4 o_color;
+vec3 blendOf(vec3 a, vec3 b) {
+  if (u_mode == 1) return a * b;
+  if (u_mode == 2) return 1.0 - (1.0 - a) * (1.0 - b);
+  if (u_mode == 3) return min(a, b);
+  if (u_mode == 4) return max(a, b);
+  if (u_mode == 5) return mix(1.0 - 2.0 * (1.0 - a) * (1.0 - b), 2.0 * a * b, vec3(lessThan(b, vec3(0.5))));
+  if (u_mode == 6) return mix(1.0 - 2.0 * (1.0 - a) * (1.0 - b), 2.0 * a * b, vec3(lessThan(a, vec3(0.5))));
+  if (u_mode == 7) {
+    vec3 denom = max(1.0 - b, vec3(1e-6));
+    return mix(min(vec3(1.0), a / denom), vec3(1.0), vec3(greaterThanEqual(b, vec3(1.0))));
+  }
+  if (u_mode == 8) {
+    vec3 denom = max(b, vec3(1e-6));
+    return mix(1.0 - min(vec3(1.0), (1.0 - a) / denom), vec3(0.0), vec3(lessThanEqual(b, vec3(0.0))));
+  }
+  if (u_mode == 9) {
+    vec3 d = mix(sqrt(a), ((16.0 * a - 12.0) * a + 4.0) * a, vec3(lessThanEqual(a, vec3(0.25))));
+    return mix(a + (2.0 * b - 1.0) * (d - a), a - (1.0 - 2.0 * b) * a * (1.0 - a), vec3(lessThanEqual(b, vec3(0.5))));
+  }
+  if (u_mode == 10) return abs(a - b);
+  if (u_mode == 11) return a + b - 2.0 * a * b;
+  return b;
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec3 base = floor(texelFetch(u_frame, p, 0).rgb * 255.0 + 0.5) / 255.0;
+  ivec2 q = p - u_position;
+  float alpha = 0.0;
+  vec3 blend = vec3(0.0);
+  if (q.x >= 0 && q.y >= 0 && q.x < u_size.x && q.y < u_size.y) {
+    vec4 layer = floor(texelFetch(u_layer, q, 0) * 255.0 + 0.5) / 255.0;
+    alpha = layer.a;
+    if (layer.a > 0.0) blend = layer.rgb;
+  }
+  vec3 blended = clamp(blendOf(base, blend), 0.0, 1.0);
+  vec3 outRgb = base * (1.0 - alpha) + blended * alpha;
+  // numpy truncates the float64 product; nudge float32 over representation error first.
+  o_color = vec4(floor(clamp(outRgb * 255.0 + 1e-3, 0.0, 255.0)) / 255.0, 1.0);
+}
+`;
+
+/** Blend mode → {@link BLEND_FRAGMENT} `u_mode` (`render/blend.py` keys). */
+export const BLEND_MODE_INDEX: Readonly<Record<string, number>> = {
+  multiply: 1,
+  screen: 2,
+  darken: 3,
+  lighten: 4,
+  overlay: 5,
+  'hard-light': 6,
+  'color-dodge': 7,
+  'color-burn': 8,
+  'soft-light': 9,
+  difference: 10,
+  exclusion: 11,
+};
+
+/**
+ * `_attach_mask`'s alpha for one layer at its own (pre-placement) size: opacity × the legacy
+ * wipe band, stored as the 8-bit value compositing truncates it to. `u_wipeAxis`: 0 none,
+ * 1 x, 2 y.
+ */
+export const ALPHA_FRAGMENT = `${HEADER}
+uniform sampler2D u_source;
+uniform float u_opacity;
+uniform int u_wipeAxis;
+uniform bool u_wipeInverted;
+uniform float u_wipeEdge;
+uniform float u_wipeFeather;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_source, 0);
+  vec4 texel = texelFetch(u_source, p, 0);
+  float alpha = u_opacity;
+  if (u_wipeAxis != 0) {
+    float extent = float(u_wipeAxis == 1 ? size.x : size.y);
+    float f = (float(u_wipeAxis == 1 ? p.x : p.y) + 0.5) / extent;
+    if (u_wipeInverted) f = 1.0 - f;
+    alpha *= clamp((u_wipeEdge - f) / u_wipeFeather, 0.0, 1.0);
+  }
+  o_color = vec4(texel.rgb, floor(clamp(alpha, 0.0, 1.0) * 255.0 + 1e-4) / 255.0);
+}
+`;

@@ -13,6 +13,18 @@
  */
 import { readAlignment, type FramePlanLayer } from '@framepilot/editor-core';
 import type { Asset, Clip } from '@framepilot/timeline-schema';
+import {
+  affectsWipe,
+  transitionFromClip,
+  wipeAxis,
+  wipeEdge,
+  wipeProgressAt,
+  wipeSoftness,
+} from '../transition-envelope.js';
+import {
+  resolveTransitionParamsFor,
+  type ResolvedTransition,
+} from '../transitions/transition-engine.js';
 
 /** Extra source pixels the export keeps beyond the exact need (`DECODE_CAP_HEADROOM`). */
 export const DECODE_CAP_HEADROOM = 1.25;
@@ -20,6 +32,17 @@ export const DECODE_CAP_HEADROOM = 1.25;
 /** Transform properties the compiler places (`RENDERED_TRANSFORM_PROPERTIES`). */
 const RENDERED_TRANSFORM_PROPERTIES = new Set(['scale', 'x', 'y', 'rotation']);
 const LEGACY_GEOMETRY_KINDS = new Set(['push', 'zoom', 'slide']);
+/** `LEGACY_KINDS` of `frame_plan.py`: the pre-catalog envelope path. */
+const LEGACY_KINDS = new Set([
+  'cut',
+  'fade',
+  'cross-dissolve',
+  'push',
+  'slide',
+  'zoom',
+  'blur',
+  'wipe',
+]);
 
 export interface PixelSize {
   readonly width: number;
@@ -46,8 +69,15 @@ export interface PictureRasterStep {
   readonly decode: DecodeStep;
   /** Integer slice of the decoded picture; `null` keeps it whole. */
   readonly crop: PixelRect | null;
-  /** 8-bit mask value the whole layer composites with; `null` = no mask (opaque). */
-  readonly alpha8: number | null;
+  /**
+   * `_attach_mask`'s opacity (keyframes × legacy fade), `null` when the clip has no mask.
+   * Composited as the truncated 8-bit value.
+   */
+  readonly opacity: number | null;
+  /** A legacy wipe's band across the layer's own width or height, `null` when not wiping. */
+  readonly wipe: LayerWipe | null;
+  /** Live catalog transition halves, applied after the mask in export order (out, then in). */
+  readonly transitions: readonly LayerTransition[];
   /** Pillow LANCZOS target; `null` = placed at its own size. */
   readonly resize: PixelSize | null;
   /** Degrees, counter-clockwise as PIL rotates (MoviePy passes the authored angle). */
@@ -56,6 +86,23 @@ export interface PictureRasterStep {
   readonly x: number;
   readonly y: number;
   readonly blendMode: string;
+  /** Per-clip picture effects in export order (`color_grade`, then `lut`). */
+  readonly effects: FramePlanLayer['effects'];
+}
+
+export interface LayerWipe {
+  readonly axis: 'x' | 'y';
+  readonly inverted: boolean;
+  /** Frame fraction of the edge (`wipe_edge(progress, feather)`). */
+  readonly edge: number;
+  readonly feather: number;
+}
+
+export interface LayerTransition {
+  readonly role: 'in' | 'out';
+  readonly transition: ResolvedTransition;
+  /** Eased progress, from the frame plan. */
+  readonly eased: number;
 }
 
 /** Python's `int()` on a float. */
@@ -197,10 +244,37 @@ export function pictureRasterStep(
   const placed: PixelSize = crop ?? decoded;
   if (placed.width <= 0 || placed.height <= 0) return null;
 
-  const alpha8 =
-    isVideo && layer.role === 'clip' && attachesOpacityMask(clip, layer)
-      ? pyInt(255 * Math.min(1, Math.max(0, layer.opacity)))
+  const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
+  const wiping = legacy !== null && affectsWipe(legacy);
+  const opacity =
+    isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping)
+      ? Math.min(1, Math.max(0, layer.opacity))
       : null;
+  let wipe: LayerWipe | null = null;
+  if (wiping && legacy !== null) {
+    const [axis, inverted] = wipeAxis(legacy);
+    const feather = wipeSoftness(legacy);
+    wipe = {
+      axis,
+      inverted,
+      edge: wipeEdge(wipeProgressAt(legacy, layer.localTime), feather),
+      feather,
+    };
+  }
+  const transitions: LayerTransition[] = [];
+  if (isVideo && layer.role === 'clip') {
+    for (const state of layer.transitions) {
+      if (state.path !== 'catalog') continue;
+      const effect = clip.effects.find(
+        (candidate) => candidate.type === (state.role === 'in' ? 'transition' : 'transition_out'),
+      );
+      const resolved = effect ? resolveTransitionParamsFor(effect.params ?? {}) : null;
+      if (resolved === null || resolved.disabled || resolved.isCut) continue;
+      transitions.push({ role: state.role, transition: resolved, eased: state.eased });
+    }
+    // The compiler walks the outgoing half first.
+    transitions.sort((a, b) => (a.role === b.role ? 0 : a.role === 'out' ? -1 : 1));
+  }
 
   const base = Math.min(target.width / placed.width, target.height / placed.height);
   // The plan's `scale` is its own base × the authored scale × a geometry transition's zoom; the
@@ -248,7 +322,9 @@ export function pictureRasterStep(
     frame: isVideo ? source.frame : null,
     decode,
     crop,
-    alpha8,
+    opacity,
+    wipe,
+    transitions,
     resize,
     rotation: keyframes.some((keyframe) => keyframe.property === 'rotation')
       ? geometry.rotation
@@ -256,7 +332,17 @@ export function pictureRasterStep(
     x,
     y,
     blendMode: layer.blendMode,
+    effects: layer.effects,
   };
+}
+
+/** The clip's `transition` envelope when it takes the legacy compiler path, else `null`. */
+function legacyEnvelope(clip: Clip) {
+  const effect = clip.effects.find((candidate) => candidate.type === 'transition');
+  if (effect === undefined || effect.params.disabled === true) return null;
+  const kind = typeof effect.params.kind === 'string' ? effect.params.kind : '';
+  if (!LEGACY_KINDS.has(kind) || readAlignment(effect.params) !== 'start') return null;
+  return transitionFromClip(clip);
 }
 
 /**

@@ -47,7 +47,7 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
       decode: { kind: 'scaled', width: 1280, height: 720 },
       crop: null,
       resize: null,
-      alpha8: null,
+      opacity: null,
       x: 0,
       y: 0,
       frame: 30,
@@ -83,7 +83,7 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     } as Partial<Clip>);
     const step = stepFor(c, video('square', 1080, 1080));
     expect(step?.decode).toEqual({ kind: 'native' });
-    expect(step?.alpha8).toBe(127);
+    expect(step?.opacity).toBe(0.5);
     expect(step?.resize?.height).toBe(720);
     expect(step?.x).toBe(Math.trunc((1280 - (step?.resize?.width ?? 0)) / 2));
   });

@@ -30,6 +30,8 @@ import type { OverlayClip } from '../../editor/patch-builders.js';
 import { paintTextOverlay } from './overlay-painter.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, type PixelSize } from './layer-raster.js';
+import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
+import { mediaSrc } from '../../editor/media.js';
 import type {
   PresentedFrame,
   PresentedLayer,
@@ -119,6 +121,8 @@ export class LayerPreviewEngine {
   private readonly sources = new Map<string, VideoSource>();
   private readonly loadingSources = new Map<string, Promise<void>>();
   private readonly images = new Map<string, ImageBitmap>();
+  /** `.cube` tables by the `lut` effect's stored path. */
+  private readonly luts = new Map<string, CubeLut>();
   private readonly cache = new Map<string, CachedPicture>();
   private cacheBytes = 0;
   private useCounter = 0;
@@ -219,8 +223,14 @@ export class LayerPreviewEngine {
 
     const wantedVideo = new Map<string, string>();
     const wantedImages = new Set<string>();
+    const wantedLuts = new Set<string>();
     for (const track of project.timeline.tracks) {
       for (const clip of track.clips) {
+        for (const effect of clip.effects) {
+          if (effect.type === 'lut' && typeof effect.params.path === 'string') {
+            wantedLuts.add(effect.params.path);
+          }
+        }
         const asset = this.assetsById.get(clip.assetId);
         const url = project.mediaUrls.get(clip.assetId);
         if (!asset || !url) continue;
@@ -242,7 +252,9 @@ export class LayerPreviewEngine {
     await Promise.all([
       ...[...wantedVideo].map(([assetId, url]) => this.loadVideo(assetId, url)),
       ...[...wantedImages].map((url) => this.loadImage(url)),
+      ...[...wantedLuts].map((path) => this.loadLut(path)),
     ]);
+    this.compositor?.setLuts(this.luts);
     if (this.disposed) return;
     await this.seek(Math.min(this.pausedAtSec, this.durationSec));
   }
@@ -298,6 +310,21 @@ export class LayerPreviewEngine {
         return;
       }
       this.images.set(url, bitmap);
+    } catch (err) {
+      if (!this.disposed)
+        this.callbacks.onError?.(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  private async loadLut(path: string): Promise<void> {
+    if (this.luts.has(path)) return;
+    try {
+      // A project-relative path is served through fp-media:// on the desktop; a URL passes through.
+      const url = mediaSrc(path);
+      const response = await fetch(url);
+      if (!response.ok) throw new Error(`Failed to load LUT ${path}: ${response.status}`);
+      const table = parseCubeLut(await response.text());
+      if (!this.disposed) this.luts.set(path, table);
     } catch (err) {
       if (!this.disposed)
         this.callbacks.onError?.(err instanceof Error ? err.message : String(err));

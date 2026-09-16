@@ -17,8 +17,15 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import type { DecodedPicture, I420Picture } from '../decode/decoded-picture.js';
-import type { PictureRasterStep, PixelSize } from './layer-raster.js';
+import type { LayerTransition, PictureRasterStep, PixelSize } from './layer-raster.js';
+import { transitionPassSource } from './gl/transition-pass.js';
+import {
+  directionSign,
+  directionVector,
+  transitionUniforms,
+} from '../transitions/transition-engine.js';
 import { pilCoefficients } from './raster/pil.js';
+import type { CubeLut } from './raster/cube-lut.js';
 import {
   swsFilter,
   swsMatrixOf,
@@ -32,6 +39,11 @@ import {
 } from './raster/swscale.js';
 import { GlResources, type RenderTarget } from './gl/gl-resources.js';
 import {
+  ALPHA_FRAGMENT,
+  BLEND_FRAGMENT,
+  BLEND_MODE_INDEX,
+  GRADE_FRAGMENT,
+  LUT_FRAGMENT,
   COMPOSITE_FRAGMENT,
   COPY_FRAGMENT,
   FILL_FRAGMENT,
@@ -47,6 +59,8 @@ const log = createLogger('web-editor:preview:layer-compositor');
 
 /** The export composites on opaque black. */
 const BACKGROUND: readonly [number, number, number, number] = [0, 0, 0, 1];
+/** Transition noise clock quantum — the effect chain's and the engine's. */
+const TRANSITION_TIME_QUANTUM = 1 / 60;
 
 /** A picture the compositor can draw a {@link PictureRasterStep} from. */
 export type LayerSource =
@@ -85,6 +99,14 @@ export class LayerCompositor {
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
   private warnedRotation = false;
+  private readonly failedTransitions = new Set<string>();
+  private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
+  private luts: ReadonlyMap<string, CubeLut> = new Map();
+
+  /** Loaded LUTs by the `lut` effect's stored path. */
+  setLuts(luts: ReadonlyMap<string, CubeLut>): void {
+    this.luts = luts;
+  }
 
   /**
    * @throws LayerCompositorUnavailableError when the browser has no WebGL2 context (the monitor
@@ -133,7 +155,11 @@ export class LayerCompositor {
                 y: layer.y,
               };
         if (placed === null) continue;
-        frame = this.composite(frame, placed.target, placed.x, placed.y, size);
+        const mode = layer.kind === 'picture' ? (BLEND_MODE_INDEX[layer.step.blendMode] ?? 0) : 0;
+        frame =
+          mode === 0
+            ? this.composite(frame, placed.target, placed.x, placed.y, size)
+            : this.blend(frame, placed.target, placed.x, placed.y, size, mode);
       }
 
       const present = r.program('present', PRESENT_FRAGMENT);
@@ -162,10 +188,20 @@ export class LayerCompositor {
       decodedMemo.set(decodeKey, picture);
     }
     let current = picture;
-    if (step.crop !== null || step.alpha8 !== null) {
-      const rect = step.crop ?? { x: 0, y: 0, width: current.width, height: current.height };
+    if (step.crop !== null) {
+      const rect = step.crop;
       if (rect.width <= 0 || rect.height <= 0) return null;
-      current = this.copy(current, rect.x, rect.y, rect.width, rect.height, step.alpha8);
+      current = this.copy(current, rect.x, rect.y, rect.width, rect.height, null);
+    }
+    for (const effect of step.effects) {
+      if (effect.type === 'color_grade') current = this.grade(current, effect.params);
+      else if (effect.type === 'lut') current = this.lut(current, effect.params);
+    }
+    if (step.opacity !== null || step.wipe !== null) {
+      current = this.alpha(current, step);
+    }
+    for (const half of step.transitions) {
+      current = this.transition(current, half);
     }
     if (step.resize !== null) {
       current = this.pilResize(current, step.resize.width, step.resize.height);
@@ -341,6 +377,147 @@ export class LayerCompositor {
     return out;
   }
 
+  private alpha(source: RenderTarget, step: PictureRasterStep): RenderTarget {
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('alpha', ALPHA_FRAGMENT);
+    const gl = this.gl;
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    gl.uniform1f(program.location('u_opacity'), step.opacity ?? 1);
+    const wipe = step.wipe;
+    program.int('u_wipeAxis', wipe === null ? 0 : wipe.axis === 'x' ? 1 : 2);
+    gl.uniform1i(program.location('u_wipeInverted'), wipe?.inverted ? 1 : 0);
+    gl.uniform1f(program.location('u_wipeEdge'), wipe?.edge ?? 1);
+    gl.uniform1f(program.location('u_wipeFeather'), wipe?.feather ?? 1);
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  private transition(source: RenderTarget, half: LayerTransition): RenderTarget {
+    const r = this.resources;
+    const gl = this.gl;
+    const kind = half.transition.renderKind;
+    const fragment = transitionPassSource(kind);
+    if (fragment === null) return source;
+    let program;
+    try {
+      program = r.program(`transition:${kind}`, fragment);
+    } catch (error) {
+      if (!this.failedTransitions.has(kind)) {
+        this.failedTransitions.add(kind);
+        log.error('transition pass failed to compile; drawing the clip untransitioned', {
+          kind,
+          message: error instanceof Error ? error.message : String(error),
+        });
+      }
+      return source;
+    }
+    const out = r.target(source.width, source.height, 'rgba8');
+    gl.useProgram(program.handle);
+    // The passes sample between texels exactly as the numpy `sample_bilinear` does.
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, source.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    program.int('uTex', 0);
+    r.bind(program, 'uAlphaSource', 1, source.texture);
+    const t = half.transition;
+    gl.uniform2f(program.location('uResolution'), source.width, source.height);
+    gl.uniform1f(program.location('uProgress'), half.eased);
+    gl.uniform1f(program.location('uIntensity'), t.intensity);
+    gl.uniform1f(program.location('uSoftness'), t.softness);
+    const [dx, dy] = directionVector(t.direction);
+    gl.uniform2f(program.location('uDirection'), dx, -dy);
+    gl.uniform1f(program.location('uDirSign'), directionSign(t.direction));
+    gl.uniform1i(
+      program.location('uNoiseFrame'),
+      Math.floor(Math.max(0, half.eased * t.duration) / TRANSITION_TIME_QUANTUM),
+    );
+    gl.uniform1fv(program.location('uParams'), transitionUniforms(t));
+    program.int('uRole', half.role === 'in' ? 0 : 1);
+    r.draw(out, out.width, out.height);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, source.texture);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    return out;
+  }
+
+  private grade(source: RenderTarget, params: Readonly<Record<string, unknown>>): RenderTarget {
+    const value = (name: string): number => {
+      const raw = params[name];
+      const number = typeof raw === 'number' ? raw : typeof raw === 'string' ? Number(raw) : 0;
+      return Number.isFinite(number) ? number : 0;
+    };
+    const names = [
+      'exposure',
+      'contrast',
+      'saturation',
+      'temperature',
+      'tint',
+      'shadows',
+      'highlights',
+    ] as const;
+    if (names.every((name) => value(name) === 0)) return source;
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('grade', GRADE_FRAGMENT);
+    this.gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    for (const name of names) {
+      this.gl.uniform1f(program.location(`u_${name}`), value(name));
+    }
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  private lut(source: RenderTarget, params: Readonly<Record<string, unknown>>): RenderTarget {
+    const path = typeof params.path === 'string' ? params.path : '';
+    const table = this.luts.get(path);
+    if (table === undefined) return source;
+    const gl = this.gl;
+    let texture = this.lutTextures.get(table);
+    if (texture === undefined) {
+      const created = gl.createTexture();
+      if (!created) return source;
+      texture = created;
+      gl.bindTexture(gl.TEXTURE_3D, texture);
+      gl.texStorage3D(gl.TEXTURE_3D, 1, gl.RGB32F, table.size, table.size, table.size);
+      gl.texSubImage3D(
+        gl.TEXTURE_3D,
+        0,
+        0,
+        0,
+        0,
+        table.size,
+        table.size,
+        table.size,
+        gl.RGB,
+        gl.FLOAT,
+        table.table,
+      );
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
+      gl.texParameteri(gl.TEXTURE_3D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+      this.lutTextures.set(table, texture);
+    }
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('lut', LUT_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, texture);
+    program.int('u_table', 1);
+    program.int('u_size', table.size);
+    gl.uniform3f(program.location('u_domainMin'), ...table.domainMin);
+    gl.uniform3f(program.location('u_domainMax'), ...table.domainMax);
+    r.draw(out, out.width, out.height);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_3D, null);
+    return out;
+  }
+
   /** Pillow `resize(LANCZOS)`: horizontal pass when the width changes, then vertical. */
   private pilResize(source: RenderTarget, width: number, height: number): RenderTarget {
     let current = source;
@@ -399,7 +576,30 @@ export class LayerCompositor {
     return out;
   }
 
+  private blend(
+    frame: RenderTarget,
+    layer: RenderTarget,
+    x: number,
+    y: number,
+    size: PixelSize,
+    mode: number,
+  ): RenderTarget {
+    const r = this.resources;
+    const out = r.target(size.width, size.height, 'rgba8');
+    const program = r.program('blend', BLEND_FRAGMENT);
+    this.gl.useProgram(program.handle);
+    r.bind(program, 'u_frame', 0, frame.texture);
+    r.bind(program, 'u_layer', 1, layer.texture);
+    program.ivec2('u_position', x, y);
+    program.ivec2('u_size', layer.width, layer.height);
+    program.int('u_mode', mode);
+    r.draw(out, size.width, size.height);
+    return out;
+  }
+
   dispose(): void {
+    for (const texture of this.lutTextures.values()) this.gl.deleteTexture(texture);
+    this.lutTextures.clear();
     this.resources.dispose();
     this.gl.getExtension('WEBGL_lose_context')?.loseContext();
   }

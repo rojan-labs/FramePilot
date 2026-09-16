@@ -264,6 +264,23 @@ async function openInEditor(page: Page, project: MatrixCase['project']): Promise
     if (asset.media?.proxyPath) asset.media.proxyPath = url;
     asset.path = url;
   }
+  // A `.cube` LUT is project-relative media too: serve it from the same origin.
+  const timeline = (
+    doc as {
+      timeline?: {
+        tracks?: { clips?: { effects?: { type: string; params: Record<string, unknown> }[] }[] }[];
+      };
+    }
+  ).timeline;
+  for (const track of timeline?.tracks ?? []) {
+    for (const clip of track.clips ?? []) {
+      for (const effect of clip.effects ?? []) {
+        if (effect.type === 'lut' && typeof effect.params.path === 'string') {
+          effect.params.path = `${origin}${MEDIA_PREFIX}${effect.params.path}`;
+        }
+      }
+    }
+  }
   await page.goto(`${origin}${BLANK_PAGE}`);
   await page.evaluate((p) => {
     localStorage.clear();
