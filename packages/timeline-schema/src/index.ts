@@ -1405,6 +1405,26 @@ export const AssetMediaSchema = z.object({
    */
   width: z.number().int().positive().nullish(),
   height: z.number().int().positive().nullish(),
+  /**
+   * Pixel aspect ratio of the coded picture (ffprobe `sample_aspect_ratio`), as a decimal
+   * width/height of one stored pixel — a float for the same reason `Project.fps` is one.
+   * Absent ≡ 1 (square pixels). Schema v22.
+   *
+   * WHY: `width`/`height` are the CODED size. Mask geometry is stored in display-corrected
+   * source pixels (ADR 0178, plan 10 "Units"), and an anamorphic 1440x1080 HDV clip with
+   * SAR 4:3 displays as 1920x1080. Without this field its masks were stored as if the
+   * picture were 1440 wide, so a circle drawn on the monitor was an ellipse in the file.
+   */
+  pixelAspectRatio: z.number().positive().finite().nullish(),
+  /**
+   * Clockwise display rotation in degrees, from the stream's display matrix or legacy
+   * `rotate` tag. Absent ≡ 0. Schema v22.
+   *
+   * WHY: a portrait phone clip is usually coded 1920x1080 with a -90° display matrix, and
+   * every player shows it 1080x1920. Mask pixels are display-corrected, so the width and
+   * height masks are measured against swap for a quarter turn.
+   */
+  rotation: z.union([z.literal(0), z.literal(90), z.literal(180), z.literal(270)]).nullish(),
   /** Project-relative path to a generated low-res proxy media file. */
   proxyPath: z.string().nullish(),
   /** Downsampled, normalized (0..1) waveform peaks for timeline rendering. */

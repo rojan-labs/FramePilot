@@ -1217,12 +1217,38 @@ class AssetMedia(BaseModel):
     #: needed one. Absent means "not probed", never "square".
     width: int | None = Field(default=None)
     height: int | None = Field(default=None)
+    #: Pixel aspect ratio of the coded picture (ffprobe ``sample_aspect_ratio``) as a float,
+    #: like ``Project.fps``. Absent means square pixels. Schema v22.
+    #:
+    #: WHY: ``width``/``height`` are the CODED size, but mask geometry is stored in
+    #: display-corrected source pixels (ADR 0178). An anamorphic 1440x1080 SAR 4:3 clip
+    #: displays 1920 wide, and without this its masks were measured against 1440.
+    pixel_aspect_ratio: float | None = Field(default=None, alias="pixelAspectRatio", gt=0)
+    #: Clockwise display rotation (display matrix / ``rotate`` tag). Absent means 0. v22.
+    #:
+    #: WHY: a portrait phone clip is coded 1920x1080 with a -90 degree display matrix and
+    #: shown 1080x1920; mask pixels are display-corrected, so a quarter turn swaps the axes.
+    rotation: Literal[0, 90, 180, 270] | None = Field(default=None)
     proxy_path: str | None = Field(default=None, alias="proxyPath")
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")
     thumbnail_paths: list[str] | None = Field(default=None, alias="thumbnailPaths")
 
     model_config = {"populate_by_name": True}
+
+    def display_size(self) -> tuple[float, float] | None:
+        """The display-corrected source size masks are measured in, or ``None`` unprobed.
+
+        Mirrors ``editor-core`` ``assetDisplaySize``: coded width stretched by the pixel
+        aspect ratio, then width and height swapped for a quarter turn.
+        """
+        if not self.width or not self.height:
+            return None
+        width = float(self.width) * (self.pixel_aspect_ratio or 1.0)
+        height = float(self.height)
+        if self.rotation in (90, 270):
+            return (height, width)
+        return (width, height)
 
 
 class AssetSource(BaseModel):

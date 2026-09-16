@@ -28,10 +28,10 @@ from __future__ import annotations
 import json
 import re
 from pathlib import Path
-from typing import Any, cast
+from typing import Any, cast, get_args
 
 import pytest
-from pydantic import BaseModel
+from pydantic import BaseModel, ValidationError
 
 from framepilot_engine.effects.keyframes import Easing
 from framepilot_engine.render.effect_catalog import known_kinds
@@ -704,6 +704,42 @@ def test_mask_enum_members_match(project_schema: dict[str, Any]) -> None:
     assert _enum_property(keyframe, "easing") == {m.value for m in Easing}
     tracking = _object_node(rectangle, "tracking")
     assert _enum_property(tracking, "method") == {m.value for m in MaskTrackingMethod}
+
+
+def test_asset_media_display_geometry_matches(project_schema: dict[str, Any]) -> None:
+    """``rotation`` members and ``pixelAspectRatio`` bound agree across the languages (v22).
+
+    A name-only comparison would pass while one side accepted a rotation the other
+    refuses to load, so the literal members are compared directly.
+    """
+    media = _object_node(_array_item_node(project_schema, "assets"), "media")
+    rotation = _unwrap_nullable(media["properties"]["rotation"])
+    ts_members = {variant["const"] for variant in rotation["anyOf"]}
+    py_members = set(get_args(get_args(AssetMedia.model_fields["rotation"].annotation)[0]))
+    assert ts_members == py_members == {0, 90, 180, 270}
+    par = _unwrap_nullable(media["properties"]["pixelAspectRatio"])
+    assert par["exclusiveMinimum"] == 0
+    with pytest.raises(ValidationError):
+        AssetMedia.model_validate({"pixelAspectRatio": 0})
+    with pytest.raises(ValidationError):
+        AssetMedia.model_validate({"rotation": 45})
+
+
+@pytest.mark.parametrize(
+    ("media", "expected"),
+    [
+        ({"width": 1920, "height": 1080}, (1920.0, 1080.0)),
+        ({"width": 1440, "height": 1080, "pixelAspectRatio": 4 / 3}, (1920.0, 1080.0)),
+        ({"width": 1920, "height": 1080, "rotation": 90}, (1080.0, 1920.0)),
+        ({"width": 1920, "height": 1080, "rotation": 180}, (1920.0, 1080.0)),
+        ({"width": 720, "height": 480, "pixelAspectRatio": 8 / 9, "rotation": 270}, (480.0, 640.0)),
+        ({"height": 1080}, None),
+    ],
+)
+def test_asset_media_display_size_mirrors_editor_core(
+    media: dict[str, Any], expected: tuple[float, float] | None
+) -> None:
+    assert AssetMedia.model_validate(media).display_size() == expected
 
 
 def test_a_project_with_every_mask_kind_round_trips(

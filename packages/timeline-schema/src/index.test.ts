@@ -306,6 +306,34 @@ describe('timeline-schema', () => {
     expect(project.assets[0]?.media?.peaksPerSecond).toBe(10);
   });
 
+  describe('display geometry (v22 pixelAspectRatio + rotation)', () => {
+    const withMedia = (media: Record<string, unknown>) => ({
+      ...validProject,
+      assets: [{ id: 'asset_001', path: '/media/intro.mp4', kind: 'video' as const, media }],
+    });
+
+    it('keeps an anamorphic PAR and a quarter-turn rotation', () => {
+      const project = parseProject(
+        withMedia({ width: 1440, height: 1080, pixelAspectRatio: 4 / 3, rotation: 270 }),
+      );
+      expect(project.assets[0]?.media?.pixelAspectRatio).toBeCloseTo(4 / 3, 12);
+      expect(project.assets[0]?.media?.rotation).toBe(270);
+    });
+
+    it('accepts the engine null for both (absent = square, unrotated)', () => {
+      const project = parseProject(withMedia({ pixelAspectRatio: null, rotation: null }));
+      expect(project.assets[0]?.media?.rotation ?? 0).toBe(0);
+    });
+
+    it.each([[45], [-90], [360]])('rejects rotation %s', (rotation) => {
+      expect(safeParseProject(withMedia({ rotation })).success).toBe(false);
+    });
+
+    it.each([[0], [-1], [Number.POSITIVE_INFINITY]])('rejects pixelAspectRatio %s', (par) => {
+      expect(safeParseProject(withMedia({ pixelAspectRatio: par })).success).toBe(false);
+    });
+  });
+
   it('rejects a clip with negative/zero duration', () => {
     const invalid = structuredClone(validProject);
     const clip = invalid.timeline.tracks[0]!.clips[0]!;
