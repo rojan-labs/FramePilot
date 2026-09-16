@@ -91,12 +91,12 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** editor-core and timeline-schema tests for the touched files pass; CI green.
 
-### MK2 — Rasteriser + engine mask stack `[ ]`
+### MK2 — Rasteriser + engine mask stack `[~]` (committed through 242d352f; iterating on self-crossing coverage, 256× reference and ramped legacy migration)
 
-- [ ] MK2.1 `render/mask_raster.py`: flatten, exact coverage, band distance field, per-vertex feather, expansion, modes, quantise
-- [ ] MK2.2 `render/mask_stack.py`: stack evaluation at source pts; alpha targets in `_attach_mask`; effect targets mix inside effect application; legacy feather path
-- [ ] MK2.3 Rasteriser vectors (Python-generated) + supersampled reference test; determinism rules (float64, Q16.16 coverage, ordered accumulation, table falloff); vectors in CI on macOS arm64, Windows x64, Linux x64
-- [ ] MK2.4 Render goldens: each kind, mode, target; v21 fixture projects byte-identical after migration
+- [x] MK2.1 `render/mask_raster.py`: flatten, exact coverage, band distance field, per-vertex feather, expansion, modes, quantise
+- [x] MK2.2 `render/mask_stack.py`: stack evaluation at source pts; alpha targets in `_attach_mask`; effect targets mix inside effect application; legacy feather path
+- [~] MK2.3 Rasteriser vectors (Python-generated) + supersampled reference test; determinism rules (float64, Q16.16 coverage, ordered accumulation, table falloff); vectors in CI on macOS arm64, Windows x64, Linux x64
+- [~] MK2.4 Render goldens: each kind, mode, target; v21 fixture projects byte-identical after migration
 
 **DoD:** engine tests for new modules pass; goldens updated in the same PR.
 

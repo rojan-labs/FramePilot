@@ -10033,7 +10033,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 
 - [~] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets (PX1 done; PX0 renderer inventory done, pixels pending PX4)
 - [~] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
-- [ ] MK2 — exact rasteriser + engine mask stack + goldens
+- [~] MK2 — exact rasteriser + engine mask stack + goldens
 - [ ] MK3 — preview mask pass, byte-equal vectors, oracle rows
 - [ ] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
 - [ ] MK5 — effect-target masks (face blur, secondary grade)

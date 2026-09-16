@@ -9,10 +9,13 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX4 — pixel oracle harness (qa-e2e agent), incl. PX0.3 colour measurement and PX0 screenshots
-- MK2 — rasteriser + engine mask stack; first the frame plan moves to `Clip.masks` (render-debugger agent)
+- MK2 fixes (render-debugger agent): exact nonzero coverage at self-crossings, 256× supersample reference, ramped legacy migration resample, Windows falloff-table test
 - BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
+
+- MK2 (622e760f…242d352f): exact rasteriser, mask_stack.py, 33 vector cases × 3 res byte-exact, 15 render goldens, CI vectors on macOS (green) + Windows (1 red: libm table regen test)
+- PX1.2 follow-up (622e760f): frame plan reads v22 mask stack
 
 - MK1.1–MK1.7 (5f692689 … 80d28e08): v22 stack, migration + backup, 38 op round trips, validator, split keyframe fix, ADR 0178. Interim engine/preview render one alpha rect/ellipse/polygon; the rest refused with typed reasons until MK2. Follow-ups: MK1.9 PAR/rotation probe; `use_track` for text → MK7.6
 - PX4.1 (74a464ad), PX4.2 (79fd67cc); BR0.1 (b82f2a8d), BR0.2 harness (90d31c37), BR0.3 helpers (cba6a64f)
@@ -39,4 +42,5 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## Gate numbers
 
-- none measured yet
+- MK2 coverage vs exact clipping 2.3e-5 ✓; vs 64× supersample 0.0078 ✗ (reference too coarse → 256× in progress); distance feather straight 0 / circle 0.00133 / per-vertex 0 ✓; path interpolation ≤1e-6 ✓; self-crossing 0.336 ✗ (fixing); legacy byte-identity 14/15 (ramped animated ✗, fixing)
+- BR0 SAM 2.1 ONNX CPU fp32 min per-frame IoU 0.99954 ✓
