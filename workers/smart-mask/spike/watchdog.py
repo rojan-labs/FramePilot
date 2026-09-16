@@ -26,7 +26,7 @@ import time
 import common
 
 SPIKE_SCRIPTS = ("parity_sam.py", "parity_birefnet.py", "pilot_generate.py", "pipeline_proto.py",
-                 "throughput.py", "export_sam.py", "export_birefnet.py")
+                 "throughput.py", "coreml_probe.py", "verify_proto.py", "export_sam.py", "export_birefnet.py")
 
 
 def group_rss_kib(pgid: int) -> int:

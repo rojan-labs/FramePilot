@@ -1,0 +1,5 @@
+{"model": "sam21l_memory_encoder.fp32", "units": "ALL", "createColdSeconds": 2.3, "firstRunSeconds": 1.63, "secondRunSeconds": 0.01, "createWarmSeconds": 0.4, "ok": true, "peakRssMiB": 254, "at": "2026-09-17T00:56:52"}
+{"model": "sam21l_decoder_multi_n1.fp32", "units": "ALL", "createColdSeconds": 7.2, "firstRunSeconds": 3.8, "secondRunSeconds": 0.03, "createWarmSeconds": 1.4, "ok": true, "peakRssMiB": 557, "at": "2026-09-17T00:57:05"}
+{"model": "sam21l_memory_attention.fp32", "units": "ALL", "createColdSeconds": 12.7, "firstRunSeconds": 4.58, "secondRunSeconds": 4.31, "createWarmSeconds": 2.8, "ok": true, "peakRssMiB": 4275, "at": "2026-09-17T00:57:30"}
+{"model": "sam21l_image_encoder.fp32", "units": "ALL", "createColdSeconds": 421.9, "firstRunSeconds": 9.1, "secondRunSeconds": 5.36, "createWarmSeconds": 83.7, "ok": true, "peakRssMiB": 3297, "at": "2026-09-17T01:06:11"}
+{"model": "sam21l_decoder_single_n2.fp32", "units": "ALL", "ok": false, "error": "[ONNXRuntimeError] : 1 : FAIL : Failed to create MLModel, error: Error in building plan.", "peakRssMiB": 496, "at": "2026-09-17T01:06:36"}

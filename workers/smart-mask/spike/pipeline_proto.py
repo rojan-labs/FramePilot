@@ -85,7 +85,8 @@ def stage_sam(clip: str, ep: str, precision: str) -> dict:
     h, w = frames.shape[1:3]
     images = parity_sam.preprocess(frames)
     predictor = parity_sam.build_predictor()
-    onnx_sam = parity_sam.OnnxSam(ep, precision)
+    # decoder_single_n2 cannot be built by CoreML ("Error in building plan", BR0.2); CPU EP.
+    onnx_sam = parity_sam.OnnxSam(ep, precision, ("decoder_single_n2",) if ep == "coreml" else ())
     onnx_sam.install(predictor)
     t0 = time.time()
     fwd_logits, fwd_scores = _propagate(predictor, images, h, w, 0, meta["click"], reverse=False)

@@ -54,7 +54,7 @@ def build_predictor():
 class OnnxSam:
     """onnxruntime sessions for the four modules, installed into a predictor."""
 
-    def __init__(self, ep: str, precision: str) -> None:
+    def __init__(self, ep: str, precision: str, cpu_modules: tuple[str, ...] = ()) -> None:
         import onnxruntime as ort
 
         self.ep = ep
@@ -66,7 +66,8 @@ class OnnxSam:
             opts = ort.SessionOptions()
             opts.log_severity_level = 3
             t0 = time.time()
-            self.sessions[name] = ort.InferenceSession(str(path), opts, providers=common.providers_for(ep, cache / name))
+            self.sessions[name] = ort.InferenceSession(str(path), opts, providers=common.providers_for(
+                "cpu" if name in cpu_modules else ep, cache / name))
             self.prepare_seconds[name] = round(time.time() - t0, 2)
         self.active_providers = {k: s.get_providers()[0] for k, s in self.sessions.items()}
         self.timings: dict[str, list[float]] = {k: [] for k in self.sessions}
@@ -168,13 +169,18 @@ def main() -> None:
     ap.add_argument("--ep", default="cpu")
     ap.add_argument("--precision", choices=("fp32", "fp16s"), default="fp32")
     ap.add_argument("--frames", type=int, default=24)
+    ap.add_argument("--cpu-modules", default="", help="comma list of modules forced to the CPU EP "
+                    "(a module whose EP session cannot be built falls back, and the result records it)")
     a = ap.parse_args()
     PARITY_DIR.mkdir(parents=True, exist_ok=True)
     predictor = build_predictor()
     tag = "torch_cpu_fp32" if a.reference else f"onnx_{a.ep}_{a.precision}"
     onnx_sam = None
     if not a.reference:
-        onnx_sam = OnnxSam(a.ep, a.precision)
+        cpu_modules = tuple(m for m in a.cpu_modules.split(",") if m)
+        onnx_sam = OnnxSam(a.ep, a.precision, cpu_modules)
+        if cpu_modules:
+            tag += "_cpu-" + "-".join(cpu_modules)
         onnx_sam.install(predictor)
     result = {"model": "sam2.1_hiera_large", "variant": tag, "gate": {"perFrameIoU": IOU_GATE}, "clips": {},
               "mediaLicence": pm.LICENCE}
