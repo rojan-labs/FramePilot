@@ -5,7 +5,7 @@
  */
 import { FULLSCREEN_VERTEX } from './raster-shaders.js';
 
-export type TargetFormat = 'rgba8' | 'r16i';
+export type TargetFormat = 'rgba8' | 'r16i' | 'rgba32f';
 
 /** A texture that can be drawn into. */
 export interface RenderTarget {
@@ -131,6 +131,8 @@ export class GlResources {
     gl.bindTexture(gl.TEXTURE_2D, texture);
     if (format === 'rgba8') {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
+    } else if (format === 'rgba32f') {
+      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA32F, width, height);
     } else {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16I, width, height);
     }

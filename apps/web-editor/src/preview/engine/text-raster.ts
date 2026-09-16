@@ -141,6 +141,8 @@ export function rasterizeTextOverlay(
   if (!probe) return null;
   const font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
   probe.font = font;
+  // Pillow's basic layout applies no GPOS kerning; the browser's shaper would.
+  probe.fontKerning = 'none';
 
   // `wrap_lines(text.split(), font, max_width)`.
   const words = text.split(/\s+/).filter((word) => word.length > 0);
@@ -189,6 +191,7 @@ export function rasterizeTextOverlay(
     ctx.fillRect(0, 0, width, height);
   }
   ctx.font = font;
+  ctx.fontKerning = 'none';
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.lineJoin = 'round';
@@ -270,6 +273,8 @@ export function rasterizeBaselineCaption(
   if (!probe) return null;
   const font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
   probe.font = font;
+  // Pillow's basic layout applies no GPOS kerning; the browser's shaper would.
+  probe.fontKerning = 'none';
   const words = text.split(/\s+/).filter((word) => word.length > 0);
   const lines: string[] = [];
   let current = '';
@@ -325,6 +330,7 @@ export function rasterizeBaselineCaption(
   }
   ctx.putImageData(box, 0, 0);
   ctx.font = font;
+  ctx.fontKerning = 'none';
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = css(CAPTION_TEXT_FILL);

@@ -25,7 +25,7 @@ import { createLogger } from '@framepilot/shared-types';
 import { DecodeWorkerClient } from '../decode/worker-client.js';
 import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
-import { GlEffectChain, type TimedEffectLayer } from '../effects/gl-effect-chain.js';
+import type { FrameEffectInstance } from './gl/frame-effects.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
 import {
@@ -128,26 +128,6 @@ function timelineForCanvas(timeline: Timeline, ratio: number): Timeline {
   };
 }
 
-/**
- * Read a WebGL canvas's drawing buffer synchronously (bottom-up rows flipped to ImageData order),
- * or `null` when it has no WebGL2 context. Used for paused frames, where the result must be on
- * the monitor canvas when the call returns.
- */
-function readCanvasPixels(canvas: HTMLCanvasElement | OffscreenCanvas): ImageData | null {
-  const gl = (canvas as HTMLCanvasElement).getContext('webgl2');
-  if (!gl) return null;
-  const { width, height } = canvas;
-  const raw = new Uint8Array(width * height * 4);
-  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-  gl.readPixels(0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, raw);
-  const out = new Uint8ClampedArray(raw.length);
-  const row = width * 4;
-  for (let y = 0; y < height; y++) {
-    out.set(raw.subarray((height - 1 - y) * row, (height - y) * row), y * row);
-  }
-  return new ImageData(out, width, height);
-}
-
 export class LayerPreviewEngine {
   private readonly client = new DecodeWorkerClient();
   private readonly ctx2d: CanvasRenderingContext2D;
@@ -177,7 +157,6 @@ export class LayerPreviewEngine {
   private readonly captionRasters = new Map<string, CaptionRaster | null>();
   private styledCaptionClipIds = new Set<string>();
   private textFontReady = false;
-  private glEffects: GlEffectChain | null = null;
 
   private durationSec = 0;
   private audioCtx: AudioContext | undefined;
@@ -698,7 +677,12 @@ export class LayerPreviewEngine {
     }
     const size = { width: plan.width, height: plan.height };
     const canvas = project.canvasSize;
-    const frame = compositor.render(size, composed.layers, exact ? 'pixels' : 'bitmap');
+    const frame = compositor.render(
+      size,
+      composed.layers,
+      exact ? 'pixels' : 'bitmap',
+      this.frameEffectsAt(plan, timeSec),
+    );
     const ctx = this.ctx2d;
     if (ctx.canvas.width !== canvas.width) ctx.canvas.width = canvas.width;
     if (ctx.canvas.height !== canvas.height) ctx.canvas.height = canvas.height;
@@ -719,35 +703,30 @@ export class LayerPreviewEngine {
     this.lastBitmap?.close();
     this.lastBitmap =
       typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? frame : null;
-    this.applyFrameEffects(plan, timeSec, exact);
     this.lastPresentedSignature = signature;
     this.presented = { projectTimeSec: timeSec, layers: composed.presented };
     this.dbg.sourceDraws++;
     return true;
   }
 
-  /** Effect layers apply to the finished frame (schema v13), as the export's last stage. */
-  private applyFrameEffects(plan: FramePlan, timeSec: number, exact = false): void {
-    if (plan.frameEffects.length === 0) return;
-    const live: TimedEffectLayer[] = plan.frameEffects.map((effect) => ({
-      kind: effect.kind as TimedEffectLayer['kind'],
-      start: timeSec,
-      end: timeSec + 1,
-      params: effect.params,
-      intensity: effect.intensity,
-    }));
-    this.glEffects ??= new GlEffectChain(() => document.createElement('canvas'));
-    const processed = this.glEffects.process(this.ctx2d.canvas, live, timeSec);
-    if (processed === null) return;
-    const pixels = exact ? readCanvasPixels(processed) : null;
-    if (pixels !== null) {
-      this.ctx2d.putImageData(pixels, 0, 0);
-      return;
-    }
-    this.ctx2d.save();
-    this.ctx2d.globalCompositeOperation = 'copy';
-    this.ctx2d.drawImage(processed as CanvasImageSource, 0, 0);
-    this.ctx2d.restore();
+  /** Live effect layers with their layer-relative clocks (schema v13; applied last, in order). */
+  private frameEffectsAt(plan: FramePlan, timeSec: number): FrameEffectInstance[] {
+    if (plan.frameEffects.length === 0) return [];
+    const layers = new Map(
+      (this.project?.timeline.tracks ?? []).flatMap((track) =>
+        (track.effectLayers ?? []).map((layer) => [layer.id, layer] as const),
+      ),
+    );
+    return plan.frameEffects.map((effect) => {
+      const layer = layers.get(effect.layerId);
+      return {
+        kind: effect.kind as FrameEffectInstance['kind'],
+        params: effect.params,
+        intensity: effect.intensity,
+        localTime: Math.max(0, timeSec - (layer?.start ?? timeSec)),
+        duration: Math.max(0, (layer?.end ?? timeSec) - (layer?.start ?? timeSec)),
+      };
+    });
   }
 
   async seek(projectTimeSec: number): Promise<void> {
@@ -962,8 +941,6 @@ export class LayerPreviewEngine {
     this.compositor = null;
     this.lastBitmap?.close();
     this.lastBitmap = null;
-    this.glEffects?.dispose();
-    this.glEffects = null;
     for (const bitmap of this.images.values()) bitmap.close();
     this.images.clear();
     this.sources.clear();

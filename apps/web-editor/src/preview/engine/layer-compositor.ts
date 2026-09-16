@@ -19,6 +19,7 @@ import { createLogger } from '@framepilot/shared-types';
 import type { DecodedPicture, I420Picture } from '../decode/decoded-picture.js';
 import type { LayerTransition, PictureRasterStep, PixelSize } from './layer-raster.js';
 import { transitionPassSource } from './gl/transition-pass.js';
+import { FrameEffectRenderer, type FrameEffectInstance } from './gl/frame-effects.js';
 import {
   directionSign,
   directionVector,
@@ -101,6 +102,8 @@ export class LayerCompositor {
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
   private readonly failedTransitions = new Set<string>();
+  private frameEffects: FrameEffectRenderer | null = null;
+  private effectsUnavailable = false;
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
   private luts: ReadonlyMap<string, CubeLut> = new Map();
 
@@ -143,6 +146,7 @@ export class LayerCompositor {
     size: PixelSize,
     layers: readonly CompositeLayer[],
     output: 'bitmap' | 'pixels' = 'bitmap',
+    effects: readonly FrameEffectInstance[] = [],
   ): CanvasImageSource | ImageData {
     if (this.canvas.width !== size.width) this.canvas.width = size.width;
     if (this.canvas.height !== size.height) this.canvas.height = size.height;
@@ -172,6 +176,18 @@ export class LayerCompositor {
             : this.blend(frame, placed.target, placed.x, placed.y, size, mode);
       }
 
+      if (effects.length > 0) {
+        if (this.frameEffects === null) {
+          if (!this.effectsUnavailable && !FrameEffectRenderer.supported(this.gl)) {
+            this.effectsUnavailable = true;
+            log.warn('effect layers need float render targets, which this GPU lacks; skipped');
+          }
+          if (!this.effectsUnavailable) {
+            this.frameEffects = new FrameEffectRenderer(this.gl, this.resources);
+          }
+        }
+        if (this.frameEffects !== null) frame = this.frameEffects.apply(frame, effects);
+      }
       if (output === 'pixels') {
         // Synchronous and exact: the frame target's rows are top-first, as ImageData's are. A
         // paused frame is read this way because a bitmap handed across GPU contexts has been
