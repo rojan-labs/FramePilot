@@ -58,13 +58,13 @@
 
 ### Added with professional and AI masking
 
-| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                                                             |
-| --------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
-| v22 migration changes how existing masked projects look                     | Medium     | High   | `gaussian-legacy` feather model; byte-identical export gate on v21 fixtures                                                            |
-| TS rasteriser too slow for animated multi-mask stacks at preview resolution | Medium     | Medium | Band-limited evaluation, static-mask cache, WASM build of the same algorithm only if PX5 shows it is needed                            |
-| Legal review rejects the SAM License (used only for text grounding)         | Low        | Medium | Smart Mask Text switches to OWLv2 (Apache-2.0); the ambiguity gate is re-measured and the agent asks more often; mattes are unaffected |
-| The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply                |
-| Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability                      |
+| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                                                  |
+| --------------------------------------------------------------------------- | ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------- |
+| v22 migration changes how existing masked projects look                     | Medium     | High   | `gaussian-legacy` feather model; byte-identical export gate on v21 fixtures                                                 |
+| TS rasteriser too slow for animated multi-mask stacks at preview resolution | Medium     | Medium | Band-limited evaluation, static-mask cache, WASM build of the same algorithm only if PX5 shows it is needed                 |
+| Out-of-vocabulary AI requests need a click more often than editors accept   | Medium     | Low    | AM5 measures the `needs_click` rate on real requests; adding a text-grounding model is reconsidered only with that evidence |
+| The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply     |
+| Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability           |
 
 ### Added by the production audit
 

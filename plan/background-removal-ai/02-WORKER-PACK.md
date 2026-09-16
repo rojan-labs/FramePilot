@@ -1,4 +1,4 @@
-# 02 — The worker packs: `framepilot.smart-mask` and `framepilot.smart-mask-text`
+# 02 — The worker pack: `framepilot.smart-mask` (one pack, two models, about 1 GB)
 
 ## Why a new pack, not a `subject-intelligence` 1.1
 
@@ -46,32 +46,49 @@ Alpha is never produced below source resolution. 4K footage gets a 4K matte.
 
 ## Model choices (decided 2026-09-16 from current sources; BR0 verifies, it does not choose)
 
-| Role                                                                       | **Chosen**                                                              | Licence (verified 2026-09-16)                                                                                                                                                                | Why this one                                                                                                                                                                                                                                                                                                                                       |
-| -------------------------------------------------------------------------- | ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Video segmentation and tracking (clicks, boxes, brushes, locks)            | **SAM 2.1 Hiera-Large**, fp32                                           | Apache-2.0 (code and checkpoints)                                                                                                                                                            | A permissive standard licence; 224M parameters, so it fits beside the refiner in 16 GB; community video exports **with** the memory modules already exist and were validated against PyTorch (worst per-frame IoU 0.9967 on the tiny variant), so the export path is proven, not hoped for                                                         |
-| Edge refinement **and** alpha matting                                      | **BiRefNet_HR-matting**, fp32                                           | MIT; trained on DIS5K training data, which the authors state is usable commercially                                                                                                          | Trained at 2048² for matting with transparency, so one model gives both high-resolution edges and fractional alpha. Replaces the ViTMatte + classical-fallback pair: ViTMatte's Composition-1k/Distinctions-646 training data is a licence risk, and one model is more reliable than two that can disagree                                         |
-| Text → objects for AI masking ("the red car", "the sky", `subject.ground`) | **SAM 3.1** (concept prompts), image mode on a few keyframes only, fp16 | SAM License: commercial use, redistribution and derivative works (e.g. ONNX conversion) allowed; prohibits military/weapons/nuclear/espionage uses; terminates on IP litigation against Meta | The strongest open-vocabulary segmenter available (SAM 3 doubles cgF1 over prior systems on SA-Co). It only **proposes candidates**; the fp32 SAM 2.1 + BiRefNet path produces every delivered pixel, so fp16 here cannot reduce matte precision. 848M parameters, so it ships in a **separate pack** (below) and is loaded only for text requests |
-| Foreground colour                                                          | Multi-level foreground estimation                                       | MIT (algorithm, numpy)                                                                                                                                                                       | Deterministic, no weights                                                                                                                                                                                                                                                                                                                          |
-| Optical flow (consensus, stabilise, verify)                                | **OpenCV DIS** (dense inverse search), fixed preset                     | Apache-2.0 (OpenCV 4.5+)                                                                                                                                                                     | Deterministic and fast; the verify stage needs a stable reference, not a learned model that can hallucinate motion                                                                                                                                                                                                                                 |
-| Faces and identity                                                         | YuNet + SFace (existing Subject Intelligence / visual-embed)            | MIT / Apache-2.0                                                                                                                                                                             | Already audited and shipped                                                                                                                                                                                                                                                                                                                        |
+| Role                                                            | **Chosen**                                                                                                                                                                                                                                                                                | Licence (verified 2026-09-16)                                                       | Why this one                                                                                                                                                                                                                                                                                               |
+| --------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Video segmentation and tracking (clicks, boxes, brushes, locks) | **SAM 2.1 Hiera-Large**, fp32                                                                                                                                                                                                                                                             | Apache-2.0 (code and checkpoints)                                                   | A permissive standard licence; 224M parameters, so it fits beside the refiner in 16 GB; community video exports **with** the memory modules already exist and were validated against PyTorch (worst per-frame IoU 0.9967 on the tiny variant), so the export path is proven, not hoped for                 |
+| Edge refinement **and** alpha matting                           | **BiRefNet_HR-matting**, fp32                                                                                                                                                                                                                                                             | MIT; trained on DIS5K training data, which the authors state is usable commercially | Trained at 2048² for matting with transparency, so one model gives both high-resolution edges and fractional alpha. Replaces the ViTMatte + classical-fallback pair: ViTMatte's Composition-1k/Distinctions-646 training data is a licence risk, and one model is more reliable than two that can disagree |
+| Text → objects for AI masking ("the red car")                   | **No extra model in v1.** Host-side resolution from Subject Intelligence detections (faces, people, 80 object classes; 42 MB, already built), re-ranked by SigLIP text similarity when `visual-embed` is installed; anything outside that vocabulary ("the sky") asks the editor to click | —                                                                                   | Avoids an 848M-parameter download and a gated checkpoint for a convenience feature. The click path gives the same matte precision; the only cost is one click for out-of-vocabulary targets, and the AI asks instead of guessing                                                                           |
+| Foreground colour                                               | Multi-level foreground estimation                                                                                                                                                                                                                                                         | MIT (algorithm, numpy)                                                              | Deterministic, no weights                                                                                                                                                                                                                                                                                  |
+| Optical flow (consensus, stabilise, verify)                     | **OpenCV DIS** (dense inverse search), fixed preset                                                                                                                                                                                                                                       | Apache-2.0 (OpenCV 4.5+)                                                            | Deterministic and fast; the verify stage needs a stable reference, not a learned model that can hallucinate motion                                                                                                                                                                                         |
+| Faces and identity                                              | YuNet + SFace (existing Subject Intelligence / visual-embed)                                                                                                                                                                                                                              | MIT / Apache-2.0                                                                    | Already audited and shipped                                                                                                                                                                                                                                                                                |
 
-**Pack split.** `framepilot.smart-mask` (SAM 2.1 Hiera-L + BiRefNet_HR-matting + runtime) serves background
-removal, AI Object, AI Brush and all mattes. `framepilot.smart-mask-text` (SAM 3.1) serves only text
-requests from the AI (`subject.ground`). An editor who never asks the AI for "the red car" never
-downloads 848M parameters, and a missing text pack degrades to clicking the object, never to a worse matte.
+**Why two models and not one.** No single permissively licensed model does both jobs well. SAM 2.1
+follows an object through time (memory across frames) but its mask is low resolution; BiRefNet_HR-matting
+produces hair-accurate alpha at 2048² but has no notion of time or of _which_ object. Premiere Pro's Object
+Masking (Sharp/Smooth modes) and Resolve's Magic Mask pair tracking with edge refinement for the same
+reason. Removing either model would lose flicker-free tracking or hair-accurate edges.
+
+**Download size (one pack, on demand only):**
+
+| Part                                         | Size                                                                                                |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
+| SAM 2.1 Hiera-Large weights                  | ~450 MB stored as fp16 (898 MB as the fp32 checkpoint)                                              |
+| BiRefNet_HR-matting weights                  | ~445 MB stored as fp16 (the published checkpoint is 444 MB)                                         |
+| onnxruntime + OpenCV + FFmpeg (LGPL) runtime | ~150 MB, measured in BR0                                                                            |
+| **Total**                                    | **≈ 1.05 GB**, downloaded only when the editor first uses background removal, AI Object or AI Brush |
+
+**Stored fp16, computed fp32.** Weights are stored as fp16 to halve the download and are upcast to fp32 at
+load, so every computation runs in fp32. This is allowed **only if** the upcast models pass the same parity
+gate as the fp32 originals (per-frame IoU ≥ 0.999; band alpha ≤ 1/255 mean). If either fails, that model
+ships fp32 and the download grows to match. Precision is never traded for size.
+
+Everything else needs no model download: all manual masks, keys, split/mirror/gradient/track-matte masks,
+and tracking (Tracking Lite, no weights). Face detection for AI requests uses Subject Intelligence (42 MB).
 
 **Rejected, with the reason re-confirmed on 2026-09-16:**
 
-| Model                            | Reason                                                                                                                                              |
-| -------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| MatAnyone 2 (CVPR 2026)          | NTU S-Lab License 1.0, non-commercial                                                                                                               |
-| MatAnyone, other S-Lab models    | Non-commercial                                                                                                                                      |
-| BRIA RMBG-1.4 / RMBG-2.0         | Non-commercial                                                                                                                                      |
-| Robust Video Matting             | GPL-3.0 (strong copyleft; SBOM gate)                                                                                                                |
-| Ultralytics YOLO-seg             | AGPL-3.0                                                                                                                                            |
-| ViTMatte                         | Training-data terms (Composition-1k / Distinctions-646); superseded by BiRefNet_HR-matting                                                          |
-| SAM 3.1 as the **video tracker** | Official implementation requires CUDA (no MPS/CPU path documented) and 848M parameters; used for text grounding only, where it runs on a few frames |
-| Grounding DINO, OWLv2            | Weaker on referring expressions than SAM 3.1; OWLv2 is the named contingency **only** if legal review rejects the SAM License (RD2.3)               |
+| Model                                           | Reason                                                                                                                                                                        |
+| ----------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| MatAnyone 2 (CVPR 2026)                         | NTU S-Lab License 1.0, non-commercial                                                                                                                                         |
+| MatAnyone, other S-Lab models                   | Non-commercial                                                                                                                                                                |
+| BRIA RMBG-1.4 / RMBG-2.0                        | Non-commercial                                                                                                                                                                |
+| Robust Video Matting                            | GPL-3.0 (strong copyleft; SBOM gate)                                                                                                                                          |
+| Ultralytics YOLO-seg                            | AGPL-3.0                                                                                                                                                                      |
+| ViTMatte                                        | Training-data terms (Composition-1k / Distinctions-646); superseded by BiRefNet_HR-matting                                                                                    |
+| SAM 3.1, Grounding DINO, OWLv2 (text grounding) | Deferred from v1: 0.6–3.4 GB extra for a convenience the click path already covers; SAM 3.1 is also gated. Revisit only if AM5 shows out-of-vocabulary asks are a real burden |
 
 **Precision rules for the models:** the delivered-pixel path (SAM 2.1, BiRefNet_HR-matting) is fp32 end to
 end, with no fp16, int8 or pruning. SAM 2.1's rotary position embedding uses complex tensors, which do
@@ -95,8 +112,7 @@ parity-tested.
 - Known: CoreML refused batch > 1 in `visual-embed`, so the pipeline is batch 1.
 - Long clips are processed in overlapping windows (300 frames, 60 overlap). Overlaps go through consensus
   like any other pair of estimates, so a window seam is verified, not blended blindly.
-- `manifest.toml`: `capabilities = ["subject.matte", "subject.segment_frame"]` for Smart Mask and
-  `["subject.ground"]` for Smart Mask Text; `network = "disabled"`; `max_unpacked_mib` from the measured
+- `manifest.toml`: `capabilities = ["subject.matte", "subject.segment_frame"]`; `network = "disabled"`; `max_unpacked_mib` from the measured
   artifact.
 
 ## Production requirements (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
@@ -125,19 +141,16 @@ parity-tested.
 Every model and runtime above is decided. BR0 builds the reference harness and records numbers in
 `BR0-FINDINGS.md`:
 
-1. **Export and parity:** SAM 2.1 Hiera-L video modules (real-valued RoPE), BiRefNet_HR-matting, and the
-   SAM 3.1 image path to ONNX. Parity against PyTorch per (model, EP) with the thresholds in Runtime.
+1. **Export and parity:** SAM 2.1 Hiera-L video modules (real-valued RoPE) and BiRefNet_HR-matting to
+   ONNX, each as fp32 and as fp16-stored/fp32-computed. Parity against PyTorch per (model, EP) with the thresholds in Runtime.
    Pairs that fail are disabled by rule.
-2. **Licence file review:** pinned-commit licence texts for all three models, the SAM License's
-   acceptable-use terms quoted into `LICENSES.md`, and the DIS5K statement recorded. Legal sign-off of the
-   SAM License is RD2.3.
+2. **Licence file review:** pinned-commit licence texts (Apache-2.0; MIT plus the DIS5K statement) into
+   `LICENSES.md`.
 3. **Error-detection recall** of the verify stage on the labelled pilot set (gate ≥ 99.5%). If it misses,
    the verify checks are improved before anything else is built; the models do not change.
 4. **Throughput, memory and first-run preparation time** per EP at 1080p30 and 4K30, which set the ETA
    copy and the published minimum hardware.
-5. **Pack sizes** (Smart Mask, Smart Mask Text) and matte + foreground storage per minute.
-6. **Build access:** SAM 3.1 checkpoints are gated on Hugging Face (licence acceptance), so the pack build
-   job needs an authenticated, recorded download. That credential is an RD1 maintainer item.
+5. **Pack size** (target ≈ 1.05 GB) and matte + foreground storage per minute.
 
 ## Worker structure (mirrors `subject-intelligence`)
 

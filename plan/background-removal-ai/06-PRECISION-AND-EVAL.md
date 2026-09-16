@@ -101,7 +101,7 @@ If a gate misses, the numbers go to the maintainer. A gate is not quietly lowere
 | ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
 | Target resolution, unambiguous requests  | ≥ 99% pick the labelled target                                                                                                          |
 | Ambiguous requests                       | ≥ 97% ask the user (return `ambiguous_target`); a wrong confident pick counts as a failure, not an ask                                  |
-| Unnecessary asks on unambiguous requests | ≤ 3%                                                                                                                                    |
+| Unnecessary asks on unambiguous requests | ≤ 3% for targets inside the detector vocabulary; out-of-vocabulary `needs_click` rate is reported separately and is by design           |
 | Fabricated geometry                      | 0 (every applied mask vertex traces to a candidate, a measurement or a user number; enforced by the validator and audited in the eval)  |
 | Mask quality                             | The same matte, shape and tracking gates as above, measured through the agent path                                                      |
 | Face/plate "hide"                        | Post-effect detail check: text/face recognisers on the exported frames find nothing inside the masked region on 100% of labelled frames |

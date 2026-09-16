@@ -73,19 +73,21 @@ promise one. It makes the **delivered result** exact, and every claim is a gate 
 
 ## Maintainer decisions
 
+**Delivery:** the whole program ships as **one pull request to main**, many small commits (maintainer, 2026-09-16).
+
 **Approved by the maintainer on 2026-09-16** ("i am ready to go with any changes"), recorded per
 CLAUDE.md §5. Models and runtimes are decided (MD-2, MD-6); BR0 verifies parity and records numbers, and the measured
 gates still apply.
 
-| #    | Decision                                                                                                                | Status                                                                                             |
-| ---- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
-| MD-1 | Schema v22 mask stack (`Clip.masks`, `EffectLayer.masks`) replacing `mask` effects, with migration and backup           | **Approved**                                                                                       |
-| MD-2 | Smart Mask models: **SAM 2.1 Hiera-L + BiRefNet_HR-matting**, fp32 onnxruntime (CoreML EP; Windows ML → DirectML → CPU) | **Approved and decided** (2026-09-16); BR0 verifies parity, it does not choose                     |
-| MD-3 | Pack worker writes one host-created staging directory                                                                   | **Approved** (security review in BR4 still required)                                               |
-| MD-4 | Mattes, tracks and correction inputs are project-owned                                                                  | **Approved**                                                                                       |
-| MD-5 | Delete the DOM program monitor and eligibility gates once every oracle row passes                                       | **Approved** (behind a flag until RD3)                                                             |
-| MD-6 | Text grounding: **SAM 3.1** image mode in a separate Smart Mask Text pack                                               | **Approved and decided** (legal review of the SAM License in RD2.3; OWLv2 is the only contingency) |
-| MD-7 | Per-project, opt-in face recognition for identity-aware AI masking                                                      | **Approved** (legal review of copy in RD2)                                                         |
+| #    | Decision                                                                                                                        | Status                                                                         |
+| ---- | ------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| MD-1 | Schema v22 mask stack (`Clip.masks`, `EffectLayer.masks`) replacing `mask` effects, with migration and backup                   | **Approved**                                                                   |
+| MD-2 | Smart Mask models: **SAM 2.1 Hiera-L + BiRefNet_HR-matting**, fp32 onnxruntime (CoreML EP; Windows ML → DirectML → CPU)         | **Approved and decided** (2026-09-16); BR0 verifies parity, it does not choose |
+| MD-3 | Pack worker writes one host-created staging directory                                                                           | **Approved** (security review in BR4 still required)                           |
+| MD-4 | Mattes, tracks and correction inputs are project-owned                                                                          | **Approved**                                                                   |
+| MD-5 | Delete the DOM program monitor and eligibility gates once every oracle row passes                                               | **Approved** (behind a flag until RD3)                                         |
+| MD-6 | Text grounding: **no extra model in v1** (detection + SigLIP re-ranking, click for out-of-vocabulary targets); SAM 3.1 deferred | **Decided** 2026-09-16                                                         |
+| MD-7 | Per-project, opt-in face recognition for identity-aware AI masking                                                              | **Approved** (legal review of copy in RD2)                                     |
 
 **Maintainer actions (not decisions; nothing ships to users without them):** Apple Developer ID and
 notarisation, a Windows Authenticode certificate, offline catalog root keys, and a CDN account for
@@ -94,20 +96,20 @@ multi-GiB packs (RD1.1–RD1.2). Today no build can install a pack from a catalo
 
 ## Files
 
-| File                                                           | Contents                                                                                             |
-| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| [`00-CURRENT-STATE.md`](./00-CURRENT-STATE.md)                 | Pack, segmentation and preview state with file references                                            |
-| [`01-ARCHITECTURE.md`](./01-ARCHITECTURE.md)                   | End-to-end flow, ownership, invariants                                                               |
-| [`02-WORKER-PACK.md`](./02-WORKER-PACK.md)                     | Smart Mask precision pipeline, models, licences, BR0                                                 |
-| [`03-PROTOCOL-AND-HOST.md`](./03-PROTOCOL-AND-HOST.md)         | `subject.matte`, `subject.ground`, sandbox, host IPC, cache, retention                               |
-| [`04-SCHEMA-RENDER-PREVIEW.md`](./04-SCHEMA-RENDER-PREVIEW.md) | The `matte` mask kind: fields, ops, engine reader, preview source                                    |
-| [`05-INSPECTOR-UX.md`](./05-INSPECTOR-UX.md)                   | Mask tab placement, pack warnings per tool, background removal states, review, brush, lock, Verified |
-| [`06-PRECISION-AND-EVAL.md`](./06-PRECISION-AND-EVAL.md)       | Gates for mattes, rasteriser, tracking and AI masking                                                |
-| [`07-TASKS-AND-EVIDENCE.md`](./07-TASKS-AND-EVIDENCE.md)       | PX, MK, BR, AM phases and E2E with a DoD per phase                                                   |
-| [`08-DEFERRED-AND-RISKS.md`](./08-DEFERRED-AND-RISKS.md)       | Deferred scope, risks, what would change the plan                                                    |
-| [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) | Core preview fix: frame plan, pixel oracle, N-layer compositor, gates deleted                        |
-| [`10-PROFESSIONAL-MASKING.md`](./10-PROFESSIONAL-MASKING.md)   | Mask stack, kinds, modes, feather, animation, tracking, tools, schema v22, rasteriser                |
-| [`11-AI-MASKING.md`](./11-AI-MASKING.md)                       | Target resolution, tools, verification, surfaces, evals                                              |
+| File                                                           | Contents                                                                                                   |
+| -------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| [`00-CURRENT-STATE.md`](./00-CURRENT-STATE.md)                 | Pack, segmentation and preview state with file references                                                  |
+| [`01-ARCHITECTURE.md`](./01-ARCHITECTURE.md)                   | End-to-end flow, ownership, invariants                                                                     |
+| [`02-WORKER-PACK.md`](./02-WORKER-PACK.md)                     | Smart Mask precision pipeline, models, licences, BR0                                                       |
+| [`03-PROTOCOL-AND-HOST.md`](./03-PROTOCOL-AND-HOST.md)         | `subject.matte`, `subject.segment_frame`, host-side target resolution, sandbox, host IPC, cache, retention |
+| [`04-SCHEMA-RENDER-PREVIEW.md`](./04-SCHEMA-RENDER-PREVIEW.md) | The `matte` mask kind: fields, ops, engine reader, preview source                                          |
+| [`05-INSPECTOR-UX.md`](./05-INSPECTOR-UX.md)                   | Mask tab placement, pack warnings per tool, background removal states, review, brush, lock, Verified       |
+| [`06-PRECISION-AND-EVAL.md`](./06-PRECISION-AND-EVAL.md)       | Gates for mattes, rasteriser, tracking and AI masking                                                      |
+| [`07-TASKS-AND-EVIDENCE.md`](./07-TASKS-AND-EVIDENCE.md)       | PX, MK, BR, AM phases and E2E with a DoD per phase                                                         |
+| [`08-DEFERRED-AND-RISKS.md`](./08-DEFERRED-AND-RISKS.md)       | Deferred scope, risks, what would change the plan                                                          |
+| [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) | Core preview fix: frame plan, pixel oracle, N-layer compositor, gates deleted                              |
+| [`10-PROFESSIONAL-MASKING.md`](./10-PROFESSIONAL-MASKING.md)   | Mask stack, kinds, modes, feather, animation, tracking, tools, schema v22, rasteriser                      |
+| [`11-AI-MASKING.md`](./11-AI-MASKING.md)                       | Target resolution, tools, verification, surfaces, evals                                                    |
 
 ## Build order
 

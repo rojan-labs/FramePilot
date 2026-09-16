@@ -10015,7 +10015,7 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (thirteen files).
 **Maintainer scope (recorded per CLAUDE.md §5):** background removal worker + Inspector with
 missing-pack warning; preview fixed at the core to render like the export; professional-editor
-masking; AI masking; everything production-grade. **Parity and production audit (`12`):** compared with Premiere Pro / Resolve / CapCut; added split, mirror, gradient, shape-preset, track-matte (text as mask) kinds, RGB/3D keyer, matte finesse, adjustment-lane masks, edge styles, track reuse, hover highlight, progressive results, jobs panel with resume. Found 25 production gaps, including the **blocker that no build can install packs** (`service.ts:547` `catalog_unconfigured`). MD-1–MD-7 approved by the maintainer 2026-09-16. **Models decided the same day:** SAM 2.1 Hiera-L tracker + BiRefNet_HR-matting (fp32, Apache-2.0/MIT) in Smart Mask; SAM 3.1 text grounding in a separate Smart Mask Text pack; onnxruntime with CoreML EP / Windows ML → DirectML → CPU and a per-(model, EP) parity gate. MatAnyone 2, RMBG and RVM rejected on licence. **Five tracks:**
+masking; AI masking; everything production-grade. **Parity and production audit (`12`):** compared with Premiere Pro / Resolve / CapCut; added split, mirror, gradient, shape-preset, track-matte (text as mask) kinds, RGB/3D keyer, matte finesse, adjustment-lane masks, edge styles, track reuse, hover highlight, progressive results, jobs panel with resume. Found 25 production gaps, including the **blocker that no build can install packs** (`service.ts:547` `catalog_unconfigured`). MD-1–MD-7 approved by the maintainer 2026-09-16. **Models decided the same day:** SAM 2.1 Hiera-L tracker + BiRefNet_HR-matting (fp32, Apache-2.0/MIT) in Smart Mask; one pack ≈ 1.05 GB (fp16-stored, fp32-computed weights); no text-grounding model in v1 (SAM 3.1 deferred); onnxruntime with CoreML EP / Windows ML → DirectML → CPU and a per-(model, EP) parity gate. MatAnyone 2, RMBG and RVM rejected on licence. **Delivered as ONE PR to main** (maintainer, 2026-09-16). **Five tracks:**
 - **PX (preview parity):** shared frame plan (`framePlanAt` ↔ `frame_plan_at`), a pixel oracle against
   `frame_grab.py` built first, then an N-layer WebGL compositor. After that, delete
   `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM monitor (MD-5).
@@ -10027,8 +10027,8 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - **BR (background removal):** the Smart Mask pack. Bidirectional SAM 2.1 Hiera-L, BiRefNet_HR-matting,
   consensus, self-correction, full-res matting, decontamination, verification ≥ 99.5% error recall.
   Review, brush and lock lead to Verified.
-- **AM (AI masking):** a `masking` tool domain. Target resolution by detection + open-vocabulary
-  grounding (SAM 3.1, Smart Mask Text pack) + identity. Ask on ambiguity, never invent geometry, same ops and review list.
+- **AM (AI masking):** a `masking` tool domain. Target resolution by detection +
+  SigLIP re-ranking (click for out-of-vocabulary targets) + identity. Ask on ambiguity, never invent geometry, same ops and review list.
   Gates: ≥ 99% target accuracy, ≥ 97% asks on ambiguous requests.
 
 - [ ] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets

@@ -30,12 +30,12 @@ RequestBaseSchema.extend({
 
 The frame range and media handle come from `RequestBase`, as for `tracking.*`.
 
-**Companion capability `subject.ground`** (Smart Mask Text pack; needed by AI masking, [`11`](./11-AI-MASKING.md)):
-request `{ text: string ≤ 200 chars, frames: pts[] ≤ 16 }` → result
-`{ candidates: [{ candidateId, label, score, boxes: [{ pts, box }] }] }`. Small JSON. Served by the separate `framepilot.smart-mask-text` pack (SAM 3.1 image path). Region words that are not objects ("sky", "ground") return a
-`region` candidate whose box is the frame and whose prompt is resolved by segmentation.
+**Target resolution for AI requests is host-side, not a worker capability.** The host combines
+`subject.detect` (Subject Intelligence) with SigLIP text-image similarity on detection crops when
+`visual-embed` is installed, and returns `{ candidates: [{ candidateId, label, score, boxes: [{ pts, box }] }] }`.
+No extra model is downloaded for it.
 
-**Prompt kinds for `subject.matte`** accept any object or region, not only people: a grounding
+**Prompt kinds for `subject.matte`** accept any object or region, not only people: a
 `candidateId` resolves host-side to its boxes before the request is sent, so the worker only ever sees
 points, boxes, brushes and locks.
 

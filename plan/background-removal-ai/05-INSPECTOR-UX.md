@@ -17,14 +17,14 @@ deleted once their replacements pass. Built from the design system (`Button` var
 
 ## Pack-backed tools and their warnings
 
-| Tool                                                              | Needs                             | Without it                                                                                 |
-| ----------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
-| Rectangle, Ellipse, Pen, Freehand, Key, all properties, keyframes | Nothing (core)                    | Always available                                                                           |
-| Remove background, AI Object, AI Brush                            | **Smart Mask pack**               | Warning + disabled tool, as below                                                          |
-| AI Object "auto (main subject)"                                   | Smart Mask + Subject Intelligence | Falls back to "click the subject" with a note; never proposes a second download on its own |
-| AI requests naming an object in words ("the red car")             | **Smart Mask Text pack**          | The agent asks the editor to click the object instead                                      |
-| Track mask                                                        | **Tracking Lite pack**            | Same warning pattern, naming Tracking Lite                                                 |
-| AI masking in the sidebar                                         | Whichever pack the tool needs     | `PackInstallInlineCard` (existing)                                                         |
+| Tool                                                                     | Needs                             | Without it                                                                                 |
+| ------------------------------------------------------------------------ | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| Rectangle, Ellipse, Pen, Freehand, Key, all properties, keyframes        | Nothing (core)                    | Always available                                                                           |
+| Remove background, AI Object, AI Brush                                   | **Smart Mask pack**               | Warning + disabled tool, as below                                                          |
+| AI Object "auto (main subject)"                                          | Smart Mask + Subject Intelligence | Falls back to "click the subject" with a note; never proposes a second download on its own |
+| AI requests naming something outside the detector vocabulary ("the sky") | Nothing extra                     | The agent asks the editor to click it (by design; no extra download)                       |
+| Track mask                                                               | **Tracking Lite pack**            | Same warning pattern, naming Tracking Lite                                                 |
+| AI masking in the sidebar                                                | Whichever pack the tool needs     | `PackInstallInlineCard` (existing)                                                         |
 
 `usePackStatus(capability)` calls `capabilityPackStatus` on mount and on `onCapabilityPackInstalled`,
 so every tool's state updates without restart, whichever surface performed the install. Disabled AI

@@ -34,18 +34,18 @@ it uses **the same operations, the same pack jobs and the same review list**.
 request text + clip + time range
   → candidates:
       subject.detect (faces, persons, COCO objects; Subject Intelligence)
-    + open-vocabulary grounding (text → boxes, for "the red car", "license plate", "the sign")
+    + SigLIP text-image re-ranking of detection crops ("the red car"), when visual-embed is installed
     + shot ledger facts (subject kind, identity clusters; VU tier 1/2) when indexed
-    + region classes that are not objects ("sky", "ground", "background") via segmentation prompts
+    + out-of-vocabulary targets ("the sky") → needs_click
   → rank: grounding score × identity/ledger agreement × temporal persistence across sampled frames
   → unambiguous? → segment (subject.matte) / fit shape → track if the subject moves → apply ops → verify
   → ambiguous? → ambiguous_target with candidate thumbnails → user picks → continue
 ```
 
-- **Open-vocabulary grounding: SAM 3.1** concept prompts in image mode on up to 16 keyframes, from the
-  separate Smart Mask Text pack ([`02`](./02-WORKER-PACK.md#model-choices-decided-2026-09-16-from-current-sources-br0-verifies-it-does-not-choose)).
-  It proposes candidates; SAM 2.1 + BiRefNet_HR-matting produce the mask. SigLIP from `visual-embed` re-ranks
-  when installed. Without the text pack, the agent asks the editor to click the object.
+- **No text-grounding model in v1.** Candidates come from Subject Intelligence detections (faces, people,
+  80 object classes) re-ranked by SigLIP text similarity when `visual-embed` is installed. A target outside
+  that vocabulary ("the sky", "the sign on the left") returns `needs_click`, and the editor clicks it once;
+  the matte precision is identical.
 - **Faces** use YuNet (Subject Intelligence) for boxes and identity clusters (SFace, `visual-embed`),
   so "blur everyone except the host" resolves by identity, not by position.
 - Candidate ids are stable per clip and time, and are recalled by the run's memory (the

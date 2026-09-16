@@ -1,6 +1,7 @@
 # 07 — Tasks and evidence
 
-Each phase is its own PR with one goal (CLAUDE.md: don't bundle subsystems). Mark `[~]` when starting
+**All of this work ships as ONE pull request to main** (maintainer decision, 2026-09-16, overriding the
+usual one-subsystem-per-PR rule for this program): one branch, one worktree, many small commits. Mark `[~]` when starting
 and `[x]` only when the DoD evidence exists. Commits carry no attribution trailers.
 
 Five tracks. RD (release readiness), PX and MK need no model and start immediately; BR0 decides the models in parallel; AM
@@ -16,7 +17,8 @@ RD0 parity re-check · RD1 release infrastructure (starts now) · RD2 flags/tele
 E2E + docs (after all tracks)
 ```
 
-**PR sizing:** a phase is a goal, not a PR. Large phases are split into the sub-PRs marked `(PR n)`; each sub-PR is independently tested and reviewable.
+**Commit sizing:** phases and tasks are units of commits, not PRs. Commit each task when its targeted
+tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs on the one PR continuously.
 
 ## PX — Preview renders what the export renders ([`09`](./09-PREVIEW-EXPORT-PARITY.md))
 
@@ -108,9 +110,9 @@ E2E + docs (after all tracks)
 
 ### MK4 — Canvas tools + mask panel `[ ]`
 
-- [ ] MK4.1 (PR 1) `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
-- [ ] MK4.2 (PR 2) `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation
-- [ ] MK4.3 (PR 3) Keyframe lane integration on the timeline; copy/paste masks; presets
+- [ ] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
+- [ ] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation
+- [ ] MK4.3 Keyframe lane integration on the timeline; copy/paste masks; presets
 - [ ] MK4.4 Delete `addMaskPatch` hardcoded bounds and `MaskPackActions`; UI builds ops through editor-core commands
 - [ ] MK4.5 Component tests; Playwright flows for draw → animate → undo; a11y (keyboard drawing path)
 - [ ] MK4.6 Pointer-to-paint budget measured (≤ 16 ms p95, 200-vertex path, 4K) and save budget with 1,000 path keyframes
@@ -160,12 +162,12 @@ E2E + docs (after all tracks)
 
 ### BR0 — Spike: models, ONNX, licences, error detection `[ ]`
 
-- [ ] BR0.1 ONNX exports: SAM 2.1 Hiera-L video modules (real-valued RoPE), BiRefNet_HR-matting, SAM 3.1 image path
+- [ ] BR0.1 ONNX exports: SAM 2.1 Hiera-L video modules (real-valued RoPE) and BiRefNet_HR-matting, each fp32 and fp16-stored/fp32-computed
 - [ ] BR0.2 Parity per (model, EP) vs PyTorch: CoreML (MLProgram, static shapes), Windows ML (TensorRT-RTX / OpenVINO / Vitis AI / DirectML), DirectML EP, CPU; failing pairs disabled by rule
 - [ ] BR0.3 Consensus + band-alpha prototype with BiRefNet_HR-matting at 2048² tiles
 - [ ] BR0.4 Verify-stage prototype → **error-detection recall and review load** on the labelled pilot set
-- [ ] BR0.5 Licence texts at pinned commits into `LICENSES.md` (Apache-2.0, MIT + DIS5K statement, SAM License acceptable-use terms)
-- [ ] BR0.6 SAM 3.1 grounding: target-resolution accuracy on a pilot request set; fp16 image path memory and latency
+- [ ] BR0.5 Licence texts at pinned commits into `LICENSES.md` (Apache-2.0; MIT + DIS5K statement)
+- [ ] BR0.6 Pack size check (target ≈ 1.05 GB with fp16-stored weights; fp32 fallback if parity fails)
 - [ ] BR0.7 Throughput, memory, first-run preparation per EP; pack sizes; matte + foreground storage per minute; published minimum hardware
 - [ ] BR0.8 `BR0-FINDINGS.md`; ADR `docs/adr/0178-smart-mask-packs.md` recording the chosen models, runtime chain and rejection reasons
 
@@ -196,9 +198,6 @@ E2E + docs (after all tracks)
 - [ ] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`, LGPL-only FFmpeg verification
 - [ ] BR3.13 `subject.segment_frame` warm worker with per-frame embedding cache; `prepare` phase and compiled-model cache
 - [ ] BR3.14 Progressive per-window encode/verify; resume from finished windows; per-job memory ceiling, watchdog, GPU OOM → CPU fallback
-- [ ] BR3.15 `workers/smart-mask-text` pack (SAM 3.1 image path, `subject.ground`) with its own manifest, lock, SBOM, LICENSES and registration script
-
-Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensus · (PR 3) self-correct + matting + foreground + stabilise · (PR 4) verify + encode + progressive/resume · (PR 5) interactive + grounding · (PR 6) licences, SBOM, registration
 
 **DoD:** pack registers locally, passes health, and produces a host-verified artifact with a report on a real 1-min 4K clip.
 
@@ -259,7 +258,7 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 
 ### AM2 — Target resolution `[ ]` (needs MD-6)
 
-- [ ] AM2.1 `subject.ground` host job; candidate ranking with detection, grounding, identity clusters, ledger facts, temporal persistence
+- [ ] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
 - [ ] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
 - [ ] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
 - [ ] AM2.4 `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
@@ -296,7 +295,7 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 - [ ] E2E.8 Split/mirror/gradient/track matte/text-as-mask/adjustment-lane mask/edge-style flows, each preview == export
 - [ ] DOC.1 `docs/guides/masking.md` (tools, tracking, review and fixing, **limitations, shortcuts, troubleshooting, minimum hardware, privacy**), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
 
-**DoD:** e2e green in CI on the PR head SHA; all gate reports committed; `plan/PLAN.md` phase checked.
+**DoD:** e2e green in CI on the PR head SHA; all gate reports committed; `plan/PLAN.md` phase checked. The single PR is marked ready for review when RD3 passes; before that it stays open with CI running on every push.
 
 ## RD — Release readiness ([`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
 
@@ -307,7 +306,6 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 ### RD1 — Release infrastructure (start now; the blocker) `[ ]`
 
 - [ ] RD1.1 Maintainer actions: Apple Developer ID + notarisation, Windows Authenticode certificate, offline catalog root keys (generation ceremony, storage, rotation plan)
-- [ ] RD1.7 Authenticated, recorded Hugging Face access for the gated SAM 3.1 checkpoint in the pack build job
 - [ ] RD1.2 CDN hosting for multi-GiB artifacts with range requests; bandwidth and cost estimate
 - [ ] RD1.3 Signed catalog publishing pipeline from pack manifests (release-tooling exists); build embeds root keys and catalog URL for release channels only
 - [ ] RD1.4 CI pack builds for darwin-arm64 and win32-x64 with SBOM and licence gates; artifact signing
@@ -318,7 +316,7 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 
 - [ ] RD2.1 Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
 - [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
-- [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs, and the SAM License acceptable-use terms (contingency if rejected: Smart Mask Text uses OWLv2, Apache-2.0, and the ambiguity gate is re-measured)
+- [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates
 - [ ] RD2.5 `MANUAL_TESTING.md` masking and background-removal procedures
 
