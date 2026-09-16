@@ -39,6 +39,9 @@ import parity_media as pm
 
 PILOT_DIR = common.CACHE / "pilot"
 PROTO_DIR = common.CACHE / "proto"
+#: BiRefNet static input and full-resolution tile size. The model is trained at 2048²; this
+#: machine cannot run 2048² inside the 8 GB local budget (12 GB footprint on the CPU EP,
+#: BR0.7), so the pilot measurement passes a smaller static graph and records it.
 TILE = 2048
 TILE_OVERLAP = 256
 CROP_PAD = 0.2
@@ -117,20 +120,22 @@ class BiRefNetOnnx:
     MEAN = np.array([0.485, 0.456, 0.406], np.float32)
     STD = np.array([0.229, 0.224, 0.225], np.float32)
 
-    def __init__(self, ep: str, precision: str) -> None:
-        import onnxruntime as ort
+    def __init__(self, ep: str, precision: str, size: int = TILE) -> None:
+        self.size = size
 
         opts = common.session_options()
         t0 = time.time()
+        import onnxruntime as ort
+
         self.sess = ort.InferenceSession(
-            str(common.ONNX_DIR / f"birefnet_hr_matting_{TILE}.{precision}.onnx"), opts,
-            providers=common.providers_for(ep, common.CACHE / "coreml-cache" / precision / f"birefnet_{TILE}"))
+            str(common.ONNX_DIR / f"birefnet_hr_matting_{size}.{precision}.onnx"), opts,
+            providers=common.providers_for(ep, common.CACHE / "coreml-cache" / precision / f"birefnet_{size}"))
         self.create_seconds = time.time() - t0
         self.provider = self.sess.get_providers()[0]
         self.run_seconds: list[float] = []
 
-    def __call__(self, rgb_2048: np.ndarray) -> np.ndarray:
-        x = ((rgb_2048.astype(np.float32) / 255.0 - self.MEAN) / self.STD).transpose(2, 0, 1)[None]
+    def __call__(self, rgb: np.ndarray) -> np.ndarray:
+        x = ((rgb.astype(np.float32) / 255.0 - self.MEAN) / self.STD).transpose(2, 0, 1)[None]
         t0 = time.time()
         a = self.sess.run(None, {"image": np.ascontiguousarray(x)})[0][0, 0]
         self.run_seconds.append(time.time() - t0)
@@ -151,29 +156,32 @@ def square_crop(mask: np.ndarray, h: int, w: int) -> tuple[int, int, int, int]:
 
 
 def tiled_alpha(model: BiRefNetOnnx, crop: np.ndarray) -> np.ndarray:
-    """Alpha for a crop: one resized pass when it fits 2048², else full-resolution tiles."""
+    """Alpha for a crop: one resized pass when it fits the model input, else full-resolution
+    tiles of the model input size with overlap, blended with separable ramps."""
+    tile = model.size
     ch, cw = crop.shape[:2]
-    if max(ch, cw) <= TILE:
-        a = model(cv2.resize(crop, (TILE, TILE), interpolation=cv2.INTER_CUBIC))
+    if max(ch, cw) <= tile:
+        a = model(cv2.resize(crop, (tile, tile), interpolation=cv2.INTER_CUBIC))
         return cv2.resize(a, (cw, ch), interpolation=cv2.INTER_LINEAR)
-    pad_h, pad_w = max(TILE - ch, 0), max(TILE - cw, 0)
+    pad_h, pad_w = max(tile - ch, 0), max(tile - cw, 0)
     src = cv2.copyMakeBorder(crop, 0, pad_h, 0, pad_w, cv2.BORDER_REFLECT)
     acc = np.zeros(src.shape[:2], np.float32)
     wsum = np.zeros(src.shape[:2], np.float32)
-    wt = mm.blend_weight(TILE, TILE_OVERLAP)
-    for y in mm.tiles_1d(src.shape[0], TILE, TILE_OVERLAP):
-        for x in mm.tiles_1d(src.shape[1], TILE, TILE_OVERLAP):
-            acc[y : y + TILE, x : x + TILE] += model(src[y : y + TILE, x : x + TILE]) * wt
-            wsum[y : y + TILE, x : x + TILE] += wt
+    overlap = min(TILE_OVERLAP, tile // 4)
+    wt = mm.blend_weight(tile, overlap)
+    for y in mm.tiles_1d(src.shape[0], tile, overlap):
+        for x in mm.tiles_1d(src.shape[1], tile, overlap):
+            acc[y : y + tile, x : x + tile] += model(src[y : y + tile, x : x + tile]) * wt
+            wsum[y : y + tile, x : x + tile] += wt
     return (acc / np.maximum(wsum, 1e-6))[:ch, :cw]
 
 
-def stage_refine(clip: str, ep: str, precision: str) -> dict:
+def stage_refine(clip: str, ep: str, precision: str, size: int) -> dict:
     frames, _ = load_clip(clip)
     sam = np.load(PROTO_DIR / clip / "sam.npz")
     fwd, bwd = sam["fwd"], sam["bwd"]
     t_frames, h, w = fwd.shape
-    model = BiRefNetOnnx(ep, precision)
+    model = BiRefNetOnnx(ep, precision, size)
     alpha = np.zeros((t_frames, h, w), np.uint8)
     for t in range(t_frames):
         union = fwd[t] | bwd[t]
@@ -185,7 +193,7 @@ def stage_refine(clip: str, ep: str, precision: str) -> dict:
         gate = cv2.dilate(union[top : top + ch, left : left + cw].astype(np.uint8), mm.disk(gate_r)).astype(bool)
         alpha[t, top : top + ch, left : left + cw] = np.clip(np.round(a * gate * 255), 0, 255).astype(np.uint8)
     np.savez_compressed(PROTO_DIR / clip / "birefnet.npz", alpha=alpha)
-    return {"birefnetProvider": model.provider, "birefnetCreateSeconds": round(model.create_seconds, 1),
+    return {"birefnetSize": size, "birefnetProvider": model.provider, "birefnetCreateSeconds": round(model.create_seconds, 1),
             "birefnetMeanSeconds": round(float(np.mean(model.run_seconds)), 2) if model.run_seconds else None,
             "birefnetFirstSeconds": round(model.run_seconds[0], 2) if model.run_seconds else None}
 
@@ -241,13 +249,14 @@ def main() -> None:
     ap.add_argument("--sam-precision", default="fp32")
     ap.add_argument("--birefnet-ep", default="cpu")
     ap.add_argument("--birefnet-precision", default="fp32")
+    ap.add_argument("--birefnet-size", type=int, default=TILE)
     a = ap.parse_args()
     info_path = PROTO_DIR / a.clip / "run.json"
     info = json.loads(info_path.read_text()) if info_path.exists() else {}
     if a.stage in ("sam", "all"):
         info["sam"] = stage_sam(a.clip, a.sam_ep, a.sam_precision)
     if a.stage in ("refine", "all"):
-        info["refine"] = stage_refine(a.clip, a.birefnet_ep, a.birefnet_precision)
+        info["refine"] = stage_refine(a.clip, a.birefnet_ep, a.birefnet_precision, a.birefnet_size)
     if a.stage in ("consensus", "all"):
         info["consensus"] = stage_consensus(a.clip)
     info_path.parent.mkdir(parents=True, exist_ok=True)

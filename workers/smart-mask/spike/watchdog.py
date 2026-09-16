@@ -8,7 +8,7 @@ version measures what the OS charges the processes for.
 Rules:
 - ONE heavy job at a time: jobs run sequentially; a job does not start while another spike
   job runs (checked with ``ps``), nor while free memory is below the start level;
-- each job runs in its own process group; every 5 s the watchdog sums the physical footprint
+- each job runs in its own process group; every second the watchdog sums the physical footprint
   (``top -stats mem``: resident + compressed, including IOKit/Metal-backed memory) over the
   group and kills the whole group above ``--max-footprint-gib`` (default 8), when system swap
   grows by more than ``--max-swap-growth-gib`` (default 1) during the job, or when the
@@ -38,7 +38,7 @@ import common
 
 SPIKE_SCRIPTS = ("parity_sam.py", "parity_birefnet.py", "pilot_generate.py", "pipeline_proto.py",
                  "throughput.py", "coreml_probe.py", "verify_proto.py", "export_sam.py", "export_birefnet.py")
-POLL_SECONDS = 5
+POLL_SECONDS = 1  # 5 s let a 2048² BiRefNet session overshoot to 12 GB before the kill
 _UNITS = {"B": 1, "K": 2**10, "M": 2**20, "G": 2**30, "T": 2**40}
 
 
