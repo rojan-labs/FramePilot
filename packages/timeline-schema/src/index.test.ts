@@ -4,7 +4,15 @@
  * (negative duration) fails. See plan/PLAN.md Phase 1.1.
  */
 import { describe, expect, it } from 'vitest';
-import { AssetSourceSchema, SCHEMA_VERSION, parseProject, safeParseProject } from './index.js';
+import {
+  AssetSourceSchema,
+  MASK_KINDS,
+  MaskLayerSchema,
+  SCHEMA_VERSION,
+  masksOf,
+  parseProject,
+  safeParseProject,
+} from './index.js';
 
 /** Mirrors the PRD §11 example project shape. */
 const validProject = {
@@ -42,7 +50,112 @@ const validProject = {
 
 describe('timeline-schema', () => {
   it('exposes a numeric SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(21);
+    expect(SCHEMA_VERSION).toBe(22);
+  });
+
+  describe('mask stack (`Clip.masks`, schema v22)', () => {
+    const sha = 'a'.repeat(64);
+    const everyKind = [
+      { kind: 'rectangle', id: 'm1', cx: 960, cy: 540, width: 400, height: 300 },
+      { kind: 'ellipse', id: 'm2', cx: 960, cy: 540, rx: 200, ry: 100 },
+      {
+        kind: 'path',
+        id: 'm3',
+        pathKeyframes: [
+          {
+            id: 'pk1',
+            sourceTime: 4,
+            points: [0, 0, 0, 0, 0, 0, 100, 0, 0, 0, 0, 0, 100, 100, 0, 0, 0, 0],
+            vertexTypes: [0, 1, 2],
+          },
+        ],
+      },
+      {
+        kind: 'matte',
+        id: 'm4',
+        artifact: {
+          key: sha,
+          files: [{ name: 'matte.mkv', sha256: sha }],
+          width: 1920,
+          height: 1080,
+          coverage: { sourceStart: 4, sourceEnd: 16.5 },
+          packId: 'subject-matte',
+          packVersion: '1.0.0',
+          modelDigests: [sha],
+        },
+        prompts: [
+          { kind: 'points', sourceTime: 4, points: [{ x: 0.5, y: 0.5, label: 'include' }] },
+        ],
+      },
+      { kind: 'key', id: 'm5', model: 'hsl', ranges: [{ channel: 'hue', low: 0.9, high: 0.1 }] },
+      { kind: 'linear', id: 'm6', originX: 960, originY: 0 },
+      { kind: 'band', id: 'm7', originX: 960, originY: 0, widthPx: 200 },
+      { kind: 'gradient', id: 'm8', shape: 'radial', startX: 0, startY: 0, endX: 10, endY: 10 },
+      { kind: 'layer', id: 'm9', source: { kind: 'track', trackId: 'video_1' } },
+    ];
+
+    it('accepts every kind and fills the base defaults', () => {
+      const parsed = everyKind.map((mask) => MaskLayerSchema.parse(mask));
+      expect(parsed.map((mask) => mask.kind)).toEqual([...MASK_KINDS]);
+      const rectangle = parsed[0]!;
+      expect(rectangle).toMatchObject({
+        enabled: true,
+        locked: false,
+        target: { kind: 'alpha' },
+        mode: 'add',
+        opacity: 1,
+        invert: false,
+        featherModel: 'distance',
+        space: 'source',
+        keyframes: [],
+      });
+      const matte = parsed[3]!;
+      expect(matte).toMatchObject({ edgeMode: 'smooth', decontaminate: true, edgeShiftPx: 0 });
+    });
+
+    it('rejects an unknown kind, a malformed vertex type and an empty effect target', () => {
+      expect(MaskLayerSchema.safeParse({ ...everyKind[0], kind: 'star' }).success).toBe(false);
+      expect(
+        MaskLayerSchema.safeParse({
+          ...everyKind[2],
+          pathKeyframes: [{ id: 'pk', sourceTime: 0, points: [], vertexTypes: [3] }],
+        }).success,
+      ).toBe(false);
+      expect(
+        MaskLayerSchema.safeParse({ ...everyKind[0], target: { kind: 'effect', effectId: '' } })
+          .success,
+      ).toBe(false);
+    });
+
+    it('lives on clips and effect layers, read through masksOf', () => {
+      const clip = validProject.timeline.tracks[0]!.clips[0]!;
+      const project = parseProject({
+        ...validProject,
+        timeline: {
+          tracks: [
+            { ...validProject.timeline.tracks[0], clips: [{ ...clip, masks: everyKind }] },
+            {
+              id: 'fx',
+              type: 'effect',
+              clips: [],
+              effectLayers: [
+                {
+                  id: 'l1',
+                  effectId: 'gaussian-blur',
+                  kind: 'blur-gaussian',
+                  start: 0,
+                  end: 2,
+                  masks: [{ ...everyKind[0], space: 'frame' }],
+                },
+              ],
+            },
+          ],
+        },
+      });
+      expect(masksOf(project.timeline.tracks[0]!.clips[0]!)).toHaveLength(MASK_KINDS.length);
+      expect(masksOf(project.timeline.tracks[1]!.effectLayers![0]!)[0]!.space).toBe('frame');
+      expect(masksOf(clip)).toEqual([]);
+    });
   });
 
   describe('asset provenance (`Asset.source`, schema v20)', () => {

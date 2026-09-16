@@ -36,7 +36,9 @@ from pydantic import BaseModel
 from framepilot_engine.effects.keyframes import Easing
 from framepilot_engine.render.effect_catalog import known_kinds
 from framepilot_engine.timeline.models import (
+    MASK_LAYER_MODELS,
     SCHEMA_VERSION,
+    AlphaMaskTarget,
     Angle,
     AngleGroup,
     Asset,
@@ -59,12 +61,45 @@ from framepilot_engine.timeline.models import (
     CropRect,
     Effect,
     EffectLayer,
+    EffectMaskTarget,
     Folder,
     Keyframe,
+    KeyMask,
+    LayerMask,
+    LayerMaskClipSource,
+    LayerMaskTrackSource,
     Marker,
+    MaskArtifactRef,
+    MaskFalloff,
+    MaskFeatherModel,
+    MaskFinesse,
+    MaskKeyframe,
+    MaskKeyRange,
+    MaskMode,
+    MaskPathKeyframe,
+    MaskReview,
+    MaskScalarProperty,
+    MaskSpace,
+    MaskTracking,
+    MaskTrackingConstraint,
+    MaskTrackingMethod,
+    MatteArtifact,
+    MatteCoverage,
+    MatteFile,
+    MatteMask,
+    MattePromptBox,
+    MattePromptBoxRef,
+    MattePromptBrush,
+    MattePromptCandidate,
+    MattePromptLock,
+    MattePromptPoint,
+    MattePromptPoints,
+    PathMask,
     Project,
     ProjectFile,
+    RectangleMask,
     Resolution,
+    SourceTimeRange,
     SpeedPoint,
     Timeline,
     Track,
@@ -376,6 +411,17 @@ def _accepts_null(node: dict[str, Any]) -> bool:
 def _assert_nulls_are_entitled(document: Any, node: dict[str, Any], path: str) -> None:
     """Recursively assert every ``null`` in ``document`` sits where TS accepts one."""
     if isinstance(document, dict):
+        if "properties" not in node and isinstance(document.get("kind"), str):
+            # A discriminated union (the v22 mask stack): walk the variant the value IS.
+            node = next(
+                (
+                    variant
+                    for variant in cast(list[dict[str, Any]], node.get("anyOf", []))
+                    if variant.get("properties", {}).get("kind", {}).get("const")
+                    == document["kind"]
+                ),
+                node,
+            )
         properties = cast(dict[str, Any], node.get("properties", {}))
         for key, value in document.items():
             prop = properties.get(key)
@@ -522,3 +568,188 @@ def test_the_written_project_round_trips_back_through_the_engine(tmp_path: Path)
     original = _fully_nested_project()
     ProjectFile.save(original, destination)
     assert ProjectFile.load(destination) == original
+
+
+# --- Mask stack (schema v22, ADR 0178) ------------------------------------------------
+#
+# The mask stack is a discriminated union, which the JSON Schema exports as an ``anyOf`` of
+# object variants keyed by a ``const`` ``kind``. The helpers below pick a variant by that
+# constant so every kind — and every nested shape a kind carries — is compared field by
+# field. A dropped field here is not a crash; it is a mask that renders differently in the
+# export than it does in the editor.
+
+
+def _union_variant(node: dict[str, Any], kind: str) -> dict[str, Any]:
+    """The ``anyOf`` object variant whose ``kind`` property is the constant ``kind``."""
+    variants = cast(list[dict[str, Any]], node.get("anyOf", []))
+    for variant in variants:
+        if variant.get("properties", {}).get("kind", {}).get("const") == kind:
+            return variant
+    raise AssertionError(f"no union variant with kind={kind!r}")
+
+
+def _clip_masks_node(project_schema: dict[str, Any]) -> dict[str, Any]:
+    timeline = _object_node(project_schema, "timeline")
+    track = _array_item_node(timeline, "tracks")
+    clip = _array_item_node(track, "clips")
+    return cast(dict[str, Any], clip["properties"]["masks"]["items"])
+
+
+def test_mask_stack_is_declared_on_clips_and_effect_layers(project_schema: dict[str, Any]) -> None:
+    timeline = _object_node(project_schema, "timeline")
+    track = _array_item_node(timeline, "tracks")
+    clip = _array_item_node(track, "clips")
+    effect_layer = _array_item_node(track, "effectLayers")
+    assert "masks" in _schema_property_names(clip)
+    assert "masks" in _schema_property_names(effect_layer)
+    kinds = {
+        variant["properties"]["kind"]["const"]
+        for variant in _clip_masks_node(project_schema)["anyOf"]
+    }
+    assert kinds == {model.model_fields["kind"].default for model in MASK_LAYER_MODELS}
+
+
+def test_mask_kind_fields_match(project_schema: dict[str, Any]) -> None:
+    masks = _clip_masks_node(project_schema)
+    for model in MASK_LAYER_MODELS:
+        kind = model.model_fields["kind"].default
+        variant = _union_variant(masks, kind)
+        assert _schema_property_names(variant) == _model_field_names(model), kind
+
+
+def test_mask_nested_fields_match(project_schema: dict[str, Any]) -> None:
+    masks = _clip_masks_node(project_schema)
+    rectangle = _union_variant(masks, "rectangle")
+    target = rectangle["properties"]["target"]
+    assert _schema_property_names(_union_variant(target, "alpha")) == _model_field_names(
+        AlphaMaskTarget
+    )
+    assert _schema_property_names(_union_variant(target, "effect")) == _model_field_names(
+        EffectMaskTarget
+    )
+    keyframe = _array_item_node(rectangle, "keyframes")
+    assert _schema_property_names(keyframe) == _model_field_names(MaskKeyframe)
+    assert _schema_property_names(_object_node(keyframe, "handles")) == _model_field_names(
+        BezierHandles
+    )
+
+    tracking = _object_node(rectangle, "tracking")
+    assert _schema_property_names(tracking) == _model_field_names(MaskTracking)
+    assert _schema_property_names(_object_node(tracking, "artifact")) == _model_field_names(
+        MaskArtifactRef
+    )
+    assert _schema_property_names(_array_item_node(tracking, "constraints")) == _model_field_names(
+        MaskTrackingConstraint
+    )
+    review = _object_node(tracking, "review")
+    assert _schema_property_names(review) == _model_field_names(MaskReview)
+    assert _schema_property_names(_array_item_node(review, "flagged")) == _model_field_names(
+        SourceTimeRange
+    )
+
+    path = _union_variant(masks, "path")
+    assert _schema_property_names(_array_item_node(path, "pathKeyframes")) == _model_field_names(
+        MaskPathKeyframe
+    )
+
+    matte = _union_variant(masks, "matte")
+    artifact = _object_node(matte, "artifact")
+    assert _schema_property_names(artifact) == _model_field_names(MatteArtifact)
+    assert _schema_property_names(_array_item_node(artifact, "files")) == _model_field_names(
+        MatteFile
+    )
+    assert _schema_property_names(_object_node(artifact, "coverage")) == _model_field_names(
+        MatteCoverage
+    )
+    assert _schema_property_names(_object_node(matte, "finesse")) == _model_field_names(MaskFinesse)
+    prompts = cast(dict[str, Any], matte["properties"]["prompts"]["items"])
+    for kind, model in (
+        ("points", MattePromptPoints),
+        ("box", MattePromptBoxRef),
+        ("brush", MattePromptBrush),
+        ("lock", MattePromptLock),
+        ("candidate", MattePromptCandidate),
+    ):
+        assert _schema_property_names(_union_variant(prompts, kind)) == _model_field_names(model)
+    assert _schema_property_names(
+        _array_item_node(_union_variant(prompts, "points"), "points")
+    ) == _model_field_names(MattePromptPoint)
+    assert _schema_property_names(
+        _object_node(_union_variant(prompts, "box"), "box")
+    ) == _model_field_names(MattePromptBox)
+
+    key = _union_variant(masks, "key")
+    assert _schema_property_names(_array_item_node(key, "ranges")) == _model_field_names(
+        MaskKeyRange
+    )
+    layer = _union_variant(masks, "layer")
+    source = layer["properties"]["source"]
+    assert _schema_property_names(_union_variant(source, "clip")) == _model_field_names(
+        LayerMaskClipSource
+    )
+    assert _schema_property_names(_union_variant(source, "track")) == _model_field_names(
+        LayerMaskTrackSource
+    )
+    assert _schema_property_names(_object_node(layer, "finesse")) == _model_field_names(MaskFinesse)
+
+
+def test_mask_enum_members_match(project_schema: dict[str, Any]) -> None:
+    rectangle = _union_variant(_clip_masks_node(project_schema), "rectangle")
+    assert _enum_property(rectangle, "mode") == {m.value for m in MaskMode}
+    assert _enum_property(rectangle, "falloff") == {m.value for m in MaskFalloff}
+    assert _enum_property(rectangle, "featherModel") == {m.value for m in MaskFeatherModel}
+    assert _enum_property(rectangle, "space") == {m.value for m in MaskSpace}
+    keyframe = _array_item_node(rectangle, "keyframes")
+    assert _enum_property(keyframe, "property") == {m.value for m in MaskScalarProperty}
+    assert _enum_property(keyframe, "easing") == {m.value for m in Easing}
+    tracking = _object_node(rectangle, "tracking")
+    assert _enum_property(tracking, "method") == {m.value for m in MaskTrackingMethod}
+
+
+def test_a_project_with_every_mask_kind_round_trips(
+    tmp_path: Path, project_schema: dict[str, Any]
+) -> None:
+    """Every kind serialises without a null the TS side rejects, and reloads equal."""
+    sha = "0" * 64
+    masks: list[Any] = [
+        RectangleMask(id="m-rect", cx=10.0, cy=20.0, width=30.0, height=40.0),
+        PathMask(
+            id="m-path",
+            path_keyframes=[
+                MaskPathKeyframe(
+                    id="pk-1",
+                    source_time=0.0,
+                    points=[0, 0, 0, 0, 0, 0, 10, 0, 0, 0, 0, 0, 10, 10, 0, 0, 0, 0],
+                    vertex_types=[0, 0, 0],
+                )
+            ],
+            tracking=MaskTracking(
+                artifact=MaskArtifactRef(key=sha, sha256=sha),
+                method=MaskTrackingMethod.PERSPECTIVE,
+                reference_source_time=0.0,
+            ),
+        ),
+        MatteMask(
+            id="m-matte",
+            artifact=MatteArtifact(
+                key=sha,
+                files=[MatteFile(name="matte.mkv", sha256=sha)],
+                width=1920,
+                height=1080,
+                coverage=MatteCoverage(source_start=0.0, source_end=2.0),
+                pack_id="subject-matte",
+                pack_version="1.0.0",
+                model_digests=[sha],
+            ),
+            prompts=[MattePromptCandidate(candidate_id="cand-1")],
+        ),
+        KeyMask(id="m-key", model="hsl", ranges=[MaskKeyRange(channel="hue", low=0.3, high=0.4)]),
+        LayerMask(id="m-layer", source=LayerMaskTrackSource(track_id="t1")),
+    ]
+    project = _fully_nested_project()
+    project.timeline.tracks[0].clips[0].masks = masks
+    destination = tmp_path / "project.fp.json"
+    ProjectFile.save(project, destination)
+    document = cast(dict[str, Any], json.loads(destination.read_text(encoding="utf-8")))
+    _assert_nulls_are_entitled(document, project_schema, "project")
+    assert ProjectFile.load(destination) == project
