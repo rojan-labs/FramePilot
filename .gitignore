@@ -165,3 +165,7 @@ reports/golden/nightly.json
 # rather than repo content. The public explanation of how payments work lives in
 # docs/guides/website-and-licensing.md and ADR 0177.
 PAYMENTS_SETUP.md
+
+# Smart Mask BR0 spike: model weights, ONNX exports, upstream clones and pilot media are
+# never committed (plan/background-removal-ai/02-WORKER-PACK.md; memory: 3.8 GB incident).
+workers/smart-mask/.cache/
