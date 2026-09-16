@@ -32,6 +32,7 @@ Read this first after a context reset. Updated after every commit.
 
 - RD1.1–RD1.2, RD1.5–RD1.6, RD2.3–RD2.4, RD3 (MO-1..MO-7, MO-10)
 - BR7.1 labels (MO-8); win32-x64 evidence (MO-9)
+- BiRefNet_HR-matting training-data licence sign-off (MO-11) — BR0.5 open finding
 
 ## Next
 
@@ -47,5 +48,7 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 ## Gate numbers
 
 - MK2 ✓: coverage vs 256× supersample max 0.0023 (≤1/255) on all 36 cases incl. self-crossing; vs exact clipping 2.3e-5; distance feather straight 0 / circle 0.00133 / per-vertex 0; path interpolation ≤1e-6; legacy migration 15/15 byte-identical at every 30 fps frame (migrated animated masks carry per-frame keyframes); vectors byte-equal macOS arm64 + Windows x64 + Linux
-- BR0 SAM 2.1 ONNX CPU fp32 min per-frame IoU 0.99954 ✓
+- BR0 SAM 2.1 ONNX CPU fp32 min per-frame IoU 0.99954 ✓; fp16-stored 0.99832 ✗ → SAM ships fp32 by rule; CoreML: decoder module fails to build (EP disabled for it), image encoder 422 s cold prepare
+- PX4 baseline (CI run 35140382484): 43 cases/184 samples, 1 passes; 25 renderer: DOM; 17 WebCodecs fail (pixels 17, pts 9, sentinel 7)
+- PX0.3 colour (SwiftShader): BT.601 limited max err 2/255 canvas2d & WebGL (see PX0-INVENTORY for all four encodings)
 - Memory: SAM parity run reached 16 GB footprint (killed 2026-09-17); BR0 bounding it
