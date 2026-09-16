@@ -13,6 +13,9 @@ Read this first after a context reset. Updated after every commit.
 
 ## Done
 
+- MK1.1–MK1.6 committed (5f692689 … 5154492b); MK1.7 in flight
+- PX4.1 (74a464ad), PX4.2 (79fd67cc); BR0.1 (b82f2a8d), BR0.2 harness (90d31c37), BR0.3 helpers (cba6a64f)
+
 - PX1 (13555c1b, ad4cb4e2, 95461921): frame plan both sides, 43 parity cases
 - PX0.1/.2/.4 (c186e774, 6663c4df, eb8c3dc2): 18/43 rows WebCodecs, 25 DOM; any text clip → DOM player; speedRamp admitted to canvas but not followed
 
@@ -30,7 +33,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- none recorded yet
+- 2faef783: ai-sdk typecheck (AddMaskOp `shape`/`keyframes` readers) — fix expected in 5154492b; re-check
+- Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
 
