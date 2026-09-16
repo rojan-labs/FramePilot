@@ -165,11 +165,11 @@ def render_figure(fig: Figure, x: float, y: float, phase: float, sway: float = 0
 
 
 def render_blurred(fig, path_fn, t, samples):
-    """Temporal supersampling over the shutter: true motion-blur alpha."""
+    """Temporal supersampling over a 180° shutter: true motion-blur alpha."""
     acc_p = np.zeros((H, W, 3), np.float32)
     acc_a = np.zeros((H, W), np.float32)
     for s in range(samples):
-        x, y, phase, sway = path_fn(t + (s / samples - 0.5) * (1.0 if samples > 1 else 0.0))
+        x, y, phase, sway = path_fn(t + ((s + 0.5) / samples - 0.5) * 0.5)
         p, a = render_figure(fig, x, y, phase, sway)
         acc_p += p
         acc_a += a
