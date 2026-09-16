@@ -52,6 +52,20 @@ const LOOKAHEAD_FRAMES = 12;
 /** Frames decoded per request during playback (one streaming window). */
 const DECODE_WINDOW = 8;
 const DEFAULT_FPS = 30;
+/**
+ * PX2.8 load shedding. Playback lowers the resolution the plan is rasterised at before anything
+ * else, one step at a time, and only then lets presentation frames drop (a frame not ready on a
+ * tick keeps the previous picture). It never removes a layer, matte, effect or transition. A
+ * paused frame (seek, scrub end, parity read) is always composited at full resolution.
+ */
+const RENDER_SCALES = [1, 0.75, 0.5] as const;
+/** Composite time above this share of the frame interval counts as falling behind. */
+const SLOW_SHARE = 0.75;
+/** …and below this share, as having headroom to step back up. */
+const FAST_SHARE = 0.35;
+const SLOW_TICKS_TO_SHED = 8;
+const FAST_TICKS_TO_RESTORE = 90;
+const EMA_WEIGHT = 0.2;
 
 /** What the engine composites: the timeline and everything the plan and decoders need. */
 export interface LayerEngineProject {
@@ -119,8 +133,16 @@ export class LayerPreviewEngine {
   private readonly ctx2d: CanvasRenderingContext2D;
   private compositor: LayerCompositor | null = null;
   private project: LayerEngineProject | null = null;
-  private planTimeline: Timeline | null = null;
+  /** Plan inputs per rasterised width: transform offsets are scaled to the frame they land in. */
+  private readonly planInputs = new Map<
+    number,
+    { readonly timeline: Timeline; readonly clipsById: Map<string, Clip> }
+  >();
   private clipsById = new Map<string, Clip>();
+  private renderScaleIndex = 0;
+  private renderMsEma = 0;
+  private slowTicks = 0;
+  private fastTicks = 0;
   private assetsById = new Map<string, Asset>();
   private readonly sources = new Map<string, VideoSource>();
   private readonly loadingSources = new Map<string, Promise<void>>();
@@ -206,15 +228,7 @@ export class LayerPreviewEngine {
     const wasPlaying = this.playing;
     if (wasPlaying) this.pause();
     this.project = project;
-    this.planTimeline = timelineForCanvas(
-      project.timeline,
-      project.canvasSize.width / Math.max(1, project.projectResolution.width),
-    );
-    this.clipsById = new Map(
-      this.planTimeline.tracks.flatMap((track) =>
-        track.clips.map((clip) => [clip.id, clip] as const),
-      ),
-    );
+    this.planInputs.clear();
     this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
     // Styled captions (templates) are still drawn by the monitor's caption layer.
     this.styledCaptionClipIds = new Set(
@@ -365,11 +379,41 @@ export class LayerPreviewEngine {
     return fps;
   }
 
-  private planAt(timeSec: number): FramePlan | null {
+  /** The frame playback rasterises at now (the canvas, or a shed step below it). */
+  private renderSize(): PixelSize {
+    const canvas = this.project?.canvasSize ?? { width: 1, height: 1 };
+    const scale = RENDER_SCALES[this.renderScaleIndex] ?? 1;
+    if (scale === 1) return canvas;
+    const even = (value: number): number => Math.max(2, Math.round((value * scale) / 2) * 2);
+    return { width: even(canvas.width), height: even(canvas.height) };
+  }
+
+  private inputsFor(size: PixelSize): { timeline: Timeline; clipsById: Map<string, Clip> } | null {
     const project = this.project;
-    const timeline = this.planTimeline;
-    if (!project || !timeline) return null;
-    return framePlanAt(timeline, project.assets, timeSec, project.canvasSize, {
+    if (!project) return null;
+    const cached = this.planInputs.get(size.width);
+    if (cached) return cached;
+    const timeline = timelineForCanvas(
+      project.timeline,
+      size.width / Math.max(1, project.projectResolution.width),
+    );
+    const inputs = {
+      timeline,
+      clipsById: new Map(
+        timeline.tracks.flatMap((track) => track.clips.map((clip) => [clip.id, clip] as const)),
+      ),
+    };
+    this.planInputs.set(size.width, inputs);
+    return inputs;
+  }
+
+  private planAt(timeSec: number, size?: PixelSize): FramePlan | null {
+    const project = this.project;
+    const frame = size ?? project?.canvasSize;
+    const inputs = frame ? this.inputsFor(frame) : null;
+    if (!project || !inputs || !frame) return null;
+    this.clipsById = inputs.clipsById;
+    return framePlanAt(inputs.timeline, project.assets, timeSec, frame, {
       sourceFps: this.sourceFps(),
       burnCaptions: project.burnCaptions === true,
       ...(project.transcript ? { transcript: project.transcript } : {}),
@@ -539,7 +583,7 @@ export class LayerPreviewEngine {
   ): { layers: CompositeLayer[]; presented: PresentedLayer[] } | null {
     const project = this.project;
     if (!project) return null;
-    const size = project.canvasSize;
+    const size = { width: plan.width, height: plan.height };
     const layers: CompositeLayer[] = [];
     const presented: PresentedLayer[] = [];
     for (const layer of plan.layers) {
@@ -632,17 +676,19 @@ export class LayerPreviewEngine {
       this.presented = { projectTimeSec: timeSec, layers: composed.presented };
       return true;
     }
-    const size = project.canvasSize;
+    const size = { width: plan.width, height: plan.height };
+    const canvas = project.canvasSize;
     const frame = compositor.render(size, composed.layers);
     const ctx = this.ctx2d;
-    if (ctx.canvas.width !== size.width) ctx.canvas.width = size.width;
-    if (ctx.canvas.height !== size.height) ctx.canvas.height = size.height;
+    if (ctx.canvas.width !== canvas.width) ctx.canvas.width = canvas.width;
+    if (ctx.canvas.height !== canvas.height) ctx.canvas.height = canvas.height;
     ctx.save();
     ctx.globalCompositeOperation = 'copy';
-    ctx.imageSmoothingEnabled = false;
+    const reduced = size.width !== canvas.width || size.height !== canvas.height;
+    ctx.imageSmoothingEnabled = reduced;
     ctx.globalAlpha = 1;
     ctx.filter = 'none';
-    ctx.drawImage(frame, 0, 0);
+    ctx.drawImage(frame, 0, 0, canvas.width, canvas.height);
     ctx.restore();
     // Closed on the NEXT present, not now: the 2D canvas may record the draw and rasterise it
     // later (at the next read or composite), and a closed bitmap then draws nothing.
@@ -763,16 +809,48 @@ export class LayerPreviewEngine {
         return;
       }
       this.dbg.ticks++;
-      const plan = this.planAt(nowSec);
+      const plan = this.planAt(nowSec, this.renderSize());
       if (plan) {
-        if (this.present(plan, nowSec, false)) this.dbg.presented++;
-        else this.dbg.missing++;
+        const started = performance.now();
+        if (this.present(plan, nowSec, false)) {
+          this.dbg.presented++;
+          this.adaptRenderScale(performance.now() - started);
+        } else {
+          this.dbg.missing++;
+        }
         this.pumpAhead(nowSec);
       }
       this.callbacks.onTimeUpdate?.(nowSec);
       this.rafHandle = requestAnimationFrame(tick);
     };
     this.rafHandle = requestAnimationFrame(tick);
+  }
+
+  /** Step the playback render scale from the measured composite time (PX2.8). */
+  private adaptRenderScale(compositeMs: number): void {
+    const fps = this.project?.projectFps ?? DEFAULT_FPS;
+    const budgetMs = 1000 / Math.max(1, fps);
+    this.renderMsEma =
+      this.renderMsEma === 0
+        ? compositeMs
+        : this.renderMsEma + (compositeMs - this.renderMsEma) * EMA_WEIGHT;
+    this.slowTicks = this.renderMsEma > budgetMs * SLOW_SHARE ? this.slowTicks + 1 : 0;
+    this.fastTicks = this.renderMsEma < budgetMs * FAST_SHARE ? this.fastTicks + 1 : 0;
+    let next = this.renderScaleIndex;
+    if (this.slowTicks >= SLOW_TICKS_TO_SHED && next < RENDER_SCALES.length - 1) next++;
+    else if (this.fastTicks >= FAST_TICKS_TO_RESTORE && next > 0) next--;
+    if (next === this.renderScaleIndex) return;
+    this.renderScaleIndex = next;
+    this.slowTicks = 0;
+    this.fastTicks = 0;
+    this.renderMsEma = 0;
+    this.lastPresentedSignature = '';
+    log.action('preview render scale changed', {
+      scale: RENDER_SCALES[next],
+      compositeMs: Math.round(compositeMs * 10) / 10,
+      budgetMs: Math.round(budgetMs * 10) / 10,
+    });
+    this.callbacks.onRenderScaleChange?.(RENDER_SCALES[next] ?? 1);
   }
 
   /** Decode ahead of the playhead: the frames the next project frames will ask for. */
@@ -783,7 +861,7 @@ export class LayerPreviewEngine {
     for (let k = 0; k <= LOOKAHEAD_FRAMES; k++) {
       const t = nowSec + k / fps;
       if (t >= this.durationSec) break;
-      const plan = this.planAt(t);
+      const plan = this.planAt(t, this.renderSize());
       if (!plan) break;
       for (const need of this.needsOf(plan)) {
         const key = pictureKey(need.assetId, need.frame);
@@ -835,6 +913,7 @@ export class LayerPreviewEngine {
       ...this.dbg,
       durationSec: this.durationSec,
       segCount: clipCount,
+      renderScale: RENDER_SCALES[this.renderScaleIndex] ?? 1,
       cachedFrames: this.cache.size,
       cacheBytes: this.cacheBytes,
     };

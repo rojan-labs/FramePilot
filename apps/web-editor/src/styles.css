@@ -3719,6 +3719,21 @@ input[type='checkbox']:focus-visible {
   background: #000;
 }
 
+/* PX2.8: playback composites at a lower resolution to keep up. Content is the same frame the
+   export draws; only detail is reduced, and the monitor says so rather than hiding it. */
+.webcodecs-preview-reduced {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  line-height: 18px;
+  color: #fff;
+  background: rgb(0 0 0 / 55%);
+  pointer-events: none;
+}
+
 /* This monitor's own transport (and its stepped `<input type=range>` seek) was
    replaced by the shared `PreviewTransport` + `PreviewScrubBar` in revamp Phase 2
    — see `.preview-transport` further down. Nothing renders

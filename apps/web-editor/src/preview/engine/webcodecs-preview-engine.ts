@@ -137,6 +137,11 @@ export interface PreviewEngineCallbacks {
   onDurationChange?(durationSec: number): void;
   onPlayingChange?(playing: boolean): void;
   onError?(message: string): void;
+  /**
+   * PX2.8: the layer compositor lowered (scale < 1) or restored (1) the resolution it composites
+   * playback at to keep up. Content is unchanged; the monitor says "Preview reduced".
+   */
+  onRenderScaleChange?(scale: number): void;
 }
 
 /** One span of the engine's input EDL, in PROJECT-timeline seconds.

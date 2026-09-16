@@ -404,6 +404,7 @@ export function WebCodecsPreviewPlayer({
   );
   durationRef.current = durationSec;
   const [error, setError] = useState<string | null>(null);
+  const [previewReduced, setPreviewReduced] = useState(false);
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
   // engine.loadSegments below, which is INCREMENTAL (already-loaded sources,
@@ -455,6 +456,7 @@ export function WebCodecsPreviewPlayer({
             if (latestEditor.state.playing) latestEditor.setPlaying(false);
           }
         },
+        onRenderScaleChange: (scale) => setPreviewReduced(scale < 1),
         onError: (message) => {
           log.error('webcodecs preview engine error', { message });
           setError(message);
@@ -725,6 +727,11 @@ export function WebCodecsPreviewPlayer({
               captionClips={captionClips}
               transcript={transcript ?? []}
             />
+            {previewReduced && !error && (
+              <div className="webcodecs-preview-reduced" role="status">
+                Preview reduced
+              </div>
+            )}
             {error && (
               <div className="webcodecs-preview-error" role="alert">
                 {error}
