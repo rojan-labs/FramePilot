@@ -2392,6 +2392,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:25",
+      "reason": "self_check",
       "text": "Deterministic self-check: 2 check(s) failed.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -2400,6 +2401,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:26",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -2408,6 +2410,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:27",
+      "reason": "self_check",
       "text": "Duration on target: Timeline is 10s but the target is 1s (off by 9s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -2416,6 +2419,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:28",
+      "reason": "self_check",
       "text": "The repair pass looked at the failed checks and proposed no change.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -3005,6 +3009,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:33",
+      "reason": "self_check",
       "text": "Deterministic self-check: 2 check(s) failed.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -3013,6 +3018,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:34",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -3021,6 +3027,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:35",
+      "reason": "self_check",
       "text": "Duration on target: Timeline is 10s but the target is 1s (off by 9s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -3029,6 +3036,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:36",
+      "reason": "self_check",
       "text": "The repair pass looked at the failed checks and proposed no change.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -6698,6 +6706,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:9",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -6706,6 +6715,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:10",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -7694,6 +7704,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:10",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -7702,6 +7713,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:11",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -8397,6 +8409,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:8",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -8405,6 +8418,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:9",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10480,6 +10494,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:14",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -10488,6 +10503,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:15",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -11342,6 +11358,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:4",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -11350,6 +11367,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:5",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",
@@ -13297,6 +13315,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:12",
+      "reason": "self_check",
       "text": "Deterministic self-check: Passed with 1 warning(s).",
       "ts": 1000,
       "turnId": "turn_1",
@@ -13305,6 +13324,7 @@ exports[`streamAgent frozen golden (K1.3 cutover gate) > records the current str
     {
       "conversationId": "conv_1",
       "id": "turn_1:notice:13",
+      "reason": "self_check",
       "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
       "ts": 1000,
       "turnId": "turn_1",

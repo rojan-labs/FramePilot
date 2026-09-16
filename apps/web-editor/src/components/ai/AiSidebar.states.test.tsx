@@ -11,7 +11,12 @@
  */
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { createTurnEmitter, type AiEvent, type EditResult } from '@framepilot/ai-sdk';
+import {
+  SELF_CHECK_NOTICE_REASON,
+  createTurnEmitter,
+  type AiEvent,
+  type EditResult,
+} from '@framepilot/ai-sdk';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import { MemoryPersistence } from '../../ai/conversationPersistence.js';
 import { resetConversationsRemountCache } from '../../ai/useConversations.js';
@@ -68,6 +73,23 @@ class TrimSession implements AiSession {
     const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
     yield e.status('editing');
     yield e.diff(trimRun);
+    yield e.status('completed');
+  }
+  public abort(): void {}
+  public answer(): void {}
+}
+
+/** An applied run whose self-check reports a verdict, a failed check and an advisory. */
+class SelfCheckSession implements AiSession {
+  public async *run(_mode: string, input: AiSessionInput): AsyncIterable<AiEvent> {
+    const e = createTurnEmitter({ conversationId: input.conversationId, turnId: input.turnId });
+    const tag = { reason: SELF_CHECK_NOTICE_REASON };
+    yield e.status('editing');
+    yield e.diff(trimRun);
+    yield e.notification('Deterministic self-check: Passed with 2 warning(s).', tag);
+    yield e.warning('Trackers carry motion: 2 of 2 trackers hold no motion.', tag);
+    yield e.notification('Transcript looks real: the transcript repeats one line.', tag);
+    yield e.notification('1 planned step never reached an edit.');
     yield e.status('completed');
   }
   public abort(): void {}
@@ -184,6 +206,32 @@ describe('AI sidebar — the five states (P8.2)', () => {
     // "Made 1 edit" is a patch count; this is the account of the cut.
     expect(screen.getByText('Trimmed clip ×2 · Added transition')).toBeTruthy();
     expect(screen.getByText('−12.5s · now 47.5s')).toBeTruthy();
+  });
+
+  it('CHANGED: the self-check is one collapsed row, not a stack of notices', async () => {
+    const editor = {
+      applyPatchChecked: vi.fn(() => ({ ok: true as const })),
+      undo: vi.fn(),
+      history: { entries: [{ patch: { patchId: 'p1' } }], cursor: 1 },
+    } as unknown as UseEditor;
+    render(
+      <AiSidebar
+        project={project}
+        editor={editor}
+        session={new SelfCheckSession()}
+        persistence={new MemoryPersistence()}
+      />,
+    );
+    await send('Tighten it');
+    const toggle = await screen.findByRole('button', { name: /Self-check/ });
+    expect(toggle.getAttribute('aria-expanded')).toBe('false');
+    expect(toggle.textContent).toContain('Passed with 2 warning(s).');
+    expect(screen.queryByText(/Trackers carry motion/)).toBeNull();
+    // A notice that is not part of the pass keeps its own row.
+    expect(screen.getByText('1 planned step never reached an edit.')).toBeTruthy();
+    fireEvent.click(toggle);
+    expect(screen.getByText(/Trackers carry motion/)).toBeTruthy();
+    expect(screen.getByText(/Transcript looks real/)).toBeTruthy();
   });
 
   it('NEEDS: a question the run is blocked on renders its choices as buttons', async () => {

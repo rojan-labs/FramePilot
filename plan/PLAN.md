@@ -9991,6 +9991,25 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] U7 — `match_color` / `normalize_exposure` / `apply_look` give every unmeasured shot ONE remedy (measure all in one step, then retry; never hand-grade) instead of a per-shot "measure_color reads it, or wait for indexing". `a290d581`; solved-color 19/19 + picture/packet/transition facts 29/29, typecheck. Evidence: TRACKING.md §V5
 - [x] V2 — DISPROVED: compaction's payload cliff does not drive re-reads (14% of wasted steps past it vs 19% of all steps; 30 of 37 on one weak model, none on Claude) — `compactAgentLog` unchanged
 
+## Discovered (2026-09-16) — sidebar density: self-check wall, double-inset Inspector — `fix/ai-sidebar-notes-accordion-inspector-padding`
+
+- [x] SD1 — the self-check is one collapsed row per pass. Its notices carry
+  `SELF_CHECK_NOTICE_REASON` (`WarningEvent.reason` added, additive); the sidebar groups each
+  same-turn run of tagged notices into `SelfCheckGroup` (verdict + note count, warning tone on a
+  failed check, expansion in `expandedNodes`). Grouping is tag-only, so the "planned step never
+  reached an edit" notice and the failure card stay their own rows. Conversations recorded before
+  the tag keep the old stacked rows. Tests: conductor tag test, `selfCheckRows`/`SelfCheckGroup`
+  unit tests, one `AiSidebar.states` end-to-end case.
+- [x] SD2 — the right rail no longer pads the Inspector: it owns its gutter and sticky clip/status
+  bars, so `.rail-body--padded` double-indented it. The right rail body is unpadded for both tabs.
+
+- [x] SD3 — Plan rows no longer overlap: `.ai-plan-step`'s explicit `min-height` replaced flex's
+  `min-height: auto`, so inside the accordion's max-height column every row shrank to 30px and
+  wrapped labels painted over the next rows. Rows are `flex: none` and top-aligned. Evidence:
+  headless Chromium with the real stylesheets and a 22-step plan, 8 overlaps on main → 0.
+- [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
+  reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)

@@ -899,11 +899,10 @@ export function Editor({
                 <ChevronRight size={ICON_SIZE.sm} aria-hidden="true" />
               </button>
             </div>
-            <div
-              className={`rail-body${rightTab === 'ai' ? '' : ' rail-body--padded'}`}
-              id={`rail-${rightTab}`}
-              role="tabpanel"
-            >
+            {/* Unpadded for every tab: the AI sidebar and the Inspector both draw their own
+                gutter and sticky header/footer, so a rail inset here double-indents the
+                controls and detaches those bars from the rail edges. */}
+            <div className="rail-body" id={`rail-${rightTab}`} role="tabpanel">
               <div className="rail-ai-persistent" hidden={rightTab !== 'ai'}>
                 {aiSidebarEl}
               </div>

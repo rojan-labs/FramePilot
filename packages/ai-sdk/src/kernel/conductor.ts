@@ -44,6 +44,7 @@ import {
   type Reference,
   type ToolStatus,
   type TurnRef,
+  SELF_CHECK_NOTICE_REASON,
   createTurnEmitter,
 } from '../events.js';
 import { acceptanceCriteria, checkableAcceptance, hasCheckableAcceptance } from '../acceptance.js';
@@ -2595,19 +2596,24 @@ export function onVerifyResult(state: ConductorState, r: VerifyResult, em: Emitt
   // actual edit; finalize emits the specific empty-run failure below.
   const events: AiEvent[] = [];
   if (state.cumulativeOps.length > 0) {
-    events.push(em.notification(`Deterministic self-check: ${r.summary}`));
+    // Every notice of this pass carries one tag, so a host can present the self-check as
+    // one unit instead of a stack of full-width rows under the reply.
+    const tag = { reason: SELF_CHECK_NOTICE_REASON };
+    events.push(em.notification(`Deterministic self-check: ${r.summary}`, tag));
     for (const check of r.failedChecks) {
-      events.push(em.warning(`${check.label}: ${check.detail}`));
+      events.push(em.warning(`${check.label}: ${check.detail}`, tag));
     }
     // Advisory, so a notification rather than a warning — but SAID, which it was not.
     // See `VerifyResult.warnedChecks`.
     for (const check of r.warnedChecks) {
-      events.push(em.notification(`${check.label}: ${check.detail}`));
+      events.push(em.notification(`${check.label}: ${check.detail}`, tag));
     }
     // A repair pass that ran and produced nothing used to be indistinguishable from one
     // that never ran — including to the cost meter, which saw the model call but nothing
     // to attribute it to. Say which of the four happened.
-    if (r.repairOutcome) events.push(em.notification(describeRepairOutcome(r.repairOutcome)));
+    if (r.repairOutcome) {
+      events.push(em.notification(describeRepairOutcome(r.repairOutcome), tag));
+    }
   }
   let working = state.working;
   if (r.repairOps.length > 0) {

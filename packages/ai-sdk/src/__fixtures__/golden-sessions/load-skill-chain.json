@@ -1180,7 +1180,8 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Deterministic self-check: Passed with 1 warning(s)."
+      "text": "Deterministic self-check: Passed with 1 warning(s).",
+      "reason": "self_check"
     },
     {
       "id": "turn_golden:notice:13",
@@ -1188,7 +1189,8 @@
       "ts": 1000,
       "turnId": "turn_golden",
       "type": "notification",
-      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen."
+      "text": "Picture covers the programme: 3s of the 10s programme has no picture under it (0s–3s) — that renders as black. Extend the picture to the end of the programme, or trim the sound back to the picture, so every moment that plays has something on screen.",
+      "reason": "self_check"
     },
     {
       "id": "turn_golden:run-state",

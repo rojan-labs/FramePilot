@@ -15,6 +15,7 @@
  * This module is pure (no I/O, no clock) and exhaustively tested: it is the
  * contract every later milestone depends on, treated like the timeline schema.
  */
+import { plainPlanLabel } from './plan-label.js';
 import type { EditResult } from './assemble.js';
 import type { ReferenceProfile } from './references/profile.js';
 import type { ContextManifest } from './kernel/context/manifest.js';
@@ -353,7 +354,17 @@ export interface NotificationEvent extends AiEventBase {
 export interface WarningEvent extends AiEventBase {
   readonly type: 'warning';
   readonly text: string;
+  /** See {@link NotificationEvent.reason} — the same additive, optional tag. */
+  readonly reason?: string;
 }
+
+/**
+ * {@link NotificationEvent.reason} / {@link WarningEvent.reason} for every notice the
+ * post-edit self-check emits: its summary, each failed or advisory check, and the repair
+ * outcome. One tag for the whole pass lets a host present it as a single unit (the editor
+ * folds it into one collapsed row) without string-matching the prose, which changes.
+ */
+export const SELF_CHECK_NOTICE_REASON = 'self_check';
 
 /** A failure card: what/why/retry/copy-logs. */
 export interface ErrorEvent extends AiEventBase {
@@ -976,7 +987,9 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
           id: event.id,
           ts: event.ts,
           turnId: event.turnId,
-          steps: event.steps,
+          // Plain text for every host, including logs recorded before the drafter cleaned
+          // its labels — see plan-label.ts.
+          steps: event.steps.map((step) => ({ ...step, label: plainPlanLabel(step.label) })),
         });
         break;
       case 'tool_call': {
@@ -1108,6 +1121,7 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
           turnId: event.turnId,
           level: 'warning',
           text: event.text,
+          ...(event.reason !== undefined ? { reason: event.reason } : {}),
         });
         break;
       case 'error':
@@ -1315,7 +1329,7 @@ export interface TurnEmitter {
   progress(label: string, value: number, key?: string): ProgressEvent;
   reference(refs: readonly Reference[]): ReferenceEvent;
   notification(text: string, opts?: { reason?: string; detail?: string }): NotificationEvent;
-  warning(text: string): WarningEvent;
+  warning(text: string, opts?: { reason?: string }): WarningEvent;
   error(message: string, opts?: { detail?: string; retryable?: boolean }): ErrorEvent;
   /** A resumable snapshot of an interrupted agent run (R3 C2). */
   checkpoint(detail: {
@@ -1468,7 +1482,12 @@ export function createTurnEmitter(ref: TurnRef, startSeq = 0): TurnEmitter {
       ...(opts?.reason !== undefined ? { reason: opts.reason } : {}),
       ...(opts?.detail !== undefined ? { detail: opts.detail } : {}),
     }),
-    warning: (text) => ({ ...base(seqId('notice')), type: 'warning', text }),
+    warning: (text, opts) => ({
+      ...base(seqId('notice')),
+      type: 'warning',
+      text,
+      ...(opts?.reason !== undefined ? { reason: opts.reason } : {}),
+    }),
     error: (message, opts) => ({
       ...base(seqId('notice')),
       type: 'error',

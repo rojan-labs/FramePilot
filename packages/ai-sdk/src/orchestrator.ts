@@ -11,6 +11,7 @@
  * Modes implemented here: chat, plan, edit, autocomplete (plan/PLAN.md §4.2) and —
  * Phase 7 — the multi-step `agent` loop and the `review` critic pass.
  */
+import { plainPlanLabel } from './plan-label.js';
 import {
   DEFAULT_SILENCE_CUT,
   SilenceRangesPayloadSchema,
@@ -214,7 +215,8 @@ import type {
 } from './providers/types.js';
 import {
   capabilitiesFor,
-  isRouterAlias, supportsVision,
+  isRouterAlias,
+  supportsVision,
   type CapabilitySource,
 } from './providers/model-capabilities.js';
 import {
@@ -989,14 +991,21 @@ const FIXABLE_CHECKS = new Set<string>([
 ]);
 
 /**
+ * A leading list marker: a number ("1." / "1)") or a bullet ("-" / "*" / "•") followed by
+ * whitespace. The bullet needs the space: without it the first asterisk of a bold step
+ * (`**Trim the intro**`) was taken for a bullet and the label kept a stray `*`.
+ */
+const PLAN_MARKER = /^\s*(?:\d+[.)]\s*|[-*•]\s+)/;
+
+/**
  * Parse a model's plan text into a clean list of step lines (R3 C4). Strips blank
- * lines and any leading "1." / "1)" / "- " markers; caps the count so a runaway
- * response can't bloat the ledger. Pure.
+ * lines, any leading "1." / "1)" / "- " markers and inline markdown; caps the count so a
+ * runaway response can't bloat the ledger. Pure.
  */
 export function parsePlanLines(text: string, max = 12): string[] {
   return text
     .split('\n')
-    .map((line) => line.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim())
+    .map((line) => plainPlanLabel(line.replace(PLAN_MARKER, '')))
     .filter((line) => line.length > 0)
     .slice(0, max);
 }
@@ -1020,7 +1029,7 @@ export function parseAgentPlan(text: string, max = 12): { message: string; steps
   const prose: string[] = [];
   for (const line of text.split('\n')) {
     if (PLAN_LIST_ITEM.test(line)) {
-      const step = line.replace(/^\s*(?:\d+[.)]|[-*•])\s*/, '').trim();
+      const step = plainPlanLabel(line.replace(PLAN_MARKER, ''));
       if (step) steps.push(step);
     } else if (line.trim()) {
       prose.push(line.trim());
@@ -2925,9 +2934,10 @@ export function summarizeReadResult(
       const note = typeof obj.note === 'string' ? [obj.note] : [];
       const units = typeof obj.units === 'string' ? [`units: ${obj.units}`] : [];
       if (templates.length === 0)
-        return [...note, `no caption templates match (${String(obj.matched ?? 0)} in catalog)`].join(
-          '\n',
-        );
+        return [
+          ...note,
+          `no caption templates match (${String(obj.matched ?? 0)} in catalog)`,
+        ].join('\n');
       const matched = Number(obj.matched ?? templates.length);
       const head =
         matched > 0
@@ -3492,7 +3502,9 @@ export class Orchestrator {
    */
   private pricingForCall(
     tier: ModelTier,
-  ): { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> } | undefined {
+  ):
+    | { readonly tier: ModelTier; readonly prices: Readonly<Record<ModelTier, TierPrice>> }
+    | undefined {
     const pricing = runPricingFor(this.providerForTier(tier));
     return pricing === undefined
       ? undefined
