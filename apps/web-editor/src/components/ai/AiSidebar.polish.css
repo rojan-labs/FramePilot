@@ -66,6 +66,7 @@
 .ai-approval-card,
 .ai-ask,
 .ai-event--notice,
+.ai-self-check,
 .ai-run-footer {
   margin-left: var(--ai-thread-slot);
   margin-right: 0;
@@ -168,6 +169,109 @@
   box-shadow:
     inset 2px 0 0 var(--danger),
     var(--ai-shadow-hairline);
+}
+
+/* ── Self-check: one row per pass ──────────────────────────────────────────
+   The verdict and every check used to be separate notice cards, which stacked into a
+   wall under the reply on every run. One quiet row carries the verdict; the checks open
+   beneath it. It keeps the notice's own surface and tone stripe so a failed check reads
+   the same whether the row is open or closed. */
+.ai-self-check {
+  margin-top: 3px;
+  margin-bottom: 3px;
+  border-radius: 9px;
+  background: var(--ai-inset);
+  box-shadow: var(--ai-shadow-hairline);
+}
+
+.ai-self-check[data-tone='warning'] {
+  box-shadow:
+    inset 2px 0 0 var(--warning),
+    var(--ai-shadow-hairline);
+}
+
+.ai-self-check-toggle {
+  display: grid;
+  /* Same 14px icon column as a notice, so the text starts at the same x. */
+  grid-template-columns: 14px auto minmax(0, 1fr) auto auto;
+  align-items: center;
+  column-gap: 6px;
+  width: 100%;
+  min-height: 28px;
+  padding: 5px 7px;
+  border: 0;
+  border-radius: inherit;
+  background: transparent;
+  color: var(--ai-ink-2);
+  font: inherit;
+  font-size: 11.5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.ai-self-check-toggle:disabled {
+  cursor: default;
+}
+
+.ai-self-check-toggle:not(:disabled):hover {
+  background: var(--ai-hover);
+}
+
+.ai-self-check-toggle:focus-visible {
+  outline: none;
+  box-shadow: inset 0 0 0 1px var(--focus-ring);
+}
+
+.ai-self-check-title {
+  color: var(--ai-ink);
+  font-weight: var(--font-weight-medium);
+}
+
+/* One line while closed — the full sentence is one click away, never a wrapped paragraph. */
+.ai-self-check-verdict {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.ai-self-check[data-expanded='true'] .ai-self-check-verdict {
+  white-space: normal;
+}
+
+.ai-self-check-count {
+  color: var(--ai-ink-3);
+  white-space: nowrap;
+}
+
+.ai-self-check-chevron {
+  color: var(--ai-ink-3);
+  transition: transform var(--dur-fast) var(--ease);
+}
+
+.ai-self-check[data-expanded='true'] .ai-self-check-chevron {
+  transform: rotate(90deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .ai-self-check-chevron {
+    transition: none;
+  }
+}
+
+.ai-self-check-body {
+  padding: 0 4px 4px;
+}
+
+/* The disclosed checks sit inside the row's surface: no second gutter, no card in a card. */
+.ai-self-check-body .ai-event--notice {
+  width: 100%;
+  margin-left: 0;
+  background: transparent;
+  box-shadow: none;
+}
+
+.ai-self-check-body .ai-event--notice[data-level='warning'] {
+  box-shadow: inset 2px 0 0 var(--warning);
 }
 
 .ai-run-footer {

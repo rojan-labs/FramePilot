@@ -104,6 +104,8 @@ import { toMarkdown } from '../../ai/conversationExport.js';
 import { TaskRunView } from './TaskRunView.js';
 import { PlanApprovalCard } from './PlanApprovalCard.js';
 import { PlanAccordion } from './PlanAccordion.js';
+import { SelfCheckGroup } from './SelfCheckGroup.js';
+import { type ActivityRow, groupSelfCheckNotices } from './selfCheckRows.js';
 import type { StepOutcome } from './EventNode.js';
 import { SteeringInput } from './SteeringInput.js';
 import { explainRunFailure } from '../../ai/runFailure.js';
@@ -754,7 +756,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
       // rendering it again here is the two-parallel-narratives problem the merge removes.
       else if (!mergedDiffNodeIds.has(node.id)) activity.push(node);
     }
-    return { latestPlan: latest, activityNodes: activity };
+    // A self-check pass is one report: one collapsed row, not a stack of full-width notices.
+    const rows: ActivityRow[] = groupSelfCheckNotices(activity);
+    return { latestPlan: latest, activityNodes: rows };
   }, [view.nodes, mergedDiffNodeIds]);
   const virtualize = activityNodes.length > VIRTUALIZE_THRESHOLD;
   // D3a: the screen-reader live region lives OUTSIDE the (virtualized or plain)
@@ -2011,7 +2015,17 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
     setDismissedReferenceIds((ids) => (ids.includes(attachmentId) ? ids : [...ids, attachmentId]));
   }, []);
 
-  const renderNode = (node: ViewNode): JSX.Element => {
+  const renderNode = (node: ActivityRow): JSX.Element => {
+    if (node.kind === 'self_check_group') {
+      return (
+        <SelfCheckGroup
+          group={node}
+          expanded={expandedNodes[node.id] ?? false}
+          onToggleExpanded={onToggleExpanded}
+          renderNotice={renderNode}
+        />
+      );
+    }
     // An edit that could not be written is the only diff state left worth calling out —
     // everything else applied, which the timeline itself already shows.
     const failedToApply =
