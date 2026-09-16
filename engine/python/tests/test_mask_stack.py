@@ -144,7 +144,7 @@ def test_targets_split_into_the_alpha_stack_and_per_effect_stacks() -> None:
 
 
 def test_path_keyframes_interpolate_vertex_to_vertex_with_the_easing() -> None:
-    mask = _clip(_path()).masks[0]  # type: ignore[index]
+    mask: Any = _clip(_path()).masks[0]  # type: ignore[index]
     for source_time in (3.0, 3.3, 4.0, 4.71, 5.0, 6.0):
         points, feathers = path_keyframe_at(mask, source_time)
         progress = apply_easing("ease-in-out", min(max((source_time - 3.0) / 2.0, 0.0), 1.0))

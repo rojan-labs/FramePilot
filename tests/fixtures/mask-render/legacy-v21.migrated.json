@@ -1,0 +1,847 @@
+{
+  "cases": [
+    {
+      "id": "static-rectangle",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "rectangle",
+            "cx": 160,
+            "cy": 114.00000000000001,
+            "width": 160,
+            "height": 132,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "feathered-inverted-rectangle",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 0.7,
+            "invert": true,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 9.6,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "rectangle",
+            "cx": 128,
+            "cy": 96,
+            "width": 192,
+            "height": 120,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "static-ellipse-feathered",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 4.8,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "ellipse",
+            "cx": 152,
+            "cy": 107.99999999999999,
+            "rx": 88,
+            "ry": 84,
+            "rotation": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "polygon",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "path",
+            "firstVertex": 0,
+            "pathKeyframes": [
+              {
+                "id": "c1__mask__path__0",
+                "sourceTime": 3,
+                "easing": "linear",
+                "points": [
+                  32,
+                  24,
+                  0,
+                  0,
+                  0,
+                  0,
+                  288,
+                  48,
+                  0,
+                  0,
+                  0,
+                  0,
+                  192,
+                  228,
+                  0,
+                  0,
+                  0,
+                  0,
+                  64,
+                  168,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "vertexTypes": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "keyframed-ellipse",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [
+              {
+                "id": "c1__mask__cx__0",
+                "sourceTime": 3,
+                "property": "cx",
+                "value": 80,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__cx__1",
+                "sourceTime": 5,
+                "property": "cx",
+                "value": 240,
+                "easing": "ease-in-out"
+              },
+              {
+                "id": "c1__mask__featherOuterPx__0",
+                "sourceTime": 3,
+                "property": "featherOuterPx",
+                "value": 0,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__featherOuterPx__1",
+                "sourceTime": 5,
+                "property": "featherOuterPx",
+                "value": 12,
+                "easing": "linear"
+              }
+            ],
+            "kind": "ellipse",
+            "cx": 80,
+            "cy": 120,
+            "rx": 80,
+            "ry": 60,
+            "rotation": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "cropped-ellipse",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "crop": {
+          "x": 0.25,
+          "y": 0.1,
+          "width": 0.5,
+          "height": 0.8
+        },
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 4.8,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "ellipse",
+            "cx": 144,
+            "cy": 110.40000000000002,
+            "rx": 48,
+            "ry": 48,
+            "rotation": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "double-speed-keyframed",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 2,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "speed": 2,
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [
+              {
+                "id": "c1__mask__cx__0",
+                "sourceTime": 3,
+                "property": "cx",
+                "value": 80,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__cx__1",
+                "sourceTime": 7,
+                "property": "cx",
+                "value": 240,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__opacity__0",
+                "sourceTime": 3,
+                "property": "opacity",
+                "value": 1,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__opacity__1",
+                "sourceTime": 7,
+                "property": "opacity",
+                "value": 0.4,
+                "easing": "linear"
+              }
+            ],
+            "kind": "rectangle",
+            "cx": 80,
+            "cy": 60,
+            "width": 96,
+            "height": 72,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "unmeasured-media",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0.02,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "units": "normalized",
+            "keyframes": [],
+            "migrationNote": "Measure this media first: the media size was unknown when the project was upgraded, so this mask's geometry is kept as fractions of the frame it was drawn on.",
+            "kind": "rectangle",
+            "cx": 0.5,
+            "cy": 0.5,
+            "width": 0.4,
+            "height": 0.4,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "second-mask-disabled",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "ellipse",
+            "cx": 160,
+            "cy": 120,
+            "rx": 96,
+            "ry": 72,
+            "rotation": 0
+          },
+          {
+            "id": "c1__mask2",
+            "name": "Mask 2",
+            "color": "#3b82f6",
+            "enabled": false,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "migrationNote": "Disabled during the v22 upgrade: earlier versions only rendered the first mask on a clip, so this one was never visible. Enable it to use it.",
+            "kind": "rectangle",
+            "cx": 16,
+            "cy": 12,
+            "width": 32,
+            "height": 24,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-rectangle",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "crop": {
+          "x": 0.0625,
+          "y": 0.13333333333333333,
+          "width": 0.8541666666666666,
+          "height": 0.7291666666666666
+        },
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 0.35,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 3.125,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "rectangle",
+            "cx": 168.05555555555554,
+            "cy": 103.60493807499999,
+            "width": 113.88888888888889,
+            "height": 100,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-ellipse",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": true,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "ellipse",
+            "cx": 160,
+            "cy": 120,
+            "rx": 114.28571428571429,
+            "ry": 51.42857142857142,
+            "rotation": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "drag-fractions-polygon",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "crop": {
+          "x": 0.1,
+          "y": 0.05,
+          "width": 0.7,
+          "height": 0.9
+        },
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 2.16,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [],
+            "kind": "path",
+            "firstVertex": 0,
+            "pathKeyframes": [
+              {
+                "id": "c1__mask__path__0",
+                "sourceTime": 3,
+                "easing": "linear",
+                "points": [
+                  58.352941176470594,
+                  28.615384615384617,
+                  0,
+                  0,
+                  0,
+                  0,
+                  242.8235294117647,
+                  45.230769230769226,
+                  0,
+                  0,
+                  0,
+                  0,
+                  176.94117647058823,
+                  211.38461538461542,
+                  0,
+                  0,
+                  0,
+                  0,
+                  45.17647058823529,
+                  161.53846153846155,
+                  0,
+                  0,
+                  0,
+                  0
+                ],
+                "vertexTypes": [
+                  0,
+                  0,
+                  0,
+                  0
+                ]
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "id": "reverse-keyframed",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 4,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "speed": -1,
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [
+              {
+                "id": "c1__mask__cy__0",
+                "sourceTime": 5,
+                "property": "cy",
+                "value": 180,
+                "easing": "ease-out"
+              },
+              {
+                "id": "c1__mask__cy__1",
+                "sourceTime": 7,
+                "property": "cy",
+                "value": 60,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__featherOuterPx__0",
+                "sourceTime": 3,
+                "property": "featherOuterPx",
+                "value": 7.199999999999999,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__featherOuterPx__1",
+                "sourceTime": 7,
+                "property": "featherOuterPx",
+                "value": 0,
+                "easing": "linear"
+              }
+            ],
+            "kind": "ellipse",
+            "cx": 112,
+            "cy": 84,
+            "rx": 48,
+            "ry": 36,
+            "rotation": 0
+          }
+        ]
+      }
+    },
+    {
+      "id": "ramped-keyframed",
+      "clip": {
+        "id": "c1",
+        "assetId": "a1",
+        "trackId": "v1",
+        "start": 0,
+        "end": 2,
+        "sourceStart": 3,
+        "sourceEnd": 7,
+        "keyframes": [],
+        "speedRamp": [
+          {
+            "id": "r0",
+            "sourceTime": 0,
+            "rate": 1
+          },
+          {
+            "id": "r1",
+            "sourceTime": 4,
+            "rate": 3
+          }
+        ],
+        "effects": [],
+        "masks": [
+          {
+            "id": "c1__mask",
+            "name": "Mask 1",
+            "color": "#3b82f6",
+            "enabled": true,
+            "locked": false,
+            "target": {
+              "kind": "alpha"
+            },
+            "mode": "add",
+            "opacity": 1,
+            "invert": false,
+            "expansionPx": 0,
+            "featherInnerPx": 0,
+            "featherOuterPx": 0,
+            "falloff": "gaussian",
+            "featherModel": "gaussian-legacy",
+            "space": "source",
+            "keyframes": [
+              {
+                "id": "c1__mask__cx__0",
+                "sourceTime": 3,
+                "property": "cx",
+                "value": 96.00000000000001,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__cx__1",
+                "sourceTime": 5.234000032447778,
+                "property": "cx",
+                "value": 192,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__width__0",
+                "sourceTime": 3,
+                "property": "width",
+                "value": 128,
+                "easing": "linear"
+              },
+              {
+                "id": "c1__mask__width__1",
+                "sourceTime": 5.234000032447778,
+                "property": "width",
+                "value": 64,
+                "easing": "linear"
+              }
+            ],
+            "migrationNote": "Keyframe instants were mapped through the speed ramp.",
+            "kind": "rectangle",
+            "cx": 96.00000000000001,
+            "cy": 96,
+            "width": 128,
+            "height": 48,
+            "rotation": 0,
+            "roundness": 0
+          }
+        ]
+      }
+    }
+  ]
+}
