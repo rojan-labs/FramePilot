@@ -1,1 +1,4 @@
 {"job": "parity_sam.py --ep cpu --precision fp32", "exitCode": 0, "seconds": 358.6, "peakGroupRssGiB": 6.26, "aborted": false, "at": "2026-09-17T00:00:55"}
+{"job": "parity_sam.py --ep cpu --precision fp16s", "exitCode": 0, "seconds": 343.1, "peakGroupRssGiB": 5.95, "aborted": false, "at": "2026-09-17T00:06:38"}
+{"job": "parity_sam.py --ep coreml --precision fp32", "exitCode": 1, "seconds": 439.4, "peakGroupRssGiB": 4.3, "aborted": false, "at": "2026-09-17T00:13:57"}
+{"job": "parity_sam.py --ep coreml --precision fp16s", "exitCode": 1, "seconds": 435.5, "peakGroupRssGiB": 4.38, "aborted": false, "at": "2026-09-17T00:21:13"}
