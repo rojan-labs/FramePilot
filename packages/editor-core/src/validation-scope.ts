@@ -65,9 +65,7 @@ export function postValidationScope(
     case 'apply_color_grade':
     case 'adjust_audio':
     case 'track_object':
-    // Mask ops never move a clip; the new tracks `add_text_behind_subject` creates hold one
-    // clip each and cannot overlap anything.
-    case 'add_mask':
+    case 'add_mask': // mask ops never move a clip; add_text_behind_subject's new tracks hold one clip each
     case 'add_effect_layer_mask':
     case 'remove_mask':
     case 'update_mask':

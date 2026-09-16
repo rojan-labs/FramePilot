@@ -248,9 +248,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'move_folder':
     case 'delete_folder':
     case 'reorder_clips': // ids, not times: apply derives every start and snaps it itself
-    // Mask keyframes live on the SOURCE clock (schema v22), whose frames belong to the
-    // media, not to the project grid, so snapping them to project frames would move them.
-    case 'add_mask':
+    case 'add_mask': // mask keyframes use the media's SOURCE clock (v22); project frames would move them
     case 'add_effect_layer_mask':
     case 'remove_mask':
     case 'update_mask':
