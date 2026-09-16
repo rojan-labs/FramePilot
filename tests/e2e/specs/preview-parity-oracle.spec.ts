@@ -812,9 +812,23 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
           measurement.canvas2d = await page.evaluate(
             async ({ time, boxes }) => {
               const engine = (
-                window as unknown as { __fpPreviewEngine: { seek(t: number): Promise<void> } }
+                window as unknown as {
+                  __fpPreviewEngine: {
+                    seek(t: number): Promise<void>;
+                    debugPresentedFrame(): { projectTimeSec: number; layers: unknown[] };
+                  };
+                }
               ).__fpPreviewEngine;
-              await engine.seek(time);
+              // Same rule as the matrix: read only a frame the engine reports it presented for
+              // this time. Reading right after the load once returned a still-blank canvas.
+              let presented = false;
+              for (let attempt = 0; attempt < 8 && !presented; attempt++) {
+                await engine.seek(time);
+                const now = engine.debugPresentedFrame();
+                presented = Math.abs(now.projectTimeSec - time) < 1e-9 && now.layers.length > 0;
+                if (!presented) await new Promise((resolve) => setTimeout(resolve, 150));
+              }
+              if (!presented) return null;
               const canvas = document.querySelector<HTMLCanvasElement>(
                 '.webcodecs-preview-canvas',
               )!;
@@ -835,6 +849,9 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
           );
         } else {
           measurement.error = `canvas2d: ${detail ?? renderer}`;
+        }
+        if (renderer === 'webcodecs' && measurement.canvas2d === null) {
+          measurement.error = 'canvas2d: the preview never presented the sample time';
         }
         const url = `${origin}${MEDIA_PREFIX}${facts.project.assets[0]!.path}`;
         const gl = await page.evaluate(
