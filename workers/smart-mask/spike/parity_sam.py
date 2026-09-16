@@ -63,8 +63,7 @@ class OnnxSam:
         cache = common.CACHE / "coreml-cache" / precision
         for name in ("image_encoder", "decoder_multi_n1", "decoder_single_n2", "memory_attention", "memory_encoder"):
             path = common.ONNX_DIR / f"sam21l_{name}.{precision}.onnx"
-            opts = ort.SessionOptions()
-            opts.log_severity_level = 3
+            opts = common.session_options()
             t0 = time.time()
             self.sessions[name] = ort.InferenceSession(str(path), opts, providers=common.providers_for(
                 "cpu" if name in cpu_modules else ep, cache / name))
@@ -123,6 +122,10 @@ class OnnxSam:
                                                                "mask_for_mem": masks.float().numpy()})
                 return {"vision_features": feats, "vision_pos_enc": [pos]}
 
+        # The ONNX run needs only the orchestration constants (tpos encodings, no-mem/no-obj
+        # embeddings, pointer projection); drop the replaced modules' PyTorch weights (~0.9 GB).
+        for name in ("image_encoder", "sam_mask_decoder"):
+            predictor._modules[name] = torch.nn.Identity()
         predictor.forward_image = forward_image
         predictor._forward_sam_heads = forward_sam_heads
         predictor._modules["memory_attention"] = MemAttn()
@@ -207,6 +210,7 @@ def main() -> None:
         result["moduleMeanSeconds"] = {k: round(float(np.mean(v)), 4) for k, v in onnx_sam.timings.items() if v}
         result["pass"] = bool(passed)
     result["peakRssMiB"] = round(common.peak_rss_mib())
+    result["footprintAtEndMiB"] = common.footprint_mib()
     out = common.write_result(f"parity_sam_{sys.platform}_{tag}", result)
     print("pass" if result.get("pass", True) else "FAIL", out)
 

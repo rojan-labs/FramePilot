@@ -67,6 +67,32 @@ def peak_rss_mib() -> float:
     return r / (1024 * 1024) if sys.platform == "darwin" else r / 1024
 
 
+def footprint_mib(pid: int | None = None) -> float:
+    """Physical footprint (top MEM: resident + compressed, incl. IOKit/Metal) of a process."""
+    import subprocess
+
+    pid = pid or os.getpid()
+    out = subprocess.run(["top", "-l", "1", "-pid", str(pid), "-stats", "pid,mem"], capture_output=True, text=True).stdout
+    for line in out.splitlines():
+        parts = line.split()
+        if len(parts) == 2 and parts[0] == str(pid):
+            v = parts[1].rstrip("+-")
+            unit = {"B": 1 / 2**20, "K": 1 / 1024, "M": 1, "G": 1024}.get(v[-1], 1)
+            return round(float(v[:-1]) * unit, 1)
+    return float("nan")
+
+
+def session_options():
+    """onnxruntime options for a shared 16 GB machine: no CPU arena, no memory-pattern pre-planning."""
+    import onnxruntime as ort
+
+    opts = ort.SessionOptions()
+    opts.log_severity_level = 3
+    opts.enable_cpu_mem_arena = False
+    opts.enable_mem_pattern = False
+    return opts
+
+
 def write_result(name: str, payload: dict) -> Path:
     RESULTS.mkdir(parents=True, exist_ok=True)
     out = RESULTS / f"{name}.json"

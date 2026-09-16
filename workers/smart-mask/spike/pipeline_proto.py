@@ -120,8 +120,7 @@ class BiRefNetOnnx:
     def __init__(self, ep: str, precision: str) -> None:
         import onnxruntime as ort
 
-        opts = ort.SessionOptions()
-        opts.log_severity_level = 3
+        opts = common.session_options()
         t0 = time.time()
         self.sess = ort.InferenceSession(
             str(common.ONNX_DIR / f"birefnet_hr_matting_{TILE}.{precision}.onnx"), opts,

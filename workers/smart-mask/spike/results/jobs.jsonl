@@ -7,3 +7,4 @@
 {"job": "coreml_probe.py sam21l_memory_attention.fp32", "exitCode": 0, "seconds": 25.3, "peakGroupRssGiB": 3.86, "aborted": false, "at": "2026-09-17T00:57:30"}
 {"job": "coreml_probe.py sam21l_image_encoder.fp32", "exitCode": 0, "seconds": 521.6, "peakGroupRssGiB": 3.22, "aborted": false, "at": "2026-09-17T01:06:12"}
 {"job": "coreml_probe.py sam21l_decoder_single_n2.fp32", "exitCode": 0, "seconds": 8.1, "peakGroupRssGiB": 0.47, "aborted": false, "at": "2026-09-17T01:06:36"}
+{"job": "parity_sam.py --ep coreml --precision fp32 --cpu-modules decoder_single_n2", "exitCode": -15, "seconds": 1179.2, "peakGroupRssGiB": 4.56, "aborted": false, "at": "2026-09-17T01:26:38"}

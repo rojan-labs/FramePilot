@@ -6,7 +6,7 @@ warm), how many nodes CoreML took, one timed run on random input, or the error.
 
     python coreml_probe.py --units ALL sam21l_memory_encoder.fp32
 """
-import argparse, json, shutil, sys, time
+import argparse, json, shutil, time
 import numpy as np
 import onnxruntime as ort
 import common
@@ -28,19 +28,20 @@ def feeds(sess):
     return out
 
 
-def probe(stem, units):
+def probe(stem, units, ep="coreml"):
     cache = common.CACHE / "coreml-probe" / f"{stem}-{units}"
     shutil.rmtree(cache, ignore_errors=True)
-    opts = ort.SessionOptions(); opts.log_severity_level = 3
-    prov = [("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "RequireStaticInputShapes": "1",
+    opts = common.session_options()
+    prov = ["CPUExecutionProvider"] if ep == "cpu" else [("CoreMLExecutionProvider", {"ModelFormat": "MLProgram", "RequireStaticInputShapes": "1",
              "MLComputeUnits": units, "ModelCacheDirectory": str(cache)}), "CPUExecutionProvider"]
-    rec = {"model": stem, "units": units}
+    rec = {"model": stem, "ep": ep, "units": units if ep == "coreml" else None}
     try:
         t0 = time.time(); s = ort.InferenceSession(str(common.ONNX_DIR / f"{stem}.onnx"), opts, providers=prov)
         rec["createColdSeconds"] = round(time.time() - t0, 1)
         f = feeds(s)
         t0 = time.time(); s.run(None, f); rec["firstRunSeconds"] = round(time.time() - t0, 2)
         t0 = time.time(); s.run(None, f); rec["secondRunSeconds"] = round(time.time() - t0, 2)
+        rec["footprintAfterRunsMiB"] = common.footprint_mib()
         del s
         t0 = time.time(); s = ort.InferenceSession(str(common.ONNX_DIR / f"{stem}.onnx"), opts, providers=prov)
         rec["createWarmSeconds"] = round(time.time() - t0, 1)
@@ -52,9 +53,10 @@ def probe(stem, units):
 
 
 if __name__ == "__main__":
-    ap = argparse.ArgumentParser(); ap.add_argument("--units", default="ALL"); ap.add_argument("stem")
+    ap = argparse.ArgumentParser(); ap.add_argument("--units", default="ALL"); ap.add_argument("--ep", default="coreml")
+    ap.add_argument("stem")
     a = ap.parse_args()
-    r = probe(a.stem, a.units)
+    r = probe(a.stem, a.units, a.ep)
     print(json.dumps(r), flush=True)
     with open(common.RESULTS / "coreml_probe.jsonl", "a") as fh:
         fh.write(json.dumps({**r, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}) + "\n")

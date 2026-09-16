@@ -95,8 +95,7 @@ def run_onnx(inputs: dict[str, np.ndarray], ep: str, precision: str, size: int, 
     import onnxruntime as ort
 
     path = common.ONNX_DIR / f"birefnet_hr_matting_{size}.{precision}.onnx"
-    opts = ort.SessionOptions()
-    opts.log_severity_level = 3
+    opts = common.session_options()
     t0 = time.time()
     sess = ort.InferenceSession(str(path), opts, providers=common.providers_for(
         ep, common.CACHE / "coreml-cache" / precision / f"birefnet_{size}"))
@@ -141,7 +140,8 @@ def main() -> None:
     out = common.write_result(f"parity_birefnet_{a.size}_{sys.platform}_{tag}", {
         "model": "birefnet_hr_matting", "size": a.size, "variant": tag, "comparedAgainst": ref_kind,
         "gate": {"bandMeanAbs": "1/255", "bandMaxAbs": "4/255"},
-        "mediaLicence": pm.LICENCE, **body, "peakRssMiB": round(common.peak_rss_mib())})
+        "mediaLicence": pm.LICENCE, **body, "peakRssMiB": round(common.peak_rss_mib()),
+        "footprintAtEndMiB": common.footprint_mib()})
     print(body.get("pass", "reference written"), out)
 
 
