@@ -40,6 +40,8 @@ export * from './lane-placement.js';
 export * from './stock-placement.js';
 // The audio twin: shared by the Sounds panel and the agent's `add_music`.
 export * from './music-placement.js';
+// The v22 mask stack's display-corrected source space and compact path storage (ADR 0178).
+export * from './mask-geometry.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';
@@ -47,6 +49,9 @@ export * from './audio-commands.js';
 // sits relative to the cut (plan/ADVANCED-TRANSITION-SYSTEM.md).
 export * from './transitions.js';
 export * from './frame-grid.js';
+// What one exported frame is made of, back to front — the TS twin of the engine's
+// `render/frame_plan.py`, pinned by `tests/fixtures/frame-plan` (PX1).
+export * from './frame-plan.js';
 // The model states why a transition belongs at a cut; this decides which one and
 // how long, from the cut's measured deltas (plan/visual-understanding §VU4.1).
 export * from './transition-policy.js';
