@@ -10010,6 +10010,31 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
   reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
 
+## Phase BR — Background Removal: a precise, correctable subject matte from a local pack — `[ ]` proposed (2026-09-16)
+
+Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (nine files:
+current state, architecture, worker pack, protocol/host, schema/render/preview, Inspector UX,
+precision eval, tasks, deferred/risks). **Gap, audited:** `subject.segment` returns ≤512 px binary
+RLE inline on a 1 MiB JSON line and is human-only; no schema can reference a raster matte; workers
+cannot write files; the preview cannot draw a non-opaque clip over another. **Decision (pending
+MD-1..MD-4):** new pack `framepilot.background-removal` on onnxruntime (SAM 2.1 propagation →
+BiRefNet refinement → band alpha matting → flow-guided stabilisation), writing a lossless FFV1
+matte + VP9 preview proxy into a host-verified `.framepilot-derived/mattes/` directory; schema v22
+`matte` effect addressed by source pts; engine and a two-layer canvas relation composite it;
+Inspector → Mask → Background warns before use when the pack is missing and works after install
+without restart. "100% precise" is made measurable: gates in `06`, plus correction clicks that
+must converge in ≤3.
+
+- [ ] BR0 — spike: SAM 2.1 ONNX on CoreML/DirectML, licences, throughput, fallback; MD-2 decision
+- [ ] BR1 — schema v22 `matte` effect + migration + ops/validator (needs MD-1)
+- [ ] BR2 — engine `render/mattes.py`, pts lookup, render golden
+- [ ] BR3 — `workers/background-removal` pack + local registration
+- [ ] BR4 — `subject.matte` protocol, staging sandbox, desktop host, status IPC (needs MD-3/MD-4, security review)
+- [ ] BR5 — preview matte compositing + two-layer relation + parity test
+- [ ] BR6 — Inspector Background section: missing-pack warning, install, run, refine, correct
+- [ ] BR7 — precision eval gates + desktop e2e (install → remove → export → undo → reopen)
+- [ ] BR8 — (optional) `remove_background` AI tool
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)
