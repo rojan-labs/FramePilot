@@ -2,14 +2,14 @@
 
 > **Sub-plan of [`plan/PLAN.md`](../PLAN.md).** Read `AGENTS.md`, `CLAUDE.md` and
 > `.agents/rules/product-discipline.mdc` first.
-> **Status:** `[ ]` proposed · **Created:** 2026-09-16 · **Updated:** 2026-09-16 (preview parity; precision pipeline; professional + AI masking) · **Owner:** maintainer · **Branch:** `plan/background-removal-ai`
+> **Status:** `[ ]` proposed · **Created:** 2026-09-16 · **Updated:** 2026-09-16 (preview parity; precision pipeline; professional + AI masking; parity and production audit) · **Owner:** maintainer · **Branch:** `plan/background-removal-ai`
 > **Primary target:** the Electron desktop app. Browser gaps are named, never silent.
 > **Legend:** `[ ]` not started · `[~]` in progress · `[x]` done · `[!]` blocked
 
 **One sentence:** FramePilot gets a professional mask system:
 
-- **Mask stack:** any number of rectangle, ellipse, Bezier path, colour-key and AI matte masks per
-  clip, with modes, inner/outer and per-vertex feather, expansion, source-time path animation, and
+- **Mask stack:** any number of rectangle, ellipse, Bezier path, split, mirror, gradient, shape-preset,
+  colour-key, track-matte (including text as a mask) and AI matte masks per clip and per adjustment lane, with modes, inner/outer and per-vertex feather, expansion, source-time path animation, and
   planar/shape tracking. A mask can cut the clip's alpha or limit any effect.
 - **Tools:** drawn on the monitor with professional tools, and edited in a mask panel.
 - **Background removal:** one click. A local pack cross-checks every frame and hands the editor a short
@@ -31,6 +31,14 @@ The maintainer asked for, in order:
 
 This plan is that scope. The product-scope gate applies **inside** it: every phase ends in a usable,
 tested editor capability, and the four tracks ship value independently (PX and MK need no model).
+
+## Is this production ready?
+
+**Not until RD3 passes.** The audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md) compared this plan with
+Premiere Pro, DaVinci Resolve and CapCut and found 25 production gaps. Every gap now has a fix in this
+plan or a named deferral. The largest was that **no build can install packs yet**: no signed catalog,
+keys or CDN. That work (RD1) starts immediately, in parallel with code. "Production ready" is defined as
+the RD3 checklist on the release build, not as a feeling at plan time.
 
 ## What "100% precise and accurate" means here
 
@@ -63,16 +71,26 @@ promise one. It makes the **delivered result** exact, and every claim is a gate 
 | Explicitly deferred   | Semantic part masks, inpainting, mask motion blur, 3D camera solve, AE/Resolve mask exchange, export with alpha, browser removal, cloud matting. See [`08`](./08-DEFERRED-AND-RISKS.md).                                                                                                                                                                                                                                                              |
 | Evidence required     | Every gate in `06` on darwin-arm64 and win32-x64; every `09` oracle row; E2E.1–E2E.5 green in CI.                                                                                                                                                                                                                                                                                                                                                     |
 
-## Maintainer decisions required before code
+## Maintainer decisions
 
-| #    | Decision                                                                                  | Recommendation                                                                                                                               |
-| ---- | ----------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| MD-1 | **Schema v22 mask stack** (`Clip.masks`) replacing `mask` effects, with migration         | Approve; `gaussian-legacy` keeps existing exports byte-identical ([`10`](./10-PROFESSIONAL-MASKING.md#schema-v22-the-mask-stack-needs-md-1)) |
-| MD-2 | **Smart Mask pack** models: SAM 2.1 Hiera-L, BiRefNet HR, a matting model, on onnxruntime | Approve after BR0 licences, ONNX parity and error-detection recall                                                                           |
-| MD-3 | Pack worker writes one host-created staging directory                                     | Approve, scoped as in [`03`](./03-PROTOCOL-AND-HOST.md#sandbox-broadening-md-3)                                                              |
-| MD-4 | Mattes, tracks and correction inputs are project-owned                                    | Approve                                                                                                                                      |
-| MD-5 | Delete the DOM program monitor and the eligibility gates once the oracle passes           | Approve                                                                                                                                      |
-| MD-6 | Open-vocabulary grounding model (Grounding DINO or OWLv2) in the Smart Mask pack          | Approve after BR0 licence and accuracy checks                                                                                                |
+**Approved by the maintainer on 2026-09-16** ("i am ready to go with any changes"), recorded per
+CLAUDE.md §5. MD-2 and MD-6 stay conditional on BR0 evidence: the licence gate and the measured gates
+cannot be waived by approval.
+
+| #    | Decision                                                                                                      | Status                                                                                               |
+| ---- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| MD-1 | Schema v22 mask stack (`Clip.masks`, `EffectLayer.masks`) replacing `mask` effects, with migration and backup | **Approved**                                                                                         |
+| MD-2 | Smart Mask pack models (SAM 2.1 Hiera-L, BiRefNet HR, matting model) on onnxruntime                           | **Approved, conditional on BR0** (licences incl. training data, ONNX parity, error-detection recall) |
+| MD-3 | Pack worker writes one host-created staging directory                                                         | **Approved** (security review in BR4 still required)                                                 |
+| MD-4 | Mattes, tracks and correction inputs are project-owned                                                        | **Approved**                                                                                         |
+| MD-5 | Delete the DOM program monitor and eligibility gates once every oracle row passes                             | **Approved** (behind a flag until RD3)                                                               |
+| MD-6 | Open-vocabulary grounding model in the Smart Mask pack                                                        | **Approved, conditional on BR0**                                                                     |
+| MD-7 | Per-project, opt-in face recognition for identity-aware AI masking                                            | **Approved** (legal review of copy in RD2)                                                           |
+
+**Maintainer actions (not decisions; nothing ships to users without them):** Apple Developer ID and
+notarisation, a Windows Authenticode certificate, offline catalog root keys, and a CDN account for
+multi-GiB packs (RD1.1–RD1.2). Today no build can install a pack from a catalog
+(`service.ts:547`, `catalog_unconfigured`).
 
 ## Files
 
@@ -99,7 +117,8 @@ MK1 → MK2 → MK3 (needs PX2) → MK4 → MK5 → MK6 → MK7
 BR0 → MD-1..6 → BR2 (needs MK2) ─┬─ BR4 → BR5 (needs MK3) → BR6 → BR7
                          BR3 ────┘
 AM1 (needs MK7, BR6) → AM2 → AM3 → AM4 → AM5
-E2E.1–E2E.5 + DOC.1
+MK8 → MK9 (after MK3)
+RD0 · RD1 (starts now) · RD2 → E2E.1–E2E.8 + DOC.1 → RD3 release gate
 ```
 
 The engine comes before the AI (PRD §23): AM starts only when the operations, renderers and pack jobs

@@ -21,6 +21,15 @@
 | Mask exchange with After Effects / Resolve                                           | No current consumer                                                                                                                                                                               |
 | Per-mask blend of different effects in one mask group                                | Effect-target masks cover the professional use; mask groups can come later                                                                                                                        |
 
+### Deferred by the production audit
+
+| Item                                                        | Why deferred                                                                                      | What users see meanwhile                              |
+| ----------------------------------------------------------- | ------------------------------------------------------------------------------------------------- | ----------------------------------------------------- |
+| HDR / 10-bit colour pipeline for masking, keying and export | The engine and preview are 8-bit SDR today; HDR is a pipeline-wide project, not a masking feature | "HDR footage is converted to SDR" notice on HDR clips |
+| Stabilise-then-mask                                         | Stabilisation is its own domain                                                                   | Track the mask instead                                |
+| Intel Mac support for Smart Mask                            | No supported accelerated EP at a usable speed (to confirm in BR0)                                 | Named in the install warning before download          |
+| Linux packs                                                 | First pack targets are darwin-arm64 and win32-x64 (ADR 0114)                                      | Tools show "not available for this computer yet"      |
+
 ## Risks
 
 | Risk                                                                                         | Likelihood | Impact | Mitigation                                                                                                                |
@@ -56,6 +65,16 @@
 | Grounding model licence fails (training data)                               | Medium     | High   | MD-6; fall back to Subject Intelligence classes + SigLIP re-ranking and **ask more often**, measured against the ambiguity gates |
 | The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply          |
 | Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability                |
+
+### Added by the production audit
+
+| Risk                                                                                         | Likelihood | Impact      | Mitigation                                                                                    |
+| -------------------------------------------------------------------------------------------- | ---------- | ----------- | --------------------------------------------------------------------------------------------- |
+| Release infrastructure (signing identities, CDN, catalog keys) is not ready when the code is | High       | **Blocker** | RD1 starts now, in parallel with PX/MK; nothing pack-backed is announced before RD1 is done   |
+| Windows EP choice turns out slow on common GPUs                                              | Medium     | High        | Measured in BR0 across vendors; CPU fallback at the same precision; published minimums        |
+| Competitor features move while this is built                                                 | High       | Medium      | RD0 re-checks the parity table before release; gaps are named, not hidden                     |
+| Byte-equality breaks on a platform or browser update                                         | Low        | Medium      | Vectors in CI on three OSes; the determinism rules forbid the operations most likely to drift |
+| Biometric consent requirements differ by jurisdiction                                        | Medium     | High        | Opt-in per project, local-only, deletable; legal review of the consent copy in RD2            |
 
 ## What would change this plan
 

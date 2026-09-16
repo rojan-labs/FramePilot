@@ -108,6 +108,19 @@ If a gate misses, the numbers go to the maintainer. A gate is not quietly lowere
 | Verification honesty                     | 0 runs claim Verified or omit a flagged count                                                                                           |
 | Token cost                               | Zero delta on projects without masks; the domain's measured delta recorded in the goldens                                               |
 
+## Production budgets (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
+
+| Budget                                                         | Threshold                                                                                   |
+| -------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| Pointer-to-paint while editing a 200-vertex path on 4K footage | ≤ 16 ms p95                                                                                 |
+| Hover highlight after the frame embedding exists               | ≤ 100 ms p95                                                                                |
+| Click-to-mask (single frame)                                   | ≤ 300 ms p95 after the frame embedding; the first embedding per frame is measured and shown |
+| Export with masks and 4K mattes (Scale fixture)                | ≤ 1.5× the same timeline without masks                                                      |
+| Save/autosave with 1,000 path keyframes × 200 vertices         | ≤ 250 ms, and the project file stays within the measured size budget                        |
+| Resume after a crash mid-job                                   | 100% of finished windows reused; output identical to an uninterrupted run                   |
+| Rasteriser byte-equality                                       | Holds on macOS arm64, Windows x64 and Linux x64 for both implementations                    |
+| Anamorphic and rotated sources                                 | Mask drawn on the monitor matches the export within the oracle thresholds                   |
+
 ## Harness
 
 `workers/smart-mask/eval/run_eval.py` runs the **installed, signed entrypoint** (not Python

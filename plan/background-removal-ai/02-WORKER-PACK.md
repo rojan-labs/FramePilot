@@ -77,8 +77,32 @@ the upstream licence file at a pinned commit, including **training-data terms**,
 - Long clips are processed in overlapping windows (e.g. 300 frames, 60 overlap). Overlaps go
   through stage 5 consensus like any other pair of estimates, so a window seam is verified, not
   cross-faded blindly.
-- `manifest.toml`: `capabilities = ["subject.matte", "subject.ground"]`, `network = "disabled"`, and
+- `manifest.toml`: `capabilities = ["subject.matte", "subject.segment_frame", "subject.ground"]`, `network = "disabled"`, and
   `max_unpacked_mib` from the measured BR0 artifact.
+
+## Production requirements (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
+
+- **Windows execution provider is chosen by evidence.** DirectML is reported to be in maintenance mode
+  with Windows ML as the forward path, and `visual-embed` currently ships only CoreML + CPU. BR0
+  measures DirectML, Windows ML, CUDA and OpenVINO on real NVIDIA, AMD and Intel GPUs and picks the
+  default and the fallbacks with numbers. CPU always works at the same precision.
+- **First-run model preparation** (CoreML compilation, EP graph optimisation) is its own progress phase,
+  `prepare`, and its result is cached in the pack's data directory keyed by model digest + EP + OS
+  version, so it runs once.
+- **Interactive single-frame segmentation** (`subject.segment_frame`) keeps a warm worker process with
+  the image encoder loaded and caches per-frame embeddings (LRU, bounded memory). Hover highlight and
+  click-to-mask read from that cache. The full-clip `subject.matte` job reuses those embeddings.
+- **Progressive output:** each processing window is encoded and verified as soon as it finishes, so the
+  host can hand finished ranges to the preview while later windows run, and a crash or quit resumes from
+  the last finished window.
+- **Resource limits:** per-job memory ceiling (measured in BR0 per resolution), a wall-clock watchdog per
+  window, and graceful fallback to CPU on GPU out-of-memory, reported in the result.
+- **Minimum hardware** is published from BR0 measurements. The planned floor: Apple Silicon with 16 GB
+  (8 GB supported with a slower CPU-offload notice); Windows x64 with a DX12-class GPU and 16 GB. Intel
+  Macs are not supported by the Smart Mask pack, and the install warning says so before download.
+- **FFmpeg inside the pack** (via PyAV or a bundled binary) must be an **LGPL-only** build. The build
+  configuration is checked by `tools/generate_sbom.py --check` and recorded in `LICENSES.md`, because a
+  GPL component would fail the licence policy.
 
 ## BR0 — the spike that decides whether this plan stands
 

@@ -134,6 +134,30 @@ review list collapses to "Show checked moments".
 removal moments haven't been checked" with [Review] and [Export anyway]. It never blocks silently or
 hides the count. STALE and BROKEN use the same remedy text in the Inspector and the export dialog.
 
+## Production states (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
+
+- **This build can't download packs** (`catalog_unconfigured`): "Smart Mask can't be installed from this
+  build." No install button. Development builds add "Use a locally registered pack". Releases never show this state (RD1 gate).
+- **Hardware below minimum:** the warning names the requirement before download ("Needs Apple Silicon
+  (Intel Macs aren't supported)" / "Needs 16 GB of memory; this Mac has 8 GB, so it will run slower").
+- **Preparing models (first run only):** a progress phase before the first job, never an unexplained wait.
+- **Hover highlight:** with AI Object active, the object under the pointer is tinted; click adds it. A
+  one-line hint appears the first time.
+- **Progressive results:** finished ranges show matted in the monitor while the job continues; unfinished
+  ranges show the original picture with a striped "Processing" band on the clip in the timeline and a
+  label in the monitor corner, so a partially processed clip is never mistaken for a finished one.
+- **Jobs panel:** every running, queued, paused and resumable job across the project, with pause, cancel,
+  and "Show clip". A job resumed after restart says so.
+- **Media changed (STALE):** "This clip's media changed since the mask was made. Recompute" with an
+  estimate.
+- **HDR source:** "HDR footage is converted to SDR for masking and export" on HDR clips (P6 limitation),
+  never silent.
+- **Face identity consent** (only when an AI request needs to tell people apart): "Allow FramePilot to
+  recognise faces in this project to tell people apart? Runs on this computer; you can delete it anytime
+  in Project settings." [Allow for this project] [Pick faces myself]. Declining never blocks masking; the
+  agent then asks the editor to pick.
+- **Disk space:** the estimate line turns into a blocking message when free space is short.
+
 ## Accessibility and responsiveness
 
 - Keyboard-reachable everywhere: pick mode (arrow-key crosshair, Enter include, Shift+Enter exclude)

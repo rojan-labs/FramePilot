@@ -10012,10 +10012,10 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 
 ## Phase BR — Masking, background removal, AI masking, preview/export parity — `[ ]` proposed (2026-09-16, scope widened by the maintainer the same day)
 
-Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (twelve files).
+Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (thirteen files).
 **Maintainer scope (recorded per CLAUDE.md §5):** background removal worker + Inspector with
 missing-pack warning; preview fixed at the core to render like the export; professional-editor
-masking; AI masking; everything production-grade. **Four tracks:**
+masking; AI masking; everything production-grade. **Parity and production audit (`12`):** compared with Premiere Pro / Resolve / CapCut; added split, mirror, gradient, shape-preset, track-matte (text as mask) kinds, RGB/3D keyer, matte finesse, adjustment-lane masks, edge styles, track reuse, hover highlight, progressive results, jobs panel with resume. Found 25 production gaps, including the **blocker that no build can install packs** (`service.ts:547` `catalog_unconfigured`). MD-1–MD-7 approved by the maintainer 2026-09-16 (MD-2/MD-6 conditional on BR0). **Five tracks:**
 - **PX (preview parity):** shared frame plan (`framePlanAt` ↔ `frame_plan_at`), a pixel oracle against
   `frame_grab.py` built first, then an N-layer WebGL compositor. After that, delete
   `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM monitor (MD-5).
@@ -10042,7 +10042,12 @@ masking; AI masking; everything production-grade. **Four tracks:**
 - [ ] BR0 — spike: SAM 2.1/BiRefNet/matting/grounding ONNX, licences, error-detection recall; MD-2, MD-6
 - [ ] BR2–BR7 — matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
 - [ ] AM1–AM5 — masking tools, target resolution, verification, surfaces/skill, eval gates
-- [ ] E2E.1–E2E.5 + DOC.1 — desktop end-to-end flows, migration, docs and changelogs
+- [ ] MK8–MK9 — split/mirror/gradient/track matte/presets; adjustment-lane masks; edge styles
+- [ ] RD0 — re-verify competitor parity table
+- [ ] RD1 — release infrastructure: signing identities, catalog keys, CDN, CI pack builds, staged rollout (start now)
+- [ ] RD2 — feature flags, telemetry, consent legal review, closed beta
+- [ ] E2E.1–E2E.8 + DOC.1 — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs
+- [ ] RD3 — release gate on the release build (the only definition of production ready for this phase)
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

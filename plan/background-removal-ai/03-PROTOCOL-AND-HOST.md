@@ -141,7 +141,7 @@ added to `packages/shared-types/src/ipc.ts`:
 | `onCapabilityPackInstalled(cb)`                                           | fires after any install or uninstall completes its health check, so open panels refresh without restart                                        |
 | `matteSaveCorrection({ artifactKey, pts, kind: 'brush' \| 'lock', png })` | writes the input file into the project's matte inputs store (validated size and dimensions) and returns its reference                          |
 
-`capabilityPackStatus` is **generic** (any capability id), not matte-specific.
+`capabilityPackStatus` is **generic** (any capability id), not matte-specific. Its `missing`, `unhealthy` and `unsupported_platform` states include the published minimum hardware and whether this machine meets it, and a catalog that is not configured in the build returns `catalog_unconfigured`, shown as "This build can't download packs" rather than a generic error.
 
 `intent` carries `timelineRevision`. The host re-checks it on completion and returns
 `stale_revision` if the clip no longer exists, following the tracking path's rule.
@@ -150,6 +150,41 @@ added to `packages/shared-types/src/ipc.ts`:
 in-range frame through `subject-intelligence` (if installed) and turns the largest person or
 object box into a prompt. If that pack is missing, it returns `needs_prompt` and the UI asks for a
 click. It never proposes a second download on its own.
+
+## Production host behaviour (from the audit in [`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
+
+**Interactive capability `subject.segment_frame`:** request `{ pts, points?, box?, hoverPoint? }` against
+a warm worker; result `{ maskPng (host-written to a temp inputs file), score }` at preview resolution.
+Latency budgets are in `06`. It never writes project state; it only feeds hover highlights and the first
+frame of an AI Object mask.
+
+**Job scheduler** (`capability-packs/job-scheduler.ts`, shared by Smart Mask and Tracking Lite):
+
+- At most one GPU inference job at a time; interactive `segment_frame` requests preempt between windows,
+  never mid-window.
+- Queue with priority (interactive > the clip the editor is looking at > others) and a jobs panel
+  (`JobsPanel.tsx`): name, clip, phase, progress, ETA, pause, cancel, and open clip.
+- Memory pressure (from the OS) while exporting pauses inference and resumes it afterwards, with a
+  visible "Paused during export" state.
+- Windows finished before a crash or quit are kept in staging, and the job **resumes** on next launch
+  after confirming the clip and media still match. Quitting with a running job asks first.
+
+**Disk space:** a preflight estimate (matte + foreground + previews) vs free space with 20% headroom
+refuses to start with "Needs about {size}; {free} free". Running out mid-job keeps finished windows and
+fails with `output_unwritable`, and the host shows the same remedy.
+
+**Media changes:** relinking, replacing or re-proxying an asset re-checks every matte and track on it by
+comparing decoded-frame hashes at the coverage's first and last frames plus 16 sampled frames. Equal →
+keep. Different → the mask goes STALE with "Media changed: recompute", and export refuses that clip
+with the same text.
+
+**Safety limits for untrusted media:** per-job memory and time limits, the worker process killed and the
+job failed with `internal_error` on breach, and a fuzzed-media corpus (truncated, malformed, huge
+dimensions) in the security review.
+
+**Observability:** scoped logger events for job start, phase timings, execution provider, failure codes,
+flagged ratio and cache hits. Never frames, media paths or prompts beyond counts. "Export diagnostic
+bundle" (opt-in, user-initiated) collects job reports and logs for support.
 
 ## Cache key and retention
 

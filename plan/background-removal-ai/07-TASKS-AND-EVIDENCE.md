@@ -3,7 +3,7 @@
 Each phase is its own PR with one goal (CLAUDE.md: don't bundle subsystems). Mark `[~]` when starting
 and `[x]` only when the DoD evidence exists. Commits carry no attribution trailers.
 
-Four tracks. PX and MK need no model and start immediately; BR0 decides the models in parallel; AM
+Five tracks. RD (release readiness), PX and MK need no model and start immediately; BR0 decides the models in parallel; AM
 starts only when the engine and pack paths it drives are done (PRD §23).
 
 ```
@@ -12,8 +12,11 @@ MK1 schema/migration/ops → MK2 rasteriser + engine → MK3 preview pass (needs
 BR0 spike → MD-1..6 → BR2 engine matte ─┬─ BR4 host → BR5 preview matte (needs MK3) → BR6 UI + review → BR7 eval
                           BR3 pack ─────┘
 AM1 tools (needs MK7, BR6) → AM2 target resolution → AM3 verification → AM4 surfaces/skill → AM5 eval
+RD0 parity re-check · RD1 release infrastructure (starts now) · RD2 flags/telemetry/beta · RD3 release gate (last)
 E2E + docs (after all tracks)
 ```
+
+**PR sizing:** a phase is a goal, not a PR. Large phases are split into the sub-PRs marked `(PR n)`; each sub-PR is independently tested and reviewable.
 
 ## PX — Preview renders what the export renders ([`09`](./09-PREVIEW-EXPORT-PARITY.md))
 
@@ -77,7 +80,8 @@ E2E + docs (after all tracks)
 - [ ] MK1.1 `Clip.masks` (all kinds incl. `matte`, `key`), source-time keyframes, path keyframes, tracking ref; Pydantic twin + parity test
 - [ ] MK1.2 Migration v21→v22: first mask → stack, polygon → path, keyframes → source time via speed/ramp mapping, `gaussian-legacy`, extra masks disabled with a note, tracked masks preserved; round-trip tests
 - [ ] MK1.3 Operations from `10` with apply+invert round trips; vertex insert/remove across keyframes; `paste_masks`; `add_text_behind_subject`
-- [ ] MK1.4 Validator rules and remedy messages; `mask` effect type rejected in v22
+- [ ] MK1.4 Validator rules and remedy messages; `mask` effect type rejected in v22; layer-mask cycle detection
+- [ ] MK1.8 Pre-migration backup file; newer-schema refusal in older apps; display-corrected source space (PAR + rotation) conversion helpers; compact path keyframe storage
 - [ ] MK1.5 Fix `applySplit`/`truncateClip` for effect keyframes (the latent bug) with tests
 - [ ] MK1.6 Re-specify `add_mask` / `track_object` / `apply_tracked_mask` on the new model; migrate `tracking-commands.ts`
 - [ ] MK1.7 `pnpm schema:generate` + drift tests; ADR (mask stack replaces mask effects); docs/api
@@ -88,7 +92,7 @@ E2E + docs (after all tracks)
 
 - [ ] MK2.1 `render/mask_raster.py`: flatten, exact coverage, band distance field, per-vertex feather, expansion, modes, quantise
 - [ ] MK2.2 `render/mask_stack.py`: stack evaluation at source pts; alpha targets in `_attach_mask`; effect targets mix inside effect application; legacy feather path
-- [ ] MK2.3 Rasteriser vectors (Python-generated) + supersampled reference test
+- [ ] MK2.3 Rasteriser vectors (Python-generated) + supersampled reference test; determinism rules (float64, Q16.16 coverage, ordered accumulation, table falloff); vectors in CI on macOS arm64, Windows x64, Linux x64
 - [ ] MK2.4 Render goldens: each kind, mode, target; v21 fixture projects byte-identical after migration
 
 **DoD:** engine tests for new modules pass; goldens updated in the same PR.
@@ -104,11 +108,12 @@ E2E + docs (after all tracks)
 
 ### MK4 — Canvas tools + mask panel `[ ]`
 
-- [ ] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
-- [ ] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation
-- [ ] MK4.3 Keyframe lane integration on the timeline; copy/paste masks; presets
+- [ ] MK4.1 (PR 1) `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
+- [ ] MK4.2 (PR 2) `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation
+- [ ] MK4.3 (PR 3) Keyframe lane integration on the timeline; copy/paste masks; presets
 - [ ] MK4.4 Delete `addMaskPatch` hardcoded bounds and `MaskPackActions`; UI builds ops through editor-core commands
 - [ ] MK4.5 Component tests; Playwright flows for draw → animate → undo; a11y (keyboard drawing path)
+- [ ] MK4.6 Pointer-to-paint budget measured (≤ 16 ms p95, 200-vertex path, 4K) and save budget with 1,000 path keyframes
 
 **DoD:** tests pass; a screen recording of drawing and animating a path mask on real footage in the PR.
 
@@ -121,8 +126,9 @@ E2E + docs (after all tracks)
 
 ### MK6 — Key mask `[ ]`
 
-- [ ] MK6.1 `key` kind: eyedropper, HSL ranges, softness, despill, clean black/white; engine numpy + preview shader with shared colour matrix
-- [ ] MK6.2 Key gates from `06`; green-screen fixture golden
+- [ ] MK6.1 `key` kind (HSL, RGB, luma, 3D sample keyer): eyedropper, ranges, softness, despill, clean black/white; engine numpy + preview shader with shared colour matrix
+- [ ] MK6.2 Matte finesse group (denoise, morph open/close, shrink/grow, blur, in/out ratio, clean black/white) shared by `key`, `matte` and `layer`; shadow retention for chroma key
+- [ ] MK6.3 Key gates from `06`; green-screen fixture golden
 
 **DoD:** key gates pass; oracle rows green.
 
@@ -131,10 +137,24 @@ E2E + docs (after all tracks)
 - [ ] MK7.1 Transform-track artifact (per-frame 3×3, digest-pinned, project-owned) and host job via Tracking Lite
 - [ ] MK7.2 Methods: position, position+scale+rotation, perspective, shape (vertex) track; forward/backward/one frame/to edge
 - [ ] MK7.3 Per-frame confidence → shared review list; constraint frames; re-track from constraints
-- [ ] MK7.4 Tracking panel UI with progress, cancel and review
+- [ ] MK7.4 Tracking panel UI with progress, cancel and review; interactive feature points and exclusion regions
+- [ ] MK7.6 `use_track`: a track drives another mask, a text clip or an overlay transform
 - [ ] MK7.5 Tracking gates from `06` on synthetic and real clips
 
 **DoD:** tracking gates pass on both platforms; tracked-mask oracle rows green.
+
+### MK8 — Analytic kinds, track matte, presets `[ ]`
+
+- [ ] MK8.1 `linear` (split), `band` (mirror), `gradient` (linear/radial) kinds: engine, preview, vectors, canvas handles
+- [ ] MK8.2 `layer` kind (track matte / text as mask): alpha, luma and inverted channels from the frame plan; cycle refusal
+- [ ] MK8.3 Shape presets (heart, star, n-gon, speech bubble, arrow, rounded frame) as path generators
+- [ ] MK8.4 Oracle rows green; goldens
+
+### MK9 — Adjustment-lane masks, edge styles `[ ]`
+
+- [ ] MK9.1 `EffectLayer.masks` with `space: 'frame'`; engine, preview and UI on the adjustment lane
+- [ ] MK9.2 Edge-style catalog effects (stroke/outline, outer glow, drop shadow) reading the alpha mask stack
+- [ ] MK9.3 Oracle rows green; parity tests for the new catalog kinds
 
 ## BR — Background removal
 
@@ -147,6 +167,7 @@ E2E + docs (after all tracks)
 - [ ] BR0.5 Fallback pipeline measured through the same consensus/verify stages
 - [ ] BR0.6 Grounding models (Grounding DINO / OWLv2): ONNX on both EPs, target-resolution accuracy on a pilot request set, licence verdict → MD-6
 - [ ] BR0.7 Throughput, memory, pack size, matte + foreground storage per minute
+- [ ] BR0.9 Windows EP comparison (DirectML, Windows ML, CUDA, OpenVINO) on NVIDIA/AMD/Intel GPUs; first-run preparation time per EP; published minimum hardware; Intel Mac feasibility
 - [ ] BR0.8 `BR0-FINDINGS.md`; MD-2 and MD-6 recorded; ADR draft `docs/adr/0178-smart-mask-pack.md`
 
 **DoD:** numbers in the findings doc; the maintainer approves the model set, or the plan is revised.
@@ -173,7 +194,12 @@ E2E + docs (after all tracks)
 - [ ] BR3.9 Encoders (FFV1 master + foreground, VP9 previews); byte ceiling; declared names only
 - [ ] BR3.10 Unit tests with injected backend; `decoded_media` tests with real weights
 - [ ] BR3.11 `dev-register-smart-mask.sh` + `dev-register-all-packs.sh`; health check via `register-local`
-- [ ] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`
+- [ ] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`, LGPL-only FFmpeg verification
+- [ ] BR3.13 `subject.segment_frame` warm worker with per-frame embedding cache; `prepare` phase and compiled-model cache
+- [ ] BR3.14 Progressive per-window encode/verify; resume from finished windows; per-job memory ceiling, watchdog, GPU OOM → CPU fallback
+- [ ] BR3.15 `subject.ground` grounding capability
+
+Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensus · (PR 3) self-correct + matting + foreground + stabilise · (PR 4) verify + encode + progressive/resume · (PR 5) interactive + grounding · (PR 6) licences, SBOM, registration
 
 **DoD:** pack registers locally, passes health, and produces a host-verified artifact with a report on a real 1-min 4K clip.
 
@@ -186,7 +212,10 @@ E2E + docs (after all tracks)
 - [ ] BR4.5 Auto prompt via `subject.detect`; `needs_prompt` when absent
 - [ ] BR4.6 Storage manager: per-project matte bytes, referenced-set protection, "Clean unused mattes"
 - [ ] BR4.7 Project media validation for matte files + digests
-- [ ] BR4.8 **security-reviewer** pass on the sandbox broadening
+- [ ] BR4.9 Job scheduler + `JobsPanel` (priorities, one GPU job, preemption between windows, pause during export, resume after restart, quit prompt)
+- [ ] BR4.10 Disk-space preflight; relink/replace/re-proxy re-check (frame hashes) → STALE; `catalog_unconfigured` and hardware-minimum states in `capabilityPackStatus`
+- [ ] BR4.11 Observability events and opt-in diagnostic bundle
+- [ ] BR4.12 **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
 
 **DoD:** desktop capability-pack tests for new files pass; security review recorded in the PR.
 
@@ -206,7 +235,8 @@ E2E + docs (after all tracks)
 - [ ] BR6.4 Running progress with phases and rounds, ETA, cancel, selection-change survival
 - [ ] BR6.5 `MaskReviewPanel` (shared with tracking): review list, Looks right, J/K, Keep/Remove/Edge brush, Apply fix, Lock, VERIFIED badge
 - [ ] BR6.6 Put text behind subject; export-dialog unchecked-moments notice; STALE/BROKEN remedy text shared with export validation
-- [ ] BR6.7 Component tests for every state; copy pass (lead-prompt-engineer + unslop); a11y check
+- [ ] BR6.8 Hover highlight for AI Object; progressive results with processing bands; production states from `05` (build can't download, hardware minimum, preparing models, media changed, HDR notice, disk space)
+- [ ] BR6.9 Component tests for every state; copy pass (lead-prompt-engineer + unslop); a11y check
 
 **DoD:** component tests pass; screenshots of every state in the PR.
 
@@ -232,7 +262,8 @@ E2E + docs (after all tracks)
 
 - [ ] AM2.1 `subject.ground` host job; candidate ranking with detection, grounding, identity clusters, ledger facts, temporal persistence
 - [ ] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
-- [ ] AM2.3 Identity-aware requests ("everyone except the host")
+- [ ] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
+- [ ] AM2.4 `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
 ### AM3 — Verification `[ ]`
 
@@ -261,6 +292,39 @@ E2E + docs (after all tracks)
 - [ ] E2E.3 Manual pro masking: pen path → animate → track (perspective) → review/constraint → effect-target blur → export matches preview
 - [ ] E2E.4 AI: "blur the faces except the host" and "put the title behind her" through the sidebar; ambiguous request asks; result reviewed and exported
 - [ ] E2E.5 v21 project with masks opens, migrates, and exports byte-identically
-- [ ] DOC.1 `docs/guides/masking.md` (tools, tracking, review and fixing), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
+- [ ] E2E.6 Crash/quit mid-job → relaunch → job resumes from finished windows → output identical to an uninterrupted run; relink to different media → STALE → recompute
+- [ ] E2E.7 Project archive with masks/mattes/tracks created on macOS reopens and exports identically on Windows (and the reverse)
+- [ ] E2E.8 Split/mirror/gradient/track matte/text-as-mask/adjustment-lane mask/edge-style flows, each preview == export
+- [ ] DOC.1 `docs/guides/masking.md` (tools, tracking, review and fixing, **limitations, shortcuts, troubleshooting, minimum hardware, privacy**), `docs/guides/background-removal.md`, ADRs, `CHANGELOG.md`, `MANUAL_TESTING.md`, public changelog (changelog-maintainer)
 
 **DoD:** e2e green in CI on the PR head SHA; all gate reports committed; `plan/PLAN.md` phase checked.
+
+## RD — Release readiness ([`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
+
+### RD0 — Parity re-check `[ ]`
+
+- [ ] RD0.1 Re-verify the Premiere Pro / DaVinci Resolve / CapCut table in `12` against current releases; add or defer any new gap with a reason
+
+### RD1 — Release infrastructure (start now; the blocker) `[ ]`
+
+- [ ] RD1.1 Maintainer actions: Apple Developer ID + notarisation, Windows Authenticode certificate, offline catalog root keys (generation ceremony, storage, rotation plan)
+- [ ] RD1.2 CDN hosting for multi-GiB artifacts with range requests; bandwidth and cost estimate
+- [ ] RD1.3 Signed catalog publishing pipeline from pack manifests (release-tooling exists); build embeds root keys and catalog URL for release channels only
+- [ ] RD1.4 CI pack builds for darwin-arm64 and win32-x64 with SBOM and licence gates; artifact signing
+- [ ] RD1.5 Staged rollout and delisting rehearsal (a bad pack version is pulled, installed users are told)
+- [ ] RD1.6 Tracking Lite, Subject Intelligence and Smart Mask published to a beta channel and installed from it on clean machines
+
+### RD2 — Flags, telemetry, beta `[ ]`
+
+- [ ] RD2.1 Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
+- [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
+- [ ] RD2.3 Legal review of face-recognition consent copy and privacy docs
+- [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates
+- [ ] RD2.5 `MANUAL_TESTING.md` masking and background-removal procedures
+
+### RD3 — Release gate `[ ]`
+
+- [ ] RD3.1 Every item of `12` §C verified on the **release build** with packs installed from the real catalog
+- [ ] RD3.2 Rollback rehearsed once (flag off + catalog delist)
+
+**DoD (whole plan):** RD3 passes. Until then nothing in this plan is called production ready.
