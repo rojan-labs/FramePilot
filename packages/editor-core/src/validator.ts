@@ -6,6 +6,7 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import type {
+  Asset,
   Clip,
   EffectLayer,
   EffectRenderKind,
@@ -32,7 +33,17 @@ import {
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 import { postValidationScope } from './validation-scope.js';
-import { MASK_OPERATION_TYPES, type MaskOperationErrorCode } from './mask-operations.js';
+import {
+  MASK_OPERATION_TYPES,
+  isMaskOperation,
+  type MaskOperationErrorCode,
+} from './mask-operations.js';
+import {
+  maskOperationIssues,
+  matteCoverageIssues,
+  retiredMaskEffectIssues,
+  type MaskValidationContext,
+} from './mask-validation.js';
 import type { AnyOperation } from './patch.js';
 
 const log = createLogger('editor-core:validator');
@@ -84,6 +95,8 @@ export type ValidationCode =
   | 'mask_keyframe_out_of_range'
   /** Layer masks refer to each other in a loop. */
   | 'mask_layer_cycle'
+  /** An enabled matte does not cover the source range its clip plays. */
+  | 'matte_out_of_coverage'
   /** An apply path threw something the operations layer did not raise deliberately. */
   | 'invalid_operation';
 
@@ -117,6 +130,12 @@ export interface ValidateOptions {
    * durations — right for hand-built timelines that never went through a commit.
    */
   readonly fps?: number;
+  /**
+   * The project's assets, so mask rules can check measured media sizes (schema v22): a mask
+   * is stored in source pixels, and adding one to media nobody measured is refused with
+   * "Measure this media first". Omitted, those size rules are skipped rather than guessed.
+   */
+  readonly assets?: Iterable<Pick<Asset, 'id' | 'media'>>;
 }
 
 const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>([
@@ -211,6 +230,12 @@ export function validatePatch(
   const fps = gridFps(options.fps);
   const issues: ValidationIssue[] = [];
   const clipTracks = clipTrackIndex(timeline);
+  const maskContext: MaskValidationContext = {
+    fps,
+    ...(options.assets === undefined
+      ? {}
+      : { assets: new Map([...options.assets].map((asset) => [asset.id, asset])) }),
+  };
   let working = timeline;
 
   patch.operations.forEach((op, index) => {
@@ -230,13 +255,19 @@ export function validatePatch(
     }
 
     issues.push(...staticChecks(working, op, index, assetIds, clipTracks));
+    issues.push(...retiredMaskEffectIssues(op, index));
     const scope = postValidationScope(op, clipTracks);
     try {
       const next = applyOperation(working, op, fps === null ? undefined : { fps });
       const tracks = tracksById(next, scope.trackIds);
       if (scope.overlap) issues.push(...overlapChecks(tracks, index));
       if (scope.transitions) issues.push(...transitionOverlapChecks(tracks, index));
-      if (scope.speed) issues.push(...speedConsistencyChecks(tracks, index, fps));
+      if (scope.speed) {
+        issues.push(...speedConsistencyChecks(tracks, index, fps));
+        // A trim, slip, split or retime can move a clip's source range past its matte.
+        issues.push(...matteCoverageIssues(tracks, index, maskContext));
+      }
+      if (isMaskOperation(op)) issues.push(...maskOperationIssues(next, op, index, maskContext));
       refreshClipTrackIndex(clipTracks, next, scope.trackIds);
       working = next;
     } catch (cause) {

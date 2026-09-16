@@ -340,6 +340,7 @@ export class ProjectCommandService {
   private repeatWouldChangeNothing(project: Project, patch: Patch): boolean {
     const validation = validatePatch(project.timeline, patch, {
       assetIds: project.assets.map((asset) => asset.id),
+      assets: project.assets,
       folders: project.folders,
       markers: project.markers,
       fps: project.fps,
@@ -453,6 +454,7 @@ export class ProjectCommandService {
       }
       const validation = validatePatch(current.project.timeline, patch, {
         assetIds: current.project.assets.map((asset) => asset.id),
+        assets: current.project.assets,
         folders: current.project.folders,
         markers: current.project.markers,
         fps: current.project.fps,

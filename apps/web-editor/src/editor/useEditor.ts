@@ -199,6 +199,7 @@ export function useEditor(
         const current = stateRef.current;
         const result = validatePatch(current.timeline, patch, {
           assetIds: current.assetIds,
+          assets: current.assets,
           folders: current.folders,
           fps: EDITOR_FPS,
         });

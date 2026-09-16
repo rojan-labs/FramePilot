@@ -46,9 +46,12 @@ function validationContext(project: Project): {
   readonly folders: Project['folders'];
   readonly markers: Project['markers'];
   readonly fps: number;
+  readonly assets: Project['assets'];
 } {
   return {
     assetIds: project.assets.map((asset) => asset.id),
+    // Mask rules measure against the media's probed size (schema v22, ADR 0178).
+    assets: project.assets,
     folders: project.folders,
     markers: project.markers,
     // The patch is quantized to this grid before it is applied, so validation has to

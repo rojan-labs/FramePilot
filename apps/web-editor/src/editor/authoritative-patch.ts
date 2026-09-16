@@ -42,6 +42,7 @@ export function applyAuthoritativePatchTransport(
   const patch = value.patch;
   const validation = validatePatch(project.timeline, patch, {
     assetIds: project.assets.map((asset) => asset.id),
+    assets: project.assets,
     folders: project.folders,
     markers: project.markers,
     fps: project.fps,
