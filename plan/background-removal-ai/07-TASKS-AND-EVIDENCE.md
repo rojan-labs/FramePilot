@@ -56,6 +56,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [ ] PX2.5 Speed and speed ramps via plan source pts
 - [ ] PX2.6 Range-read streaming demux for unproxied originals (desktop)
 - [ ] PX2.7 Colour matrix and range matching in the shader (from PX0.3)
+- [ ] PX2.9 Clip fit/crop placement uses the display-corrected size (PAR + rotation) in `frame_plan.py` `asset_sizes` and `frame-plan.ts`; anamorphic and rotated geometry rows added to the matrix (found in MK1.9)
 - [ ] PX2.8 Load shedding: resolution first, then presentation frames; never layers; "Preview reduced" indicator
 
 **DoD:** every PX4 matrix row passes on desktop.
@@ -83,8 +84,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] MK1.2 Migration v21→v22: first mask → stack, polygon → path, keyframes → source time via speed/ramp mapping, `gaussian-legacy`, extra masks disabled with a note, tracked masks preserved; round-trip tests
 - [x] MK1.3 Operations from `10` with apply+invert round trips; vertex insert/remove across keyframes; `paste_masks`; `add_text_behind_subject`
 - [x] MK1.4 Validator rules and remedy messages; `mask` effect type rejected in v22; layer-mask cycle detection
-- [ ] MK1.9 Probe records pixel aspect ratio and rotation metadata on `Asset.media` (optional fields, v22) so display-corrected source space is real for anamorphic and rotated phone footage (P5)
-- [~] MK1.8 (probe does not record PAR/rotation yet → MK1.9) Pre-migration backup file; newer-schema refusal in older apps; display-corrected source space (PAR + rotation) conversion helpers; compact path keyframe storage
+- [x] MK1.9 Probe records pixel aspect ratio and rotation metadata on `Asset.media` (optional fields, v22) so display-corrected source space is real for anamorphic and rotated phone footage (P5)
+- [x] MK1.8 Pre-migration backup file; newer-schema refusal in older apps; display-corrected source space (PAR + rotation) conversion helpers; compact path keyframe storage
 - [x] MK1.5 Fix `applySplit`/`truncateClip` for effect keyframes (the latent bug) with tests
 - [~] MK1.6 (`use_track` for text/overlay transforms lands with MK7.6) Re-specify `add_mask` / `track_object` / `apply_tracked_mask` on the new model; migrate `tracking-commands.ts`
 - [x] MK1.7 `pnpm schema:generate` + drift tests; ADR (mask stack replaces mask effects); docs/api
