@@ -690,7 +690,8 @@ def add_mask(args: AddMaskArgs, ctx: ToolContext) -> Operations:
         )
     asset = next((a for a in ctx.project.assets if a.id == clip.asset_id), None)
     media = asset.media if asset is not None else None
-    if media is None or not media.width or not media.height:
+    display = media.display_size() if media is not None else None
+    if display is None:
         raise ValueError(
             "Measure this media first: its picture size is unknown, and a mask is stored in "
             "source pixels."
@@ -701,7 +702,8 @@ def add_mask(args: AddMaskArgs, ctx: ToolContext) -> Operations:
     while mask_id in taken:
         mask_id = f"{clip.id}__mask_{counter}"
         counter += 1
-    width, height = float(media.width), float(media.height)
+    # Display-corrected (PAR and rotation applied), the space editor-core draws masks in.
+    width, height = display
     geometry: dict[str, Any] = (
         {"kind": "ellipse", "cx": width / 2, "cy": height / 2, "rx": width / 2, "ry": height / 2}
         if args.shape == "ellipse"

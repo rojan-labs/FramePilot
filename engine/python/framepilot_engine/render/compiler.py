@@ -570,16 +570,21 @@ def _apply_transition_blur(
     return source.transform(blurred, keep_duration=True)
 
 
-def _asset_media_size(project: Project, clip: Clip) -> tuple[int, int] | None:
-    """The clip asset's probed ``(width, height)``; masks are stored in source pixels (v22)."""
+def _asset_media_size(project: Project, clip: Clip) -> tuple[float, float] | None:
+    """The clip asset's display-corrected ``(width, height)`` masks are measured in (v22).
+
+    Pixel aspect ratio and rotation applied (``AssetMedia.display_size``), matching
+    ``editor-core`` ``assetDisplaySize``. The mask becomes fractions of this size and is
+    drawn over the decoded frame: MoviePy decodes a rotated stream already turned, and a
+    horizontal PAR stretch leaves a fraction of the width unchanged, so the fractions land
+    on the same picture points the editor drew them on.
+    """
     asset = next((a for a in project.assets if a.id == clip.asset_id), None)
     media = asset.media if asset is not None else None
-    if media is None or not media.width or not media.height:
-        return None
-    return (media.width, media.height)
+    return media.display_size() if media is not None else None
 
 
-def _clip_mask_stacks(clip: Clip, media_size: tuple[int, int] | None) -> ClipMaskStacks | None:
+def _clip_mask_stacks(clip: Clip, media_size: tuple[float, float] | None) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
         return clip_mask_stacks(clip, media_size)
@@ -610,7 +615,7 @@ def _attach_mask(
     source: VideoClip,
     clip: Clip,
     transition: transitions.Transition | None,
-    media_size: tuple[int, int] | None = None,
+    media_size: tuple[float, float] | None = None,
     stacks: ClipMaskStacks | None = None,
 ) -> VideoClip:
     width, height = source.size

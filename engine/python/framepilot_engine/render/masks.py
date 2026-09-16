@@ -186,7 +186,7 @@ def mask_scalar_at(mask: Any, property_name: str, source_time: float) -> float |
 
 
 def mask_frame_box(
-    mask: Any, media_size: tuple[int, int] | None, source_time: float
+    mask: Any, media_size: tuple[float, float] | None, source_time: float
 ) -> tuple[float, float, float, float] | None:
     """A rectangle/ellipse mask's ``(x, y, width, height)`` as fractions of the source picture.
 

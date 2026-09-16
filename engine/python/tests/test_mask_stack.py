@@ -18,7 +18,7 @@ from framepilot_engine.render.mask_stack import (
     path_keyframe_at,
     stack_alpha,
 )
-from framepilot_engine.timeline.models import Clip
+from framepilot_engine.timeline.models import AssetMedia, Clip
 
 _SIZE = (64, 48)
 
@@ -249,3 +249,31 @@ def test_mix_by_alpha_keeps_the_input_outside_the_mask() -> None:
     mixed = mix_by_alpha(original, effected, alpha)
     assert mixed.dtype == np.uint8
     assert mixed[:, :, 0].tolist() == [[100, 200], [150, 125]]
+
+
+@pytest.mark.parametrize(
+    ("media", "decoded"),
+    [
+        # Portrait phone clip: coded 96x54 with a -90 display matrix. MoviePy decodes it
+        # already turned, 54 wide and 96 tall.
+        (AssetMedia(width=96, height=54, rotation=90), (54, 96)),
+        # Anamorphic: coded 72x54 at PAR 4:3 displays 96x54; the decoded frame stays coded.
+        (AssetMedia(width=72, height=54, pixelAspectRatio=4 / 3), (72, 54)),
+    ],
+)
+def test_display_corrected_mask_lands_on_the_same_picture_half_of_the_decoded_frame(
+    media: AssetMedia, decoded: tuple[int, int]
+) -> None:
+    """A mask drawn over the LEFT HALF of the display-corrected picture (MK1.9) cuts the left
+    half of the frame the export decodes, for both rotated and anamorphic sources."""
+    display = media.display_size()
+    assert display is not None
+    display_w, display_h = display
+    left_half = _rect(cx=display_w / 4, cy=display_h / 2, width=display_w / 2, height=display_h)
+    stacks = clip_mask_stacks(_clip(left_half), display)
+    assert stacks is not None
+    width, height = decoded
+    alpha = stacks.alpha_at(0.0, width, height)
+    assert alpha is not None and alpha.shape == (height, width)
+    assert np.all(alpha[:, : width // 2 - 1] > 0.99)
+    assert np.all(alpha[:, width // 2 + 1 :] < 0.01)

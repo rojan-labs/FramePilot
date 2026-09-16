@@ -1235,6 +1235,24 @@ def test_add_mask(ctx: ToolContext, project: Project) -> None:
     ]
 
 
+def test_add_mask_measures_a_rotated_anamorphic_asset_in_display_pixels(
+    ctx: ToolContext, project: Project
+) -> None:
+    """Coded 1440x1080 at PAR 4:3 turned a quarter turn displays 1080x1920 (MK1.9)."""
+    project.assets = [
+        Asset(
+            id="asset_001",
+            path="media/a.mov",
+            kind="video",
+            media={"width": 1440, "height": 1080, "pixelAspectRatio": 4 / 3, "rotation": 90},
+        )
+    ]
+    result = run_tool("add_mask", {"clipId": "A", "shape": "rectangle"}, ctx)
+    _assert_patch_ok(result, project)
+    mask = result.operations[0]["mask"]
+    assert (mask["cx"], mask["cy"], mask["width"], mask["height"]) == (540, 960, 1080, 1920)
+
+
 def test_add_mask_refuses_unmeasured_media_instead_of_guessing_a_size(ctx: ToolContext) -> None:
     with pytest.raises(ToolSemanticError, match="Measure this media first"):
         run_tool("add_mask", {"clipId": "A", "shape": "rectangle"}, ctx)

@@ -474,7 +474,7 @@ def _mask_motion_samples(
     clip, mask = _find_mask(project, request.target_id)
     asset = next((a for a in project.assets if a.id == clip.asset_id), None)
     media = asset.media if asset is not None else None
-    size = (media.width, media.height) if media and media.width and media.height else None
+    size = media.display_size() if media is not None else None
     clock = clip_source_clock(clip)
     samples: list[MotionSample] = []
     for frame_index in range(request.start_frame, request.end_frame):

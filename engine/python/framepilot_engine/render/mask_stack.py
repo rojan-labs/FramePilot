@@ -95,7 +95,7 @@ class RasterFrame:
 
 
 def raster_frame(
-    mask: Any, clip: Any, media_size: tuple[int, int] | None, width: int, height: int
+    mask: Any, clip: Any, media_size: tuple[float, float] | None, width: int, height: int
 ) -> RasterFrame:
     """The mapping from a mask's stored units to the clip's cropped frame, ``width`` by ``height``.
 
@@ -253,7 +253,9 @@ def _recover_fraction(estimate: float, forward: Callable[[float], float], stored
     return min(exact, key=lambda value: (len(repr(value)), abs(value - estimate)))
 
 
-def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: float) -> MaskSpec:
+def _legacy_spec(
+    mask: Any, clip: Any, media_size: tuple[float, float] | None, s: float
+) -> MaskSpec:
     """The v21 :class:`MaskSpec` (cropped-frame fractions) this legacy mask is, at source ``s``.
 
     It inverts ``packages/timeline-schema/src/mask-migration.ts`` expression for expression.
@@ -338,7 +340,7 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
 def mask_alpha(
     mask: Any,
     clip: Any,
-    media_size: tuple[int, int] | None,
+    media_size: tuple[float, float] | None,
     width: int,
     height: int,
     source_time: float,
@@ -373,7 +375,7 @@ def mask_alpha(
 def stack_alpha(
     masks: Sequence[Any],
     clip: Any,
-    media_size: tuple[int, int] | None,
+    media_size: tuple[float, float] | None,
     width: int,
     height: int,
     source_time: float,
@@ -458,7 +460,7 @@ class ClipMaskStacks:
     """A clip's enabled shape masks, split by target, ready to evaluate per frame."""
 
     clip: Any
-    media_size: tuple[int, int] | None
+    media_size: tuple[float, float] | None
     alpha: tuple[Any, ...]
     by_effect: dict[str, tuple[Any, ...]]
     clock: Callable[[float], float]
@@ -486,11 +488,12 @@ class ClipMaskStacks:
         return stack_alpha(masks, self.clip, self.media_size, width, height, self.clock(t))
 
 
-def clip_mask_stacks(clip: Any, media_size: tuple[int, int] | None) -> ClipMaskStacks | None:
+def clip_mask_stacks(clip: Any, media_size: tuple[float, float] | None) -> ClipMaskStacks | None:
     """A clip's enabled mask stacks, refused up front if export cannot draw one faithfully.
 
     :param clip: The clip (a :class:`~framepilot_engine.timeline.models.Clip`).
-    :param media_size: The asset's probed ``(width, height)``, or ``None`` when unmeasured.
+    :param media_size: The asset's display-corrected ``(width, height)`` (PAR and rotation
+        applied), or ``None`` when unmeasured.
     :raises MaskStackRefusal: When a mask needs a renderer that has not shipped.
     """
     enabled = [mask for mask in (getattr(clip, "masks", None) or []) if mask.enabled]
