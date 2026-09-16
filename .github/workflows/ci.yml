@@ -226,7 +226,8 @@ jobs:
     name: Preview/export parity oracle (PX4)
     runs-on: ubuntu-latest
     timeout-minutes: 120
-    needs: [node-quality]
+    # Independent of node-quality on purpose: the oracle's evidence (the baseline) must not
+    # wait on an unrelated unit-test failure elsewhere on the branch.
     steps:
       - uses: actions/checkout@v7
         with:
