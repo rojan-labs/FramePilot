@@ -8,6 +8,17 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **One description of an exported frame, shared by the export and (next) the preview.** The render
+  engine's per-frame decisions (which layers, in what order, which source frame, where, how
+  opaque, which transition) now live in `render/frame_plan.py`, and the export compiler uses them
+  instead of its own copy; renders are unchanged. `framePlanAt` in `@framepilot/editor-core` is
+  its TypeScript twin, held to the engine's answers by parity vectors in
+  `tests/fixtures/frame-plan` (regenerate with `pnpm frame-plan:vectors`). An inventory of what
+  today's program monitor draws for each case (`plan/background-removal-ai/PX0-INVENTORY.md`)
+  found that any text overlay sends the desktop monitor to the one-clip fallback player, and that
+  speed-ramped clips are admitted to the canvas without following the ramp. Internal groundwork
+  for preview/export parity (PX0/PX1); no user-visible change yet.
+
 - **The assistant's self-check no longer fills the sidebar.** After an edit, the check's verdict
   and every note it raised used to stack up as separate cards under the reply. They now sit in one
   "Self-check" row that shows the verdict and how many notes it has; open it to read them. The row
