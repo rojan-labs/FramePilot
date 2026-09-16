@@ -113,6 +113,29 @@ from framepilot_engine.render.color import (
     parse_cube_lut,
 )
 from framepilot_engine.render.frame_effects import apply_effect_layers
+from framepilot_engine.render.frame_plan import (
+    back_to_front,
+    caption_tracks,
+    clips_in_sequence,
+    first_mask_effect,
+    fit_scale,
+    layer_opacity_at,
+    layer_position_at,
+    layer_scale_at,
+    legacy_transition,
+    live_catalog_transitions,
+    picture_effects,
+    text_overlay_text,
+    transition_underlays,
+    underlay_material,
+    uses_legacy_transition_path,
+)
+from framepilot_engine.render.frame_plan import (
+    clip_kind as clip_kind,
+)
+from framepilot_engine.render.frame_plan import (
+    transition_underlay_window as transition_underlay_window,
+)
 from framepilot_engine.render.masks import (
     has_mask_keyframes,
     mask_spec_at,
@@ -137,20 +160,6 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 
 _RENDERABLE = {TrackType.VIDEO, TrackType.AUDIO}
 _PICTURE_KINDS = frozenset({"video", "image"})
-
-
-def clip_kind(clip: Clip, asset_kinds: Mapping[str, str | None]) -> str:
-    """Derive a clip's renderable kind from its asset (or synthetic id)."""
-    if clip.asset_id == "__text__":
-        return "text"
-    if clip.asset_id == "__caption__":
-        return "caption"
-    kind = asset_kinds.get(clip.asset_id)
-    if kind == "audio":
-        return "audio"
-    if kind == "image":
-        return "image"
-    return "video"
 
 
 def _asset_kinds_from_project(project: Project) -> dict[str, str | None]:
@@ -408,11 +417,10 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
     it had, and render fifteen static ones. An operation that lands in the timeline and
     renders as nothing is the "never fake success" invariant broken from the far end.
     """
-    text_effect = next((e for e in clip.effects if e.type == "text"), None)
-    text = str(text_effect.params.get("text", "")) if text_effect is not None else ""
-    if not text.strip():
+    content = text_overlay_text(clip)
+    if content is None:
         return None
-    style_params = text_effect.params if text_effect is not None else {}
+    text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
     image = render_text_overlay_image(
         text,
@@ -454,7 +462,7 @@ def _place_video_clip(
     """
     target_w, target_h = target
     clip_w, clip_h = source.size
-    base_scale: float = float(min(target_w / clip_w, target_h / clip_h)) if fit_to_frame else 1.0
+    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=fit_to_frame)
     centre_x, centre_y = centre if centre is not None else (target_w / 2, target_h / 2)
     geo_transition = transition is not None and transitions.affects_geometry(transition)
     if not has_rendered_transform(clip) and not geo_transition:
@@ -465,28 +473,15 @@ def _place_video_clip(
         height = clip_h * base_scale
         return placed.with_position((centre_x - width / 2, centre_y - height / 2))
 
-    def effective_scale(t: float) -> float:
-        scale = evaluate_clip_transform(clip, t).scale
-        if transition is not None and geo_transition:
-            scale *= transitions.scale_at(transition, t)
-        return scale
-
+    # The arithmetic lives in `frame_plan` so the plan the preview is tested against and the
+    # export are one computation, not two that agree today.
     def scale_at(t: float) -> float:
-        return base_scale * effective_scale(t)
+        return base_scale * layer_scale_at(clip, t, transition)
 
     def position_at(t: float) -> tuple[float, float]:
-        transform = evaluate_clip_transform(clip, t)
-        scale = base_scale * effective_scale(t)
-        width = clip_w * scale
-        height = clip_h * scale
-        dx, dy = (
-            transitions.offset_at(transition, t, target_w, target_h)
-            if transition is not None and geo_transition
-            else (0.0, 0.0)
+        return layer_position_at(
+            clip, t, (clip_w, clip_h), base_scale, target, (centre_x, centre_y), transition
         )
-        pos_x = centre_x - width / 2 + transform.x + dx
-        pos_y = centre_y - height / 2 + transform.y + dy
-        return (pos_x, pos_y)
 
     placed = source.resized(scale_at)
     if ROTATION in animated_properties(clip):
@@ -494,85 +489,9 @@ def _place_video_clip(
     return placed.with_position(position_at)
 
 
-#: How close two clips must sit to count as one cut. A frame at 240fps is ~4ms, so this is
-#: below any real edit boundary while still absorbing float noise.
-#:
-#: What it absorbs, precisely (ADR 0146). Edit points authored from now on ARE quantized —
-#: ``packages/editor-core/src/frame-grid.ts`` snaps them when the patch is committed, and
-#: ``frame_grid.py`` mirrors that rule so this side can assert it rather than invent a
-#: second one. Two things still land a hair off an exact frame boundary and both are real:
-#: a project authored BEFORE that ADR keeps its times until an edit touches them, and a
-#: frame at a rational rate (1/24, 1001/30000) has no exact binary representation, so
-#: arithmetic over it drifts by units in the last place. This tolerance covers both. It is
-#: not a substitute for the grid, and it no longer stands in for the absence of one.
-_CUT_ADJACENCY_TOLERANCE = 1e-3
-
-#: How much of a neighbour's handle a transition under-layer may borrow, as a multiple of
-#: the ramp itself. Slightly over 1 so a rounding error at the tail cannot leave the last
-#: frame of the ramp uncovered.
-_UNDERLAY_HANDLE_SLACK = 1.05
-
-
-def transition_underlay_window(
-    clip: Clip, neighbour: Clip, role: str
-) -> tuple[float, float] | None:
-    """The sequence span a transition on ``clip`` needs picture underneath it.
-
-    A transition is stamped on butt-joined clips as an effect, not as an overlap: the
-    incoming clip animates in over its own first ``in_seconds``, by which time the outgoing
-    clip has already ended. Nothing is beneath it, so the reveal composites against the
-    black background — a "cross dissolve" dissolves up from black, and a whip pan whips in
-    over black. Both were reported by the perceptual reviewer as "unexpected black frames"
-    at every cut, and no proposal the agent could make would fix them, because the fault is
-    here.
-
-    :param clip: The clip carrying the transition effect.
-    :param neighbour: The clip on the other side of the cut.
-    :param role: ``"in"`` (ramp after the cut, on the incoming clip) or ``"out"``.
-    :returns: ``(start, end)`` in sequence seconds, or ``None`` when the two clips are not
-        actually adjacent (a transition on a non-cut renders nothing and needs no underlay).
-    """
-    transition = transitions.resolve_from_clip(clip, role)
-    if transition is None or transition.is_cut or transition.duration <= 0.0:
-        return None
-    in_seconds, out_seconds = transitions.transition_window(
-        transition.alignment, transition.duration
-    )
-    span = in_seconds if role == "in" else out_seconds
-    if span <= 0.0:
-        return None
-    if role == "in":
-        # The outgoing clip must end where this one begins, or there is no cut here.
-        if abs(neighbour.end - clip.start) > _CUT_ADJACENCY_TOLERANCE:
-            return None
-        return (clip.start, min(clip.end, clip.start + span))
-    if abs(clip.end - neighbour.start) > _CUT_ADJACENCY_TOLERANCE:
-        return None
-    return (max(clip.start, clip.end - span), clip.end)
-
-
-def _transition_neighbour(
-    clip: Clip,
-    role: str,
-    adjacent: Clip | None,
-    by_id: Mapping[str, Clip],
-) -> Clip | None:
-    """The clip a transition on ``clip`` is transitioning with, or ``None``.
-
-    The effect names its counterpart (``fromClipId`` on the incoming half, ``toClipId`` on
-    the outgoing one), and that name is authoritative — it is what the operation validated
-    against. Sequence adjacency is only the fallback for a hand-written project whose params
-    omit it.
-    """
-    wanted = "transition" if role == "in" else transitions.TRANSITION_OUT_EFFECT_TYPE
-    effect = next((entry for entry in clip.effects if entry.type == wanted), None)
-    if effect is None:
-        return None
-    key = "fromClipId" if role == "in" else "toClipId"
-    named = effect.params.get(key)
-    if isinstance(named, str) and named in by_id:
-        return by_id[named]
-    return adjacent
+# The cut-adjacency tolerance, under-layer windows, neighbour lookup and handle slack live
+# in `frame_plan` (see `transition_underlays` / `underlay_material`), which the compile loop
+# below consumes, so the frame plan and the export cannot place an under-layer differently.
 
 
 def _underlay_layer(
@@ -602,38 +521,21 @@ def _underlay_layer(
     :param opened: The compiler's resource ledger; everything opened here is appended so a
         failed compile still closes it.
     """
-    start, end = window
-    span = end - start
+    start, _end = window
     reader = _open_source_reader(video_file_clip_cls, path, max_decode_dimension)
     opened.append(reader)
-    source_duration = float(reader.duration)
-    borrow = span * _UNDERLAY_HANDLE_SLACK
-    if role == "in":
-        # Continue past the out-point, if the asset has anything left there. An absent
-        # `source_end` means the clip plays to the END of its asset, so there is no handle at
-        # all — reading it as 0.0 would put the asset's OPENING under the cut, which is the
-        # right shot at emphatically the wrong moment.
-        handle_start = (
-            float(neighbour.source_end) if neighbour.source_end is not None else source_duration
-        )
-        available = max(0.0, source_duration - handle_start)
-        edge_time = max(0.0, min(handle_start, source_duration - _CUT_ADJACENCY_TOLERANCE))
-    else:
-        # Roll back before the in-point, if there is anything before it.
-        handle_start = max(0.0, float(neighbour.source_start) - borrow)
-        available = float(neighbour.source_start) - handle_start
-        edge_time = max(
-            0.0,
-            min(float(neighbour.source_start), source_duration - _CUT_ADJACENCY_TOLERANCE),
-        )
+    # Which handle (past the out-point for "in", before the in-point for "out") and whether
+    # any is left is decided in `frame_plan.underlay_material`, the same call the plan makes.
+    plan = underlay_material(neighbour, role, window, float(reader.duration))
+    span = plan.span
 
-    if available >= span:
-        material = reader.subclipped(handle_start, handle_start + span)
+    if plan.mode == "subclip":
+        material = reader.subclipped(plan.handle_start, plan.handle_start + span)
     else:
         # No handle left (the neighbour is cut to the very edge of its asset). Hold its edge
         # frame rather than reveal black: a held frame under a fast ramp reads as continuous;
         # black reads as a flash, which is the defect this exists to remove.
-        held = image_clip_cls(reader.get_frame(edge_time)).with_duration(span)
+        held = image_clip_cls(reader.get_frame(plan.edge_time)).with_duration(span)
         opened.append(held)
         material = held
 
@@ -672,7 +574,7 @@ def _attach_mask(
     source: VideoClip, clip: Clip, transition: transitions.Transition | None
 ) -> VideoClip:
     width, height = source.size
-    mask_effect = next((e for e in clip.effects if e.type == "mask"), None)
+    mask_effect = first_mask_effect(clip)
     geometry_animated = mask_effect is not None and has_mask_keyframes(mask_effect)
     opacity_animated = OPACITY in animated_properties(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
@@ -689,11 +591,7 @@ def _attach_mask(
         return source
 
     def opacity_at(t: float) -> float:
-        opacity = evaluate_clip_transform(clip, t).opacity
-        if fade_transition:
-            assert transition is not None
-            opacity *= transitions.opacity_at(transition, t)
-        return opacity
+        return layer_opacity_at(clip, t, transition)
 
     if wipe_transition:
         assert transition is not None
@@ -737,22 +635,11 @@ def _attach_mask(
     return source.with_mask(mask)
 
 
-def _uses_legacy_transition_path(clip: Clip) -> bool:
-    effect = next((e for e in clip.effects if e.type == "transition"), None)
-    if effect is None or effect.params.get("disabled") is True:
-        return False
-    kind = str(effect.params.get("kind", ""))
-    return transitions.is_legacy_kind(kind) and transitions.read_alignment(effect.params) == "start"
+_uses_legacy_transition_path = uses_legacy_transition_path
 
 
 def _apply_catalog_transition(source: VideoClip, clip: Clip, use_legacy: bool) -> VideoClip:
-    incoming = None if use_legacy else transitions.resolve_from_clip(clip, "in")
-    outgoing = transitions.resolve_from_clip(clip, "out")
-    live = [
-        (role, tr)
-        for role, tr in (("out", outgoing), ("in", incoming))
-        if tr is not None and not tr.is_cut and tr.duration > 0.0
-    ]
+    live = live_catalog_transitions(clip, use_legacy)
     if not live:
         return source
 
@@ -828,15 +715,16 @@ def _load_lut(path: Path, clip_id: str) -> CubeLut:
 
 
 def _apply_color_grade(source: VideoClip, clip: Clip, lut_base_dir: Path) -> VideoClip:
-    grade_effect = next((e for e in clip.effects if e.type == "color_grade"), None)
-    if grade_effect is not None:
-        grade = color_grade_from_params(grade_effect.params)
-        if not grade.is_identity:
-            source = source.image_transform(lambda frame: apply_color_grade(frame, grade))
-    lut_effect = next((e for e in clip.effects if e.type == "lut"), None)
-    if lut_effect is not None:
-        lut = _load_lut(_resolve_lut_path(lut_effect.params, lut_base_dir, clip.id), clip.id)
-        source = source.image_transform(lambda frame: apply_lut(frame, lut))
+    for effect in picture_effects(clip):
+        if effect.type == "color_grade":
+            grade = color_grade_from_params(effect.params)
+            if not grade.is_identity:
+                source = source.image_transform(
+                    lambda frame, grade=grade: apply_color_grade(frame, grade)
+                )
+        else:
+            lut = _load_lut(_resolve_lut_path(effect.params, lut_base_dir, clip.id), clip.id)
+            source = source.image_transform(lambda frame, lut=lut: apply_lut(frame, lut))
     return source
 
 
@@ -1043,8 +931,7 @@ def compile_timeline(
             track_pictures: list[tuple[Any, str | None]] = []
             # Clips in sequence order, so a transition can find the shot on the other side of
             # its cut and borrow that shot's material for the ramp (see `_underlay_layer`).
-            ordered = sorted(track.clips, key=lambda entry: entry.start)
-            by_id = {entry.id: entry for entry in ordered}
+            ordered = clips_in_sequence(track)
             for position, clip in enumerate(ordered):
                 _prepared_one()
                 kind = clip_kind(clip, asset_kinds)
@@ -1087,8 +974,8 @@ def compile_timeline(
                             audio_layers.append(footage.with_start(clip.start))
                         source = source.without_audio()
                         source = _apply_color_grade(source, clip, lut_base_dir)
-                        use_legacy = _uses_legacy_transition_path(clip)
-                        transition = transitions.transition_from_clip(clip) if use_legacy else None
+                        use_legacy = uses_legacy_transition_path(clip)
+                        transition = legacy_transition(clip)
                         source = _apply_transition_blur(source, transition)
                         source = _attach_mask(source, clip, transition)
                         source = _apply_catalog_transition(source, clip, use_legacy)
@@ -1098,24 +985,14 @@ def compile_timeline(
                         # neighbour's handle is placed beneath the ramp before the clip itself
                         # goes on top. Appended in this order because a later entry in the
                         # list composites above an earlier one.
-                        for role, neighbour in (
-                            ("in", ordered[position - 1] if position > 0 else None),
-                            ("out", ordered[position + 1] if position + 1 < len(ordered) else None),
-                        ):
-                            resolved_neighbour = _transition_neighbour(clip, role, neighbour, by_id)
-                            if resolved_neighbour is None:
-                                continue
-                            if clip_kind(resolved_neighbour, asset_kinds) != "video":
-                                continue
-                            window = transition_underlay_window(clip, resolved_neighbour, role)
-                            if window is None:
-                                continue
+                        for planned in transition_underlays(clip, position, ordered, asset_kinds):
+                            resolved_neighbour = planned.neighbour
                             underlay = _underlay_layer(
                                 VideoFileClip,
                                 ImageClip,
                                 resolved_neighbour,
-                                role,
-                                window,
+                                planned.role,
+                                planned.window,
                                 _resolve_clip_asset(resolved_neighbour, asset_index),
                                 target,
                                 lut_base_dir,
@@ -1144,7 +1021,7 @@ def compile_timeline(
             picture_by_track.append(track_pictures)
 
         video_layers: list[tuple[Any, str | None]] = []
-        for track_pictures in reversed(picture_by_track):
+        for track_pictures in back_to_front(picture_by_track):
             video_layers.extend(track_pictures)
 
         if not video_layers and audio_layers:
@@ -1272,9 +1149,7 @@ def _caption_layers(project: Project, target: tuple[int, int]) -> list[tuple[Any
     target_w, target_h = target
     margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
     layers: list[tuple[Any, str | None]] = []
-    for track in project.timeline.tracks:
-        if track.type != TrackType.CAPTION or track.hidden:
-            continue
+    for track in caption_tracks(project):
         for clip in track.clips:
             cue = resolve_caption_cue(clip, project.transcript)
             if not cue.text.strip():
