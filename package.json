@@ -48,6 +48,7 @@
     "engine:lint": "cd engine/python && uv run ruff check .",
     "engine:typecheck": "cd engine/python && uv run mypy .",
     "frame-plan:vectors": "cd engine/python && uv run python -m tests.frame_plan_vectors",
+    "mask-raster:vectors": "cd engine/python && uv run python -m tests.mask_raster_vectors",
     "px4:frames": "cd engine/python && uv run python -m tests.px4_parity_frames",
     "license:scan": "node scripts/license-scan.mjs",
     "release:check-feed": "node scripts/verify-update-feed.mjs",
