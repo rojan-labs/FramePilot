@@ -110,8 +110,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ### MK4 — Canvas tools + mask panel `[ ]`
 
-- [ ] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
-- [ ] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation
+- [ ] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), Shift-constrained 45° pen segments (RD0), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
+- [ ] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation, "Apply to all keyframes" edit mode (RD0)
 - [ ] MK4.3 Keyframe lane integration on the timeline; copy/paste masks; presets
 - [ ] MK4.4 Delete `addMaskPatch` hardcoded bounds and `MaskPackActions`; UI builds ops through editor-core commands
 - [ ] MK4.5 Component tests; Playwright flows for draw → animate → undo; a11y (keyboard drawing path)
@@ -229,7 +229,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [ ] BR6.1 `BackgroundRemovalRow` + `usePackStatus`: warning with disabled tools when Smart Mask is missing; install; refresh without restart
 - [ ] BR6.2 PACK_UNHEALTHY / UNSUPPORTED_PLATFORM / browser UNAVAILABLE for every pack-backed tool
-- [ ] BR6.3 AI Object (click include/exclude, auto main subject) and AI Brush in `MaskCanvasTools`
+- [ ] BR6.3 AI Object (click include/exclude, auto main subject, Sharp/Smooth edge mode per RD0) and AI Brush in `MaskCanvasTools`
 - [ ] BR6.4 Running progress with phases and rounds, ETA, cancel, selection-change survival
 - [ ] BR6.5 `MaskReviewPanel` (shared with tracking): review list, Looks right, J/K, Keep/Remove/Edge brush, Apply fix, Lock, VERIFIED badge
 - [ ] BR6.6 Put text behind subject; export-dialog unchecked-moments notice; STALE/BROKEN remedy text shared with export validation
@@ -299,9 +299,9 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## RD — Release readiness ([`12`](./12-PARITY-AND-PRODUCTION-AUDIT.md))
 
-### RD0 — Parity re-check `[ ]`
+### RD0 — Parity re-check `[x]`
 
-- [ ] RD0.1 Re-verify the Premiere Pro / DaVinci Resolve / CapCut table in `12` against current releases; add or defer any new gap with a reason
+- [x] RD0.1 Re-verify the Premiere Pro / DaVinci Resolve / CapCut table in `12` against current releases; add or defer any new gap with a reason — done 2026-09-16, `12` §E (edge mode, constrained pen, apply-to-all-keyframes added)
 
 ### RD1 — Release infrastructure (start now; the blocker) `[ ]`
 

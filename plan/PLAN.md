@@ -10043,7 +10043,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [ ] BR2–BR7 — matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
 - [ ] AM1–AM5 — masking tools, target resolution, verification, surfaces/skill, eval gates
 - [ ] MK8–MK9 — split/mirror/gradient/track matte/presets; adjustment-lane masks; edge styles
-- [ ] RD0 — re-verify competitor parity table
+- [x] RD0 — re-verify competitor parity table (2026-09-16, `12` §E: no new blocker; three small additions folded into MK1/MK4/BR6)
 - [ ] RD1 — release infrastructure: signing identities, catalog keys, CDN, CI pack builds, staged rollout (start now)
 - [ ] RD2 — feature flags, telemetry, consent legal review, closed beta
 - [ ] E2E.1–E2E.8 + DOC.1 — desktop end-to-end flows incl. resume, relink and cross-platform archives; docs

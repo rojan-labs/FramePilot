@@ -124,3 +124,34 @@ from current sources; details and rejection reasons are in [`02`](./02-WORKER-PA
 Sources checked: facebookresearch/sam3 LICENSE and README; Meta's SAM 3.1 announcement; the
 ZhengPeng7/BiRefNet_HR-matting model card; the MatAnyone2 repository licence; microsoft/DirectML README;
 onnxruntime Windows docs; a community SAM 2.1 video ONNX export with published parity.
+
+## E. RD0 re-check against current releases (2026-09-16)
+
+Checked against Premiere 26.0–26.3 (June 2026), DaVinci Resolve 20.1–21.0 (June 2026) and CapCut desktop
+public docs as of September 2026. Every new masking-relevant item is either already in the plan or added
+here with its task.
+
+| Release item                                                                                         | Product           | Plan                                                                                                                                 |
+| ---------------------------------------------------------------------------------------------------- | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| Object Mask is the default mask tool; one click selects and tracks a person or object                | Premiere 26.0     | ✓ AI Object + hover highlight (BR6.3, BR6.8)                                                                                         |
+| Object Mask **edge quality: Sharp vs Smooth**                                                        | Premiere 26.0     | **+** `edgeMode: 'sharp' \| 'smooth'` preset on `matte` masks, mapped onto `finesse` (MK1.1 field, BR6.3 control)                    |
+| Rounded-corner rectangles, constrained straight pen lines, numeric + visual editing                  | Premiere 26.0     | ✓ `roundness`, typed px input; **+** Shift-constrained 45° pen segments (MK4.1)                                                      |
+| **Mask edit mode "Clip" vs keyframe**: change feather/expansion once for every keyframe of the clip  | Premiere 26.0     | **+** "Apply to all keyframes" edit mode in the mask panel; scalar edits write one `update_mask` over every keyframe (MK4.2)          |
+| Faster mask tracking; **Restore Mask Data** after moving a project                                   | Premiere 26.3     | ✓ project-owned mattes/tracks with relative paths and archive (MD-4, P14, E2E.7); missing data → BROKEN with remedy, never silent     |
+| Beta segmentation model selecting small scene elements and background objects in one click          | Premiere 26.3 β   | ✓ SAM 2.1 point/box prompts cover parts and background objects; semantic part masks stay D                                           |
+| Magic Mask v2: one brush-stroke workflow for faces, bodies and objects; available in Fusion          | Resolve 20.1      | ✓ AI Brush (BR6.3)                                                                                                                   |
+| Magic Mask **Render in Place**: external matte linked back to the source, survives cache clearing    | Resolve 21.0      | ✓ baked, digest-pinned project-owned matte artifacts (MD-4)                                                                          |
+| Eight layers in Color page node stacks                                                               | Resolve 21.0      | ✓ unlimited mask stack per clip and per adjustment lane                                                                              |
+| AI beauty and depth effects                                                                          | Resolve 21.0      | D — depth maps and beauty retouch are their own domains (`08`)                                                                       |
+| Auto background removal (people, products, pets), Customize brush with stroke size, chroma key       | CapCut desktop    | ✓ remove background, Keep/Remove/Edge brush, `key` kind                                                                              |
+| Transparent (alpha) output                                                                           | CapCut            | D — export with alpha stays deferred (`08`)                                                                                          |
+
+Result: no new blocker. Three small additions (edge mode, constrained pen segments, "apply to all
+keyframes") are folded into MK1.1/MK4.1/MK4.2/BR6.3 above; the parity claim may cite this table.
+
+Sources: [Adobe: what's new in Premiere desktop](https://helpx.adobe.com/premiere-pro/using/whats-new.html),
+[Adobe community: Premiere 26.3](https://community.adobe.com/announcements-727/what-s-new-in-adobe-premiere-26-3-june-2026-1628369),
+[ProVideo Coalition: 2026 mask tool changes](https://www.provideocoalition.com/tool-tip-tuesday-for-adobe-premiere-pro-2026-mask-tool-changes-to-know/),
+[CG Channel: DaVinci Resolve 21.0](https://www.cgchannel.com/2026/06/blackmagic-design-releases-davinci-resolve-21-0/),
+[Digital Production: Resolve 20.1 Magic Mask V2](https://digitalproduction.com/2025/08/07/davinci-resolve-20-1-apple-vision-pro-magic-mask-v2-and-a-few-more-reasons-to-backup/),
+[CapCut: video background remover](https://www.capcut.com/tools/video-background-remover).
