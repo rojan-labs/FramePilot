@@ -395,3 +395,54 @@ void main() {
   o_color = vec4(texel.rgb, floor(clamp(alpha, 0.0, 1.0) * 255.0 + 1e-4) / 255.0);
 }
 `;
+
+/**
+ * Pillow `Image.rotate(angle, BICUBIC, expand=False)` through `ImagingGenericTransform`:
+ * the inverse affine map at pixel centres, Pillow's own cubic (`BICUBIC` macro), edge-clamped
+ * taps, zero outside the source, truncated to 8 bits. Every channel, alpha included (MoviePy
+ * rotates the mask the same way).
+ */
+export const ROTATE_FRAGMENT = `${HEADER}
+uniform sampler2D u_source;
+uniform vec3 u_rowX;
+uniform vec3 u_rowY;
+out vec4 o_color;
+vec4 cubic(vec4 v1, vec4 v2, vec4 v3, vec4 v4, float d) {
+  vec4 p1 = v2;
+  vec4 p2 = -v1 + v3;
+  vec4 p3 = 2.0 * (v1 - v2) + v3 - v4;
+  vec4 p4 = -v1 + v2 - v3 + v4;
+  return p1 + d * (p2 + d * (p3 + d * p4));
+}
+vec4 px(int x, int y, ivec2 size) {
+  return floor(texelFetch(u_source, ivec2(clamp(x, 0, size.x - 1), y), 0) * 255.0 + 0.5);
+}
+vec4 row(int y, int x, float dx, ivec2 size) {
+  return cubic(px(x, y, size), px(x + 1, y, size), px(x + 2, y, size), px(x + 3, y, size), dx);
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_source, 0);
+  vec3 c = vec3(float(p.x) + 0.5, float(p.y) + 0.5, 1.0);
+  float xin = dot(u_rowX, c);
+  float yin = dot(u_rowY, c);
+  if (xin < 0.0 || xin >= float(size.x) || yin < 0.0 || yin >= float(size.y)) {
+    o_color = vec4(0.0);
+    return;
+  }
+  xin -= 0.5;
+  yin -= 0.5;
+  int x = int(floor(xin));
+  int y = int(floor(yin));
+  float dx = xin - float(x);
+  float dy = yin - float(y);
+  x -= 1;
+  y -= 1;
+  vec4 v1 = row(clamp(y, 0, size.y - 1), x, dx, size);
+  vec4 v2 = (y + 1 >= 0 && y + 1 < size.y) ? row(y + 1, x, dx, size) : v1;
+  vec4 v3 = (y + 2 >= 0 && y + 2 < size.y) ? row(y + 2, x, dx, size) : v2;
+  vec4 v4 = (y + 3 >= 0 && y + 3 < size.y) ? row(y + 3, x, dx, size) : v3;
+  vec4 v = cubic(v1, v2, v3, v4, dy);
+  o_color = clamp(floor(v), 0.0, 255.0) / 255.0;
+}
+`;

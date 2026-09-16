@@ -207,3 +207,38 @@ export function pilAlphaComposite(
     shiftForDiv255(outA255 + 0x80),
   ];
 }
+
+/** Python's `round(x, 15)` for the matrix entries Pillow rounds. */
+const round15 = (value: number): number => Number(value.toFixed(15));
+
+/**
+ * The inverse affine matrix `Image.rotate(degrees, expand=False)` samples with, or `null` when
+ * Pillow returns the image unchanged (a multiple of 360°).
+ *
+ * MoviePy's `Rotate` reduces the angle modulo 360 first. Right angles on a non-square image and
+ * 180° take Pillow's transpose shortcut, which the affine map with `round(cos, 15)` reproduces
+ * exactly at pixel centres.
+ */
+export function pilRotationMatrix(
+  degrees: number,
+  width: number,
+  height: number,
+): [number, number, number, number, number, number] | null {
+  const angleDegrees = ((degrees % 360) + 360) % 360;
+  if (angleDegrees === 0) return null;
+  const angle = -(angleDegrees * Math.PI) / 180;
+  const m = [
+    round15(Math.cos(angle)),
+    round15(Math.sin(angle)),
+    0,
+    round15(-Math.sin(angle)),
+    round15(Math.cos(angle)),
+    0,
+  ];
+  const cx = width / 2;
+  const cy = height / 2;
+  const [a, b, , d, e] = m as [number, number, number, number, number, number];
+  m[2] = a * -cx + b * -cy + 0 + cx;
+  m[5] = d * -cx + e * -cy + 0 + cy;
+  return m as [number, number, number, number, number, number];
+}

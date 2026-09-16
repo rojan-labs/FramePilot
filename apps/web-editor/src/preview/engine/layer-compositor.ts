@@ -38,8 +38,10 @@ import {
   type SwsFilter,
 } from './raster/swscale.js';
 import { GlResources, type RenderTarget } from './gl/gl-resources.js';
+import { pilRotationMatrix } from './raster/pil.js';
 import {
   ALPHA_FRAGMENT,
+  ROTATE_FRAGMENT,
   BLEND_FRAGMENT,
   BLEND_MODE_INDEX,
   GRADE_FRAGMENT,
@@ -98,7 +100,6 @@ export class LayerCompositor {
   readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
-  private warnedRotation = false;
   private readonly failedTransitions = new Set<string>();
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
   private luts: ReadonlyMap<string, CubeLut> = new Map();
@@ -206,11 +207,15 @@ export class LayerCompositor {
     if (step.resize !== null) {
       current = this.pilResize(current, step.resize.width, step.resize.height);
     }
-    if (step.rotation !== 0 && !this.warnedRotation) {
-      this.warnedRotation = true;
-      log.warn('layer rotation is not rasterised yet; drawing unrotated', {
-        rotation: step.rotation,
-      });
+    if (step.rotation !== 0) {
+      current = this.rotate(current, step.rotation);
+      // A clip without a mask rotates as RGB only: the corners it uncovers are opaque black.
+      const masked =
+        step.assetKind === 'image' ||
+        step.opacity !== null ||
+        step.wipe !== null ||
+        step.transitions.length > 0;
+      if (!masked) current = this.copy(current, 0, 0, current.width, current.height, 255);
     }
     return { target: current, x: step.x, y: step.y };
   }
@@ -441,6 +446,22 @@ export class LayerCompositor {
     gl.bindTexture(gl.TEXTURE_2D, source.texture);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.NEAREST);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.NEAREST);
+    return out;
+  }
+
+  /** MoviePy `rotated(angle, expand=False)` → Pillow `rotate` (see {@link pilRotationMatrix}). */
+  private rotate(source: RenderTarget, degrees: number): RenderTarget {
+    const matrix = pilRotationMatrix(degrees, source.width, source.height);
+    if (matrix === null) return source;
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('rotate', ROTATE_FRAGMENT);
+    const gl = this.gl;
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    gl.uniform3f(program.location('u_rowX'), matrix[0], matrix[1], matrix[2]);
+    gl.uniform3f(program.location('u_rowY'), matrix[3], matrix[4], matrix[5]);
+    r.draw(out, out.width, out.height);
     return out;
   }
 

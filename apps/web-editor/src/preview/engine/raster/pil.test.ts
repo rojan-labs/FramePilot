@@ -2,7 +2,13 @@ import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { pilAlphaComposite, pilCoefficients, pilResize, PIL_PRECISION_BITS } from './pil.js';
+import {
+  pilAlphaComposite,
+  pilCoefficients,
+  pilResize,
+  pilRotationMatrix,
+  PIL_PRECISION_BITS,
+} from './pil.js';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const golden = JSON.parse(readFileSync(join(HERE, '__fixtures__', 'pil-golden.json'), 'utf8')) as {
@@ -60,5 +66,17 @@ describe('Pillow alpha_composite (golden, bit exact)', () => {
         ),
       ).toEqual([expected[o], expected[o + 1], expected[o + 2], expected[o + 3]]);
     }
+  });
+});
+
+describe('Pillow rotate matrix', () => {
+  it('is the identity (null) for whole turns and maps pixel centres through a half turn', () => {
+    expect(pilRotationMatrix(360, 10, 6)).toBeNull();
+    const m = pilRotationMatrix(180, 10, 6)!;
+    const map = (x: number, y: number): [number, number] => [
+      m[0] * x + m[1] * y + m[2],
+      m[3] * x + m[4] * y + m[5],
+    ];
+    expect(map(0.5, 0.5)).toEqual([9.5, 5.5]);
   });
 });
