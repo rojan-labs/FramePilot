@@ -1388,8 +1388,8 @@
                   "trackId": "v1",
                   "start": 46.0,
                   "end": 48.0,
-                  "sourceStart": 56.0,
-                  "sourceEnd": 58.0,
+                  "sourceStart": 16.0,
+                  "sourceEnd": 18.0,
                   "effects": [
                     {
                       "id": "c23__transition",
@@ -1410,8 +1410,8 @@
                   "trackId": "v1",
                   "start": 48.0,
                   "end": 50.0,
-                  "sourceStart": 58.0,
-                  "sourceEnd": 60.0,
+                  "sourceStart": 18.0,
+                  "sourceEnd": 20.0,
                   "effects": [
                     {
                       "id": "c24__transition",
@@ -1432,8 +1432,8 @@
                   "trackId": "v1",
                   "start": 50.0,
                   "end": 52.0,
-                  "sourceStart": 60.0,
-                  "sourceEnd": 62.0,
+                  "sourceStart": 20.0,
+                  "sourceEnd": 22.0,
                   "effects": [
                     {
                       "id": "c25__transition",
@@ -1454,8 +1454,8 @@
                   "trackId": "v1",
                   "start": 52.0,
                   "end": 54.0,
-                  "sourceStart": 62.0,
-                  "sourceEnd": 64.0,
+                  "sourceStart": 22.0,
+                  "sourceEnd": 24.0,
                   "effects": [
                     {
                       "id": "c26__transition",
@@ -1476,8 +1476,8 @@
                   "trackId": "v1",
                   "start": 54.0,
                   "end": 56.0,
-                  "sourceStart": 64.0,
-                  "sourceEnd": 66.0,
+                  "sourceStart": 24.0,
+                  "sourceEnd": 26.0,
                   "effects": [
                     {
                       "id": "c27__transition",
@@ -1498,8 +1498,8 @@
                   "trackId": "v1",
                   "start": 56.0,
                   "end": 58.0,
-                  "sourceStart": 66.0,
-                  "sourceEnd": 68.0,
+                  "sourceStart": 26.0,
+                  "sourceEnd": 28.0,
                   "effects": [
                     {
                       "id": "c28__transition",
@@ -3495,8 +3495,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 56.25,
-                "frame": 1687
+                "time": 16.25,
+                "frame": 487
               },
               "text": null,
               "crop": null,
@@ -3549,8 +3549,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 58.25,
-                "frame": 1747
+                "time": 18.25,
+                "frame": 547
               },
               "text": null,
               "crop": null,
@@ -3581,8 +3581,8 @@
               "source": {
                 "assetId": "land",
                 "assetKind": "video",
-                "time": 58.25,
-                "frame": 1747
+                "time": 18.25,
+                "frame": 547
               },
               "text": null,
               "crop": null,
@@ -3635,8 +3635,8 @@
               "source": {
                 "assetId": "land",
                 "assetKind": "video",
-                "time": 59.999,
-                "frame": 1799
+                "time": 20.25,
+                "frame": 607
               },
               "text": null,
               "crop": null,
@@ -3667,8 +3667,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 60.25,
-                "frame": 1807
+                "time": 20.25,
+                "frame": 607
               },
               "text": null,
               "crop": null,
@@ -3721,8 +3721,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 59.999,
-                "frame": 1799
+                "time": 22.25,
+                "frame": 667
               },
               "text": null,
               "crop": null,
@@ -3753,8 +3753,8 @@
               "source": {
                 "assetId": "land",
                 "assetKind": "video",
-                "time": 62.25,
-                "frame": 1867
+                "time": 22.25,
+                "frame": 667
               },
               "text": null,
               "crop": null,
@@ -3807,8 +3807,8 @@
               "source": {
                 "assetId": "land",
                 "assetKind": "video",
-                "time": 59.999,
-                "frame": 1799
+                "time": 24.25,
+                "frame": 727
               },
               "text": null,
               "crop": null,
@@ -3839,8 +3839,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 64.25,
-                "frame": 1927
+                "time": 24.25,
+                "frame": 727
               },
               "text": null,
               "crop": null,
@@ -3893,8 +3893,8 @@
               "source": {
                 "assetId": "four3",
                 "assetKind": "video",
-                "time": 59.999,
-                "frame": 1799
+                "time": 26.25,
+                "frame": 787
               },
               "text": null,
               "crop": null,
@@ -3925,8 +3925,8 @@
               "source": {
                 "assetId": "land",
                 "assetKind": "video",
-                "time": 66.25,
-                "frame": 1987
+                "time": 26.25,
+                "frame": 787
               },
               "text": null,
               "crop": null,

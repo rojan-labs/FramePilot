@@ -69,8 +69,14 @@
                       "value": 1.0,
                       "easing": "bezier",
                       "handles": {
-                        "out": [0.42, 0.0],
-                        "in": [0.0, 0.0]
+                        "out": [
+                          0.42,
+                          0.0
+                        ],
+                        "in": [
+                          0.0,
+                          0.0
+                        ]
                       }
                     },
                     {
@@ -80,8 +86,14 @@
                       "value": 1.5,
                       "easing": "linear",
                       "handles": {
-                        "out": [1.0, 1.0],
-                        "in": [0.58, 1.0]
+                        "out": [
+                          1.0,
+                          1.0
+                        ],
+                        "in": [
+                          0.58,
+                          1.0
+                        ]
                       }
                     },
                     {
@@ -165,13 +177,23 @@
         },
         "transcript": []
       },
-      "samples": [0.0, 0.75, 1.5, 2.0, 3.5],
+      "samples": [
+        0.0,
+        0.75,
+        1.5,
+        2.0,
+        3.5
+      ],
       "expected": [
         {
           "time": 0.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -244,7 +266,11 @@
           "time": 0.75,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -317,7 +343,11 @@
           "time": 1.5,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -390,7 +420,11 @@
           "time": 2.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -463,7 +497,11 @@
           "time": 3.5,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -595,13 +633,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -700,13 +744,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1080,
           "height": 1920,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -800,13 +850,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -946,13 +1002,21 @@
         },
         "transcript": []
       },
-      "samples": [0.5, 1.5, 2.5],
+      "samples": [
+        0.5,
+        1.5,
+        2.5
+      ],
       "expected": [
         {
           "time": 0.5,
           "width": 1080,
           "height": 1080,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -993,7 +1057,11 @@
           "time": 1.5,
           "width": 1080,
           "height": 1080,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -1034,7 +1102,11 @@
           "time": 2.5,
           "width": 1080,
           "height": 1080,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -1175,13 +1247,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -1308,13 +1386,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
@@ -1409,13 +1493,19 @@
         },
         "transcript": []
       },
-      "samples": [1.0],
+      "samples": [
+        1.0
+      ],
       "expected": [
         {
           "time": 1.0,
           "width": 1280,
           "height": 720,
-          "background": [0, 0, 0],
+          "background": [
+            0,
+            0,
+            0
+          ],
           "layers": [
             {
               "kind": "picture",
