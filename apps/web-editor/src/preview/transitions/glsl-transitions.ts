@@ -108,7 +108,7 @@ vec4 transition(vec2 uv, float p) {
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
   // Normalise the projection so 0..1 spans the frame however the edge is tilted.
   float half = 0.5 * (abs(d.x) + abs(d.y));
-  float f = (dot(uv - 0.5, d) + half) / max(1e-3, 2.0 * half);
+  float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   return vec4(tex(uv), reveal(f, p));
 }`,
 
@@ -357,7 +357,7 @@ vec4 transition(vec2 uv, float p) {
   vec2 d = rotate2(dirUv(), radians(uParams[2]));
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
   float half = 0.5 * (abs(d.x) + abs(d.y));
-  float f = (dot(uv - 0.5, d) + half) / max(1e-3, 2.0 * half);
+  float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   float head = p * 1.7 - 0.35;
   // The band fades out as well as travelling: a leak whose glow is still on the
   // frame at progress 1 leaves the shot permanently brighter than it should be.
@@ -492,7 +492,7 @@ vec4 transition(vec2 uv, float p) {
   vec2 d = rotate2(dirUv(), radians(uParams[1]));
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
   float half = 0.5 * (abs(d.x) + abs(d.y));
-  float f = (dot(uv - 0.5, d) + half) / max(1e-3, 2.0 * half);
+  float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   float radius = max(0.02, uParams[0] * 0.35);
   // The edge overshoots by three feathers rather than one, so the curl's lens bend
   // has fully left the frame by progress 1 and the shot lands undistorted.
