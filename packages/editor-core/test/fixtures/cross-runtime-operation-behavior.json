@@ -101,6 +101,45 @@
             ]
           }
         ]
+      },
+      {
+        "id": "video_fx",
+        "type": "video",
+        "clips": [
+          {
+            "id": "graded",
+            "assetId": "asset_a",
+            "trackId": "video_fx",
+            "start": 30,
+            "end": 34,
+            "sourceStart": 0,
+            "sourceEnd": 4,
+            "effects": [
+              {
+                "id": "grade",
+                "type": "color_grade",
+                "params": {},
+                "keyframes": [
+                  {
+                    "id": "e0",
+                    "time": 0,
+                    "property": "exposure",
+                    "value": 0,
+                    "easing": "linear"
+                  },
+                  {
+                    "id": "e1",
+                    "time": 4,
+                    "property": "exposure",
+                    "value": 1,
+                    "easing": "linear"
+                  }
+                ]
+              }
+            ],
+            "keyframes": []
+          }
+        ]
       }
     ]
   },
@@ -571,6 +610,63 @@
           }
         ],
         "tolerance": 1e-06
+      }
+    },
+    {
+      "name": "splitting re-bases the right half's EFFECT keyframes onto its own clock",
+      "operation": {
+        "type": "split_clip",
+        "clipId": "graded",
+        "at": 32
+      },
+      "expect": {
+        "clipId": "graded__split_32000",
+        "effectType": "color_grade",
+        "keyframes": [
+          {
+            "id": "kf_graded__split_32000_grade_exposure_0",
+            "time": 0,
+            "property": "exposure",
+            "value": 0.5,
+            "easing": "linear"
+          },
+          {
+            "id": "e1",
+            "time": 2,
+            "property": "exposure",
+            "value": 1,
+            "easing": "linear"
+          }
+        ]
+      }
+    },
+    {
+      "name": "trimming the head re-bases EFFECT keyframes like clip keyframes",
+      "operation": {
+        "type": "trim_clip",
+        "clipId": "graded",
+        "start": 31,
+        "end": 34
+      },
+      "expect": {
+        "clipId": "graded",
+        "effectType": "color_grade",
+        "keyframes": [
+          {
+            "id": "kf_graded_grade_exposure_0",
+            "time": 0,
+            "property": "exposure",
+            "value": 0.25,
+            "easing": "linear"
+          },
+          {
+            "id": "e1",
+            "time": 3,
+            "property": "exposure",
+            "value": 1,
+            "easing": "linear"
+          }
+        ]
       }
     }
   ]

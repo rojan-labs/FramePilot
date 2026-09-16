@@ -743,6 +743,34 @@ def _source_offset_for_timeline(clip: Clip, timeline_delta: float) -> float:
 
 
 def _rebase_keyframes(clip: Clip, head_seconds: float, clip_id: str) -> list[Keyframe]:
+    """Re-base a clip's own keyframes; see :func:`_rebase_keyframe_list`."""
+    return _rebase_keyframe_list(clip.keyframes, head_seconds, clip_id)
+
+
+def _rebase_effects(clip: Clip, head_seconds: float, clip_id: str) -> list[Effect]:
+    """Re-base every effect's keyframes for the same head trim (MK1.5).
+
+    Mirrors ``operations.ts#rebaseEffects``. Effect keyframes share the clip's clock, so
+    they need exactly the re-base clip keyframes get; cloning them verbatim slid a graded
+    fade along the footage on every head trim, and made the right half of a split replay
+    the left half's effect animation from its first frame.
+    """
+    return [
+        effect.model_copy(
+            deep=True,
+            update={
+                "keyframes": _rebase_keyframe_list(
+                    effect.keyframes, head_seconds, f"{clip_id}_{effect.id}"
+                )
+            },
+        )
+        for effect in clip.effects
+    ]
+
+
+def _rebase_keyframe_list(
+    keyframes: list[Keyframe], head_seconds: float, clip_id: str
+) -> list[Keyframe]:
     """Re-base a clip's keyframes for a head trim of ``head_seconds``, keeping the curve.
 
     Mirrors ``operations.ts#rebaseKeyframes``. Everything shifts by ``-head_seconds``.
@@ -754,11 +782,9 @@ def _rebase_keyframes(clip: Clip, head_seconds: float, clip_id: str) -> list[Key
     preceding point, so the clip would open on a flat value instead of partway along
     its ramp).
     """
-    if head_seconds == 0 or not clip.keyframes:
-        return [k.model_copy(deep=True) for k in clip.keyframes]
-    shifted = [
-        k.model_copy(deep=True, update={"time": k.time - head_seconds}) for k in clip.keyframes
-    ]
+    if head_seconds == 0 or not keyframes:
+        return [k.model_copy(deep=True) for k in keyframes]
+    shifted = [k.model_copy(deep=True, update={"time": k.time - head_seconds}) for k in keyframes]
     if all(k.time >= -_EPSILON for k in shifted):
         # Nothing crossed the new start; clamp away float dust and keep the rest.
         return [k.model_copy(update={"time": 0.0}) if k.time < 0 else k for k in shifted]
@@ -822,6 +848,7 @@ def _truncate_clip(clip: Clip, new_start: float, new_end: float, clip_id: str) -
                 "source_start": 0.0,
                 "source_end": new_end - new_start,
                 "keyframes": _rebase_keyframes(clip, new_start - clip.start, clip_id),
+                "effects": _rebase_effects(clip, new_start - clip.start, clip_id),
             }
         )
     head_seconds = new_start - clip.start
@@ -838,6 +865,7 @@ def _truncate_clip(clip: Clip, new_start: float, new_end: float, clip_id: str) -
             "start": new_start,
             "end": new_end,
             "keyframes": _rebase_keyframes(clip, head_seconds, clip_id),
+            "effects": _rebase_effects(clip, head_seconds, clip_id),
         }
     )
     ramped = has_speed_ramp(clip)

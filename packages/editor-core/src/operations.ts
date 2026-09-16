@@ -1808,8 +1808,33 @@ function sourceOffsetForTimeline(clip: Clip, timelineDelta: Seconds): Seconds {
  * @param id - The id the truncated clip will carry (keyframe ids derive from it).
  */
 function rebaseKeyframes(clip: Clip, headSeconds: Seconds, id: string): Keyframe[] {
-  if (headSeconds === 0 || clip.keyframes.length === 0) return clone(clip).keyframes;
-  const shifted = clip.keyframes.map((keyframe) => ({
+  return rebaseKeyframeList(clip.keyframes, headSeconds, id);
+}
+
+/**
+ * Re-base every effect's keyframes for the same head trim.
+ *
+ * Effect keyframes share the clip's clock (seconds from the clip's start), so they need
+ * exactly the re-base clip keyframes get. They did not get it: `truncateClip` cloned the
+ * effects verbatim, so a graded fade two seconds into a clip stayed "two seconds in" after
+ * a one-second head trim, and the right half of a split replayed the left half's effect
+ * animation from its own first frame (MK1.5). The synthesized keyframe id carries the
+ * effect id, so two effects animating the same property cannot collide.
+ */
+function rebaseEffects(clip: Clip, headSeconds: Seconds, id: string): Effect[] {
+  return clip.effects.map((effect) => ({
+    ...clone(effect),
+    keyframes: rebaseKeyframeList(effect.keyframes, headSeconds, `${id}_${effect.id}`),
+  }));
+}
+
+function rebaseKeyframeList(
+  keyframes: readonly Keyframe[],
+  headSeconds: Seconds,
+  id: string,
+): Keyframe[] {
+  if (headSeconds === 0 || keyframes.length === 0) return keyframes.map(clone);
+  const shifted = keyframes.map((keyframe) => ({
     ...clone(keyframe),
     time: keyframe.time - headSeconds,
   }));
@@ -1867,6 +1892,7 @@ function truncateClip(
       sourceStart: 0,
       sourceEnd: newEnd - newStart,
       keyframes: rebaseKeyframes(clip, newStart - clip.start, id),
+      effects: rebaseEffects(clip, newStart - clip.start, id),
     };
   }
   const headSeconds = newStart - clip.start;
@@ -1896,7 +1922,8 @@ function truncateClip(
   // actually had at that instant becomes a keyframe at 0, and the points before it
   // go. The visible motion is identical and the times are all legal.
   const keyframes = rebaseKeyframes(clip, headSeconds, id);
-  const base = { ...clone(clip), id, start: newStart, end: newEnd, keyframes };
+  const effects = rebaseEffects(clip, headSeconds, id);
+  const base = { ...clone(clip), id, start: newStart, end: newEnd, keyframes, effects };
 
   if (!hasSpeedRamp(clip) && speed === 0) return base;
 
@@ -2985,7 +3012,10 @@ export function invertOperation(
       // clip that looks right and no longer holds the animation it had. The file's
       // own rule for an inverse that cannot be exact is `restore_clips`, and the
       // cost is paid only by clips that actually carry keyframes.
-      if (clip.keyframes.length > 0) return [restoreFor(track)];
+      // Effect keyframes are re-based the same lossy way since MK1.5.
+      if (clip.keyframes.length > 0 || clip.effects.some((effect) => effect.keyframes.length > 0)) {
+        return [restoreFor(track)];
+      }
       return [{ type: 'trim_clip', clipId: op.clipId, start: clip.start, end: clip.end }];
     }
     case 'set_clip_source_range': {
