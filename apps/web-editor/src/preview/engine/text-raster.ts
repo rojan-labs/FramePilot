@@ -225,3 +225,131 @@ export function rasterizeTextOverlay(
   }
   return { image, width, height, layout };
 }
+
+// --- burned captions, baseline style (render/captions.py `_render_baseline_caption_image`) ---
+
+const CAPTION_MAX_WIDTH_FRACTION = 0.9;
+const CAPTION_FONT_HEIGHT_FRACTION = 1 / 22;
+const CAPTION_MIN_FONT_SIZE = 14;
+const CAPTION_BOX_PAD_FRACTION = 0.35;
+const CAPTION_BOX_FILL: Rgba = [0, 0, 0, 160];
+const CAPTION_TEXT_FILL: Rgba = [255, 255, 255, 255];
+/** `_CAPTION_BOTTOM_MARGIN_FRACTION` of the compiler. */
+const CAPTION_BOTTOM_MARGIN_FRACTION = 0.08;
+
+export interface CaptionRaster {
+  readonly image: ImageData;
+  readonly width: number;
+  readonly height: number;
+  /** Paste position (`_caption_position` for the default bottom placement). */
+  readonly x: number;
+  readonly y: number;
+}
+
+/**
+ * A caption with no style, as the export burns it: a translucent rounded box (Pillow's shapes are
+ * not anti-aliased, so the box edge is a hard pixel test here too) with centred white text, in
+ * the lower safe area.
+ */
+export function rasterizeBaselineCaption(
+  text: string,
+  frameWidth: number,
+  frameHeight: number,
+  createCanvas: (width: number, height: number) => OffscreenCanvas | HTMLCanvasElement = (w, h) =>
+    new OffscreenCanvas(w, h),
+): CaptionRaster | null {
+  if (text.trim() === '') return null;
+  const size = Math.max(
+    CAPTION_MIN_FONT_SIZE,
+    Math.trunc(frameHeight * CAPTION_FONT_HEIGHT_FRACTION),
+  );
+  const pad = Math.trunc(size * CAPTION_BOX_PAD_FRACTION);
+  const maxTextWidth = Math.trunc(frameWidth * CAPTION_MAX_WIDTH_FRACTION) - 2 * pad;
+  const probe = createCanvas(1, 1).getContext('2d') as
+    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  if (!probe) return null;
+  const font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
+  probe.font = font;
+  const words = text.split(/\s+/).filter((word) => word.length > 0);
+  const lines: string[] = [];
+  let current = '';
+  for (const word of words) {
+    const candidate = `${current} ${word}`.trim();
+    if (current !== '' && probe.measureText(candidate).width > maxTextWidth) {
+      lines.push(current);
+      current = word;
+    } else {
+      current = candidate;
+    }
+  }
+  if (current !== '') lines.push(current);
+  if (lines.length === 0) return null;
+  const ascender = Math.ceil(probe.measureText('H').fontBoundingBoxAscent);
+  const boxes = lines.map((line) => {
+    const m = probe.measureText(line);
+    return [
+      Math.floor(-m.actualBoundingBoxLeft),
+      ascender - Math.ceil(m.actualBoundingBoxAscent),
+      Math.ceil(m.actualBoundingBoxRight),
+      ascender + Math.ceil(m.actualBoundingBoxDescent),
+    ] as const;
+  });
+  const lineWidths = boxes.map((b) => Math.trunc(b[2] - b[0]));
+  const lineHeight = Math.trunc(Math.max(...boxes.map((b) => b[3] - b[1])));
+  const lineGap = Math.max(1, Math.trunc(size / 6));
+  const textWidth = Math.max(...lineWidths);
+  const textHeight = lineHeight * lines.length + lineGap * (lines.length - 1);
+  const width = textWidth + 2 * pad;
+  const height = textHeight + 2 * pad;
+  const canvas = createCanvas(width, height);
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as
+    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  if (!ctx) return null;
+
+  // `rounded_rectangle((0, 0, w - 1, h - 1), radius=pad)`, drawn without anti-aliasing.
+  const box = ctx.createImageData(width, height);
+  const radius = pad;
+  for (let y = 0; y < height; y++) {
+    for (let x = 0; x < width; x++) {
+      const cx = x < radius ? radius : x > width - 1 - radius ? width - 1 - radius : x;
+      const cy = y < radius ? radius : y > height - 1 - radius ? height - 1 - radius : y;
+      const dx = x - cx;
+      const dy = y - cy;
+      if (dx * dx + dy * dy > radius * radius) continue;
+      const o = (y * width + x) * 4;
+      box.data[o] = CAPTION_BOX_FILL[0];
+      box.data[o + 1] = CAPTION_BOX_FILL[1];
+      box.data[o + 2] = CAPTION_BOX_FILL[2];
+      box.data[o + 3] = CAPTION_BOX_FILL[3];
+    }
+  }
+  ctx.putImageData(box, 0, 0);
+  ctx.font = font;
+  ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = css(CAPTION_TEXT_FILL);
+  let y = pad;
+  lines.forEach((line, index) => {
+    const b = boxes[index]!;
+    const x = Math.floor((width - lineWidths[index]!) / 2);
+    ctx.fillText(line, x - b[0], y - b[1] + ascender);
+    y += lineHeight + lineGap;
+  });
+  const image = ctx.getImageData(0, 0, width, height);
+  const data = image.data;
+  for (let i = 0; i < data.length; i += 4) {
+    const alpha = data[i + 3]!;
+    if (alpha === 255 || alpha === 0) continue;
+    // Pillow blends the text into the box channel by channel (see the module note).
+    data[i] = Math.round((data[i]! * alpha) / 255);
+    data[i + 1] = Math.round((data[i + 1]! * alpha) / 255);
+    data[i + 2] = Math.round((data[i + 2]! * alpha) / 255);
+  }
+  const margin = Math.trunc(frameHeight * CAPTION_BOTTOM_MARGIN_FRACTION);
+  const x = Math.floor((frameWidth - width) / 2);
+  const top = Math.max(
+    0,
+    Math.min(frameHeight - height - margin, Math.max(0, frameHeight - height)),
+  );
+  return { image, width, height, x, y: top };
+}

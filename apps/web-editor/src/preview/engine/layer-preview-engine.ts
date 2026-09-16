@@ -28,7 +28,13 @@ import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import { GlEffectChain, type TimedEffectLayer } from '../effects/gl-effect-chain.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
-import { loadExportTextFont, rasterizeTextOverlay, type TextRaster } from './text-raster.js';
+import {
+  loadExportTextFont,
+  rasterizeBaselineCaption,
+  rasterizeTextOverlay,
+  type CaptionRaster,
+  type TextRaster,
+} from './text-raster.js';
 import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
 import { mediaSrc } from '../../editor/media.js';
 import type {
@@ -59,6 +65,8 @@ export interface LayerEngineProject {
   readonly canvasSize: PixelSize;
   readonly projectFps?: number;
   readonly transcript?: readonly TranscriptWord[];
+  /** Burn caption tracks into the frame, as the export's "burn captions" setting does. */
+  readonly burnCaptions?: boolean;
   /** Text clips not drawn into the frame (the selected one is edited in the DOM). */
   readonly hiddenOverlayIds?: ReadonlySet<string>;
 }
@@ -124,6 +132,8 @@ export class LayerPreviewEngine {
   private useCounter = 0;
   private readonly decoding = new Set<string>();
   private readonly textRasters = new Map<string, TextRaster | null>();
+  private readonly captionRasters = new Map<string, CaptionRaster | null>();
+  private styledCaptionClipIds = new Set<string>();
   private textFontReady = false;
   private glEffects: GlEffectChain | null = null;
 
@@ -205,6 +215,16 @@ export class LayerPreviewEngine {
       ),
     );
     this.assetsById = new Map(project.assets.map((asset) => [asset.id, asset]));
+    // Styled captions (templates) are still drawn by the monitor's caption layer.
+    this.styledCaptionClipIds = new Set(
+      project.timeline.tracks.flatMap((track) =>
+        track.type === 'caption'
+          ? track.clips
+              .filter((clip) => clip.captionStyle !== undefined || track.captionStyle !== undefined)
+              .map((clip) => clip.id)
+          : [],
+      ),
+    );
     this.durationSec = project.timeline.tracks.reduce(
       (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
       0,
@@ -350,6 +370,7 @@ export class LayerPreviewEngine {
     if (!project || !timeline) return null;
     return framePlanAt(timeline, project.assets, timeSec, project.canvasSize, {
       sourceFps: this.sourceFps(),
+      burnCaptions: project.burnCaptions === true,
       ...(project.transcript ? { transcript: project.transcript } : {}),
     });
   }
@@ -447,6 +468,29 @@ export class LayerPreviewEngine {
 
   // --- presentation --------------------------------------------------------------------------
 
+  /** A burned caption in the export's baseline style, placed in the lower safe area. */
+  private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
+    if (!this.textFontReady || layer.text === null || layer.clipId === null) return null;
+    if (this.styledCaptionClipIds.has(layer.clipId)) return null;
+    const key = `${size.width}x${size.height}|${layer.text}`;
+    let raster = this.captionRasters.get(key);
+    if (raster === undefined) {
+      raster = rasterizeBaselineCaption(layer.text, size.width, size.height);
+      if (this.captionRasters.size > 256) this.captionRasters.clear();
+      this.captionRasters.set(key, raster);
+    }
+    if (raster === null) return null;
+    return {
+      kind: 'raster',
+      key: `caption:${key}`,
+      image: raster.image,
+      width: raster.width,
+      height: raster.height,
+      x: raster.x,
+      y: raster.y,
+    };
+  }
+
   /** A text clip as the export rasterises and places it (PX2.3). */
   private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
     if (layer.clipId === null || !this.textFontReady) return null;
@@ -493,6 +537,11 @@ export class LayerPreviewEngine {
     const layers: CompositeLayer[] = [];
     const presented: PresentedLayer[] = [];
     for (const layer of plan.layers) {
+      if (layer.kind === 'caption') {
+        const caption = this.captionLayer(layer, size);
+        if (caption) layers.push(caption);
+        continue;
+      }
       if (layer.kind === 'text') {
         const raster = this.textLayer(layer, size);
         if (raster) layers.push(raster);

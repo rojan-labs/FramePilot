@@ -256,7 +256,11 @@ async function oraclePage(browser: Browser): Promise<Page> {
  * disposes its engine, and with it every decoder, held `VideoFrame` and `AudioContext`, before
  * the next case allocates its own.
  */
-async function openInEditor(page: Page, project: MatrixCase['project']): Promise<string> {
+async function openInEditor(
+  page: Page,
+  project: MatrixCase['project'],
+  burnCaptions = false,
+): Promise<string> {
   const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
   const doc = JSON.parse(JSON.stringify(project)) as MatrixCase['project'];
   for (const asset of doc.assets) {
@@ -282,11 +286,16 @@ async function openInEditor(page: Page, project: MatrixCase['project']): Promise
     }
   }
   await page.goto(`${origin}${BLANK_PAGE}`);
-  await page.evaluate((p) => {
-    localStorage.clear();
-    localStorage.setItem(`framepilot:project:${(p as { id: string }).id}`, JSON.stringify(p));
-    localStorage.setItem('framepilot:last-project-id', (p as { id: string }).id);
-  }, doc);
+  await page.evaluate(
+    ({ p, burn }) => {
+      localStorage.clear();
+      localStorage.setItem(`framepilot:project:${(p as { id: string }).id}`, JSON.stringify(p));
+      localStorage.setItem('framepilot:last-project-id', (p as { id: string }).id);
+      // The monitor burns captions in exactly when the case's export does.
+      localStorage.setItem('framepilot.settings', JSON.stringify({ previewBurnCaptions: burn }));
+    },
+    { p: doc, burn: burnCaptions },
+  );
   await page.goto(`${origin}/`);
   await expect(page.getByLabel('project name')).toHaveText(project.name, { timeout: 30_000 });
   await expect(page.locator('.preview-frame').first()).toBeVisible({ timeout: 30_000 });
@@ -599,7 +608,7 @@ async function measureCase(
   const page = await oraclePage(browser);
   let attachedSamples = 0;
   try {
-    const origin = await openInEditor(page, kase.project);
+    const origin = await openInEditor(page, kase.project, kase.burnCaptions);
     const { renderer, detail } = await waitForRenderer(page);
     result.renderer = renderer;
     result.rendererDetail = detail;

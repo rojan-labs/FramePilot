@@ -352,10 +352,15 @@ export function WebCodecsPreviewPlayer({
       lines: readonly (readonly TranscriptWord[])[];
       text: string;
     }[] = [];
+    // Layer compositor: captions burn into the frame when the monitor shows them; this DOM layer
+    // only keeps the styled (template) captions the compositor does not rasterise yet.
+    if (layered && !settings.previewBurnCaptions) return [];
     for (const track of editor.state.timeline.tracks) {
       if (track.hidden) continue;
       for (const clip of track.clips) {
         if (clipKind(clip, assetById) !== 'caption') continue;
+        if (layered && clip.captionStyle === undefined && track.captionStyle === undefined)
+          continue;
         const cue = resolveCaptionCue(clip, words);
         if (cue.lines.every((line) => line.length === 0)) continue;
         clips.push({
@@ -370,7 +375,14 @@ export function WebCodecsPreviewPlayer({
       }
     }
     return clips;
-  }, [eligible, editor.state.timeline, assetById, transcript]);
+  }, [
+    eligible,
+    layered,
+    settings.previewBurnCaptions,
+    editor.state.timeline,
+    assetById,
+    transcript,
+  ]);
 
   // Canvas buffer dimensions: the project aspect (so non-16:9 projects aren't
   // distorted and letterboxing matches export), scaled so the long edge is at
@@ -608,6 +620,7 @@ export function WebCodecsPreviewPlayer({
         projectFps: fps,
         ...(transcript ? { transcript } : {}),
         hiddenOverlayIds,
+        burnCaptions: settings.previewBurnCaptions,
       })
       .then(() => {
         if (engine.isPlaying || engine.isStarting) return;
@@ -626,6 +639,7 @@ export function WebCodecsPreviewPlayer({
     fps,
     transcript,
     hiddenOverlayIds,
+    settings.previewBurnCaptions,
   ]);
 
   // External seeks (timeline ruler, "at playhead" actions) while paused: move
