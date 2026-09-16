@@ -29,6 +29,23 @@
  * check that starts PASSING fails the run ("expected to fail, but passed"), which forces the
  * list to shrink. A new failure is never listed automatically.
  *
+ * **CI ONLY. Do not run this spec, or a full `pnpm px4:frames`, on a workstation.** A local run
+ * (4 render workers holding a composition per clip, next to Chromium) once took a maintainer's
+ * machine past 70 GB and shut it down. The job `preview-parity-oracle` in `.github/workflows/ci.yml`
+ * runs it and uploads the results; the baseline is regenerated from that artifact
+ * (`gh run download`, then `node tests/e2e/scripts/px4-baseline.mjs --write-baseline`). To debug
+ * ONE failing case locally, render just that case with a memory cap and grep the spec to it:
+ *
+ *   pnpm px4:frames --case layering/layers-2 --max-rss-mb 4000
+ *   pnpm --filter @framepilot/e2e exec playwright test --project=preview-parity \
+ *     specs/preview-parity-oracle.spec.ts --grep 'layering/layers-2'
+ *
+ * Bounded by design: the `preview-parity` project runs with one worker; the file uses one page
+ * for every case (parked on a blank document between cases so the previous editor's decoders,
+ * frames and audio context are released); engine PNGs are fetched and decoded one sample at a
+ * time and closed; image artifacts are built only for failing samples (at most
+ * MAX_ATTACHED_SAMPLES_PER_CASE per case); each case has CASE_TIMEOUT_MS.
+ *
  * Inputs are generated before this runs (`pnpm px4:frames`): synthetic media both sides read
  * (so codec loss is identical), the engine frames and a manifest. The media are served to the
  * page from the app's own origin (so canvases are never cross-origin tainted), like
@@ -61,6 +78,10 @@ const SENTINEL_RADIUS = 40;
 const SENTINEL_MIN_PIXELS = 64;
 /** PX0.3: preview RGB vs engine RGB per patch, per channel. The same 8/255 as the pixel gate. */
 const COLOUR_TOLERANCE = CHANNEL_TOLERANCE;
+/** Failing samples per case that get preview/engine/diff PNGs attached (report size bound). */
+const MAX_ATTACHED_SAMPLES_PER_CASE = 3;
+/** Per-case budget (hook + checks). The largest case, every transition kind, has 28 samples. */
+const CASE_TIMEOUT_MS = 6 * 60_000;
 
 const CHECKS = ['renderer', 'pixels', 'sentinel', 'pts'] as const;
 type Check = (typeof CHECKS)[number];
@@ -197,31 +218,59 @@ const CONTENT_TYPES: Record<string, string> = {
   '.cube': 'text/plain',
 };
 
-/** Serve the generated media from the app's own origin, and open `project` in the editor. */
-async function openInEditor(page: Page, project: MatrixCase['project']): Promise<string> {
-  const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
-  await page.route(`${origin}${MEDIA_PREFIX}**`, async (route) => {
-    const rel = decodeURIComponent(
-      new URL(route.request().url()).pathname.slice(MEDIA_PREFIX.length),
-    );
-    const file = join(OUT_DIR, rel);
+/** Blank same-origin document the page parks on between cases (see {@link openInEditor}). */
+const BLANK_PAGE = `${MEDIA_PREFIX}blank.html`;
+
+/**
+ * The ONE page this file uses (memory bound): created on first use per worker, reused for every
+ * case, closed in the file's `afterAll`. A page per case would keep a renderer process, a GPU
+ * context and every decoder per case alive until Playwright got round to closing them.
+ */
+let sharedPage: Page | null = null;
+
+async function oraclePage(browser: Browser): Promise<Page> {
+  if (sharedPage !== null && !sharedPage.isClosed()) return sharedPage;
+  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  await page.route(`**${MEDIA_PREFIX}**`, async (route) => {
+    const pathname = new URL(route.request().url()).pathname;
+    if (pathname === BLANK_PAGE) {
+      return route.fulfill({ contentType: 'text/html', body: '<!doctype html><title>px4</title>' });
+    }
+    const file = join(OUT_DIR, decodeURIComponent(pathname.slice(MEDIA_PREFIX.length)));
     if (!file.startsWith(OUT_DIR) || !existsSync(file)) return route.fulfill({ status: 404 });
+    // Served by path: Playwright streams the file, nothing is buffered here.
     return route.fulfill({
       path: file,
       headers: { 'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream' },
     });
   });
+  sharedPage = page;
+  return page;
+}
+
+/**
+ * Open `project` in the editor on the shared page, serving the generated media from the app's
+ * own origin (so canvases are never cross-origin tainted).
+ *
+ * The page first navigates to a blank same-origin document: unloading the previous editor
+ * disposes its engine, and with it every decoder, held `VideoFrame` and `AudioContext`, before
+ * the next case allocates its own.
+ */
+async function openInEditor(page: Page, project: MatrixCase['project']): Promise<string> {
+  const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
   const doc = JSON.parse(JSON.stringify(project)) as MatrixCase['project'];
   for (const asset of doc.assets) {
     const url = `${origin}${MEDIA_PREFIX}${mediaPathOf(asset)}`;
     if (asset.media?.proxyPath) asset.media.proxyPath = url;
     asset.path = url;
   }
-  await page.addInitScript((p) => {
+  await page.goto(`${origin}${BLANK_PAGE}`);
+  await page.evaluate((p) => {
+    localStorage.clear();
     localStorage.setItem(`framepilot:project:${(p as { id: string }).id}`, JSON.stringify(p));
     localStorage.setItem('framepilot:last-project-id', (p as { id: string }).id);
   }, doc);
-  await page.goto('/');
+  await page.goto(`${origin}/`);
   await expect(page.getByLabel('project name')).toHaveText(project.name, { timeout: 30_000 });
   await expect(page.locator('.preview-frame').first()).toBeVisible({ timeout: 30_000 });
   return origin;
@@ -369,10 +418,14 @@ async function seekAndCompare(
       });
       result.engineWidth = bitmap.width;
       result.engineHeight = bitmap.height;
-      if (bitmap.width !== width || bitmap.height !== height) return result;
+      if (bitmap.width !== width || bitmap.height !== height) {
+        bitmap.close();
+        return result;
+      }
       const engineCanvas = new OffscreenCanvas(width, height);
       const engineCtx = engineCanvas.getContext('2d')!;
       engineCtx.drawImage(bitmap, 0, 0);
+      bitmap.close();
       const ref = engineCtx.getImageData(0, 0, width, height).data;
 
       const n = width * height;
@@ -526,7 +579,8 @@ async function measureCase(
     rendererDetail: null,
     samples: [],
   };
-  const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+  const page = await oraclePage(browser);
+  let attachedSamples = 0;
   try {
     const origin = await openInEditor(page, kase.project);
     const { renderer, detail } = await waitForRenderer(page);
@@ -552,13 +606,15 @@ async function measureCase(
         for (const check of CHECKS) sample.failures[check] = reason;
         continue;
       }
-      const compared = await seekAndCompare(page, {
+      const compareArgs = {
         time,
         background: plan.background,
         engineUrl: engineSample.frame ? `${origin}${MEDIA_PREFIX}${engineSample.frame}` : null,
         palette,
-        wantImages: true,
-      });
+        wantImages: false,
+      };
+      // Metrics only: the preview/diff PNGs are built on a second pass for failing samples.
+      const compared = await seekAndCompare(page, compareArgs);
       if (compared.presented === null) {
         const reason = 'preview never presented this time (seek superseded or no frame decoded)';
         sample.failures.pixels = reason;
@@ -603,8 +659,15 @@ async function measureCase(
             .join('; ');
         }
       }
-      if (sample.failures.pixels || sample.failures.sentinel) {
+      if (
+        (sample.failures.pixels || sample.failures.sentinel) &&
+        attachedSamples < MAX_ATTACHED_SAMPLES_PER_CASE
+      ) {
+        attachedSamples++;
         const label = `${area}-${kase.id}-t${time}`;
+        const images = await seekAndCompare(page, { ...compareArgs, wantImages: true });
+        compared.previewPng = images.previewPng;
+        compared.diffPng = images.diffPng;
         if (compared.previewPng) {
           await testInfo.attach(`${label}-preview.png`, {
             body: Buffer.from(compared.previewPng, 'base64'),
@@ -642,8 +705,6 @@ async function measureCase(
         failures: Object.fromEntries(CHECKS.map((c) => [c, result.rendererDetail!])),
       });
     }
-  } finally {
-    await page.close();
   }
   if (result.renderer !== 'webcodecs') {
     result.samples[0]!.failures.renderer ??= result.rendererDetail ?? 'renderer: DOM';
@@ -663,6 +724,11 @@ function failuresOf(result: CaseResult, check: Check): string[] {
 }
 
 // --- the matrix ------------------------------------------------------------------------------------
+
+test.afterAll(async () => {
+  await sharedPage?.close();
+  sharedPage = null;
+});
 
 test.describe('PX4 preview/export parity oracle', () => {
   test('engine output is present and current, and the sentinel palette is separable', () => {
@@ -686,7 +752,7 @@ test.describe('PX4 preview/export parity oracle', () => {
   for (const { area, kase } of loadCases()) {
     const key = `${area}/${kase.id}`;
     test.describe(key, () => {
-      test.describe.configure({ mode: 'serial', timeout: 10 * 60_000 });
+      test.describe.configure({ mode: 'serial', timeout: CASE_TIMEOUT_MS });
       let result: CaseResult | null = null;
 
       test.beforeAll(async ({ browser }, testInfo) => {
@@ -737,7 +803,7 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
         error: null,
       };
       measurements.set(encoding, measurement);
-      const page = await browser.newPage({ viewport: { width: 1280, height: 800 } });
+      const page = await oraclePage(browser);
       try {
         const origin = await openInEditor(page, facts.project);
         const { renderer, detail } = await waitForRenderer(page);
@@ -836,6 +902,9 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
                 number,
               ];
             });
+            context.getExtension('WEBGL_lose_context')?.loseContext();
+            video.removeAttribute('src');
+            video.load();
             return { colorSpace, patches, renderer };
           },
           { url, time: colour.time, boxes },
@@ -844,8 +913,6 @@ test.describe('PX0.3 colour conversion (BT.601/709 x limited/full)', () => {
         measurement.webgl = gl.patches;
       } catch (error) {
         measurement.error = `${measurement.error ? `${measurement.error}; ` : ''}${error instanceof Error ? error.message.split('\n')[0] : String(error)}`;
-      } finally {
-        await page.close();
       }
     }
     mkdirSync(RESULTS_DIR, { recursive: true });

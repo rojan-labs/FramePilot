@@ -94,10 +94,13 @@ export default defineConfig({
     // where available; on a GPU-less CI runner Chrome falls back to SwiftShader (CPU GL), which
     // newer Chrome only allows with `--enable-unsafe-swiftshader`. The thresholds are the same
     // either way. Needs `pnpm px4:frames` first (engine frames + synthetic media).
+    // CI ONLY: do not run this project locally except for ONE --grep'd case (spec header).
     {
       name: 'preview-parity',
       testMatch: /preview-parity-oracle\.spec\.ts/,
       fullyParallel: false,
+      // Memory bound: one browser, one page, one case at a time (see the spec header).
+      workers: 1,
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',

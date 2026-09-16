@@ -21,6 +21,15 @@ script writes everything the spec reads, into a gitignored directory::
 4. ``manifest.json``: the sentinel palette, per-sample frame paths (or the engine's error),
    the colour measurements, and a hash of the inputs so the spec refuses stale output.
 
+**Memory bounds (read before running this locally).** A full run once took a maintainer's
+machine past 70 GB: a multi-worker pool, each worker holding compositions with an ffmpeg reader
+per clip, next to a local Chromium. So: one worker by default (``--workers``), a fresh process
+per case (``max_tasks_per_child=1``), the composition cache cleared after every frame, and an
+optional ``--max-rss-mb`` watchdog that kills the workers and exits 2. The full matrix runs in
+CI only (the ``preview-parity-oracle`` job). Locally, render ONE case to debug ONE failure::
+
+    pnpm px4:frames --case layering/layers-2 --max-rss-mb 4000
+
 Colours are chosen on a 96-level grid so any two sentinels differ by at least 96/255 on some
 channel: the spec classifies pixels within 40/255 of a sentinel, and a sentinel check must
 never confuse two layers because of codec or colour-matrix drift.
@@ -29,13 +38,19 @@ never confuse two layers because of codec or colour-matrix drift.
 from __future__ import annotations
 
 import argparse
+import contextlib
 import copy
 import hashlib
 import json
 import logging
+import multiprocessing
+import os
+import signal
 import subprocess
 import sys
+import threading
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from concurrent.futures.process import BrokenProcessPool
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -338,29 +353,28 @@ def engine_project(case: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
-#: Samples per worker task. A composition is compiled once per task, so this trades compile
-#: repeats for parallelism on the cases with dozens of samples (every transition kind).
-SAMPLES_PER_TASK = 4
+def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, Any]]:
+    """Render every sample of ONE case, then release everything it opened.
 
-
-def _grab_case(
-    args: tuple[str, str, dict[str, Any], list[int], bool],
-) -> list[tuple[int, dict[str, Any]]]:
-    """Render the chosen samples of one case (runs in a worker process)."""
-    out_dir_text, area, case, indices, keep_existing = args
+    Runs in a worker process that exits after this one task (``max_tasks_per_child=1``), and
+    also clears the composition cache after every frame: a composition holds an ffmpeg reader
+    per clip, and a case like every-transition-kind opens dozens. Keeping one composition alive
+    at a time is what bounds this script's memory.
+    """
+    out_dir_text, area, case, keep_existing = args
+    from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame
     from framepilot_engine.timeline.models import Project
 
     out_dir = Path(out_dir_text)
     project = Project.model_validate(engine_project(case))
-    results: list[tuple[int, dict[str, Any]]] = []
-    for index in indices:
-        sample = case["samples"][index]
+    results: list[dict[str, Any]] = []
+    for index, sample in enumerate(case["samples"]):
         rel = f"frames/{area}/{case['id']}/{index}.png"
         entry: dict[str, Any] = {"time": sample, "frame": None, "error": None}
+        results.append(entry)
         if keep_existing and (out_dir / rel).exists():
             entry["frame"] = rel
-            results.append((index, entry))
             continue
         try:
             frame = grab_frame(
@@ -377,9 +391,12 @@ def _grab_case(
             entry.update(
                 frame=rel, renderedTime=frame.time_seconds, size=[frame.width, frame.height]
             )
+            del frame
         except Exception as exc:  # recorded, not raised: the spec reports it as a failure kind
             entry["error"] = f"{type(exc).__name__}: {exc}"
-        results.append((index, entry))
+        finally:
+            # Closes every reader of the composition (close_clip_tree); nothing is retained.
+            COMPOSITION_CACHE.clear()
     return results
 
 
@@ -519,6 +536,7 @@ def patch_means(png_bytes: bytes) -> list[list[float]]:
 
 
 def measure_colour(out_dir: Path) -> dict[str, Any]:
+    from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame
     from framepilot_engine.timeline.models import Project
 
@@ -533,6 +551,7 @@ def measure_colour(out_dir: Path) -> dict[str, Any]:
             lossless=True,
         )
         (out_dir / "colour" / f"{clip_id}.engine.png").write_bytes(frame.data)
+        COMPOSITION_CACHE.clear()
         measured[clip_id] = {
             "matrix": matrix,
             "range": colour_range,
@@ -550,25 +569,130 @@ def measure_colour(out_dir: Path) -> dict[str, Any]:
     }
 
 
-def generate(out_dir: Path, jobs: int, keep_existing: bool = False) -> dict[str, Any]:
-    from framepilot_engine.media.ffmpeg import find_ffmpeg
+class MemoryBudgetExceeded(RuntimeError):
+    """The generator and its children (workers, ffmpeg readers) exceeded ``--max-rss-mb``."""
 
+
+def tree_rss_mb(root_pid: int) -> float:
+    """Resident memory of ``root_pid`` and all its descendants, in MB (``ps``, macOS and Linux)."""
+    listing = subprocess.run(
+        ["ps", "-A", "-o", "pid=,ppid=,rss="], capture_output=True, text=True, check=True
+    ).stdout
+    children: dict[int, list[int]] = {}
+    rss_kb: dict[int, int] = {}
+    for line in listing.splitlines():
+        fields = line.split()
+        if len(fields) != 3:
+            continue
+        pid, ppid, rss = (int(field) for field in fields)
+        children.setdefault(ppid, []).append(pid)
+        rss_kb[pid] = rss
+    total, stack = 0, [root_pid]
+    while stack:
+        pid = stack.pop()
+        total += rss_kb.get(pid, 0)
+        stack.extend(children.get(pid, []))
+    return total / 1024
+
+
+class MemoryWatchdog:
+    """Polls this process tree's RSS and kills the tree's children when it passes the cap.
+
+    Checked from a thread rather than between frames, because the expensive moment is inside
+    one compile, which a between-frames check would only see after the fact.
+    """
+
+    POLL_SECONDS = 0.5
+
+    def __init__(self, max_rss_mb: float | None) -> None:
+        self.max_rss_mb = max_rss_mb
+        self.peak_mb = 0.0
+        self.tripped_at_mb: float | None = None
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._run, name="px4-rss-watchdog", daemon=True)
+
+    def __enter__(self) -> MemoryWatchdog:
+        if self.max_rss_mb is not None:
+            self._thread.start()
+        return self
+
+    def __exit__(self, *_exc: object) -> None:
+        self._stop.set()
+        if self._thread.is_alive():
+            self._thread.join()
+
+    def check(self) -> None:
+        """Raise if the cap was hit (call between phases and after the pool returns)."""
+        if self.tripped_at_mb is not None:
+            raise MemoryBudgetExceeded(
+                f"PX4 frame generation used {self.tripped_at_mb:.0f} MB (process tree RSS), over "
+                f"--max-rss-mb {self.max_rss_mb:.0f}. Its children were killed. Render fewer "
+                "cases (--case), use --workers 1, or raise the cap on a machine that has it."
+            )
+
+    def _run(self) -> None:
+        me = os.getpid()
+        while not self._stop.wait(self.POLL_SECONDS):
+            used = tree_rss_mb(me)
+            self.peak_mb = max(self.peak_mb, used)
+            if self.max_rss_mb is not None and used > self.max_rss_mb:
+                self.tripped_at_mb = used
+                self._kill_children(me)
+                return
+
+    @staticmethod
+    def _kill_children(root_pid: int) -> None:
+        listing = subprocess.run(
+            ["ps", "-A", "-o", "pid=,ppid="], capture_output=True, text=True, check=True
+        ).stdout
+        children: dict[int, list[int]] = {}
+        for line in listing.splitlines():
+            fields = line.split()
+            if len(fields) == 2:
+                children.setdefault(int(fields[1]), []).append(int(fields[0]))
+        stack = list(children.get(root_pid, []))
+        while stack:
+            pid = stack.pop()
+            stack.extend(children.get(pid, []))
+            with contextlib.suppress(ProcessLookupError, PermissionError):
+                os.kill(pid, signal.SIGKILL)
+
+
+def generate(
+    out_dir: Path,
+    workers: int = 1,
+    *,
+    keep_existing: bool = False,
+    only_case: str | None = None,
+    watchdog: MemoryWatchdog | None = None,
+) -> dict[str, Any]:
+    """Write media, engine frames and the manifest. See the module note on memory bounds."""
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+    from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
+
+    guard = watchdog or MemoryWatchdog(None)
     ffmpeg = find_ffmpeg()
     cases = load_cases()
+    if only_case is not None:
+        cases = [(area, case) for area, case in cases if f"{area}/{case['id']}" == only_case]
+        if not cases:
+            raise KeyError(
+                f"No matrix case {only_case!r} (expected area/id, e.g. layering/layers-2)"
+            )
     out_dir.mkdir(parents=True, exist_ok=True)
 
     videos, others = collect_media(cases)
-    _log.info("encoding %d sentinel videos", len(videos))
-    with ThreadPoolExecutor(max_workers=jobs) as pool:
+    _log.info("encoding %d sentinel videos with %d worker(s)", len(videos), workers)
+    with ThreadPoolExecutor(max_workers=workers) as threads:
         list(
-            pool.map(
+            threads.map(
                 lambda spec: encode_video(ffmpeg, out_dir, spec),
                 [v for v in videos if not (keep_existing and (out_dir / v.rel_path).exists())],
             )
         )
         pattern = write_colour_pattern(out_dir)
         list(
-            pool.map(
+            threads.map(
                 lambda enc: encode_colour_clip(ffmpeg, pattern, out_dir, enc), COLOUR_ENCODINGS
             )
         )
@@ -579,26 +703,25 @@ def generate(out_dir: Path, jobs: int, keep_existing: bool = False) -> dict[str,
             write_audio_asset(ffmpeg, out_dir, rel, facts[1])
         else:
             write_lut(out_dir, rel)
+    guard.check()
 
-    _log.info("rendering engine frames for %d cases", len(cases))
-    tasks = [
-        (
-            str(out_dir),
-            area,
-            case,
-            list(range(start, len(case["samples"])))[:SAMPLES_PER_TASK],
-            keep_existing,
-        )
-        for area, case in cases
-        for start in range(0, len(case["samples"]), SAMPLES_PER_TASK)
-    ]
-    # Largest first, so the long transition cases start while the pool is empty.
-    tasks.sort(key=lambda task: -len(task[2]["samples"]))
-    rendered: dict[tuple[str, str], dict[int, dict[str, Any]]] = {}
-    with ProcessPoolExecutor(max_workers=jobs) as pool:
-        for task, samples in zip(tasks, pool.map(_grab_case, tasks), strict=True):
-            rendered.setdefault((task[1], task[2]["id"]), {}).update(samples)
+    _log.info("rendering engine frames for %d case(s), one case per process", len(cases))
+    tasks = [(str(out_dir), area, case, keep_existing) for area, case in cases]
+    rendered: list[list[dict[str, Any]]] = []
+    # A fresh process per case: whatever MoviePy, numpy or ffmpeg readers hold is returned to
+    # the OS when the case ends, not accumulated across 43 cases.
+    context = multiprocessing.get_context("spawn")
+    with ProcessPoolExecutor(
+        max_workers=workers, mp_context=context, max_tasks_per_child=1
+    ) as pool:
+        for (area, case), samples in zip(cases, pool.map(_grab_case, tasks), strict=True):
+            rendered.append(samples)
+            _log.info("rendered %s/%s (peak tree RSS %.0f MB)", area, case["id"], guard.peak_mb)
+            guard.check()
 
+    colour = measure_colour(out_dir)
+    COMPOSITION_CACHE.clear()
+    guard.check()
     manifest = {
         "version": MANIFEST_VERSION,
         "inputHash": input_hash(),
@@ -611,16 +734,10 @@ def generate(out_dir: Path, jobs: int, keep_existing: bool = False) -> dict[str,
             for spec in videos
         },
         "cases": [
-            {
-                "area": area,
-                "id": case["id"],
-                "samples": [
-                    rendered[(area, case["id"])][index] for index in range(len(case["samples"]))
-                ],
-            }
-            for area, case in cases
+            {"area": area, "id": case["id"], "samples": samples}
+            for (area, case), samples in zip(cases, rendered, strict=True)
         ],
-        "colour": measure_colour(out_dir),
+        "colour": colour,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
@@ -629,7 +746,23 @@ def generate(out_dir: Path, jobs: int, keep_existing: bool = False) -> dict[str,
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
     parser.add_argument("--out", type=Path, default=DEFAULT_OUT_DIR)
-    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="render processes (default 1; CI passes 2). Each holds one composition at a time.",
+    )
+    parser.add_argument(
+        "--max-rss-mb",
+        type=float,
+        default=None,
+        help="abort (killing workers) when this process tree's resident memory passes this",
+    )
+    parser.add_argument(
+        "--case",
+        default=None,
+        help="render only this case (area/id), for debugging ONE failure locally",
+    )
     parser.add_argument(
         "--keep-existing",
         action="store_true",
@@ -637,7 +770,21 @@ def main(argv: list[str] | None = None) -> int:
     )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
-    manifest = generate(args.out.resolve(), max(1, args.jobs), keep_existing=args.keep_existing)
+    with MemoryWatchdog(args.max_rss_mb) as watchdog:
+        try:
+            manifest = generate(
+                args.out.resolve(),
+                max(1, args.workers),
+                keep_existing=args.keep_existing,
+                only_case=args.case,
+                watchdog=watchdog,
+            )
+        except MemoryBudgetExceeded as exc:
+            _log.error("%s", exc)
+            return 2
+        except BrokenProcessPool:
+            watchdog.check()  # a worker killed by the watchdog surfaces as a broken pool
+            raise
     errors = sum(1 for case in manifest["cases"] for s in case["samples"] if s["error"])
     _log.info("wrote %s (%d engine errors recorded)", args.out / "manifest.json", errors)
     return 0
