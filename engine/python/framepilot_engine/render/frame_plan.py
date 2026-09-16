@@ -39,6 +39,7 @@ from framepilot_engine.render.text_overlay import text_overlay_layout
 from framepilot_engine.timeline.models import (
     Clip,
     Effect,
+    MaskLayer,
     Project,
     Track,
     TrackType,
@@ -252,9 +253,53 @@ def picture_effects(clip: Clip) -> list[Effect]:
     return found
 
 
-def first_mask_effect(clip: Clip) -> Effect | None:
-    """The mask the compiler attaches: the clip's FIRST ``mask`` effect (later ones are ignored)."""
-    return next((e for e in clip.effects if e.type == "mask"), None)
+def enabled_masks(clip: Clip) -> list[MaskLayer]:
+    """The clip's enabled mask layers, top first: the stack the export evaluates (schema v22)."""
+    return [mask for mask in (clip.masks or []) if mask.enabled]
+
+
+def mask_source_time(clip: Clip, local: float) -> float:
+    """The ASSET source second a clip's mask stack is evaluated at, clip-local ``local``.
+
+    Mask keyframes live on the source clock (ADR 0178). This is the continuous speed-stage
+    mapping (``render.masks.clip_source_clock``): ramp, freeze, forward and reverse speed.
+    Unlike :func:`video_source_time` it needs no probed fps, because the mask is attached
+    after the speed stage and sampled at the clip's own time, not at a decoded frame.
+    """
+    start = float(clip.source_start)
+    end = float(clip.source_end if clip.source_end is not None else clip.source_start)
+    if has_speed_ramp(clip):
+        span = max(0.0, end - start)
+        return start + source_time_at(list(clip.speed_ramp or []), 0.0, float(local), span)
+    speed = 1.0 if clip.speed is None else float(clip.speed)
+    if speed == 0.0:
+        return start
+    if speed < 0.0:
+        return end + local * speed
+    return start + local * speed
+
+
+def _mask_plan_json(clip: Clip, local: float) -> dict[str, Any] | None:
+    masks = enabled_masks(clip)
+    if not masks:
+        return None
+    layers: list[dict[str, Any]] = []
+    for mask in masks:
+        target: dict[str, Any] = {"kind": mask.target.kind}
+        if mask.target.kind == "effect":
+            target["effectId"] = mask.target.effect_id
+        layers.append(
+            {
+                "id": mask.id,
+                "kind": mask.kind,
+                "mode": str(mask.mode.value),
+                "invert": mask.invert,
+                "space": str(mask.space.value),
+                "featherModel": str(mask.feather_model.value),
+                "target": target,
+            }
+        )
+    return {"sourceTime": mask_source_time(clip, local), "layers": layers}
 
 
 def fit_scale(
@@ -615,7 +660,6 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
     fps = ctx.source_fps.get(clip.asset_id)
     source_time = video_source_time(clip, local, fps, ctx.asset_durations.get(clip.asset_id))
     transition = legacy_transition(clip)
-    mask = first_mask_effect(clip)
     return PlanLayer(
         kind="picture",
         role="clip",
@@ -631,13 +675,7 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
         effects=_effects_json(clip),
-        mask=None
-        if mask is None
-        else {
-            "id": mask.id,
-            "params": dict(mask.params),
-            "keyframes": [k.model_dump(by_alias=True, exclude_none=True) for k in mask.keyframes],
-        },
+        mask=_mask_plan_json(clip, local),
         transitions=_transition_states(clip, local),
     )
 

@@ -3,8 +3,20 @@
  * separately by `frame-plan.parity.test.ts` against `tests/fixtures/frame-plan`.
  */
 import { describe, expect, it } from 'vitest';
-import type { Asset, Clip, Timeline, Track } from '@framepilot/timeline-schema';
-import { FramePlanError, framePlanAt, sourceFrameIndex, videoSourceTime } from './frame-plan.js';
+import {
+  MaskLayerSchema,
+  type Asset,
+  type Clip,
+  type Timeline,
+  type Track,
+} from '@framepilot/timeline-schema';
+import {
+  FramePlanError,
+  framePlanAt,
+  maskSourceTime,
+  sourceFrameIndex,
+  videoSourceTime,
+} from './frame-plan.js';
 
 const FRAME = { width: 1280, height: 720 } as const;
 
@@ -208,5 +220,49 @@ describe('framePlanAt', () => {
     }) as Timeline;
     expect(() => framePlanAt(timeline, ASSETS, Number.NaN, FRAME)).toThrow(FramePlanError);
     expect(framePlanAt(timeline, ASSETS, 1, FRAME).layers).toHaveLength(1);
+  });
+});
+
+describe('framePlanAt mask stack (schema v22)', () => {
+  const rect = (id: string, extra: Record<string, unknown> = {}) =>
+    MaskLayerSchema.parse({
+      id,
+      kind: 'rectangle',
+      cx: 960,
+      cy: 540,
+      width: 400,
+      height: 300,
+      ...extra,
+    });
+
+  it('carries the enabled masks top first with their targets and the source time', () => {
+    const masked = clip('c', 'v', 0, 4, {
+      sourceStart: 2,
+      sourceEnd: 6,
+      masks: [
+        rect('top'),
+        rect('off', { enabled: false }),
+        rect('grade', { mode: 'subtract', target: { kind: 'effect', effectId: 'g1' } }),
+      ],
+    });
+    const layer = framePlanAt({ tracks: [track('v', 'video', [masked])] }, ASSETS, 1, FRAME)
+      .layers[0]!;
+    expect(layer.mask?.sourceTime).toBe(3);
+    expect(layer.mask?.layers.map((entry) => entry.id)).toEqual(['top', 'grade']);
+    expect(layer.mask?.layers[1]?.target).toEqual({ kind: 'effect', effectId: 'g1' });
+  });
+
+  it('plans a clip whose masks are all disabled as unmasked', () => {
+    const masked = clip('c', 'v', 0, 4, { masks: [rect('off', { enabled: false })] });
+    const layer = framePlanAt({ tracks: [track('v', 'video', [masked])] }, ASSETS, 1, FRAME)
+      .layers[0]!;
+    expect(layer.mask).toBeNull();
+  });
+
+  it('evaluates masks on the continuous source clock for reverse and freeze', () => {
+    const base = { sourceStart: 2, sourceEnd: 6 };
+    expect(maskSourceTime({ ...base, speed: -1 }, 1)).toBe(5);
+    expect(maskSourceTime({ ...base, speed: 0 }, 1)).toBe(2);
+    expect(maskSourceTime({ ...base, speed: 2 }, 1)).toBe(4);
   });
 });

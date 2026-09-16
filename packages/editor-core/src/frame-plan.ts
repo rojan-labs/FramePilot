@@ -23,6 +23,8 @@ import {
   type Clip,
   type Effect,
   type Keyframe,
+  type MaskLayer,
+  masksOf,
   type Timeline,
   type Track,
   type TranscriptWord,
@@ -100,13 +102,31 @@ export interface FramePlanLayer {
   readonly blendMode: string;
   /** Per-clip picture effects in the order the export applies them (grade, then LUT). */
   readonly effects: readonly { type: string; params: Record<string, unknown> }[];
-  /** The clip's FIRST `mask` effect, as stored — the only one the export draws. */
-  readonly mask: {
-    id: string;
-    params: Record<string, unknown>;
-    keyframes: readonly Keyframe[];
-  } | null;
+  /**
+   * The clip's enabled mask stack (schema v22, ADR 0178), top first, and the ASSET source
+   * second it is evaluated at; `null` when nothing is masked. The stack is referenced by
+   * mask id (geometry stays on the clip), so the plan carries order, kind, mode, target and
+   * feather model — what decides which pass draws it — without copying the geometry.
+   */
+  readonly mask: FramePlanMaskStack | null;
   readonly transitions: readonly FramePlanTransition[];
+}
+
+export interface FramePlanMaskLayer {
+  readonly id: string;
+  readonly kind: MaskLayer['kind'];
+  readonly mode: MaskLayer['mode'];
+  readonly invert: boolean;
+  readonly space: MaskLayer['space'];
+  readonly featherModel: MaskLayer['featherModel'];
+  readonly target: { kind: 'alpha' } | { kind: 'effect'; effectId: string };
+}
+
+export interface FramePlanMaskStack {
+  /** Asset source seconds the stack is evaluated at (the continuous speed-stage clock). */
+  readonly sourceTime: number;
+  /** Enabled masks, top first. */
+  readonly layers: readonly FramePlanMaskLayer[];
 }
 
 export interface FramePlanFrameEffect {
@@ -658,12 +678,51 @@ function baseLayer(
   };
 }
 
+/**
+ * The ASSET source second a clip's mask stack is evaluated at, clip-local `local`: the
+ * continuous speed-stage clock (ramp, freeze, forward, reverse). Mirrors the engine's
+ * `mask_source_time`; unlike {@link videoSourceTime} it needs no probed fps.
+ */
+export function maskSourceTime(
+  clip: Pick<Clip, 'sourceStart' | 'sourceEnd' | 'speed' | 'speedRamp'>,
+  local: number,
+): number {
+  const start = clip.sourceStart;
+  const end = clip.sourceEnd;
+  if (hasSpeedRamp(clip)) {
+    return start + sourceTimeAt(clip.speedRamp ?? [], 0, local, Math.max(0, end - start));
+  }
+  const speed = clip.speed ?? 1;
+  if (speed === 0) return start;
+  if (speed < 0) return end + local * speed;
+  return start + local * speed;
+}
+
+function maskPlan(clip: Clip, local: number): FramePlanMaskStack | null {
+  const enabled = masksOf(clip).filter((mask) => mask.enabled);
+  if (enabled.length === 0) return null;
+  return {
+    sourceTime: maskSourceTime(clip, local),
+    layers: enabled.map((mask) => ({
+      id: mask.id,
+      kind: mask.kind,
+      mode: mask.mode,
+      invert: mask.invert,
+      space: mask.space,
+      featherModel: mask.featherModel,
+      target:
+        mask.target.kind === 'effect'
+          ? { kind: 'effect', effectId: mask.target.effectId }
+          : { kind: 'alpha' },
+    })),
+  };
+}
+
 function videoLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
   const fps = ctx.sourceFps.get(clip.assetId) ?? null;
   const time = videoSourceTime(clip, local, fps, ctx.assetDurations.get(clip.assetId) ?? null);
   const tr = legacyTransition(clip);
-  const mask = effectOfType(clip, 'mask');
   return {
     ...baseLayer('picture', track.id, clip.id, local),
     source: { assetId: clip.assetId, assetKind: 'video', time, frame: sourceFrameIndex(time, fps) },
@@ -672,10 +731,7 @@ function videoLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
     effects: effectsJson(clip),
-    mask:
-      mask === undefined
-        ? null
-        : { id: mask.id, params: { ...mask.params }, keyframes: mask.keyframes },
+    mask: maskPlan(clip, local),
     transitions: transitionStates(clip, local),
   };
 }

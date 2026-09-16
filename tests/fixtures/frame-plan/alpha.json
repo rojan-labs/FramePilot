@@ -4,8 +4,8 @@
   "cases": [
     {
       "id": "mask-shapes",
-      "row": "Alpha: clip mask (today's rectangle/ellipse, static and keyframed)",
-      "description": "A static rectangle mask, then a keyframed ellipse mask, over a base.",
+      "row": "Alpha: clip mask stack (v22 rectangle/ellipse/path, static and keyframed)",
+      "description": "A static rectangle mask, then a keyframed ellipse over a subtracted path and a disabled mask, over a base.",
       "burnCaptions": false,
       "probe": {
         "fps": {
@@ -60,23 +60,19 @@
                   "end": 2.0,
                   "sourceStart": 0.0,
                   "sourceEnd": 2.0,
-                  "effects": [
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
                     {
                       "id": "m1__mask",
-                      "type": "mask",
-                      "params": {
-                        "shape": "rectangle",
-                        "bounds": {
-                          "x": 0.25,
-                          "y": 0.25,
-                          "width": 0.5,
-                          "height": 0.5
-                        }
-                      },
-                      "keyframes": []
+                      "kind": "rectangle",
+                      "featherModel": "gaussian-legacy",
+                      "cx": 540,
+                      "cy": 960,
+                      "width": 540,
+                      "height": 960
                     }
-                  ],
-                  "keyframes": []
+                  ]
                 },
                 {
                   "id": "m2",
@@ -86,38 +82,82 @@
                   "end": 4.0,
                   "sourceStart": 2.0,
                   "sourceEnd": 4.0,
-                  "effects": [
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
                     {
                       "id": "m2__mask",
-                      "type": "mask",
-                      "params": {
-                        "shape": "ellipse",
-                        "bounds": {
-                          "x": 0.0,
-                          "y": 0.25,
-                          "width": 0.5,
-                          "height": 0.5
-                        }
-                      },
+                      "kind": "ellipse",
+                      "featherModel": "gaussian-legacy",
+                      "cx": 270,
+                      "cy": 960,
+                      "rx": 270,
+                      "ry": 480,
                       "keyframes": [
                         {
                           "id": "mx0",
-                          "time": 0.0,
-                          "property": "x",
-                          "value": 0.0,
+                          "sourceTime": 2.0,
+                          "property": "cx",
+                          "value": 270,
                           "easing": "linear"
                         },
                         {
                           "id": "mx1",
-                          "time": 2.0,
-                          "property": "x",
-                          "value": 0.5,
+                          "sourceTime": 4.0,
+                          "property": "cx",
+                          "value": 810,
                           "easing": "linear"
                         }
                       ]
+                    },
+                    {
+                      "id": "m2__hole",
+                      "kind": "path",
+                      "mode": "subtract",
+                      "invert": true,
+                      "featherOuterPx": 12,
+                      "pathKeyframes": [
+                        {
+                          "id": "p0",
+                          "sourceTime": 2.0,
+                          "points": [
+                            400,
+                            800,
+                            0,
+                            0,
+                            0,
+                            0,
+                            700,
+                            800,
+                            0,
+                            0,
+                            0,
+                            0,
+                            550,
+                            1100,
+                            0,
+                            0,
+                            0,
+                            0
+                          ],
+                          "vertexTypes": [
+                            0,
+                            0,
+                            0
+                          ]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "m2__off",
+                      "kind": "rectangle",
+                      "enabled": false,
+                      "cx": 10,
+                      "cy": 10,
+                      "width": 5,
+                      "height": 5
                     }
-                  ],
-                  "keyframes": []
+                  ]
                 }
               ]
             },
@@ -219,17 +259,20 @@
               "blendMode": "normal",
               "effects": [],
               "mask": {
-                "id": "m1__mask",
-                "params": {
-                  "shape": "rectangle",
-                  "bounds": {
-                    "x": 0.25,
-                    "y": 0.25,
-                    "width": 0.5,
-                    "height": 0.5
+                "sourceTime": 1.0,
+                "layers": [
+                  {
+                    "id": "m1__mask",
+                    "kind": "rectangle",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "gaussian-legacy",
+                    "target": {
+                      "kind": "alpha"
+                    }
                   }
-                },
-                "keyframes": []
+                ]
               },
               "transitions": []
             }
@@ -308,30 +351,29 @@
               "blendMode": "normal",
               "effects": [],
               "mask": {
-                "id": "m2__mask",
-                "params": {
-                  "shape": "ellipse",
-                  "bounds": {
-                    "x": 0.0,
-                    "y": 0.25,
-                    "width": 0.5,
-                    "height": 0.5
-                  }
-                },
-                "keyframes": [
+                "sourceTime": 3.0,
+                "layers": [
                   {
-                    "id": "mx0",
-                    "time": 0.0,
-                    "property": "x",
-                    "value": 0.0,
-                    "easing": "linear"
+                    "id": "m2__mask",
+                    "kind": "ellipse",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "gaussian-legacy",
+                    "target": {
+                      "kind": "alpha"
+                    }
                   },
                   {
-                    "id": "mx1",
-                    "time": 2.0,
-                    "property": "x",
-                    "value": 0.5,
-                    "easing": "linear"
+                    "id": "m2__hole",
+                    "kind": "path",
+                    "mode": "subtract",
+                    "invert": true,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
                   }
                 ]
               },

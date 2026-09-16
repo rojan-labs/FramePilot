@@ -18,6 +18,7 @@ from framepilot_engine.render.compiler import _apply_speed, _subclipped_source
 from framepilot_engine.render.frame_plan import (
     FramePlanError,
     frame_plan_at,
+    mask_source_time,
     source_frame_index,
     underlay_material,
     video_source_time,
@@ -309,3 +310,60 @@ def test_source_time_is_what_the_compilers_time_chain_asks_the_reader_for(
         chained.get_frame(local)
         expected = video_source_time(clip, local, _FPS, _ASSET_SECONDS)
         assert requested[-1] == expected, (speed, ramp is not None, local)
+
+
+def _rect_mask(mask_id: str, **extra: Any) -> dict[str, Any]:
+    return {
+        "id": mask_id,
+        "kind": "rectangle",
+        "cx": 960,
+        "cy": 540,
+        "width": 400,
+        "height": 300,
+        **extra,
+    }
+
+
+def test_plan_carries_the_enabled_v22_mask_stack_in_order() -> None:
+    masks = [
+        _rect_mask("top", mode="add"),
+        _rect_mask("off", enabled=False),
+        _rect_mask("grade", mode="subtract", target={"kind": "effect", "effectId": "g1"}),
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [_clip("c", "v", 0.0, 4.0, masks=masks)]}]
+    )
+    layer = frame_plan_at(project, 1.0).layers[0]
+    assert layer.mask is not None
+    assert [entry["id"] for entry in layer.mask["layers"]] == ["top", "grade"]
+    assert layer.mask["layers"][1]["target"] == {"kind": "effect", "effectId": "g1"}
+    assert layer.mask["sourceTime"] == 1.0
+
+
+def test_a_clip_whose_masks_are_all_disabled_plans_unmasked() -> None:
+    clip = _clip("c", "v", 0.0, 4.0, masks=[_rect_mask("off", enabled=False)])
+    project = _project([{"id": "v", "type": "video", "clips": [clip]}])
+    assert frame_plan_at(project, 1.0).layers[0].mask is None
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        {},
+        {"speed": 2.0, "end": 2.0},
+        {"speed": -1.0},
+        {"speed": 0.0},
+        {"speedRamp": _RAMP},
+    ],
+)
+def test_mask_source_time_is_the_compilers_mask_clock(extra: dict[str, Any]) -> None:
+    from framepilot_engine.render.masks import clip_source_clock
+
+    fields = dict(extra)
+    end = float(fields.pop("end", 4.0))
+    raw = _clip("c", "v", 0.0, end, sourceStart=2.0, **fields)
+    raw["sourceEnd"] = 6.0
+    clip = Clip.model_validate(raw)
+    clock = clip_source_clock(clip)
+    for local in (0.0, 0.25, 1.5):
+        assert mask_source_time(clip, local) == clock(local)
