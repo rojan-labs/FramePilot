@@ -5,11 +5,10 @@
 | Item                                           | Why deferred                                                                                     | What it would reuse               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
 | Background blur / "portrait mode"              | A second consumer of the matte; ships as an effect that reads the same artifact                  | `matte` effect + existing blur    |
-| Background replacement presets (colour, image) | Achievable today by placing media on the track below; a preset UI is convenience, not capability | Tracks + BR5b                     |
+| Background replacement presets (colour, image) | Achievable today by placing media on the track below; a preset UI is convenience, not capability | Tracks + PX compositor            |
 | Export with alpha (ProRes 4444, VP9 alpha)     | A new export format surface; this plan composites mattes, it does not deliver transparent files  | Engine compositor                 |
 | Chroma key (green screen)                      | Different, deterministic technique; no model, no pack                                            | Engine + preview shader           |
 | Multiple subjects / multiple mattes per clip   | Doubles the UI and validation surface before one works                                           | Prompts already carry object sets |
-| Matted clips in 3+ layer stacks in the preview | Needs the general compositor (PREVIEW-WEBCODECS-COMPOSITOR P4)                                   | BR5b relation                     |
 | Browser build                                  | Desktop is product focus #1; no pack runtime in the browser                                      | —                                 |
 | Cloud matting provider                         | ADR 0114 allows it only with media-egress consent; there is no demand yet                        | Same capability contract          |
 | AI tool                                        | BR8, optional                                                                                    | Host job + `apply_matte`          |
@@ -28,6 +27,18 @@
 | Users read "precise" as "never wrong"                                                        | High       | Medium | Low-confidence ranges, matte view and corrections are first-class; guide and copy say how to fix a frame                  |
 | Pack size (0.4–1.2 GiB) deters install                                                       | Medium     | Low    | Size and on-device privacy shown in the warning; a smaller model tier considered only if BR0 data supports it             |
 
+### Added with the precision and parity update
+
+| Risk                                                                                      | Likelihood | Impact | Mitigation                                                                                                  |
+| ----------------------------------------------------------------------------------------- | ---------- | ------ | ----------------------------------------------------------------------------------------------------------- |
+| Verification misses wrong frames (recall < 99.5%)                                         | Medium     | High   | Measured in BR0.4 before the pack is built; stage 10 redesigned first if it misses                          |
+| Verification flags too much (review fatigue)                                              | Medium     | Medium | Review-load gate ≤ 10% on medium categories; self-correction runs before flagging                           |
+| Full-resolution precision pipeline is slow (Hiera-L, 2048² refine, full-res band matting) | High       | Medium | Honest ETA and confirmation; partial-window re-runs for fixes; no lower-quality mode that ships worse edges |
+| Extracting `frame_plan.py` from the compiler changes export output                        | Medium     | High   | Engine goldens must be unchanged in PX1; the extraction is decisions only, pixels stay in MoviePy           |
+| Chromium colour conversion differs from ffmpeg's                                          | High       | Medium | Measured in PX0.3; fixed in the shader, never absorbed into the tolerance                                   |
+| N-layer compositor misses the playback budget on 4K multi-layer timelines                 | Medium     | High   | Shared frames for same-source layers, decoder LRU, resolution-first load shedding; PX5 budgets              |
+| Deleting the DOM monitor removes a fallback someone relies on                             | Low        | Medium | Only after every oracle row passes; MD-5; browser keeps an explicit unavailable state                       |
+
 ## What would change this plan
 
 - BR0 shows the fallback pipeline meets the gates → drop SAM 2 video propagation and keep the
@@ -35,5 +46,6 @@
 - The maintainer rejects MD-3 → the worker streams alpha frames over a binary side channel to
   the host, which writes the files. That costs more protocol work (framing, backpressure) but
   keeps workers write-free.
+- The maintainer rejects MD-5 → PX still ships the compositor and oracle, but the DOM monitor stays for timelines it covers; parity is then guaranteed only on the WebCodecs path.
 - The maintainer rejects MD-1 → no feature. A raster matte has no place in the current schema,
   and faking it with polygon keyframes cannot represent hair or holes.

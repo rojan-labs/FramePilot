@@ -4,11 +4,10 @@
 
 A fourth `mask` shape (`shape: 'matte'`) looks smaller but is wrong:
 
-- The compiler and `clipMaskEffect` use the **first** mask. The editor's drawn garbage mask
-  and the matte would fight over that slot.
-- A drawn mask plus a matte is the professional workflow ("cut out the person, and also
-  exclude that light stand"). Two effect types compose naturally:
-  `alpha = matte(t) × shapeMask(t) × opacity`.
+- The compiler and `clipMaskEffect` use the **first** mask. The editor's drawn garbage mask and
+  the matte would fight over that slot.
+- A drawn mask plus a matte is the professional workflow ("cut out the person, and also exclude
+  that light stand"). Two effect types compose: `alpha = matte(t) × shapeMask(t) × opacity`.
 - Mask keyframes are timeline-relative and hit the `applySplit` effects-keyframe bug. A
   source-time matte has no keyframes, so it avoids that bug entirely.
 
@@ -21,101 +20,92 @@ MatteEffectSchema = EffectBase.extend({
     .object({
       artifact: z
         .object({
-          key: z.string().regex(/^[0-9a-f]{64}$/), // cache key → .framepilot-derived/mattes/<key>/
-          masterSha256: Sha256,
-          previewSha256: Sha256,
-          framesSha256: Sha256,
+          key: z.string().regex(/^[0-9a-f]{64}$/), // → .framepilot-derived/mattes/<key>/
+          files: z.array(z.object({ name: MatteFileName, sha256: Sha256 }).strict()),
           width: PositiveInt,
           height: PositiveInt,
-          coverage: z.object({ sourceStart: z.number(), sourceEnd: z.number() }).strict(), // seconds, source time
+          coverage: z.object({ sourceStart: z.number(), sourceEnd: z.number() }).strict(), // source seconds
           packId: z.string(),
           packVersion: z.string(),
           modelDigests: z.array(Sha256),
         })
         .strict(),
-      prompts: z.array(MattePromptSchema), // stored so a correction can re-run with the same inputs
-      edgeShift: z.number().min(-1).max(1).default(0), // fraction of FEATHER_UNIT: <0 choke, >0 spread
+      prompts: z.array(MattePromptRefSchema), // points/boxes inline; brush/lock by input file sha256
+      review: z
+        .object({
+          flagged: z.array(PtsRangeSchema), // from the worker, minus what the editor resolved
+          approved: z.array(PtsRangeSchema), // editor confirmed as correct without changes
+        })
+        .strict(),
+      edgeShift: z.number().min(-1).max(1).default(0), // fraction of EDGE_UNIT: <0 choke, >0 spread
       feather: z.number().min(0).max(1).default(0),
-      invert: z.boolean().default(false), // "remove subject, keep background"
+      decontaminate: z.boolean().default(true), // use foreground colour in the band
+      invert: z.boolean().default(false),
       enabled: z.boolean().default(true),
     })
     .strict(),
 });
 ```
 
-- Migration v21 → v22 is a no-op data migration (no existing project has a matte), plus a
-  version bump. It is registered in `migrations.ts` with a round-trip test and the Pydantic
-  parity test. The engine's strict `SCHEMA_VERSION` equality means fixtures must import the
-  constant, not hard-code 22.
-- Validator rules: at most one `matte` per clip; only on video/image clips; the clip's
-  `[sourceStart, sourceEnd]` within `coverage` (±½ frame), otherwise
-  `matte_out_of_coverage` with the remedy "Update the background removal for the new range";
-  artifact files present and matching digests on desktop (host-checked, see below).
-- Constants (`FEATHER_UNIT`, edge-shift pixel scale) live in one shared module and are mirrored
-  in Python with a parity test, following `captionStyle.ts ↔ captions.py`.
+- `edgeShift` and `feather` default to **0**: the delivered matte is already the precise one, and
+  these exist for creative looks, not as a repair tool. The Inspector labels them that way.
+- Migration v21 → v22 is a no-op data migration (no existing project has a matte), plus a version
+  bump, registered in `migrations.ts` with a round-trip test and the Pydantic parity test. Fixtures
+  import `SCHEMA_VERSION`; they never hard-code 22.
+- Validator rules: at most one `matte` per clip; video/image clips only; the clip's source range
+  within `coverage` (±½ frame), otherwise `matte_out_of_coverage` with the remedy "Update the
+  background removal for the new range"; `review.approved` ⊆ coverage.
+- Constants (`EDGE_UNIT`, filter kernels) live in one shared module mirrored in Python with a
+  parity test (the `captionStyle.ts ↔ captions.py` pattern).
 
 ## Operations (`packages/editor-core`), each with `apply` + `invert`
 
-| Op                                                                 | Apply                                    | Invert                                             |
-| ------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------- |
-| `apply_matte { clipId, params }`                                   | Add or replace the clip's `matte` effect | Restore the previous effect snapshot, or remove it |
-| `update_matte { clipId, edgeShift?, feather?, invert?, enabled? }` | Patch refine fields                      | Restore the previous values                        |
-| `remove_matte { clipId }`                                          | Remove it                                | Re-add the snapshot at its original effect index   |
+| Op                                                                                 | Apply                                                                                                                                        | Invert                                             |
+| ---------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| `apply_matte { clipId, params }`                                                   | Add or replace the clip's `matte` effect                                                                                                     | Restore the previous effect snapshot, or remove it |
+| `update_matte { clipId, edgeShift?, feather?, decontaminate?, invert?, enabled? }` | Patch the look fields                                                                                                                        | Restore previous values                            |
+| `review_matte { clipId, approve?: PtsRange[], unapprove?: PtsRange[] }`            | Mark ranges approved                                                                                                                         | Restore the previous review state                  |
+| `remove_matte { clipId }`                                                          | Remove it                                                                                                                                    | Re-add the snapshot at its original effect index   |
+| `add_text_behind_subject { clipId, text }` (BR6 shortcut)                          | Duplicate the clip onto a new track above, move the matte to the copy (removing it from the original), insert a text clip on a track between | Exact inverse of the composite patch               |
 
-If the existing generic effect ops already cover add, update and remove with snapshot inverses,
-use them and add only the `matte` validator. Decide by reading `editor-core` at BR1 start; do not
-build parallel ops. The patch-id rule holds: identity is operations only.
+If generic effect ops already cover add, update and remove with snapshot inverses, use them and add
+only the `matte` validator plus `review_matte`. Decide by reading `editor-core` at BR1 start; do not
+build parallel ops. Patch identity is operations only.
 
-Artifact existence is not a pure-function check. The pure validator checks shape and coverage.
-The desktop `validateProjectMedia` step (where missing media is already reported) checks files
-and digests, so a reopened project with a deleted matte shows one clear issue on the clip.
+Artifact existence is not a pure-function check. The pure validator checks shape and coverage; the
+desktop project-media validation (where missing media is already reported) checks files and
+digests, so a reopened project with a deleted matte shows one clear issue on the clip.
 
 ## Engine render (`engine/python/framepilot_engine/render/mattes.py`, new)
 
-- `MatteReader`: opens `matte.mkv` with ffmpeg as `gray` rawvideo, maps a source time to the
-  frame via `frames.json` pts (bisect), and keeps a sequential read cursor plus a small LRU so a
-  forward export decodes each matte frame once. It never loads the whole matte.
-- Order inside the clip's picture pipeline, matching the preview exactly:
-  `source → crop → matte (edgeShift, feather, invert) → × shape mask → × opacity → transform → composite`.
-  The matte is applied at **source resolution before crop**, so crop and transform move the cut-out
-  with the picture.
-- Edge shift = greyscale erode/dilate with radius `|edgeShift| × FEATHER_UNIT × min(w,h)`;
-  feather = Gaussian blur of alpha. PIL `MinFilter`/`MaxFilter`/`GaussianBlur` are already engine
+- `MatteReader`: reads `matte.mkv` (gray) and `foreground.mkv` via ffmpeg rawvideo, maps a source
+  pts to the frame through `frames.json` (bisect), and keeps a sequential cursor plus a small LRU so
+  export decodes each frame once. It never loads the whole matte.
+- Order inside a picture layer, identical to the preview's layer pipeline in
+  [`09`](./09-PREVIEW-EXPORT-PARITY.md): `source → decontaminate (foreground colour in band) → matte
+(edgeShift, feather, invert) → × shape mask → × opacity → crop → grade/effects → transform →
+composite`. The matte is applied at **source resolution** before crop, so crop and transform
+  move the cut-out with the picture. (The BR1 ADR fixes the grade-vs-matte order once by reading
+  the compiler, and the frame-plan parity vectors pin it.)
+- Edge shift = greyscale erode/dilate with radius `|edgeShift| × EDGE_UNIT × min(w,h)`; feather =
+  Gaussian blur of alpha. PIL `MinFilter`/`MaxFilter`/`GaussianBlur` and numpy are existing engine
   dependencies. The engine gains no new dependency.
-- Refusals are typed and happen before rendering starts, not mid-export: missing file,
-  digest mismatch, out of coverage, dimension mismatch against the asset.
-- Tests: unit tests on synthetic mattes (a gradient, a hard disk, a 1-px line); a render golden
-  with a fixture matte over a two-track timeline; VFR and edit-list pts fixtures; the
-  speed-ramped clip maps output time → source time → matte frame.
+- Typed refusals happen before rendering starts, not mid-export: missing file, digest mismatch, out
+  of coverage, dimension mismatch against the asset.
+- Tests: unit tests on synthetic mattes (a gradient, a hard disk, a 1-px line, a band with
+  foreground colour); a render golden with a fixture matte in a **video → text → matted copy**
+  timeline; VFR and edit-list pts fixtures; a speed-ramped clip mapping output time → source pts →
+  matte frame.
 
-## Preview (`apps/web-editor/src/preview`)
+## Preview
 
-### BR5a — a matted clip alone (black behind)
+The preview side of mattes is **not** a special case anymore. It is one layer pass inside the
+N-layer compositor planned in [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md):
 
-- `clip-matte.ts`: resolve the matte for a clip at source time from `frames.json`, and
-  decode `preview.webm` through the existing `DecodeWorkerClient` + `FrameRing` (one session
-  per matte, the same as a source).
-- Paint: draw the clip into its offscreen layer, convert the matte frame's luma to alpha
-  (a WebGL pass in `GlEffectChain`: `alpha = luma`, then edge shift and feather as shader passes
-  whose kernels mirror the engine's), composite `destination-in`, then apply the existing
-  `paintClipMask`.
-- `canvasPreviewEligible` admits a matted clip when nothing overlaps it (unchanged rule).
-
-### BR5b — a matted clip over one lower clip (the real user outcome)
-
-- A new admitted relation in `canvasPreviewEligible`: in an overlap, the front clip may be
-  matted **if every clip behind it is full-frame opaque** and the stack is at most two picture
-  layers. The rule stays a relation (ADR 0169/0170), written the same way.
-- The engine paints the back segment, then the front layer composited with its matte. That
-  means two decode sessions active at once, which the P2 engine already supports across cuts but
-  not simultaneously. This is the only compositor extension this plan makes.
-- Anything wider (three layers, a matted clip behind another translucent clip) stays
-  ineligible and falls back with the existing "preview differs from export" affordance. It is
-  listed in [`08`](./08-DEFERRED-AND-RISKS.md).
-
-### Parity test
-
-A headless test renders frames at 5 timestamps through the engine and through the canvas path
-on the same fixture (matte + edge shift + feather + shape mask + crop + transform) and asserts
-mean absolute alpha difference ≤ 2/255 away from edges and ≤ 8/255 in the edge band (the
-preview proxy is lossy VP9 at proxy resolution). Frame alignment must be exact.
+- `apps/web-editor/src/preview/engine/passes/matte-pass.ts`: decodes `preview.webm` and
+  `foreground.preview.webm` through the shared decoder pool by the pts the frame plan gives, then
+  applies luma→alpha, decontamination, edge shift and feather as shader passes whose kernels mirror
+  `mattes.py`.
+- Preview-only views (Composite | Matte | Overlay | Flagged) are a final debug pass selected by
+  UI state and never enter the project.
+- Parity is proven by the `09` oracle rows for mattes and text-behind-subject, not by a separate test.

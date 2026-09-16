@@ -24,21 +24,21 @@ sequenceDiagram
   Main->>FS: verify (ffprobe, frame count, pts, sha256) → atomic rename
   Main-->>UI: MatteArtifactWire
   UI->>Core: apply_matte op → validate → applyPatchChecked (undoable)
-  UI->>UI: preview composites preview.webm (destination-in)
+  UI->>UI: preview: framePlanAt() → N-layer compositor → matte pass (09)
   Eng->>FS: export reads matte.mkv by pts, verifies digest, composites
 ```
 
 ## Ownership
 
-| Concern                                           | Owner                                                                         | Rule                                                                                         |
-| ------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Inference (segmentation, refinement, matting)     | `workers/background-removal` pack                                             | The only place an ML runtime runs (ADR 0114). The frozen engine gains no dependency.         |
-| Where a matte is written, verified, cached        | `apps/desktop/electron/capability-packs/matte.ts` (new)                       | The host issues the output handle and owns the atomic rename. The worker never picks a path. |
-| What a matte means on the timeline                | `packages/timeline-schema` (`matte` effect, v22) + Pydantic twin              | Zod and Pydantic stay in sync, with a migration.                                             |
-| Attaching, replacing, removing, refining a matte  | `packages/editor-core` operations with `apply` + `invert`                     | Every change is a typed op, validated before apply.                                          |
-| Pixels at export                                  | `engine/.../render/mattes.py` (new), called from `compiler.py`                | Renders only. Never infers, and never renders a missing or mismatched matte silently.        |
-| Pixels in the monitor                             | `apps/web-editor/src/preview/clip-matte.ts` (new) + compositor                | Parity with the engine on edge shift, feather, invert and the combination with shape masks.  |
-| When the feature is usable, and how it is started | `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx` (new) | Reads pack status before offering the action.                                                |
+| Concern                                                                 | Owner                                                                         | Rule                                                                                         |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Inference (segmentation, refinement, matting)                           | `workers/background-removal` pack                                             | The only place an ML runtime runs (ADR 0114). The frozen engine gains no dependency.         |
+| Where a matte is written, verified, cached                              | `apps/desktop/electron/capability-packs/matte.ts` (new)                       | The host issues the output handle and owns the atomic rename. The worker never picks a path. |
+| What a matte means on the timeline                                      | `packages/timeline-schema` (`matte` effect, v22) + Pydantic twin              | Zod and Pydantic stay in sync, with a migration.                                             |
+| Attaching, replacing, removing, refining a matte                        | `packages/editor-core` operations with `apply` + `invert`                     | Every change is a typed op, validated before apply.                                          |
+| Pixels at export                                                        | `engine/.../render/mattes.py` (new), called from `compiler.py`                | Renders only. Never infers, and never renders a missing or mismatched matte silently.        |
+| Pixels in the monitor (via the frame plan and N-layer compositor, `09`) | `apps/web-editor/src/preview/clip-matte.ts` (new) + compositor                | Parity with the engine on edge shift, feather, invert and the combination with shape masks.  |
+| When the feature is usable, and how it is started                       | `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx` (new) | Reads pack status before offering the action.                                                |
 
 ## Invariants
 
@@ -47,9 +47,7 @@ sequenceDiagram
    baked"). Uninstalling the pack disables _recomputing and correcting_, not playing or exporting.
 2. **A matte is addressed by source media time.** Trims, splits, moves and ripple edits never
    invalidate it while the clip's source range stays within the matte's coverage.
-3. **Preview and export agree.** The preview uses a lossy proxy of the same matte, the export
-   uses the lossless master, and both apply the same refine parameters in the same order.
-   Parity is asserted by test (BR5).
+3. **Preview and export agree.** Both consume the same frame plan (`framePlanAt` ↔ `frame_plan_at`); the preview uses the lossy proxy of the matte and the export the lossless master, with identical passes. Proven by the pixel oracle in [`09`](./09-PREVIEW-EXPORT-PARITY.md), not by a bespoke test.
 4. **Missing, stale or mismatched is loud.** A missing artifact, a digest mismatch or
    out-of-coverage source time is a validation issue with a remedy. Nothing falls back to
    the unmatted picture silently.

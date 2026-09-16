@@ -10010,29 +10010,37 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
   reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
 
-## Phase BR — Background Removal: a precise, correctable subject matte from a local pack — `[ ]` proposed (2026-09-16)
+## Phase BR — Background Removal + preview/export parity — `[ ]` proposed (2026-09-16, updated same day)
 
-Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (nine files:
-current state, architecture, worker pack, protocol/host, schema/render/preview, Inspector UX,
-precision eval, tasks, deferred/risks). **Gap, audited:** `subject.segment` returns ≤512 px binary
-RLE inline on a 1 MiB JSON line and is human-only; no schema can reference a raster matte; workers
-cannot write files; the preview cannot draw a non-opaque clip over another. **Decision (pending
-MD-1..MD-4):** new pack `framepilot.background-removal` on onnxruntime (SAM 2.1 propagation →
-BiRefNet refinement → band alpha matting → flow-guided stabilisation), writing a lossless FFV1
-matte + VP9 preview proxy into a host-verified `.framepilot-derived/mattes/` directory; schema v22
-`matte` effect addressed by source pts; engine and a two-layer canvas relation composite it;
-Inspector → Mask → Background warns before use when the pack is missing and works after install
-without restart. "100% precise" is made measurable: gates in `06`, plus correction clicks that
-must converge in ≤3.
+Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (ten files).
+**Two tracks.** **PX (core preview fix, maintainer request 2026-09-16):** the monitor picks a
+renderer by timeline content (`Editor.tsx:545` DOM `PreviewPlayer` vs WebCodecs;
+`canvasPreviewEligible` drops segments, overlays and captions), draws a flat one-picture EDL, and
+paints text above every picture while the export composites text at its track position
+(`compiler.py:1138-1148`). Fix: one `framePlanAt` ↔ `frame_plan_at` frame description with parity
+vectors, a pixel oracle against `frame_grab.py` built before the compositor, an N-layer WebGL
+compositor, then delete the gates and the DOM monitor (MD-5). Supersedes the open P3 visual-diff and
+P4 speed-ramp/decoder-LRU items of `PREVIEW-WEBCODECS-COMPOSITOR.md`. **BR (background removal):**
+new pack `framepilot.background-removal` (SAM 2.1 Hiera-L forward+backward, BiRefNet HR, consensus,
+self-correction, full-res band matting, foreground decontamination, independent verification) →
+schema v22 `matte` effect → review list with brush fixes and locked frames → Verified. "100%" is
+defined as gates: error-detection recall ≥ 99.5%, correction to IoU ≥ 0.995 in ≤ 3 actions, plus
+model-quality gates in `06`.
 
-- [ ] BR0 — spike: SAM 2.1 ONNX on CoreML/DirectML, licences, throughput, fallback; MD-2 decision
-- [ ] BR1 — schema v22 `matte` effect + migration + ops/validator (needs MD-1)
-- [ ] BR2 — engine `render/mattes.py`, pts lookup, render golden
-- [ ] BR3 — `workers/background-removal` pack + local registration
-- [ ] BR4 — `subject.matte` protocol, staging sandbox, desktop host, status IPC (needs MD-3/MD-4, security review)
-- [ ] BR5 — preview matte compositing + two-layer relation + parity test
-- [ ] BR6 — Inspector Background section: missing-pack warning, install, run, refine, correct
-- [ ] BR7 — precision eval gates + desktop e2e (install → remove → export → undo → reopen)
+- [ ] PX0 — inventory every feature-matrix row: renderer used, diff vs `frame_grab`, colour conversion
+- [ ] PX1 — `frame_plan.py` extracted from the compiler + `framePlanAt` + parity vectors
+- [ ] PX4 — pixel oracle (Playwright desktop vs lossless `frame_grab`), baseline failures recorded
+- [ ] PX2 — N-layer compositor (text z-order, speed ramps, shared frames, streaming demux, colour matrix)
+- [ ] PX3 — delete `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM program monitor (MD-5)
+- [ ] PX5 — performance budgets and regression guard
+- [ ] BR0 — spike: SAM 2.1 ONNX, licences, error-detection recall, throughput; MD-2
+- [ ] BR1 — schema v22 `matte` effect + ops incl. `review_matte`, `add_text_behind_subject` (MD-1)
+- [ ] BR2 — engine `render/mattes.py` + decontamination + golden (video → text → matted copy)
+- [ ] BR3 — `workers/background-removal` precision pipeline + local registration
+- [ ] BR4 — `subject.matte` protocol, staging sandbox, host, status IPC, corrections (MD-3/MD-4, security review)
+- [ ] BR5 — matte pass in the compositor; oracle rows green (needs PX2)
+- [ ] BR6 — Inspector Background: missing-pack warning, install, run, review/brush/lock, Verified, text behind subject
+- [ ] BR7 — every `06` gate on both platforms + desktop e2e
 - [ ] BR8 — (optional) `remove_background` AI tool
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)

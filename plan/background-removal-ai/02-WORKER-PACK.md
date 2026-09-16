@@ -8,75 +8,93 @@ megabytes of weights. Folding it in would make every face-detection user downloa
 model. ADR 0176 already rejected "one pack for everything" for the same reason. The new pack
 uses onnxruntime, which `visual-embed` already ships, so the platform gains no new runtime.
 
-`subject-intelligence` stays as the **auto-prompt source**: `subject.detect` finds the main
-person or object when the editor does not click. If it is not installed, the Inspector asks for
-a click instead of requiring a second download.
+`subject-intelligence` stays as the **auto-prompt source** (`subject.detect`). If it is not
+installed, the Inspector asks for a click instead of requiring a second download.
+
+## Precision is the design goal, not a tuning pass
+
+The pipeline trades compute for accuracy everywhere the two conflict. There is one quality
+level, the most accurate one; there is no "fast mode" that quietly ships worse edges. The
+design aims at a result where **every frame is either verified correct by the pipeline's own
+cross-checks, or put in front of the editor to confirm or fix**. Four mechanisms get there:
+
+1. **The largest models that pass the licence gate**, at full source resolution where it matters.
+2. **Independent estimates that must agree.** Pixels and frames where they disagree are exactly
+   the ones that get more work, or get flagged.
+3. **A self-correction loop** that re-prompts the segmenter from its own high-confidence frames
+   before any frame reaches the editor.
+4. **Editor corrections as hard constraints.** A frame the editor fixed or approved is never
+   overwritten by propagation.
 
 ## Pipeline (per request)
 
-| Stage        | What                                                                                                                                                                                  | Why it matters for precision                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| 1. Decode    | Decode the clip's source range with pts via PyAV or an ffmpeg pipe, **not** `cv2.VideoCapture`. Record `frames.json` = `[pts]`.                                                       | Frame identity must match the engine's decode (see [`03`](./03-PROTOCOL-AND-HOST.md#frame-identity)). |
-| 2. Prompt    | Prompts from the host: points (include/exclude), boxes, and correction frames. Auto mode uses a box from `subject.detect`, run by the host beforehand.                                | Works on any subject kind, not just people.                                                           |
-| 3. Segment   | **SAM 2.1** video predictor: image encoder + memory attention propagate the prompted object forward and backward through the range.                                                   | Memory across frames removes most boundary flicker. Corrections on frame _k_ re-propagate from _k_.   |
-| 4. Refine    | **BiRefNet** (high-resolution dichotomous segmentation) run on a padded crop around the SAM mask. The result is fused with the SAM mask as a guide, so BiRefNet cannot swap subjects. | SAM's mask decoder is low-resolution. BiRefNet recovers fine structure at 1024² crop resolution.      |
-| 5. Matte     | Build a trimap from the refined mask (erode = sure foreground, dilate = sure background, band = unknown) and run an **alpha-matting model** on the band only.                         | Hair and semi-transparent edges get real fractional alpha, not a hard or blurred cut.                 |
-| 6. Stabilise | Temporal smoothing of alpha in the unknown band only, guided by optical flow (`cv2.calcOpticalFlowFarneback`) and bounded so it never moves a confident pixel.                        | Removes residual edge shimmer without smearing motion.                                                |
-| 7. Score     | Per-frame confidence: SAM IoU prediction, band-area ratio, and frame-to-frame alpha change. Emit `lowConfidence: [{startPts, endPts, reason}]`.                                       | Tells the editor where to look (principle 3 in the README).                                           |
-| 8. Encode    | Master: FFV1 `gray` 8-bit in MKV at source resolution, lossless. Preview: VP9 `gray` in WebM at proxy resolution. Write `frames.json` and `manifest.json` (dims, pts, digests).       | Lossless master for export precision; a small, decodable proxy for the monitor.                       |
+| Stage                | What                                                                                                                                                                                                                                                                                                                                                                     | Precision role                                                                                      |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------- |
+| 1. Decode            | Full-resolution decode of the clip's source range with pts via PyAV/ffmpeg, never `cv2.VideoCapture`. `frames.json` = `[pts]`. Colour converted with the same matrix and range the engine uses.                                                                                                                                                                          | Frame identity and colour agree with the export ([`03`](./03-PROTOCOL-AND-HOST.md#frame-identity)). |
+| 2. Prompts           | Points (include/exclude), boxes, **correction masks** (editor brush strokes, full-res PNG) and **locked frames** (editor-approved alpha). Auto mode uses the host's `subject.detect` box.                                                                                                                                                                                | Editor input is data the pipeline must honour, not a hint.                                          |
+| 3. Segment ×2        | **SAM 2.1 Hiera-L** video propagation run **forward and backward** from every prompt and locked frame, memory bank seeded with locked frames.                                                                                                                                                                                                                            | Two independent temporal estimates per frame.                                                       |
+| 4. Refine            | **BiRefNet HR** on a padded crop around the subject at up to 2048² (tiled beyond that), guided by the SAM consensus so it cannot switch subjects.                                                                                                                                                                                                                        | Recovers fine structure the SAM decoder's resolution cannot.                                        |
+| 5. Consensus         | Per pixel: forward SAM, backward SAM, BiRefNet and the flow-warped previous frame's alpha. Unanimous pixels are fixed at 0 or 1; disagreement pixels form the **unknown band**. Per frame: a disagreement score.                                                                                                                                                         | Turns "the model is unsure" into a measured region and a measured frame score.                      |
+| 6. Self-correct      | Frames whose score crosses the threshold are re-segmented with **auto-generated prompts** (positive and negative points sampled from the consensus of the nearest high-confidence frames on both sides), for up to `K=3` rounds. Frames still failing are flagged.                                                                                                       | Most drift and subject-swap errors are fixed before the editor sees them.                           |
+| 7. Matte             | Alpha matting on the unknown band only, at **full source resolution** (tiled with overlap), from a trimap built from the consensus.                                                                                                                                                                                                                                      | Real fractional alpha for hair, motion blur and translucency.                                       |
+| 8. Foreground colour | Estimate the true foreground colour in the band (multi-level foreground estimation, an MIT-licensed numpy algorithm; no model) so edges carry the subject's colour, not the old background's.                                                                                                                                                                            | Removes the halo or colour fringe that shows once something new is behind the subject.              |
+| 9. Stabilise         | Temporal smoothing of alpha **in the band only**, flow-guided, bounded so no pixel that stage 5 fixed and no locked frame changes.                                                                                                                                                                                                                                       | Kills edge shimmer without smearing motion.                                                         |
+| 10. Verify           | Independent per-frame checks: (a) alpha re-warped by optical flow from both neighbours, compared with this frame's; (b) connected-component audit (new islands or holes vs neighbours); (c) edge alignment of the alpha gradient against image gradients in the band; (d) subject area and centroid continuity. Any check failing → `needsReview` range with the reason. | "Unsure" becomes a list the editor can clear, not a defect they find after export.                  |
+| 11. Encode           | `matte.mkv` FFV1 gray 8-bit and `foreground.mkv` FFV1 (band pixels only, zero elsewhere, which compresses to near nothing) at source resolution, lossless; `preview.webm` + `foreground.preview.webm` VP9 at proxy resolution; `frames.json`; `report.json` (per-frame scores, check results, rounds used).                                                              | A lossless master for export and a small proxy for the monitor.                                     |
 
-Full-resolution refinement at 4K is expensive. Stage 4 and 5 run at `min(source, 2160p)` on the
-crop around the subject, never on the full frame, and the alpha is upsampled with a guided filter
-against the full-resolution luma (`cv2.ximgproc.guidedFilter`, already in the pinned OpenCV
-contrib wheel).
+Alpha is never produced below source resolution. 4K footage gets a 4K matte.
 
 ## Candidate models and licence gate (verified in BR0, not assumed here)
 
 Licences change and my knowledge of them has a cutoff. Every row is re-checked at BR0 against
-the upstream licence file at a pinned commit and recorded in `pack/models.lock.toml` +
-`LICENSES.md`, the same way `subject-intelligence` records its models.
+the upstream licence file at a pinned commit, including **training-data terms**, and recorded in
+`pack/models.lock.toml` + `LICENSES.md` the way `subject-intelligence` records its models.
 
-| Role               | Candidate                                     | Licence (to verify)                                                | Status                                                                                                              |
-| ------------------ | --------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
-| Video segmentation | SAM 2.1 (Hiera-S / Hiera-B+)                  | Apache-2.0 (code + checkpoints)                                    | **Primary.** Risk: ONNX export of memory attention (BR0).                                                           |
-| Refinement         | BiRefNet (general / HR variants)              | MIT                                                                | **Primary.** Check training-data terms on the chosen checkpoint.                                                    |
-| Alpha matting      | ViTMatte (ViT-S)                              | MIT code; **weights trained on Composition-1k / Distinctions-646** | **Open question.** Dataset terms may restrict commercial use of derived weights. BR0 decides.                       |
-| Alpha matting alt. | Classical closed-form / guided-filter matting | n/a (algorithm, OpenCV)                                            | **Fallback** if no matting checkpoint passes the licence gate. Lower hair quality, which is measured and disclosed. |
-| Rejected           | BRIA RMBG-1.4 / RMBG-2.0                      | Non-commercial (CC BY-NC-family)                                   | Rejected on licence, not on accuracy.                                                                               |
-| Rejected           | Robust Video Matting                          | GPL-3.0                                                            | Strong copyleft; the SBOM gate rejects it (maintainer policy, 2026-08-25).                                          |
-| Rejected           | MatAnyone and other S-Lab-licence models      | Non-commercial                                                     | Rejected on licence.                                                                                                |
-| Rejected           | Ultralytics YOLO-seg                          | AGPL-3.0                                                           | Already rejected for `subject-intelligence`.                                                                        |
+| Role                             | Candidate                                                                                       | Licence (to verify)                                            | Status                                                                                                            |
+| -------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Video segmentation               | SAM 2.1 Hiera-L (Hiera-B+ measured as a comparison only)                                        | Apache-2.0                                                     | **Primary.** Risk: ONNX export of memory attention (BR0).                                                         |
+| Refinement                       | BiRefNet HR / HR-matting variants                                                               | MIT                                                            | **Primary.** Check training-data terms of the chosen checkpoint.                                                  |
+| Alpha matting                    | ViTMatte (largest variant that passes)                                                          | MIT code; weights trained on Composition-1k / Distinctions-646 | **Open.** Dataset terms may bar commercial use of derived weights. BR0 decides.                                   |
+| Alpha matting alt.               | Classical closed-form matting on the band                                                       | n/a (algorithm)                                                | **Fallback.** Measured against the gates in `06`; if it misses the hair gate, the plan returns to the maintainer. |
+| Foreground colour                | Multi-level foreground estimation                                                               | MIT (algorithm, numpy)                                         | Primary. No weights.                                                                                              |
+| Optical flow (verify, stabilise) | OpenCV DIS / Farneback; a learned flow model only if BR0 shows the classical checks miss errors | BSD/Apache (OpenCV)                                            | Primary.                                                                                                          |
+| Rejected                         | BRIA RMBG-1.4 / RMBG-2.0                                                                        | Non-commercial                                                 | Rejected on licence, not on accuracy.                                                                             |
+| Rejected                         | Robust Video Matting                                                                            | GPL-3.0                                                        | Strong copyleft; the SBOM gate rejects it.                                                                        |
+| Rejected                         | MatAnyone and other S-Lab-licence models                                                        | Non-commercial                                                 | Rejected on licence.                                                                                              |
+| Rejected                         | Ultralytics YOLO-seg                                                                            | AGPL-3.0                                                       | Already rejected for `subject-intelligence`.                                                                      |
+
+**If a strictly better model appears under a permissive licence**, swapping it in is a
+`models.lock.toml` change plus a re-run of the `06` eval. The pipeline stages do not change.
 
 ## Runtime
 
-- `onnxruntime` with the CoreML EP on darwin-arm64 and the DirectML EP on win32-x64, CPU as the
-  last resort. The pack records which EP ran in the result, and slow CPU runs are disclosed in
-  the ETA before the job starts.
-- Record the known `visual-embed` finding up front: CoreML refused batch > 1. Stage 3 is batch 1
-  anyway, and stage 4/5 batch sizes are measured in BR0, not assumed.
-- Memory: SAM 2 memory bank is bounded (N most recent + prompted frames). Long clips are
-  processed in overlapping windows (e.g. 300 frames, 30 overlap) with the overlap cross-faded
-  in the band only, so a 10-minute clip never holds all frames in memory.
-- `manifest.toml`: `capabilities = ["subject.matte"]`, `network = "disabled"`,
-  `max_unpacked_mib` set from the measured BR0 artifact, not guessed.
+- `onnxruntime` with the CoreML EP (darwin-arm64) and DirectML EP (win32-x64). The result records
+  the EP. **A CPU fallback runs the same models at the same precision**; it is slower, not worse.
+  The ETA says so.
+- The known `visual-embed` CoreML finding (batch > 1 refused) is recorded up front. Batch sizes
+  are measured in BR0.
+- Long clips are processed in overlapping windows (e.g. 300 frames, 60 overlap). Overlaps go
+  through stage 5 consensus like any other pair of estimates, so a window seam is verified, not
+  cross-faded blindly.
+- `manifest.toml`: `capabilities = ["subject.matte"]`, `network = "disabled"`, and
+  `max_unpacked_mib` from the measured BR0 artifact.
 
 ## BR0 — the spike that decides whether this plan stands
 
-Nothing past BR0 starts until these are answered with numbers in `plan/background-removal-ai/BR0-FINDINGS.md`:
+Nothing past BR0 starts until these are answered with numbers in `BR0-FINDINGS.md`:
 
-1. **ONNX export of SAM 2.1 video propagation** (encoder, prompt decoder, memory encoder,
-   memory attention) runs on CoreML and DirectML and matches PyTorch within IoU ≥ 0.995 on 3
-   fixture clips.
-   - **Fallback if it does not:** SAM 2.1 _image_ mode per keyframe (every N frames) plus
-     BiRefNet per frame, plus flow-guided propagation between keyframes. Flicker is measured
-     against the primary pipeline. If the fallback misses the gate in [`06`](./06-PRECISION-AND-EVAL.md),
-     the plan returns to the maintainer rather than shipping a flickering matte.
-2. **Licences** for every checkpoint in the table above, including training-data terms.
-3. **Throughput** on an M-series Mac and a mid-range Windows GPU for 1080p30 and 4K30: seconds
-   of compute per second of footage. Target: ≤ 3× real-time for 1080p on Apple Silicon. If the
-   measured figure is worse, the Inspector shows an honest ETA; the target is not quietly lowered.
-4. **Artifact size** of the pack (weights + runtime) → sets `max_unpacked_mib` and the consent copy.
-5. **Master matte size** for 1 min of 4K FFV1 gray → sets the storage warning threshold in the UI.
+1. **ONNX export of SAM 2.1 Hiera-L video propagation** on CoreML and DirectML matches PyTorch
+   within IoU ≥ 0.999 on 3 clips.
+   - **Fallback:** SAM 2.1 image mode on dense keyframes + BiRefNet per frame + flow propagation.
+     It goes through the same consensus, self-correction and verification stages and must pass
+     the same gates. It is not a lower bar.
+2. **Licences**, including training data, for every checkpoint.
+3. **Error-detection recall:** on the labelled set, the stage 10 checks catch ≥ 99% of frames
+   whose IoU < 0.98 (measured on the fallback and primary pipelines). This number is the heart
+   of the precision claim; if it misses, stage 10 is redesigned before anything else is built.
+4. **Throughput** (1080p30, 4K30 × EP) with the full pipeline. No target is traded for speed;
+   the figure sets the ETA copy and the long-job confirmation.
+5. **Pack size** and **matte + foreground storage** per minute at 1080p and 4K.
 
 ## Worker structure (mirrors `subject-intelligence`)
 
@@ -86,12 +104,13 @@ workers/background-removal/
   pack/manifest.toml, pack/models.lock.toml, pack/sbom/
   tools/fetch_models.py, tools/generate_sbom.py, tools/export_onnx.py (build-time only)
   src/framepilot_background_removal/
-    __main__.py  protocol.py  runtime.py  policy.py  sandbox.py  models.py
-    decode.py  prompts.py  segment.py  refine.py  matting.py  stabilise.py
-    confidence.py  encode.py  backend.py (injectable seam for unit tests)
+    __main__.py protocol.py runtime.py policy.py sandbox.py models.py
+    decode.py prompts.py segment.py refine.py consensus.py self_correct.py
+    matting.py foreground.py stabilise.py verify.py encode.py report.py
+    backend.py (injectable seam for unit tests)
+  eval/run_eval.py
   tests/ (unit with fakes; `decoded_media` marker for real weights + real media)
-scripts/dev-register-background-removal.sh  (added to scripts/dev-register-all-packs.sh)
+scripts/dev-register-background-removal.sh (added to scripts/dev-register-all-packs.sh)
 ```
 
-`tools/export_onnx.py` needs PyTorch **at pack build time only**. PyTorch never ships in the pack
-and is never a repo dependency outside that tool's isolated environment.
+`tools/export_onnx.py` needs PyTorch **at pack build time only**. PyTorch never ships in the pack.
