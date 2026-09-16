@@ -292,7 +292,10 @@ export function displayPxToNormalized(point: PixelPoint, size: DisplaySize): Pix
  * first" rather than guessing a size).
  */
 export function assetDisplaySize(
-  media: { readonly width?: number | null; readonly height?: number | null } | null | undefined,
+  media:
+    | { readonly width?: number | null | undefined; readonly height?: number | null | undefined }
+    | null
+    | undefined,
 ): DisplaySize | null {
   const width = media?.width;
   const height = media?.height;

@@ -1,8 +1,24 @@
-/** Deterministic tracking commands: manual mask motion, and measured pack tracks. */
+/**
+ * Deterministic tracking commands: manual mask motion, and measured pack tracks.
+ *
+ * Schema v22 (ADR 0178): the mask is a `Clip.masks` layer in source pixels with SOURCE-time
+ * keyframes. The `object_track` effect (`track_object`) keeps its v21 vocabulary — clip
+ * timeline seconds and frame fractions — because it is provenance for the tracker, and the
+ * conversions between the two live here and in `mask-builders.ts`, nowhere else.
+ */
 import type { PatchId } from '@framepilot/shared-types';
-import type { Asset, Effect, Keyframe, Timeline } from '@framepilot/timeline-schema';
-import { evaluateKeyframes } from './keyframes.js';
-import type { MaskBounds, TrackTarget } from './operations.js';
+import {
+  masksOf,
+  type Asset,
+  type Keyframe,
+  type MaskKeyframe,
+  type MaskLayer,
+  type MaskScalarProperty,
+  type Timeline,
+} from '@framepilot/timeline-schema';
+import { assetDisplaySize, type DisplaySize } from './mask-geometry.js';
+import { MEASURE_MEDIA_FIRST, maskFrameBox } from './mask-builders.js';
+import type { MaskBounds, Operation, TrackTarget } from './operations.js';
 import { applyPatch, invertPatch, type Patch } from './patch.js';
 import {
   convertTrackSamples,
@@ -109,20 +125,6 @@ function rejected(
   return { status: 'rejected', command, code, detail, facts };
 }
 
-function maskBounds(effect: Effect): MaskBounds | undefined {
-  const raw = effect.params.bounds;
-  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return undefined;
-  const record = raw as Record<string, unknown>;
-  const values = [record.x, record.y, record.width, record.height];
-  if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) return undefined;
-  return {
-    x: record.x as number,
-    y: record.y as number,
-    width: record.width as number,
-    height: record.height as number,
-  };
-}
-
 function boundsInsideFrame(bounds: MaskBounds): boolean {
   return (
     bounds.x >= 0 &&
@@ -134,56 +136,81 @@ function boundsInsideFrame(bounds: MaskBounds): boolean {
   );
 }
 
+type BoxMask = Extract<MaskLayer, { kind: 'rectangle' | 'ellipse' }>;
+
+/** The source-time properties that describe a box mask's geometry. */
+const geometryProperties = (mask: BoxMask): readonly MaskScalarProperty[] =>
+  mask.kind === 'ellipse' ? ['cx', 'cy', 'rx', 'ry'] : ['cx', 'cy', 'width', 'height'];
+
+/**
+ * The mask's box motion restated as `object_track` keyframes (clip timeline seconds, frame
+ * fractions), sampled at every instant any geometry property is keyed.
+ *
+ * Refused for a clip whose source is not consumed forwards at a constant rate: there is no
+ * single timeline instant for a source keyframe under a ramp, freeze or reverse, and a
+ * guessed one would place the tracker on the wrong frame.
+ */
 function trackingKeyframes(
-  clipId: string,
-  mask: Effect,
-  initial: MaskBounds,
-  duration: number,
+  clip: ResolvedTrackableMask['clip'],
+  mask: BoxMask,
+  size: DisplaySize | null,
 ): readonly Keyframe[] | string {
+  const clipId = clip.id;
+  const duration = clip.end - clip.start;
   const relevant = mask.keyframes.filter((keyframe) =>
-    BOX_PROPERTIES.includes(keyframe.property as (typeof BOX_PROPERTIES)[number]),
+    geometryProperties(mask).includes(keyframe.property),
   );
   if (
     relevant.some(
-      (keyframe) =>
-        !Number.isFinite(keyframe.time) ||
-        !Number.isFinite(keyframe.value) ||
-        keyframe.time < 0 ||
-        keyframe.time > duration + EPSILON,
+      (keyframe) => !Number.isFinite(keyframe.sourceTime) || !Number.isFinite(keyframe.value),
     )
   ) {
-    return 'Mask tracking keyframes must be finite and stay inside the clip.';
+    return 'Mask tracking keyframes must be finite.';
   }
-  const times = [...new Set([0, duration, ...relevant.map((keyframe) => keyframe.time)])].sort(
-    (left, right) => left - right,
-  );
-  const defaults: Record<(typeof BOX_PROPERTIES)[number], number> = initial;
+  const rate = forwardRate(clip);
+  if (relevant.length > 0 && typeof rate === 'string') return rate;
+  const speed = typeof rate === 'number' ? rate : 1;
+  const toClipTime = (sourceTime: number): number => (sourceTime - clip.sourceStart) / speed;
+  const toSourceTime = (time: number): number => clip.sourceStart + time * speed;
+  if (
+    relevant.some(
+      (keyframe) =>
+        toClipTime(keyframe.sourceTime) < -EPSILON ||
+        toClipTime(keyframe.sourceTime) > duration + EPSILON,
+    )
+  ) {
+    return 'Mask tracking keyframes must stay inside the clip.';
+  }
+  const times = [
+    ...new Set([0, duration, ...relevant.map((keyframe) => toClipTime(keyframe.sourceTime))]),
+  ].sort((left, right) => left - right);
+  const boxes: { readonly time: number; readonly box: MaskBounds }[] = [];
   for (const time of times) {
-    const resolved = Object.fromEntries(
-      BOX_PROPERTIES.map((property) => [
-        property,
-        evaluateKeyframes(relevant, property, time) ?? defaults[property],
-      ]),
-    ) as unknown as MaskBounds;
-    if (!boundsInsideFrame(resolved)) {
-      return `Mask bounds leave the normalized frame at ${time}s.`;
-    }
+    const box = maskFrameBox(mask, size, toSourceTime(time));
+    if (box === null) return MEASURE_MEDIA_FIRST;
+    if (!boundsInsideFrame(box))
+      return 'Mask bounds leave the frame during the clip. Keep the mask inside the picture.';
+    boxes.push({ time, box });
   }
-  return BOX_PROPERTIES.flatMap((property) => {
-    const points = relevant.filter((keyframe) => keyframe.property === property);
-    const source = points.length > 0 ? points : [{ time: 0, value: defaults[property], easing: 'linear' as const }];
-    return source.map((keyframe) => ({
-      ...keyframe,
-      id: `tracking__${clipId}__${property}__${Math.round(keyframe.time * 1000)}`,
+  const animated = relevant.length > 0 ? boxes : boxes.slice(0, 1);
+  return BOX_PROPERTIES.flatMap((property) =>
+    animated.map(({ time, box }) => ({
+      id: `tracking__${clipId}__${property}__${Math.round(time * 1000)}`,
+      time,
       property,
-    }));
-  });
+      value: box[property],
+      easing: 'linear' as const,
+    })),
+  );
 }
 
 interface ResolvedTrackableMask {
   readonly clip: Timeline['tracks'][number]['clips'][number];
-  readonly mask: Effect;
+  readonly mask: BoxMask;
+  /** The mask's box at the clip's in-point, frame fractions. */
   readonly region: MaskBounds;
+  /** The clip media's display-corrected size (`null` only for a normalised legacy mask). */
+  readonly size: DisplaySize | null;
   readonly revision: number;
 }
 
@@ -224,9 +251,7 @@ function resolveTrackableMask(
       rejection: rejected(command, 'wrong_track_kind', `Clip "${command.clipId}" is not visual.`),
     };
   }
-  const masks = found.clip.effects.filter(
-    (effect) => effect.id === command.maskEffectId && effect.type === 'mask',
-  );
+  const masks = masksOf(found.clip).filter((mask) => mask.id === command.maskEffectId);
   if (masks.length === 0) {
     return {
       rejection: rejected(
@@ -246,7 +271,7 @@ function resolveTrackableMask(
     };
   }
   const mask = masks[0]!;
-  if (mask.params.shape !== 'rectangle' && mask.params.shape !== 'ellipse') {
+  if (mask.kind !== 'rectangle' && mask.kind !== 'ellipse') {
     return {
       rejection: rejected(
         command,
@@ -255,17 +280,22 @@ function resolveTrackableMask(
       ),
     };
   }
-  const region = maskBounds(mask);
-  if (!region || !boundsInsideFrame(region)) {
+  const asset = input.assets.find((candidate) => candidate.id === found.clip.assetId);
+  const size = assetDisplaySize(asset?.media);
+  const region = maskFrameBox(mask, size, found.clip.sourceStart);
+  if (region === null) {
+    return { rejection: rejected(command, 'missing_region', MEASURE_MEDIA_FIRST) };
+  }
+  if (!boundsInsideFrame(region)) {
     return {
       rejection: rejected(
         command,
         'missing_region',
-        'The mask needs valid normalized bounds to track.',
+        'The mask needs a box inside the picture to track.',
       ),
     };
   }
-  return { clip: found.clip, mask, region, revision };
+  return { clip: found.clip, mask, region, size, revision };
 }
 
 /** Validate, invert, and prove the round trip before a patch is ever offered. */
@@ -306,13 +336,8 @@ function compileTrackExistingMask(
 ): TrackingCommandCompileResult {
   const resolved = resolveTrackableMask(input, command);
   if ('rejection' in resolved) return resolved.rejection;
-  const { clip, mask, region, revision } = resolved;
-  const keyframes = trackingKeyframes(
-    command.clipId,
-    mask,
-    region,
-    clip.end - clip.start,
-  );
+  const { clip, mask, region, size, revision } = resolved;
+  const keyframes = trackingKeyframes(clip, mask, size);
   if (typeof keyframes === 'string') {
     return rejected(command, 'invalid_mask_motion', keyframes);
   }
@@ -350,10 +375,7 @@ function compileTrackExistingMask(
  * past the clip's end. A freeze, a reverse or a speed curve has no single linear
  * mapping, and guessing one would steer the mask onto the wrong frames.
  */
-function framesPerClipSecond(
-  clip: ResolvedTrackableMask['clip'],
-  fps: number,
-): number | string {
+function forwardRate(clip: ResolvedTrackableMask['clip']): number | string {
   if (clip.speedRamp !== undefined && clip.speedRamp.length > 0) {
     return 'Measured tracks cannot yet be applied to a clip with a speed curve. Remove the ramp, track, then re-apply it.';
   }
@@ -361,45 +383,43 @@ function framesPerClipSecond(
   if (!(speed > 0)) {
     return 'Measured tracks can only be applied to a clip playing forward (not frozen or reversed).';
   }
-  return fps * speed;
-}
-
-function numberParam(effect: Effect, name: string): number | undefined {
-  const value = effect.params[name];
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
+  return speed;
 }
 
 /**
- * The mask's own keyframes after a measured track is applied.
+ * The mask after a measured track is applied: its box geometry keyframed on the SOURCE
+ * clock, in source pixels.
  *
- * The export compiler (`_attach_mask`) and every mask reader animate the MASK
- * effect's keyframes; the `object_track` effect is provenance only. So the
- * measured motion must land on the mask, or nothing on screen moves.
+ * The export compiler and every mask reader animate the MASK's keyframes; the
+ * `object_track` effect is provenance only. So the measured motion must land on the mask,
+ * or nothing on screen moves.
  *
- * `target: 'object'` is the point-follow path (`tracking.point`): the worker's
- * box is only the tracked feature's patch, a few pixels wide, so steering the
- * mask's size from it collapses the user's drawn mask. There only the centre
- * moves, and the drawn width/height are kept.
+ * `target: 'object'` is the point-follow path (`tracking.point`): the worker's box is only
+ * the tracked feature's patch, a few pixels wide, so steering the mask's size from it
+ * collapses the user's drawn mask. There only the centre moves, and the drawn size is kept.
  */
-function trackedMaskKeyframes(
-  clipId: string,
-  mask: Effect,
+function trackedMask(
+  clip: ResolvedTrackableMask['clip'],
+  mask: BoxMask,
   region: MaskBounds,
+  size: DisplaySize | null,
   target: ApplyTrackedMaskCommand['target'],
   measured: readonly Keyframe[],
-): Keyframe[] {
-  const kept = mask.keyframes.filter(
-    (keyframe) => !BOX_PROPERTIES.includes(keyframe.property as (typeof BOX_PROPERTIES)[number]),
-  );
-  const byTime = new Map<number, Record<string, Keyframe>>();
+  speed: number,
+): BoxMask {
+  const scale = mask.units === 'normalized' ? { width: 1, height: 1 } : size!;
+  const properties = geometryProperties(mask);
+  const steeredProperties = target === 'object' ? properties.slice(0, 2) : properties;
+  const kept = mask.keyframes.filter((keyframe) => !steeredProperties.includes(keyframe.property));
+  const byTime = new Map<number, Record<string, number>>();
   for (const keyframe of measured) {
     const slot = byTime.get(keyframe.time) ?? {};
-    slot[keyframe.property] = keyframe;
+    slot[keyframe.property] = keyframe.value;
     byTime.set(keyframe.time, slot);
   }
-  const steered: Keyframe[] = [];
-  for (const [time, slot] of byTime) {
-    const [x, y, width, height] = BOX_PROPERTIES.map((name) => slot[name]?.value);
+  const steered: MaskKeyframe[] = [];
+  for (const [time, slot] of [...byTime].sort(([left], [right]) => left - right)) {
+    const { x, y, width, height } = slot;
     if (x === undefined || y === undefined || width === undefined || height === undefined) continue;
     const box: MaskBounds =
       target === 'object'
@@ -410,39 +430,29 @@ function trackedMaskKeyframes(
             height: region.height,
           }
         : { x, y, width, height };
+    const sourceTime = clip.sourceStart + time * speed;
+    const values: Record<MaskScalarProperty, number> = {
+      cx: (box.x + box.width / 2) * scale.width,
+      cy: (box.y + box.height / 2) * scale.height,
+      width: box.width * scale.width,
+      height: box.height * scale.height,
+      rx: (box.width * scale.width) / 2,
+      ry: (box.height * scale.height) / 2,
+    } as Record<MaskScalarProperty, number>;
     const suffix = Math.round(time * 1_000_000);
-    for (const name of BOX_PROPERTIES) {
+    for (const property of steeredProperties) {
       steered.push({
-        id: `tracking__${clipId}__mask__${name}__${suffix}`,
-        property: name,
-        time,
-        value: box[name],
+        id: `tracking__${clip.id}__mask__${property}__${suffix}`,
+        sourceTime,
+        property,
+        value: values[property],
         easing: 'linear',
       });
     }
   }
-  return [...kept, ...steered];
-}
-
-/** Re-state the drawn mask, preserving its geometry params, with the tracked keyframes. */
-function steeredMaskOperation(
-  clipId: string,
-  mask: Effect,
-  region: MaskBounds,
-  keyframes: readonly Keyframe[],
-): Extract<Patch['operations'][number], { type: 'add_mask' }> {
-  const feather = numberParam(mask, 'feather');
-  const opacity = numberParam(mask, 'opacity');
-  const invert = mask.params.invert;
   return {
-    type: 'add_mask',
-    clipId,
-    shape: mask.params.shape as 'rectangle' | 'ellipse',
-    bounds: region,
-    ...(feather === undefined ? {} : { feather }),
-    ...(opacity === undefined ? {} : { opacity }),
-    ...(typeof invert === 'boolean' ? { invert } : {}),
-    keyframes,
+    ...mask,
+    keyframes: [...kept, ...steered].sort((left, right) => left.sourceTime - right.sourceTime),
   };
 }
 
@@ -452,9 +462,9 @@ function compileApplyTrackedMask(
 ): TrackingCommandCompileResult {
   const resolved = resolveTrackableMask(input, command);
   if ('rejection' in resolved) return resolved.rejection;
-  const { clip, mask, region, revision } = resolved;
-  // `add_mask` always writes `<clip>__mask`; steering any other mask id would
-  // silently animate a different effect than the one the caller named.
+  const { clip, mask, region, size, revision } = resolved;
+  // Tracking tools steer the clip's primary mask `<clip>__mask`; steering any other id would
+  // silently animate a different mask than the one the caller named.
   if (command.maskEffectId !== professionalMaskEffectId(command.clipId)) {
     return rejected(
       command,
@@ -462,11 +472,11 @@ function compileApplyTrackedMask(
       `Measured tracks steer the clip's mask "${professionalMaskEffectId(command.clipId)}", not "${command.maskEffectId}".`,
     );
   }
-  const rate = framesPerClipSecond(clip, command.fps);
+  const rate = forwardRate(clip);
   if (typeof rate === 'string') return rejected(command, 'unusable_track', rate);
   const conversion = convertTrackSamples({
     samples: command.samples,
-    fps: rate,
+    fps: command.fps * rate,
     startSeconds: command.startSeconds,
     ...(command.firstFrame === undefined ? {} : { firstFrame: command.firstFrame }),
     durationSeconds: clip.end - clip.start,
@@ -478,28 +488,27 @@ function compileApplyTrackedMask(
     // into a partial or smoothed-over edit.
     return rejected(command, 'unusable_track', conversion.detail, conversion.facts);
   }
-  const maskKeyframes = trackedMaskKeyframes(
-    command.clipId,
-    mask,
-    region,
-    command.target,
-    conversion.keyframes,
-  );
+  const steered = trackedMask(clip, mask, region, size, command.target, conversion.keyframes, rate);
+  const index = masksOf(clip).findIndex((candidate) => candidate.id === mask.id);
+  const operations: Operation[] = [
+    {
+      type: 'track_object',
+      clipId: command.clipId,
+      target: command.target,
+      region,
+      engine: command.engine,
+      keyframes: conversion.keyframes,
+    },
+    // Restate the mask with its steered keyframes at the same stack position: the remove and
+    // the add are one validated, exactly invertible pair.
+    { type: 'remove_mask', clipId: command.clipId, maskId: mask.id },
+    { type: 'add_mask', clipId: command.clipId, mask: steered, index },
+  ];
   const patch: Patch = {
     patchId: `tracking__${command.clipId}__${revision}` as PatchId,
     createdBy: 'agent',
     reason: `Apply measured track to "${command.clipId}"`,
-    operations: [
-      {
-        type: 'track_object',
-        clipId: command.clipId,
-        target: command.target,
-        region,
-        engine: command.engine,
-        keyframes: conversion.keyframes,
-      },
-      steeredMaskOperation(command.clipId, mask, region, maskKeyframes),
-    ],
+    operations,
   };
   const facts: readonly TrackingCommandFact[] = [
     { name: 'clipId', value: command.clipId },

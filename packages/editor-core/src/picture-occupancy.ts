@@ -56,8 +56,6 @@ import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 /**
  * Clip effects that stop a picture layer covering the frame opaquely.
  *
- * - `mask` cuts a shape out of the layer, so the layer beneath shows through
- *   the hole. The preview can only show one of the two.
  * - `transition` / `transition_out` ramp the layer's own alpha (a dissolve), its
  *   geometry (a push) or a wipe edge across the frame. For part of the clip the
  *   layer is not covering, and the export blends whatever is under it.
@@ -67,14 +65,23 @@ import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
  * or what shows through it.
  */
 const COVERAGE_BREAKING_EFFECTS: ReadonlySet<string> = new Set([
-  'mask',
   'transition',
   TRANSITION_OUT_EFFECT_TYPE,
 ]);
 
 /** The compositing fields {@link isFullFrameOpaque} reads. A whole {@link Clip} satisfies it. */
 export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
-  Partial<Pick<Clip, 'keyframes' | 'effects'>>;
+  Partial<Pick<Clip, 'keyframes' | 'effects' | 'masks'>>;
+
+/**
+ * Does the clip's mask stack cut its alpha (schema v22)?
+ *
+ * An enabled alpha-target mask cuts a shape out of the layer, so the layer beneath shows
+ * through the hole — and the preview can only show one of the two. A disabled mask, or one
+ * that only limits an effect, leaves the layer covering what it covered.
+ */
+const cutsAlpha = (clip: Pick<FullFrameOpaqueFields, 'masks'>): boolean =>
+  (clip.masks ?? []).some((mask) => mask.enabled && mask.target.kind === 'alpha');
 
 /**
  * Does this clip paint the WHOLE output frame, with nothing showing through it?
@@ -110,6 +117,7 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
  * - `blendMode` — anything but `normal` is by definition a function of the
  *   layer beneath (`render/compiler.py#_blend_layer_over`).
  * - `effects` — see {@link COVERAGE_BREAKING_EFFECTS}.
+ * - `masks` — an enabled alpha-target mask; see `cutsAlpha`.
  *
  * `crop` is deliberately ABSENT from that list, and used not to be. A crop is geometry: it
  * changes which part of the source is used and therefore how much of the frame the layer
@@ -129,6 +137,7 @@ export type FullFrameOpaqueFields = Pick<Clip, 'crop' | 'blendMode'> &
 export function isFullFrameOpaque(clip: FullFrameOpaqueFields): boolean {
   if (clip.blendMode !== undefined && clip.blendMode !== 'normal') return false;
   if ((clip.keyframes ?? []).length > 0) return false;
+  if (cutsAlpha(clip)) return false;
   return !(clip.effects ?? []).some((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
 }
 
@@ -342,6 +351,7 @@ export function coverageVerdict(
     return { hides: false, reason: 'blend', detail: blendMode };
   }
   if ((keyframes ?? []).length > 0) return { hides: false, reason: 'keyframes' };
+  if (cutsAlpha(front.clip)) return { hides: false, reason: 'effect', detail: 'mask' };
   const breaking = (effects ?? []).find((effect) => COVERAGE_BREAKING_EFFECTS.has(effect.type));
   if (breaking) return { hides: false, reason: 'effect', detail: breaking.type };
 
