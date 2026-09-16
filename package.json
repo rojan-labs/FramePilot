@@ -47,6 +47,7 @@
     "engine:test:cov": "cd engine/python && uv run pytest --cov",
     "engine:lint": "cd engine/python && uv run ruff check .",
     "engine:typecheck": "cd engine/python && uv run mypy .",
+    "frame-plan:vectors": "cd engine/python && uv run python -m tests.frame_plan_vectors",
     "license:scan": "node scripts/license-scan.mjs",
     "release:check-feed": "node scripts/verify-update-feed.mjs",
     "release:check-installer": "node scripts/check-installer-budget.mjs",
