@@ -12,7 +12,7 @@
  * The generated table lives between the `px0:inventory` markers in
  * `plan/background-removal-ai/PX0-INVENTORY.md`, and this test fails when the two disagree, so
  * the inventory cannot go stale as the gates change (PX2/PX3 will make it shrink). The pixel
- * column is filled by the PX4.3 harness, never by hand.
+ * column is read from the PX4.3 baseline the CI oracle run produced, never typed by hand.
  */
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
@@ -36,6 +36,32 @@ function repoRoot(): string {
 const REPO = repoRoot();
 const FIXTURE_DIR = path.join(REPO, 'tests', 'fixtures', 'frame-plan') + path.sep;
 const INVENTORY_DOC = path.join(REPO, 'plan', 'background-removal-ai', 'PX0-INVENTORY.md');
+/** The PX4.3 baseline, regenerated from the CI oracle run (tests/e2e/scripts/px4-baseline.mjs). */
+const PARITY_BASELINE = path.join(REPO, 'tests', 'e2e', 'fixtures', 'preview-parity-baseline.json');
+
+interface ParitySummary {
+  readonly renderer: string;
+  readonly minPsnr: number | 'Infinity' | null;
+  readonly minWithinPercent: number | null;
+  readonly failing: readonly string[];
+}
+
+/** The pixel column: what the PX4 oracle measured for this case in CI, never typed by hand. */
+function pixelCell(caseKey: string): string {
+  if (!existsSync(PARITY_BASELINE)) return 'PX4.3';
+  const baseline = JSON.parse(readFileSync(PARITY_BASELINE, 'utf8')) as {
+    readonly summary?: Readonly<Record<string, ParitySummary>>;
+  };
+  const measured = baseline.summary?.[caseKey];
+  if (!measured) return 'not measured (PX4.3)';
+  if (measured.renderer !== 'webcodecs') {
+    return `not read back (${measured.renderer === 'dom' ? 'DOM renderer' : 'harness error'})`;
+  }
+  const numbers = `min PSNR ${measured.minPsnr ?? 'n/a'} dB, min ${measured.minWithinPercent ?? 'n/a'}% within 8/255`;
+  return measured.failing.length === 0
+    ? `passes (${numbers})`
+    : `fails ${measured.failing.join(', ')} (${numbers})`;
+}
 const START_MARKER = '<!-- px0:inventory:start -->';
 const END_MARKER = '<!-- px0:inventory:end -->';
 
@@ -262,7 +288,7 @@ function renderTable(rows: readonly InventoryRow[]): string {
     const notes =
       row.divergences.length > 0 ? row.divergences.map(escape).join('<br>') : 'none derived';
     lines.push(
-      `| ${escape(row.vector.row)} | \`${row.file.replace('.json', '')}/${row.vector.id}\` | ${row.renderer} | ${escape(row.reason)} | ${notes} | PX4.3 |`,
+      `| ${escape(row.vector.row)} | \`${row.file.replace('.json', '')}/${row.vector.id}\` | ${row.renderer} | ${escape(row.reason)} | ${notes} | ${escape(pixelCell(`${row.file.replace('.json', '')}/${row.vector.id}`))} |`,
     );
   }
   const counts = new Map<string, number>();

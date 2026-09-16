@@ -712,7 +712,7 @@ async function measureCase(
   mkdirSync(RESULTS_DIR, { recursive: true });
   writeFileSync(
     join(RESULTS_DIR, `${area}__${kase.id}.json`),
-    `${JSON.stringify(result, null, 2)}\n`,
+    `${JSON.stringify(result, (_key, value: unknown) => (value === Number.POSITIVE_INFINITY ? 'Infinity' : value), 2)}\n`,
   );
   return result;
 }

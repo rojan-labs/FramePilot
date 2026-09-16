@@ -1,4 +1,309 @@
 {
-  "cases": {},
-  "colour": {}
+  "cases": {
+    "alpha/mask-shapes": ["renderer", "pixels", "sentinel", "pts"],
+    "alpha/opacity-keyframes": ["renderer", "pixels", "sentinel", "pts"],
+    "colour/blend-modes": ["renderer", "pixels", "sentinel", "pts"],
+    "colour/grade": ["pixels", "sentinel"],
+    "colour/lut": ["pixels"],
+    "effects/effect-kinds": ["pixels", "sentinel"],
+    "effects/effect-layer-between": ["renderer", "pixels", "sentinel", "pts"],
+    "geometry/fit-landscape-in-portrait": ["pixels", "sentinel"],
+    "geometry/fit-mixed-aspects": ["pixels"],
+    "geometry/fit-portrait-in-landscape": ["pixels"],
+    "geometry/image-png": ["renderer", "pixels", "sentinel", "pts"],
+    "geometry/transform-keyframes": ["renderer", "pixels", "sentinel", "pts"],
+    "layering/gaps-between-layers": ["renderer", "pixels", "sentinel", "pts"],
+    "layering/hidden-track": ["pixels"],
+    "layering/layers-1": ["pixels", "pts"],
+    "layering/layers-2": ["pixels", "pts"],
+    "layering/layers-3": ["pixels", "pts"],
+    "layering/layers-5": ["pixels", "pts"],
+    "layering/same-asset-stack": ["renderer", "pixels", "sentinel", "pts"],
+    "layering/unproxied-original": ["renderer", "pixels", "sentinel", "pts"],
+    "text/caption-track-order": ["renderer", "pixels", "sentinel", "pts"],
+    "text/captions-burn-off": ["renderer", "pixels", "sentinel", "pts"],
+    "text/text-above": ["renderer", "pixels", "sentinel", "pts"],
+    "text/text-below": ["renderer", "pixels", "sentinel", "pts"],
+    "text/text-between": ["renderer", "pixels", "sentinel", "pts"],
+    "text/text-only": ["renderer", "pixels", "sentinel", "pts"],
+    "text/text-transform": ["renderer", "pixels", "sentinel", "pts"],
+    "time/mixed-frame-rates": ["renderer", "pixels", "sentinel", "pts"],
+    "time/reverse-1x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/reverse-2x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-0.25x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-0.5x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-2x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-4x": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-freeze": ["renderer", "pixels", "sentinel", "pts"],
+    "time/speed-ramp": ["pixels", "pts"],
+    "time/trims-non-keyframe": ["pixels"],
+    "transitions/transitions-alignment": ["pixels", "sentinel", "pts"],
+    "transitions/transitions-catalog": ["pixels", "sentinel", "pts"],
+    "transitions/transitions-legacy": ["pixels", "sentinel", "pts"],
+    "transitions/transitions-over-stack": ["renderer", "pixels", "sentinel", "pts"],
+    "transitions/transitions-underlay-edges": ["pixels", "sentinel", "pts"]
+  },
+  "colour": {
+    "bt709-limited": ["canvas2d", "webgl"]
+  },
+  "summary": {
+    "alpha/mask-shapes": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "alpha/opacity-keyframes": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "colour/blend-modes": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "colour/grade": {
+      "renderer": "webcodecs",
+      "minPsnr": 20.32,
+      "minWithinPercent": 25.451,
+      "failing": ["pixels", "sentinel"]
+    },
+    "colour/lut": {
+      "renderer": "webcodecs",
+      "minPsnr": 20.91,
+      "minWithinPercent": 0.347,
+      "failing": ["pixels"]
+    },
+    "effects/effect-kinds": {
+      "renderer": "webcodecs",
+      "minPsnr": 2.12,
+      "minWithinPercent": 0.037,
+      "failing": ["pixels", "sentinel"]
+    },
+    "effects/effect-layer-between": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "geometry/crop": {
+      "renderer": "webcodecs",
+      "minPsnr": 45.5,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "geometry/fit-landscape-in-portrait": {
+      "renderer": "webcodecs",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["pixels", "sentinel"]
+    },
+    "geometry/fit-mixed-aspects": {
+      "renderer": "webcodecs",
+      "minPsnr": 34.77,
+      "minWithinPercent": 26.035,
+      "failing": ["pixels"]
+    },
+    "geometry/fit-portrait-in-landscape": {
+      "renderer": "webcodecs",
+      "minPsnr": 34.95,
+      "minWithinPercent": 76.442,
+      "failing": ["pixels"]
+    },
+    "geometry/image-png": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "geometry/transform-keyframes": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "layering/gaps-between-layers": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "layering/hidden-track": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.28,
+      "minWithinPercent": 99.867,
+      "failing": ["pixels"]
+    },
+    "layering/layers-1": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.27,
+      "minWithinPercent": 99.854,
+      "failing": ["pixels", "pts"]
+    },
+    "layering/layers-2": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.28,
+      "minWithinPercent": 99.864,
+      "failing": ["pixels", "pts"]
+    },
+    "layering/layers-3": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.28,
+      "minWithinPercent": 99.864,
+      "failing": ["pixels", "pts"]
+    },
+    "layering/layers-5": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.28,
+      "minWithinPercent": 99.864,
+      "failing": ["pixels", "pts"]
+    },
+    "layering/same-asset-stack": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "layering/unproxied-original": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/caption-track-order": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/captions-burn-off": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/text-above": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/text-below": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/text-between": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/text-only": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "text/text-transform": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/mixed-frame-rates": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/reverse-1x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/reverse-2x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-0.25x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-0.5x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-2x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-4x": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-freeze": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "time/speed-ramp": {
+      "renderer": "webcodecs",
+      "minPsnr": 28.37,
+      "minWithinPercent": 99.739,
+      "failing": ["pixels", "pts"]
+    },
+    "time/trims-non-keyframe": {
+      "renderer": "webcodecs",
+      "minPsnr": 37.27,
+      "minWithinPercent": 99.849,
+      "failing": ["pixels"]
+    },
+    "transitions/transitions-alignment": {
+      "renderer": "webcodecs",
+      "minPsnr": 8.02,
+      "minWithinPercent": 0.12,
+      "failing": ["pixels", "sentinel", "pts"]
+    },
+    "transitions/transitions-catalog": {
+      "renderer": "webcodecs",
+      "minPsnr": 9.56,
+      "minWithinPercent": 0.168,
+      "failing": ["pixels", "sentinel", "pts"]
+    },
+    "transitions/transitions-legacy": {
+      "renderer": "webcodecs",
+      "minPsnr": 9.8,
+      "minWithinPercent": 0.249,
+      "failing": ["pixels", "sentinel", "pts"]
+    },
+    "transitions/transitions-over-stack": {
+      "renderer": "dom",
+      "minPsnr": null,
+      "minWithinPercent": null,
+      "failing": ["renderer", "pixels", "sentinel", "pts"]
+    },
+    "transitions/transitions-underlay-edges": {
+      "renderer": "webcodecs",
+      "minPsnr": 13.73,
+      "minWithinPercent": 60.642,
+      "failing": ["pixels", "sentinel", "pts"]
+    }
+  }
 }

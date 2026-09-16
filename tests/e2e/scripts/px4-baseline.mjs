@@ -46,13 +46,27 @@ const lines = [
   '| --- | --- | --- | --- | --- | --- | --- |',
 ];
 const baselineCases = {};
+const summary = {};
 let passing = 0;
 for (const result of cases) {
   const failing = failingChecks(result);
   if (failing.length === 0) passing++;
   else baselineCases[result.key] = failing;
-  const psnrs = result.samples.map((s) => s.psnr).filter((v) => v !== null);
+  const psnrs = result.samples
+    .map((s) => s.psnr)
+    .filter((v) => v !== null)
+    .map(Number);
   const within = result.samples.map((s) => s.withinFraction).filter((v) => v !== null);
+  summary[result.key] = {
+    renderer: result.renderer,
+    minPsnr: psnrs.length
+      ? Math.min(...psnrs) === Infinity
+        ? 'Infinity'
+        : Number(Math.min(...psnrs).toFixed(2))
+      : null,
+    minWithinPercent: within.length ? Number((Math.min(...within) * 100).toFixed(3)) : null,
+    failing,
+  };
   const renderer =
     result.renderer === 'dom' ? 'DOM' : result.renderer === 'webcodecs' ? 'WebCodecs' : 'error';
   const first = failing
@@ -118,7 +132,7 @@ process.stdout.write(
 if (process.argv.includes('--write-baseline')) {
   writeFileSync(
     BASELINE,
-    `${JSON.stringify({ cases: baselineCases, colour: baselineColour }, null, 2)}\n`,
+    `${JSON.stringify({ cases: baselineCases, colour: baselineColour, summary }, null, 2)}\n`,
   );
   process.stderr.write(`wrote ${BASELINE}\n`);
 }
