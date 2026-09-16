@@ -25,8 +25,13 @@ export interface AudioSegment {
   buffer: AudioBuffer;
   /** Offset into `buffer` (seconds) where this segment's audio starts. */
   offsetSec: number;
-  /** How much of `buffer`, from `offsetSec`, to play (seconds). */
+  /** How much of `buffer`, from `offsetSec`, to play (seconds of BUFFER time). */
   durationSec: number;
+  /**
+   * Buffer seconds per timeline second (a clip's constant speed, PX2.5). Default 1. The export's
+   * `MultiplySpeed` resamples audio, so pitch follows speed here too.
+   */
+  playbackRate?: number;
 }
 
 /** Seconds of lead time before the first segment starts, giving the browser's
@@ -109,7 +114,7 @@ export class AudioMasterClock {
     this.schedule = scheduleSegmentsOnTimeline(
       segments.map((seg) => ({
         mediaStartUs: seg.mediaStartUs,
-        durationUs: seg.durationSec * 1_000_000,
+        durationUs: (seg.durationSec / (seg.playbackRate ?? 1)) * 1_000_000,
       })),
       this.anchor,
     );
@@ -118,6 +123,9 @@ export class AudioMasterClock {
       if (!scheduled) return;
       const node = this.ctx.createBufferSource();
       node.buffer = seg.buffer;
+      if (seg.playbackRate !== undefined && seg.playbackRate !== 1) {
+        node.playbackRate.value = seg.playbackRate;
+      }
       node.connect(this.masterGain);
       node.start(scheduled.ctxStartSec, seg.offsetSec, seg.durationSec);
       this.sources.push(node);

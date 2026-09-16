@@ -770,15 +770,18 @@ export class LayerPreviewEngine {
         if (asset?.kind !== 'video') continue;
         const buffer = this.sources.get(clip.assetId)?.audioBuffer;
         if (!buffer) continue;
-        // Retimed audio (speed, reverse, ramps) is not scheduled yet; the picture still is.
-        if ((clip.speed ?? 1) !== 1 || (clip.speedRamp?.length ?? 0) > 0) continue;
+        const speed = clip.speed ?? 1;
+        // A freeze is silent in the export (`without_audio`). Ramps and reverse are not yet
+        // scheduled here; their picture still follows the plan.
+        if (speed <= 0 || (clip.speedRamp?.length ?? 0) > 0) continue;
         const segStart = Math.max(clip.start, startSec);
         if (segStart >= clip.end) continue;
         segments.push({
           mediaStartUs: segStart * 1_000_000,
           buffer,
-          offsetSec: clip.sourceStart + (segStart - clip.start),
-          durationSec: clip.end - segStart,
+          offsetSec: clip.sourceStart + (segStart - clip.start) * speed,
+          durationSec: (clip.end - segStart) * speed,
+          ...(speed !== 1 ? { playbackRate: speed } : {}),
         });
       }
     }
