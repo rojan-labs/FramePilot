@@ -17,7 +17,7 @@ from contextlib import ExitStack
 from dataclasses import dataclass
 from itertools import pairwise
 from pathlib import Path
-from typing import Annotated, Literal, Protocol, cast
+from typing import Annotated, Any, Literal, Protocol, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -33,6 +33,7 @@ from framepilot_engine.render.composition_cache import (
     COMPOSITION_CACHE as COMPOSITION_CACHE,
 )
 from framepilot_engine.render.composition_cache import composition_key
+from framepilot_engine.render.masks import clip_source_clock, mask_frame_box, mask_scalar_at
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Clip, Effect, Project, TrackType
@@ -440,14 +441,65 @@ def _find_clip(project: Project, target_id: str) -> Clip:
     raise TemporalEvidenceError(f"No clip {target_id!r} exists for motion evidence.")
 
 
-def _find_effect(project: Project, target_id: str, kind: str) -> tuple[Clip, Effect]:
-    expected_type = "object_track" if kind == "tracker" else "mask"
+def _find_tracker(project: Project, target_id: str) -> tuple[Clip, Effect]:
     for track in project.timeline.tracks:
         for clip in track.clips:
             for effect in clip.effects:
-                if effect.id == target_id and effect.type == expected_type:
+                if effect.id == target_id and effect.type == "object_track":
                     return clip, effect
-    raise TemporalEvidenceError(f"No {kind} effect {target_id!r} exists for motion evidence.")
+    raise TemporalEvidenceError(f"No tracker effect {target_id!r} exists for motion evidence.")
+
+
+def _find_mask(project: Project, target_id: str) -> tuple[Clip, Any]:
+    """The clip mask a motion request names (schema v22: ``Clip.masks``, not an effect)."""
+    for track in project.timeline.tracks:
+        for clip in track.clips:
+            for mask in clip.masks or []:
+                if mask.id == target_id:
+                    return clip, mask
+    raise TemporalEvidenceError(f"No mask {target_id!r} exists for motion evidence.")
+
+
+def _mask_motion_samples(
+    project: Project,
+    request: MotionEvidenceRequest,
+    cancelled: CancelCheck | None,
+) -> list[MotionSample]:
+    """Box motion of a rectangle/ellipse mask, as frame fractions, at each sequence frame.
+
+    The mask is stored in source pixels on the source clock; motion evidence speaks the
+    tracker's vocabulary (``x``/``y``/``width``/``height`` fractions), so each frame maps
+    sequence time → the source instant the clip plays there → the mask's box.
+    """
+    clip, mask = _find_mask(project, request.target_id)
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    size = (media.width, media.height) if media and media.width and media.height else None
+    clock = clip_source_clock(clip)
+    samples: list[MotionSample] = []
+    for frame_index in range(request.start_frame, request.end_frame):
+        _check_cancelled(cancelled)
+        local_time = frame_index / project.fps - clip.start
+        box = mask_frame_box(mask, size, clock(local_time))
+        if box is None:
+            raise TemporalEvidenceError(
+                f"Mask {request.target_id!r} has no box to measure: it is not a rectangle or "
+                "ellipse, or its media was never measured. Measure this media first."
+            )
+        x, y, width, height = box
+        named = {"x": x, "y": y, "width": width, "height": height}
+        value = named.get(request.property)
+        if value is None:
+            value = mask_scalar_at(mask, request.property, clock(local_time))
+        samples.append(
+            MotionSample(
+                frame=frame_index,
+                value=value,
+                point=Point(x=x, y=y),
+                bounds=Bounds(x=x, y=y, width=width, height=height),
+            )
+        )
+    return samples
 
 
 def _motion_samples(
@@ -455,11 +507,13 @@ def _motion_samples(
     request: MotionEvidenceRequest,
     cancelled: CancelCheck | None,
 ) -> list[MotionSample]:
+    if request.target_kind == "mask":
+        return _mask_motion_samples(project, request, cancelled)
     if request.target_kind == "clip_transform":
         clip = _find_clip(project, request.target_id)
         keyframes = clip.keyframes
     else:
-        clip, effect = _find_effect(project, request.target_id, request.target_kind)
+        clip, effect = _find_tracker(project, request.target_id)
         keyframes = effect.keyframes
     samples: list[MotionSample] = []
     for frame_index in range(request.start_frame, request.end_frame):

@@ -40,6 +40,7 @@ from framepilot_engine.timeline.models import (
     CropRect,
     Effect,
     Keyframe,
+    MaskLayer,
     SpeedPoint,
     Timeline,
     Track,
@@ -340,23 +341,19 @@ class MaskBounds(BaseModel):
 
 
 class AddMask(_Operation):
-    """Add a mask to a clip (PRD §6.5).
+    """Add one mask to a clip's mask stack (schema v22, ADR 0178).
 
-    Geometry (``bounds``/``points``/``feather``/``opacity``/``invert``) is stored
-    on the mask effect's free-form ``params`` (no schema change); ``keyframes`` are
-    attached to the effect to animate the mask over time. Mirrors the TS
-    ``AddMaskOp``.
+    Mirrors the TS ``AddMaskOp``: ``mask`` is a whole :data:`MaskLayer` (source pixels,
+    source-time keyframes) and ``index`` is its stack position (absent appends at the
+    bottom). A duplicate mask id is refused rather than replacing a different mask.
+    The v21 ``shape``/``bounds`` vocabulary lives on in the ``add_mask`` TOOL, which
+    converts it through the asset's measured size.
     """
 
     type: Literal["add_mask"] = "add_mask"
     clip_id: str = Field(alias="clipId")
-    shape: Literal["rectangle", "ellipse", "polygon"]
-    bounds: MaskBounds | None = None
-    points: list[tuple[float, float]] | None = None
-    feather: float | None = None
-    opacity: float | None = None
-    invert: bool | None = None
-    keyframes: list[Keyframe] | None = None
+    mask: MaskLayer
+    index: int | None = None
 
 
 class TrackObject(_Operation):
@@ -544,6 +541,7 @@ _OperationCode = Literal[
     "invalid_transition",
     "duplicate_clip",
     "duplicate_layer",
+    "duplicate_mask",
     "invalid_speed",
     "broken_audio_link",
 ]
@@ -1491,22 +1489,19 @@ def _apply_add_transition(timeline: Timeline, op: AddTransition) -> Timeline:
 
 def _apply_add_mask(timeline: Timeline, op: AddMask) -> Timeline:
     loc = _find_clip(timeline, op.clip_id)
-    params: dict[str, Any] = {"shape": op.shape}
-    if op.bounds is not None:
-        params["bounds"] = op.bounds.model_dump()
-    if op.points is not None:
-        params["points"] = [list(point) for point in op.points]
-    if op.feather is not None:
-        params["feather"] = op.feather
-    if op.opacity is not None:
-        params["opacity"] = op.opacity
-    if op.invert is not None:
-        params["invert"] = op.invert
-    keyframes = [k.model_copy(deep=True) for k in op.keyframes] if op.keyframes else []
-    effect = Effect(id=f"{op.clip_id}__mask", type="mask", params=params, keyframes=keyframes)
-    effects = [existing for existing in loc.clip.effects if existing.id != effect.id]
-    effects.append(effect)
-    return _replace_clip_at(timeline, loc, loc.clip.model_copy(update={"effects": effects}))
+    masks = list(loc.clip.masks or [])
+    if any(existing.id == op.mask.id for existing in masks):
+        raise OperationError(
+            "duplicate_mask",
+            f"Mask id '{op.mask.id}' already exists on clip '{op.clip_id}'. "
+            "Use update_mask to change it, or choose a new id.",
+        )
+    mask = op.mask.model_copy(deep=True)
+    if op.index is None:
+        masks.append(mask)
+    else:
+        masks.insert(max(0, min(len(masks), op.index)), mask)
+    return _replace_clip_at(timeline, loc, loc.clip.model_copy(update={"masks": masks}))
 
 
 def _apply_track_object(timeline: Timeline, op: TrackObject) -> Timeline:

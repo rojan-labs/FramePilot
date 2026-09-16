@@ -99,6 +99,13 @@ def test_cross_runtime_operation_behavior_fixture() -> None:
                     assert matches(point.source_time, want["sourceTime"]), behavior["name"]
                     assert matches(point.rate, want["rate"]), behavior["name"]
 
+            # The v22 mask stack: each listed field of each mask, in stack order.
+            if "masks" in expected:
+                masks = [mask.model_dump(by_alias=True, mode="json") for mask in clip.masks or []]
+                assert len(masks) == len(expected["masks"]), behavior["name"]
+                for mask, want in zip(masks, expected["masks"], strict=True):
+                    assert {key: mask.get(key) for key in want} == want, behavior["name"]
+
             if "effectType" in expected:
                 effect = next(
                     effect for effect in clip.effects if effect.type == expected["effectType"]
@@ -140,6 +147,6 @@ def test_cross_runtime_operation_behavior_fixture() -> None:
             # ducking controller read. A runtime that drops it on the way in
             # produces a bed nothing can find.
             if "role" in expected:
-                assert track.role is not None and track.role.value == expected["role"], (
-                    behavior["name"]
-                )
+                assert track.role is not None and track.role.value == expected["role"], behavior[
+                    "name"
+                ]

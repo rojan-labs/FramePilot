@@ -1111,8 +1111,7 @@ def test_remove_filler_words_skips_freeze_clips(project: Project) -> None:
                         track.model_copy(
                             update={
                                 "clips": [
-                                    clip.model_copy(update={"speed": 0.0})
-                                    for clip in track.clips
+                                    clip.model_copy(update={"speed": 0.0}) for clip in track.clips
                                 ]
                             }
                         )
@@ -1213,8 +1212,34 @@ def test_add_transition_requires_positive_duration(ctx: ToolContext) -> None:
 
 
 def test_add_mask(ctx: ToolContext, project: Project) -> None:
+    project.assets = [
+        Asset(
+            id="asset_001", path="media/a.mp4", kind="video", media={"width": 1920, "height": 1080}
+        )
+    ]
     result = run_tool("add_mask", {"clipId": "A", "shape": "ellipse"}, ctx)
     _assert_patch_ok(result, project)
+    assert result.operations == [
+        {
+            "type": "add_mask",
+            "clipId": "A",
+            "mask": {
+                "id": "A__mask",
+                "kind": "ellipse",
+                "cx": 960,
+                "cy": 540,
+                "rx": 960,
+                "ry": 540,
+            },
+        }
+    ]
+
+
+def test_add_mask_refuses_unmeasured_media_instead_of_guessing_a_size(ctx: ToolContext) -> None:
+    with pytest.raises(ToolSemanticError, match="Measure this media first"):
+        run_tool("add_mask", {"clipId": "A", "shape": "rectangle"}, ctx)
+    with pytest.raises(ToolSemanticError, match="polygon"):
+        run_tool("add_mask", {"clipId": "A", "shape": "polygon"}, ctx)
 
 
 def test_track_object(ctx: ToolContext, project: Project) -> None:

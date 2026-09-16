@@ -36,6 +36,14 @@ def _project(*, revision: int = 4) -> Project:
             "name": "Evidence fixture",
             "fps": 30,
             "resolution": {"width": 4, "height": 4},
+            "assets": [
+                {
+                    "id": "asset",
+                    "path": "a.mp4",
+                    "kind": "video",
+                    "media": {"width": 100, "height": 50},
+                }
+            ],
             "timeline": {
                 "revision": revision,
                 "tracks": [
@@ -65,24 +73,15 @@ def _project(*, revision: int = 4) -> Project:
                                         "value": 2,
                                     },
                                 ],
-                                "effects": [
+                                # Schema v22: the box {0.1, 0.2, 0.3, 0.4} of a 100x50 source.
+                                "masks": [
                                     {
+                                        "kind": "rectangle",
                                         "id": "mask",
-                                        "type": "mask",
-                                        "keyframes": [
-                                            {
-                                                "id": f"{prop}-0",
-                                                "time": 0,
-                                                "property": prop,
-                                                "value": value,
-                                            }
-                                            for prop, value in {
-                                                "x": 0.1,
-                                                "y": 0.2,
-                                                "width": 0.3,
-                                                "height": 0.4,
-                                            }.items()
-                                        ],
+                                        "cx": 25.0,
+                                        "cy": 20.0,
+                                        "width": 30.0,
+                                        "height": 20.0,
                                     }
                                 ],
                             }
@@ -274,6 +273,10 @@ def test_motion_evidence_reads_stored_keyframes_without_compiling(tmp_path: Path
     assert mask.kind == "motion"
     assert mask.samples[0].point is not None
     assert mask.samples[0].bounds is not None
+    assert mask.samples[0].value == pytest.approx(0.1)
+    assert (mask.samples[0].bounds.width, mask.samples[0].bounds.height) == pytest.approx(
+        (0.3, 0.4)
+    )
 
 
 def test_rejects_stale_unbounded_and_out_of_timeline_requests(tmp_path: Path) -> None:

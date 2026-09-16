@@ -994,20 +994,15 @@ def test_compile_applies_rectangle_mask(
     (tmp_project_dir / "m.mp4").write_bytes(src.read_bytes())
 
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
-        {
-            "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "rectangle",
-                "bounds": {"x": 0.25, "y": 0.25, "width": 0.5, "height": 0.5},
-            },
-            "keyframes": [],
-        }
+    # Schema v22: the centre half of a 320x240 source, in source pixels.
+    clip["masks"] = [
+        {"kind": "rectangle", "id": "c1__mask", "cx": 160, "cy": 120, "width": 160, "height": 120}
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "m.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "m.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
 
     composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
@@ -1031,23 +1026,26 @@ def test_compile_applies_animated_mask(
     (tmp_project_dir / "am.mp4").write_bytes(src.read_bytes())
 
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
+    # Schema v22: an ellipse sweeping left → right, keyed on the SOURCE clock.
+    clip["masks"] = [
         {
+            "kind": "ellipse",
             "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "ellipse",
-                "bounds": {"x": 0.0, "y": 0.25, "width": 0.5, "height": 0.5},
-            },
+            "cx": 80,
+            "cy": 120,
+            "rx": 80,
+            "ry": 60,
             "keyframes": [
-                {"id": "x0", "time": 0.0, "property": "x", "value": 0.0, "easing": "linear"},
-                {"id": "x1", "time": 1.0, "property": "x", "value": 0.5, "easing": "linear"},
+                {"id": "x0", "sourceTime": 0.0, "property": "cx", "value": 80.0},
+                {"id": "x1", "sourceTime": 1.0, "property": "cx", "value": 240.0},
             ],
         }
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "am.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "am.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
 
     composite = compile_timeline(project, _index(project, tmp_project_dir), REELS)
@@ -1065,31 +1063,23 @@ def test_compile_moves_a_tracked_mask_over_time(
 ) -> None:
     """A measured track, applied the way the TS tracking compiler emits it, MOVES the render.
 
-    ``compileTrackingCommand`` emits ``track_object`` (provenance) plus ``add_mask``
-    re-stating the drawn mask with the tracked x/y/width/height keyframes. Applying
-    those ops through the engine and compiling must put the visible hole in a
-    different place early and late — the tracked-motion-never-renders regression.
+    ``compileTrackingCommand`` emits ``track_object`` (provenance) plus the clip's mask
+    re-stated with tracked ``cx`` keyframes on the SOURCE clock (schema v22). Applying those
+    ops through the engine and compiling must put the visible hole in a different place
+    early and late — the tracked-motion-never-renders regression.
     """
     from framepilot_engine.timeline.operations import AddMask, TrackObject, apply_operation
 
     src = media_factory("tm.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
     (tmp_project_dir / "tm.mp4").write_bytes(src.read_bytes())
     clip = _clip("c1", "v", 0, 1, asset="a1")
-    clip["effects"] = [
-        {
-            "id": "c1__mask",
-            "type": "mask",
-            "params": {
-                "shape": "rectangle",
-                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
-            },
-            "keyframes": [],
-        }
-    ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
-        assets=[{"id": "a1", "path": "tm.mp4", "kind": "video"}],
+        assets=[
+            {"id": "a1", "path": "tm.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
     )
+
     def box_keyframes(prefix: str) -> list[dict[str, Any]]:
         return [
             {
@@ -1102,6 +1092,7 @@ def test_compile_moves_a_tracked_mask_over_time(
             for time, x in ((0.0, 0.0), (1.0, 0.5))
             for prop, value in (("x", x), ("y", 0.0), ("width", 0.5), ("height", 1.0))
         ]
+
     timeline = apply_operation(
         project.timeline,
         TrackObject.model_validate(
@@ -1121,9 +1112,23 @@ def test_compile_moves_a_tracked_mask_over_time(
             {
                 "type": "add_mask",
                 "clipId": "c1",
-                "shape": "rectangle",
-                "bounds": {"x": 0.0, "y": 0.0, "width": 0.5, "height": 1.0},
-                "keyframes": box_keyframes("tracking__c1__mask"),
+                "mask": {
+                    "kind": "rectangle",
+                    "id": "c1__mask",
+                    "cx": 80,
+                    "cy": 120,
+                    "width": 160,
+                    "height": 240,
+                    "keyframes": [
+                        {
+                            "id": f"tracking__c1__mask__cx__{round(time * 1_000_000)}",
+                            "sourceTime": time,
+                            "property": "cx",
+                            "value": (x + 0.25) * 320,
+                        }
+                        for time, x in ((0.0, 0.0), (1.0, 0.5))
+                    ],
+                },
             }
         ),
     )
@@ -2638,3 +2643,25 @@ def test_fitted_decode_size_is_always_even() -> None:
         size = fitted_decode_size(source, (1080, 1920))
         assert size is not None
         assert size[0] % 2 == 0 and size[1] % 2 == 0, size
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_compile_refuses_a_mask_stack_the_interim_rasteriser_cannot_draw(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """Until MK2, a stack beyond one plain shape stops the export with a reason, not a guess."""
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
+        {"kind": "ellipse", "id": "b", "cx": 160, "cy": 120, "rx": 50, "ry": 50},
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    with pytest.raises(CompileError, match="more than one enabled mask"):
+        compile_timeline(project, _index(project, tmp_project_dir), REELS)

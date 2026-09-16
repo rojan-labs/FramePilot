@@ -5,6 +5,7 @@ from __future__ import annotations
 from typing import Any
 
 import pytest
+from pydantic import TypeAdapter
 
 from framepilot_engine.render.frame_grid import is_on_frame_grid
 from framepilot_engine.timeline.models import (
@@ -14,6 +15,7 @@ from framepilot_engine.timeline.models import (
     CropRect,
     Effect,
     Keyframe,
+    MaskLayer,
     Timeline,
     Track,
     TrackType,
@@ -577,49 +579,43 @@ def test_add_transition_roundtrip() -> None:
     )
 
 
+def _mask(mask_id: str = "A__mask", **fields: object) -> MaskLayer:
+    adapter: TypeAdapter[MaskLayer] = TypeAdapter(MaskLayer)
+    return adapter.validate_python(
+        {"kind": "ellipse", "id": mask_id, "cx": 960, "cy": 540, "rx": 200, "ry": 100, **fields}
+    )
+
+
 def test_add_mask_and_track_object() -> None:
-    masked = apply_operation(_timeline(), AddMask(clip_id="A", shape="ellipse"))
-    assert _clips(masked, "v")[0].effects[-1].type == "mask"
-    assert _clips(masked, "v")[0].effects[-1].params == {"shape": "ellipse"}
+    masked = apply_operation(_timeline(), AddMask(clip_id="A", mask=_mask()))
+    clip = _clips(masked, "v")[0]
+    # Schema v22: a mask is a layer on the clip's stack, never an effect.
+    assert [effect.type for effect in clip.effects] == []
+    assert clip.masks is not None and [mask.id for mask in clip.masks] == ["A__mask"]
     tracked = apply_operation(_timeline(), TrackObject(clip_id="A", target="face"))
     assert _clips(tracked, "v")[0].effects[-1].type == "object_track"
 
 
-def test_add_mask_and_track_object_replace_their_canonical_effects() -> None:
-    masked = apply_operation(_timeline(), AddMask(clip_id="A", shape="ellipse"))
-    masked = apply_operation(masked, AddMask(clip_id="A", shape="rectangle"))
-    tracked = apply_operation(masked, TrackObject(clip_id="A", target="face"))
+def test_track_object_replaces_its_canonical_effect_and_add_mask_refuses_a_duplicate() -> None:
+    tracked = apply_operation(_timeline(), TrackObject(clip_id="A", target="face"))
     tracked = apply_operation(tracked, TrackObject(clip_id="A", target="object", engine="manual"))
     effects = _clips(tracked, "v")[0].effects
-    assert [effect.id for effect in effects].count("A__mask") == 1
     assert [effect.id for effect in effects].count("A__track") == 1
-    mask = next(effect for effect in effects if effect.id == "A__mask")
     track = next(effect for effect in effects if effect.id == "A__track")
-    assert mask.params["shape"] == "rectangle"
     assert track.params["target"] == "object"
+    masked = apply_operation(tracked, AddMask(clip_id="A", mask=_mask()))
+    with pytest.raises(OperationError) as refused:
+        apply_operation(masked, AddMask(clip_id="A", mask=_mask()))
+    assert refused.value.code == "duplicate_mask"
 
 
-def test_add_mask_stores_geometry_and_keyframes() -> None:
-    from framepilot_engine.timeline.models import Keyframe
-    from framepilot_engine.timeline.operations import MaskBounds
-
-    op = AddMask(
-        clip_id="A",
-        shape="rectangle",
-        bounds=MaskBounds(x=0.1, y=0.2, width=0.5, height=0.6),
-        points=[(0.0, 0.0), (1.0, 1.0)],
-        feather=0.05,
-        opacity=0.8,
-        invert=True,
-        keyframes=[Keyframe(id="mk", time=0.0, property="x", value=0.1)],
-    )
-    effect = _clips(apply_operation(_timeline(), op), "v")[0].effects[-1]
-    assert effect.params["bounds"] == {"x": 0.1, "y": 0.2, "width": 0.5, "height": 0.6}
-    assert effect.params["points"] == [[0.0, 0.0], [1.0, 1.0]]
-    assert effect.params["feather"] == 0.05
-    assert effect.params["opacity"] == 0.8
-    assert effect.params["invert"] is True
-    assert len(effect.keyframes) == 1
+def test_add_mask_inserts_at_its_stack_index() -> None:
+    timeline = _timeline()
+    for mask_id in ("top", "bottom"):
+        timeline = apply_operation(timeline, AddMask(clip_id="A", mask=_mask(mask_id)))
+    timeline = apply_operation(timeline, AddMask(clip_id="A", mask=_mask("middle"), index=1))
+    masks = _clips(timeline, "v")[0].masks or []
+    assert [mask.id for mask in masks] == ["top", "middle", "bottom"]
 
 
 def test_restore_clips_replaces_track() -> None:
@@ -696,7 +692,12 @@ def test_source_end_none_is_handled() -> None:
         AddKeyframes(clip_id="A", keyframes=[Keyframe(id="k1", time=1, property="scale", value=2)]),
         ApplyColorGrade(clip_id="A", effect=Effect(id="g", type="lut", params={})),
         AdjustAudio(clip_id="AU", gain_db=-3),
-        AddMask(clip_id="A", shape="rectangle"),
+        AddMask(
+            clip_id="A",
+            mask=TypeAdapter(MaskLayer).validate_python(
+                {"kind": "rectangle", "id": "m", "cx": 1, "cy": 1, "width": 1, "height": 1}
+            ),
+        ),
         TrackObject(clip_id="A", target="bounding_box"),
         SetTrackFlags(track_id="a", muted=True),
         SetTrackFlags(track_id="v", locked=True, hidden=True),

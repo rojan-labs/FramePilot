@@ -160,7 +160,7 @@ def _media_scale(
     return (float(media_size[0]), float(media_size[1]))
 
 
-def _clip_clock(clip: Any) -> Callable[[float], float]:
+def clip_source_clock(clip: Any) -> Callable[[float], float]:
     """Clip-relative timeline seconds → asset source seconds, as the speed stage plays it."""
     from framepilot_engine.effects.speed_curve import has_speed_ramp, source_time_at
 
@@ -227,7 +227,7 @@ def legacy_mask_for_clip(clip: Any, media_size: tuple[int, int] | None) -> Legac
                 handles=keyframe.handles,
             )
         )
-    clock = _clip_clock(clip)
+    clock = clip_source_clock(clip)
 
     def value(name: str, source_time: float) -> float:
         points = by_property.get(name)
@@ -322,4 +322,61 @@ def keyframe_feathers(mask: Any) -> bool:
     """Whether any path keyframe carries a non-zero per-vertex feather."""
     return any(
         any(value != 0 for value in (keyframe.feather_px or [])) for keyframe in mask.path_keyframes
+    )
+
+
+def mask_scalar_at(mask: Any, property_name: str, source_time: float) -> float | None:
+    """A mask's scalar property at a SOURCE instant: keyframed value, else the stored field."""
+    points = [
+        Keyframe(
+            id=keyframe.id,
+            time=keyframe.source_time,
+            property=keyframe.property.value,
+            value=keyframe.value,
+            easing=keyframe.easing,
+            handles=keyframe.handles,
+        )
+        for keyframe in mask.keyframes
+        if keyframe.property.value == property_name
+    ]
+    if points:
+        animated = evaluate_keyframes(points, property_name, source_time)
+        if animated is not None:
+            return animated
+    attribute = {"featherOuterPx": "feather_outer_px", "featherInnerPx": "feather_inner_px"}.get(
+        property_name, property_name
+    )
+    value = getattr(mask, attribute, None)
+    return float(value) if isinstance(value, int | float) else None
+
+
+def mask_frame_box(
+    mask: Any, media_size: tuple[int, int] | None, source_time: float
+) -> tuple[float, float, float, float] | None:
+    """A rectangle/ellipse mask's ``(x, y, width, height)`` as fractions of the source picture.
+
+    Mirrors ``editor-core`` ``maskFrameBox``. ``None`` for other kinds, or for a pixel mask
+    on media whose size is unknown.
+    """
+    if mask.kind not in ("rectangle", "ellipse"):
+        return None
+    if mask.units == "normalized":
+        scale_w, scale_h = 1.0, 1.0
+    elif media_size is None:
+        return None
+    else:
+        scale_w, scale_h = float(media_size[0]), float(media_size[1])
+    cx = mask_scalar_at(mask, "cx", source_time) or 0.0
+    cy = mask_scalar_at(mask, "cy", source_time) or 0.0
+    if mask.kind == "ellipse":
+        width = (mask_scalar_at(mask, "rx", source_time) or 0.0) * 2.0
+        height = (mask_scalar_at(mask, "ry", source_time) or 0.0) * 2.0
+    else:
+        width = mask_scalar_at(mask, "width", source_time) or 0.0
+        height = mask_scalar_at(mask, "height", source_time) or 0.0
+    return (
+        (cx - width / 2.0) / scale_w,
+        (cy - height / 2.0) / scale_h,
+        width / scale_w,
+        height / scale_h,
     )
