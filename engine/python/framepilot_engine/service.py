@@ -489,6 +489,11 @@ class AssetMediaResponse(BaseModel):
     #: this is what lets the editor and the agent know which assets those are.
     width: int | None = Field(default=None)
     height: int | None = Field(default=None)
+    #: Display geometry (schema v22): non-square pixel aspect ratio and clockwise quarter-turn
+    #: rotation. Absent means square and unrotated. Mask pixels are display-corrected, so an
+    #: anamorphic or rotated phone clip needs these to be masked undistorted.
+    pixel_aspect_ratio: float | None = Field(default=None, alias="pixelAspectRatio")
+    rotation: Literal[0, 90, 180, 270] | None = Field(default=None)
     peaks: list[float] | None = Field(default=None)
     peaks_per_second: float | None = Field(default=None, alias="peaksPerSecond")
     thumbnail_paths: list[str] | None = Field(default=None, alias="thumbnailPaths")
@@ -6212,6 +6217,8 @@ def create_app(
             # costs nothing and is the whole of schema v21.
             width=info.width,
             height=info.height,
+            pixelAspectRatio=info.pixel_aspect_ratio,
+            rotation=info.rotation,
             peaks=peaks,
             peaksPerSecond=peaks_per_second,
             thumbnailPaths=thumbnail_paths,
