@@ -17,21 +17,30 @@ A fourth `mask` shape (`shape: 'matte'`) looks smaller but is wrong:
 ```ts
 MatteEffectSchema = EffectBase.extend({
   type: z.literal('matte'),
-  params: z.object({
-    artifact: z.object({
-      key: z.string().regex(/^[0-9a-f]{64}$/),          // cache key → .framepilot-derived/mattes/<key>/
-      masterSha256: Sha256, previewSha256: Sha256, framesSha256: Sha256,
-      width: PositiveInt, height: PositiveInt,
-      coverage: z.object({ sourceStart: z.number(), sourceEnd: z.number() }).strict(),  // seconds, source time
-      packId: z.string(), packVersion: z.string(), modelDigests: z.array(Sha256),
-    }).strict(),
-    prompts: z.array(MattePromptSchema),   // stored so a correction can re-run with the same inputs
-    edgeShift: z.number().min(-1).max(1).default(0),     // fraction of FEATHER_UNIT: <0 choke, >0 spread
-    feather: z.number().min(0).max(1).default(0),
-    invert: z.boolean().default(false),                   // "remove subject, keep background"
-    enabled: z.boolean().default(true),
-  }).strict(),
-})
+  params: z
+    .object({
+      artifact: z
+        .object({
+          key: z.string().regex(/^[0-9a-f]{64}$/), // cache key → .framepilot-derived/mattes/<key>/
+          masterSha256: Sha256,
+          previewSha256: Sha256,
+          framesSha256: Sha256,
+          width: PositiveInt,
+          height: PositiveInt,
+          coverage: z.object({ sourceStart: z.number(), sourceEnd: z.number() }).strict(), // seconds, source time
+          packId: z.string(),
+          packVersion: z.string(),
+          modelDigests: z.array(Sha256),
+        })
+        .strict(),
+      prompts: z.array(MattePromptSchema), // stored so a correction can re-run with the same inputs
+      edgeShift: z.number().min(-1).max(1).default(0), // fraction of FEATHER_UNIT: <0 choke, >0 spread
+      feather: z.number().min(0).max(1).default(0),
+      invert: z.boolean().default(false), // "remove subject, keep background"
+      enabled: z.boolean().default(true),
+    })
+    .strict(),
+});
 ```
 
 - Migration v21 → v22 is a no-op data migration (no existing project has a matte), plus a
@@ -47,11 +56,11 @@ MatteEffectSchema = EffectBase.extend({
 
 ## Operations (`packages/editor-core`), each with `apply` + `invert`
 
-| Op                                                      | Apply                                    | Invert                                                  |
-| ------------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------- |
-| `apply_matte { clipId, params }`                        | Add or replace the clip's `matte` effect | Restore the previous effect snapshot, or remove it      |
-| `update_matte { clipId, edgeShift?, feather?, invert?, enabled? }` | Patch refine fields                     | Restore the previous values                             |
-| `remove_matte { clipId }`                               | Remove it                                | Re-add the snapshot at its original effect index        |
+| Op                                                                 | Apply                                    | Invert                                             |
+| ------------------------------------------------------------------ | ---------------------------------------- | -------------------------------------------------- |
+| `apply_matte { clipId, params }`                                   | Add or replace the clip's `matte` effect | Restore the previous effect snapshot, or remove it |
+| `update_matte { clipId, edgeShift?, feather?, invert?, enabled? }` | Patch refine fields                      | Restore the previous values                        |
+| `remove_matte { clipId }`                                          | Remove it                                | Re-add the snapshot at its original effect index   |
 
 If the existing generic effect ops already cover add, update and remove with snapshot inverses,
 use them and add only the `matte` validator. Decide by reading `editor-core` at BR1 start; do not

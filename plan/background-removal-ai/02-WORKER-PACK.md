@@ -14,16 +14,16 @@ a click instead of requiring a second download.
 
 ## Pipeline (per request)
 
-| Stage          | What                                                                                                                                                                  | Why it matters for precision                                                                                            |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 1. Decode      | Decode the clip's source range with pts via PyAV or an ffmpeg pipe, **not** `cv2.VideoCapture`. Record `frames.json` = `[pts]`.                                        | Frame identity must match the engine's decode (see [`03`](./03-PROTOCOL-AND-HOST.md#frame-identity)).                     |
-| 2. Prompt      | Prompts from the host: points (include/exclude), boxes, and correction frames. Auto mode uses a box from `subject.detect`, run by the host beforehand.              | Works on any subject kind, not just people.                                                                             |
-| 3. Segment     | **SAM 2.1** video predictor: image encoder + memory attention propagate the prompted object forward and backward through the range.                                    | Memory across frames removes most boundary flicker. Corrections on frame *k* re-propagate from *k*.                     |
-| 4. Refine      | **BiRefNet** (high-resolution dichotomous segmentation) run on a padded crop around the SAM mask. The result is fused with the SAM mask as a guide, so BiRefNet cannot swap subjects. | SAM's mask decoder is low-resolution. BiRefNet recovers fine structure at 1024² crop resolution.                         |
-| 5. Matte       | Build a trimap from the refined mask (erode = sure foreground, dilate = sure background, band = unknown) and run an **alpha-matting model** on the band only.            | Hair and semi-transparent edges get real fractional alpha, not a hard or blurred cut.                                  |
-| 6. Stabilise   | Temporal smoothing of alpha in the unknown band only, guided by optical flow (`cv2.calcOpticalFlowFarneback`) and bounded so it never moves a confident pixel.      | Removes residual edge shimmer without smearing motion.                                                                  |
-| 7. Score       | Per-frame confidence: SAM IoU prediction, band-area ratio, and frame-to-frame alpha change. Emit `lowConfidence: [{startPts, endPts, reason}]`.                       | Tells the editor where to look (principle 3 in the README).                                                             |
-| 8. Encode      | Master: FFV1 `gray` 8-bit in MKV at source resolution, lossless. Preview: VP9 `gray` in WebM at proxy resolution. Write `frames.json` and `manifest.json` (dims, pts, digests). | Lossless master for export precision; a small, decodable proxy for the monitor.                                        |
+| Stage        | What                                                                                                                                                                                  | Why it matters for precision                                                                          |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| 1. Decode    | Decode the clip's source range with pts via PyAV or an ffmpeg pipe, **not** `cv2.VideoCapture`. Record `frames.json` = `[pts]`.                                                       | Frame identity must match the engine's decode (see [`03`](./03-PROTOCOL-AND-HOST.md#frame-identity)). |
+| 2. Prompt    | Prompts from the host: points (include/exclude), boxes, and correction frames. Auto mode uses a box from `subject.detect`, run by the host beforehand.                                | Works on any subject kind, not just people.                                                           |
+| 3. Segment   | **SAM 2.1** video predictor: image encoder + memory attention propagate the prompted object forward and backward through the range.                                                   | Memory across frames removes most boundary flicker. Corrections on frame _k_ re-propagate from _k_.   |
+| 4. Refine    | **BiRefNet** (high-resolution dichotomous segmentation) run on a padded crop around the SAM mask. The result is fused with the SAM mask as a guide, so BiRefNet cannot swap subjects. | SAM's mask decoder is low-resolution. BiRefNet recovers fine structure at 1024² crop resolution.      |
+| 5. Matte     | Build a trimap from the refined mask (erode = sure foreground, dilate = sure background, band = unknown) and run an **alpha-matting model** on the band only.                         | Hair and semi-transparent edges get real fractional alpha, not a hard or blurred cut.                 |
+| 6. Stabilise | Temporal smoothing of alpha in the unknown band only, guided by optical flow (`cv2.calcOpticalFlowFarneback`) and bounded so it never moves a confident pixel.                        | Removes residual edge shimmer without smearing motion.                                                |
+| 7. Score     | Per-frame confidence: SAM IoU prediction, band-area ratio, and frame-to-frame alpha change. Emit `lowConfidence: [{startPts, endPts, reason}]`.                                       | Tells the editor where to look (principle 3 in the README).                                           |
+| 8. Encode    | Master: FFV1 `gray` 8-bit in MKV at source resolution, lossless. Preview: VP9 `gray` in WebM at proxy resolution. Write `frames.json` and `manifest.json` (dims, pts, digests).       | Lossless master for export precision; a small, decodable proxy for the monitor.                       |
 
 Full-resolution refinement at 4K is expensive. Stage 4 and 5 run at `min(source, 2160p)` on the
 crop around the subject, never on the full frame, and the alpha is upsampled with a guided filter
@@ -36,16 +36,16 @@ Licences change and my knowledge of them has a cutoff. Every row is re-checked a
 the upstream licence file at a pinned commit and recorded in `pack/models.lock.toml` +
 `LICENSES.md`, the same way `subject-intelligence` records its models.
 
-| Role               | Candidate                                   | Licence (to verify)                 | Status                                                                                             |
-| ------------------ | ------------------------------------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------- |
-| Video segmentation | SAM 2.1 (Hiera-S / Hiera-B+)                | Apache-2.0 (code + checkpoints)     | **Primary.** Risk: ONNX export of memory attention (BR0).                                          |
-| Refinement         | BiRefNet (general / HR variants)            | MIT                                 | **Primary.** Check training-data terms on the chosen checkpoint.                                    |
-| Alpha matting      | ViTMatte (ViT-S)                            | MIT code; **weights trained on Composition-1k / Distinctions-646** | **Open question.** Dataset terms may restrict commercial use of derived weights. BR0 decides. |
-| Alpha matting alt. | Classical closed-form / guided-filter matting | n/a (algorithm, OpenCV)          | **Fallback** if no matting checkpoint passes the licence gate. Lower hair quality, which is measured and disclosed. |
-| Rejected           | BRIA RMBG-1.4 / RMBG-2.0                    | Non-commercial (CC BY-NC-family)    | Rejected on licence, not on accuracy.                                                              |
-| Rejected           | Robust Video Matting                        | GPL-3.0                             | Strong copyleft; the SBOM gate rejects it (maintainer policy, 2026-08-25).                         |
-| Rejected           | MatAnyone and other S-Lab-licence models    | Non-commercial                      | Rejected on licence.                                                                              |
-| Rejected           | Ultralytics YOLO-seg                        | AGPL-3.0                            | Already rejected for `subject-intelligence`.                                                      |
+| Role               | Candidate                                     | Licence (to verify)                                                | Status                                                                                                              |
+| ------------------ | --------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------- |
+| Video segmentation | SAM 2.1 (Hiera-S / Hiera-B+)                  | Apache-2.0 (code + checkpoints)                                    | **Primary.** Risk: ONNX export of memory attention (BR0).                                                           |
+| Refinement         | BiRefNet (general / HR variants)              | MIT                                                                | **Primary.** Check training-data terms on the chosen checkpoint.                                                    |
+| Alpha matting      | ViTMatte (ViT-S)                              | MIT code; **weights trained on Composition-1k / Distinctions-646** | **Open question.** Dataset terms may restrict commercial use of derived weights. BR0 decides.                       |
+| Alpha matting alt. | Classical closed-form / guided-filter matting | n/a (algorithm, OpenCV)                                            | **Fallback** if no matting checkpoint passes the licence gate. Lower hair quality, which is measured and disclosed. |
+| Rejected           | BRIA RMBG-1.4 / RMBG-2.0                      | Non-commercial (CC BY-NC-family)                                   | Rejected on licence, not on accuracy.                                                                               |
+| Rejected           | Robust Video Matting                          | GPL-3.0                                                            | Strong copyleft; the SBOM gate rejects it (maintainer policy, 2026-08-25).                                          |
+| Rejected           | MatAnyone and other S-Lab-licence models      | Non-commercial                                                     | Rejected on licence.                                                                                                |
+| Rejected           | Ultralytics YOLO-seg                          | AGPL-3.0                                                           | Already rejected for `subject-intelligence`.                                                                        |
 
 ## Runtime
 
@@ -67,7 +67,7 @@ Nothing past BR0 starts until these are answered with numbers in `plan/backgroun
 1. **ONNX export of SAM 2.1 video propagation** (encoder, prompt decoder, memory encoder,
    memory attention) runs on CoreML and DirectML and matches PyTorch within IoU ≥ 0.995 on 3
    fixture clips.
-   - **Fallback if it does not:** SAM 2.1 *image* mode per keyframe (every N frames) plus
+   - **Fallback if it does not:** SAM 2.1 _image_ mode per keyframe (every N frames) plus
      BiRefNet per frame, plus flow-guided propagation between keyframes. Flicker is measured
      against the primary pipeline. If the fallback misses the gate in [`06`](./06-PRECISION-AND-EVAL.md),
      the plan returns to the maintainer rather than shipping a flickering matte.

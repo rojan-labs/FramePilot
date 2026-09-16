@@ -11,14 +11,21 @@ a test for each case.
 ```ts
 RequestBaseSchema.extend({
   capability: z.literal('subject.matte'),
-  parameters: z.object({
-    output: MatteOutputHandleSchema,          // opaque host-issued handle, never a raw path
-    prompts: z.array(MattePromptSchema).min(1).max(MAX_MATTE_PROMPTS),
-    // MattePrompt = { pts, points?: [{x,y,label:'include'|'exclude'}], box?: NormalizedBox }
-    previewHeight: z.number().int().min(180).max(1080),
-    window: z.object({ frames: z.number().int().min(60).max(900), overlap: z.number().int().min(8).max(90) }).strict(),
-  }).strict(),
-}).strict()
+  parameters: z
+    .object({
+      output: MatteOutputHandleSchema, // opaque host-issued handle, never a raw path
+      prompts: z.array(MattePromptSchema).min(1).max(MAX_MATTE_PROMPTS),
+      // MattePrompt = { pts, points?: [{x,y,label:'include'|'exclude'}], box?: NormalizedBox }
+      previewHeight: z.number().int().min(180).max(1080),
+      window: z
+        .object({
+          frames: z.number().int().min(60).max(900),
+          overlap: z.number().int().min(8).max(90),
+        })
+        .strict(),
+    })
+    .strict(),
+}).strict();
 ```
 
 Frame range and media handle come from `RequestBase`, as for `tracking.*`.
@@ -31,16 +38,30 @@ Frame range and media handle come from `RequestBase`, as for `tracking.*`.
 ```ts
 ResultBaseSchema.extend({
   capability: z.literal('subject.matte'),
-  artifact: z.object({
-    master: ArtifactFileSchema,     // { name: 'matte.mkv', bytes, sha256 }
-    preview: ArtifactFileSchema,    // { name: 'preview.webm', bytes, sha256 }
-    frames: ArtifactFileSchema,     // { name: 'frames.json', bytes, sha256 }
-    width: z.number().int(), height: z.number().int(),
-    frameCount: z.number().int(), firstPts: z.number(), lastPts: z.number(), timeBase: RationalSchema,
-  }).strict(),
+  artifact: z
+    .object({
+      master: ArtifactFileSchema, // { name: 'matte.mkv', bytes, sha256 }
+      preview: ArtifactFileSchema, // { name: 'preview.webm', bytes, sha256 }
+      frames: ArtifactFileSchema, // { name: 'frames.json', bytes, sha256 }
+      width: z.number().int(),
+      height: z.number().int(),
+      frameCount: z.number().int(),
+      firstPts: z.number(),
+      lastPts: z.number(),
+      timeBase: RationalSchema,
+    })
+    .strict(),
   executionProvider: z.enum(['coreml', 'directml', 'cpu']),
-  lowConfidence: z.array(z.object({ startPts, endPts, reason: z.enum(['subject_lost','ambiguous_edge','occlusion','motion_blur']) })).max(512),
-}).strict()
+  lowConfidence: z
+    .array(
+      z.object({
+        startPts,
+        endPts,
+        reason: z.enum(['subject_lost', 'ambiguous_edge', 'occlusion', 'motion_blur']),
+      }),
+    )
+    .max(512),
+}).strict();
 ```
 
 **Failures** reuse the existing codes: `target_lost` (the subject vanished for the whole range),
@@ -84,13 +105,13 @@ The worker and the engine must agree on which picture a matte frame belongs to.
 Reuses `service.ts` resolution, `tracking.ts` job lifecycle patterns and the progress channel.
 New IPC, added to `packages/shared-types/src/ipc.ts`:
 
-| Method                                   | Returns                                                                                                   |
-| ---------------------------------------- | --------------------------------------------------------------------------------------------------------- |
-| `capabilityPackStatus(capability)`       | `{ state: 'ready', pack } \| { state: 'missing', proposal } \| { state: 'unhealthy', reason, proposal? } \| { state: 'unsupported_platform' }` |
-| `capabilityPackMatte(intent)`            | `MatteRunResultWire`: `{ ok: true, artifact, cacheHit } \| pack_missing proposal \| typed refusal`             |
-| `capabilityPackCancelMatte(requestId)`   | void                                                                                                      |
-| `onCapabilityPackMatteProgress(cb)`      | unsubscribe fn, carrying `{ requestId, phase, completed, total, etaSeconds? }`                            |
-| `onCapabilityPackInstalled(cb)`          | fires after any install or uninstall completes its health check, so open panels refresh without restart |
+| Method                                 | Returns                                                                                                                                        |
+| -------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| `capabilityPackStatus(capability)`     | `{ state: 'ready', pack } \| { state: 'missing', proposal } \| { state: 'unhealthy', reason, proposal? } \| { state: 'unsupported_platform' }` |
+| `capabilityPackMatte(intent)`          | `MatteRunResultWire`: `{ ok: true, artifact, cacheHit } \| pack_missing proposal \| typed refusal`                                             |
+| `capabilityPackCancelMatte(requestId)` | void                                                                                                                                           |
+| `onCapabilityPackMatteProgress(cb)`    | unsubscribe fn, carrying `{ requestId, phase, completed, total, etaSeconds? }`                                                                 |
+| `onCapabilityPackInstalled(cb)`        | fires after any install or uninstall completes its health check, so open panels refresh without restart                                        |
 
 `capabilityPackStatus` is **generic** (any capability id), not matte-specific. The Mask tab's
 existing tracking actions can adopt it later; that is not in scope here.

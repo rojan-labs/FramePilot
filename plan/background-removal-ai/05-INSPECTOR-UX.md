@@ -45,7 +45,7 @@ The lead-prompt-engineer / unslop pass finalises the wording. The **content** is
 >
 > [ Install {size} ] [ Details ]
 >
-> [ Remove background ]  ← visible but **disabled**, `aria-disabled`, tooltip "Install the
+> [ Remove background ] ← visible but **disabled**, `aria-disabled`, tooltip "Install the
 > Background Removal pack first"
 
 - `role="alert"` is **not** used on mount (it would announce on every clip selection). The warning
