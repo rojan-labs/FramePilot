@@ -27,6 +27,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   newer FramePilot now says "Update FramePilot to open this project." Splitting or head-trimming a
   clip also no longer slides its effect animations along the footage.
 
+- **Masks on anamorphic and rotated phone footage draw undistorted.** Importing media now records
+  its pixel aspect ratio and display rotation (`Asset.media.pixelAspectRatio` and `rotation`,
+  project format 22), and masks are measured on the picture as you see it: a 1440×1080 HDV clip is
+  1920 wide, a portrait phone clip is 1080×1920. Media imported earlier reads as square and
+  unrotated until it is imported again.
+
 - **One description of an exported frame, shared by the export and (next) the preview.** The render
   engine's per-frame decisions (which layers, in what order, which source frame, where, how
   opaque, which transition) now live in `render/frame_plan.py`, and the export compiler uses them

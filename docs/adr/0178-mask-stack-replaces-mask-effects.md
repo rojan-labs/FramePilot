@@ -23,7 +23,9 @@ fight over order and double every validator, renderer and AI path.
    feather, falloff, feather model, space, keyframes, tracking).
 2. **Display-corrected source pixels.** Source-space geometry is stored in pixels of the picture
    the editor sees, before crop. Adding a mask needs the media's probed size; without it the
-   operation refuses with "Measure this media first" rather than guessing.
+   operation refuses with "Measure this media first" rather than guessing. The probe records the
+   pixel aspect ratio and clockwise rotation beside the coded size (`Asset.media.pixelAspectRatio`,
+   `rotation`, MK1.9); absent means square and unrotated.
 3. **Keyframes on the source clock.** Mask keyframe `sourceTime` is asset source seconds, so trim,
    slip, split, ripple and speed changes never rewrite a mask. (Effect-layer masks use seconds from
    the layer start.)

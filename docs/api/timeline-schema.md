@@ -284,6 +284,30 @@ finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention,
 `editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
 mask from frame fractions. Operations are listed in `patch-format.md`.
 
+### Display-corrected source pixels (`Asset.media`, schema v22)
+
+Source-space mask pixels are measured against the picture as players show it. `Asset.media`
+records the probe's **coded** `width`/`height` (v21) and, since v22, two optional fields:
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `pixelAspectRatio` | number > 0? | ffprobe `sample_aspect_ratio` as a float (like `fps`). Absent or `null` ≡ square. Only non-square ratios are recorded. |
+| `rotation` | `0 \| 90 \| 180 \| 270`? | Clockwise display rotation: the negated display-matrix `rotation`, else the legacy `rotate` tag. Absent or `null` ≡ 0. A non-quarter-turn matrix is ignored (logged), as ffmpeg's autorotate does. |
+
+Display size = coded width × PAR, then width and height swap for 90/270. An anamorphic HDV clip
+(1440×1080, SAR 4:3) measures 1920×1080; a portrait phone clip coded 1920×1080 with a −90°
+display matrix measures 1080×1920. `editor-core` `assetDisplaySize` / `assetPictureGeometry`
+(with `codedToDisplay` / `displayToCoded`) and the engine's `AssetMedia.display_size()` are the
+only readers; every mask caller (preview, Inspector, patch builders, AI tools, tracking, export,
+motion evidence) goes through them. The export turns mask pixels into fractions of this size and
+draws them over the decoded frame, which is correct because MoviePy decodes a rotated stream
+already turned and a horizontal PAR stretch keeps width fractions unchanged.
+
+Validation: the schema rejects any other rotation and a non-positive or infinite PAR, and the
+desktop import drops such values from the sidecar at the process boundary. Media probed before v22
+has neither field and reads as square and unrotated; re-import it to measure anamorphic or rotated
+footage. No version bump: v22 was unreleased when the fields were added.
+
 ### How the export draws a stack (MK2)
 
 `render/mask_stack.py` evaluates the enabled masks at the asset source second the clip is playing

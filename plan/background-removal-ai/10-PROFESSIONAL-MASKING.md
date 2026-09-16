@@ -154,7 +154,8 @@ transform (`use_track`), so a title can follow the subject the mask tracked.
   metadata and pixel-aspect-ratio correction, before crop. That is what the editor sees and types.
   Anamorphic and rotated phone footage therefore draws undistorted. Frame-space masks use output-frame
   pixels. Adding a mask requires probed source dimensions
-  (`Asset.media.width/height`, optional since v21). Without them the op refuses with "Measure this
+  (`Asset.media.width/height`, optional since v21; the probe also records `pixelAspectRatio` and
+  clockwise `rotation`, optional in v22, absent = square and 0; MK1.9). Without them the op refuses with "Measure this
   media first", never guessing a size.
 - **Migration safety:** before migrating, the desktop app writes `<project>.v21.backup.fp.json` and
   keeps it until the user deletes it. A project with a newer schema opened in an older app refuses with
