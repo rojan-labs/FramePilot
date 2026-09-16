@@ -9,11 +9,12 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX4 — pixel oracle harness (qa-e2e agent), incl. PX0.3 colour measurement and PX0 screenshots
-- MK2 fixes (render-debugger agent): exact nonzero coverage at self-crossings, 256× supersample reference, ramped legacy migration resample, Windows falloff-table test
+- MK1.9 — probe records PAR + rotation (timeline-engineer agent)
 - BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
 
+- MK2 fixes (e3b4d535, 9fcb2496, b0c7fbaf, 559c0adc): 256× reference, exact nonzero coverage at crossings, per-frame legacy resample
 - MK2 (622e760f…242d352f): exact rasteriser, mask_stack.py, 33 vector cases × 3 res byte-exact, 15 render goldens, CI vectors on macOS (green) + Windows (1 red: libm table regen test)
 - PX1.2 follow-up (622e760f): frame plan reads v22 mask stack
 
@@ -37,10 +38,13 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
+- Frequent pushes cancel long CI jobs (concurrency cancel-in-progress); a full green run needs a quiet window. Vector jobs green on 9fcb2496 (macOS + Windows).
+
 - 2faef783: ai-sdk typecheck (AddMaskOp `shape`/`keyframes` readers) — fix expected in 5154492b; re-check
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
 
-- MK2 coverage vs exact clipping 2.3e-5 ✓; vs 64× supersample 0.0078 ✗ (reference too coarse → 256× in progress); distance feather straight 0 / circle 0.00133 / per-vertex 0 ✓; path interpolation ≤1e-6 ✓; self-crossing 0.336 ✗ (fixing); legacy byte-identity 14/15 (ramped animated ✗, fixing)
+- MK2 ✓: coverage vs 256× supersample max 0.0023 (≤1/255) on all 36 cases incl. self-crossing; vs exact clipping 2.3e-5; distance feather straight 0 / circle 0.00133 / per-vertex 0; path interpolation ≤1e-6; legacy migration 15/15 byte-identical at every 30 fps frame (migrated animated masks carry per-frame keyframes); vectors byte-equal macOS arm64 + Windows x64 + Linux
 - BR0 SAM 2.1 ONNX CPU fp32 min per-frame IoU 0.99954 ✓
+- Memory: SAM parity run reached 16 GB footprint (killed 2026-09-17); BR0 bounding it
