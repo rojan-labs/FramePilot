@@ -385,3 +385,75 @@ class TestEncodeFailuresAreNamed:
         assert "could not encode it as jpeg" in message
         assert "0.500s" in message
         assert "encoder error -2" in message
+
+
+# --- lossless full-resolution mode (PX4.1, the preview/export parity oracle) ------------
+
+
+class TestLosslessFullResolution:
+    """The parity oracle compares preview pixels with the export's, so its frame is the export's.
+
+    The model-facing defaults (512px JPEG, 1280px ceiling, decode budget) must not apply,
+    and the same defaults must stay untouched when the mode is not asked for.
+    """
+
+    def test_composites_at_full_project_resolution_past_the_ceiling_as_png(
+        self,
+        media_factory: Callable[..., Path],
+        tmp_project_dir: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pytest.importorskip("PIL")
+        from PIL import Image
+
+        # Longer edge than MAX_ALLOWED_DIMENSION: the ceiling must not shrink it.
+        width, height = 1600, 900
+        assert max(width, height) > MAX_ALLOWED_DIMENSION
+        _place_asset(
+            media_factory,
+            tmp_project_dir,
+            "clip.mp4",
+            seconds=1.0,
+            with_audio=False,
+            color="red",
+            size=f"{width}x{height}",
+        )
+        project = _video_project(seconds=1.0, width=width, height=height)
+        seen: list[tuple[int, int, int | None]] = []
+
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            seen.append((args[2].width, args[2].height, kwargs.get("max_decode_dimension")))
+            return real_compile(*args, **kwargs)
+
+        monkeypatch.setattr(_COMPILE_TARGET, _spy)
+        frame = grab_frame(project, tmp_project_dir, 0.5, image_format="png", lossless=True)
+
+        assert frame.media_type == "image/png"
+        assert (frame.width, frame.height) == (width, height)
+        # Composited at the export's size and with the export's unbudgeted decode.
+        assert seen == [(width, height, None)]
+        decoded = Image.open(io.BytesIO(frame.data)).convert("RGB")
+        assert decoded.size == (width, height)
+        # PNG round-trips exactly: the centre is the decoded red, not a JPEG approximation.
+        red, green, blue = decoded.getpixel((width // 2, height // 2))  # type: ignore[misc]
+        assert red > 200 and green < 40 and blue < 40
+
+    def test_max_dimension_does_not_apply(self, project_with_media: tuple[Project, Path]) -> None:
+        pytest.importorskip("PIL")
+        project, base = project_with_media
+        frame = grab_frame(project, base, 0.5, image_format="png", max_dimension=64, lossless=True)
+        assert (frame.width, frame.height) == (640, 360)
+
+    def test_refuses_a_lossy_format_instead_of_overriding_it(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        project, base = project_with_media
+        with pytest.raises(FrameGrabError, match="lossless frame must be encoded as png"):
+            grab_frame(project, base, 0.5, lossless=True)
+
+    def test_the_default_path_is_unchanged(self, project_with_media: tuple[Project, Path]) -> None:
+        pytest.importorskip("PIL")
+        project, base = project_with_media
+        frame = grab_frame(project, base, 0.5)
+        assert frame.media_type == "image/jpeg"
+        assert max(frame.width, frame.height) == 512
