@@ -1688,8 +1688,8 @@ input[type='checkbox']:focus-visible {
   overflow-x: hidden;
 }
 
-/* AI sidebar and the caption editor render their own chrome edge-to-edge;
-   only Inspector/Transcript/media rails need the rail's inset. */
+/* AI sidebar, Inspector and the caption editor render their own chrome edge-to-edge;
+   only the left rail's media/transcript-style panels take the rail's inset. */
 .rail-body--padded {
   padding: 0.85rem;
 }
