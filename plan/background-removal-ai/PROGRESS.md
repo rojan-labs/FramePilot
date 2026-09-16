@@ -7,10 +7,13 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-- PX0 — inventory (starting)
+- PX0 + PX1 — inventory, frame plan, parity vectors (render-debugger agent)
+- MK1 — schema v22 mask stack, migration, ops, validator (timeline-engineer agent)
+- BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
 
+- RD0.1 (9fd09d00): competitor re-check, `12` §E
 - Setup: PR retitled and marked ready; `PROGRESS.md` and `MAINTAINER_ONLY_ACTIONS.md` created.
 
 ## Blocked (maintainer-only, see `MAINTAINER_ONLY_ACTIONS.md`)
