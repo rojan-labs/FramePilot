@@ -3,8 +3,8 @@
 * The stored vectors in ``tests/fixtures/mask-raster`` are exactly what the engine produces,
   byte for byte, at all three resolutions (the TypeScript twin asserts the same bytes, MK3.1).
   CI runs this file on Linux x64, macOS arm64 and Windows x64.
-* Coverage vs a 64x64-supersampled reference: max error <= 1/255 per pixel on every
-  coverage vector case.
+* Coverage vs a 256x256-supersampled reference (at least the plan's 64x64): max error
+  <= 1/255 per pixel on every coverage vector case; and vs exact polygon clipping.
 * Distance feather vs an analytic reference: max error <= 1/255 in the band for straight
   edges, circles and per-vertex feather.
 
@@ -25,7 +25,7 @@ from framepilot_engine.render import mask_raster as mr
 from tests import mask_raster_vectors as vectors
 
 _GATE = 1.0 / 255.0
-_SUPERSAMPLE = 64
+_SUPERSAMPLE = 256
 
 
 def _stored(area: str) -> dict[str, Any]:
@@ -63,7 +63,7 @@ def test_the_engine_reproduces_the_stored_vectors_byte_for_byte(area: str) -> No
 
 
 def _supersampled_coverage(poly: mr.Polyline, width: int, height: int) -> np.ndarray:
-    """Fraction of a 64x64 grid of sample points per pixel inside the polyline (nonzero)."""
+    """Fraction of an N x N grid of sample points per pixel inside the polyline (nonzero)."""
     n = _SUPERSAMPLE
     counts = np.zeros((height, width), dtype=np.int64)
     x0, y0, x1, y1 = poly.xs[:-1], poly.ys[:-1], poly.xs[1:], poly.ys[1:]
@@ -97,13 +97,10 @@ def _supersampled_coverage(poly: mr.Polyline, width: int, height: int) -> np.nda
 #: miss of the supersample gate, not a lowered gate (strict xfail below).
 _OPPOSITE_WINDING_CASES = frozenset({"path-bowtie-nonzero"})
 
-#: A 64x64 point grid resolves an axis-aligned edge only to half a sample: 0.5 / 64 of a pixel.
-#: That is coarser than 1/255, so the reference itself cannot certify 1/255 on such edges; the
-#: 1/255 gate is asserted against EXACT polygon clipping instead, and this bound is the
-#: supersample reference's own resolution (measured: see the MK2 report).
-_SUPERSAMPLE_RESOLUTION = 0.5 / _SUPERSAMPLE + 4.0 / mr.Q16_ONE
 
-
+#: Sample points per pixel side of the supersampled reference. A point grid resolves an edge
+#: to half a sample, 0.5 / 256 = 0.00195 of a pixel, finer than the 1/255 gate it certifies.
+#: Samples are counted analytically per sample row (span arithmetic), so it stays cheap.
 def _hard_single_layers(*, simple: bool) -> list[tuple[str, dict[str, Any]]]:
     return [
         (case["id"], case["layers"][0])
@@ -155,7 +152,7 @@ def measure_exact_clip_error() -> float:
 
 
 def measure_supersample_error(*, simple: bool = True) -> float:
-    """Max |coverage - 64x64 reference| over the coverage vector cases and resolutions."""
+    """Max |coverage - supersampled reference| over the coverage vector cases and resolutions."""
     worst = 0.0
     for _case_id, layer in _hard_single_layers(simple=simple):
         for width, height in vectors.RESOLUTIONS:
@@ -171,9 +168,9 @@ def test_coverage_matches_exact_clipped_area_within_one_level() -> None:
     assert worst <= _GATE, f"max coverage error vs exact clipping {worst} > 1/255"
 
 
-def test_coverage_agrees_with_a_64x64_supersample_to_its_resolution() -> None:
+def test_coverage_is_within_one_level_of_a_256x256_supersampled_reference() -> None:
     worst = measure_supersample_error()
-    assert worst <= _SUPERSAMPLE_RESOLUTION, f"max coverage error vs 64x64 reference {worst}"
+    assert worst <= _GATE, f"max coverage error vs 256x256 reference {worst} > 1/255"
 
 
 @pytest.mark.xfail(
