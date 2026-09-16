@@ -160,17 +160,16 @@ E2E + docs (after all tracks)
 
 ### BR0 — Spike: models, ONNX, licences, error detection `[ ]`
 
-- [ ] BR0.1 SAM 2.1 Hiera-L video components → ONNX; parity vs PyTorch (IoU ≥ 0.999) on CoreML and DirectML
-- [ ] BR0.2 BiRefNet HR at 2048² crop, tiled; consensus prototype with forward/backward SAM + flow
-- [ ] BR0.3 Matting: ViTMatte vs classical on the hair category; licence and training-data verdict
-- [ ] BR0.4 Verification checks prototype → **error-detection recall and review load** on a labelled pilot set
-- [ ] BR0.5 Fallback pipeline measured through the same consensus/verify stages
-- [ ] BR0.6 Grounding models (Grounding DINO / OWLv2): ONNX on both EPs, target-resolution accuracy on a pilot request set, licence verdict → MD-6
-- [ ] BR0.7 Throughput, memory, pack size, matte + foreground storage per minute
-- [ ] BR0.9 Windows EP comparison (DirectML, Windows ML, CUDA, OpenVINO) on NVIDIA/AMD/Intel GPUs; first-run preparation time per EP; published minimum hardware; Intel Mac feasibility
-- [ ] BR0.8 `BR0-FINDINGS.md`; MD-2 and MD-6 recorded; ADR draft `docs/adr/0178-smart-mask-pack.md`
+- [ ] BR0.1 ONNX exports: SAM 2.1 Hiera-L video modules (real-valued RoPE), BiRefNet_HR-matting, SAM 3.1 image path
+- [ ] BR0.2 Parity per (model, EP) vs PyTorch: CoreML (MLProgram, static shapes), Windows ML (TensorRT-RTX / OpenVINO / Vitis AI / DirectML), DirectML EP, CPU; failing pairs disabled by rule
+- [ ] BR0.3 Consensus + band-alpha prototype with BiRefNet_HR-matting at 2048² tiles
+- [ ] BR0.4 Verify-stage prototype → **error-detection recall and review load** on the labelled pilot set
+- [ ] BR0.5 Licence texts at pinned commits into `LICENSES.md` (Apache-2.0, MIT + DIS5K statement, SAM License acceptable-use terms)
+- [ ] BR0.6 SAM 3.1 grounding: target-resolution accuracy on a pilot request set; fp16 image path memory and latency
+- [ ] BR0.7 Throughput, memory, first-run preparation per EP; pack sizes; matte + foreground storage per minute; published minimum hardware
+- [ ] BR0.8 `BR0-FINDINGS.md`; ADR `docs/adr/0178-smart-mask-packs.md` recording the chosen models, runtime chain and rejection reasons
 
-**DoD:** numbers in the findings doc; the maintainer approves the model set, or the plan is revised.
+**DoD:** numbers in the findings doc and every (model, EP) pair either passing parity or disabled. The model set is not re-opened; a missed recall gate is fixed in the verify stage.
 
 ### BR2 — Engine: matte kind `[ ]` (needs MK2)
 
@@ -186,9 +185,9 @@ E2E + docs (after all tracks)
 - [ ] BR3.1 Scaffold `workers/smart-mask` mirroring `subject-intelligence`
 - [ ] BR3.2 Decode with pts and engine-matching colour; `frames.json`
 - [ ] BR3.3 Forward/backward SAM 2.1 propagation with locked-frame seeding; windowing
-- [ ] BR3.4 BiRefNet HR refinement; consensus; unknown band; per-frame score
+- [ ] BR3.4 BiRefNet_HR-matting refinement at 2048² tiles; consensus; unknown band; per-frame score
 - [ ] BR3.5 Self-correction loop (auto prompts from confident neighbours, K=3)
-- [ ] BR3.6 Full-resolution band matting; foreground colour estimation; band-only stabilisation
+- [ ] BR3.6 Full-resolution band alpha (BiRefNet_HR-matting tiles); foreground colour estimation; band-only stabilisation
 - [ ] BR3.7 Verification checks → `needsReview`; `report.json`
 - [ ] BR3.8 Brush corrections and locked frames as inputs; partial-window re-run from `previousArtifact`
 - [ ] BR3.9 Encoders (FFV1 master + foreground, VP9 previews); byte ceiling; declared names only
@@ -197,7 +196,7 @@ E2E + docs (after all tracks)
 - [ ] BR3.12 `pnpm license:scan`, hand-reviewed `LICENSES.md`, SBOM `--check`, LGPL-only FFmpeg verification
 - [ ] BR3.13 `subject.segment_frame` warm worker with per-frame embedding cache; `prepare` phase and compiled-model cache
 - [ ] BR3.14 Progressive per-window encode/verify; resume from finished windows; per-job memory ceiling, watchdog, GPU OOM → CPU fallback
-- [ ] BR3.15 `subject.ground` grounding capability
+- [ ] BR3.15 `workers/smart-mask-text` pack (SAM 3.1 image path, `subject.ground`) with its own manifest, lock, SBOM, LICENSES and registration script
 
 Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensus · (PR 3) self-correct + matting + foreground + stabilise · (PR 4) verify + encode + progressive/resume · (PR 5) interactive + grounding · (PR 6) licences, SBOM, registration
 
@@ -308,6 +307,7 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 ### RD1 — Release infrastructure (start now; the blocker) `[ ]`
 
 - [ ] RD1.1 Maintainer actions: Apple Developer ID + notarisation, Windows Authenticode certificate, offline catalog root keys (generation ceremony, storage, rotation plan)
+- [ ] RD1.7 Authenticated, recorded Hugging Face access for the gated SAM 3.1 checkpoint in the pack build job
 - [ ] RD1.2 CDN hosting for multi-GiB artifacts with range requests; bandwidth and cost estimate
 - [ ] RD1.3 Signed catalog publishing pipeline from pack manifests (release-tooling exists); build embeds root keys and catalog URL for release channels only
 - [ ] RD1.4 CI pack builds for darwin-arm64 and win32-x64 with SBOM and licence gates; artifact signing
@@ -318,7 +318,7 @@ Sub-PRs: (PR 1) scaffold, decode, protocol · (PR 2) segment + refine + consensu
 
 - [ ] RD2.1 Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
 - [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
-- [ ] RD2.3 Legal review of face-recognition consent copy and privacy docs
+- [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs, and the SAM License acceptable-use terms (contingency if rejected: Smart Mask Text uses OWLv2, Apache-2.0, and the ambiguity gate is re-measured)
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates
 - [ ] RD2.5 `MANUAL_TESTING.md` masking and background-removal procedures
 

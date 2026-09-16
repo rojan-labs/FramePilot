@@ -52,22 +52,22 @@ what makes it honest.
 
 ## Matte gates (the pack does not ship until all pass on darwin-arm64 **and** win32-x64)
 
-| Gate                                    | Threshold (proposed; the maintainer may tighten, never loosen)                                                                       |
-| --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
-| Mean IoU, auto prompt, every category   | ≥ 0.98                                                                                                                               |
-| Worst-category mean IoU, one click      | ≥ 0.97                                                                                                                               |
-| 5th-percentile per-frame IoU, one click | ≥ 0.95                                                                                                                               |
-| BF@2px, every category                  | ≥ 0.95                                                                                                                               |
-| Band SAD / Grad, hair category          | Beats the classical-matting fallback by ≥ 25%, and no worse than the best published permissive-licence result reproduced on this set |
-| Foreground colour error                 | Mean ΔE2000 ≤ 2.0 in the band                                                                                                        |
-| dtSSD                                   | ≤ the reproduced best permissive-licence video matting baseline on this set; no visible crawl in a blind side-by-side review         |
-| Leak rate                               | ≤ 0.5% of frames before review                                                                                                       |
-| **Error-detection recall**              | **≥ 99.5%**                                                                                                                          |
-| Review load                             | ≤ 10% of frames on medium categories (keeps recall from being bought by flagging everything)                                         |
-| Correction convergence                  | ≤ 3 actions → corrected frame IoU ≥ 0.995, BF@2px ≥ 0.98; neighbours within 1 s do not regress                                       |
-| Locked frames                           | 100% bit-identical after any later re-run                                                                                            |
-| Frame alignment                         | 100%                                                                                                                                 |
-| Preview ↔ export                        | The matte and text-behind-subject rows of the [`09`](./09-PREVIEW-EXPORT-PARITY.md) oracle pass                                      |
+| Gate                                    | Threshold (proposed; the maintainer may tighten, never loosen)                                                                                      |
+| --------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Mean IoU, auto prompt, every category   | ≥ 0.98                                                                                                                                              |
+| Worst-category mean IoU, one click      | ≥ 0.97                                                                                                                                              |
+| 5th-percentile per-frame IoU, one click | ≥ 0.95                                                                                                                                              |
+| BF@2px, every category                  | ≥ 0.95                                                                                                                                              |
+| Band SAD / Grad, hair category          | ≥ 25% lower than the same pipeline with band alpha disabled (binary refined edge), and within 2% of the fp32 PyTorch reference of the same pipeline |
+| Foreground colour error                 | Mean ΔE2000 ≤ 2.0 in the band                                                                                                                       |
+| dtSSD                                   | ≥ 30% lower than the same pipeline with stabilisation disabled; no visible crawl in a blind side-by-side review                                     |
+| Leak rate                               | ≤ 0.5% of frames before review                                                                                                                      |
+| **Error-detection recall**              | **≥ 99.5%**                                                                                                                                         |
+| Review load                             | ≤ 10% of frames on medium categories (keeps recall from being bought by flagging everything)                                                        |
+| Correction convergence                  | ≤ 3 actions → corrected frame IoU ≥ 0.995, BF@2px ≥ 0.98; neighbours within 1 s do not regress                                                      |
+| Locked frames                           | 100% bit-identical after any later re-run                                                                                                           |
+| Frame alignment                         | 100%                                                                                                                                                |
+| Preview ↔ export                        | The matte and text-behind-subject rows of the [`09`](./09-PREVIEW-EXPORT-PARITY.md) oracle pass                                                     |
 
 If a gate misses, the numbers go to the maintainer. A gate is not quietly lowered to ship.
 
@@ -120,6 +120,14 @@ If a gate misses, the numbers go to the maintainer. A gate is not quietly lowere
 | Resume after a crash mid-job                                   | 100% of finished windows reused; output identical to an uninterrupted run                   |
 | Rasteriser byte-equality                                       | Holds on macOS arm64, Windows x64 and Linux x64 for both implementations                    |
 | Anamorphic and rotated sources                                 | Mask drawn on the monitor matches the export within the oracle thresholds                   |
+
+## Runtime parity (per model and execution provider)
+
+| Gate                                                  | Threshold                                                       |
+| ----------------------------------------------------- | --------------------------------------------------------------- |
+| ONNX vs PyTorch reference, SAM 2.1 Hiera-L video path | Per-frame IoU ≥ 0.999 on every parity clip                      |
+| ONNX vs PyTorch reference, BiRefNet_HR-matting        | Mean absolute alpha difference ≤ 1/255 in the band, max ≤ 4/255 |
+| Failing (model, EP) pair                              | Disabled; the next EP in the chain is used and recorded         |
 
 ## Harness
 

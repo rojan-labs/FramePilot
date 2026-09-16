@@ -30,10 +30,9 @@ RequestBaseSchema.extend({
 
 The frame range and media handle come from `RequestBase`, as for `tracking.*`.
 
-**Companion capability `subject.ground`** (same pack; needed by AI masking, [`11`](./11-AI-MASKING.md)):
+**Companion capability `subject.ground`** (Smart Mask Text pack; needed by AI masking, [`11`](./11-AI-MASKING.md)):
 request `{ text: string ≤ 200 chars, frames: pts[] ≤ 16 }` → result
-`{ candidates: [{ candidateId, label, score, boxes: [{ pts, box }] }] }`. Small JSON; open-vocabulary
-grounding model decided under MD-6. Region words that are not objects ("sky", "ground") return a
+`{ candidates: [{ candidateId, label, score, boxes: [{ pts, box }] }] }`. Small JSON. Served by the separate `framepilot.smart-mask-text` pack (SAM 3.1 image path). Region words that are not objects ("sky", "ground") return a
 `region` candidate whose box is the frame and whose prompt is resolved by segmentation.
 
 **Prompt kinds for `subject.matte`** accept any object or region, not only people: a grounding

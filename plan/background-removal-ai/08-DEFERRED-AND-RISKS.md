@@ -32,17 +32,17 @@
 
 ## Risks
 
-| Risk                                                                                         | Likelihood | Impact | Mitigation                                                                                                                |
-| -------------------------------------------------------------------------------------------- | ---------- | ------ | ------------------------------------------------------------------------------------------------------------------------- |
-| SAM 2 memory attention does not export cleanly to ONNX, or runs on CPU under CoreML/DirectML | Medium     | High   | BR0 go/no-go with a measured fallback pipeline; if both miss the gates, return to the maintainer                          |
-| Alpha-matting weights fail the licence gate (training-data terms)                            | Medium     | Medium | Classical matting fallback; the hair-quality delta is measured and disclosed                                              |
-| Throughput too slow for minutes-long 4K clips                                                | High       | Medium | Crop-based refinement, windowing, an honest ETA and a confirmation for long jobs; process only the clip's range + handles |
-| Matte storage (FFV1 at 4K) surprises users                                                   | Medium     | Medium | Size estimate before running; per-project storage view; explicit cleanup                                                  |
-| Frame drift on VFR or edit-list media                                                        | Medium     | High   | pts-indexed mattes; VFR and edit-list fixtures in BR2 and BR3                                                             |
-| Sandbox broadening becomes a write primitive                                                 | Low        | High   | One empty host-created directory, declared names, byte ceiling, host re-verification, security review                     |
-| Preview two-layer decode drops frames on slower Macs                                         | Medium     | Medium | Proxy-resolution matte; performance-monitor budget; automatic fallback to the existing "preview differs" path             |
-| Users read "precise" as "never wrong"                                                        | High       | Medium | Low-confidence ranges, matte view and corrections are first-class; guide and copy say how to fix a frame                  |
-| Pack size (0.4–1.2 GiB) deters install                                                       | Medium     | Low    | Size and on-device privacy shown in the warning; a smaller model tier considered only if BR0 data supports it             |
+| Risk                                                            | Likelihood | Impact | Mitigation                                                                                                                                                                              |
+| --------------------------------------------------------------- | ---------- | ------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| An execution provider fails parity for a model on some hardware | Medium     | Medium | Rule: the pair is disabled and the next EP (ending at CPU) runs the same fp32 model; slower, never less precise                                                                         |
+| BiRefNet_HR-matting underperforms on a hair category            | Low        | Medium | The band gates in `06` measure it; tiling resolution and consensus band width are tuned first; the model choice is not reopened without a measured permissive alternative that beats it |
+| Throughput too slow for minutes-long 4K clips                   | High       | Medium | Crop-based refinement, windowing, an honest ETA and a confirmation for long jobs; process only the clip's range + handles                                                               |
+| Matte storage (FFV1 at 4K) surprises users                      | Medium     | Medium | Size estimate before running; per-project storage view; explicit cleanup                                                                                                                |
+| Frame drift on VFR or edit-list media                           | Medium     | High   | pts-indexed mattes; VFR and edit-list fixtures in BR2 and BR3                                                                                                                           |
+| Sandbox broadening becomes a write primitive                    | Low        | High   | One empty host-created directory, declared names, byte ceiling, host re-verification, security review                                                                                   |
+| Preview two-layer decode drops frames on slower Macs            | Medium     | Medium | Proxy-resolution matte; performance-monitor budget; automatic fallback to the existing "preview differs" path                                                                           |
+| Users read "precise" as "never wrong"                           | High       | Medium | Low-confidence ranges, matte view and corrections are first-class; guide and copy say how to fix a frame                                                                                |
+| Pack size (0.4–1.2 GiB) deters install                          | Medium     | Low    | Size and on-device privacy shown in the warning; a smaller model tier considered only if BR0 data supports it                                                                           |
 
 ### Added with the precision and parity update
 
@@ -58,13 +58,13 @@
 
 ### Added with professional and AI masking
 
-| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                                                       |
-| --------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
-| v22 migration changes how existing masked projects look                     | Medium     | High   | `gaussian-legacy` feather model; byte-identical export gate on v21 fixtures                                                      |
-| TS rasteriser too slow for animated multi-mask stacks at preview resolution | Medium     | Medium | Band-limited evaluation, static-mask cache, WASM build of the same algorithm only if PX5 shows it is needed                      |
-| Grounding model licence fails (training data)                               | Medium     | High   | MD-6; fall back to Subject Intelligence classes + SigLIP re-ranking and **ask more often**, measured against the ambiguity gates |
-| The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply          |
-| Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability                |
+| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                                                             |
+| --------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------- |
+| v22 migration changes how existing masked projects look                     | Medium     | High   | `gaussian-legacy` feather model; byte-identical export gate on v21 fixtures                                                            |
+| TS rasteriser too slow for animated multi-mask stacks at preview resolution | Medium     | Medium | Band-limited evaluation, static-mask cache, WASM build of the same algorithm only if PX5 shows it is needed                            |
+| Legal review rejects the SAM License (used only for text grounding)         | Low        | Medium | Smart Mask Text switches to OWLv2 (Apache-2.0); the ambiguity gate is re-measured and the agent asks more often; mattes are unaffected |
+| The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply                |
+| Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability                      |
 
 ### Added by the production audit
 
@@ -78,8 +78,6 @@
 
 ## What would change this plan
 
-- BR0 shows the fallback pipeline meets the gates → drop SAM 2 video propagation and keep the
-  simpler pipeline.
 - The maintainer rejects MD-3 → the worker streams alpha frames over a binary side channel to
   the host, which writes the files. That costs more protocol work (framing, backpressure) but
   keeps workers write-free.

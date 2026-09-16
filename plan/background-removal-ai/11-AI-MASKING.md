@@ -42,10 +42,10 @@ request text + clip + time range
   → ambiguous? → ambiguous_target with candidate thumbnails → user picks → continue
 ```
 
-- **Open-vocabulary grounding model:** candidates are Grounding DINO or OWLv2 (Apache-2.0 upstream,
-  **to verify in BR0 with training-data terms**; decided under **MD-6**). It is added to the Smart Mask
-  pack, which already carries onnxruntime, with SigLIP from `visual-embed` as an optional re-ranker
-  when installed.
+- **Open-vocabulary grounding: SAM 3.1** concept prompts in image mode on up to 16 keyframes, from the
+  separate Smart Mask Text pack ([`02`](./02-WORKER-PACK.md#model-choices-decided-2026-09-16-from-current-sources-br0-verifies-it-does-not-choose)).
+  It proposes candidates; SAM 2.1 + BiRefNet_HR-matting produce the mask. SigLIP from `visual-embed` re-ranks
+  when installed. Without the text pack, the agent asks the editor to click the object.
 - **Faces** use YuNet (Subject Intelligence) for boxes and identity clusters (SFace, `visual-embed`),
   so "blur everyone except the host" resolves by identity, not by position.
 - Candidate ids are stable per clip and time, and are recalled by the run's memory (the

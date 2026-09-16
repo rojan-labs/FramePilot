@@ -74,18 +74,18 @@ promise one. It makes the **delivered result** exact, and every claim is a gate 
 ## Maintainer decisions
 
 **Approved by the maintainer on 2026-09-16** ("i am ready to go with any changes"), recorded per
-CLAUDE.md §5. MD-2 and MD-6 stay conditional on BR0 evidence: the licence gate and the measured gates
-cannot be waived by approval.
+CLAUDE.md §5. Models and runtimes are decided (MD-2, MD-6); BR0 verifies parity and records numbers, and the measured
+gates still apply.
 
-| #    | Decision                                                                                                      | Status                                                                                               |
-| ---- | ------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| MD-1 | Schema v22 mask stack (`Clip.masks`, `EffectLayer.masks`) replacing `mask` effects, with migration and backup | **Approved**                                                                                         |
-| MD-2 | Smart Mask pack models (SAM 2.1 Hiera-L, BiRefNet HR, matting model) on onnxruntime                           | **Approved, conditional on BR0** (licences incl. training data, ONNX parity, error-detection recall) |
-| MD-3 | Pack worker writes one host-created staging directory                                                         | **Approved** (security review in BR4 still required)                                                 |
-| MD-4 | Mattes, tracks and correction inputs are project-owned                                                        | **Approved**                                                                                         |
-| MD-5 | Delete the DOM program monitor and eligibility gates once every oracle row passes                             | **Approved** (behind a flag until RD3)                                                               |
-| MD-6 | Open-vocabulary grounding model in the Smart Mask pack                                                        | **Approved, conditional on BR0**                                                                     |
-| MD-7 | Per-project, opt-in face recognition for identity-aware AI masking                                            | **Approved** (legal review of copy in RD2)                                                           |
+| #    | Decision                                                                                                                | Status                                                                                             |
+| ---- | ----------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------- |
+| MD-1 | Schema v22 mask stack (`Clip.masks`, `EffectLayer.masks`) replacing `mask` effects, with migration and backup           | **Approved**                                                                                       |
+| MD-2 | Smart Mask models: **SAM 2.1 Hiera-L + BiRefNet_HR-matting**, fp32 onnxruntime (CoreML EP; Windows ML → DirectML → CPU) | **Approved and decided** (2026-09-16); BR0 verifies parity, it does not choose                     |
+| MD-3 | Pack worker writes one host-created staging directory                                                                   | **Approved** (security review in BR4 still required)                                               |
+| MD-4 | Mattes, tracks and correction inputs are project-owned                                                                  | **Approved**                                                                                       |
+| MD-5 | Delete the DOM program monitor and eligibility gates once every oracle row passes                                       | **Approved** (behind a flag until RD3)                                                             |
+| MD-6 | Text grounding: **SAM 3.1** image mode in a separate Smart Mask Text pack                                               | **Approved and decided** (legal review of the SAM License in RD2.3; OWLv2 is the only contingency) |
+| MD-7 | Per-project, opt-in face recognition for identity-aware AI masking                                                      | **Approved** (legal review of copy in RD2)                                                         |
 
 **Maintainer actions (not decisions; nothing ships to users without them):** Apple Developer ID and
 notarisation, a Windows Authenticode certificate, offline catalog root keys, and a CDN account for
