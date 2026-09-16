@@ -8,8 +8,13 @@
  * history, and desktop persistence behave like any other manual edit.
  */
 import { useMemo, useState } from 'react';
-import { compileTrackingCommand, type ApplyTrackedMaskCommand } from '@framepilot/editor-core';
-import type { Clip, Effect } from '@framepilot/timeline-schema';
+import {
+  assetDisplaySize,
+  compileTrackingCommand,
+  maskFrameBox,
+  type ApplyTrackedMaskCommand,
+} from '@framepilot/editor-core';
+import { masksOf, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../editor/useEditor.js';
 import { Button } from '@framepilot/ui';
 import { professionalMaskEffectId } from '@framepilot/editor-core';
@@ -23,18 +28,10 @@ type FollowMode = 'box' | 'center' | 'silhouette';
 const FOLLOW_OPTIONS = ['box', 'center', 'silhouette'] as const;
 const FOLLOW_LABELS = ['Follow box', 'Follow centre', 'Follow silhouette'] as const;
 
-function professionalMask(clip: Clip): Effect | undefined {
+/** The clip's primary mask on its v22 mask stack (ADR 0178). */
+function professionalMask(clip: Clip): MaskLayer | undefined {
   const id = professionalMaskEffectId(clip.id);
-  return clip.effects.find((effect) => effect.id === id && effect.type === 'mask');
-}
-
-function maskBounds(effect: Effect): { x: number; y: number; width: number; height: number } | undefined {
-  const raw = (effect.params as Record<string, unknown>).bounds;
-  if (typeof raw !== 'object' || raw === null) return undefined;
-  const record = raw as Record<string, number>;
-  const values = [record.x, record.y, record.width, record.height];
-  if (!values.every((value) => typeof value === 'number' && Number.isFinite(value))) return undefined;
-  return { x: record.x!, y: record.y!, width: record.width!, height: record.height! };
+  return masksOf(clip).find((mask) => mask.id === id);
 }
 
 export function MaskPackActions({
@@ -47,11 +44,12 @@ export function MaskPackActions({
   fps: number;
 }): JSX.Element | null {
   const mask = useMemo(() => professionalMask(clip), [clip]);
-  const bounds = mask === undefined ? undefined : maskBounds(mask);
-  const shapeOk =
-    mask !== undefined &&
-    ((mask.params as Record<string, unknown>).shape === 'rectangle' ||
-      (mask.params as Record<string, unknown>).shape === 'ellipse');
+  const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
+  const bounds =
+    mask === undefined
+      ? undefined
+      : (maskFrameBox(mask, assetDisplaySize(media), clip.sourceStart) ?? undefined);
+  const shapeOk = mask !== undefined && (mask.kind === 'rectangle' || mask.kind === 'ellipse');
   const [mode, setMode] = useState<FollowMode>('box');
   const [localError, setLocalError] = useState<string | null>(null);
   const safeFps = Number.isFinite(fps) && fps > 0 ? fps : 30;

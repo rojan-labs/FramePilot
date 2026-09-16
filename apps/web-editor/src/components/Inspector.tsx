@@ -275,7 +275,8 @@ export function Inspector({
   };
 
   const applyMask = (): void => {
-    const patch = addMaskPatch(timeline, clip.id, maskShape, maskFeather, maskOpacity);
+    const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
+    const patch = addMaskPatch(timeline, clip.id, maskShape, maskFeather, maskOpacity, media);
     if (patch) editor.applyPatch(patch);
   };
 

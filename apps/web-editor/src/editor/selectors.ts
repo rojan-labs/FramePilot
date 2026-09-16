@@ -179,8 +179,8 @@ export function trackJunctions(track: Track): readonly Junction[] {
 }
 
 /** Full compositing data for the engine, compact identity for JSON signature guards. */
-export function clipCompositing(clip: Clip): ClipCompositing {
-  return withPreviewIdentity(baseClipCompositing(clip), clip);
+export function clipCompositing(clip: Clip, media?: Asset['media']): ClipCompositing {
+  return withPreviewIdentity(baseClipCompositing(clip, media), clip);
 }
 
 /** Full effect-layer objects for the engine, compact identities for JSON signature guards. */

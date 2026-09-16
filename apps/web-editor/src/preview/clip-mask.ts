@@ -8,6 +8,8 @@
  * the editor had to export to see what they had made.
  *
  * Parity with the engine, point by point:
+ * - schema v22 stores masks in source pixels on the source clock (ADR 0178); they are resolved
+ *   here into frame fractions exactly as the engine's interim adapter resolves them;
  * - geometry is in FRAME FRACTIONS of the clip's own picture, applied after crop and before
  *   the clip is placed, so the mask moves, scales and rotates WITH the picture;
  * - `x`/`y`/`width`/`height`/`feather`/`opacity` animate through the effect's keyframes
@@ -18,12 +20,14 @@
  * Pure except {@link paintClipMask}, which only issues 2D-context calls, so every decision is
  * testable without a browser.
  */
-import { evaluateKeyframes } from '@framepilot/editor-core';
-import type { Effect } from '@framepilot/timeline-schema';
-
-/** The properties `render/masks.py#_ANIMATABLE` lets a keyframe override. */
-const ANIMATABLE = ['x', 'y', 'width', 'height', 'feather', 'opacity'] as const;
-type AnimatableProperty = (typeof ANIMATABLE)[number];
+import {
+  assetDisplaySize,
+  hasSpeedRamp,
+  maskScalarAt,
+  sourceTimeAt,
+  type DisplaySize,
+} from '@framepilot/editor-core';
+import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
 
 /** A mask resolved at one instant. Geometry is in frame fractions (0..1). */
 export interface PreviewMask {
@@ -46,38 +50,89 @@ export interface MaskRect {
   readonly height: number;
 }
 
-/** The clip's mask effect — the FIRST one, as the compiler picks it — or `null`. */
-export function clipMaskEffect(effects: readonly Effect[]): Effect | null {
-  return effects.find((effect) => effect.type === 'mask') ?? null;
+/**
+ * What the preview needs to draw a clip's mask (schema v22, ADR 0178): the clip (its crop and
+ * speed map source time), the mask, and the media's measured size (masks are stored in source
+ * pixels).
+ */
+export interface PreviewMaskSource {
+  readonly clip: Pick<Clip, 'crop' | 'sourceStart' | 'sourceEnd' | 'speed' | 'speedRamp'>;
+  readonly mask: MaskLayer;
+  readonly size: DisplaySize | null;
 }
 
 /**
- * Resolve a mask effect at clip-relative `clipTime` (`mask_spec_at`).
- *
- * @param effect - A `mask` effect.
- * @param clipTime - Seconds from the clip's start.
- * @returns The mask geometry and styling at that instant.
+ * The clip's drawable mask, or `null` — mirroring the engine's interim adapter
+ * (`render/masks.py#legacy_mask_for_clip`): the FIRST enabled alpha-target rectangle, ellipse
+ * or path in source space, on media whose size is known (or stored as legacy fractions).
+ * The export refuses the stacks this cannot draw; the preview draws none of them rather than
+ * showing something the export will not produce.
  */
-export function maskAt(effect: Effect, clipTime: number): PreviewMask {
-  const params = (effect.params ?? {}) as Record<string, unknown>;
-  const bounds = (isRecord(params.bounds) ? params.bounds : {}) as Record<string, unknown>;
-  const values: Record<AnimatableProperty, number> = {
-    x: finite(bounds.x, 0),
-    y: finite(bounds.y, 0),
-    width: finite(bounds.width, 1),
-    height: finite(bounds.height, 1),
-    feather: finite(params.feather, 0),
-    opacity: finite(params.opacity, 1),
-  };
-  for (const property of ANIMATABLE) {
-    const animated = evaluateKeyframes(effect.keyframes, property, clipTime);
-    if (animated !== undefined) values[property] = animated;
+export function clipMaskSource(
+  clip: Clip,
+  media: Asset['media'] | DisplaySize | null | undefined,
+): PreviewMaskSource | null {
+  const enabled = masksOf(clip).filter((mask) => mask.enabled);
+  const mask = enabled[0];
+  if (enabled.length !== 1 || mask === undefined) return null;
+  if (mask.kind !== 'rectangle' && mask.kind !== 'ellipse' && mask.kind !== 'path') return null;
+  if (mask.target.kind !== 'alpha' || mask.space !== 'source' || mask.mode !== 'add') return null;
+  const size = assetDisplaySize(media);
+  if (size === null && mask.units !== 'normalized') return null;
+  return { clip, mask, size };
+}
+
+/** Clip-relative timeline seconds → asset source seconds, as the export's speed stage plays. */
+function sourceTimeForClip(clip: PreviewMaskSource['clip'], clipTime: number): number {
+  if (hasSpeedRamp(clip)) {
+    return clip.sourceStart + sourceTimeAt(clip.speedRamp!, 0, clipTime, clip.sourceEnd - clip.sourceStart);
   }
+  const speed = clip.speed ?? 1;
+  if (speed === 0) return clip.sourceStart;
+  if (speed < 0) return clip.sourceEnd + clipTime * speed;
+  return clip.sourceStart + clipTime * speed;
+}
+
+/**
+ * Resolve a clip's mask at clip-relative `clipTime` into frame fractions of the clip's own
+ * (cropped) picture — the vocabulary `render/masks.py` rasterises in.
+ *
+ * @param source - From {@link clipMaskSource}.
+ * @param clipTime - Seconds from the clip's start.
+ */
+export function maskAt(source: PreviewMaskSource, clipTime: number): PreviewMask {
+  const { clip, mask } = source;
+  const s = sourceTimeForClip(clip, clipTime);
+  const normalized = mask.units === 'normalized';
+  const scaleW = normalized ? 1 : source.size!.width;
+  const scaleH = normalized ? 1 : source.size!.height;
+  const crop = clip.crop ?? { x: 0, y: 0, width: 1, height: 1 };
+  const fx = (px: number): number => (px / scaleW - crop.x) / crop.width;
+  const fy = (py: number): number => (py / scaleH - crop.y) / crop.height;
+  const value = (property: Parameters<typeof maskScalarAt>[1]): number =>
+    maskScalarAt(mask, property, s) ?? 0;
+  const featherScale = normalized ? 1 : Math.min(crop.width * scaleW, crop.height * scaleH);
+  const common = {
+    feather: featherScale > 0 ? value('featherOuterPx') / featherScale : 0,
+    opacity: value('opacity'),
+    invert: mask.invert,
+  };
+  if (mask.kind === 'path') {
+    const coords = mask.pathKeyframes[0]?.points ?? [];
+    const points: (readonly [number, number])[] = [];
+    for (let i = 0; i + 1 < coords.length; i += 6) points.push([fx(coords[i]!), fy(coords[i + 1]!)]);
+    return { shape: 'polygon', x: 0, y: 0, width: 1, height: 1, ...common, points };
+  }
+  const width = mask.kind === 'ellipse' ? value('rx') * 2 : value('width');
+  const height = mask.kind === 'ellipse' ? value('ry') * 2 : value('height');
   return {
-    shape: typeof params.shape === 'string' ? params.shape : 'rectangle',
-    ...values,
-    invert: Boolean(params.invert),
-    points: readPoints(params.points),
+    shape: mask.kind,
+    x: fx(value('cx') - width / 2),
+    y: fy(value('cy') - height / 2),
+    width: width / scaleW / crop.width,
+    height: height / scaleH / crop.height,
+    ...common,
+    points: [],
   };
 }
 
@@ -227,23 +282,6 @@ function shapeSvg(mask: PreviewMask, w: number, h: number): string {
 
 function isPolygon(mask: PreviewMask): boolean {
   return mask.shape === 'polygon' && mask.points.length >= 3;
-}
-
-function readPoints(raw: unknown): readonly (readonly [number, number])[] {
-  if (!Array.isArray(raw)) return [];
-  return raw.flatMap((point): (readonly [number, number])[] =>
-    Array.isArray(point) && typeof point[0] === 'number' && typeof point[1] === 'number'
-      ? [[point[0], point[1]] as const]
-      : [],
-  );
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
-function finite(value: unknown, fallback: number): number {
-  return typeof value === 'number' && Number.isFinite(value) ? value : fallback;
 }
 
 function clamp01(value: number): number {

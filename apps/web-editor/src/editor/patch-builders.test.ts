@@ -529,24 +529,33 @@ describe('setClipBlendModePatch (H1.2h)', () => {
 });
 
 describe('addMaskPatch', () => {
-  it('adds a centered mask with geometry the engine can rasterize', () => {
-    const patch = addMaskPatch(tl, 'clip_intro', 'ellipse', 0.1, 0.8);
+  const measured = { width: 1920, height: 1080 };
+
+  it('adds a centered v22 mask in source pixels', () => {
+    const patch = addMaskPatch(tl, 'clip_intro', 'ellipse', 0.1, 0.8, measured);
     expect(patch?.operations[0]).toMatchObject({
       type: 'add_mask',
       clipId: 'clip_intro',
-      shape: 'ellipse',
-      bounds: { x: 0.2, y: 0.2, width: 0.6, height: 0.6 },
-      feather: 0.1,
-      opacity: 0.8,
+      mask: {
+        kind: 'ellipse',
+        id: 'clip_intro__mask',
+        cx: 960,
+        cy: 540,
+        rx: 576,
+        ry: 324,
+        featherOuterPx: 108,
+        opacity: 0.8,
+      },
     });
   });
 
-  it('returns null for a missing clip and applies cleanly through the store', () => {
-    expect(addMaskPatch(tl, 'nope', 'rectangle')).toBeNull();
-    const patch = addMaskPatch(tl, 'clip_intro', 'rectangle')!;
+  it('returns null for a missing clip or unmeasured media, and applies cleanly through the store', () => {
+    expect(addMaskPatch(tl, 'nope', 'rectangle', 0, 1, measured)).toBeNull();
+    expect(addMaskPatch(tl, 'clip_intro', 'rectangle')).toBeNull();
+    const patch = addMaskPatch(tl, 'clip_intro', 'rectangle', 0, 1, measured)!;
     const next = applyUserPatch(createEditorState(tl, { assetIds: demoAssetIds }), patch);
     expect(next.issues).toEqual([]);
-    expect(next.timeline.tracks[0]!.clips[0]!.effects.some((e) => e.type === 'mask')).toBe(true);
+    expect(next.timeline.tracks[0]!.clips[0]!.masks?.map((mask) => mask.kind)).toEqual(['rectangle']);
   });
 });
 

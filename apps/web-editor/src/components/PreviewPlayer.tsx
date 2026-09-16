@@ -37,7 +37,7 @@ import type {
 } from '@framepilot/timeline-schema';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { PreviewEffectOverlay } from './PreviewEffectOverlay.js';
-import { clipMaskEffect, isIdentityMask, maskAt, maskCssImage } from '../preview/clip-mask.js';
+import { clipMaskSource, isIdentityMask, maskAt, maskCssImage } from '../preview/clip-mask.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
   EMPTY_POOL,
@@ -848,8 +848,10 @@ export function PreviewPlayer({
   // a render. On the element, not the frame: the export masks the clip's own picture before
   // placing it, so the mask moves with the clip's transform, as a CSS mask on a transformed
   // element does.
-  const clipMaskSource = videoClip ? clipMaskEffect(videoClip.effects) : null;
-  const clipMask = clipMaskSource ? maskAt(clipMaskSource, clipTime) : null;
+  const clipMaskInput = videoClip
+    ? clipMaskSource(videoClip, assetById.get(videoClip.assetId)?.media)
+    : null;
+  const clipMask = clipMaskInput ? maskAt(clipMaskInput, clipTime) : null;
   const clipMaskImage =
     clipMask && !isIdentityMask(clipMask)
       ? maskCssImage(clipMask, resolution ?? { width: 1920, height: 1080 })

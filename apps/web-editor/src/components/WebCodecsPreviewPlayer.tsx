@@ -198,7 +198,7 @@ export function WebCodecsPreviewPlayer({
           return { projectStart: seg.start, projectEnd: seg.end, sourceStart: 0, sourceEnd: 0 };
         }
         const kind = assetKind(asset) === 'image' ? ('image' as const) : ('video' as const);
-        const base = clipCompositing(seg.clip);
+        const base = clipCompositing(seg.clip, asset.media);
         // A live canvas drag previews by overriding this clip's BASE keyframes —
         // the compositor draws from keyframes, not from a CSS transform the way the
         // retired DOM player did. Expressed exactly as `setClipTransformPatch` will

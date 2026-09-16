@@ -276,8 +276,11 @@ function mediaIssues(
   index: number,
 ): Issue[] {
   const clip = owner.clip;
-  if (!clip || context.assets === undefined) return [];
-  const media = context.assets.get(clip.assetId)?.media;
+  // Only an asset the caller actually supplied is evidence: an id the caller knows nothing
+  // about (a registered-only id, a synthetic text asset) is neither measured nor unmeasured.
+  const asset = context.assets?.get(clip?.assetId ?? '');
+  if (!clip || asset === undefined) return [];
+  const media = asset.media;
   const measured =
     typeof media?.width === 'number' &&
     media.width > 0 &&

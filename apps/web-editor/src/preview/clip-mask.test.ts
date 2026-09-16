@@ -1,19 +1,52 @@
 import { describe, expect, it } from 'vitest';
-import type { Effect } from '@framepilot/timeline-schema';
 import {
-  clipMaskEffect,
+  MaskLayerSchema,
+  maskLayerFromLegacyMaskEffect,
+  type Clip,
+  type Effect,
+} from '@framepilot/timeline-schema';
+import {
+  clipMaskSource,
   isIdentityMask,
   maskAt,
   maskCssImage,
   paintClipMask,
   type MaskPaintContext,
+  type PreviewMaskSource,
 } from './clip-mask.js';
 
+const MEDIA = { width: 1080, height: 1920 };
+
+const clip = (over: Partial<Clip> = {}): Clip => ({
+  id: 'clip_a',
+  assetId: 'a',
+  trackId: 'v',
+  start: 0,
+  end: 10,
+  sourceStart: 0,
+  sourceEnd: 10,
+  effects: [],
+  keyframes: [],
+  ...over,
+});
+
+/**
+ * A v21-vocabulary mask converted exactly as the v21 → v22 migration converts it, so these
+ * expectations still state what the export draws (schema v22, ADR 0178).
+ */
 function maskEffect(
   params: Record<string, unknown>,
   keyframes: Effect['keyframes'] = [],
-): Effect {
-  return { id: 'clip_a__mask', type: 'mask', params, keyframes } as Effect;
+): PreviewMaskSource {
+  const host = clip();
+  const mask = MaskLayerSchema.parse(
+    maskLayerFromLegacyMaskEffect(
+      { id: 'clip_a__mask', params, keyframes },
+      host as unknown as Record<string, unknown>,
+      MEDIA,
+    ),
+  );
+  return { clip: host, mask, size: MEDIA };
 }
 
 const box = { x: 0.2, y: 0.3, width: 0.4, height: 0.5 };
@@ -51,12 +84,23 @@ describe('maskAt mirrors render/masks.py#mask_spec_at', () => {
     expect(maskAt(tracked, 1).width).toBeCloseTo(0.3);
   });
 
-  it('takes the first mask effect, as the compiler does', () => {
-    const first = maskEffect({ shape: 'ellipse' });
-    expect(clipMaskEffect([{ id: 'g', type: 'color_grade', params: {} } as Effect, first])).toBe(
-      first,
-    );
-    expect(clipMaskEffect([])).toBeNull();
+  it('draws only what the export draws: one enabled alpha shape on measured media', () => {
+    const { mask } = maskEffect({ shape: 'ellipse' });
+    expect(clipMaskSource(clip({ masks: [mask] }), MEDIA)?.mask).toBe(mask);
+    expect(clipMaskSource(clip(), MEDIA)).toBeNull();
+    expect(clipMaskSource(clip({ masks: [mask] }), null)).toBeNull();
+    expect(clipMaskSource(clip({ masks: [mask, { ...mask, id: 'b' }] }), MEDIA)).toBeNull();
+    expect(clipMaskSource(clip({ masks: [{ ...mask, mode: 'subtract' }] }), MEDIA)).toBeNull();
+  });
+
+  it('reads source-time keyframes at the instant the clip plays at speed 2', () => {
+    const source = maskEffect({ shape: 'rectangle', bounds: box }, [
+      { id: 'k0', property: 'x', time: 0, value: 0.1, easing: 'linear' },
+      { id: 'k1', property: 'x', time: 2, value: 0.5, easing: 'linear' },
+    ] as Effect['keyframes']);
+    const fast = { ...source, clip: { ...source.clip, speed: 2 } };
+    // Clip time 0.5s at 2x plays source 1s, where x is halfway: 0.3.
+    expect(maskAt(fast, 0.5).x).toBeCloseTo(0.3);
   });
 });
 

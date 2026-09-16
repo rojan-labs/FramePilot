@@ -20,6 +20,7 @@ import type {
   Track,
 } from '@framepilot/timeline-schema';
 import { effectLayersOf } from '@framepilot/timeline-schema';
+import { clipMaskSource, type PreviewMaskSource } from '../preview/clip-mask.js';
 import { transitionFromClip, type TransitionEnvelope } from '../preview/transition-envelope.js';
 import {
   resolveTransitionParamsFor,
@@ -622,11 +623,16 @@ export interface ClipCompositing {
    * Kept as the EFFECT, not a resolved shape: a tracked mask animates through the effect's
    * own keyframes, so the engine resolves it per frame with `maskAt`.
    */
-  readonly mask: Effect | null;
+  /** The clip's drawable mask (schema v22), or `null`. See `preview/clip-mask.ts`. */
+  readonly mask: PreviewMaskSource | null;
 }
 
 /** Project a clip's compositing state for the canvas pass. */
-export function clipCompositing(clip: Clip): ClipCompositing {
+/**
+ * @param media - The clip asset's measured media; masks are stored in source pixels, so
+ *   without it a pixel mask is not drawn (the export refuses it too).
+ */
+export function clipCompositing(clip: Clip, media?: Asset['media']): ClipCompositing {
   return {
     keyframes: clip.keyframes,
     crop: clipCropRect(clip),
@@ -634,7 +640,8 @@ export function clipCompositing(clip: Clip): ClipCompositing {
     blendMode: clipBlendMode(clip),
     transition: transitionFromClip(clip),
     catalogTransition: catalogTransitionPair(clip),
-    mask: clip.effects.find((effect) => effect.type === 'mask') ?? null,
+    // Schema v22: the clip's mask stack, resolvable once the media's size is known.
+    mask: clipMaskSource(clip, media),
   };
 }
 
