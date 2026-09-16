@@ -1,0 +1,695 @@
+{
+  "area": "Time",
+  "spec": "plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md",
+  "cases": [
+    {
+      "id": "speed-0.25x",
+      "row": "Time: constant speed 0.25x",
+      "description": "Constant 0.25x.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-0.25x",
+        "name": "speed-0.25x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 1.5,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": 0.25
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.25,
+        1.96875
+      ]
+    },
+    {
+      "id": "speed-0.5x",
+      "row": "Time: constant speed 0.5x",
+      "description": "Constant 0.5x.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-0.5x",
+        "name": "speed-0.5x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": 0.5
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.25,
+        1.96875
+      ]
+    },
+    {
+      "id": "speed-2x",
+      "row": "Time: constant speed 2x",
+      "description": "Constant 2x.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-2x",
+        "name": "speed-2x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 5.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": 2.0
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.25,
+        1.96875
+      ]
+    },
+    {
+      "id": "speed-4x",
+      "row": "Time: constant speed 4x",
+      "description": "Constant 4x.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-4x",
+        "name": "speed-4x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 9.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": 4.0
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.25,
+        1.96875
+      ]
+    },
+    {
+      "id": "speed-freeze",
+      "row": "Time: freeze frame (speed 0)",
+      "description": "A held source frame.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-freeze",
+        "name": "speed-freeze",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 3.0,
+                  "sourceEnd": 3.5,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": 0.0
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        1.0
+      ]
+    },
+    {
+      "id": "reverse-1x",
+      "row": "Time: reverse 1x",
+      "description": "Speed -1.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-reverse-1x",
+        "name": "reverse-1x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 4.0,
+                  "sourceEnd": 6.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": -1.0
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.5
+      ]
+    },
+    {
+      "id": "reverse-2x",
+      "row": "Time: reverse 2x",
+      "description": "Speed -2.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-reverse-2x",
+        "name": "reverse-2x",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 4.0,
+                  "sourceEnd": 8.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speed": -2.0
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.5
+      ]
+    },
+    {
+      "id": "speed-ramp",
+      "row": "Time: speed ramp",
+      "description": "A ramp 1x -> 4x -> 0.5x; the clip span is the ramp's integral (end is recomputed).",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-speed-ramp",
+        "name": "speed-ramp",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.101347,
+                  "sourceStart": 2.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "speedRamp": [
+                    {
+                      "id": "p0",
+                      "sourceTime": 0.0,
+                      "rate": 1.0,
+                      "easing": "ease-in-out"
+                    },
+                    {
+                      "id": "p1",
+                      "sourceTime": 1.0,
+                      "rate": 4.0,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "p2",
+                      "sourceTime": 2.0,
+                      "rate": 0.5,
+                      "easing": "linear"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.25,
+        0.5
+      ]
+    },
+    {
+      "id": "trims-non-keyframe",
+      "row": "Time: trims at non-keyframes",
+      "description": "Butt-joined trims whose in-points fall between source frames.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-trims-non-keyframe",
+        "name": "trims-non-keyframe",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 3.37,
+                  "sourceEnd": 4.37,
+                  "effects": [],
+                  "keyframes": []
+                },
+                {
+                  "id": "c2",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 7.013,
+                  "sourceEnd": 8.013,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.0,
+        1.5
+      ]
+    },
+    {
+      "id": "mixed-frame-rates",
+      "row": "Time: mixed frame rates on one timeline",
+      "description": "A 24 fps source over a 30 fps source in a 30 fps sequence.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "land24": 24
+        }
+      },
+      "project": {
+        "id": "fp-mixed-frame-rates",
+        "name": "mixed-frame-rates",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "land24",
+            "path": "media/land24.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land24.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land24",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 3.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "s0",
+                      "time": 0.0,
+                      "property": "scale",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c2",
+                  "assetId": "land",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 3.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        0.5,
+        1.03125
+      ]
+    }
+  ]
+}

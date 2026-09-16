@@ -1,0 +1,256 @@
+{
+  "area": "Alpha",
+  "spec": "plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md",
+  "cases": [
+    {
+      "id": "mask-shapes",
+      "row": "Alpha: clip mask (today's rectangle/ellipse, static and keyframed)",
+      "description": "A static rectangle mask, then a keyframed ellipse mask, over a base.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30
+        }
+      },
+      "project": {
+        "id": "fp-mask-shapes",
+        "name": "mask-shapes",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "m1",
+                  "assetId": "port",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [
+                    {
+                      "id": "m1__mask",
+                      "type": "mask",
+                      "params": {
+                        "shape": "rectangle",
+                        "bounds": {
+                          "x": 0.25,
+                          "y": 0.25,
+                          "width": 0.5,
+                          "height": 0.5
+                        }
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                },
+                {
+                  "id": "m2",
+                  "assetId": "port",
+                  "trackId": "v1",
+                  "start": 2.0,
+                  "end": 4.0,
+                  "sourceStart": 2.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "m2__mask",
+                      "type": "mask",
+                      "params": {
+                        "shape": "ellipse",
+                        "bounds": {
+                          "x": 0.0,
+                          "y": 0.25,
+                          "width": 0.5,
+                          "height": 0.5
+                        }
+                      },
+                      "keyframes": [
+                        {
+                          "id": "mx0",
+                          "time": 0.0,
+                          "property": "x",
+                          "value": 0.0,
+                          "easing": "linear"
+                        },
+                        {
+                          "id": "mx1",
+                          "time": 2.0,
+                          "property": "x",
+                          "value": 0.5,
+                          "easing": "linear"
+                        }
+                      ]
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c2",
+                  "assetId": "land",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0,
+        3.0
+      ]
+    },
+    {
+      "id": "opacity-keyframes",
+      "row": "Alpha: opacity keyframes",
+      "description": "A front layer fading from opaque to transparent over a base.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "square": 30
+        }
+      },
+      "project": {
+        "id": "fp-opacity-keyframes",
+        "name": "opacity-keyframes",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "square",
+            "path": "media/square.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1080,
+              "proxyPath": "proxies/square.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "o0",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 1.0,
+                      "easing": "ease-in"
+                    },
+                    {
+                      "id": "o1",
+                      "time": 4.0,
+                      "property": "opacity",
+                      "value": 0.0,
+                      "easing": "linear"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c2",
+                  "assetId": "land",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.0,
+        2.0,
+        3.5
+      ]
+    }
+  ]
+}

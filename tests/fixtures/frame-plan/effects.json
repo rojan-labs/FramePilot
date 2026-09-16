@@ -1,0 +1,610 @@
+{
+  "area": "Effects",
+  "spec": "plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md",
+  "cases": [
+    {
+      "id": "effect-kinds",
+      "row": "Effects: every EFFECT_CATALOG kind (effect layers, schema v13)",
+      "description": "One effect layer per render kind (41), in sequence over a picture.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-effect-kinds",
+        "name": "effect-kinds",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "fx",
+              "type": "effect",
+              "clips": [],
+              "effectLayers": [
+                {
+                  "id": "fx0",
+                  "effectId": "tape-warp",
+                  "kind": "analog-vhs",
+                  "start": 0.0,
+                  "end": 0.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx1",
+                  "effectId": "barrel-push",
+                  "kind": "barrel-warp",
+                  "start": 0.5,
+                  "end": 1.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx2",
+                  "effectId": "halo-bloom",
+                  "kind": "bloom",
+                  "start": 1.0,
+                  "end": 1.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx3",
+                  "effectId": "motion-streak",
+                  "kind": "blur-directional",
+                  "start": 1.5,
+                  "end": 2.0,
+                  "params": {
+                    "radius": 22.0,
+                    "angle": 0.0
+                  },
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx4",
+                  "effectId": "soft-veil",
+                  "kind": "blur-gaussian",
+                  "start": 2.0,
+                  "end": 2.5,
+                  "params": {
+                    "radius": 8.0
+                  },
+                  "keyframes": []
+                },
+                {
+                  "id": "fx5",
+                  "effectId": "speed-rush",
+                  "kind": "blur-radial",
+                  "start": 2.5,
+                  "end": 3.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx6",
+                  "effectId": "prism-edge",
+                  "kind": "chroma-shift",
+                  "start": 3.0,
+                  "end": 3.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx7",
+                  "effectId": "data-smear",
+                  "kind": "datamosh",
+                  "start": 3.5,
+                  "end": 4.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx8",
+                  "effectId": "retro-dither",
+                  "kind": "dither",
+                  "start": 4.0,
+                  "end": 4.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx9",
+                  "effectId": "dust-and-scratch",
+                  "kind": "dust-scratches",
+                  "start": 4.5,
+                  "end": 5.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx10",
+                  "effectId": "edge-light",
+                  "kind": "edge-outline",
+                  "start": 5.0,
+                  "end": 5.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx11",
+                  "effectId": "cinema-print",
+                  "kind": "film-curve",
+                  "start": 5.5,
+                  "end": 6.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx12",
+                  "effectId": "faded-stock",
+                  "kind": "film-fade",
+                  "start": 6.0,
+                  "end": 6.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx13",
+                  "effectId": "fisheye-wide",
+                  "kind": "fisheye",
+                  "start": 6.5,
+                  "end": 7.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx14",
+                  "effectId": "white-flash",
+                  "kind": "flash",
+                  "start": 7.0,
+                  "end": 7.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx15",
+                  "effectId": "bulb-flicker",
+                  "kind": "flicker",
+                  "start": 7.5,
+                  "end": 8.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx16",
+                  "effectId": "block-shift",
+                  "kind": "glitch-block",
+                  "start": 8.0,
+                  "end": 8.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx17",
+                  "effectId": "angel-glow",
+                  "kind": "glow-diffuse",
+                  "start": 8.5,
+                  "end": 9.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx18",
+                  "effectId": "cine-grain",
+                  "kind": "grain",
+                  "start": 9.0,
+                  "end": 9.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx19",
+                  "effectId": "highlight-bleed",
+                  "kind": "halation",
+                  "start": 9.5,
+                  "end": 10.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx20",
+                  "effectId": "newsprint",
+                  "kind": "halftone",
+                  "start": 10.0,
+                  "end": 10.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx21",
+                  "effectId": "kaleidoscope",
+                  "kind": "kaleidoscope",
+                  "start": 10.5,
+                  "end": 11.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx22",
+                  "effectId": "anamorphic-star",
+                  "kind": "lens-flare",
+                  "start": 11.0,
+                  "end": 11.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx23",
+                  "effectId": "golden-leak",
+                  "kind": "light-leak",
+                  "start": 11.5,
+                  "end": 12.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx24",
+                  "effectId": "mirror-split",
+                  "kind": "mirror",
+                  "start": 12.0,
+                  "end": 12.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx25",
+                  "effectId": "mosaic-block",
+                  "kind": "mosaic",
+                  "start": 12.5,
+                  "end": 13.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx26",
+                  "effectId": "neon-trace",
+                  "kind": "neon-edge",
+                  "start": 13.0,
+                  "end": 13.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx27",
+                  "effectId": "pixel-drift",
+                  "kind": "pixel-sort",
+                  "start": 13.5,
+                  "end": 14.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx28",
+                  "effectId": "poster-print",
+                  "kind": "posterize",
+                  "start": 14.0,
+                  "end": 14.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx29",
+                  "effectId": "rgb-tear",
+                  "kind": "rgb-split",
+                  "start": 14.5,
+                  "end": 15.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx30",
+                  "effectId": "ripple-tide",
+                  "kind": "ripple",
+                  "start": 15.0,
+                  "end": 15.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx31",
+                  "effectId": "camcorder-88",
+                  "kind": "scanlines",
+                  "start": 15.5,
+                  "end": 16.0,
+                  "params": {
+                    "count": 240.0,
+                    "strength": 0.42,
+                    "roll": 0.3
+                  },
+                  "keyframes": []
+                },
+                {
+                  "id": "fx32",
+                  "effectId": "impact-shake",
+                  "kind": "shake",
+                  "start": 16.0,
+                  "end": 16.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx33",
+                  "effectId": "ink-sketch",
+                  "kind": "sketch",
+                  "start": 16.5,
+                  "end": 17.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx34",
+                  "effectId": "daydream",
+                  "kind": "soft-focus",
+                  "start": 17.0,
+                  "end": 17.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx35",
+                  "effectId": "club-strobe",
+                  "kind": "strobe-color",
+                  "start": 17.5,
+                  "end": 18.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx36",
+                  "effectId": "signal-dropout",
+                  "kind": "tape-dropout",
+                  "start": 18.0,
+                  "end": 18.5,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx37",
+                  "effectId": "miniature",
+                  "kind": "tilt-shift",
+                  "start": 18.5,
+                  "end": 19.0,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx38",
+                  "effectId": "edge-fall",
+                  "kind": "vignette",
+                  "start": 19.0,
+                  "end": 19.5,
+                  "params": {},
+                  "keyframes": []
+                },
+                {
+                  "id": "fx39",
+                  "effectId": "whip-across",
+                  "kind": "whip-pan",
+                  "start": 19.5,
+                  "end": 20.0,
+                  "params": {},
+                  "intensity": 0.75,
+                  "keyframes": []
+                },
+                {
+                  "id": "fx40",
+                  "effectId": "punch-in",
+                  "kind": "zoom-punch",
+                  "start": 20.0,
+                  "end": 20.5,
+                  "params": {},
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 20.5,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 20.5,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.25,
+        0.75,
+        1.25,
+        1.75,
+        2.25,
+        2.75,
+        3.25,
+        3.75,
+        4.25,
+        4.75,
+        5.25,
+        5.75,
+        6.25,
+        6.75,
+        7.25,
+        7.75,
+        8.25,
+        8.75,
+        9.25,
+        9.75,
+        10.25,
+        10.75,
+        11.25,
+        11.75,
+        12.25,
+        12.75,
+        13.25,
+        13.75,
+        14.25,
+        14.75,
+        15.25,
+        15.75,
+        16.25,
+        16.75,
+        17.25,
+        17.75,
+        18.25,
+        18.75,
+        19.25,
+        19.75,
+        20.25
+      ]
+    },
+    {
+      "id": "effect-layer-between",
+      "row": "Effects: effect layer between picture tracks",
+      "description": "An adjustment lane between two pictures (the export applies it to the finished frame).",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30
+        }
+      },
+      "project": {
+        "id": "fp-effect-layer-between",
+        "name": "effect-layer-between",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "port",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "fx",
+              "type": "effect",
+              "clips": [],
+              "effectLayers": [
+                {
+                  "id": "fx0",
+                  "effectId": "soft-veil",
+                  "kind": "blur-gaussian",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "params": {
+                    "radius": 8.0
+                  },
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c2",
+                  "assetId": "land",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0
+      ]
+    }
+  ]
+}

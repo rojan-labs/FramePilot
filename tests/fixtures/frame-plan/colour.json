@@ -1,0 +1,412 @@
+{
+  "area": "Colour",
+  "spec": "plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md",
+  "cases": [
+    {
+      "id": "grade",
+      "row": "Colour: grade",
+      "description": "A colour grade on one clip.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-grade",
+        "name": "grade",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "c1__grade",
+                      "type": "color_grade",
+                      "params": {
+                        "exposure": 0.3,
+                        "contrast": 0.2,
+                        "saturation": -0.4,
+                        "temperature": 0.1
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0
+      ]
+    },
+    {
+      "id": "lut",
+      "row": "Colour: LUT",
+      "description": "A .cube LUT after a grade (the export applies grade then LUT).",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-lut",
+        "name": "lut",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [
+                    {
+                      "id": "c1__lut",
+                      "type": "lut",
+                      "params": {
+                        "path": "luts/film.cube"
+                      },
+                      "keyframes": []
+                    },
+                    {
+                      "id": "c1__grade",
+                      "type": "color_grade",
+                      "params": {
+                        "exposure": -0.2
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0
+      ]
+    },
+    {
+      "id": "blend-modes",
+      "row": "Colour: blend modes over non-opaque layers",
+      "description": "Every non-normal blend mode in turn over a base, odd ones at 50% opacity.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "square": 30
+        }
+      },
+      "project": {
+        "id": "fp-blend-modes",
+        "name": "blend-modes",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "square",
+            "path": "media/square.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1080,
+              "proxyPath": "proxies/square.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b0",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "multiply"
+                },
+                {
+                  "id": "b1",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "b1o",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ],
+                  "blendMode": "screen"
+                },
+                {
+                  "id": "b2",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 2.0,
+                  "end": 3.0,
+                  "sourceStart": 2.0,
+                  "sourceEnd": 3.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "overlay"
+                },
+                {
+                  "id": "b3",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 3.0,
+                  "end": 4.0,
+                  "sourceStart": 3.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "b3o",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ],
+                  "blendMode": "darken"
+                },
+                {
+                  "id": "b4",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 4.0,
+                  "end": 5.0,
+                  "sourceStart": 4.0,
+                  "sourceEnd": 5.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "lighten"
+                },
+                {
+                  "id": "b5",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 5.0,
+                  "end": 6.0,
+                  "sourceStart": 5.0,
+                  "sourceEnd": 6.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "b5o",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ],
+                  "blendMode": "color-dodge"
+                },
+                {
+                  "id": "b6",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 6.0,
+                  "end": 7.0,
+                  "sourceStart": 6.0,
+                  "sourceEnd": 7.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "color-burn"
+                },
+                {
+                  "id": "b7",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 7.0,
+                  "end": 8.0,
+                  "sourceStart": 7.0,
+                  "sourceEnd": 8.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "b7o",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ],
+                  "blendMode": "hard-light"
+                },
+                {
+                  "id": "b8",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 8.0,
+                  "end": 9.0,
+                  "sourceStart": 8.0,
+                  "sourceEnd": 9.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "soft-light"
+                },
+                {
+                  "id": "b9",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 9.0,
+                  "end": 10.0,
+                  "sourceStart": 9.0,
+                  "sourceEnd": 10.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "b9o",
+                      "time": 0.0,
+                      "property": "opacity",
+                      "value": 0.5,
+                      "easing": "linear"
+                    }
+                  ],
+                  "blendMode": "difference"
+                },
+                {
+                  "id": "b10",
+                  "assetId": "square",
+                  "trackId": "v1",
+                  "start": 10.0,
+                  "end": 11.0,
+                  "sourceStart": 10.0,
+                  "sourceEnd": 11.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "blendMode": "exclusion"
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "base",
+                  "assetId": "land",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 11.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 11.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.5,
+        1.5,
+        2.5,
+        3.5,
+        4.5,
+        5.5,
+        6.5,
+        7.5,
+        8.5,
+        9.5,
+        10.5
+      ]
+    }
+  ]
+}
