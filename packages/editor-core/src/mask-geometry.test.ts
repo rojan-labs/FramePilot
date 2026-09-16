@@ -3,6 +3,7 @@ import {
   MaskPathEncodingError,
   SourceGeometryError,
   assetDisplaySize,
+  assetPictureGeometry,
   codedToDisplay,
   decodeMaskPath,
   displayCorrectedSize,
@@ -119,5 +120,55 @@ describe('display-corrected source space', () => {
     expect(assetDisplaySize({ width: 1920, height: 1080 })).toEqual({ width: 1920, height: 1080 });
     expect(assetDisplaySize({ width: 1920, height: null })).toBeNull();
     expect(assetDisplaySize(null)).toBeNull();
+  });
+
+  it('reads the probed PAR and rotation (schema v22)', () => {
+    // Anamorphic HDV: 1440x1080 coded, SAR 4:3 → 1920x1080 on screen.
+    expect(assetDisplaySize({ width: 1440, height: 1080, pixelAspectRatio: 4 / 3 })).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+    // Portrait phone clip: coded 1920x1080, -90 display matrix → clockwise 90 → 1080x1920.
+    expect(assetDisplaySize({ width: 1920, height: 1080, rotation: 90 })).toEqual({
+      width: 1080,
+      height: 1920,
+    });
+    expect(assetDisplaySize({ width: 1920, height: 1080, rotation: 180 })).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+    // Engine nulls read as square and unrotated.
+    expect(
+      assetDisplaySize({ width: 1920, height: 1080, pixelAspectRatio: null, rotation: null }),
+    ).toEqual({ width: 1920, height: 1080 });
+  });
+
+  it('maps a rotated anamorphic asset point through its recorded geometry and back', () => {
+    const geometry = assetPictureGeometry({
+      width: 720,
+      height: 480,
+      pixelAspectRatio: 8 / 9,
+      rotation: 270,
+    });
+    expect(geometry).toEqual({
+      codedWidth: 720,
+      codedHeight: 480,
+      pixelAspectRatio: 8 / 9,
+      rotationDegrees: 270,
+    });
+    const display = codedToDisplay({ x: 720, y: 0 }, geometry!);
+    // The coded top-right corner is the display top-left after a clockwise 270 turn.
+    expect(display.x).toBeCloseTo(0, 9);
+    expect(display.y).toBeCloseTo(0, 9);
+    const back = displayToCoded(display, geometry!);
+    expect(back.x).toBeCloseTo(720, 9);
+    expect(back.y).toBeCloseTo(0, 9);
+    expect(assetPictureGeometry({ width: 720 })).toBeNull();
+  });
+
+  it('refuses an unvalidated non-quarter rotation instead of guessing', () => {
+    expect(() => assetDisplaySize({ width: 1920, height: 1080, rotation: 45 })).toThrow(
+      SourceGeometryError,
+    );
   });
 });

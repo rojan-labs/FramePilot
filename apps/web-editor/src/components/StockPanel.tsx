@@ -397,7 +397,12 @@ export function StockPanel({
                 // the landscape-in-portrait case `list_assets`' letterbox note and the
                 // review's reframe check exist to catch, and both go quiet without it.
                 ...(downloaded.media.width != null && downloaded.media.height != null
-                  ? { width: downloaded.media.width, height: downloaded.media.height }
+                  ? {
+                      width: downloaded.media.width,
+                      height: downloaded.media.height,
+                      pixelAspectRatio: downloaded.media.pixelAspectRatio ?? null,
+                      rotation: downloaded.media.rotation ?? null,
+                    }
                   : {}),
                 proxyPath: downloaded.media.proxyPath ?? null,
                 peaks: downloaded.media.peaks ? [...downloaded.media.peaks] : null,

@@ -9,10 +9,10 @@
  * (storage) pixels instead would draw an anamorphic or rotated phone clip's mask
  * distorted, and every typed value in the Inspector would disagree with the monitor.
  *
- * The functions here take the PAR and rotation explicitly. `Asset.media` records only the
- * probed width/height today (schema v21), which ffprobe reports as CODED size; callers
- * that know nothing else pass square pixels and no rotation, which is exactly the
- * assumption every render path already makes.
+ * The functions here take the PAR and rotation explicitly. `Asset.media` records the probed
+ * CODED width/height (schema v21) plus, since v22, `pixelAspectRatio` and `rotation` from
+ * the ffprobe sample aspect ratio and display matrix; {@link assetDisplaySize} reads all
+ * four. Media probed before v22 carries neither and is read as square and unrotated.
  *
  * ## Compact path keyframes
  *
@@ -286,21 +286,53 @@ export function displayPxToNormalized(point: PixelPoint, size: DisplaySize): Pix
   return { x: point.x / size.width, y: point.y / size.height };
 }
 
+/** The `Asset.media` fields that decide the display-corrected picture. */
+export interface AssetPictureMedia {
+  readonly width?: number | null | undefined;
+  readonly height?: number | null | undefined;
+  /** Schema v22. Absent ≡ square pixels. */
+  readonly pixelAspectRatio?: number | null | undefined;
+  /** Schema v22, clockwise. Absent ≡ 0. */
+  readonly rotation?: number | null | undefined;
+}
+
 /**
- * The display-corrected source size of an asset from what the project records, or `null`
- * when the media has not been measured (the caller then refuses with "Measure this media
- * first" rather than guessing a size).
+ * The display geometry an asset records, or `null` when its size has not been measured.
+ *
+ * Use with {@link codedToDisplay} / {@link displayToCoded} when a caller holds coded-pixel
+ * data (a tracker running on decoded storage frames) and must store display-corrected
+ * mask geometry.
  */
-export function assetDisplaySize(
-  media:
-    | { readonly width?: number | null | undefined; readonly height?: number | null | undefined }
-    | null
-    | undefined,
-): DisplaySize | null {
+export function assetPictureGeometry(
+  media: AssetPictureMedia | null | undefined,
+): SourcePictureGeometry | null {
   const width = media?.width;
   const height = media?.height;
   if (typeof width !== 'number' || typeof height !== 'number' || !(width > 0) || !(height > 0)) {
     return null;
   }
-  return displayCorrectedSize({ codedWidth: width, codedHeight: height });
+  return {
+    codedWidth: width,
+    codedHeight: height,
+    ...(typeof media?.pixelAspectRatio === 'number'
+      ? { pixelAspectRatio: media.pixelAspectRatio }
+      : {}),
+    ...(typeof media?.rotation === 'number' ? { rotationDegrees: media.rotation } : {}),
+  };
+}
+
+/**
+ * The display-corrected source size of an asset from what the project records, or `null`
+ * when the media has not been measured (the caller then refuses with "Measure this media
+ * first" rather than guessing a size).
+ *
+ * An anamorphic 1440x1080 SAR 4:3 asset is 1920x1080 here; a 1920x1080 phone clip with a
+ * clockwise 90° rotation is 1080x1920.
+ *
+ * @throws {SourceGeometryError} When the recorded PAR or rotation is invalid (the schema
+ *   rejects both, so only an unvalidated object reaches this).
+ */
+export function assetDisplaySize(media: AssetPictureMedia | null | undefined): DisplaySize | null {
+  const geometry = assetPictureGeometry(media);
+  return geometry === null ? null : displayCorrectedSize(geometry);
 }

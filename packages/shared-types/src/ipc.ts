@@ -344,6 +344,13 @@ export type ImportAssetResult =
          */
         width?: number;
         height?: number;
+        /**
+         * Display geometry (schema v22), only alongside width/height: non-square pixel
+         * aspect ratio and clockwise quarter-turn rotation. Absent ≡ square and unrotated.
+         * Mask geometry is stored in display-corrected pixels, so these decide its space.
+         */
+        pixelAspectRatio?: number;
+        rotation?: 0 | 90 | 180 | 270;
         peaks?: number[];
         peaksPerSecond?: number;
         thumbnailPaths?: string[];
@@ -1625,6 +1632,9 @@ export interface StockDownloadedAssetWire {
      */
     readonly width?: number | null;
     readonly height?: number | null;
+    /** Display geometry (schema v22); absent ≡ square and unrotated. */
+    readonly pixelAspectRatio?: number | null;
+    readonly rotation?: 0 | 90 | 180 | 270 | null;
     readonly proxyPath?: string | null;
     readonly peaks?: readonly number[] | null;
     readonly peaksPerSecond?: number | null;

@@ -78,6 +78,10 @@ export type StockAssetMediaLockstep = AssertTrue<
   MutuallyAssignable<MediaKeys<StockDownloadedAssetWire['media']>, keyof AssetMedia>
 >;
 
+/** True for a clockwise quarter-turn rotation the schema accepts. */
+const isQuarterTurn = (value: unknown): value is 0 | 90 | 180 | 270 =>
+  value === 0 || value === 90 || value === 180 || value === 270;
+
 /** Default thumbnail-frame count when the request omits one. */
 const DEFAULT_THUMBNAILS = 5;
 
@@ -88,6 +92,10 @@ interface AssetMediaResponse {
   /** Source pixel dimensions (schema v21). Absent for audio and for anything unprobeable. */
   width?: number | null;
   height?: number | null;
+  /** Non-square pixel aspect ratio (schema v22). Absent/null ≡ square. */
+  pixelAspectRatio?: number | null;
+  /** Clockwise display rotation (schema v22). Absent/null ≡ 0. */
+  rotation?: number | null;
   peaks?: number[];
   peaksPerSecond?: number;
   thumbnailPaths?: string[];
@@ -156,6 +164,8 @@ export async function importAssetViaSidecar(
   const media: {
     width?: number;
     height?: number;
+    pixelAspectRatio?: number;
+    rotation?: 0 | 90 | 180 | 270;
     peaks?: number[];
     peaksPerSecond?: number;
     thumbnailPaths?: string[];
@@ -166,6 +176,13 @@ export async function importAssetViaSidecar(
   if (typeof body.width === 'number' && typeof body.height === 'number') {
     media.width = body.width;
     media.height = body.height;
+    // Display geometry only means something next to a shape. Validated here because the
+    // sidecar is a process boundary: a rotation that is not a quarter turn would make every
+    // mask helper throw, so it is dropped (read as unrotated) rather than forwarded.
+    if (typeof body.pixelAspectRatio === 'number' && body.pixelAspectRatio > 0) {
+      media.pixelAspectRatio = body.pixelAspectRatio;
+    }
+    if (isQuarterTurn(body.rotation)) media.rotation = body.rotation;
   }
   if (body.peaks !== undefined) media.peaks = body.peaks;
   if (body.peaksPerSecond !== undefined) media.peaksPerSecond = body.peaksPerSecond;

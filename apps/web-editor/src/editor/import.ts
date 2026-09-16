@@ -60,7 +60,16 @@ export async function deriveEngineMedia(
   if (!isDesktop()) return undefined;
   const result = await importAsset({ inputPath: onDiskPath, proxy: true, ...brainRef });
   if (!result.ok) return undefined;
-  const { width, height, peaks, peaksPerSecond, thumbnailPaths, proxyPath } = result.media;
+  const {
+    width,
+    height,
+    pixelAspectRatio,
+    rotation,
+    peaks,
+    peaksPerSecond,
+    thumbnailPaths,
+    proxyPath,
+  } = result.media;
   if (
     width === undefined &&
     height === undefined &&
@@ -79,6 +88,10 @@ export async function deriveEngineMedia(
   if (width !== undefined && height !== undefined) {
     media.width = width;
     media.height = height;
+    // Schema v22 display geometry: mask pixels are display-corrected, so an anamorphic or
+    // rotated phone clip needs these to be masked undistorted. Absent ≡ square, unrotated.
+    if (pixelAspectRatio !== undefined) media.pixelAspectRatio = pixelAspectRatio;
+    if (rotation !== undefined) media.rotation = rotation;
   }
   if (peaks !== undefined) media.peaks = peaks;
   if (peaksPerSecond !== undefined) media.peaksPerSecond = peaksPerSecond;
