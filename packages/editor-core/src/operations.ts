@@ -61,6 +61,11 @@ import {
   effectLayersOf,
 } from '@framepilot/timeline-schema';
 import {
+  applyMaskOperation,
+  invertMaskOperation,
+  type MaskOperation,
+} from './mask-operations.js';
+import {
   INVERSION_STEPS,
   clipTimelineDuration,
   hasSpeedRamp,
@@ -358,33 +363,19 @@ export interface AddTransitionOp {
   readonly alignment?: TransitionAlignment;
 }
 
-/** Mask shape kinds the engine composites. */
+/**
+ * The frame-fraction shape vocabulary tools and the Inspector offer when they create a mask.
+ * Schema v22 stores masks as `Clip.masks` in source pixels; `maskLayerFromFrameShape`
+ * converts this vocabulary into one.
+ */
 export type MaskShape = 'rectangle' | 'ellipse' | 'polygon';
 
-/** Axis-aligned mask bounds, as fractions (0..1) of the clip frame. */
+/** Axis-aligned box, as fractions (0..1) of the clip frame (tracker regions, tool shapes). */
 export interface MaskBounds {
   readonly x: number;
   readonly y: number;
   readonly width: number;
   readonly height: number;
-}
-
-export interface AddMaskOp {
-  readonly type: 'add_mask';
-  readonly clipId: string;
-  readonly shape: MaskShape;
-  /** Rect/ellipse bounds as frame fractions (defaults to the full frame). */
-  readonly bounds?: MaskBounds;
-  /** Polygon vertices as [x, y] frame fractions (used when shape='polygon'). */
-  readonly points?: readonly (readonly [number, number])[];
-  /** Edge feather as a fraction of the smaller frame dimension (0..1). */
-  readonly feather?: number;
-  /** Mask opacity (0..1) applied inside the shape. */
-  readonly opacity?: number;
-  /** Invert the mask (keep outside the shape instead of inside). */
-  readonly invert?: boolean;
-  /** Keyframes attached to the mask effect to animate its params over time. */
-  readonly keyframes?: readonly Keyframe[];
 }
 
 /** What a tracker follows: a face, a generic bounding box, or any picked object. */
@@ -748,7 +739,7 @@ export type Operation =
   | SetEffectParamsOp
   | AdjustAudioOp
   | AddTransitionOp
-  | AddMaskOp
+  | MaskOperation
   | TrackObjectOp
   | SetTrackFlagsOp
   | SetTrackCaptionStyleOp
@@ -1111,7 +1102,26 @@ function applyOperationInner(
     case 'add_transition':
       return applyAddTransition(timeline, op);
     case 'add_mask':
-      return applyAddMask(timeline, op);
+    case 'add_effect_layer_mask':
+    case 'remove_mask':
+    case 'update_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'move_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'reorder_masks':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'use_track':
+    case 'set_mask_space':
+    case 'review_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+    case 'restore_masks':
+      return applyMaskOperation(timeline, op);
     case 'track_object':
       return applyTrackObject(timeline, op);
     case 'set_track_flags':
@@ -2322,34 +2332,6 @@ function applyAddTransition(timeline: Timeline, op: AddTransitionOp): Timeline {
   return replaceClipAt(withIn, outLoc, { ...outLoc.clip, effects: outEffects });
 }
 
-function applyAddMask(timeline: Timeline, op: AddMaskOp): Timeline {
-  const loc = findClip(timeline, op.clipId);
-  const params: Record<string, unknown> = { shape: op.shape };
-  if (op.bounds) params.bounds = op.bounds;
-  if (op.points) params.points = op.points;
-  if (op.feather !== undefined) params.feather = op.feather;
-  if (op.opacity !== undefined) params.opacity = op.opacity;
-  if (op.invert !== undefined) params.invert = op.invert;
-  const effect: Effect = {
-    id: `${op.clipId}__mask`,
-    type: 'mask',
-    params,
-    keyframes: op.keyframes ? op.keyframes.map(clone) : [],
-  };
-  // Replace an existing mask IN PLACE (`set_effect_params`'s pattern), not by
-  // filter-then-push: a re-stated mask — e.g. the tracking command that reissues
-  // `<clip>__mask` every time the tracked region updates (S3) — used to drop off
-  // the end of the effect list on every restatement, silently reordering it behind
-  // any effect (grade, blur, ...) that composites in list order and was added
-  // after the mask originally landed there.
-  const existingIndex = loc.clip.effects.findIndex((candidate) => candidate.id === effect.id);
-  const effects =
-    existingIndex === -1
-      ? [...loc.clip.effects, effect]
-      : loc.clip.effects.map((candidate, index) => (index === existingIndex ? effect : candidate));
-  return replaceClipAt(timeline, loc, { ...loc.clip, effects });
-}
-
 function applyTrackObject(timeline: Timeline, op: TrackObjectOp): Timeline {
   const loc = findClip(timeline, op.clipId);
   const params: Record<string, unknown> = { target: op.target };
@@ -3086,9 +3068,31 @@ export function invertOperation(
     case 'apply_color_grade':
     case 'set_effect_params':
     case 'adjust_audio':
-    case 'add_mask':
     case 'track_object':
       return [restoreFor(findClip(timelineBefore, op.clipId).track)];
+    case 'add_mask':
+    case 'add_effect_layer_mask':
+    case 'remove_mask':
+    case 'update_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'move_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'reorder_masks':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'use_track':
+    case 'set_mask_space':
+    case 'review_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+    case 'restore_masks':
+      // Mask stacks invert through their own module: exact same-shape inverses where they
+      // exist, a `restore_masks` snapshot where they cannot (ADR 0178).
+      return invertMaskOperation(timelineBefore, op) as Operation[];
     case 'add_transition':
       return [restoreFor(findClip(timelineBefore, op.toClipId).track)];
     case 'add_layer':

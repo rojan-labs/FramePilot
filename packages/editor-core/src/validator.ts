@@ -32,6 +32,7 @@ import {
 import { clipTimelineDuration, hasSpeedRamp } from './speed-curve.js';
 import { TRANSITION_OUT_EFFECT_TYPE } from './transitions.js';
 import { postValidationScope } from './validation-scope.js';
+import { MASK_OPERATION_TYPES, type MaskOperationErrorCode } from './mask-operations.js';
 import type { AnyOperation } from './patch.js';
 
 const log = createLogger('editor-core:validator');
@@ -69,6 +70,20 @@ export type ValidationCode =
   | 'duplicate_effect_layer'
   | 'unsupported_effect_kind'
   | 'invalid_effect_params'
+  /** A mask value, keyframe or structural rule is broken (schema v22). */
+  | 'invalid_mask'
+  /** Two masks, keyframes or new tracks would share an id. */
+  | 'duplicate_mask'
+  /** A path mask's vertices or path keyframes are inconsistent. */
+  | 'invalid_mask_path'
+  /** A mask targets an effect that is not on its clip. */
+  | 'invalid_mask_target'
+  /** A mask was added or pasted on media whose size was never measured. */
+  | 'mask_needs_media_dimensions'
+  /** A mask keyframe sits outside the clip's source range (plus the handle). */
+  | 'mask_keyframe_out_of_range'
+  /** Layer masks refer to each other in a loop. */
+  | 'mask_layer_cycle'
   /** An apply path threw something the operations layer did not raise deliberately. */
   | 'invalid_operation';
 
@@ -143,6 +158,7 @@ const SUPPORTED_OPERATIONS: ReadonlySet<OperationType> = new Set<OperationType>(
   'set_effect_layer_enabled',
   'restore_effect_layer',
   'restore_clips',
+  ...MASK_OPERATION_TYPES,
 ]);
 
 interface PatchLike {
@@ -698,9 +714,23 @@ function mutateFolder(
 }
 
 function fromOperationError(cause: unknown, index: number): ValidationIssue {
-  const error = cause as OperationError;
+  const error = cause as {
+    readonly code?: OperationError['code'] | MaskOperationErrorCode;
+    readonly message: string;
+  };
   const message = error.message;
   switch (error.code) {
+    case 'missing_effect_layer':
+    case 'missing_mask':
+    case 'missing_keyframe':
+      return { code: 'missing_reference', severity: 'error', message, operationIndex: index };
+    case 'duplicate_mask':
+    case 'duplicate_keyframe':
+      return { code: 'duplicate_mask', severity: 'error', message, operationIndex: index };
+    case 'invalid_mask':
+    case 'invalid_mask_path':
+    case 'invalid_mask_target':
+      return { code: error.code, severity: 'error', message, operationIndex: index };
     case 'missing_clip':
     case 'missing_track':
     case 'missing_effect':

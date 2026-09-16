@@ -42,6 +42,9 @@ export * from './stock-placement.js';
 export * from './music-placement.js';
 // The v22 mask stack's display-corrected source space and compact path storage (ADR 0178).
 export * from './mask-geometry.js';
+// Mask stack operations and the frame-fraction ↔ source-pixel builders tools share (ADR 0178).
+export * from './mask-operations.js';
+export * from './mask-builders.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';

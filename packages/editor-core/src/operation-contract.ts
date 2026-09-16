@@ -1,5 +1,5 @@
-import type { Clip, EffectLayer, Timeline, Track } from '@framepilot/timeline-schema';
-import { effectLayersOf } from '@framepilot/timeline-schema';
+import type { Clip, EffectLayer, MaskLayer, Timeline, Track } from '@framepilot/timeline-schema';
+import { effectLayersOf, masksOf } from '@framepilot/timeline-schema';
 import { paramsForKind } from '@framepilot/timeline-schema/effect-params';
 import {
   AUDIO_FADE_CURVES,
@@ -13,6 +13,7 @@ import {
   colorGradeContractIssues,
   duckAmountContractIssue,
 } from './edit-value-contracts.js';
+import type { MaskOwnerRef } from './mask-operations.js';
 import type { Operation } from './operations.js';
 
 export class OperationContractError extends Error {
@@ -85,6 +86,41 @@ const assertUnlocked = (track: Track | undefined, operation: string): void => {
 const assertClipUnlocked = (timeline: Timeline, clipId: string, operation: string): void => {
   assertUnlocked(findClip(timeline, clipId)?.track, operation);
 };
+
+function maskOwnerTrack(timeline: Timeline, ref: MaskOwnerRef): Track | undefined {
+  return typeof ref.clipId === 'string'
+    ? findClip(timeline, ref.clipId)?.track
+    : effectTrack(timeline, ref.layerId);
+}
+
+function ownerMasks(timeline: Timeline, ref: MaskOwnerRef): readonly MaskLayer[] {
+  if (typeof ref.clipId === 'string') {
+    const found = findClip(timeline, ref.clipId);
+    return found ? masksOf(found.clip) : [];
+  }
+  const found = findEffectLayer(timeline, ref.layerId);
+  return found ? masksOf(found.layer) : [];
+}
+
+/**
+ * A locked mask refuses every edit except unlocking it — the same standing rule a locked
+ * track follows, one level down. Missing owners and masks are left to the apply, which
+ * reports them with ids and a remedy.
+ */
+function assertMaskUnlocked(
+  timeline: Timeline,
+  ref: MaskOwnerRef,
+  maskId: string,
+  operation: string,
+): void {
+  assertUnlocked(maskOwnerTrack(timeline, ref), operation);
+  const mask = ownerMasks(timeline, ref).find((candidate) => candidate.id === maskId);
+  if (mask?.locked === true) {
+    throw new OperationContractError(
+      `${operation} cannot modify locked mask "${maskId}". Unlock it first.`,
+    );
+  }
+}
 
 function assertTrackerRegion(region: {
   readonly x: number;
@@ -241,7 +277,6 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
       return;
     }
     case 'set_effect_params':
-    case 'add_mask':
     case 'set_caption_style':
     case 'set_caption_cue':
     case 'set_clip_speed':
@@ -388,8 +423,51 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
       if (op.params !== undefined && found) assertEffectParams(found.layer, op.params);
       return;
     }
+    case 'add_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+      assertClipUnlocked(timeline, op.clipId, op.type);
+      return;
+    case 'add_effect_layer_mask':
+      assertUnlocked(effectTrack(timeline, op.layerId), op.type);
+      return;
+    case 'update_mask': {
+      // Unlocking must stay possible on a locked mask, exactly as `set_track_flags` can
+      // always unlock a locked track.
+      const onlyUnlocks = Object.keys(op.changes).every((key) => key === 'locked');
+      if (onlyUnlocks) assertUnlocked(maskOwnerTrack(timeline, op), op.type);
+      else assertMaskUnlocked(timeline, op, op.maskId, op.type);
+      return;
+    }
+    case 'remove_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'set_mask_space':
+    case 'review_mask':
+      assertMaskUnlocked(timeline, op, op.maskId, op.type);
+      return;
+    case 'move_mask_keyframe':
+      assertMaskUnlocked(timeline, op, op.maskId, op.type);
+      finite(op.sourceTime, 'move_mask_keyframe.sourceTime');
+      if (op.sourceTime < 0) {
+        throw new OperationContractError('move_mask_keyframe.sourceTime must be non-negative.');
+      }
+      return;
+    case 'reorder_masks':
+      assertUnlocked(maskOwnerTrack(timeline, op), op.type);
+      return;
+    case 'use_track':
+      assertMaskUnlocked(timeline, op.to, op.to.maskId, op.type);
+      return;
     case 'restore_effect_layer':
     case 'restore_clips':
+    case 'restore_masks':
       return; // internal lossless inverse primitives must always be able to restore state
   }
 }

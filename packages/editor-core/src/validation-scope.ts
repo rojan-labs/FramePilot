@@ -64,8 +64,29 @@ export function postValidationScope(
     case 'remove_keyframes':
     case 'apply_color_grade':
     case 'adjust_audio':
-    case 'add_mask':
     case 'track_object':
+    // Mask ops never move a clip; the new tracks `add_text_behind_subject` creates hold one
+    // clip each and cannot overlap anything.
+    case 'add_mask':
+    case 'add_effect_layer_mask':
+    case 'remove_mask':
+    case 'update_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'move_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'reorder_masks':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'use_track':
+    case 'set_mask_space':
+    case 'review_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+    case 'restore_masks':
     case 'set_track_flags':
     case 'set_track_caption_style':
     case 'set_caption_style':

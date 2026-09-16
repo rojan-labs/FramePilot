@@ -1724,6 +1724,12 @@ export type GradientMask = z.infer<typeof GradientMaskSchema>;
 export type LayerMask = z.infer<typeof LayerMaskSchema>;
 export type MaskLayer = z.infer<typeof MaskLayerSchema>;
 export type MaskKind = MaskLayer['kind'];
+/** A mask as an author writes it: every defaulted field may be omitted. */
+export type MaskLayerInput = z.input<typeof MaskLayerSchema>;
+export type MaskKeyframeInput = z.input<typeof MaskKeyframeSchema>;
+export type MaskPathKeyframeInput = z.input<typeof MaskPathKeyframeSchema>;
+export type MaskTrackingInput = z.input<typeof MaskTrackingSchema>;
+export type MaskReviewInput = z.input<typeof MaskReviewSchema>;
 
 // ---------------------------------------------------------------------------
 // Effect-layer accessors (schema v13, ADR 0088)

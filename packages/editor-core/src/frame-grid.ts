@@ -222,10 +222,6 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
       const durationFrames = Math.max(1, secondsToFrame(op.durationSeconds, fps));
       return { ...op, durationSeconds: frameToSeconds(durationFrames, fps) };
     }
-    case 'add_mask': {
-      const keyframes = snapKeyframes(op.keyframes, fps);
-      return { ...op, ...(keyframes === undefined ? {} : { keyframes }) };
-    }
     case 'track_object': {
       const keyframes = snapKeyframes(op.keyframes, fps);
       return { ...op, ...(keyframes === undefined ? {} : { keyframes }) };
@@ -252,6 +248,28 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'move_folder':
     case 'delete_folder':
     case 'reorder_clips': // ids, not times: apply derives every start and snaps it itself
+    // Mask keyframes live on the SOURCE clock (schema v22), whose frames belong to the
+    // media, not to the project grid, so snapping them to project frames would move them.
+    case 'add_mask':
+    case 'add_effect_layer_mask':
+    case 'remove_mask':
+    case 'update_mask':
+    case 'set_mask_path':
+    case 'add_mask_keyframe':
+    case 'remove_mask_keyframe':
+    case 'move_mask_keyframe':
+    case 'insert_mask_vertex':
+    case 'remove_mask_vertex':
+    case 'reorder_masks':
+    case 'set_mask_target':
+    case 'apply_mask_tracking':
+    case 'clear_mask_tracking':
+    case 'use_track':
+    case 'set_mask_space':
+    case 'review_mask':
+    case 'paste_masks':
+    case 'add_text_behind_subject':
+    case 'restore_masks':
     case 'set_clip_source_range':
     case 'set_clip_media':
     case 'set_transcript':
