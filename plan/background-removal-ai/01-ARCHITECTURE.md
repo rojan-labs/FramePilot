@@ -6,7 +6,7 @@
 sequenceDiagram
   participant UI as Inspector (web-editor)
   participant Main as Desktop main (pack host)
-  participant W as background-removal worker
+  participant W as Smart Mask worker
   participant FS as project/.framepilot-derived/mattes
   participant Core as editor-core
   participant Eng as engine (export)
@@ -23,22 +23,23 @@ sequenceDiagram
   W-->>Main: result(artifact descriptor, digests, low-confidence ranges)
   Main->>FS: verify (ffprobe, frame count, pts, sha256) → atomic rename
   Main-->>UI: MatteArtifactWire
-  UI->>Core: apply_matte op → validate → applyPatchChecked (undoable)
+  UI->>Core: add_mask {kind: matte} op → validate → applyPatchChecked (undoable)
   UI->>UI: preview: framePlanAt() → N-layer compositor → matte pass (09)
   Eng->>FS: export reads matte.mkv by pts, verifies digest, composites
 ```
 
 ## Ownership
 
-| Concern                                                                 | Owner                                                                         | Rule                                                                                         |
-| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
-| Inference (segmentation, refinement, matting)                           | `workers/background-removal` pack                                             | The only place an ML runtime runs (ADR 0114). The frozen engine gains no dependency.         |
-| Where a matte is written, verified, cached                              | `apps/desktop/electron/capability-packs/matte.ts` (new)                       | The host issues the output handle and owns the atomic rename. The worker never picks a path. |
-| What a matte means on the timeline                                      | `packages/timeline-schema` (`matte` effect, v22) + Pydantic twin              | Zod and Pydantic stay in sync, with a migration.                                             |
-| Attaching, replacing, removing, refining a matte                        | `packages/editor-core` operations with `apply` + `invert`                     | Every change is a typed op, validated before apply.                                          |
-| Pixels at export                                                        | `engine/.../render/mattes.py` (new), called from `compiler.py`                | Renders only. Never infers, and never renders a missing or mismatched matte silently.        |
-| Pixels in the monitor (via the frame plan and N-layer compositor, `09`) | `apps/web-editor/src/preview/clip-matte.ts` (new) + compositor                | Parity with the engine on edge shift, feather, invert and the combination with shape masks.  |
-| When the feature is usable, and how it is started                       | `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx` (new) | Reads pack status before offering the action.                                                |
+| Concern                                                                 | Owner                                                                                                                                     | Rule                                                                                         |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------- |
+| Inference (segmentation, refinement, matting)                           | `workers/smart-mask` pack                                                                                                                 | The only place an ML runtime runs (ADR 0114). The frozen engine gains no dependency.         |
+| Where a matte is written, verified, cached                              | `apps/desktop/electron/capability-packs/matte.ts` (new)                                                                                   | The host issues the output handle and owns the atomic rename. The worker never picks a path. |
+| What a mask (any kind, including a matte) means on the timeline         | `packages/timeline-schema` (`Clip.masks`, v22, [`10`](./10-PROFESSIONAL-MASKING.md#schema-v22-the-mask-stack-needs-md-1)) + Pydantic twin | Zod and Pydantic stay in sync, with a migration.                                             |
+| Adding, animating, tracking, reviewing and removing masks               | `packages/editor-core` mask operations with `apply` + `invert`                                                                            | Every change is a typed op, validated before apply; UI and AI use the same ops.              |
+| Deciding which object a request means                                   | `packages/ai-sdk/src/domain-tools/masking.ts` ([`11`](./11-AI-MASKING.md))                                                                | Resolve or ask; the model never invents geometry.                                            |
+| Pixels at export                                                        | `engine/.../render/mattes.py` (new), called from `compiler.py`                                                                            | Renders only. Never infers, and never renders a missing or mismatched matte silently.        |
+| Pixels in the monitor (via the frame plan and N-layer compositor, `09`) | `apps/web-editor/src/preview/clip-matte.ts` (new) + compositor                                                                            | Parity with the engine on edge shift, feather, invert and the combination with shape masks.  |
+| When the feature is usable, and how it is started                       | `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx` (new)                                                             | Reads pack status before offering the action.                                                |
 
 ## Invariants
 

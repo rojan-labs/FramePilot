@@ -30,6 +30,16 @@ RequestBaseSchema.extend({
 
 The frame range and media handle come from `RequestBase`, as for `tracking.*`.
 
+**Companion capability `subject.ground`** (same pack; needed by AI masking, [`11`](./11-AI-MASKING.md)):
+request `{ text: string ≤ 200 chars, frames: pts[] ≤ 16 }` → result
+`{ candidates: [{ candidateId, label, score, boxes: [{ pts, box }] }] }`. Small JSON; open-vocabulary
+grounding model decided under MD-6. Region words that are not objects ("sky", "ground") return a
+`region` candidate whose box is the frame and whose prompt is resolved by segmentation.
+
+**Prompt kinds for `subject.matte`** accept any object or region, not only people: a grounding
+`candidateId` resolves host-side to its boxes before the request is sent, so the worker only ever sees
+points, boxes, brushes and locks.
+
 **Progress**: add `refine`, `consensus`, `self_correct`, `matte`, `foreground`, `stabilise` and
 `verify` to the phase enum (`segment`, `decode` and `encode` exist already), with
 `{ completed, total, round? }`.

@@ -1,4 +1,4 @@
-# 02 — The worker pack: `framepilot.background-removal`
+# 02 — The worker pack: `framepilot.smart-mask` (background removal, object and region masks)
 
 ## Why a new pack, not a `subject-intelligence` 1.1
 
@@ -50,18 +50,19 @@ Licences change and my knowledge of them has a cutoff. Every row is re-checked a
 the upstream licence file at a pinned commit, including **training-data terms**, and recorded in
 `pack/models.lock.toml` + `LICENSES.md` the way `subject-intelligence` records its models.
 
-| Role                             | Candidate                                                                                       | Licence (to verify)                                            | Status                                                                                                            |
-| -------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Video segmentation               | SAM 2.1 Hiera-L (Hiera-B+ measured as a comparison only)                                        | Apache-2.0                                                     | **Primary.** Risk: ONNX export of memory attention (BR0).                                                         |
-| Refinement                       | BiRefNet HR / HR-matting variants                                                               | MIT                                                            | **Primary.** Check training-data terms of the chosen checkpoint.                                                  |
-| Alpha matting                    | ViTMatte (largest variant that passes)                                                          | MIT code; weights trained on Composition-1k / Distinctions-646 | **Open.** Dataset terms may bar commercial use of derived weights. BR0 decides.                                   |
-| Alpha matting alt.               | Classical closed-form matting on the band                                                       | n/a (algorithm)                                                | **Fallback.** Measured against the gates in `06`; if it misses the hair gate, the plan returns to the maintainer. |
-| Foreground colour                | Multi-level foreground estimation                                                               | MIT (algorithm, numpy)                                         | Primary. No weights.                                                                                              |
-| Optical flow (verify, stabilise) | OpenCV DIS / Farneback; a learned flow model only if BR0 shows the classical checks miss errors | BSD/Apache (OpenCV)                                            | Primary.                                                                                                          |
-| Rejected                         | BRIA RMBG-1.4 / RMBG-2.0                                                                        | Non-commercial                                                 | Rejected on licence, not on accuracy.                                                                             |
-| Rejected                         | Robust Video Matting                                                                            | GPL-3.0                                                        | Strong copyleft; the SBOM gate rejects it.                                                                        |
-| Rejected                         | MatAnyone and other S-Lab-licence models                                                        | Non-commercial                                                 | Rejected on licence.                                                                                              |
-| Rejected                         | Ultralytics YOLO-seg                                                                            | AGPL-3.0                                                       | Already rejected for `subject-intelligence`.                                                                      |
+| Role                                         | Candidate                                                                                       | Licence (to verify)                                            | Status                                                                                                            |
+| -------------------------------------------- | ----------------------------------------------------------------------------------------------- | -------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| Video segmentation                           | SAM 2.1 Hiera-L (Hiera-B+ measured as a comparison only)                                        | Apache-2.0                                                     | **Primary.** Risk: ONNX export of memory attention (BR0).                                                         |
+| Refinement                                   | BiRefNet HR / HR-matting variants                                                               | MIT                                                            | **Primary.** Check training-data terms of the chosen checkpoint.                                                  |
+| Alpha matting                                | ViTMatte (largest variant that passes)                                                          | MIT code; weights trained on Composition-1k / Distinctions-646 | **Open.** Dataset terms may bar commercial use of derived weights. BR0 decides.                                   |
+| Alpha matting alt.                           | Classical closed-form matting on the band                                                       | n/a (algorithm)                                                | **Fallback.** Measured against the gates in `06`; if it misses the hair gate, the plan returns to the maintainer. |
+| Open-vocabulary grounding (`subject.ground`) | Grounding DINO (Swin-T) or OWLv2                                                                | Apache-2.0 (code); **training-data terms to verify**           | **Primary for AI masking (MD-6).** Target-resolution accuracy measured in BR0.                                    |
+| Foreground colour                            | Multi-level foreground estimation                                                               | MIT (algorithm, numpy)                                         | Primary. No weights.                                                                                              |
+| Optical flow (verify, stabilise)             | OpenCV DIS / Farneback; a learned flow model only if BR0 shows the classical checks miss errors | BSD/Apache (OpenCV)                                            | Primary.                                                                                                          |
+| Rejected                                     | BRIA RMBG-1.4 / RMBG-2.0                                                                        | Non-commercial                                                 | Rejected on licence, not on accuracy.                                                                             |
+| Rejected                                     | Robust Video Matting                                                                            | GPL-3.0                                                        | Strong copyleft; the SBOM gate rejects it.                                                                        |
+| Rejected                                     | MatAnyone and other S-Lab-licence models                                                        | Non-commercial                                                 | Rejected on licence.                                                                                              |
+| Rejected                                     | Ultralytics YOLO-seg                                                                            | AGPL-3.0                                                       | Already rejected for `subject-intelligence`.                                                                      |
 
 **If a strictly better model appears under a permissive licence**, swapping it in is a
 `models.lock.toml` change plus a re-run of the `06` eval. The pipeline stages do not change.
@@ -76,7 +77,7 @@ the upstream licence file at a pinned commit, including **training-data terms**,
 - Long clips are processed in overlapping windows (e.g. 300 frames, 60 overlap). Overlaps go
   through stage 5 consensus like any other pair of estimates, so a window seam is verified, not
   cross-faded blindly.
-- `manifest.toml`: `capabilities = ["subject.matte"]`, `network = "disabled"`, and
+- `manifest.toml`: `capabilities = ["subject.matte", "subject.ground"]`, `network = "disabled"`, and
   `max_unpacked_mib` from the measured BR0 artifact.
 
 ## BR0 — the spike that decides whether this plan stands
@@ -99,18 +100,18 @@ Nothing past BR0 starts until these are answered with numbers in `BR0-FINDINGS.m
 ## Worker structure (mirrors `subject-intelligence`)
 
 ```
-workers/background-removal/
+workers/smart-mask/
   pyproject.toml, uv.lock, README.md, LICENSES.md
   pack/manifest.toml, pack/models.lock.toml, pack/sbom/
   tools/fetch_models.py, tools/generate_sbom.py, tools/export_onnx.py (build-time only)
-  src/framepilot_background_removal/
+  src/framepilot_smart_mask/
     __main__.py protocol.py runtime.py policy.py sandbox.py models.py
     decode.py prompts.py segment.py refine.py consensus.py self_correct.py
     matting.py foreground.py stabilise.py verify.py encode.py report.py
     backend.py (injectable seam for unit tests)
   eval/run_eval.py
   tests/ (unit with fakes; `decoded_media` marker for real weights + real media)
-scripts/dev-register-background-removal.sh (added to scripts/dev-register-all-packs.sh)
+scripts/dev-register-smart-mask.sh (added to scripts/dev-register-all-packs.sh)
 ```
 
 `tools/export_onnx.py` needs PyTorch **at pack build time only**. PyTorch never ships in the pack.

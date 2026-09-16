@@ -1,4 +1,4 @@
-# 06 — Precision and accuracy: metrics, fixtures, gates
+# 06 — Precision and accuracy: metrics, fixtures, gates (mattes, shape masks, tracking, AI masking)
 
 "Precise" is a number here, or it is not claimed. ADR 0176's rule applies: unit suites prove
 protocol, policy and sandbox, not accuracy. Accuracy is claimed only from this eval.
@@ -50,7 +50,7 @@ what makes it honest.
   composite, not the matte alone).
 - Large media follows the repo's fixture rules. **Never `git add -A`** (memory: 3.8 GB incident).
 
-## Gates (the pack does not ship until all pass on darwin-arm64 **and** win32-x64)
+## Matte gates (the pack does not ship until all pass on darwin-arm64 **and** win32-x64)
 
 | Gate                                    | Threshold (proposed; the maintainer may tighten, never loosen)                                                                       |
 | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
@@ -71,11 +71,48 @@ what makes it honest.
 
 If a gate misses, the numbers go to the maintainer. A gate is not quietly lowered to ship.
 
+## Shape masks and the rasteriser
+
+| Gate                                     | Threshold                                                                                                                         |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- |
+| Coverage vs 64×64-supersampled reference | Max error ≤ 1/255 per pixel on every vector case                                                                                  |
+| Engine vs preview rasteriser             | **Byte-identical** on every vector case at 3 resolutions                                                                          |
+| Distance feather vs analytic reference   | Max error ≤ 1/255 in the band (straight edges, circles, per-vertex feather)                                                       |
+| Path interpolation between keyframes     | Vertex positions equal the easing formula to 1e-6 px; no vertex correspondence swap                                               |
+| Legacy migration                         | Every v21 fixture project exports **byte-identical** after migration                                                              |
+| Source-time anchoring                    | After trim, slip, split, ripple, speed change and speed ramp, the mask's rendered alpha at the same **source** frame is identical |
+| Key mask                                 | Engine vs preview keyed alpha ≤ 1/255 on colour charts in BT.601/709, full/limited range                                          |
+| Preview ↔ export                         | All mask rows of the `09` oracle                                                                                                  |
+
+## Tracking
+
+| Gate                                               | Threshold                                                                      |
+| -------------------------------------------------- | ------------------------------------------------------------------------------ |
+| Planar track on synthetic warps (known homography) | Median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px              |
+| Real clips with hand-labelled corners every 0.5 s  | Median ≤ 0.5 px, p95 ≤ 2 px at source resolution                               |
+| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                 |
+| Low-confidence detection recall                    | ≥ 99.5% of frames with error > 2 px are flagged                                |
+| Correction                                         | One constraint frame brings a failing range back within gate in ≥ 95% of cases |
+| Constraint frames                                  | 100% exact after any re-track                                                  |
+
+## AI masking
+
+| Gate                                     | Threshold                                                                                                                               |
+| ---------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| Target resolution, unambiguous requests  | ≥ 99% pick the labelled target                                                                                                          |
+| Ambiguous requests                       | ≥ 97% ask the user (return `ambiguous_target`); a wrong confident pick counts as a failure, not an ask                                  |
+| Unnecessary asks on unambiguous requests | ≤ 3%                                                                                                                                    |
+| Fabricated geometry                      | 0 (every applied mask vertex traces to a candidate, a measurement or a user number; enforced by the validator and audited in the eval)  |
+| Mask quality                             | The same matte, shape and tracking gates as above, measured through the agent path                                                      |
+| Face/plate "hide"                        | Post-effect detail check: text/face recognisers on the exported frames find nothing inside the masked region on 100% of labelled frames |
+| Verification honesty                     | 0 runs claim Verified or omit a flagged count                                                                                           |
+| Token cost                               | Zero delta on projects without masks; the domain's measured delta recorded in the goldens                                               |
+
 ## Harness
 
-`workers/background-removal/eval/run_eval.py` runs the **installed, signed entrypoint** (not Python
+`workers/smart-mask/eval/run_eval.py` runs the **installed, signed entrypoint** (not Python
 imports), as `visual-describe/eval` does, and scripts the correction-convergence gate by replaying
 the minimal corrective clicks and brushes a labeller recorded. It writes
-`reports/background-removal/<date>-<platform>.json` plus a contact sheet (composite over magenta
+`reports/smart-mask/<date>-<platform>.json` plus a contact sheet (composite over magenta
 and over a text layer, matte, error heat map, flagged-vs-actual-error overlay) for human review.
 Reports are committed, so later sessions read recorded numbers instead of re-running.

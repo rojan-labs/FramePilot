@@ -10010,38 +10010,39 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
   reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
 
-## Phase BR — Background Removal + preview/export parity — `[ ]` proposed (2026-09-16, updated same day)
+## Phase BR — Masking, background removal, AI masking, preview/export parity — `[ ]` proposed (2026-09-16, scope widened by the maintainer the same day)
 
-Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (ten files).
-**Two tracks.** **PX (core preview fix, maintainer request 2026-09-16):** the monitor picks a
-renderer by timeline content (`Editor.tsx:545` DOM `PreviewPlayer` vs WebCodecs;
-`canvasPreviewEligible` drops segments, overlays and captions), draws a flat one-picture EDL, and
-paints text above every picture while the export composites text at its track position
-(`compiler.py:1138-1148`). Fix: one `framePlanAt` ↔ `frame_plan_at` frame description with parity
-vectors, a pixel oracle against `frame_grab.py` built before the compositor, an N-layer WebGL
-compositor, then delete the gates and the DOM monitor (MD-5). Supersedes the open P3 visual-diff and
-P4 speed-ramp/decoder-LRU items of `PREVIEW-WEBCODECS-COMPOSITOR.md`. **BR (background removal):**
-new pack `framepilot.background-removal` (SAM 2.1 Hiera-L forward+backward, BiRefNet HR, consensus,
-self-correction, full-res band matting, foreground decontamination, independent verification) →
-schema v22 `matte` effect → review list with brush fixes and locked frames → Verified. "100%" is
-defined as gates: error-detection recall ≥ 99.5%, correction to IoU ≥ 0.995 in ≤ 3 actions, plus
-model-quality gates in `06`.
+Sub-plan: [`plan/background-removal-ai/README.md`](./background-removal-ai/README.md) (twelve files).
+**Maintainer scope (recorded per CLAUDE.md §5):** background removal worker + Inspector with
+missing-pack warning; preview fixed at the core to render like the export; professional-editor
+masking; AI masking; everything production-grade. **Four tracks:**
+- **PX (preview parity):** shared frame plan (`framePlanAt` ↔ `frame_plan_at`), a pixel oracle against
+  `frame_grab.py` built first, then an N-layer WebGL compositor. After that, delete
+  `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM monitor (MD-5).
+- **MK (professional masking):** schema v22 `Clip.masks` stack replacing `mask` effects (MD-1).
+  Kinds: rectangle, ellipse, Bezier path, key and matte. Modes, inner/outer/per-vertex feather,
+  expansion, source-time path keyframes, alpha or effect targets. Rasteriser byte-identical in engine
+  and preview. Pro canvas tools and mask panel. Tracking Lite position/similarity/perspective/shape
+  tracking with review.
+- **BR (background removal):** the Smart Mask pack. Bidirectional SAM 2.1 Hiera-L, BiRefNet HR,
+  consensus, self-correction, full-res matting, decontamination, verification ≥ 99.5% error recall.
+  Review, brush and lock lead to Verified.
+- **AM (AI masking):** a `masking` tool domain. Target resolution by detection + open-vocabulary
+  grounding (MD-6) + identity. Ask on ambiguity, never invent geometry, same ops and review list.
+  Gates: ≥ 99% target accuracy, ≥ 97% asks on ambiguous requests.
 
-- [ ] PX0 — inventory every feature-matrix row: renderer used, diff vs `frame_grab`, colour conversion
-- [ ] PX1 — `frame_plan.py` extracted from the compiler + `framePlanAt` + parity vectors
-- [ ] PX4 — pixel oracle (Playwright desktop vs lossless `frame_grab`), baseline failures recorded
-- [ ] PX2 — N-layer compositor (text z-order, speed ramps, shared frames, streaming demux, colour matrix)
-- [ ] PX3 — delete `canvasPreviewEligible`/`webCodecsPreviewEligible` and the DOM program monitor (MD-5)
-- [ ] PX5 — performance budgets and regression guard
-- [ ] BR0 — spike: SAM 2.1 ONNX, licences, error-detection recall, throughput; MD-2
-- [ ] BR1 — schema v22 `matte` effect + ops incl. `review_matte`, `add_text_behind_subject` (MD-1)
-- [ ] BR2 — engine `render/mattes.py` + decontamination + golden (video → text → matted copy)
-- [ ] BR3 — `workers/background-removal` precision pipeline + local registration
-- [ ] BR4 — `subject.matte` protocol, staging sandbox, host, status IPC, corrections (MD-3/MD-4, security review)
-- [ ] BR5 — matte pass in the compositor; oracle rows green (needs PX2)
-- [ ] BR6 — Inspector Background: missing-pack warning, install, run, review/brush/lock, Verified, text behind subject
-- [ ] BR7 — every `06` gate on both platforms + desktop e2e
-- [ ] BR8 — (optional) `remove_background` AI tool
+- [ ] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets
+- [ ] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
+- [ ] MK2 — exact rasteriser + engine mask stack + goldens
+- [ ] MK3 — preview mask pass, byte-equal vectors, oracle rows
+- [ ] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
+- [ ] MK5 — effect-target masks (face blur, secondary grade)
+- [ ] MK6 — key mask (colour/luma qualifier, despill)
+- [ ] MK7 — mask tracking with review and constraint frames
+- [ ] BR0 — spike: SAM 2.1/BiRefNet/matting/grounding ONNX, licences, error-detection recall; MD-2, MD-6
+- [ ] BR2–BR7 — matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
+- [ ] AM1–AM5 — masking tools, target resolution, verification, surfaces/skill, eval gates
+- [ ] E2E.1–E2E.5 + DOC.1 — desktop end-to-end flows, migration, docs and changelogs
 
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)

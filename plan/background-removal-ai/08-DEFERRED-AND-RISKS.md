@@ -4,14 +4,22 @@
 
 | Item                                           | Why deferred                                                                                     | What it would reuse               |
 | ---------------------------------------------- | ------------------------------------------------------------------------------------------------ | --------------------------------- |
-| Background blur / "portrait mode"              | A second consumer of the matte; ships as an effect that reads the same artifact                  | `matte` effect + existing blur    |
 | Background replacement presets (colour, image) | Achievable today by placing media on the track below; a preset UI is convenience, not capability | Tracks + PX compositor            |
 | Export with alpha (ProRes 4444, VP9 alpha)     | A new export format surface; this plan composites mattes, it does not deliver transparent files  | Engine compositor                 |
-| Chroma key (green screen)                      | Different, deterministic technique; no model, no pack                                            | Engine + preview shader           |
 | Multiple subjects / multiple mattes per clip   | Doubles the UI and validation surface before one works                                           | Prompts already carry object sets |
 | Browser build                                  | Desktop is product focus #1; no pack runtime in the browser                                      | —                                 |
 | Cloud matting provider                         | ADR 0114 allows it only with media-egress consent; there is no demand yet                        | Same capability contract          |
-| AI tool                                        | BR8, optional                                                                                    | Host job + `apply_matte`          |
+
+### Deferred from professional masking (named so the gap is visible)
+
+| Item                                                                                 | Why deferred                                                                                                                                                                                      |
+| ------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Semantic part masks (face skin, hair, clothing, arms; Resolve Magic Mask "features") | Needs a human-parsing model; the known ones are trained on non-commercial datasets (e.g. CelebAMask-HQ). Revisit when a permissively licensed model exists; SAM clicks cover parts manually today |
+| Object removal / inpainting under a mask                                             | A generative capability with its own model, licence and precision questions                                                                                                                       |
+| Mask motion blur                                                                     | Needs shutter-angle sampling in both renderers; add after PX5 performance evidence                                                                                                                |
+| 3D camera solve / Mocha-style planar surface insertion                               | Tracking Lite provides planar homography; a full camera solve is its own domain                                                                                                                   |
+| Mask exchange with After Effects / Resolve                                           | No current consumer                                                                                                                                                                               |
+| Per-mask blend of different effects in one mask group                                | Effect-target masks cover the professional use; mask groups can come later                                                                                                                        |
 
 ## Risks
 
@@ -38,6 +46,16 @@
 | Chromium colour conversion differs from ffmpeg's                                          | High       | Medium | Measured in PX0.3; fixed in the shader, never absorbed into the tolerance                                   |
 | N-layer compositor misses the playback budget on 4K multi-layer timelines                 | Medium     | High   | Shared frames for same-source layers, decoder LRU, resolution-first load shedding; PX5 budgets              |
 | Deleting the DOM monitor removes a fallback someone relies on                             | Low        | Medium | Only after every oracle row passes; MD-5; browser keeps an explicit unavailable state                       |
+
+### Added with professional and AI masking
+
+| Risk                                                                        | Likelihood | Impact | Mitigation                                                                                                                       |
+| --------------------------------------------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------------------------------------------- |
+| v22 migration changes how existing masked projects look                     | Medium     | High   | `gaussian-legacy` feather model; byte-identical export gate on v21 fixtures                                                      |
+| TS rasteriser too slow for animated multi-mask stacks at preview resolution | Medium     | Medium | Band-limited evaluation, static-mask cache, WASM build of the same algorithm only if PX5 shows it is needed                      |
+| Grounding model licence fails (training data)                               | Medium     | High   | MD-6; fall back to Subject Intelligence classes + SigLIP re-ranking and **ask more often**, measured against the ambiguity gates |
+| The agent masks the wrong object confidently                                | Medium     | High   | Ambiguity threshold tuned on the eval with wrong-pick counted as failure; single-question visual spot check after apply          |
+| Scope size delays everything                                                | High       | High   | Two independent tracks (PX, MK) ship usable value before any model; each phase ends in a tested editor capability                |
 
 ## What would change this plan
 

@@ -119,17 +119,17 @@ timeline + assets + t ──► framePlanAt()  (pure TS)  ◄── parity vecto
 
 ## Feature matrix (every row is a parity vector **and** a pixel case)
 
-| Area        | Cases                                                                                                                   |
-| ----------- | ----------------------------------------------------------------------------------------------------------------------- |
-| Layering    | 1, 2, 3, 5 picture layers; hidden and soloed tracks; same-asset stack; gaps between layers                              |
-| Text        | text below, between and above pictures; caption track order; burn-in on/off as the export sets it                       |
-| Alpha       | matte (BR), shape masks, matte × mask, invert, opacity keyframes, letterboxed sources over other layers, PNG with alpha |
-| Geometry    | transform keyframes, crop, fit/letterbox across aspects, rotation metadata                                              |
-| Time        | constant speed 0.25×–4×, speed ramps, reverse if supported, trims at non-keyframes, VFR source, edit-list source        |
-| Colour      | grade, LUTs, blend modes over non-opaque layers, BT.601/709, full/limited range                                         |
-| Effects     | every `EFFECT_CATALOG` kind; effect layers (schema v13)                                                                 |
-| Transitions | every `TRANSITION_CATALOG` kind, over stacked layers                                                                    |
-| Scale       | a 3-minute 4K timeline with 4 layers + text + a matte, played end to end on desktop hardware                            |
+| Area        | Cases                                                                                                                                                                                                                                                                          |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Layering    | 1, 2, 3, 5 picture layers; hidden and soloed tracks; same-asset stack; gaps between layers                                                                                                                                                                                     |
+| Text        | text below, between and above pictures; caption track order; burn-in on/off as the export sets it                                                                                                                                                                              |
+| Alpha       | mask stack: every kind (rectangle, ellipse, path, matte, key) × every mode × invert × expansion × inner/outer and per-vertex feather × legacy feather; effect-target masks; tracked masks (each method); matte × shape; opacity keyframes; letterboxed sources; PNG with alpha |
+| Geometry    | transform keyframes, crop, fit/letterbox across aspects, rotation metadata                                                                                                                                                                                                     |
+| Time        | constant speed 0.25×–4×, speed ramps, reverse if supported, trims at non-keyframes, VFR source, edit-list source                                                                                                                                                               |
+| Colour      | grade, LUTs, blend modes over non-opaque layers, BT.601/709, full/limited range                                                                                                                                                                                                |
+| Effects     | every `EFFECT_CATALOG` kind; effect layers (schema v13)                                                                                                                                                                                                                        |
+| Transitions | every `TRANSITION_CATALOG` kind, over stacked layers                                                                                                                                                                                                                           |
+| Scale       | a 3-minute 4K timeline with 4 layers + text + a matte, played end to end on desktop hardware                                                                                                                                                                                   |
 
 ## PX4 — the pixel parity oracle
 

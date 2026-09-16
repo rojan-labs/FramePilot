@@ -48,7 +48,7 @@ building on them; this repo moves fast.
 ## Latent traps found on the way
 
 - `applySplit` re-bases `clip.keyframes` but not `clip.effects[].keyframes`, and
-  `truncateClip` ignores `effects`. A `matte` effect must therefore reference **source time**
+  `truncateClip` ignores `effects`. Masks (including mattes) must therefore reference **source time**
   and carry no timeline-relative keyframes, which makes it split- and trim-safe by construction.
 - The compiler and `clipMaskEffect` both pick the **first** `mask` effect. Adding the matte as
   another `mask` would either shadow the editor's drawn mask or be shadowed by it.

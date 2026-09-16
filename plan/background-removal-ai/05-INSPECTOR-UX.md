@@ -1,15 +1,34 @@
-# 05 — Inspector UX: Mask tab → Background
+# 05 — Inspector UX: Mask tab, background removal, and pack warnings
 
 ## Placement
 
-A new **Background** section at the top of the existing **Mask** tab (`INSPECTOR_TABS` id `mask`;
-`SECTION_TABS` gets `background: 'mask'`), above the shape-mask controls and `MaskPackActions`.
-It appears only for video and image clips.
+The **Mask tab** becomes the professional mask panel described in
+[`10`](./10-PROFESSIONAL-MASKING.md#editing-tools-monitor--inspector) (mask list, per-mask properties,
+keyframes, tracking, review). Background removal is its first action row: **[ Remove background ]**,
+a preset that adds an AI subject `matte` mask targeting clip alpha. Everything below describes that
+row and the states every AI or pack-backed mask tool shares. It appears only for video and image clips.
 
-Component: `apps/web-editor/src/components/inspector/BackgroundRemovalSection.tsx`, with state in
-`useBackgroundRemoval.ts` and the review UI in `MatteReviewPanel.tsx`. Built from the design system
-(`Button` variants, `InspectorSection`, `InspectorRow`, tokens in `styles.css`). No new colour
-tokens; the warning uses the existing warning tone.
+Components (`apps/web-editor/src/components/inspector/masks/`): `MaskPanel.tsx`, `MaskList.tsx`,
+`MaskProperties.tsx`, `MaskTracking.tsx`, `MaskReviewPanel.tsx`, `BackgroundRemovalRow.tsx`, and the
+monitor overlay `apps/web-editor/src/components/preview/MaskCanvasTools.tsx`. State lives in
+`useMaskTools.ts` + `usePackStatus.ts`. `MaskPackActions.tsx` and the hardcoded `addMaskPatch` are
+deleted once their replacements pass. Built from the design system (`Button` variants,
+`InspectorSection`, `InspectorRow`, tokens in `styles.css`), with no new colour tokens.
+
+## Pack-backed tools and their warnings
+
+| Tool                                                              | Needs                             | Without it                                                                                 |
+| ----------------------------------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------ |
+| Rectangle, Ellipse, Pen, Freehand, Key, all properties, keyframes | Nothing (core)                    | Always available                                                                           |
+| Remove background, AI Object, AI Brush                            | **Smart Mask pack**               | Warning + disabled tool, as below                                                          |
+| AI Object "auto (main subject)"                                   | Smart Mask + Subject Intelligence | Falls back to "click the subject" with a note; never proposes a second download on its own |
+| Track mask                                                        | **Tracking Lite pack**            | Same warning pattern, naming Tracking Lite                                                 |
+| AI masking in the sidebar                                         | Whichever pack the tool needs     | `PackInstallInlineCard` (existing)                                                         |
+
+`usePackStatus(capability)` calls `capabilityPackStatus` on mount and on `onCapabilityPackInstalled`,
+so every tool's state updates without restart, whichever surface performed the install. Disabled AI
+tools stay **visible** in the monitor toolbar with the same tooltip, so the editor can see the
+capability exists.
 
 ## State machine
 
@@ -23,7 +42,7 @@ mount ──► CHECKING ──► PACK_MISSING ──install ok──► CHECKI
                                   │   └─cancel─► READY          └──────────── ok, flagged = 0 ──────────► VERIFIED
                                   └─ refusal ─► READY + error (typed, with remedy)
 NEEDS_REVIEW / VERIFIED ──brush / lock / approve──► (RUNNING for brush, instant for approve/lock) ──► NEEDS_REVIEW | VERIFIED
-any applied state ──look controls──► same state (update_matte, undoable)
+any applied state ──look controls──► same state (update_mask, undoable)
 applied + clip trimmed past coverage ──► STALE ("Update for new range")
 applied + artifact missing/mismatch ──► BROKEN ("Recompute" if pack ready, else PACK_MISSING copy)
 ```
@@ -39,7 +58,7 @@ The lead-prompt-engineer and unslop passes finalise the wording. The **content**
 **PACK_MISSING** (warning shown before any click):
 
 > ⚠ **Background removal isn't installed.**
-> It won't work until you install the Background Removal pack (**{size} download**, runs entirely on
+> It won't work until you install the Smart Mask pack (**{size} download**, runs entirely on
 > this computer; nothing is uploaded). Licences: {spdx list}.
 >
 > [ Install {size} ] [ Details ]
@@ -56,7 +75,7 @@ The lead-prompt-engineer and unslop passes finalise the wording. The **content**
 - **Offline / no catalog:** "Can't reach the pack catalog. Check your connection, or install it later
   from Settings → Storage." Remove stays disabled.
 
-**PACK_UNHEALTHY:** "The Background Removal pack is installed but failed its health check: {reason}."
+**PACK_UNHEALTHY:** "The Smart Mask pack is installed but failed its health check: {reason}."
 Offers [Reinstall].
 
 **UNSUPPORTED_PLATFORM:** "Background removal isn't available for this computer yet (needs Apple
@@ -82,7 +101,7 @@ editor stays usable, and a selection change does not lose the job.
 - **Review list:** each flagged range with its reason in plain words ("Edges disagreed", "Subject
   partly hidden", "New shape appeared") and a thumbnail. Clicking seeks the playhead and switches the
   monitor to **Overlay** view (red tint on removed area, flagged pixels outlined).
-- Per range: **[Looks right]** → `review_matte` approve (instant). **[Fix]** → the brush tools below.
+- Per range: **[Looks right]** → `review_mask` approve (instant). **[Fix]** → the brush tools below.
   **[Next]** jumps to the following range. `J`/`K` step between flagged ranges; `←`/`→` step frames.
 - **Brush tools** on the monitor at 100–400% zoom: **Keep** brush, **Remove** brush, **Edge** brush
   (marks a band for matting, for hair), adjustable size and hardness, with a live overlay. [Apply
@@ -102,14 +121,14 @@ review list collapses to "Show checked moments".
   edges."
 - **Look** (collapsed by default, labelled "Creative"): Edge shift (Choke ↔ Spread) and Feather,
   both 0 by default. They change the look; they are not how you fix a mistake. Each change is one
-  `update_matte` patch on release, and the preview updates live while dragging.
+  `update_mask` patch on release, and the preview updates live while dragging.
 - **View:** Composite | Matte | Overlay | Flagged (preview only).
 - **[ Put text behind subject ]**: runs the `add_text_behind_subject` composite op and selects the new
   text clip in the Text tab. The same result is possible by hand (duplicate the clip, remove the
   background on the top copy, put text between).
 - If nothing is behind the clip: "Nothing below this clip, so the removed area exports as black. Put
   a clip, image or colour on the track below."
-- [ Remove background removal ] (ghost, destructive tone) → `remove_matte`, undoable.
+- [ Remove background removal ] (ghost, destructive tone) → `remove_mask`, undoable.
 
 **Export dialog:** if any matte in the timeline is in NEEDS_REVIEW, export shows "{n} background
 removal moments haven't been checked" with [Review] and [Export anyway]. It never blocks silently or
@@ -127,10 +146,11 @@ hides the count. STALE and BROKEN use the same remedy text in the Inspector and 
 
 ## Tests (BR6)
 
-- `BackgroundRemovalSection.test.tsx`: every state with a fake bridge; the disabled button plus
+- `BackgroundRemovalRow.test.tsx` and `MaskPanel.test.tsx`: every state with a fake bridge; the disabled button plus
   warning in PACK_MISSING; the refresh on `onCapabilityPackInstalled`; install progress, failure
   and success; undo back to READY.
-- `MatteReviewPanel.test.tsx`: approve, fix and lock transitions; NEEDS_REVIEW → VERIFIED; J/K navigation.
-- `useBackgroundRemoval.test.ts`: the late-progress race, cancel, a stale revision, a selection change
+- `MaskReviewPanel.test.tsx`: approve, fix and lock transitions; NEEDS_REVIEW → VERIFIED; J/K navigation.
+- `MaskCanvasTools.test.tsx`: draw/edit each kind with mouse and keyboard, tangents, vertex insert/delete across path keyframes, nudges, snapping, zoom; each gesture yields exactly one patch on release.
+- `useMaskTools.test.ts` / `usePackStatus.test.ts`: the late-progress race, cancel, a stale revision, a selection change
   while running, and a partial-window re-run after a brush fix.
-- `Inspector.tabs.test.tsx`: the section lives in the Mask tab and is hidden for audio and text clips.
+- `Inspector.tabs.test.tsx`: the Mask tab is hidden for audio and text clips; the mask list reorders by drag and keyboard.
