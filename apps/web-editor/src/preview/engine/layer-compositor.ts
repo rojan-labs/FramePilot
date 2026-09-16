@@ -97,7 +97,7 @@ export class LayerCompositorUnavailableError extends Error {
 }
 
 export class LayerCompositor {
-  readonly canvas: HTMLCanvasElement;
+  readonly canvas: HTMLCanvasElement | OffscreenCanvas;
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
   private readonly failedTransitions = new Set<string>();
@@ -113,9 +113,14 @@ export class LayerCompositor {
    * @throws LayerCompositorUnavailableError when the browser has no WebGL2 context (the monitor
    *   shows that in place; it never falls back to a different renderer).
    */
-  constructor(createCanvas: () => HTMLCanvasElement = () => document.createElement('canvas')) {
+  constructor(
+    createCanvas: () => HTMLCanvasElement | OffscreenCanvas = () =>
+      typeof OffscreenCanvas !== 'undefined'
+        ? new OffscreenCanvas(1, 1)
+        : document.createElement('canvas'),
+  ) {
     this.canvas = createCanvas();
-    const gl = this.canvas.getContext('webgl2', {
+    const gl = (this.canvas as HTMLCanvasElement).getContext('webgl2', {
       alpha: false,
       antialias: false,
       depth: false,
@@ -134,7 +139,7 @@ export class LayerCompositor {
    * @param size - The frame, in pixels (the canvas is resized to it).
    * @param layers - Back to front.
    */
-  render(size: PixelSize, layers: readonly CompositeLayer[]): void {
+  render(size: PixelSize, layers: readonly CompositeLayer[]): CanvasImageSource {
     if (this.canvas.width !== size.width) this.canvas.width = size.width;
     if (this.canvas.height !== size.height) this.canvas.height = size.height;
     const r = this.resources;
@@ -168,6 +173,13 @@ export class LayerCompositor {
       r.bind(present, 'u_frame', 0, frame.texture);
       present.int('u_height', size.height);
       r.draw(null, size.width, size.height);
+      // The frame just drawn, not the last one the browser presented: `drawImage` of a WebGL
+      // canvas can return the previous drawing buffer (measured on CI: every read lagged one
+      // seek). `transferToImageBitmap` hands over exactly this buffer.
+      if (typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas) {
+        return this.canvas.transferToImageBitmap();
+      }
+      return this.canvas as HTMLCanvasElement;
     } finally {
       r.endFrame();
     }

@@ -141,7 +141,8 @@ export class LayerPreviewEngine {
   private disposed = false;
   private generation = 0;
   private loadQueue: Promise<unknown> = Promise.resolve();
-  private presented: PresentedFrame = { projectTimeSec: 0, layers: [] };
+  /** NaN until something is presented: a read at t=0 must not match the empty initial state. */
+  private presented: PresentedFrame = { projectTimeSec: Number.NaN, layers: [] };
   private lastPresentedSignature = '';
   private dbg = {
     ticks: 0,
@@ -576,7 +577,7 @@ export class LayerPreviewEngine {
       return true;
     }
     const size = project.canvasSize;
-    compositor.render(size, composed.layers);
+    const frame = compositor.render(size, composed.layers);
     const ctx = this.ctx2d;
     if (ctx.canvas.width !== size.width) ctx.canvas.width = size.width;
     if (ctx.canvas.height !== size.height) ctx.canvas.height = size.height;
@@ -585,8 +586,9 @@ export class LayerPreviewEngine {
     ctx.imageSmoothingEnabled = false;
     ctx.globalAlpha = 1;
     ctx.filter = 'none';
-    ctx.drawImage(compositor.canvas, 0, 0);
+    ctx.drawImage(frame, 0, 0);
     ctx.restore();
+    if (typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap) frame.close();
     this.applyFrameEffects(plan, timeSec);
     this.lastPresentedSignature = signature;
     this.presented = { projectTimeSec: timeSec, layers: composed.presented };
