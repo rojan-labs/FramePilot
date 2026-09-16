@@ -1222,7 +1222,7 @@ export const ClipSchema = z
      * project's behaviour, so the migration is a pure passthrough.
      *
      * The timeline duration is the *integral* of the reciprocal rate over the
-     * clip's source span — see `editor-core/src/speed-curve.ts` and its Python
+     * clip's source span — see `timeline-schema/src/speed-curve.ts` and its Python
      * mirror, which are the only two places that arithmetic exists.
      */
     speedRamp: z.array(SpeedPointSchema).optional(),

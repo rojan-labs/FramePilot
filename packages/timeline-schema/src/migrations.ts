@@ -13,6 +13,7 @@
  * envelope field on parse, so adding it never changes the validated shape.
  */
 import { SCHEMA_VERSION } from './index.js';
+import { migrateMaskEffectsToStack } from './mask-migration.js';
 
 /** A raw, unvalidated project object as read from disk. */
 export type RawProject = Record<string, unknown>;
@@ -276,6 +277,22 @@ export const MIGRATIONS: readonly Migration[] = [
       'will letterbox without a crop; the renderer fits rather than covers.',
     migrate: (raw) => raw,
   },
+  {
+    from: 21,
+    to: 22,
+    describe:
+      '`mask` effects are replaced by a first-class mask stack, `Clip.masks` (and ' +
+      '`EffectLayer.masks`). The first `mask` effect on a clip becomes one enabled alpha ' +
+      'mask of the same shape: bounds become display-corrected source pixels through the ' +
+      'crop, a polygon becomes a path with zero tangents, keyframes move from clip timeline ' +
+      "seconds to asset source seconds through the clip's speed or ramp, and the feather " +
+      "keeps today's Gaussian blur (`featherModel: 'gaussian-legacy'`), so the project " +
+      'exports the same. Later `mask` effects were never rendered and arrive disabled with ' +
+      'a note. A clip whose media size was never probed keeps its mask in frame fractions ' +
+      '(`units: "normalized"`) and asks for the media to be measured rather than guessing a ' +
+      'size (ADR 0178).',
+    migrate: migrateMaskEffectsToStack,
+  },
 ];
 
 /**
@@ -358,6 +375,28 @@ function migrateTranscriptToSourceRelative(raw: RawProject): RawProject {
   return next;
 }
 
+/** What the editor tells the user when a project was saved by a newer FramePilot. */
+export const NEWER_SCHEMA_MESSAGE = 'Update FramePilot to open this project.';
+
+/**
+ * A project written by a newer FramePilot than this one.
+ *
+ * It is never downgraded or partially loaded: an older build cannot know what the newer
+ * fields mean, and dropping them on the next save would destroy work. Extends `RangeError`
+ * so existing `instanceof RangeError` handling keeps refusing it.
+ */
+export class NewerSchemaError extends RangeError {
+  public constructor(
+    public readonly fileVersion: number,
+    public readonly supportedVersion: number,
+  ) {
+    super(
+      `${NEWER_SCHEMA_MESSAGE} It was saved with project format ${fileVersion}; this build reads up to ${supportedVersion}.`,
+    );
+    this.name = 'NewerSchemaError';
+  }
+}
+
 /** Read the envelope schema version from a raw project (defaults to 1). */
 export const readSchemaVersion = (raw: RawProject): number => {
   const v = raw.schemaVersion;
@@ -390,9 +429,7 @@ export function migrateToCurrent(raw: RawProject, options: MigrateOptions = {}):
   let version = readSchemaVersion(raw);
 
   if (version > target) {
-    throw new RangeError(
-      `Project schema version ${version} is newer than this build supports (${target}). Update FramePilot.`,
-    );
+    throw new NewerSchemaError(version, target);
   }
 
   let current = raw;
