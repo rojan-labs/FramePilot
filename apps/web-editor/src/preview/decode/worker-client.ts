@@ -5,7 +5,12 @@
  * both the P0 spike harness and the real single-clip preview engine (P1).
  */
 import { createLogger } from '@framepilot/shared-types';
-import type { DecodedFrameMessage, WorkerRequest, WorkerResponse } from './decode-worker.js';
+import type {
+  DecodedFrameMessage,
+  DecodedPictureMessage,
+  WorkerRequest,
+  WorkerResponse,
+} from './decode-worker.js';
 
 const log = createLogger('web-editor:preview:decode-worker-client');
 
@@ -13,6 +18,13 @@ type DistributiveOmit<T, K extends keyof T> = T extends unknown ? Omit<T, K> : n
 
 export interface DecodeRangeResult {
   frames: DecodedFrameMessage[];
+  decodeDurationMs: number;
+  reconfigured: boolean;
+}
+
+export interface DecodePicturesResult {
+  /** In presentation order. */
+  pictures: DecodedPictureMessage[];
   decodeDurationMs: number;
   reconfigured: boolean;
 }
@@ -31,6 +43,7 @@ export class DecodeWorkerClient {
     { resolve: (msg: WorkerResponse) => void; reject: (err: Error) => void }
   >();
   private frameWaiters = new Map<number, DecodedFrameMessage[]>();
+  private pictureWaiters = new Map<number, DecodedPictureMessage[]>();
   private framesCreatedTotal = 0;
   private framesClosedTotal = 0;
   private inFlightPeak = 0;
@@ -114,7 +127,28 @@ export class DecodeWorkerClient {
     };
   }
 
+  /** Release a picture nobody will consume (a `VideoFrame` fallback must be closed). */
+  releasePicture(message: DecodedPictureMessage): void {
+    if (message.picture.kind === 'frame') this.closeFrame(message.picture.frame);
+  }
+
   private handleMessage(message: WorkerResponse): void {
+    if (message.type === 'picture') {
+      if (message.picture.kind === 'frame') {
+        this.framesCreatedTotal++;
+        this.inFlightPeak = Math.max(
+          this.inFlightPeak,
+          this.framesCreatedTotal - this.framesClosedTotal,
+        );
+      }
+      const waiter = this.pictureWaiters.get(message.requestId);
+      if (waiter) {
+        waiter.push(message);
+        return;
+      }
+      this.releasePicture(message);
+      return;
+    }
     if (message.type === 'frame') {
       this.framesCreatedTotal++;
       this.inFlightPeak = Math.max(
@@ -173,6 +207,7 @@ export class DecodeWorkerClient {
     frameCount: number;
     frameDurationUs: number;
     presentationTimestampsUs: number[];
+    frameRate: number;
     codec: string;
     fileBytes: ArrayBuffer;
   }> {
@@ -249,6 +284,57 @@ export class DecodeWorkerClient {
     }
   }
 
+  /**
+   * Decode an inclusive presentation range as planes (`decoded-picture.ts`) for the layer
+   * compositor. Same streaming session and cancellation rules as {@link decodeRange}; the
+   * caller owns the returned pictures (see {@link releasePicture}).
+   */
+  async decodePictures(
+    sourceId: string,
+    fromChunkIndex: number,
+    toChunkIndex: number,
+  ): Promise<DecodePicturesResult> {
+    const worker = await this.ensureWorkerReady();
+    const requestId = this.nextRequestId++;
+    this.pictureWaiters.set(requestId, []);
+    const rangeDone = new Promise<{ decodeDurationMs: number; reconfigured: boolean }>(
+      (resolve, reject) => {
+        this.pending.set(requestId, {
+          resolve: (msg) => {
+            if (msg.type !== 'rangeDone') {
+              reject(new Error(`Expected rangeDone, got ${msg.type}`));
+              return;
+            }
+            resolve({ decodeDurationMs: msg.decodeDurationMs, reconfigured: msg.reconfigured });
+          },
+          reject,
+        });
+      },
+    );
+    worker.postMessage({
+      type: 'decodeRange',
+      requestId,
+      sourceId,
+      fromChunkIndex,
+      toChunkIndex,
+      output: 'picture',
+    } satisfies WorkerRequest);
+    let delivered = false;
+    try {
+      const { decodeDurationMs, reconfigured } = await rangeDone;
+      const pictures = (this.pictureWaiters.get(requestId) ?? []).sort(
+        (a, b) => a.chunkIndex - b.chunkIndex,
+      );
+      delivered = true;
+      return { pictures, decodeDurationMs, reconfigured };
+    } finally {
+      const collected = this.pictureWaiters.get(requestId) ?? [];
+      this.pictureWaiters.delete(requestId);
+      this.pending.delete(requestId);
+      if (!delivered) for (const message of collected) this.releasePicture(message);
+    }
+  }
+
   /** Terminate the worker and reject every request that can no longer complete. */
   dispose(): void {
     if (this.disposed) return;
@@ -267,5 +353,9 @@ export class DecodeWorkerClient {
       for (const message of collected) this.closeFrame(message.frame);
     }
     this.frameWaiters.clear();
+    for (const collected of this.pictureWaiters.values()) {
+      for (const message of collected) this.releasePicture(message);
+    }
+    this.pictureWaiters.clear();
   }
 }

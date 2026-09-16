@@ -65,7 +65,7 @@ const OUT_DIR = join(REPO, 'tests', 'e2e', '.tmp-px4-parity');
 const RESULTS_DIR = join(OUT_DIR, 'results');
 const BASELINE_PATH = join(HERE, '..', 'fixtures', 'preview-parity-baseline.json');
 /** Must equal `MANIFEST_VERSION` in `engine/python/tests/px4_parity_frames.py`. */
-const MANIFEST_VERSION = 1;
+const MANIFEST_VERSION = 2;
 const MEDIA_PREFIX = '/__px4-media/';
 
 // --- gates (09-PREVIEW-EXPORT-PARITY.md, PX4). Tighten only. ---------------------------------

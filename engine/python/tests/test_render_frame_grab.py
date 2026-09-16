@@ -444,6 +444,35 @@ class TestLosslessFullResolution:
         frame = grab_frame(project, base, 0.5, image_format="png", max_dimension=64, lossless=True)
         assert (frame.width, frame.height) == (640, 360)
 
+    def test_lossless_size_composites_at_that_size_without_resizing(
+        self,
+        project_with_media: tuple[Project, Path],
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        pytest.importorskip("PIL")
+        project, base = project_with_media
+        seen: list[tuple[int, int]] = []
+
+        def _spy(*args: Any, **kwargs: Any) -> Any:
+            preset = args[2]
+            seen.append((preset.width, preset.height))
+            return real_compile(*args, **kwargs)
+
+        monkeypatch.setattr(_COMPILE_TARGET, _spy)
+        frame = grab_frame(
+            project, base, 0.5, image_format="png", lossless=True, lossless_size=(321, 181)
+        )
+        # The compositor itself runs at the requested (even-rounded) size.
+        assert seen == [(320, 180)]
+        assert (frame.width, frame.height) == (320, 180)
+
+    def test_lossless_size_is_refused_without_lossless(
+        self, project_with_media: tuple[Project, Path]
+    ) -> None:
+        project, base = project_with_media
+        with pytest.raises(FrameGrabError, match="lossless_size only applies"):
+            grab_frame(project, base, 0.5, image_format="png", lossless_size=(320, 180))
+
     def test_refuses_a_lossy_format_instead_of_overriding_it(
         self, project_with_media: tuple[Project, Path]
     ) -> None:

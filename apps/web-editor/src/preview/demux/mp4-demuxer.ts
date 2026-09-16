@@ -44,6 +44,11 @@ export interface DemuxedSampleTable {
    * a display-step fallback only; exact times live in
    * `presentationTimestampsUs`. */
   frameDurationUs: number;
+  /**
+   * `timescale / first sample duration`: the nominal rate the export's reader indexes frames
+   * by (`int(fps * t)`). Exact for the constant-rate proxies (e.g. 15360 / 512 = 30).
+   */
+  frameRate: number;
 }
 
 /** One demuxed sample as a plain object — the mp4box-facing half of this
@@ -83,6 +88,7 @@ export function demuxAllVideoSamples(
     const sampleMeta: { ctsUs: number; isSync: boolean }[] = [];
     let config: VideoDecoderConfig | undefined;
     let frameDurationUs: number | undefined;
+    let frameRate: number | undefined;
 
     file.onError = (module, message) => {
       reject(new Error(`mp4box demux error in ${module}: ${message}`));
@@ -111,6 +117,7 @@ export function demuxAllVideoSamples(
           }
           if (frameDurationUs === undefined) {
             frameDurationUs = Math.round((sample.duration * 1_000_000) / sample.timescale);
+            frameRate = sample.duration > 0 ? sample.timescale / sample.duration : 0;
           }
           const ctsUs = Math.round((sample.cts * 1_000_000) / sample.timescale);
           sampleMeta.push({ ctsUs, isSync: Boolean(sample.is_sync) });
@@ -145,7 +152,13 @@ export function demuxAllVideoSamples(
       chunkFactory({ ...init, timestamp: init.timestamp - minCtsUs }),
     );
     const normalizedMeta = sampleMeta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
-    resolve({ config, chunks, frameDurationUs, ...buildPresentationTables(normalizedMeta) });
+    resolve({
+      config,
+      chunks,
+      frameDurationUs,
+      frameRate: frameRate ?? 0,
+      ...buildPresentationTables(normalizedMeta),
+    });
   });
 }
 

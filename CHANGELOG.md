@@ -8,6 +8,14 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The program monitor composites every layer the export does (development builds).** A new
+  WebGL2 compositor draws the frame from the same frame plan the export uses: every picture layer
+  back to front, stacked and picture-in-picture clips, hidden tracks, gaps and speed changes, with
+  no timeline sent to the one-clip fallback player. Pixels go through the export's own YUV-to-RGB
+  conversion and resampling arithmetic, so colours no longer drift a few levels from the export
+  (BT.709 proxies were up to 9/255 off). Release builds keep the previous monitor until the
+  parity work is complete; `VITE_FRAMEPILOT_PREVIEW_COMPOSITOR=legacy` switches it off.
+
 - **Exports draw every shape mask exactly.** Rectangles (now with rotation and rounded corners),
   ellipses and curved paths render in any number and any mode (add, subtract, intersect,
   difference, lighten, darken), with invert, opacity, expansion, inner and outer feather,

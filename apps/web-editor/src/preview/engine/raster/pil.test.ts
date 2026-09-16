@@ -1,0 +1,64 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+import { pilAlphaComposite, pilCoefficients, pilResize, PIL_PRECISION_BITS } from './pil.js';
+
+const HERE = dirname(fileURLToPath(import.meta.url));
+const golden = JSON.parse(readFileSync(join(HERE, '__fixtures__', 'pil-golden.json'), 'utf8')) as {
+  resize: {
+    width: number;
+    height: number;
+    outWidth: number;
+    outHeight: number;
+    channels: number;
+    pixels: string;
+    resized: string;
+  }[];
+  alphaComposite: { dst: string; src: string; out: string; count: number };
+};
+const bytes = (base64: string): Uint8Array => new Uint8Array(Buffer.from(base64, 'base64'));
+
+describe('Pillow LANCZOS resize (golden, bit exact)', () => {
+  for (const c of golden.resize) {
+    it(`${c.channels === 3 ? 'RGB' : 'L'} ${c.width}x${c.height} -> ${c.outWidth}x${c.outHeight}`, () => {
+      const out = pilResize(
+        bytes(c.pixels),
+        c.width,
+        c.height,
+        c.channels,
+        c.outWidth,
+        c.outHeight,
+      );
+      expect([...out]).toEqual([...bytes(c.resized)]);
+    });
+  }
+
+  it('normalises every row of weights to one', () => {
+    const coefficients = pilCoefficients(1920, 1280);
+    for (let i = 0; i < coefficients.outSize; i++) {
+      let sum = 0;
+      for (let k = 0; k < coefficients.ksize; k++)
+        sum += coefficients.weights[i * coefficients.ksize + k]!;
+      expect(Math.abs(sum - (1 << PIL_PRECISION_BITS))).toBeLessThan(coefficients.ksize);
+    }
+  });
+});
+
+describe('Pillow alpha_composite (golden, bit exact)', () => {
+  it('matches Image.alpha_composite pixel for pixel', () => {
+    const { dst, src, out, count } = golden.alphaComposite;
+    const d = bytes(dst);
+    const s = bytes(src);
+    const expected = bytes(out);
+    for (let i = 0; i < count; i++) {
+      const o = i * 4;
+      expect(
+        pilAlphaComposite(
+          [d[o]!, d[o + 1]!, d[o + 2]!, d[o + 3]!],
+          [s[o]!, s[o + 1]!, s[o + 2]!, s[o + 3]!],
+        ),
+      ).toEqual([expected[o], expected[o + 1], expected[o + 2], expected[o + 3]]);
+    }
+  });
+});

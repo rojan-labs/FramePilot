@@ -43,6 +43,7 @@ import copy
 import hashlib
 import json
 import logging
+import math
 import multiprocessing
 import os
 import signal
@@ -61,7 +62,11 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "frame-plan"
 DEFAULT_OUT_DIR = REPO_ROOT / "tests" / "e2e" / ".tmp-px4-parity"
 #: Bumped when the output layout changes in a way the input hash cannot see.
-MANIFEST_VERSION = 1
+MANIFEST_VERSION = 2
+#: The program monitor's canvas long edge (`CANVAS_MAX_EDGE` in `WebCodecsPreviewPlayer.tsx`).
+#: The preview may be lower resolution than the project; the oracle compares at the preview's
+#: size by having the export's compositor run at that size, never by rescaling either image.
+PREVIEW_CANVAS_MAX_EDGE = 1280
 
 #: (primary, top-right quadrant) sentinel colours per fixture asset id. Grid levels 44/140/236.
 SENTINELS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
@@ -380,6 +385,20 @@ def sample_project(case: dict[str, Any], t: float) -> dict[str, Any]:
     return project
 
 
+def preview_canvas_size(width: int, height: int) -> tuple[int, int]:
+    """The monitor canvas for a project frame, exactly as the player sizes it (JS `Math.round`)."""
+    scale = min(1.0, PREVIEW_CANVAS_MAX_EDGE / max(width, height))
+    return (max(1, math.floor(width * scale + 0.5)), max(1, math.floor(height * scale + 0.5)))
+
+
+def _write_background_png(target: Path, size: tuple[int, int]) -> None:
+    """The frame past the end of a timeline: nothing is composited, only the black background."""
+    from PIL import Image
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.new("RGB", size, (0, 0, 0)).save(target, format="PNG")
+
+
 def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, Any]]:
     """Render every sample of ONE case, then release everything it opened.
 
@@ -389,6 +408,7 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
     at a time is what bounds this script's memory.
     """
     out_dir_text, area, case, keep_existing = args
+    from framepilot_engine.render.compiler import timeline_duration
     from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame
     from framepilot_engine.render.frame_plan import frame_plan_at
@@ -396,6 +416,9 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
 
     out_dir = Path(out_dir_text)
     full_project = Project.model_validate(engine_project(case))
+    resolution = case["project"]["resolution"]
+    canvas = preview_canvas_size(int(resolution["width"]), int(resolution["height"]))
+    duration = timeline_duration(full_project.timeline)
     source_fps = {asset: float(rate) for asset, rate in case["probe"]["fps"].items()}
     burn = bool(case["burnCaptions"])
     results: list[dict[str, Any]] = []
@@ -407,6 +430,14 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
             entry["frame"] = rel
             continue
         try:
+            if float(sample) >= duration:
+                # `grab_frame` clamps a time past the end to the last frame, but the frame plan
+                # at that time is empty (clips are end-exclusive) and so is the preview. The
+                # export has no frame there; its background is the honest expectation.
+                target = out_dir / rel
+                _write_background_png(target, canvas)
+                entry.update(frame=rel, renderedTime=float(sample), size=list(canvas), pastEnd=True)
+                continue
             reduced = Project.model_validate(sample_project(case, float(sample)))
             reduced_plan = frame_plan_at(
                 reduced, float(sample), burn_captions=burn, source_fps=source_fps
@@ -424,6 +455,7 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
                 image_format="png",
                 burn_captions=burn,
                 lossless=True,
+                lossless_size=canvas,
             )
             target = out_dir / rel
             target.parent.mkdir(parents=True, exist_ok=True)

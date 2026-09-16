@@ -122,6 +122,7 @@ def grab_frame(
     image_format: str = "jpeg",
     burn_captions: bool = True,
     lossless: bool = False,
+    lossless_size: tuple[int, int] | None = None,
 ) -> GrabbedFrame:
     """Composite the timeline at ``time_seconds`` and return it as image bytes.
 
@@ -143,6 +144,11 @@ def grab_frame(
         :data:`MAX_ALLOWED_DIMENSION` ceiling, no resize) and encode a PNG. ``max_dimension``
         does not apply. Requires ``image_format="png"``; asking for a lossy format with it
         is refused rather than silently overridden.
+    :param lossless_size: With ``lossless``, composite at this ``(width, height)`` instead of the
+        project's resolution — the export's compositor run at another output size, not a resize of
+        the full frame. The parity oracle uses it to compare at the preview canvas's size (the
+        preview may be lower resolution; the comparison never rescales either image). Even
+        rounding applies. Refused without ``lossless``.
     :returns: The encoded frame and the time it was actually taken at.
     :raises FrameGrabError: On an unknown preset/format, an empty timeline, or a
         compile/encode failure.
@@ -172,12 +178,27 @@ def grab_frame(
     last_frame_time = max(0.0, duration - (1.0 / fps))
     at = min(max(0.0, float(time_seconds)), last_frame_time)
 
-    if lossless:
-        # The export's own frame size. Even rounding still applies: the sources are yuv420p.
-        requested_dimension = max(project.resolution.width, project.resolution.height)
+    if lossless_size is not None and not lossless:
+        raise FrameGrabError("lossless_size only applies to a lossless frame.")
+    if lossless and lossless_size is not None:
+        size_w, size_h = (int(v) for v in lossless_size)
+        if size_w < 2 or size_h < 2:
+            raise FrameGrabError(f"lossless_size must be at least 2x2, got {size_w}x{size_h}.")
+        requested_dimension = max(size_w, size_h)
+        preset = ExportPreset(
+            id="project",
+            label="Project resolution",
+            width=size_w - size_w % 2,
+            height=size_h - size_h % 2,
+            fps=project.fps or 30,
+        )
     else:
-        requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
-    preset = _resolve_preset(project, requested_dimension)
+        if lossless:
+            # The export's own frame size. Even rounding still applies: the sources are yuv420p.
+            requested_dimension = max(project.resolution.width, project.resolution.height)
+        else:
+            requested_dimension = min(max(1, int(max_dimension)), MAX_ALLOWED_DIMENSION)
+        preset = _resolve_preset(project, requested_dimension)
     asset_index = index_assets([asset.model_dump() for asset in project.assets], base_dir=base_dir)
     # No source is decoded larger than the frame it is being composited into. The
     # export path deliberately reads camera masters; a picture for a model to look

@@ -41,6 +41,7 @@ import { projectForAi, restoreStrippedHistory } from '../editor/project-for-ai.j
 import { Toolbar } from './Toolbar.js';
 import { TimelineView } from './TimelineView.js';
 import { WebCodecsPreviewPlayer } from './WebCodecsPreviewPlayer.js';
+import { layerCompositorEnabled } from '../preview/compositor-flag.js';
 import { PreviewPlayer } from './PreviewPlayer.js';
 import { SourceMonitor } from './SourceMonitor.js';
 import { Inspector } from './Inspector.js';
@@ -539,10 +540,12 @@ export function Editor({
     [project.assets],
   );
   const useWebCodecsPreview = useMemo(
-    // The project's own frame: coverage is a relation between the stacked clips AND the
-    // frame they are fitted into (ADR 0170), so the same stack is honest in one aspect
-    // ratio and divergent in another.
-    () => webCodecsPreviewEligible(editor.state.timeline, programAssetById, project.resolution),
+    // RD2.1: the layer compositor composites every timeline, so it needs no gate. The legacy
+    // engine (kill switch) keeps its eligibility: coverage is a relation between the stacked
+    // clips AND the frame they are fitted into (ADR 0170).
+    () =>
+      layerCompositorEnabled() ||
+      webCodecsPreviewEligible(editor.state.timeline, programAssetById, project.resolution),
     [editor.state.timeline, programAssetById, project.resolution],
   );
   const ProgramPreview = useWebCodecsPreview ? WebCodecsPreviewPlayer : PreviewPlayer;

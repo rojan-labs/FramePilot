@@ -13,7 +13,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
-import { resolveCaptionCue } from '@framepilot/editor-core';
+import { framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -41,7 +41,10 @@ import { textOverlayStyle } from '../editor/textOverlay.js';
 import {
   WebCodecsPreviewEngine,
   type EngineSegment,
+  type PreviewEngineCallbacks,
 } from '../preview/engine/webcodecs-preview-engine.js';
+import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
+import { layerCompositorEnabled } from '../preview/compositor-flag.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
@@ -115,7 +118,9 @@ export function WebCodecsPreviewPlayer({
 }: WebCodecsPreviewPlayerProps) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const previewRef = useRef<HTMLElement>(null);
-  const engineRef = useRef<WebCodecsPreviewEngine | null>(null);
+  // RD2.1: the frame-plan layer compositor, or the legacy flat-EDL engine (kill switch).
+  const [layered] = useState(layerCompositorEnabled);
+  const engineRef = useRef<WebCodecsPreviewEngine | LayerPreviewEngine | null>(null);
   const editorRef = useRef(editor);
   editorRef.current = editor;
   const lastReportedTimeRef = useRef(0);
@@ -146,10 +151,11 @@ export function WebCodecsPreviewPlayer({
   const assetById = useMemo(() => new Map(assets.map((a) => [a.id, a])), [assets]);
   // `resolution` is the project frame the canvas composites into, and coverage is a relation
   // between the stacked clips and that frame (ADR 0170).
-  const eligible = canvasPreviewEligible(editor.state.timeline, assetById, resolution);
+  // The layer compositor draws every timeline; only the legacy engine needs the gate.
+  const eligible = layered || canvasPreviewEligible(editor.state.timeline, assetById, resolution);
   const segments = useMemo(
-    () => (eligible ? pictureSegments(editor.state.timeline, assetById) : []),
-    [eligible, editor.state.timeline, assetById],
+    () => (eligible && !layered ? pictureSegments(editor.state.timeline, assetById) : []),
+    [eligible, layered, editor.state.timeline, assetById],
   );
 
   // --- On-canvas transform (revamp Phase 3) ---------------------------------
@@ -165,10 +171,23 @@ export function WebCodecsPreviewPlayer({
   const [transformOverride, setTransformOverride] = useState<TransformOverride>(null);
   const shownPicture = useMemo(() => {
     const at = editor.state.playhead;
+    if (layered) {
+      // The front-most picture clip the frame plan draws now (not an under-layer).
+      const plan = framePlanAt(editor.state.timeline, assets, at, resolution);
+      const front = [...plan.layers]
+        .reverse()
+        .find((layer) => layer.kind === 'picture' && layer.role === 'clip');
+      if (!front?.clipId) return null;
+      for (const track of editor.state.timeline.tracks) {
+        const clip = track.clips.find((candidate) => candidate.id === front.clipId);
+        if (clip) return clip;
+      }
+      return null;
+    }
     return (
       segments.find((seg) => seg.clip !== null && seg.start <= at && at < seg.end)?.clip ?? null
     );
-  }, [segments, editor.state.playhead]);
+  }, [layered, segments, editor.state.timeline, assets, resolution, editor.state.playhead]);
   const selectedPicture =
     shownPicture && editor.state.selectedIds.includes(shownPicture.id) ? shownPicture : null;
   const transformSelected = selectedPicture !== null;
@@ -380,7 +399,9 @@ export function WebCodecsPreviewPlayer({
   // disposing/recreating the engine per edit used to re-fetch, re-demux, and
   // re-decode the audio of EVERY source on real desktop-sized projects, a
   // multi-second freeze after every cut/trim.
-  const hasSegments = edl.length > 0;
+  const hasSegments = layered
+    ? editor.state.timeline.tracks.some((track) => track.clips.length > 0)
+    : edl.length > 0;
   useEffect(() => {
     const canvas = canvasRef.current;
     if (!canvas || !hasSegments) return;
@@ -390,50 +411,49 @@ export function WebCodecsPreviewPlayer({
       return;
     }
 
-    let engine: WebCodecsPreviewEngine;
+    let engine: WebCodecsPreviewEngine | LayerPreviewEngine;
     try {
-      engine = new WebCodecsPreviewEngine(
-        canvas,
-        {
-          onDurationChange: (duration) => {
-            durationRef.current = duration;
-          },
-          onTimeUpdate: (timeSec) => {
-            lastReportedTimeRef.current = timeSec;
-            // The external playhead clock updates only its tiny subscribers. Do
-            // not put live time in this component's React state: re-rendering the
-            // canvas owner every display frame caused avoidable commit/paint work
-            // around the imperative compositor.
-            editorRef.current.seekTransient(timeSec);
-          },
-          onPlayingChange: (isPlaying) => {
-            // Playback stopping (end of timeline, pause, tab-hidden) ends the
-            // shared transport intent so every transport surface and the audio
-            // mixer stop together. Engine playback is never a second authority.
-            if (!isPlaying) {
-              const currentEngine = engineRef.current;
-              const ended =
-                durationRef.current > 0 &&
-                (currentEngine?.currentTimeSec ?? 0) >= durationRef.current - 1 / Math.max(1, fps);
-              if (loopRef.current && ended && editorRef.current.state.playing && currentEngine) {
-                void currentEngine.seek(0).then(() => currentEngine.play());
-                return;
-              }
-              playIntentRef.current = false;
-              const latestEditor = editorRef.current;
-              if (latestEditor.state.playing) latestEditor.setPlaying(false);
-            }
-          },
-          onError: (message) => {
-            log.error('webcodecs preview engine error', { message });
-            setError(message);
-            // A fatal decoder error is shown in place. Switching to a renderer
-            // with different effects semantics would make the monitor misleading.
-            editorRef.current.setPlaying(false);
-          },
+      const callbacks: PreviewEngineCallbacks = {
+        onDurationChange: (duration) => {
+          durationRef.current = duration;
         },
-        resolution,
-      );
+        onTimeUpdate: (timeSec) => {
+          lastReportedTimeRef.current = timeSec;
+          // The external playhead clock updates only its tiny subscribers. Do
+          // not put live time in this component's React state: re-rendering the
+          // canvas owner every display frame caused avoidable commit/paint work
+          // around the imperative compositor.
+          editorRef.current.seekTransient(timeSec);
+        },
+        onPlayingChange: (isPlaying) => {
+          // Playback stopping (end of timeline, pause, tab-hidden) ends the
+          // shared transport intent so every transport surface and the audio
+          // mixer stop together. Engine playback is never a second authority.
+          if (!isPlaying) {
+            const currentEngine = engineRef.current;
+            const ended =
+              durationRef.current > 0 &&
+              (currentEngine?.currentTimeSec ?? 0) >= durationRef.current - 1 / Math.max(1, fps);
+            if (loopRef.current && ended && editorRef.current.state.playing && currentEngine) {
+              void currentEngine.seek(0).then(() => currentEngine.play());
+              return;
+            }
+            playIntentRef.current = false;
+            const latestEditor = editorRef.current;
+            if (latestEditor.state.playing) latestEditor.setPlaying(false);
+          }
+        },
+        onError: (message) => {
+          log.error('webcodecs preview engine error', { message });
+          setError(message);
+          // A fatal decoder error is shown in place. Switching to a renderer
+          // with different effects semantics would make the monitor misleading.
+          editorRef.current.setPlaying(false);
+        },
+      };
+      engine = layered
+        ? new LayerPreviewEngine(canvas, callbacks)
+        : new WebCodecsPreviewEngine(canvas, callbacks, resolution);
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'WebCodecs preview failed to start.';
       log.error('webcodecs preview failed to start', { message });
@@ -445,8 +465,7 @@ export function WebCodecsPreviewPlayer({
     // Debug/e2e hook: exposes the live engine so the jitter/perf spec can read
     // debugStats(). Harmless in production (just a reference); mirrors the
     // spike harness's window hook.
-    (window as unknown as { __fpPreviewEngine?: WebCodecsPreviewEngine }).__fpPreviewEngine =
-      engine;
+    (window as unknown as { __fpPreviewEngine?: typeof engine }).__fpPreviewEngine = engine;
 
     return () => {
       engine.dispose();
@@ -454,7 +473,7 @@ export function WebCodecsPreviewPlayer({
       // Release the debug hook too: it is a GC root, so leaving it set keeps the
       // disposed engine — and every decoded AudioBuffer still referenced by it —
       // alive until some later engine happens to overwrite the slot.
-      const debugHost = window as unknown as { __fpPreviewEngine?: WebCodecsPreviewEngine };
+      const debugHost = window as unknown as { __fpPreviewEngine?: typeof engine };
       if (debugHost.__fpPreviewEngine === engine) delete debugHost.__fpPreviewEngine;
     };
     // Keyed on hasSegments only: the engine outlives every EDL/patch change
@@ -466,7 +485,7 @@ export function WebCodecsPreviewPlayer({
 
   useEffect(() => {
     const engine = engineRef.current;
-    if (!engine || edl.length === 0) return;
+    if (!engine || edl.length === 0 || !(engine instanceof WebCodecsPreviewEngine)) return;
     // Overlays are drawn on top of whatever the load's seek presents, so set
     // them BEFORE loadSegments' seek fires. Effects post-process that same
     // composite, so they go in at the same point for the same reason.
@@ -516,7 +535,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedSignatureRef.current === compositingSignature) return;
-    engineRef.current?.applyCompositing(edl);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.applyCompositing(edl);
     appliedSignatureRef.current = compositingSignature;
   }, [compositingSignature, edl]);
 
@@ -530,7 +550,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedOverlaySignatureRef.current === overlaySignature) return;
-    engineRef.current?.setOverlays(canvasOverlays);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setOverlays(canvasOverlays);
     appliedOverlaySignatureRef.current = overlaySignature;
   }, [overlaySignature, canvasOverlays]);
 
@@ -544,7 +565,8 @@ export function WebCodecsPreviewPlayer({
   }, [edlSignature]);
   useEffect(() => {
     if (appliedEffectSignatureRef.current === effectSignature) return;
-    engineRef.current?.setEffectLayers(effectLayers);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setEffectLayers(effectLayers);
     appliedEffectSignatureRef.current = effectSignature;
   }, [effectSignature, effectLayers]);
 
@@ -558,8 +580,55 @@ export function WebCodecsPreviewPlayer({
       seededResolutionRef.current = true;
       return;
     }
-    engineRef.current?.setResolution(resolution);
+    const engine = engineRef.current;
+    if (engine instanceof WebCodecsPreviewEngine) engine.setResolution(resolution);
   }, [resolution.width, resolution.height]);
+
+  // Layer compositor: the whole timeline goes to the engine, which re-plans every frame. Loading
+  // is incremental (sources persist across edits), so an edit only re-presents.
+  const mediaUrls = useMemo(() => {
+    const urls = new Map<string, string>();
+    for (const asset of assets) urls.set(asset.id, previewMediaSrc(asset));
+    return urls;
+  }, [assets]);
+  const hiddenOverlayIds = useMemo(
+    () => new Set(selectedOverlay ? [selectedOverlay.id] : []),
+    [selectedOverlay?.id],
+  );
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine)) return;
+    void engine
+      .setProject({
+        timeline: editor.state.timeline,
+        assets,
+        mediaUrls,
+        projectResolution: resolution,
+        canvasSize: { width: canvasWidth, height: canvasHeight },
+        projectFps: fps,
+        ...(transcript ? { transcript } : {}),
+        overlays,
+        hiddenOverlayIds,
+      })
+      .then(() => {
+        if (engine.isPlaying || engine.isStarting) return;
+        if (playIntentRef.current) void engine.play();
+      });
+  }, [
+    layered,
+    hasSegments,
+    editor.state.timeline,
+    assets,
+    mediaUrls,
+    resolution.width,
+    resolution.height,
+    canvasWidth,
+    canvasHeight,
+    fps,
+    transcript,
+    overlays,
+    hiddenOverlayIds,
+  ]);
 
   // External seeks (timeline ruler, "at playhead" actions) while paused: move
   // the canvas to match. Guarded against our own onTimeUpdate echo by

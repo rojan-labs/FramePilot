@@ -24,6 +24,7 @@
  * displayed"); the session translates to decode order internally via the
  * demuxed table, so B-frame footage decodes correctly.
  */
+import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
 import {
   demuxAllVideoSamples,
   nearestKeyframeIndexAtOrBefore,
@@ -45,6 +46,11 @@ export interface DecodeRangeRequest {
   /** Inclusive PRESENTATION-index range to have decoded output for. */
   fromChunkIndex: number;
   toChunkIndex: number;
+  /**
+   * `frame` (default): transfer each `VideoFrame`. `picture`: copy the planes out and transfer
+   * those (`decoded-picture.ts`), which is what the layer compositor converts itself.
+   */
+  output?: 'frame' | 'picture';
 }
 
 export interface StatsRequest {
@@ -60,10 +66,7 @@ export interface UnloadSourceRequest {
 }
 
 export type WorkerRequest =
-  | LoadSourceRequest
-  | DecodeRangeRequest
-  | StatsRequest
-  | UnloadSourceRequest;
+  LoadSourceRequest | DecodeRangeRequest | StatsRequest | UnloadSourceRequest;
 
 export interface LoadedResponse {
   type: 'loaded';
@@ -74,6 +77,8 @@ export interface LoadedResponse {
   /** Exact presentation-order timestamps (µs) — the engine maps time↔frame
    * with these (VFR-correct), never by dividing by `frameDurationUs`. */
   presentationTimestampsUs: number[];
+  /** Nominal frame rate from the first sample (`timescale / duration`), exact for CFR proxies. */
+  frameRate: number;
   codec: string;
   /** The fetched file bytes, TRANSFERRED back to the main thread once the
    * demux has copied what it needs (EncodedVideoChunk copies sample data at
@@ -96,6 +101,18 @@ export interface DecodedFrameMessage {
   chunkIndex: number;
   frame: VideoFrame; // transferred
   decodeStartedAtMs: number;
+}
+
+/** A decoded frame as planes (`output: 'picture'`). */
+export interface DecodedPictureMessage {
+  type: 'picture';
+  requestId: number;
+  sourceId: string;
+  /** PRESENTATION index of this frame. */
+  chunkIndex: number;
+  /** The frame's presentation timestamp (µs, 0-based). */
+  timestampUs: number;
+  picture: DecodedPicture;
 }
 
 export interface RangeDoneResponse {
@@ -125,6 +142,7 @@ export type WorkerResponse =
   | LoadedResponse
   | UnloadedResponse
   | DecodedFrameMessage
+  | DecodedPictureMessage
   | RangeDoneResponse
   | StatsResponse
   | ErrorResponse;
@@ -178,6 +196,9 @@ class DecoderSession {
   private currentDecodeStartedAtMs = 0;
   private currentFrom = 0;
   private currentTo = -1;
+  private currentOutput: 'frame' | 'picture' = 'frame';
+  /** Plane copies still in flight for the current call; awaited before `rangeDone`. */
+  private pendingPosts: Promise<void>[] = [];
 
   /** Resolvers woken on every decoder output (progress signal for the
    * await-outputs loop). */
@@ -196,6 +217,7 @@ class DecoderSession {
     frameCount: number;
     frameDurationUs: number;
     presentationTimestampsUs: number[];
+    frameRate: number;
     codec: string;
     fileBytes: ArrayBuffer;
   }> {
@@ -209,6 +231,7 @@ class DecoderSession {
       frameCount: this.table.presentationTimestampsUs.length,
       frameDurationUs: this.table.frameDurationUs,
       presentationTimestampsUs: this.table.presentationTimestampsUs,
+      frameRate: this.table.frameRate,
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
     };
@@ -218,9 +241,10 @@ class DecoderSession {
     requestId: number,
     fromPresentation: number,
     toPresentation: number,
+    output: 'frame' | 'picture' = 'frame',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
     const run = this.queue.then(() =>
-      this.decodeRangeSerialized(requestId, fromPresentation, toPresentation),
+      this.decodeRangeSerialized(requestId, fromPresentation, toPresentation, output),
     );
     // Keep the queue alive past a rejection so a failed call doesn't wedge
     // every subsequent one; the failure still propagates to THIS caller.
@@ -232,6 +256,7 @@ class DecoderSession {
     requestId: number,
     fromPresentation: number,
     toPresentation: number,
+    output: 'frame' | 'picture',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
     const table = this.table;
     if (!table) throw new Error(`Source ${this.sourceId} not loaded.`);
@@ -241,6 +266,8 @@ class DecoderSession {
     this.currentDecodeStartedAtMs = startedAt;
     this.currentFrom = fromPresentation;
     this.currentTo = toPresentation;
+    this.currentOutput = output;
+    this.pendingPosts = [];
 
     const continuation =
       this.streamActive &&
@@ -259,20 +286,13 @@ class DecoderSession {
       const stashed = this.stash.get(p);
       if (!stashed) continue;
       this.stash.delete(p);
-      this.post(
-        {
-          type: 'frame',
-          requestId,
-          sourceId: this.sourceId,
-          chunkIndex: p,
-          frame: stashed,
-          decodeStartedAtMs: startedAt,
-        },
-        [stashed],
-      );
+      this.emit(stashed, p, requestId, startedAt);
     }
 
     await this.feedAndAwait(table, toPresentation);
+    // Plane copies are asynchronous; every one must be posted before `rangeDone`.
+    await Promise.all(this.pendingPosts);
+    this.pendingPosts = [];
 
     this.lastServedTo = toPresentation;
     return { decodeDurationMs: performance.now() - startedAt, reconfigured: !continuation };
@@ -414,6 +434,68 @@ class DecoderSession {
     this.stash.clear();
   }
 
+  /** Hand one in-range frame to the main thread in the current call's output form. */
+  private emit(
+    frame: VideoFrame,
+    presentation: number,
+    requestId: number,
+    startedAt: number,
+  ): void {
+    if (this.currentOutput === 'frame') {
+      this.post(
+        {
+          type: 'frame',
+          requestId,
+          sourceId: this.sourceId,
+          chunkIndex: presentation,
+          frame,
+          decodeStartedAtMs: startedAt,
+        },
+        [frame],
+      );
+      return;
+    }
+    const timestampUs = frame.timestamp;
+    const post = async (): Promise<void> => {
+      let picture: DecodedPicture;
+      try {
+        const planes = await copyI420(frame);
+        if (planes === null) {
+          picture = {
+            kind: 'frame',
+            frame,
+            width: frame.displayWidth,
+            height: frame.displayHeight,
+            byteLength: frame.displayWidth * frame.displayHeight * 4,
+          };
+        } else {
+          frame.close();
+          picture = planes;
+        }
+      } catch {
+        picture = {
+          kind: 'frame',
+          frame,
+          width: frame.displayWidth,
+          height: frame.displayHeight,
+          byteLength: frame.displayWidth * frame.displayHeight * 4,
+        };
+      }
+      this.post(
+        {
+          type: 'picture',
+          requestId,
+          sourceId: this.sourceId,
+          chunkIndex: presentation,
+          timestampUs,
+          picture,
+        },
+        pictureTransfer(picture),
+      );
+    };
+    this.pendingPosts.push(post());
+  }
+
   private handleOutput(frame: VideoFrame): void {
     const table = this.table;
     if (!table) {
@@ -432,17 +514,7 @@ class DecoderSession {
       // here rather than transfer it for main to immediately discard.
       frame.close();
     } else if (presentation <= this.currentTo) {
-      this.post(
-        {
-          type: 'frame',
-          requestId: this.currentRequestId,
-          sourceId: this.sourceId,
-          chunkIndex: presentation,
-          frame,
-          decodeStartedAtMs: this.currentDecodeStartedAtMs,
-        },
-        [frame],
-      );
+      this.emit(frame, presentation, this.currentRequestId, this.currentDecodeStartedAtMs);
     } else {
       // Beyond the current range (stall-overfeed product): hold for the next
       // contiguous request instead of discarding a decoded frame.
@@ -465,7 +537,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       const session = new DecoderSession(request.sourceId, post);
       sessions.get(request.sourceId)?.dispose();
       sessions.set(request.sourceId, session);
-      const { frameCount, frameDurationUs, presentationTimestampsUs, codec, fileBytes } =
+      const { frameCount, frameDurationUs, presentationTimestampsUs, frameRate, codec, fileBytes } =
         await session.load(request.url);
       post(
         {
@@ -475,6 +547,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           frameCount,
           frameDurationUs,
           presentationTimestampsUs,
+          frameRate,
           codec,
           fileBytes,
         },
@@ -491,6 +564,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         request.requestId,
         request.fromChunkIndex,
         request.toChunkIndex,
+        request.output ?? 'frame',
       );
       post(
         {
