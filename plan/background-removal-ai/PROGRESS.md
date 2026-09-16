@@ -7,11 +7,14 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-- PX0 + PX1 — inventory, frame plan, parity vectors (render-debugger agent)
+- PX4 — pixel oracle harness (qa-e2e agent), incl. PX0.3 colour measurement and PX0 screenshots
 - MK1 — schema v22 mask stack, migration, ops, validator (timeline-engineer agent)
 - BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
+
+- PX1 (13555c1b, ad4cb4e2, 95461921): frame plan both sides, 43 parity cases
+- PX0.1/.2/.4 (c186e774, 6663c4df, eb8c3dc2): 18/43 rows WebCodecs, 25 DOM; any text clip → DOM player; speedRamp admitted to canvas but not followed
 
 - RD0.1 (9fd09d00): competitor re-check, `12` §E
 - Setup: PR retitled and marked ready; `PROGRESS.md` and `MAINTAINER_ONLY_ACTIONS.md` created.
