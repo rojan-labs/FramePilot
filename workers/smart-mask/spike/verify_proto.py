@@ -7,6 +7,9 @@ Checks per frame (02 stage 10, plus the pipeline's own consensus signals from st
   a  flow re-warp: neighbours' masks warped by DIS flow disagree with this frame (both sides)
   b  component audit: significant islands/holes appear that neither neighbour has
   c  edge alignment: alpha gradient vs image gradient correlation inside the band
+  c2 unexplained edges (added in attempt 2): strong image edges in a ring just outside the
+     matte that no alpha edge accounts for, per boundary pixel (missed hair, a cut-off limb:
+     errors every estimate agrees on, which checks a/e cannot see)
   d  area and centroid continuity against the neighbourhood median
   e  model disagreement: forward vs backward SAM IoU, SAM vs BiRefNet IoU, band size
   f  object-score contradiction: SAM says "no object" while a mask is delivered (or reverse)
@@ -72,11 +75,31 @@ def edge_correlation(alpha: np.ndarray, gray: np.ndarray, band: np.ndarray) -> f
     return float(np.corrcoef(ga, gi)[0, 1])
 
 
+RING_OUT_PX = 16
+EDGE_PERCENTILE = 90
+
+
+def unexplained_edges(alpha: np.ndarray, gray: np.ndarray, mask: np.ndarray) -> float:
+    if not mask.any():
+        return 0.0
+    mag = cv2.magnitude(cv2.Sobel(gray, cv2.CV_32F, 1, 0), cv2.Sobel(gray, cv2.CV_32F, 0, 1))
+    m8 = mask.astype(np.uint8)
+    ring = cv2.dilate(m8, mm.disk(RING_OUT_PX)).astype(bool) & ~cv2.dilate(m8, mm.disk(2)).astype(bool)
+    near = cv2.dilate(m8, mm.disk(RING_OUT_PX * 3)).astype(bool)
+    thr = np.percentile(mag[near], EDGE_PERCENTILE)
+    a_edge = cv2.magnitude(cv2.Sobel(alpha, cv2.CV_32F, 1, 0), cv2.Sobel(alpha, cv2.CV_32F, 0, 1)) > 0.05
+    explained = cv2.dilate(a_edge.astype(np.uint8), mm.disk(2)).astype(bool)
+    strong = (mag > thr) & ring & ~explained
+    return float(strong.sum() / max(int(mm.boundary(mask).sum()), 1))
+
+
 def frame_signals(clip: str) -> list[dict]:
     """Per-frame raw check signals (threshold-free), cached as JSON per clip."""
     cache = pp.PROTO_DIR / clip / "signals.json"
     if cache.exists():
-        return json.loads(cache.read_text())
+        cached = json.loads(cache.read_text())
+        if cached and "unexplainedEdges" in cached[0]:
+            return cached
     frames, _ = pp.load_clip(clip)
     sam = np.load(pp.PROTO_DIR / clip / "sam.npz")
     bir = np.load(pp.PROTO_DIR / clip / "birefnet.npz")["alpha"]
@@ -113,6 +136,7 @@ def frame_signals(clip: str) -> list[dict]:
             "cx": float(xs.mean()) if area else None, "cy": float(ys.mean()) if area else None,
             "rewarp": rewarp, "components": comps[t][0], "holes": comps[t][1],
             "edgeCorr": edge_correlation(alpha[t].astype(np.float32) / 255.0, gray[t].astype(np.float32), band),
+            "unexplainedEdges": unexplained_edges(alpha[t].astype(np.float32) / 255.0, gray[t].astype(np.float32), m),
             "fwdBwdIoU": mm.iou(sam["fwd"][t], sam["bwd"][t]), "hasBwd": bool(sam["has_bwd"][t]),
             "samBirefnetIoU": mm.iou(sam_union, bir[t] >= 128), "bandFrac": float(band_frac[t]),
             "fwdScore": float(sam["fwd_score"][t]), "bwdScore": float(sam["bwd_score"][t]),
@@ -147,6 +171,8 @@ def flags_for(sig: list[dict], cfg: dict) -> list[list[str]]:
                 mcx, mcy = np.median([c[0] for c in cs]), np.median([c[1] for c in cs])
                 if np.hypot(s["cx"] - mcx, s["cy"] - mcy) > cfg["d_centroid_frac"] * np.sqrt(s["area"]):
                     why.append("d")
+        if cfg.get("c2_unexplained") is not None and s["unexplainedEdges"] > cfg["c2_unexplained"]:
+            why.append("c2")
         if s["fwdBwdIoU"] < cfg["e_fwd_bwd_iou"] or s["samBirefnetIoU"] < cfg["e_sam_birefnet_iou"]:
             why.append("e")
         if cfg.get("e_band_frac") is not None and s["bandFrac"] > cfg["e_band_frac"]:
