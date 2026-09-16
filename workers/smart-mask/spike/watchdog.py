@@ -149,8 +149,12 @@ def main() -> None:
     ap.add_argument("--max-swap-growth-gib", type=float, default=1.0)
     ap.add_argument("--start-free-pct", type=int, default=50)
     ap.add_argument("--min-free-pct", type=int, default=15)
-    ap.add_argument("jobs", nargs="+")
+    ap.add_argument("--jobs-file", help="one job per line (blank lines and # comments ignored)")
+    ap.add_argument("jobs", nargs="*")
     a = ap.parse_args()
+    if a.jobs_file:
+        with open(a.jobs_file) as fh:
+            a.jobs += [ln.strip() for ln in fh if ln.strip() and not ln.lstrip().startswith("#")]
     os.chdir(common.SPIKE_DIR)
     with open(a.log, "a", buffering=1) as log:
         for job in a.jobs:

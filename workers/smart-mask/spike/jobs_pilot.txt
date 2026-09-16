@@ -1,0 +1,25 @@
+# BR0.3/BR0.4 pilot: one stage per process, one heavy job at a time
+pipeline_proto.py --clip walk_pan --stage sam
+pipeline_proto.py --clip walk_pan --stage refine --birefnet-size 1024
+pipeline_proto.py --clip walk_pan --stage consensus
+pipeline_proto.py --clip hair_busy --stage sam
+pipeline_proto.py --clip hair_busy --stage refine --birefnet-size 1024
+pipeline_proto.py --clip hair_busy --stage consensus
+pipeline_proto.py --clip similar_colour --stage sam
+pipeline_proto.py --clip similar_colour --stage refine --birefnet-size 1024
+pipeline_proto.py --clip similar_colour --stage consensus
+pipeline_proto.py --clip crossing --stage sam
+pipeline_proto.py --clip crossing --stage refine --birefnet-size 1024
+pipeline_proto.py --clip crossing --stage consensus
+pipeline_proto.py --clip leave_reenter --stage sam
+pipeline_proto.py --clip leave_reenter --stage refine --birefnet-size 1024
+pipeline_proto.py --clip leave_reenter --stage consensus
+pipeline_proto.py --clip fast_motion --stage sam
+pipeline_proto.py --clip fast_motion --stage refine --birefnet-size 1024
+pipeline_proto.py --clip fast_motion --stage consensus
+pipeline_proto.py --clip twin_distractor --stage sam
+pipeline_proto.py --clip twin_distractor --stage refine --birefnet-size 1024
+pipeline_proto.py --clip twin_distractor --stage consensus
+pipeline_proto.py --clip low_light --stage sam
+pipeline_proto.py --clip low_light --stage refine --birefnet-size 1024
+pipeline_proto.py --clip low_light --stage consensus

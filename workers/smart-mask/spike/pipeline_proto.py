@@ -3,9 +3,12 @@
 Stages, each cached to .cache/proto/<clip>/ so the verify iterations (BR0.4) never re-run a
 model, and only one model is in memory at a time:
 
-  sam      SAM 2.1 forward from the prompt frame, and backward from a seed frame chosen on
-           the forward result (the last frame whose mask keeps >= 50% of the prompt-frame
-           area; click = its distance-transform maximum). Two temporal estimates per frame.
+  sam      SAM 2.1 forward from a box prompt on frame 0 (02: auto mode prompts with the
+           subject.detect box; the pilot uses the frame-0 ground-truth bbox, i.e. a perfect
+           detector, because a single click on a multi-part subject selects a part), and
+           backward from a seed frame chosen on the forward result (the last frame whose mask
+           keeps >= 50% of the frame-0 area; prompt = that mask's bbox). Two temporal
+           estimates per frame. A box is two SAM points, so it runs decoder_single_n2.
   refine   BiRefNet_HR-matting on a padded square crop around the SAM union, resized to the
            2048² static input (a 1080p crop fits one tile; above 2048 px the crop is tiled at
            full resolution with overlap, see ``tiled_alpha``), gated to the dilated SAM union
@@ -60,7 +63,7 @@ def load_clip(clip: str) -> tuple[np.ndarray, dict]:
 
 
 # ---------------------------------------------------------------- stage: sam
-def _propagate(predictor, images, h, w, frame_idx, point, reverse):
+def _propagate(predictor, images, h, w, frame_idx, box, reverse):
     import sam2.sam2_video_predictor as svp
 
     orig = svp.load_video_frames
@@ -68,8 +71,7 @@ def _propagate(predictor, images, h, w, frame_idx, point, reverse):
     try:
         with torch.inference_mode():
             state = predictor.init_state(video_path="<decoded>")
-            predictor.add_new_points_or_box(state, frame_idx=frame_idx, obj_id=1,
-                                            points=np.array([point], np.float32), labels=np.array([1], np.int32))
+            predictor.add_new_points_or_box(state, frame_idx=frame_idx, obj_id=1, box=np.array(box, np.float32))
             logits = {}
             for idx, _, out in predictor.propagate_in_video(state, start_frame_idx=frame_idx, reverse=reverse):
                 logits[idx] = out[0, 0].numpy().astype(np.float16)
@@ -83,6 +85,11 @@ def _propagate(predictor, images, h, w, frame_idx, point, reverse):
     return logits, scores
 
 
+def bbox(mask: np.ndarray) -> list[float]:
+    ys, xs = np.nonzero(mask)
+    return [float(xs.min()), float(ys.min()), float(xs.max() + 1), float(ys.max() + 1)]
+
+
 def stage_sam(clip: str, ep: str, precision: str) -> dict:
     import parity_sam
 
@@ -94,17 +101,17 @@ def stage_sam(clip: str, ep: str, precision: str) -> dict:
     # decoder_single_n2 cannot be built by CoreML ("Error in building plan", BR0.2); CPU EP.
     onnx_sam = parity_sam.OnnxSam(ep, precision, ("decoder_single_n2",) if ep == "coreml" else ())
     onnx_sam.install(predictor)
+    gt0 = np.load(PILOT_DIR / clip / "gt_alpha.npz")["alpha"][0] >= 128
+    box0 = bbox(gt0)
     t0 = time.time()
-    fwd_logits, fwd_scores = _propagate(predictor, images, h, w, 0, meta["click"], reverse=False)
+    fwd_logits, fwd_scores = _propagate(predictor, images, h, w, 0, box0, reverse=False)
     fwd_s = time.time() - t0
     fwd = np.stack([fwd_logits[i] > 0 for i in range(t_frames)])
     area0 = max(int(fwd[0].sum()), 1)
     seed = max((i for i in range(t_frames) if fwd[i].sum() >= SEED_AREA_KEEP * area0), default=0)
-    dist = cv2.distanceTransform(fwd[seed].astype(np.uint8), cv2.DIST_L2, 5)
-    yx = np.unravel_index(int(np.argmax(dist)), dist.shape)
-    seed_click = [float(yx[1]), float(yx[0])]
+    seed_box = bbox(fwd[seed])
     t0 = time.time()
-    bwd_logits, bwd_scores = _propagate(predictor, images, h, w, seed, seed_click, reverse=True) if seed > 0 else ({}, {})
+    bwd_logits, bwd_scores = _propagate(predictor, images, h, w, seed, seed_box, reverse=True) if seed > 0 else ({}, {})
     bwd_s = time.time() - t0
     bwd = np.stack([(bwd_logits[i] > 0) if i in bwd_logits else fwd[i] for i in range(t_frames)])
     out = PROTO_DIR / clip
@@ -112,7 +119,7 @@ def stage_sam(clip: str, ep: str, precision: str) -> dict:
     np.savez_compressed(out / "sam.npz", fwd=fwd, bwd=bwd, has_bwd=np.array([i in bwd_logits for i in range(t_frames)]),
                         fwd_score=np.array([fwd_scores.get(i, np.nan) for i in range(t_frames)], np.float32),
                         bwd_score=np.array([bwd_scores.get(i, np.nan) for i in range(t_frames)], np.float32))
-    info = {"frames": t_frames, "seedFrame": seed, "seedClick": seed_click, "forwardSeconds": round(fwd_s, 1),
+    info = {"frames": t_frames, "box0": box0, "seedFrame": seed, "seedBox": seed_box, "forwardSeconds": round(fwd_s, 1),
             "backwardSeconds": round(bwd_s, 1), "samProviders": onnx_sam.active_providers,
             "samModuleMeanSeconds": {k: round(float(np.mean(v)), 3) for k, v in onnx_sam.timings.items() if v}}
     return info
