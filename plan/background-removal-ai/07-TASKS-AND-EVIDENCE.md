@@ -22,11 +22,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## PX — Preview renders what the export renders ([`09`](./09-PREVIEW-EXPORT-PARITY.md))
 
-### PX0 — Inventory `[~]` (screenshots + PX0.3 land with the PX4 harness)
+### PX0 — Inventory `[x]` (renderer derivation, CI pixel column and PX0.3 colour numbers in `PX0-INVENTORY.md`)
 
 - [x] PX0.1 Build the feature-matrix timelines (`tests/fixtures/frame-plan/`)
-- [~] PX0.2 For each row record today's renderer (WebCodecs / DOM / blank), a screenshot vs `frame_grab`, and the difference
-- [ ] PX0.3 (moved into PX4, needs a real browser) Measure Chromium `VideoFrame` → texture colour conversion vs engine YUV→RGB for BT.601/709, full/limited range
+- [x] PX0.2 For each row record today's renderer (WebCodecs / DOM / blank), a screenshot vs `frame_grab`, and the difference
+- [x] PX0.3 (measured by the PX4 harness in CI: BT.709 limited fails at 9/255) Measure Chromium `VideoFrame` → texture colour conversion vs engine YUV→RGB for BT.601/709, full/limited range
 - [x] PX0.4 Mark `PREVIEW-WEBCODECS-COMPOSITOR.md` P3 visual-diff, P4 speed-ramp and decoder-LRU items as superseded → PX
 
 **DoD:** the inventory table is committed with screenshots; every divergence has a matrix row.
@@ -39,11 +39,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** vector tests pass for every matrix row; existing engine goldens unchanged.
 
-### PX4 — Pixel oracle (built before the compositor) `[ ]`
+### PX4 — Pixel oracle (built before the compositor) `[x]` (CI job green at 020406db; baseline 1/43 cases pass)
 
-- [ ] PX4.1 Lossless full-resolution mode for `frame_grab.py`
-- [ ] PX4.2 Playwright desktop harness: seek, wait for the presented frame, read back, compare (PSNR, per-pixel, sentinel layer colours), assert presented source pts == plan
-- [ ] PX4.3 Run against today's preview; record failures as the baseline; artifacts on failure
+- [x] PX4.1 Lossless full-resolution mode for `frame_grab.py`
+- [x] PX4.2 Playwright desktop harness: seek, wait for the presented frame, read back, compare (PSNR, per-pixel, sentinel layer colours), assert presented source pts == plan
+- [x] PX4.3 Run against today's preview; record failures as the baseline; artifacts on failure
 
 **DoD:** the harness runs in CI on the PR; the baseline failure list is committed.
 

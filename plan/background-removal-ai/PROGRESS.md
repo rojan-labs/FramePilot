@@ -8,10 +8,12 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-- PX4 — pixel oracle harness (qa-e2e agent), incl. PX0.3 colour measurement and PX0 screenshots
+- PX2 — N-layer WebGL compositor until the oracle passes (agent)
 - BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
+
+- PX4 (74a464ad…020406db): CI-only oracle, baseline, PX0.3 colour; lint fix 26e954c5
 
 - MK1.9 (46330963…0c5561ee): probe records PAR + rotation; masks measured in display space everywhere. Follow-up PX2.9: clip fit/crop placement still uses coded size
 
