@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The assistant's self-check no longer fills the sidebar.** After an edit, the check's verdict
+  and every note it raised used to stack up as separate cards under the reply. They now sit in one
+  "Self-check" row that shows the verdict and how many notes it has; open it to read them. The row
+  turns amber when a check failed, so you can still spot one without opening it.
+- **The Inspector uses the full width of its panel.** The extra padding around it is gone, so
+  controls line up with the panel edges and the clip header and status bar sit flush.
 - **The assistant spends less time thinking while it carries out a plan.** Once it has
   decided an edit, the steps that apply it now think briefly instead of at length; deciding,
   checking and fixing a failed step still get the full effort. Most of an agent turn's wait
