@@ -353,6 +353,33 @@ def engine_project(case: dict[str, Any]) -> dict[str, Any]:
     return project
 
 
+#: Seconds either side of a sample within which a clip is kept in the per-sample project.
+SAMPLE_WINDOW_SECONDS = 1.0
+
+
+def sample_project(case: dict[str, Any], t: float) -> dict[str, Any]:
+    """The case's engine project reduced to the clips that can affect the frame at ``t``.
+
+    A composition opens a reader per clip (~400 MB each at 1080p on CI), so compiling all 29
+    clips of the every-transition-kind case for each sample passed 10 GB. Kept: every clip whose
+    span is within :data:`SAMPLE_WINDOW_SECONDS` of ``t``, plus its immediate neighbours on the
+    same track, so transition partners and under-layer handles stay adjacent. The caller only
+    uses the reduction when the engine's own frame plan at ``t`` is unchanged by it.
+    """
+    project = engine_project(case)
+    for track in project["timeline"]["tracks"]:
+        clips = sorted(track.get("clips", []), key=lambda clip: float(clip["start"]))
+        near = {
+            index
+            for index, clip in enumerate(clips)
+            if float(clip["end"]) >= t - SAMPLE_WINDOW_SECONDS
+            and float(clip["start"]) <= t + SAMPLE_WINDOW_SECONDS
+        }
+        keep = {n for index in near for n in (index - 1, index, index + 1) if 0 <= n < len(clips)}
+        track["clips"] = [clip for index, clip in enumerate(clips) if index in keep]
+    return project
+
+
 def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, Any]]:
     """Render every sample of ONE case, then release everything it opened.
 
@@ -364,10 +391,13 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
     out_dir_text, area, case, keep_existing = args
     from framepilot_engine.render.composition_cache import COMPOSITION_CACHE
     from framepilot_engine.render.frame_grab import grab_frame
+    from framepilot_engine.render.frame_plan import frame_plan_at
     from framepilot_engine.timeline.models import Project
 
     out_dir = Path(out_dir_text)
-    project = Project.model_validate(engine_project(case))
+    full_project = Project.model_validate(engine_project(case))
+    source_fps = {asset: float(rate) for asset, rate in case["probe"]["fps"].items()}
+    burn = bool(case["burnCaptions"])
     results: list[dict[str, Any]] = []
     for index, sample in enumerate(case["samples"]):
         rel = f"frames/{area}/{case['id']}/{index}.png"
@@ -377,12 +407,22 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
             entry["frame"] = rel
             continue
         try:
+            reduced = Project.model_validate(sample_project(case, float(sample)))
+            reduced_plan = frame_plan_at(
+                reduced, float(sample), burn_captions=burn, source_fps=source_fps
+            ).to_json()
+            # The reduction is only an optimisation: if it changes what the export would
+            # composite at this time, render the whole timeline instead.
+            same_frame = json.dumps(reduced_plan, sort_keys=True) == json.dumps(
+                case["expected"][index], sort_keys=True
+            )
+            entry["reducedProject"] = same_frame
             frame = grab_frame(
-                project,
+                reduced if same_frame else full_project,
                 out_dir,
                 float(sample),
                 image_format="png",
-                burn_captions=bool(case["burnCaptions"]),
+                burn_captions=burn,
                 lossless=True,
             )
             target = out_dir / rel
