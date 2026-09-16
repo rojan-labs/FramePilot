@@ -1,0 +1,18 @@
+# Maintainer-only actions
+
+Actions an agent cannot do: they need the maintainer's identity, money, legal standing,
+hardware or people. Work continues around each one. Nothing here blocks code that can be
+written and tested without it; each row names the task it unblocks.
+
+| #   | Action | Why only the maintainer | Unblocks |
+| --- | ------ | ----------------------- | -------- |
+| MO-1 | Apple Developer ID certificate + notarisation credentials in CI secrets | Paid account bound to a legal identity | RD1.1, RD1.4 artifact signing, RD3.1 release build |
+| MO-2 | Windows Authenticode code-signing certificate in CI secrets | Paid certificate bound to a legal identity | RD1.1, RD1.4, RD3.1 |
+| MO-3 | Offline catalog root-key generation ceremony, storage and rotation plan; public keys handed to the build | Keys must never be created or held by an agent | RD1.1, RD1.3 (release channels embed the keys), E2E.1–E2E.7 against the real catalog |
+| MO-4 | CDN account for multi-GiB pack artifacts with range requests; bandwidth budget approval | Billing account | RD1.2, RD1.6 |
+| MO-5 | Publish Tracking Lite, Subject Intelligence and Smart Mask to a beta channel and install on clean macOS and Windows machines | Needs MO-1..MO-4 and physical clean machines | RD1.6, RD3.1 |
+| MO-6 | Legal review of face-recognition consent copy and privacy docs | Legal counsel | RD2.3, RD3 §C.4 |
+| MO-7 | Closed beta: ≥ 10 real projects from working editors on macOS and Windows; triage | Recruiting real users | RD2.4, RD3 §C.6 |
+| MO-8 | Human-labelled alpha keyframes (every 0.5 s) for the matte eval fixture set, marked human-verified | Ground truth must be labelled by a person, not by the model under test | BR7.1, BR7.3, BR0.4 recall on the labelled pilot set |
+| MO-9 | Windows x64 GPU machine (DX12, Windows 11 24H2 for Windows ML) for per-EP parity, throughput and the win32-x64 eval/oracle runs | No Windows hardware in this environment; hosted runners have no GPU | BR0.2 (Windows ML/DirectML rows), BR0.7, BR7.2, PX4/RD3 §C.1–2 on win32-x64, E2E.7 |
+| MO-10 | Release build with flags on, rollback rehearsal (flag off + catalog delist) | Needs a signed release and the real catalog | RD1.5, RD3.2 |
