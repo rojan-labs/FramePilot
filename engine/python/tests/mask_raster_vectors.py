@@ -105,6 +105,44 @@ _CURVED = _poly(
     tangents={0: (0, 12, 18, -6), 1: (-14, -4, 10, 14), 2: (6, -16, -30, 6), 3: (14, 6, -8, -14)},
 )
 _STAR = _poly(48, 4, 57, 28, 88, 30, 62, 46, 72, 70, 48, 55, 24, 70, 34, 46, 8, 30, 39, 28)
+#: One closed path tracing two overlapping squares the same way round (winding 2 where they
+#: overlap), joined by a bridge walked out and back.
+_OVERLAP = _poly(
+    10.3,
+    10.2,
+    60.4,
+    10.2,
+    60.4,
+    50.6,
+    10.3,
+    50.6,
+    10.3,
+    10.2,
+    30.7,
+    20.9,
+    80.1,
+    20.9,
+    80.1,
+    62.3,
+    30.7,
+    62.3,
+    30.7,
+    20.9,
+)
+#: A curved figure eight whose crossing falls at a fractional position inside a pixel.
+_FIGURE_EIGHT = _poly(
+    12.2,
+    36.3,
+    48.37,
+    36.71,
+    84.1,
+    36.2,
+    48.37,
+    36.71,
+    tangents={0: (0, 20, 0, -20), 1: (-14, -14, 14, 14), 2: (0, -20, 0, 20), 3: (14, -14, -14, 14)},
+)
+#: A triangle whose one edge carries a loop smaller than a pixel.
+_TINY_LOOP = _poly(10, 60, 40.2, 30.3, 40.8, 30.9, 40.3, 30.8, 40.6, 30.2, 86, 12, 80, 66)
 _BOWTIE = _poly(10, 10, 86, 62, 86, 10, 10, 62)
 
 CASES: dict[str, list[dict[str, Any]]] = {
@@ -119,6 +157,9 @@ CASES: dict[str, list[dict[str, Any]]] = {
         {"id": "path-curved", "layers": [_layer(_CURVED)]},
         {"id": "path-star-concave", "layers": [_layer(_STAR)]},
         {"id": "path-bowtie-nonzero", "layers": [_layer(_BOWTIE)]},
+        {"id": "path-overlap-same-direction", "layers": [_layer(_OVERLAP)]},
+        {"id": "path-figure-eight-curved", "layers": [_layer(_FIGURE_EIGHT)]},
+        {"id": "path-tiny-loop-in-one-pixel", "layers": [_layer(_TINY_LOOP)]},
         {"id": "path-first-vertex", "layers": [_layer({**_CURVED, "firstVertex": 2})]},
         {"id": "subpixel-shape", "layers": [_layer(_ellipse(30.3, 20.6, 0.7, 0.45))]},
         {"id": "past-the-frame", "layers": [_layer(_rect(90, 70, 60, 50, 11))]},

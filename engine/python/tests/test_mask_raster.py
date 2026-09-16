@@ -67,6 +67,34 @@ def test_coverage_is_winding_independent_and_clamped() -> None:
     assert forward[5, 5] == 1.0 and forward[0, 0] == 0.0 and forward.max() == 1.0
 
 
+def test_a_self_crossing_path_covers_both_lobes_exactly() -> None:
+    """Nonzero rule: at a bowtie's crossing the two opposite-winding lobes both count."""
+    bowtie = _polyline([(2.0, 2.0), (20.0, 14.5), (20.0, 2.0), (2.0, 14.5)])
+    alpha = mr.coverage_alpha(bowtie, 24, 18)
+    left = [(2.0, 2.0), (11.0, 8.25), (2.0, 14.5)]
+    right = [(20.0, 2.0), (20.0, 14.5), (11.0, 8.25)]
+    worst = max(
+        abs(alpha[r, c] - (_clipped_area(left, c, r) + _clipped_area(right, c, r)))
+        for r in range(18)
+        for c in range(24)
+    )
+    assert worst <= 4.0 / mr.Q16_ONE
+
+
+def test_a_path_overlapping_itself_counts_the_overlap_once() -> None:
+    square = [(3.3, 2.6), (15.8, 2.6), (15.8, 11.4), (3.3, 11.4)]
+    twice = _polyline(square + square)
+    once = mr.coverage_alpha(_polyline(square), 20, 14)
+    assert float(np.abs(mr.coverage_alpha(twice, 20, 14) - once).max()) <= 4.0 / mr.Q16_ONE
+
+
+def test_exact_cell_coverage_matches_clipping_for_a_simple_cell() -> None:
+    poly = _polyline([(0.2, 0.1), (0.9, 0.35), (0.6, 0.95)])
+    x0, y0, x1, y1 = poly.xs[:-1], poly.ys[:-1], poly.xs[1:], poly.ys[1:]
+    expected = _clipped_area([(0.2, 0.1), (0.9, 0.35), (0.6, 0.95)], 0, 0)
+    assert mr.exact_cell_coverage(x0, y0, x1, y1, 0, 0) == pytest.approx(expected, abs=1e-15)
+
+
 def test_shapes_extending_past_the_frame_fill_to_the_edges() -> None:
     alpha = mr.coverage_alpha(
         _polyline([(-5.0, -5.0), (50.0, -5.0), (50.0, 50.0), (-5.0, 50.0)]), 8, 6

@@ -309,9 +309,9 @@ byte against `tests/fixtures/mask-raster`.
 
 Refused before rendering, with "Disable the mask to export now": `matte`, `key`, `linear`, `band`,
 `gradient` and `layer` masks, tracked masks, `space: 'frame'` masks and masks on effect layers.
-Known limits: where regions of opposite winding (or winding beyond one) share a pixel, as at the
-crossing of a self-intersecting path, coverage uses the pixel's net area; an animated mask migrated
-from a speed-ramped v21 clip matches v21 only at its keyframes.
+Hard edges follow the nonzero winding rule exactly, including self-crossing and self-overlapping
+paths (those pixels use an exact per-cell slab sweep).
+Known limit: an animated mask migrated from a speed-ramped v21 clip matches v21 only at its keyframes.
 
 ## Schema versioning & migration
 

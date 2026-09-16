@@ -51,6 +51,7 @@ import logging
 import math
 from dataclasses import dataclass
 from functools import lru_cache
+from itertools import pairwise
 from pathlib import Path
 from typing import Literal
 
@@ -423,20 +424,25 @@ def coverage_alpha(polyline: Polyline, width: int, height: int) -> FloatArray:
     are rounded at the (shared) piece endpoints, so a closed path's integers telescope and a
     row outside the shape sums to exactly zero.
 
-    The result is the pixel's NET winding area, clamped to 1. That equals nonzero coverage
-    wherever the winding inside a pixel stays within {0, +1} or {0, -1}: every simple path.
-    Where regions of opposite winding share a pixel (the crossing of a self-intersecting
-    path), their areas cancel; where a path overlaps itself with the same winding inside a
-    pixel, the overlap counts twice before the clamp. Both are recorded limits
-    (``test_mask_raster_vectors.py``).
+    That running sum is the pixel's NET winding area, which equals nonzero coverage wherever
+    the winding inside the pixel stays within {0, +1} or {0, -1}. Where it may not (opposite
+    windings meeting at a self-crossing, or a path overlapping itself), the pixel is replaced by
+    :func:`exact_cell_coverage`, the exact nonzero area. Such pixels are found by
+    :func:`_complex_cells`: a cell crossed by path segments that are not one consecutive run, or
+    by a run in which two non-adjacent segments intersect or touch.
     """
     alpha = np.zeros((height, width), dtype=np.float64)
     xs, ys = polyline.xs, polyline.ys
-    x0, y0, x1, y1 = xs[:-1], ys[:-1], xs[1:], ys[1:]
-    keep = (y0 != y1) & (np.maximum(y0, y1) > 0.0) & (np.minimum(y0, y1) < float(height))
+    all_x0, all_y0, all_x1, all_y1 = xs[:-1], ys[:-1], xs[1:], ys[1:]
+    keep = (
+        (all_y0 != all_y1)
+        & (np.maximum(all_y0, all_y1) > 0.0)
+        & (np.minimum(all_y0, all_y1) < float(height))
+    )
     if not bool(keep.any()) or width <= 0 or height <= 0:
         return alpha
-    x0, y0, x1, y1 = x0[keep], y0[keep], x1[keep], y1[keep]
+    kept_ids = np.flatnonzero(keep).astype(np.int64)
+    x0, y0, x1, y1 = all_x0[keep], all_y0[keep], all_x1[keep], all_y1[keep]
     seg, px, py = _split_points(x0, y0, x1, y1, width, height)
 
     fixed_y = np.rint(py * float(Q16_ONE)).astype(np.int64)
@@ -444,6 +450,17 @@ def coverage_alpha(polyline: Polyline, width: int, height: int) -> FloatArray:
     b = a + 1
     same = seg[a] == seg[b]
     a, b = a[same], b[same]
+    complex_cells = _complex_cells(
+        all_x0,
+        all_y0,
+        all_x1,
+        all_y1,
+        kept_ids[seg[a]],
+        (px[a] + px[b]) * 0.5,
+        (py[a] + py[b]) * 0.5,
+        width,
+        height,
+    )
     d_y = fixed_y[b] - fixed_y[a]
     nonzero = d_y != 0
     a, b, d_y = a[nonzero], b[nonzero], d_y[nonzero]
@@ -495,7 +512,235 @@ def coverage_alpha(polyline: Polyline, width: int, height: int) -> FloatArray:
     next_cols[-1] = width
     for index in np.flatnonzero((covered > 0.0) & (next_cols - cols > 1)):
         alpha[rows[index], cols[index] + 1 : next_cols[index]] = covered[index]
+    for row_index, col_index in complex_cells:
+        alpha[row_index, col_index] = exact_cell_coverage(
+            all_x0, all_y0, all_x1, all_y1, row_index, col_index
+        )
     return alpha
+
+
+def _complex_cells(
+    x0: FloatArray,
+    y0: FloatArray,
+    x1: FloatArray,
+    y1: FloatArray,
+    piece_segments: npt.NDArray[np.int64],
+    piece_mid_x: FloatArray,
+    piece_mid_y: FloatArray,
+    width: int,
+    height: int,
+) -> list[tuple[int, int]]:
+    """Cells whose net winding area may differ from nonzero coverage, in row-major order.
+
+    Membership: every non-horizontal piece marks the cell holding its midpoint; a horizontal
+    segment marks each cell its span touches in row ``floor(y)`` (and ``y - 1`` when ``y`` is an
+    integer). A cell is complex when its segment ids (segments ``0..n-1`` of the closed path,
+    ``n - 1`` adjacent to ``0``) are not one cyclically consecutive run, or when a run of three
+    or more contains two non-adjacent segments that intersect or touch (:func:`_segments_meet`).
+    """
+    count = x0.shape[0]
+    rows = np.floor(piece_mid_y)
+    cols = np.floor(np.clip(piece_mid_x, -1.0, float(width)))
+    inside = (rows >= 0.0) & (rows < float(height)) & (cols >= 0.0) & (cols < float(width))
+    keys = [rows[inside].astype(np.int64) * width + cols[inside].astype(np.int64)]
+    owners = [piece_segments[inside]]
+    horizontal = np.flatnonzero((y0 == y1) & (y0 >= 0.0) & (y0 <= float(height)))
+    for segment in horizontal.tolist():
+        y = float(y0[segment])
+        first = max(math.floor(min(float(x0[segment]), float(x1[segment]))), 0)
+        last = min(math.floor(max(float(x0[segment]), float(x1[segment]))), width - 1)
+        if last < first:
+            continue
+        for row in {math.floor(y), math.floor(y) - 1 if y == math.floor(y) else -1}:
+            if 0 <= row < height:
+                span = np.arange(first, last + 1, dtype=np.int64)
+                keys.append(row * width + span)
+                owners.append(np.full(span.shape[0], segment, dtype=np.int64))
+    all_keys = np.concatenate(keys)
+    all_owners = np.concatenate(owners)
+    if all_keys.shape[0] == 0:
+        return []
+    order = np.lexsort((all_owners, all_keys))
+    all_keys = all_keys[order]
+    all_owners = all_owners[order]
+    distinct = np.concatenate(
+        ([True], (all_keys[1:] != all_keys[:-1]) | (all_owners[1:] != all_owners[:-1]))
+    )
+    all_keys = all_keys[distinct]
+    all_owners = all_owners[distinct]
+    starts = np.flatnonzero(np.concatenate(([True], all_keys[1:] != all_keys[:-1])))
+    ends = np.append(starts[1:], all_keys.shape[0])
+    flagged: list[tuple[int, int]] = []
+    for start, end in zip(starts.tolist(), ends.tolist(), strict=True):
+        if end - start < 2:
+            continue
+        ids = all_owners[start:end].tolist()
+        gaps = sum(1 for a, b in pairwise(ids) if b - a != 1)
+        wraps = ids[0] == 0 and ids[-1] == count - 1
+        contiguous = gaps == 0 or (gaps == 1 and wraps)
+        if not contiguous or (len(ids) >= 3 and _run_meets_itself(x0, y0, x1, y1, ids, count)):
+            key = int(all_keys[start])
+            flagged.append((key // width, key % width))
+    return flagged
+
+
+def _run_meets_itself(
+    x0: FloatArray, y0: FloatArray, x1: FloatArray, y1: FloatArray, ids: list[int], count: int
+) -> bool:
+    for i, first in enumerate(ids):
+        for second in ids[i + 1 :]:
+            gap = second - first
+            if gap == 1 or gap == count - 1:
+                continue
+            if _segments_meet(x0, y0, x1, y1, first, second):
+                return True
+    return False
+
+
+def _segments_meet(
+    x0: FloatArray, y0: FloatArray, x1: FloatArray, y1: FloatArray, p: int, q: int
+) -> bool:
+    """Whether two segments share any point (orientation test; collinear overlap counts)."""
+    ax, ay, bx, by = float(x0[p]), float(y0[p]), float(x1[p]), float(y1[p])
+    cx, cy, dx, dy = float(x0[q]), float(y0[q]), float(x1[q]), float(y1[q])
+
+    def orient(ux: float, uy: float, vx: float, vy: float, wx: float, wy: float) -> float:
+        return (vx - ux) * (wy - uy) - (vy - uy) * (wx - ux)
+
+    def within(ux: float, uy: float, vx: float, vy: float, wx: float, wy: float) -> bool:
+        return min(ux, vx) <= wx <= max(ux, vx) and min(uy, vy) <= wy <= max(uy, vy)
+
+    o1 = orient(ax, ay, bx, by, cx, cy)
+    o2 = orient(ax, ay, bx, by, dx, dy)
+    o3 = orient(cx, cy, dx, dy, ax, ay)
+    o4 = orient(cx, cy, dx, dy, bx, by)
+    if ((o1 > 0.0 and o2 < 0.0) or (o1 < 0.0 and o2 > 0.0)) and (
+        (o3 > 0.0 and o4 < 0.0) or (o3 < 0.0 and o4 > 0.0)
+    ):
+        return True
+    return (
+        (o1 == 0.0 and within(ax, ay, bx, by, cx, cy))
+        or (o2 == 0.0 and within(ax, ay, bx, by, dx, dy))
+        or (o3 == 0.0 and within(cx, cy, dx, dy, ax, ay))
+        or (o4 == 0.0 and within(cx, cy, dx, dy, bx, by))
+    )
+
+
+def exact_cell_coverage(
+    x0: FloatArray, y0: FloatArray, x1: FloatArray, y1: FloatArray, row: int, col: int
+) -> float:
+    """The exact nonzero-winding area of the closed path inside pixel ``(row, col)``.
+
+    A vertical-slab sweep over ``y`` in ``[row, row + 1]``, float64, in this fixed order:
+
+    1. Candidates: non-horizontal segments with ``min(y) < row + 1`` and ``max(y) > row``.
+    2. Slab boundaries: ``row``, ``row + 1``; every candidate endpoint ``y`` strictly inside;
+       every ``y`` where a candidate crosses ``x = col`` or ``x = col + 1`` strictly inside
+       (``t = (k - x0) / (x1 - x0)``, ``0 < t < 1``, ``y = y0 + t * (y1 - y0)``); every ``y``
+       strictly inside where two candidates whose x-ranges reach the cell intersect at an
+       ``x`` in ``[col, col + 1]`` (``t = (qpx * sy - qpy * sx) / (rx * sy - ry * sx)``). Sorted
+       ascending, duplicates removed.
+    3. Per slab ``[ya, yb]`` (ascending), ``ym = (ya + yb) * 0.5``. A candidate crosses the slab
+       when ``min(y) <= ym < max(y)``, at ``x(y) = x0 + ((y - y0) * (x1 - x0)) / (y1 - y0)``,
+       direction +1 downward else -1. Crossings with ``x(ym) < col`` add their direction to
+       the starting winding; those with ``x(ym) > col + 1`` are ignored; the rest, ordered by
+       ``(x(ym), direction, segment id)``, are walked left to right from ``x = col``. Each gap
+       with winding != 0 adds ``max(0, hi - lo)`` to the covered length at ``ya`` and at
+       ``yb``, with crossing x clamped to ``[col, col + 1]``; the gap after the last crossing
+       ends at ``col + 1``.
+    4. ``area += (length_a + length_b) * 0.5 * (yb - ya)``; the result is clamped to [0, 1].
+
+    Within a slab no two crossings swap order inside the cell and none enters or leaves the
+    cell, so the covered length is linear in ``y`` and the trapezoid is exact.
+    """
+    top = float(row)
+    bottom = top + 1.0
+    left = float(col)
+    right = left + 1.0
+    candidates = np.flatnonzero(
+        (y0 != y1) & (np.minimum(y0, y1) < bottom) & (np.maximum(y0, y1) > top)
+    ).tolist()
+    splits: list[float] = [top, bottom]
+    reaching: list[int] = []
+    for segment in candidates:
+        ax, ay, bx, by = (
+            float(x0[segment]),
+            float(y0[segment]),
+            float(x1[segment]),
+            float(y1[segment]),
+        )
+        for y in (ay, by):
+            if top < y < bottom:
+                splits.append(y)
+        if ax != bx:
+            for k in (left, right):
+                t = (k - ax) / (bx - ax)
+                if 0.0 < t < 1.0:
+                    y = ay + t * (by - ay)
+                    if top < y < bottom:
+                        splits.append(y)
+        if min(ax, bx) <= right and max(ax, bx) >= left:
+            reaching.append(segment)
+    for i, p in enumerate(reaching):
+        for q in reaching[i + 1 :]:
+            rx = float(x1[p]) - float(x0[p])
+            ry = float(y1[p]) - float(y0[p])
+            sx = float(x1[q]) - float(x0[q])
+            sy = float(y1[q]) - float(y0[q])
+            denominator = rx * sy - ry * sx
+            if denominator == 0.0:
+                continue
+            qpx = float(x0[q]) - float(x0[p])
+            qpy = float(y0[q]) - float(y0[p])
+            t = (qpx * sy - qpy * sx) / denominator
+            u = (qpx * ry - qpy * rx) / denominator
+            if 0.0 <= t <= 1.0 and 0.0 <= u <= 1.0:
+                x = float(x0[p]) + t * rx
+                y = float(y0[p]) + t * ry
+                if left <= x <= right and top < y < bottom:
+                    splits.append(y)
+    bounds = sorted(set(splits))
+    area = 0.0
+    for ya, yb in pairwise(bounds):
+        ym = (ya + yb) * 0.5
+        winding = 0
+        walk: list[tuple[float, int, int, float, float]] = []
+        for segment in candidates:
+            ax, ay, bx, by = (
+                float(x0[segment]),
+                float(y0[segment]),
+                float(x1[segment]),
+                float(y1[segment]),
+            )
+            if not (min(ay, by) <= ym < max(ay, by)):
+                continue
+            direction = 1 if by > ay else -1
+            xm = ax + ((ym - ay) * (bx - ax)) / (by - ay)
+            if xm < left:
+                winding += direction
+            elif xm <= right:
+                xa = ax + ((ya - ay) * (bx - ax)) / (by - ay)
+                xb = ax + ((yb - ay) * (bx - ax)) / (by - ay)
+                walk.append((xm, direction, segment, xa, xb))
+        walk.sort(key=lambda entry: (entry[0], entry[1], entry[2]))
+        length_a = 0.0
+        length_b = 0.0
+        previous_a = left
+        previous_b = left
+        for _xm, direction, _segment, xa, xb in walk:
+            current_a = min(max(xa, left), right)
+            current_b = min(max(xb, left), right)
+            if winding != 0:
+                length_a += max(0.0, current_a - previous_a)
+                length_b += max(0.0, current_b - previous_b)
+            previous_a = current_a
+            previous_b = current_b
+            winding += direction
+        if winding != 0:
+            length_a += max(0.0, right - previous_a)
+            length_b += max(0.0, right - previous_b)
+        area += (length_a + length_b) * 0.5 * (yb - ya)
+    return 0.0 if area <= 0.0 else 1.0 if area >= 1.0 else area
 
 
 # --- Pixel-centre winding ---------------------------------------------------------------

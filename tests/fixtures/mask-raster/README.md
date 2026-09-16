@@ -16,6 +16,7 @@ falloff table both implementations read is
 `engine/python/framepilot_engine/render/mask_falloff_gaussian.json` (float64 LE, base64).
 
 `test_mask_raster_vectors.py` requires the engine to reproduce every byte (CI: Linux x64,
-macOS arm64, Windows x64). The TypeScript preview rasteriser (MK3.1) must reproduce the same
-bytes. Known limit, recorded not hidden: where regions of OPPOSITE winding share a pixel (the
-crossing of `path-bowtie-nonzero`), signed-area accumulation cancels them.
+macOS arm64, Windows x64), and certifies coverage within 1/255 of a 256x256 supersampled
+nonzero reference on every coverage case (and of exact clipping on the simple ones). Pixels
+where a path crosses or overlaps itself use the exact per-cell slab sweep
+(`exact_cell_coverage`), which the TypeScript preview rasteriser (MK3.1) must mirror.

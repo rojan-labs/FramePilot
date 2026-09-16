@@ -91,21 +91,27 @@ def _supersampled_coverage(poly: mr.Polyline, width: int, height: int) -> np.nda
     return counts.astype(np.float64) / float(n * n)
 
 
-#: Coverage cases whose path crosses itself with OPPOSITE winding on each side. Signed-area
-#: accumulation gives |area-weighted winding| per pixel, so where +1 and -1 regions share a
-#: pixel (the crossing) their areas cancel instead of both counting under nonzero. A recorded
-#: miss of the supersample gate, not a lowered gate (strict xfail below).
-_OPPOSITE_WINDING_CASES = frozenset({"path-bowtie-nonzero"})
+#: Coverage cases whose path crosses or overlaps itself. Exact clipping of a polygon gives its
+#: signed area, not its nonzero area, so it is a valid reference only for SIMPLE paths; these
+#: cases are certified against the supersampled reference (which uses the nonzero rule).
+_SELF_INTERSECTING_CASES = frozenset(
+    {
+        "path-bowtie-nonzero",
+        "path-overlap-same-direction",
+        "path-figure-eight-curved",
+        "path-tiny-loop-in-one-pixel",
+    }
+)
 
 
 #: Sample points per pixel side of the supersampled reference. A point grid resolves an edge
 #: to half a sample, 0.5 / 256 = 0.00195 of a pixel, finer than the 1/255 gate it certifies.
 #: Samples are counted analytically per sample row (span arithmetic), so it stays cheap.
-def _hard_single_layers(*, simple: bool) -> list[tuple[str, dict[str, Any]]]:
+def _hard_single_layers(*, simple_only: bool) -> list[tuple[str, dict[str, Any]]]:
     return [
         (case["id"], case["layers"][0])
         for case in vectors.CASES["coverage"]
-        if (case["id"] not in _OPPOSITE_WINDING_CASES) == simple
+        if not simple_only or case["id"] not in _SELF_INTERSECTING_CASES
     ]
 
 
@@ -136,7 +142,7 @@ def _clipped_area(xs: np.ndarray, ys: np.ndarray, px: int, py: int) -> float:
 def measure_exact_clip_error() -> float:
     """Max |coverage - exact clipped area| over simple coverage cases, edge pixels only."""
     worst = 0.0
-    for _case_id, layer in _hard_single_layers(simple=True):
+    for _case_id, layer in _hard_single_layers(simple_only=True):
         for width, height in vectors.RESOLUTIONS:
             poly = vectors.layer_raster(layer, width, height).polyline
             alpha = mr.coverage_alpha(poly, width, height)
@@ -151,10 +157,10 @@ def measure_exact_clip_error() -> float:
     return worst
 
 
-def measure_supersample_error(*, simple: bool = True) -> float:
+def measure_supersample_error() -> float:
     """Max |coverage - supersampled reference| over the coverage vector cases and resolutions."""
     worst = 0.0
-    for _case_id, layer in _hard_single_layers(simple=simple):
+    for _case_id, layer in _hard_single_layers(simple_only=False):
         for width, height in vectors.RESOLUTIONS:
             poly = vectors.layer_raster(layer, width, height).polyline
             exact = mr.coverage_alpha(poly, width, height)
@@ -171,14 +177,6 @@ def test_coverage_matches_exact_clipped_area_within_one_level() -> None:
 def test_coverage_is_within_one_level_of_a_256x256_supersampled_reference() -> None:
     worst = measure_supersample_error()
     assert worst <= _GATE, f"max coverage error vs 256x256 reference {worst} > 1/255"
-
-
-@pytest.mark.xfail(
-    strict=True,
-    reason="Opposite-winding regions sharing a pixel cancel under signed-area accumulation.",
-)
-def test_self_crossing_paths_meet_the_supersample_gate() -> None:
-    assert measure_supersample_error(simple=False) <= _GATE
 
 
 def _falloff(x: np.ndarray, falloff: str) -> np.ndarray:
