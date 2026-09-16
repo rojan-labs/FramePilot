@@ -13,12 +13,22 @@
  * from them.
  */
 
-const BOLD = /\*\*(.+?)\*\*/g;
-/** A single-asterisk span that opens and closes on a non-space (so `2 * 3 * 4` survives). */
-const ITALIC = /\*(?=\S)([^*]*?\S)\*/g;
+// Every span pattern excludes its own opening delimiter from its body, so a failed match
+// stops at the next delimiter instead of rescanning to the end of the label: linear on any
+// input. Labels are model output, and `[[[[…` or `** ** **…` must not cost quadratic time.
+const BOLD = /\*\*([^*]+)\*\*/g;
+/** A single-asterisk span; {@link unitalic} keeps it unless it hugs non-space on both ends. */
+const ITALIC = /\*([^*]+)\*/g;
 const INLINE_CODE = /`([^`]+)`/g;
-const LINK = /\[([^\]]+)\]\([^)]*\)/g;
+const LINK = /\[([^[\]]+)\]\([^()]*\)/g;
 const HEADING = /^#{1,6}\s+/;
+/** A step is one sentence; anything past this is a runaway response, not a label. */
+const MAX_LABEL_CHARS = 1000;
+
+/** Emphasis opens and closes on a non-space, so `2 * 3 * 4` is arithmetic, not italics. */
+function unitalic(span: string, inner: string): string {
+  return /^\S/.test(inner) && /\S$/.test(inner) ? inner : span;
+}
 
 /**
  * Strip inline markdown from one plan-step label, keeping its words.
@@ -28,11 +38,12 @@ const HEADING = /^#{1,6}\s+/;
  */
 export function plainPlanLabel(label: string): string {
   return label
+    .slice(0, MAX_LABEL_CHARS)
     .replace(HEADING, '')
     .replace(LINK, '$1')
     .replace(INLINE_CODE, '$1')
     .replace(BOLD, '$1')
-    .replace(ITALIC, '$1')
+    .replace(ITALIC, unitalic)
     .replace(/\s+/g, ' ')
     .trim();
 }

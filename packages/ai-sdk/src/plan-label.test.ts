@@ -25,6 +25,16 @@ describe('plainPlanLabel', () => {
   });
 });
 
+describe('plainPlanLabel on hostile input', () => {
+  it('stays fast on long runs of unclosed delimiters', () => {
+    const start = performance.now();
+    for (const junk of ['[', '[\\', '](', '[(](', '**', '* ', '`']) {
+      plainPlanLabel(junk.repeat(5_000));
+    }
+    expect(performance.now() - start).toBeLessThan(500);
+  });
+});
+
 describe('plan parsing and reduction produce plain labels', () => {
   it('a bold step is not mistaken for a bullet', () => {
     expect(parsePlanLines('**Trim the intro**\n- **Add captions**')).toEqual([
