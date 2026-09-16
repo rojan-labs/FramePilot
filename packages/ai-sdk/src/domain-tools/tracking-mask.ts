@@ -14,12 +14,14 @@ import { z } from 'zod/v4';
 import type { ToolSpec } from '../tool-registry.js';
 import { mutateTool, unavailableTool } from './tool-factories.js';
 import { filterString, seconds } from './tool-args.js';
+import { addShapeMaskOps } from './mask-ops.js';
 
 export const TRACKING_MASK_TOOLS: readonly ToolSpec[] = [
   mutateTool(
     { name: 'add_mask', description: 'Add a mask shape to a clip.' },
     z.object({ clipId: z.string(), shape: z.enum(['rectangle', 'ellipse', 'polygon']) }).strict(),
-    (a) => [{ type: 'add_mask', clipId: a.clipId, shape: a.shape }],
+    // Schema v22: a whole-frame shape in source pixels, refused on unmeasured media.
+    (a, ctx) => addShapeMaskOps(ctx.project, a),
   ),
   mutateTool(
     {

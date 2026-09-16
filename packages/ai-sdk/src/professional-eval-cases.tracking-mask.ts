@@ -28,7 +28,15 @@ function trackingEvalProject(): Project {
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 4 }],
+    assets: [
+      {
+        id: 'asset',
+        path: 'shot.mp4',
+        kind: 'video',
+        durationSeconds: 4,
+        media: { width: 1920, height: 1080 },
+      },
+    ],
     timeline: {
       revision: 2,
       tracks: [
@@ -44,17 +52,20 @@ function trackingEvalProject(): Project {
               end: 4,
               sourceStart: 0,
               sourceEnd: 4,
-              effects: [
+              effects: [],
+              // Schema v22: the editor's ellipse around {x 0.2, y 0.1, w 0.25, h 0.4}, in source
+              // pixels, sweeping right on the SOURCE clock.
+              masks: [
                 {
+                  kind: 'ellipse',
                   id: `${CLIP_ID}__mask`,
-                  type: 'mask',
-                  params: {
-                    shape: 'ellipse',
-                    bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
-                  },
+                  cx: 624,
+                  cy: 324,
+                  rx: 240,
+                  ry: 216,
                   keyframes: [
-                    { id: 'mx0', time: 0, property: 'x', value: 0.2 },
-                    { id: 'mx1', time: 4, property: 'x', value: 0.5 },
+                    { id: 'mx0', sourceTime: 0, property: 'cx', value: 624 },
+                    { id: 'mx1', sourceTime: 4, property: 'cx', value: 1200 },
                   ],
                 },
               ],
@@ -138,7 +149,7 @@ function expectTrackingOutcome(persisted: Project): readonly string[] {
       },
       {
         label: 'authored mask preserved',
-        actual: clip.effects.some((effect) => effect.type === 'mask'),
+        actual: (clip.masks ?? []).some((mask) => mask.id === `${CLIP_ID}__mask`),
         expected: true,
       },
       // The tracker seeds itself from the mask's authored geometry, never a guessed region.
@@ -276,7 +287,7 @@ function expectAutomaticOutcome(persisted: Project): readonly string[] {
       },
       {
         label: 'authored mask preserved',
-        actual: clip.effects.some((effect) => effect.type === 'mask'),
+        actual: (clip.masks ?? []).some((mask) => mask.id === `${CLIP_ID}__mask`),
         expected: true,
       },
     ]),

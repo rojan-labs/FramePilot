@@ -76,19 +76,20 @@ describe('concurrency partitioning', () => {
 
 describe('assembly boundaries', () => {
   it('reports a normalization failure as an invalid edit rather than throwing', () => {
-    // `add_mask` carries no numeric contract of its own, so a non-finite keyframe time
-    // first becomes visible when frame quantization tries to snap it.
+    // `track_object` carries no numeric contract for its keyframes, so a non-finite keyframe
+    // time first becomes visible when frame quantization tries to snap it. (Mask keyframes are
+    // on the source clock since schema v22 and are never snapped.)
     const result = assembleEdit(
       project(),
       [
         {
-          type: 'add_mask',
+          type: 'track_object',
           clipId: 'clip-a',
-          mask: { kind: 'rect' },
+          target: 'object',
           keyframes: [{ id: 'k', time: Number.NaN, property: 'x', value: 1, easing: 'linear' }],
         },
       ] as unknown as AnyOperation[],
-      'mask with an unusable keyframe time',
+      'tracker with an unusable keyframe time',
     );
     expect(result.validation.valid).toBe(false);
     expect(result.validation.issues[0]?.message).toMatch(/finite/i);

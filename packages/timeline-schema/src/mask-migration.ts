@@ -556,6 +556,29 @@ function migrateOneMask(
   };
 }
 
+/**
+ * One v21-vocabulary mask (a `mask` effect's `params` and clip-timeline `keyframes`) as a
+ * v22 mask layer on `clip`, exactly as the v21 → v22 migration converts it.
+ *
+ * Exported for the callers that still SPEAK the v21 vocabulary — the agent's
+ * `add_mask_advanced` builder takes fractions, a Gaussian feather fraction and clip-time
+ * box keyframes — so a mask authored that way today lands identical to one migrated from a
+ * v21 file, rather than through a second, subtly different conversion. Unlike the
+ * migration it has no "unknown size" fallback: new masks need measured media.
+ *
+ * @param effect - `{ id, params, keyframes }` in the v21 `mask` effect shape.
+ * @param clip - The clip it lands on (crop, source range, speed and ramp are read).
+ * @param media - The clip media's measured size.
+ * @returns A raw v22 mask layer; parse it with `MaskLayerSchema`.
+ */
+export function maskLayerFromLegacyMaskEffect(
+  effect: RawRecord,
+  clip: RawRecord,
+  media: { readonly width: number; readonly height: number },
+): RawRecord {
+  return migrateOneMask(effect, clip, 0, geometryFor(readCrop(clip), media), false);
+}
+
 function migrateClip(raw: RawRecord, clip: unknown): unknown {
   if (!isRecord(clip) || !Array.isArray(clip.effects)) return clip;
   const legacy = clip.effects.filter(

@@ -11,22 +11,23 @@ import {
 import { toolContract } from '../tool-contract.js';
 
 function projectWithMask(): Project {
-  const mask = {
-    id: 'shot__mask',
-    type: 'mask',
-    params: {
-      shape: 'rectangle',
-      bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
-    },
-    keyframes: [],
-  };
+  // Schema v22: the drawn box {x 0.2, y 0.1, w 0.25, h 0.4} of a 1920x1080 source.
+  const mask = { kind: 'rectangle', id: 'shot__mask', cx: 624, cy: 324, width: 480, height: 432 };
   return parseProject({
     id: 'auto_tracking_project',
     name: 'Automatic tracking fixture',
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 900 }],
+    assets: [
+      {
+        id: 'asset',
+        path: 'shot.mp4',
+        kind: 'video',
+        durationSeconds: 900,
+        media: { width: 1920, height: 1080 },
+      },
+    ],
     timeline: {
       revision: 7,
       tracks: [
@@ -42,7 +43,8 @@ function projectWithMask(): Project {
               end: 4,
               sourceStart: 0,
               sourceEnd: 4,
-              effects: [mask],
+              effects: [],
+              masks: [mask],
               keyframes: [],
             },
           ],
@@ -105,7 +107,9 @@ describe('track_subject_automatically tool', () => {
     );
     const steered = ops.find((op) => op.type === 'add_mask');
     if (steered?.type !== 'add_mask') throw new Error('expected add_mask');
-    const firstTime = Math.min(...(steered.keyframes ?? []).map((keyframe) => keyframe.time));
+    const firstTime = Math.min(
+      ...(steered.mask.keyframes ?? []).map((keyframe) => keyframe.sourceTime),
+    );
     expect(firstTime).toBeGreaterThan(0);
   });
 
@@ -114,10 +118,14 @@ describe('track_subject_automatically tool', () => {
     const ops = automaticTrackingOpsFromMeasurement(measurement(), { project });
     // track_object records the measurement; add_mask puts the motion on the
     // mask effect the export actually animates.
-    expect(ops.map((candidate) => candidate.type)).toEqual(['track_object', 'add_mask']);
-    const steered = ops[1]!;
+    expect(ops.map((candidate) => candidate.type)).toEqual([
+      'track_object',
+      'remove_mask',
+      'add_mask',
+    ]);
+    const steered = ops[2]!;
     if (steered.type === 'add_mask') {
-      expect(steered.keyframes?.some((keyframe) => keyframe.property === 'x')).toBe(true);
+      expect(steered.mask.keyframes?.some((keyframe) => keyframe.property === 'cx')).toBe(true);
     }
     const op = ops[0]!;
     expect(op.type).toBe('track_object');
@@ -184,7 +192,7 @@ describe('track_subject_automatically tool', () => {
   it('refuses when the tracked mask is gone from the working project', () => {
     const bare = projectWithMask();
     const clip = bare.timeline.tracks[0]!.clips[0]!;
-    bare.timeline.tracks[0]!.clips[0] = { ...clip, effects: [] };
+    bare.timeline.tracks[0]!.clips[0] = { ...clip, masks: [] };
     expect(() =>
       automaticTrackingOpsFromMeasurement(measurement(), { project: bare }),
     ).toThrow(/missing_mask|stale_timeline/);

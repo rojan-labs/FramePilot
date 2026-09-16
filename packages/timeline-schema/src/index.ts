@@ -1846,4 +1846,5 @@ export const buildProjectJsonSchema = (): Record<string, unknown> =>
 // ---------------------------------------------------------------------------
 
 export * from './migrations.js';
+export { maskLayerFromLegacyMaskEffect } from './mask-migration.js';
 export * from './serialization.js';

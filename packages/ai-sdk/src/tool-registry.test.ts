@@ -1388,11 +1388,28 @@ describe('mutating tools — build valid operations', () => {
         durationSeconds: 0.5,
       })[0]?.type,
     ).toBe('add_transition');
-    expect(build('add_mask', { clipId: 'clip_a', shape: 'ellipse' })[0]).toEqual({
+    // Schema v22: the shape lands as a whole-frame mask in the media's source pixels.
+    const measured: ToolContext = {
+      project: makeProject({
+        assets: [
+          {
+            id: 'asset_1',
+            path: 'media/a.mp4',
+            kind: 'video',
+            durationSeconds: 30,
+            media: { width: 1920, height: 1080 },
+          },
+        ],
+      }),
+    };
+    expect(getTool('add_mask')!.buildOps!({ clipId: 'clip_a', shape: 'ellipse' }, measured)[0]).toMatchObject({
       type: 'add_mask',
       clipId: 'clip_a',
-      shape: 'ellipse',
+      mask: { kind: 'ellipse', id: 'clip_a__mask', cx: 960, cy: 540, rx: 960, ry: 540 },
     });
+    expect(() => build('add_mask', { clipId: 'clip_a', shape: 'ellipse' })).toThrow(
+      /Measure this media first/,
+    );
     expect(build('track_object', { clipId: 'clip_a', target: 'face' })[0]).toEqual({
       type: 'track_object',
       clipId: 'clip_a',

@@ -100,9 +100,13 @@ export function planVisionObjectivesForEdit(input: {
           operation.clipId,
           'mask-subject',
           'Does the authored mask consistently cover the intended visible subject without obvious spill or clipping?',
-          (operation.keyframes ?? []).map((keyframe) => {
+          // Schema v22: mask keyframes are on the SOURCE clock, so each is placed where the
+          // clip plays that source instant (forward playback; other rates use the clip start).
+          (operation.mask.keyframes ?? []).map((keyframe) => {
             const clip = clips.get(operation.clipId)!;
-            return Math.round((clip.start + keyframe.time) * project.fps);
+            const rate = clip.speed !== undefined && clip.speed > 0 ? clip.speed : 1;
+            const offset = Math.max(0, (keyframe.sourceTime - clip.sourceStart) / rate);
+            return Math.round((clip.start + offset) * project.fps);
           }),
         );
         break;

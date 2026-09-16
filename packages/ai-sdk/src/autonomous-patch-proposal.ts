@@ -11,6 +11,7 @@ import type { AnyOperation, ProjectOperation } from '@framepilot/editor-core';
 import type { Keyframe, Project, SpeedPoint } from '@framepilot/timeline-schema';
 import { assembleEdit, type EditResult } from './assemble.js';
 import type { ToolContext } from './tool-context.js';
+import { addLegacyMaskOps } from './domain-tools/mask-ops.js';
 import { operationsForCall } from './tool-dispatch.js';
 import { getTool } from './tool-registry.js';
 
@@ -219,7 +220,10 @@ function maskKeyframe(call: AutonomousOperationCall, raw: unknown, index: number
   };
 }
 
-function virtualAutonomousOperations(call: AutonomousOperationCall): AnyOperation[] | undefined {
+function virtualAutonomousOperations(
+  call: AutonomousOperationCall,
+  project: Project,
+): AnyOperation[] | undefined {
   const a = call.arguments;
 
   if (call.tool === 'set_clip_playback_mode') {
@@ -382,19 +386,17 @@ function virtualAutonomousOperations(call: AutonomousOperationCall): AnyOperatio
           : (() => {
               throw new Error(`${call.tool} keyframes must be an array.`);
             })();
-    return [
-      {
-        type: 'add_mask',
-        clipId,
-        shape,
-        ...(bounds !== undefined ? { bounds } : {}),
-        ...(points !== undefined ? { points } : {}),
-        ...(feather !== undefined ? { feather } : {}),
-        ...(opacity !== undefined ? { opacity } : {}),
-        ...(a.invert !== undefined ? { invert: a.invert } : {}),
-        ...(keyframes !== undefined ? { keyframes } : {}),
-      },
-    ];
+    // Schema v22: converted exactly as a migrated v21 mask effect (ADR 0178).
+    return addLegacyMaskOps(project, {
+      clipId,
+      shape,
+      ...(bounds !== undefined ? { bounds } : {}),
+      ...(points !== undefined ? { points } : {}),
+      ...(feather !== undefined ? { feather } : {}),
+      ...(opacity !== undefined ? { opacity } : {}),
+      ...(a.invert !== undefined ? { invert: a.invert as boolean } : {}),
+      ...(keyframes !== undefined ? { keyframes } : {}),
+    });
   }
 
   return undefined;
@@ -474,7 +476,7 @@ export function compileAutonomousPatchProposal(
       // of a generic authorization message.
     }
     assertSafeAutonomousArguments(call);
-    const virtual = virtualAutonomousOperations(call);
+    const virtual = virtualAutonomousOperations(call, project);
     let built: AnyOperation[];
     if (virtual !== undefined) {
       built = virtual;
