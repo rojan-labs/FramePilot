@@ -4,6 +4,11 @@ Gate (06 Runtime parity): mean |Δα| <= 1/255 and max |Δα| <= 4/255 in the ba
 here is where the *reference* alpha is fractional (1/255 < α < 254/255), dilated by 8 px,
 i.e. where matting actually happens. Whole-tile numbers are reported too.
 
+Reference: PyTorch fp32 on CPU where it fits the 10 GiB local memory budget (1024² here;
+2048² extrapolates to ~27 GiB on this machine, see BR0-FINDINGS). At 2048² every EP is
+compared with the onnxruntime CPU fp32 output instead (``--reference onnx``), and the 1024²
+graph (same weights, same exporter, same operators) carries the PyTorch-vs-ONNX parity.
+
 Tiles: square crops around the subject of each parity clip's first frame, resized to 2048²
 (the model's static input). Runs unchanged on Windows (see parity_sam.py).
 
@@ -32,7 +37,7 @@ IMG_STD = np.array([0.229, 0.224, 0.225], np.float32)
 PARITY_DIR = common.CACHE / "parity"
 
 
-def tiles() -> dict[str, np.ndarray]:
+def tiles(size: int) -> dict[str, np.ndarray]:
     out = {}
     for clip, (_, _, pts, _) in pm.CLIPS.items():
         frame = pm.decode_rgb(pm.ensure_clip(clip), 1)[0]
@@ -41,7 +46,7 @@ def tiles() -> dict[str, np.ndarray]:
         cx = int(pts[0][0])
         x0 = int(np.clip(cx - side // 2, 0, w - side))
         crop = frame[:side, x0 : x0 + side]
-        out[clip] = np.array(Image.fromarray(crop).resize((SIZE, SIZE), Image.BICUBIC))
+        out[clip] = np.array(Image.fromarray(crop).resize((size, size), Image.BICUBIC))
     return out
 
 
@@ -66,7 +71,11 @@ def compare(alpha: np.ndarray, ref: np.ndarray) -> dict:
             "pass": bool(b.mean() <= MEAN_GATE and b.max() <= MAX_GATE)}
 
 
-def run_reference(inputs: dict[str, np.ndarray]) -> dict:
+def ref_path(name: str, size: int):
+    return PARITY_DIR / f"birefnet_ref_{size}_{name}.npy"
+
+
+def run_reference(inputs: dict[str, np.ndarray], size: int) -> dict:
     import torch
 
     from export_birefnet import BiRefNetAlpha, load_birefnet
@@ -78,19 +87,19 @@ def run_reference(inputs: dict[str, np.ndarray]) -> dict:
         with torch.inference_mode():
             a = model(torch.from_numpy(x))[0, 0].numpy()
         res[name] = {"seconds": round(time.time() - t0, 1)}
-        np.save(PARITY_DIR / f"birefnet_ref_{name}.npy", a.astype(np.float32))
+        np.save(ref_path(name, size), a.astype(np.float32))
     return res
 
 
-def run_onnx(inputs: dict[str, np.ndarray], ep: str, precision: str) -> dict:
+def run_onnx(inputs: dict[str, np.ndarray], ep: str, precision: str, size: int, save_ref: bool = False) -> dict:
     import onnxruntime as ort
 
-    path = common.ONNX_DIR / f"birefnet_hr_matting_2048.{precision}.onnx"
+    path = common.ONNX_DIR / f"birefnet_hr_matting_{size}.{precision}.onnx"
     opts = ort.SessionOptions()
     opts.log_severity_level = 3
     t0 = time.time()
     sess = ort.InferenceSession(str(path), opts, providers=common.providers_for(
-        ep, common.CACHE / "coreml-cache" / precision / "birefnet"))
+        ep, common.CACHE / "coreml-cache" / precision / f"birefnet_{size}"))
     res: dict = {"sessionCreateSeconds": round(time.time() - t0, 1), "activeProvider": sess.get_providers()[0],
                  "tiles": {}}
     ok = True
@@ -98,7 +107,11 @@ def run_onnx(inputs: dict[str, np.ndarray], ep: str, precision: str) -> dict:
         t0 = time.time()
         a = sess.run(None, {"image": x})[0][0, 0]
         secs = time.time() - t0
-        ref = np.load(PARITY_DIR / f"birefnet_ref_{name}.npy")
+        if save_ref:
+            np.save(ref_path(name, size), a.astype(np.float32))
+            res["tiles"][name] = {"seconds": round(secs, 1), "firstRun": i == 0}
+            continue
+        ref = np.load(ref_path(name, size))
         cmp = compare(a, ref)
         cmp["seconds"] = round(secs, 1)
         cmp["firstRun"] = i == 0
@@ -111,16 +124,23 @@ def run_onnx(inputs: dict[str, np.ndarray], ep: str, precision: str) -> dict:
 
 def main() -> None:
     ap = argparse.ArgumentParser()
-    ap.add_argument("--reference", action="store_true")
+    ap.add_argument("--reference", choices=("torch", "onnx"), help="write the reference instead of comparing")
     ap.add_argument("--ep", default="cpu")
     ap.add_argument("--precision", choices=("fp32", "fp16s"), default="fp32")
+    ap.add_argument("--size", type=int, default=SIZE)
     a = ap.parse_args()
     PARITY_DIR.mkdir(parents=True, exist_ok=True)
-    inputs = {k: to_input(v) for k, v in tiles().items()}
-    tag = "torch_cpu_fp32" if a.reference else f"onnx_{a.ep}_{a.precision}"
-    body = run_reference(inputs) if a.reference else run_onnx(inputs, a.ep, a.precision)
-    out = common.write_result(f"parity_birefnet_{sys.platform}_{tag}", {
-        "model": "birefnet_hr_matting", "variant": tag, "gate": {"bandMeanAbs": "1/255", "bandMaxAbs": "4/255"},
+    inputs = {k: to_input(v) for k, v in tiles(a.size).items()}
+    if a.reference == "torch":
+        tag, body = "torch_cpu_fp32", run_reference(inputs, a.size)
+    elif a.reference == "onnx":
+        tag, body = "reference_onnx_cpu_fp32", run_onnx(inputs, "cpu", "fp32", a.size, save_ref=True)
+    else:
+        tag, body = f"onnx_{a.ep}_{a.precision}", run_onnx(inputs, a.ep, a.precision, a.size)
+    ref_kind = {1024: "torch_cpu_fp32"}.get(a.size, "onnx_cpu_fp32")
+    out = common.write_result(f"parity_birefnet_{a.size}_{sys.platform}_{tag}", {
+        "model": "birefnet_hr_matting", "size": a.size, "variant": tag, "comparedAgainst": ref_kind,
+        "gate": {"bandMeanAbs": "1/255", "bandMaxAbs": "4/255"},
         "mediaLicence": pm.LICENCE, **body, "peakRssMiB": round(common.peak_rss_mib())})
     print(body.get("pass", "reference written"), out)
 

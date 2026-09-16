@@ -2,7 +2,7 @@
 
 Rules (after a memory incident on the 16 GB maintainer machine):
 - ONE heavy job at a time: jobs run sequentially, and a job does not start while another
-  spike job is running (checked with ``pgrep``);
+  spike job is running (checked with ``ps``);
 - each job runs in its own process group; the watchdog sums RSS over that group every
   second and kills the whole group above ``--max-rss-gib`` (default 10);
 - an abort is recorded in results/aborts.jsonl and the job is NOT retried.
@@ -35,14 +35,18 @@ def group_rss_kib(pgid: int) -> int:
 
 
 def other_spike_jobs(own_pids: set[int]) -> list[str]:
-    out = subprocess.run(["pgrep", "-fl", "python"], capture_output=True, text=True).stdout
+    """Python processes (by executable, not by shell text) running one of our spike scripts."""
+    out = subprocess.run(["ps", "-axww", "-o", "pid=,command="], capture_output=True, text=True).stdout
     busy = []
     for line in out.splitlines():
-        pid, _, cmd = line.partition(" ")
-        if int(pid) in own_pids or "watchdog.py" in cmd:
+        pid_s, _, cmd = line.strip().partition(" ")
+        if not pid_s.isdigit() or int(pid_s) in own_pids:
+            continue
+        exe = cmd.split(" ", 1)[0]
+        if "python" not in os.path.basename(exe) or "watchdog.py" in cmd:
             continue
         if any(s in cmd for s in SPIKE_SCRIPTS):
-            busy.append(line)
+            busy.append(line.strip()[:160])
     return busy
 
 

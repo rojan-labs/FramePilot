@@ -57,10 +57,10 @@ def _deform_conv2d_onnxscript():
     return deform_conv2d
 
 
-def export(out_dir) -> dict:
+def export(out_dir, size: int = SIZE) -> dict:
     model = BiRefNetAlpha(load_birefnet())
-    dummy = torch.rand(1, 3, SIZE, SIZE)
-    fp32 = out_dir / "birefnet_hr_matting_2048.fp32.onnx"
+    dummy = torch.rand(1, 3, size, size)
+    fp32 = out_dir / f"birefnet_hr_matting_{size}.fp32.onnx"
     t0 = time.time()
     # The dynamo exporter traces with fake tensors, so no 2048² activations are allocated
     # (the TorchScript tracer needs a real forward: ~13 GiB at 2048², measured).
@@ -81,20 +81,22 @@ def export(out_dir) -> dict:
     onnx.save(m, str(fp32))
     ops = sorted({n.op_type for n in m.graph.node})
     rep = fp16_store.convert(m)
-    fp16 = out_dir / "birefnet_hr_matting_2048.fp16s.onnx"
+    fp16 = out_dir / f"birefnet_hr_matting_{size}.fp16s.onnx"
     onnx.save(m, str(fp16))
     return {"exportSeconds": round(export_s, 1), "ops": ops, "fp32Deduped": deduped, "fp16Store": rep,
             "files": {p.name: p.stat().st_size for p in (fp32, fp16)}}
 
 
 def main() -> None:
-    argparse.ArgumentParser(description=__doc__).parse_args()
+    ap = argparse.ArgumentParser(description=__doc__)
+    ap.add_argument("--size", type=int, default=SIZE, help="static square input; 1024 is the parity-reference graph")
+    a = ap.parse_args()
     common.ONNX_DIR.mkdir(parents=True, exist_ok=True)
-    res = export(common.ONNX_DIR)
+    res = export(common.ONNX_DIR, a.size)
     res["peakRssMiB"] = round(common.peak_rss_mib())
     res["pins"] = {k: v for k, v in common.PINS.items() if "birefnet" in k}
     print(json.dumps(res, indent=2))
-    common.write_result("export_birefnet", res)
+    common.write_result("export_birefnet" if a.size == SIZE else f"export_birefnet_{a.size}", res)
 
 
 if __name__ == "__main__":
