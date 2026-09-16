@@ -57,7 +57,7 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /preview-(spike|webcodecs-p[0-9]+)\.spec\.ts/,
+      testIgnore: /preview-(spike|webcodecs-p[0-9]+|parity-oracle)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // P0 WebCodecs feasibility spike (plan PREVIEW-WEBCODECS-COMPOSITOR.md).
@@ -85,6 +85,29 @@ export default defineConfig({
             '--disable-background-timer-throttling',
             '--disable-renderer-backgrounding',
             '--disable-backgrounding-occluded-windows',
+          ],
+        },
+      },
+    },
+    // PX4 preview/export pixel parity oracle (plan/background-removal-ai/09-PREVIEW-EXPORT-PARITY.md).
+    // Real Google Chrome for the same reason as `preview-spike` (H.264 WebCodecs decode). GPU
+    // where available; on a GPU-less CI runner Chrome falls back to SwiftShader (CPU GL), which
+    // newer Chrome only allows with `--enable-unsafe-swiftshader`. The thresholds are the same
+    // either way. Needs `pnpm px4:frames` first (engine frames + synthetic media).
+    {
+      name: 'preview-parity',
+      testMatch: /preview-parity-oracle\.spec\.ts/,
+      fullyParallel: false,
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chrome',
+        launchOptions: {
+          args: [
+            '--autoplay-policy=no-user-gesture-required',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
+            '--enable-unsafe-swiftshader',
           ],
         },
       },

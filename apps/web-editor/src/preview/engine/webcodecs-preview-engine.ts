@@ -111,6 +111,27 @@ function sourceDims(source: CanvasImageSource): { w: number; h: number } {
   return { w: s.naturalWidth ?? s.width ?? 0, h: s.naturalHeight ?? s.height ?? 0 };
 }
 
+/**
+ * One picture the canvas last drew, back to front — the preview's own account of WHICH source
+ * frame it presented. Read by the PX4 parity oracle (`preview-parity-oracle.spec.ts`), which
+ * asserts it equals the frame plan's source pts; pixels alone cannot tell an off-by-one frame
+ * from a correct one on static footage.
+ */
+export interface PresentedLayer {
+  /** `held`: the previous shot's snapshot drawn under a transition; `clip`: the active segment. */
+  readonly role: 'clip' | 'held';
+  readonly sourceId: string | undefined;
+  readonly kind: 'video' | 'image';
+  /** `VideoFrame.timestamp` (µs) of the decoded frame drawn; `null` for a still image. */
+  readonly timestampUs: number | null;
+}
+
+/** The last presentation: the time it was drawn for and its picture layers (empty = cleared). */
+export interface PresentedFrame {
+  readonly projectTimeSec: number;
+  readonly layers: readonly PresentedLayer[];
+}
+
 export interface PreviewEngineCallbacks {
   onTimeUpdate?(currentTimeSec: number): void;
   onDurationChange?(durationSec: number): void;
@@ -212,6 +233,9 @@ export class WebCodecsPreviewEngine {
   private heldFrame: { canvas: HTMLCanvasElement; forSegmentStart: number } | null = null;
   /** Which segment the canvas last painted, so a cut can be noticed as it happens. */
   private lastPaintedSegmentStart: number | null = null;
+  /** What the canvas shows now, and what the held frame shows (see {@link PresentedFrame}). */
+  private presented: PresentedFrame = { projectTimeSec: 0, layers: [] };
+  private heldLayers: readonly PresentedLayer[] = [];
   /** Text/caption overlays composited on top of every picture draw (P3b),
    * ordered back-to-front. Independent of the picture EDL — an overlay can
    * span cuts and gaps — so refreshed via `setOverlays`, never reloaded. */
@@ -697,7 +721,8 @@ export class WebCodecsPreviewEngine {
     }
   }
 
-  private clearCanvas(): void {
+  private clearCanvas(projectTimeSec: number): void {
+    this.presented = { projectTimeSec, layers: [] };
     this.ctx2d.clearRect(0, 0, this.ctx2d.canvas.width, this.ctx2d.canvas.height);
   }
 
@@ -763,6 +788,19 @@ export class WebCodecsPreviewEngine {
     held.clearRect(0, 0, width, height);
     held.drawImage(this.ctx2d.canvas, 0, 0);
     this.heldFrame = { canvas, forSegmentStart };
+    this.heldLayers = this.presented.layers.map((layer) => ({ ...layer, role: 'held' as const }));
+  }
+
+  /** The {@link PresentedLayer} record of a source drawn for the segment starting at `segmentStartSec`. */
+  private presentedLayerOf(source: CanvasImageSource, segmentStartSec: number): PresentedLayer {
+    const segment = this.segments.find((candidate) => candidate.projectStart === segmentStartSec);
+    const isFrame = typeof VideoFrame !== 'undefined' && source instanceof VideoFrame;
+    return {
+      role: 'clip',
+      sourceId: segment?.sourceId,
+      kind: isFrame ? 'video' : 'image',
+      timestampUs: isFrame ? source.timestamp : null,
+    };
   }
 
   /**
@@ -773,10 +811,13 @@ export class WebCodecsPreviewEngine {
    * timeline is not the shot this cut is coming from, and painting it would be a worse lie
    * than the black it replaces.
    */
-  private drawHeldFrame(segmentStartSec: number, width: number, height: number): void {
+  private drawHeldFrame(segmentStartSec: number, width: number, height: number): boolean {
     const held = this.heldFrame;
-    if (!heldFrameIsPreviousSegment(this.segments, segmentStartSec, held?.forSegmentStart)) return;
+    if (!heldFrameIsPreviousSegment(this.segments, segmentStartSec, held?.forSegmentStart)) {
+      return false;
+    }
     this.ctx2d.drawImage(held!.canvas, 0, 0, width, height);
+    return true;
   }
 
   /**
@@ -805,6 +846,8 @@ export class WebCodecsPreviewEngine {
     }
     this.lastPaintedSegmentStart = segmentStartSec;
     ctx.clearRect(0, 0, cw, ch);
+    const presentedLayers: PresentedLayer[] = [];
+    this.presented = { projectTimeSec, layers: presentedLayers };
 
     const clipTime = Math.max(0, projectTimeSec - segmentStartSec);
 
@@ -846,7 +889,10 @@ export class WebCodecsPreviewEngine {
     // reveal happens over it — without this the ramp composited against the cleared canvas,
     // which is a dissolve from black rather than from the previous shot.
     const rampingNow = transition !== null || catalog !== null;
-    if (rampingNow) this.drawHeldFrame(segmentStartSec, cw, ch);
+    if (rampingNow && this.drawHeldFrame(segmentStartSec, cw, ch)) {
+      presentedLayers.push(...this.heldLayers);
+    }
+    presentedLayers.push(this.presentedLayerOf(source, segmentStartSec));
 
     if (
       (!compositing || isIdentityCompositing(compositing)) &&
@@ -1060,7 +1106,7 @@ export class WebCodecsPreviewEngine {
       // previous full composite stays untouched.
       let painted = true;
       if (!segment || segment.kind === 'gap') {
-        this.clearCanvas();
+        this.clearCanvas(clamped);
       } else if (segment.kind === 'image') {
         if (segment.image) {
           this.drawSource(segment.image, segment.compositing, clamped, segment.projectStart);
@@ -1197,7 +1243,7 @@ export class WebCodecsPreviewEngine {
       // overlays must not be painted again on top of themselves.
       let painted = true;
       if (!segment || segment.kind === 'gap') {
-        this.clearCanvas();
+        this.clearCanvas(nowSec);
       } else if (segment.kind === 'image') {
         if (segment.image) {
           const segmentIndex = this.segmentIndexAt(nowSec);
@@ -1327,6 +1373,11 @@ export class WebCodecsPreviewEngine {
    * `wrongSegment` + `missing` over `ticks` is the jitter rate. */
   debugStats(): Record<string, number> {
     return { ...this.dbg, durationSec: this.durationSec, segCount: this.segments.length };
+  }
+
+  /** The last presented picture layers, for the PX4 parity oracle's frame-identity check. */
+  debugPresentedFrame(): PresentedFrame {
+    return this.presented;
   }
 
   dispose(): void {

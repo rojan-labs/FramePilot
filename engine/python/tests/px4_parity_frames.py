@@ -1,0 +1,647 @@
+"""Generate the ENGINE side of the preview/export pixel parity oracle (PX4.2, PX0.3).
+
+The oracle (``tests/e2e/specs/preview-parity-oracle.spec.ts``) seeks the editor's preview to
+every sample time of every frame-plan matrix case (``tests/fixtures/frame-plan/*.json``), reads
+its canvas back, and compares it with the frame the export composites at the same time. This
+script writes everything the spec reads, into a gitignored directory::
+
+    pnpm px4:frames            # == cd engine/python && uv run python -m tests.px4_parity_frames
+
+1. **Synthetic media**, one file per fixture asset, at the asset's declared size, duration and
+   probed frame rate, encoded exactly like the engine's preview proxies (``media/derive.py``:
+   H.264 high, yuv420p, BT.709 tags, GOP = fps/2, no B-frames). BOTH sides read these same
+   bytes, so codec loss is identical and every difference the oracle reports is the
+   renderer's. Each asset is a flat **sentinel colour** with a second sentinel colour in its
+   top-right quadrant (orientation and crop become visible) and a binary frame counter along
+   the top-left edge (a wrong source frame changes pixels, not just a reported number).
+2. **Engine frames**: ``grab_frame(..., lossless=True)`` (full resolution PNG through
+   ``compile_timeline``, the export path) at every sample of every case.
+3. **Colour test patterns** (PX0.3): one clip per BT.601/BT.709 x limited/full range, and the
+   engine's decoded RGB for each patch.
+4. ``manifest.json``: the sentinel palette, per-sample frame paths (or the engine's error),
+   the colour measurements, and a hash of the inputs so the spec refuses stale output.
+
+Colours are chosen on a 96-level grid so any two sentinels differ by at least 96/255 on some
+channel: the spec classifies pixels within 40/255 of a sentinel, and a sentinel check must
+never confuse two layers because of codec or colour-matrix drift.
+"""
+
+from __future__ import annotations
+
+import argparse
+import copy
+import hashlib
+import json
+import logging
+import subprocess
+import sys
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+_log = logging.getLogger(__name__)
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "frame-plan"
+DEFAULT_OUT_DIR = REPO_ROOT / "tests" / "e2e" / ".tmp-px4-parity"
+#: Bumped when the output layout changes in a way the input hash cannot see.
+MANIFEST_VERSION = 1
+
+#: (primary, top-right quadrant) sentinel colours per fixture asset id. Grid levels 44/140/236.
+SENTINELS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
+    "land": ((236, 44, 44), (140, 44, 44)),
+    "port": ((44, 236, 44), (44, 140, 44)),
+    "square": ((44, 44, 236), (44, 44, 140)),
+    "cine": ((236, 236, 44), (140, 140, 44)),
+    "four3": ((236, 44, 236), (140, 44, 140)),
+    "orig": ((44, 236, 236), (44, 140, 140)),
+    "land24": ((236, 140, 44), (140, 236, 44)),
+    "png": ((140, 44, 236), (44, 140, 236)),
+}
+#: Bits of the frame counter. 12 bits index 4096 frames: a 60 s asset at 30 fps is 1800.
+COUNTER_BITS = 12
+#: Transparent border of the PNG asset, as a fraction of its short edge ("PNG with alpha").
+PNG_ALPHA_BORDER = 0.08
+
+#: PX0.3 test-pattern patches, row-major on a 4x3 grid: 75% bars, extremes, a skin tone, greys.
+COLOUR_PATCHES: list[tuple[str, tuple[int, int, int]]] = [
+    ("white75", (191, 191, 191)),
+    ("yellow75", (191, 191, 0)),
+    ("cyan75", (0, 191, 191)),
+    ("green75", (0, 191, 0)),
+    ("magenta75", (191, 0, 191)),
+    ("red75", (191, 0, 0)),
+    ("blue75", (0, 0, 191)),
+    ("red100", (255, 0, 0)),
+    ("grey50", (128, 128, 128)),
+    ("skin", (224, 172, 140)),
+    ("nearBlack", (16, 16, 16)),
+    ("nearWhite", (235, 235, 235)),
+]
+COLOUR_GRID = (4, 3)
+COLOUR_SIZE = (1280, 720)
+COLOUR_SAMPLE_TIME = 1.0
+#: The four encodings PX0.3 measures: (id, ffmpeg matrix, ffmpeg range, colour tag).
+COLOUR_ENCODINGS: list[tuple[str, str, str, str]] = [
+    ("bt601-limited", "bt601", "tv", "smpte170m"),
+    ("bt601-full", "bt601", "pc", "smpte170m"),
+    ("bt709-limited", "bt709", "tv", "bt709"),
+    ("bt709-full", "bt709", "pc", "bt709"),
+]
+
+
+@dataclass(frozen=True)
+class VideoSpec:
+    """One synthetic video asset to encode."""
+
+    rel_path: str
+    width: int
+    height: int
+    fps: float
+    seconds: float
+    primary: tuple[int, int, int]
+    secondary: tuple[int, int, int]
+
+
+def input_hash() -> str:
+    """Hash of the inputs the spec can see: the manifest version and every fixture.
+
+    Not this script: iterating on it would invalidate a 10-minute render for a comment. A change
+    here that alters the output bumps :data:`MANIFEST_VERSION` (and the spec's copy of it).
+    """
+    digest = hashlib.sha256()
+    digest.update(f"v{MANIFEST_VERSION}".encode())
+    for path in sorted(FIXTURE_DIR.glob("*.json")):
+        digest.update(path.name.encode("utf-8"))
+        digest.update(path.read_bytes())
+    return digest.hexdigest()
+
+
+def load_cases() -> list[tuple[str, dict[str, Any]]]:
+    """Every matrix case as ``(area, case)``, in a stable order."""
+    cases: list[tuple[str, dict[str, Any]]] = []
+    for path in sorted(FIXTURE_DIR.glob("*.json")):
+        document = json.loads(path.read_text(encoding="utf-8"))
+        cases.extend((path.stem, case) for case in document["cases"])
+    return cases
+
+
+def engine_asset_path(asset: dict[str, Any]) -> str:
+    """The file both sides read: the proxy when the asset has one, else the original."""
+    media = asset.get("media") or {}
+    proxy = media.get("proxyPath")
+    return str(proxy) if proxy else str(asset["path"])
+
+
+def _hex(colour: tuple[int, int, int]) -> str:
+    return "0x{:02X}{:02X}{:02X}".format(*colour)
+
+
+def _run(args: list[str]) -> None:
+    result = subprocess.run(args, capture_output=True, text=True, check=False)
+    if result.returncode != 0:
+        raise RuntimeError(
+            f"ffmpeg failed ({result.returncode}): {' '.join(args)}\n{result.stderr}"
+        )
+
+
+def _even(value: int) -> int:
+    return max(2, value - value % 2)
+
+
+def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
+    """Encode one sentinel asset the way ``media/derive.py`` encodes a preview proxy."""
+    out = out_dir / spec.rel_path
+    out.parent.mkdir(parents=True, exist_ok=True)
+    block = _even(min(spec.width, spec.height) // 36)
+    counter = [
+        f"drawbox=x=0:y=0:w={block * COUNTER_BITS}:h={block}:color=black:t=fill",
+        *(
+            f"drawbox=x={bit * block}:y=0:w={block}:h={block}:color=white:t=fill"
+            f":enable='mod(floor(n/{2**bit})\\,2)'"
+            for bit in range(COUNTER_BITS)
+        ),
+    ]
+    graph = ",".join(
+        [
+            f"color=c={_hex(spec.primary)}:s={spec.width}x{spec.height}:r={spec.fps:g}"
+            f":d={spec.seconds:g}",
+            "format=rgb24",
+            f"drawbox=x=iw/2:y=0:w=iw/2:h=ih/2:color={_hex(spec.secondary)}:t=fill",
+            *counter,
+            "scale=out_color_matrix=bt709:out_range=tv",
+            "format=yuv420p",
+        ]
+    )
+    keyframe_interval = str(max(1, round(spec.fps) // 2))
+    _run(
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            graph,
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=r=48000:cl=stereo:d={spec.seconds:g}",
+            "-map",
+            "0:v",
+            "-map",
+            "1:a",
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "high",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "28",
+            "-g",
+            keyframe_interval,
+            "-keyint_min",
+            keyframe_interval,
+            "-sc_threshold",
+            "0",
+            "-flags",
+            "+cgop",
+            "-bf",
+            "0",
+            "-colorspace",
+            "bt709",
+            "-color_primaries",
+            "bt709",
+            "-color_trc",
+            "bt709",
+            "-color_range",
+            "tv",
+            "-movflags",
+            "+faststart",
+            "-c:a",
+            "aac",
+            "-b:a",
+            "128k",
+            "-t",
+            f"{spec.seconds:g}",
+            str(out),
+        ]
+    )
+
+
+def write_png_asset(out_dir: Path, rel_path: str, width: int, height: int) -> None:
+    """The still asset: sentinel fill, secondary top-right quadrant, a fully transparent border."""
+    from PIL import Image, ImageDraw
+
+    primary, secondary = SENTINELS["png"]
+    image = Image.new("RGBA", (width, height), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    border = round(min(width, height) * PNG_ALPHA_BORDER)
+    draw.rectangle((border, border, width - border - 1, height - border - 1), fill=(*primary, 255))
+    draw.rectangle(
+        (width // 2, border, width - border - 1, height // 2 - 1), fill=(*secondary, 255)
+    )
+    target = out_dir / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    image.save(target, format="PNG")
+
+
+def write_audio_asset(ffmpeg: str, out_dir: Path, rel_path: str, seconds: float) -> None:
+    """A silent WAV: audio assets draw nothing, they only have to exist."""
+    target = out_dir / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    _run(
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-f",
+            "lavfi",
+            "-i",
+            f"anullsrc=r=48000:cl=stereo:d={seconds:g}",
+            "-c:a",
+            "pcm_s16le",
+            str(target),
+        ]
+    )
+
+
+def write_lut(out_dir: Path, rel_path: str) -> None:
+    """A deterministic 17^3 ``.cube``: a gentle warm S-curve, so the LUT visibly does something."""
+    size = 17
+    lines = ['TITLE "px4 film"', f"LUT_3D_SIZE {size}"]
+    for b in range(size):
+        for g in range(size):
+            for r in range(size):
+
+                def curve(v: float) -> float:
+                    return min(1.0, max(0.0, v * v * (3 - 2 * v)))
+
+                red = curve(r / (size - 1)) * 0.9 + 0.1 * (r / (size - 1))
+                green = curve(g / (size - 1))
+                blue = curve(b / (size - 1)) * 0.85
+                lines.append(f"{red:.6f} {green:.6f} {blue:.6f}")
+    target = out_dir / rel_path
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text("\n".join(lines) + "\n", encoding="utf-8")
+
+
+def collect_media(
+    cases: list[tuple[str, dict[str, Any]]],
+) -> tuple[list[VideoSpec], dict[str, Any]]:
+    """Every distinct asset file the cases reference, with the facts needed to synthesise it."""
+    videos: dict[str, VideoSpec] = {}
+    others: dict[str, Any] = {}
+    for _area, case in cases:
+        fps = case["probe"]["fps"]
+        for asset in case["project"]["assets"]:
+            rel = engine_asset_path(asset)
+            media = asset.get("media") or {}
+            if asset["kind"] == "video":
+                if asset["id"] not in SENTINELS:
+                    raise KeyError(f"No sentinel colour for video asset {asset['id']!r}")
+                primary, secondary = SENTINELS[asset["id"]]
+                spec = VideoSpec(
+                    rel_path=rel,
+                    width=int(media["width"]),
+                    height=int(media["height"]),
+                    fps=float(fps[asset["id"]]),
+                    seconds=float(asset.get("durationSeconds") or 10.0),
+                    primary=primary,
+                    secondary=secondary,
+                )
+                if videos.setdefault(rel, spec) != spec:
+                    raise ValueError(f"Cases disagree about the media facts of {rel!r}")
+            elif asset["kind"] == "image":
+                others[rel] = ("image", int(media["width"]), int(media["height"]))
+            elif asset["kind"] == "audio":
+                others[rel] = ("audio", float(asset.get("durationSeconds") or 10.0))
+        for track in case["project"]["timeline"]["tracks"]:
+            for clip in track.get("clips", []):
+                for effect in clip.get("effects", []):
+                    if effect.get("type") == "lut":
+                        others[str(effect["params"]["path"])] = ("lut",)
+    return sorted(videos.values(), key=lambda spec: spec.rel_path), others
+
+
+def engine_project(case: dict[str, Any]) -> dict[str, Any]:
+    """The case's project with every asset pointed at the file the preview also reads."""
+    project: dict[str, Any] = copy.deepcopy(case["project"])
+    for asset in project["assets"]:
+        asset["path"] = engine_asset_path(asset)
+    return project
+
+
+#: Samples per worker task. A composition is compiled once per task, so this trades compile
+#: repeats for parallelism on the cases with dozens of samples (every transition kind).
+SAMPLES_PER_TASK = 4
+
+
+def _grab_case(
+    args: tuple[str, str, dict[str, Any], list[int], bool],
+) -> list[tuple[int, dict[str, Any]]]:
+    """Render the chosen samples of one case (runs in a worker process)."""
+    out_dir_text, area, case, indices, keep_existing = args
+    from framepilot_engine.render.frame_grab import grab_frame
+    from framepilot_engine.timeline.models import Project
+
+    out_dir = Path(out_dir_text)
+    project = Project.model_validate(engine_project(case))
+    results: list[tuple[int, dict[str, Any]]] = []
+    for index in indices:
+        sample = case["samples"][index]
+        rel = f"frames/{area}/{case['id']}/{index}.png"
+        entry: dict[str, Any] = {"time": sample, "frame": None, "error": None}
+        if keep_existing and (out_dir / rel).exists():
+            entry["frame"] = rel
+            results.append((index, entry))
+            continue
+        try:
+            frame = grab_frame(
+                project,
+                out_dir,
+                float(sample),
+                image_format="png",
+                burn_captions=bool(case["burnCaptions"]),
+                lossless=True,
+            )
+            target = out_dir / rel
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_bytes(frame.data)
+            entry.update(
+                frame=rel, renderedTime=frame.time_seconds, size=[frame.width, frame.height]
+            )
+        except Exception as exc:  # recorded, not raised: the spec reports it as a failure kind
+            entry["error"] = f"{type(exc).__name__}: {exc}"
+        results.append((index, entry))
+    return results
+
+
+def _patch_boxes() -> list[tuple[int, int, int, int]]:
+    columns, rows = COLOUR_GRID
+    width, height = COLOUR_SIZE
+    cell_w, cell_h = width // columns, height // rows
+    return [
+        (col * cell_w, row * cell_h, cell_w, cell_h)
+        for row in range(rows)
+        for col in range(columns)
+    ]
+
+
+def write_colour_pattern(out_dir: Path) -> Path:
+    from PIL import Image, ImageDraw
+
+    image = Image.new("RGB", COLOUR_SIZE, (0, 0, 0))
+    draw = ImageDraw.Draw(image)
+    for (x, y, w, h), (_name, rgb) in zip(_patch_boxes(), COLOUR_PATCHES, strict=True):
+        draw.rectangle((x, y, x + w - 1, y + h - 1), fill=rgb)
+    target = out_dir / "colour" / "pattern.png"
+    target.parent.mkdir(parents=True, exist_ok=True)
+    image.save(target, format="PNG")
+    return target
+
+
+def encode_colour_clip(
+    ffmpeg: str, pattern: Path, out_dir: Path, encoding: tuple[str, str, str, str]
+) -> None:
+    clip_id, matrix, colour_range, tag = encoding
+    _run(
+        [
+            ffmpeg,
+            "-y",
+            "-loglevel",
+            "error",
+            "-loop",
+            "1",
+            "-framerate",
+            "30",
+            "-i",
+            str(pattern),
+            "-t",
+            "2",
+            "-vf",
+            f"scale=out_color_matrix={matrix}:out_range={colour_range},format=yuv420p",
+            "-c:v",
+            "libx264",
+            "-profile:v",
+            "high",
+            "-pix_fmt",
+            "yuv420p",
+            "-preset",
+            "veryfast",
+            "-crf",
+            "12",
+            "-g",
+            "15",
+            "-bf",
+            "0",
+            "-colorspace",
+            tag,
+            "-color_primaries",
+            tag,
+            "-color_trc",
+            tag,
+            "-color_range",
+            colour_range,
+            "-movflags",
+            "+faststart",
+            str(out_dir / "colour" / f"{clip_id}.mp4"),
+        ]
+    )
+
+
+def colour_project(clip_id: str) -> dict[str, Any]:
+    """A one-clip project over a PX0.3 test pattern; the spec loads the same document."""
+    width, height = COLOUR_SIZE
+    return {
+        "id": f"px03-{clip_id}",
+        "name": f"px03-{clip_id}",
+        "version": 1,
+        "fps": 30,
+        "resolution": {"width": width, "height": height},
+        "assets": [
+            {
+                "id": "pattern",
+                "path": f"colour/{clip_id}.mp4",
+                "kind": "video",
+                "media": {
+                    "width": width,
+                    "height": height,
+                    "proxyPath": f"colour/{clip_id}.mp4",
+                },
+                "durationSeconds": 2.0,
+            }
+        ],
+        "timeline": {
+            "tracks": [
+                {
+                    "id": "v1",
+                    "type": "video",
+                    "clips": [
+                        {
+                            "id": "c1",
+                            "assetId": "pattern",
+                            "trackId": "v1",
+                            "start": 0.0,
+                            "end": 2.0,
+                            "sourceStart": 0.0,
+                            "sourceEnd": 2.0,
+                            "effects": [],
+                            "keyframes": [],
+                        }
+                    ],
+                }
+            ]
+        },
+        "transcript": [],
+    }
+
+
+def patch_means(png_bytes: bytes) -> list[list[float]]:
+    """Mean RGB of the central half of every patch (edges carry chroma-subsampling bleed)."""
+    import io
+
+    import numpy as np
+    from PIL import Image
+
+    pixels = np.asarray(Image.open(io.BytesIO(png_bytes)).convert("RGB"), dtype=np.float64)
+    means: list[list[float]] = []
+    for x, y, w, h in _patch_boxes():
+        region = pixels[y + h // 4 : y + 3 * h // 4, x + w // 4 : x + 3 * w // 4]
+        means.append([round(float(v), 3) for v in region.reshape(-1, 3).mean(axis=0)])
+    return means
+
+
+def measure_colour(out_dir: Path) -> dict[str, Any]:
+    from framepilot_engine.render.frame_grab import grab_frame
+    from framepilot_engine.timeline.models import Project
+
+    measured: dict[str, Any] = {}
+    for clip_id, matrix, colour_range, tag in COLOUR_ENCODINGS:
+        document = colour_project(clip_id)
+        frame = grab_frame(
+            Project.model_validate(document),
+            out_dir,
+            COLOUR_SAMPLE_TIME,
+            image_format="png",
+            lossless=True,
+        )
+        (out_dir / "colour" / f"{clip_id}.engine.png").write_bytes(frame.data)
+        measured[clip_id] = {
+            "matrix": matrix,
+            "range": colour_range,
+            "tag": tag,
+            "project": document,
+            "engine": patch_means(frame.data),
+        }
+    return {
+        "time": COLOUR_SAMPLE_TIME,
+        "patches": [
+            {"name": name, "authored": list(rgb), "box": list(box)}
+            for (name, rgb), box in zip(COLOUR_PATCHES, _patch_boxes(), strict=True)
+        ],
+        "encodings": measured,
+    }
+
+
+def generate(out_dir: Path, jobs: int, keep_existing: bool = False) -> dict[str, Any]:
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+
+    ffmpeg = find_ffmpeg()
+    cases = load_cases()
+    out_dir.mkdir(parents=True, exist_ok=True)
+
+    videos, others = collect_media(cases)
+    _log.info("encoding %d sentinel videos", len(videos))
+    with ThreadPoolExecutor(max_workers=jobs) as pool:
+        list(
+            pool.map(
+                lambda spec: encode_video(ffmpeg, out_dir, spec),
+                [v for v in videos if not (keep_existing and (out_dir / v.rel_path).exists())],
+            )
+        )
+        pattern = write_colour_pattern(out_dir)
+        list(
+            pool.map(
+                lambda enc: encode_colour_clip(ffmpeg, pattern, out_dir, enc), COLOUR_ENCODINGS
+            )
+        )
+    for rel, facts in others.items():
+        if facts[0] == "image":
+            write_png_asset(out_dir, rel, facts[1], facts[2])
+        elif facts[0] == "audio":
+            write_audio_asset(ffmpeg, out_dir, rel, facts[1])
+        else:
+            write_lut(out_dir, rel)
+
+    _log.info("rendering engine frames for %d cases", len(cases))
+    tasks = [
+        (
+            str(out_dir),
+            area,
+            case,
+            list(range(start, len(case["samples"])))[:SAMPLES_PER_TASK],
+            keep_existing,
+        )
+        for area, case in cases
+        for start in range(0, len(case["samples"]), SAMPLES_PER_TASK)
+    ]
+    # Largest first, so the long transition cases start while the pool is empty.
+    tasks.sort(key=lambda task: -len(task[2]["samples"]))
+    rendered: dict[tuple[str, str], dict[int, dict[str, Any]]] = {}
+    with ProcessPoolExecutor(max_workers=jobs) as pool:
+        for task, samples in zip(tasks, pool.map(_grab_case, tasks), strict=True):
+            rendered.setdefault((task[1], task[2]["id"]), {}).update(samples)
+
+    manifest = {
+        "version": MANIFEST_VERSION,
+        "inputHash": input_hash(),
+        "sentinels": {
+            asset: {"primary": list(primary), "secondary": list(secondary)}
+            for asset, (primary, secondary) in SENTINELS.items()
+        },
+        "media": {
+            spec.rel_path: {"width": spec.width, "height": spec.height, "fps": spec.fps}
+            for spec in videos
+        },
+        "cases": [
+            {
+                "area": area,
+                "id": case["id"],
+                "samples": [
+                    rendered[(area, case["id"])][index] for index in range(len(case["samples"]))
+                ],
+            }
+            for area, case in cases
+        ],
+        "colour": measure_colour(out_dir),
+    }
+    (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
+    return manifest
+
+
+def main(argv: list[str] | None = None) -> int:
+    parser = argparse.ArgumentParser(description=__doc__.splitlines()[0] if __doc__ else None)
+    parser.add_argument("--out", type=Path, default=DEFAULT_OUT_DIR)
+    parser.add_argument("--jobs", type=int, default=4)
+    parser.add_argument(
+        "--keep-existing",
+        action="store_true",
+        help="local iteration only: reuse media and frames already on disk (CI never passes it)",
+    )
+    args = parser.parse_args(argv)
+    logging.basicConfig(level=logging.INFO, format="%(name)s: %(message)s")
+    manifest = generate(args.out.resolve(), max(1, args.jobs), keep_existing=args.keep_existing)
+    errors = sum(1 for case in manifest["cases"] for s in case["samples"] if s["error"])
+    _log.info("wrote %s (%d engine errors recorded)", args.out / "manifest.json", errors)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())
