@@ -11,6 +11,7 @@ import {
   isProjectFileConflictError,
   MAX_PARSED_PROJECT_BYTES,
   PROJECT_FILE_CONFLICT_CODE,
+  preMigrationBackupPath,
   readProjectFile,
   serializeProject,
   stripTopLevelHistory,
@@ -315,4 +316,83 @@ describe('readProjectFile over the parse budget', () => {
     // package parallelism were stacked on top, so give the stress run real
     // headroom instead of a load-dependent flake.
   }, 120_000);
+});
+
+describe('pre-migration backup and newer-format refusal (schema v22)', () => {
+  const v21Text = (): string =>
+    JSON.stringify(
+      {
+        ...sampleProject(),
+        schemaVersion: 21,
+        assets: [{ id: 'a1', path: 'a.mp4', media: { width: 1920, height: 1080 } }],
+        timeline: {
+          tracks: [
+            {
+              id: 'video_1',
+              type: 'video',
+              clips: [
+                {
+                  id: 'c1',
+                  assetId: 'a1',
+                  trackId: 'video_1',
+                  start: 0,
+                  end: 2,
+                  sourceStart: 0,
+                  sourceEnd: 2,
+                  effects: [{ id: 'c1__mask', type: 'mask', params: { shape: 'ellipse' } }],
+                },
+              ],
+            },
+          ],
+        },
+      },
+      null,
+      2,
+    );
+
+  it('names the backup after the project and the version it was written with', () => {
+    expect(preMigrationBackupPath('/p/demo.fp.json', 21)).toBe('/p/demo.v21.backup.fp.json');
+    expect(preMigrationBackupPath('/p/demo.json', 21)).toBe('/p/demo.v21.backup.fp.json');
+  });
+
+  it('copies the exact older bytes aside before migrating, and opens the migrated project', async () => {
+    const path = join(dir, 'demo.fp.json');
+    const original = v21Text();
+    await writeFile(path, original, 'utf8');
+    const project = await readProjectFile(path, { backupBeforeMigration: true });
+    expect(project.timeline.tracks[0]!.clips[0]!.masks?.[0]?.kind).toBe('ellipse');
+    expect(await readFile(join(dir, 'demo.v21.backup.fp.json'), 'utf8')).toBe(original);
+  });
+
+  it('never overwrites an earlier backup, so it keeps the file as it first was', async () => {
+    const path = join(dir, 'demo.fp.json');
+    const backup = join(dir, 'demo.v21.backup.fp.json');
+    await writeFile(backup, 'the first copy', 'utf8');
+    await writeFile(path, v21Text(), 'utf8');
+    await readProjectFile(path, { backupBeforeMigration: true });
+    expect(await readFile(backup, 'utf8')).toBe('the first copy');
+  });
+
+  it('writes no backup for a current file or when the caller did not ask', async () => {
+    const current = join(dir, 'current.fp.json');
+    await writeProjectFile(current, sampleProject());
+    await readProjectFile(current, { backupBeforeMigration: true });
+    const older = join(dir, 'older.fp.json');
+    await writeFile(older, v21Text(), 'utf8');
+    await readProjectFile(older);
+    expect((await readdir(dir)).filter((name) => name.includes('backup'))).toEqual([]);
+  });
+
+  it('refuses a newer project format without writing anything', async () => {
+    const path = join(dir, 'future.fp.json');
+    await writeFile(
+      path,
+      JSON.stringify({ ...sampleProject(), schemaVersion: SCHEMA_VERSION + 1 }),
+      'utf8',
+    );
+    await expect(readProjectFile(path, { backupBeforeMigration: true })).rejects.toThrow(
+      /^Update FramePilot to open this project\./,
+    );
+    expect((await readdir(dir)).sort()).toEqual(['future.fp.json']);
+  });
 });

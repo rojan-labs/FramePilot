@@ -32,10 +32,25 @@ export function serializeProject(project: Project): string {
  * @throws {import('zod').ZodError} when the migrated shape fails validation.
  */
 export function deserializeProject(text: string): Project {
+  return projectFromDocument(parseProjectDocument(text));
+}
+
+/**
+ * Parse `project.fp.json` text into its raw, unmigrated document.
+ *
+ * @throws {SyntaxError} when the text is not valid JSON.
+ * @throws {TypeError} when the JSON is not an object.
+ */
+export function parseProjectDocument(text: string): RawProject {
   const parsed: unknown = JSON.parse(text);
   if (typeof parsed !== 'object' || parsed === null || Array.isArray(parsed)) {
     throw new TypeError('project.fp.json must contain a JSON object.');
   }
-  const { raw } = migrateToCurrent(parsed as RawProject);
+  return parsed as RawProject;
+}
+
+/** Migrate and validate an already-parsed raw document (see {@link deserializeProject}). */
+export function projectFromDocument(document: RawProject): Project {
+  const { raw } = migrateToCurrent(document);
   return parseProject(raw);
 }

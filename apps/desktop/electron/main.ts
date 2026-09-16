@@ -48,12 +48,20 @@ import type { Patch } from '@framepilot/editor-core';
 import { createLogger } from '@framepilot/shared-types';
 import { ProcessRegistry, type PidFileIO } from './process-registry.js';
 import {
-  readProjectFile,
+  readProjectFile as readProjectFileFromDisk,
   serializeProject,
   writeProjectFile,
 } from '@framepilot/timeline-schema/file';
 
 const aiLog = createLogger('desktop:main');
+
+/**
+ * Every desktop read copies an older-format project aside before migrating it
+ * (`<project>.v<N>.backup.fp.json`, ADR 0178): the next save publishes the new format, and
+ * the user must have a way back that does not depend on the migration being right.
+ */
+const readProjectFile = (projectPath: string): Promise<Project> =>
+  readProjectFileFromDisk(projectPath, { backupBeforeMigration: true });
 import {
   createReferenceAnalyzer,
   ReferenceProfileSchema,
