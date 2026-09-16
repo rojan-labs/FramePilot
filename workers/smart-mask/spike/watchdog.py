@@ -7,11 +7,16 @@ version measures what the OS charges the processes for.
 
 Rules:
 - ONE heavy job at a time: jobs run sequentially; a job does not start while another spike
-  job runs (checked with ``ps``), nor while system swap is above the swap limit;
+  job runs (checked with ``ps``), nor while free memory is below the start level;
 - each job runs in its own process group; every 5 s the watchdog sums the physical footprint
   (``top -stats mem``: resident + compressed, including IOKit/Metal-backed memory) over the
-  group and kills the whole group above ``--max-footprint-gib`` (default 8), or when system
-  swap used exceeds ``--max-swap-gib`` (default 6);
+  group and kills the whole group above ``--max-footprint-gib`` (default 8), when system swap
+  grows by more than ``--max-swap-growth-gib`` (default 1) during the job, or when the
+  kernel's free-memory level (``kern.memorystatus_level``, %) drops below ``--min-free-pct``
+  (default 15). A job starts only when free memory is at least ``--start-free-pct`` (default 50).
+  (Absolute "swap used" was tried as a gate and never opened: macOS keeps swap allocated after
+  pressure ends, 8.5 GB "used" with 76% of memory free and no spike job running. Swap *growth*
+  and free memory are what a job actually changes.)
 - an abort is recorded in results/aborts.jsonl with the observed peak and is NOT retried.
 
     .venv/bin/python watchdog.py --log ../.cache/queue.log -- "parity_sam.py --ep cpu" "..."
@@ -65,6 +70,11 @@ def footprint_bytes(pids: list[int]) -> int:
     return total
 
 
+def free_memory_pct() -> int:
+    out = subprocess.run(["sysctl", "-n", "kern.memorystatus_level"], capture_output=True, text=True).stdout
+    return int(out.strip() or 0)
+
+
 def swap_used_bytes() -> int:
     out = subprocess.run(["sysctl", "-n", "vm.swapusage"], capture_output=True, text=True).stdout
     m = re.search(r"used = ([\d.]+)M", out)
@@ -87,34 +97,40 @@ def other_spike_jobs(own_pids: set[int]) -> list[str]:
     return busy
 
 
-def run_job(job: str, max_fp: int, max_swap: int, log) -> dict:
+def run_job(job: str, max_fp: int, max_growth: int, start_free: int, min_free: int, log) -> dict:
     argv = [sys.executable, "-u", *job.split()]
     while True:
         busy = other_spike_jobs({os.getpid()})
-        swap = swap_used_bytes()
-        if not busy and swap <= max_swap:
+        free = free_memory_pct()
+        if not busy and free >= start_free:
             break
-        log.write(f"waiting: busy={busy} swapUsedGiB={swap / 2**30:.2f}\n")
+        log.write(f"waiting: busy={busy} freeMemoryPct={free}\n")
         time.sleep(30)
     t0 = time.time()
+    base_swap = swap_used_bytes()
     proc = subprocess.Popen(argv, stdout=log, stderr=subprocess.STDOUT, start_new_session=True)
     peak_fp = peak_swap = 0
+    min_seen_free = 100
     reason = None
     while proc.poll() is None:
         fp = footprint_bytes(group_pids(proc.pid))
         swap = swap_used_bytes()
-        peak_fp, peak_swap = max(peak_fp, fp), max(peak_swap, swap)
+        free = free_memory_pct()
+        peak_fp, peak_swap, min_seen_free = max(peak_fp, fp), max(peak_swap, swap), min(min_seen_free, free)
         if fp > max_fp:
             reason = f"physical footprint {fp / 2**30:.2f} GiB exceeded {max_fp / 2**30:.1f} GiB local budget"
-        elif swap > max_swap:
-            reason = f"system swap used {swap / 2**30:.2f} GiB exceeded {max_swap / 2**30:.1f} GiB"
+        elif swap - base_swap > max_growth:
+            reason = (f"system swap grew {(swap - base_swap) / 2**30:.2f} GiB (limit {max_growth / 2**30:.1f}) "
+                      f"from {base_swap / 2**30:.2f} GiB")
+        elif free < min_free:
+            reason = f"system free memory {free}% below {min_free}%"
         if reason:
             os.killpg(proc.pid, signal.SIGKILL)
             proc.wait()
             break
         time.sleep(POLL_SECONDS)
     rec = {"job": job, "exitCode": proc.returncode, "seconds": round(time.time() - t0, 1),
-           "peakFootprintGiB": round(peak_fp / 2**30, 2), "peakSwapUsedGiB": round(peak_swap / 2**30, 2),
+           "peakFootprintGiB": round(peak_fp / 2**30, 2), "startSwapUsedGiB": round(base_swap / 2**30, 2), "peakSwapUsedGiB": round(peak_swap / 2**30, 2), "minFreeMemoryPct": min_seen_free,
            "aborted": reason is not None, "at": time.strftime("%Y-%m-%dT%H:%M:%S")}
     common.RESULTS.mkdir(parents=True, exist_ok=True)
     if reason:
@@ -130,14 +146,17 @@ def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--log", required=True)
     ap.add_argument("--max-footprint-gib", type=float, default=8.0)
-    ap.add_argument("--max-swap-gib", type=float, default=6.0)
+    ap.add_argument("--max-swap-growth-gib", type=float, default=1.0)
+    ap.add_argument("--start-free-pct", type=int, default=50)
+    ap.add_argument("--min-free-pct", type=int, default=15)
     ap.add_argument("jobs", nargs="+")
     a = ap.parse_args()
     os.chdir(common.SPIKE_DIR)
     with open(a.log, "a", buffering=1) as log:
         for job in a.jobs:
             log.write(f"== START {job} {time.strftime('%H:%M:%S')}\n")
-            rec = run_job(job, int(a.max_footprint_gib * 2**30), int(a.max_swap_gib * 2**30), log)
+            rec = run_job(job, int(a.max_footprint_gib * 2**30), int(a.max_swap_growth_gib * 2**30),
+                          a.start_free_pct, a.min_free_pct, log)
             log.write(f"== END {json.dumps(rec)}\n")
 
 
