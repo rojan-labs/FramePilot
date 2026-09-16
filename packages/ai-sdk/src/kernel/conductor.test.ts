@@ -13,7 +13,7 @@ import { JUDGEMENT_CRITERION } from '../acceptance.js';
 import { describe, expect, it } from 'vitest';
 import type { AnyOperation } from '@framepilot/editor-core';
 import type { ContextInput } from '../context-builder.js';
-import type { PlanStep } from '../events.js';
+import { type PlanStep, SELF_CHECK_NOTICE_REASON, reduceEvents } from '../events.js';
 import { makeProject } from '../__fixtures__/project.js';
 import type { Command } from './commands.js';
 import {
@@ -2044,6 +2044,29 @@ describe('progress guards, audited together', () => {
 });
 
 describe('onEffectResult — verify(+repair) → finalize', () => {
+  it('tags every notice of the self-check pass, and only those, so a host can group them', () => {
+    const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
+    const { events } = onEffectResult(
+      s,
+      verify({
+        ok: false,
+        summary: 'one issue',
+        failedChecks: [{ label: 'Duration', detail: 'too long' }],
+        warnedChecks: [{ label: 'Transcript', detail: 'looks looped' }],
+        repairOutcome: { kind: 'no_calls' },
+      }),
+    );
+    const selfCheck = events.filter((e) => e.type === 'notification' || e.type === 'warning');
+    expect(selfCheck).toHaveLength(4);
+    for (const event of selfCheck)
+      expect(event).toMatchObject({ reason: SELF_CHECK_NOTICE_REASON });
+    // The run's own failure card is not part of the pass: it stays its own, retryable row.
+    expect(events.find((e) => e.type === 'error')).not.toHaveProperty('reason');
+    // …and the tag survives the reduction the sidebar renders from, warnings included.
+    const notices = reduceEvents(events).nodes.filter((n) => n.kind === 'notice');
+    expect(notices.filter((n) => n.reason === SELF_CHECK_NOTICE_REASON)).toHaveLength(4);
+  });
+
   it('surfaces the self-check summary + a warning per failed check, then finalizes', () => {
     const s = started({ phase: 'verifying', cumulativeOps: ops(2), appliedTurns: 1 });
     const { state, effects, events } = onEffectResult(
