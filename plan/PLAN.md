@@ -10003,6 +10003,13 @@ model calls 91% of turn wall time; a call's latency is its thinking tokens at ~8
 - [x] SD2 — the right rail no longer pads the Inspector: it owns its gutter and sticky clip/status
   bars, so `.rail-body--padded` double-indented it. The right rail body is unpadded for both tabs.
 
+- [x] SD3 — Plan rows no longer overlap: `.ai-plan-step`'s explicit `min-height` replaced flex's
+  `min-height: auto`, so inside the accordion's max-height column every row shrank to 30px and
+  wrapped labels painted over the next rows. Rows are `flex: none` and top-aligned. Evidence:
+  headless Chromium with the real stylesheets and a 22-step plan, 8 overlaps on main → 0.
+- [x] SD4 — plan-step labels are plain text (`plainPlanLabel`, ai-sdk) at parse time and in the view
+  reducer (covers saved conversations); a bold step is no longer taken for a `*` bullet.
+
 - [ ] Keep this PLAN.md updated after every unit of work (check off / add tasks)
 - [ ] Keep `docs/` updated for every change (see docs-maintainer rule)
 - [ ] Keep `CHANGELOG.md` current (Keep a Changelog format)

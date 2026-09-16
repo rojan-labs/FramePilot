@@ -519,7 +519,9 @@ function PlanChecklist({
             return (
               <li key={step.id} className="ai-plan-step" data-status={step.status}>
                 <PlanStepMark step={step} />
-                <span className={step.status === 'running' ? 'ai-shimmer-text' : undefined}>
+                <span
+                  className={`ai-plan-step-label${step.status === 'running' ? ' ai-shimmer-text' : ''}`}
+                >
                   {step.label}
                 </span>
                 {step.status === 'running' && step.detail && step.detail !== step.label ? (
