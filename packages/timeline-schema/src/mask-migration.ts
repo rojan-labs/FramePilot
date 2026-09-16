@@ -163,10 +163,23 @@ function deriveKeyframes(
   inputs: readonly { readonly property: string; readonly fallback: number }[],
   output: string,
   combine: (values: readonly number[]) => number,
-): { readonly keyframes: DraftKeyframe[]; readonly resampled: boolean } {
+  frameTimes?: readonly number[],
+): {
+  readonly keyframes: DraftKeyframe[];
+  readonly resampled: boolean;
+  readonly sampled?: boolean;
+} {
   const curves = inputs.map((input) => pointsFor(keyframes, input.property));
   const animated = curves.filter((curve) => curve.length > 0);
   if (animated.length === 0) return { keyframes: [], resampled: false };
+  const moving = animated.some((curve) => curve.length > 1);
+  if (frameTimes !== undefined && frameTimes.length > 0 && moving) {
+    return {
+      keyframes: sampleAtFrames(curves, inputs, output, combine, frameTimes),
+      resampled: false,
+      sampled: true,
+    };
+  }
   const reference = animated[0]!;
   const aligned = animated.every(
     (curve) =>
@@ -197,6 +210,59 @@ function deriveKeyframes(
     };
   });
   return { keyframes: draft, resampled: !aligned };
+}
+
+/**
+ * A derived property sampled at every rendered frame, as linear keyframes.
+ *
+ * WHY: v21 eased mask animation on the clip's TIMELINE clock. Through a speed ramp the
+ * timeline → source mapping is not affine, so no easing on the source clock redraws that
+ * curve; and even at constant speed, re-timed keyframes interpolate to a value an ulp away
+ * from v21's between keyframes, which is enough to move a rasterised edge. A keyframe at every
+ * frame's clip-local time (`n / fps - clip.start`, the instant the export asks for) carries
+ * the exact v21 value to the exact source instant the engine evaluates. A keyframe whose
+ * value equals both neighbours is dropped: linear interpolation between equal values is
+ * exact, so holds stay compact.
+ */
+function sampleAtFrames(
+  curves: readonly LegacyKeyframe[][],
+  inputs: readonly { readonly property: string; readonly fallback: number }[],
+  output: string,
+  combine: (values: readonly number[]) => number,
+  frameTimes: readonly number[],
+): DraftKeyframe[] {
+  const samples = frameTimes.map((time): DraftKeyframe => ({
+    property: output,
+    time,
+    value: combine(
+      inputs.map((input, index) => evaluateSortedCurve(curves[index]!, time) ?? input.fallback),
+    ),
+    easing: 'linear',
+  }));
+  return samples.filter(
+    (sample, index) =>
+      index === 0 ||
+      index === samples.length - 1 ||
+      sample.value !== samples[index - 1]!.value ||
+      sample.value !== samples[index + 1]!.value,
+  );
+}
+
+/**
+ * Clip-local times of every frame the export renders for a clip at `fps`: global frame
+ * times `n / fps` with `start <= n / fps < end`, minus `start` (MoviePy's own arithmetic).
+ */
+function clipFrameTimes(clip: RawRecord, fps: number): number[] {
+  const start = finiteOr(clip.start, 0);
+  const end = finiteOr(clip.end, start);
+  const times: number[] = [];
+  if (!(fps > 0)) return times;
+  let frame = Math.max(0, Math.floor(start * fps) - 1);
+  while (frame / fps < end) {
+    if (frame / fps >= start) times.push(frame / fps - start);
+    frame += 1;
+  }
+  return times;
 }
 
 /** Timeline-clock → source-clock mapping for one clip, mirroring the render's speed stage. */
@@ -364,6 +430,7 @@ function migrateOneMask(
   position: number,
   geometry: Geometry,
   normalized: boolean,
+  fps: number | null,
 ): RawRecord {
   const params = isRecord(effect.params) ? effect.params : {};
   const bounds = isRecord(params.bounds) ? params.bounds : {};
@@ -392,11 +459,25 @@ function migrateOneMask(
   if (position > 0) notes.push(MASK_DISABLED_EXTRA_NOTE);
 
   const { keyframes: legacy, dropped } = readLegacyKeyframes(effect);
+  const clock = clipClock(clip);
+  // Moving animation is sampled at every rendered frame on EVERY clock but a freeze: even at
+  // constant speed, re-timed keyframes interpolate on the source clock and land an ulp away
+  // from v21's timeline-clock value between keyframes, which moves a Pillow edge (measured:
+  // 13 of 60 frames at 2x). A freeze shows one source frame, so its first value is kept.
+  // `fps` is null for a mask AUTHORED in the v21 vocabulary today (`add_mask_advanced`):
+  // nothing to reproduce, so its keyframes stay editable as a pure re-timing.
+  const frames = clock.frozen || fps === null ? undefined : clipFrameTimes(clip, fps);
   const draft: DraftKeyframe[] = [];
   let resampled = false;
-  const add = (result: { keyframes: DraftKeyframe[]; resampled: boolean }): void => {
+  let sampled = false;
+  const add = (result: {
+    keyframes: DraftKeyframe[];
+    resampled: boolean;
+    sampled?: boolean;
+  }): void => {
     draft.push(...result.keyframes);
     resampled ||= result.resampled;
+    sampled ||= result.sampled === true;
   };
   if (kind === 'rectangle' || kind === 'ellipse') {
     const half = kind === 'ellipse' ? 0.5 : 1;
@@ -409,6 +490,7 @@ function migrateOneMask(
         ],
         'cx',
         ([x, width]) => geometry.x(x! + width! / 2),
+        frames,
       ),
     );
     add(
@@ -420,6 +502,7 @@ function migrateOneMask(
         ],
         'cy',
         ([y, height]) => geometry.y(y! + height! / 2),
+        frames,
       ),
     );
     add(
@@ -428,6 +511,7 @@ function migrateOneMask(
         [{ property: 'width', fallback: fw }],
         kind === 'ellipse' ? 'rx' : 'width',
         ([width]) => geometry.w(width!) * half,
+        frames,
       ),
     );
     add(
@@ -436,6 +520,7 @@ function migrateOneMask(
         [{ property: 'height', fallback: fh }],
         kind === 'ellipse' ? 'ry' : 'height',
         ([height]) => geometry.h(height!) * half,
+        frames,
       ),
     );
   } else if (legacy.some((keyframe) => ['x', 'y', 'width', 'height'].includes(keyframe.property))) {
@@ -450,6 +535,7 @@ function migrateOneMask(
       [{ property: 'feather', fallback: staticFeather }],
       'featherOuterPx',
       ([feather]) => geometry.feather(feather!),
+      frames,
     ),
   );
   add(
@@ -458,6 +544,7 @@ function migrateOneMask(
       [{ property: 'opacity', fallback: 1 }],
       'opacity',
       ([opacity]) => opacity!,
+      frames,
     ),
   );
   if (dropped > 0)
@@ -468,7 +555,6 @@ function migrateOneMask(
     );
   }
 
-  const clock = clipClock(clip);
   const byProperty = new Map<string, DraftKeyframe[]>();
   for (const keyframe of draft) {
     byProperty.set(keyframe.property, [...(byProperty.get(keyframe.property) ?? []), keyframe]);
@@ -489,6 +575,9 @@ function migrateOneMask(
           : {}),
       });
     });
+  }
+  if (sampled) {
+    notes.push('Animation was sampled at every frame so it plays exactly as before.');
   }
   if (clock.ramped && keyframes.length > 0) {
     notes.push('Keyframe instants were mapped through the speed ramp.');
@@ -564,7 +653,9 @@ function migrateOneMask(
  * `add_mask_advanced` builder takes fractions, a Gaussian feather fraction and clip-time
  * box keyframes — so a mask authored that way today lands identical to one migrated from a
  * v21 file, rather than through a second, subtly different conversion. Unlike the
- * migration it has no "unknown size" fallback: new masks need measured media.
+ * migration it has no "unknown size" fallback (new masks need measured media), and its
+ * keyframes are re-timed, not sampled at every frame: there is no earlier export to
+ * reproduce, and a new mask's keyframes should stay editable.
  *
  * @param effect - `{ id, params, keyframes }` in the v21 `mask` effect shape.
  * @param clip - The clip it lands on (crop, source range, speed and ramp are read).
@@ -576,7 +667,14 @@ export function maskLayerFromLegacyMaskEffect(
   clip: RawRecord,
   media: { readonly width: number; readonly height: number },
 ): RawRecord {
-  return migrateOneMask(effect, clip, 0, geometryFor(readCrop(clip), media), false);
+  return migrateOneMask(effect, clip, 0, geometryFor(readCrop(clip), media), false, null);
+}
+
+/** Frame rate assumed when a raw project does not state one. */
+const DEFAULT_MIGRATION_FPS = 30;
+
+function projectFps(raw: RawRecord): number {
+  return typeof raw.fps === 'number' && raw.fps > 0 ? raw.fps : DEFAULT_MIGRATION_FPS;
 }
 
 function migrateClip(raw: RawRecord, clip: unknown): unknown {
@@ -588,7 +686,7 @@ function migrateClip(raw: RawRecord, clip: unknown): unknown {
   const dims = readDimensions(raw, clip.assetId);
   const geometry = geometryFor(readCrop(clip), dims);
   const migrated = legacy.map((effect, position) =>
-    migrateOneMask(effect, clip, position, geometry, dims === null),
+    migrateOneMask(effect, clip, position, geometry, dims === null, projectFps(raw)),
   );
   const existing = Array.isArray(clip.masks) ? clip.masks : [];
   return {

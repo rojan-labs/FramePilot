@@ -12,6 +12,7 @@ import {
   migrateMaskEffectsToStack,
 } from './mask-migration.js';
 import { migrateToCurrent, type RawProject } from './migrations.js';
+import { evaluateSortedCurve, type TimedCurvePoint } from './keyframe-curves.js';
 import { sourceTimeAt } from './speed-curve.js';
 
 type Raw = Record<string, unknown>;
@@ -67,6 +68,25 @@ function migrated(raw: RawProject): { clip: Raw; masks: MaskLayer[] } {
   const rawClip = (((result.raw.timeline as Raw).tracks as Raw[])[0]!.clips as Raw[])[0]!;
   return { clip: rawClip, masks: [...(project.timeline.tracks[0]!.clips[0]!.masks ?? [])] };
 }
+
+/** Clip-local times of the frames a 30 fps export renders for a clip starting at 0. */
+const framesOf = (duration: number): number[] =>
+  Array.from({ length: Math.ceil(duration * 30) }, (_, frame) => frame / 30).filter(
+    (time) => time < duration,
+  );
+
+/** A migrated property at a source instant, as the engine reads it (a keyframe hit is exact). */
+function storedAt(mask: MaskLayer, property: string, sourceTime: number): number | undefined {
+  const points: TimedCurvePoint[] = mask.keyframes
+    .filter((keyframe) => keyframe.property === property)
+    .map((keyframe) => ({ time: keyframe.sourceTime, value: keyframe.value, easing: 'linear' }));
+  const hit = points.find((point) => point.time === sourceTime);
+  return hit !== undefined ? hit.value : evaluateSortedCurve(points, sourceTime);
+}
+
+/** A v21 keyframe curve evaluated at clip time, as the v21 export did. */
+const v21At = (points: TimedCurvePoint[], time: number): number =>
+  evaluateSortedCurve(points, time)!;
 
 describe('v21 → v22 mask effects → mask stack', () => {
   it('turns the first rectangle into an enabled gaussian-legacy alpha mask in source pixels', () => {
@@ -217,7 +237,7 @@ describe('v21 → v22 mask effects → mask stack', () => {
     expect(masks[0]!.migrationNote).toContain(MASK_MEASURE_MEDIA_NOTE);
   });
 
-  it('preserves a tracked mask: box keyframes become source-time centre/size keyframes', () => {
+  it('preserves a tracked mask: every rendered frame gets the v21 centre and size', () => {
     const box = (time: number, x: number, y: number): Raw[] => [
       { id: `x${time}`, time, property: 'x', value: x, easing: 'linear' },
       { id: `y${time}`, time, property: 'y', value: y, easing: 'linear' },
@@ -238,18 +258,25 @@ describe('v21 → v22 mask effects → mask stack', () => {
         ],
       }),
     );
-    const cx = masks[0]!.keyframes.filter((keyframe) => keyframe.property === 'cx');
-    // Timeline t → source 3 + 2t, the clip's speed.
-    expect(cx.map((keyframe) => keyframe.sourceTime)).toEqual([3, 4, 5]);
-    expect(cx.map((keyframe) => keyframe.value)).toEqual([
-      (0.1 + 0.1) * WIDTH,
-      (0.3 + 0.1) * WIDTH,
-      (0.5 + 0.1) * WIDTH,
-    ]);
+    const x: TimedCurvePoint[] = [
+      { time: 0, value: 0.1, easing: 'linear' },
+      { time: 0.5, value: 0.3, easing: 'linear' },
+      { time: 1, value: 0.5, easing: 'linear' },
+    ];
+    for (const time of framesOf(2)) {
+      // Timeline t → source 3 + 2t, the clip's speed.
+      expect(storedAt(masks[0]!, 'cx', 3 + time * 2)).toBe(
+        (0 + (v21At(x, time) + 0.2 / 2) * 1) * WIDTH,
+      );
+    }
     expect(new Set(masks[0]!.keyframes.map((keyframe) => keyframe.property))).toEqual(
       new Set(['cx', 'cy', 'width', 'height']),
     );
-    expect(masks[0]!.migrationNote).toBeUndefined();
+    // A size that never changes collapses to its first and last sample.
+    expect(
+      masks[0]!.keyframes.filter((keyframe) => keyframe.property === 'width').map((k) => k.value),
+    ).toEqual([0.2 * WIDTH, 0.2 * WIDTH]);
+    expect(masks[0]!.migrationNote).toContain('every frame');
   });
 
   it('derives centre keyframes from one animated input against the other static value', () => {
@@ -263,25 +290,22 @@ describe('v21 → v22 mask effects → mask stack', () => {
         ],
       }),
     );
-    expect(masks[0]!.keyframes).toEqual([
-      {
-        id: 'c1__mask__cx__0',
-        sourceTime: 3,
-        property: 'cx',
-        value: 0.25 * WIDTH,
-        easing: 'ease-in',
-      },
-      {
-        id: 'c1__mask__cx__1',
-        sourceTime: 5,
-        property: 'cx',
-        value: 0.75 * WIDTH,
-        easing: 'linear',
-      },
-    ]);
+    const x: TimedCurvePoint[] = [
+      { time: 0, value: 0, easing: 'ease-in' },
+      { time: 2, value: 0.5, easing: 'linear' },
+    ];
+    for (const time of framesOf(4)) {
+      expect(storedAt(masks[0]!, 'cx', 3 + time * 1)).toBe(
+        (0 + (v21At(x, time) + 0.5 / 2) * 1) * WIDTH,
+      );
+    }
+    const cx = masks[0]!.keyframes.filter((keyframe) => keyframe.property === 'cx');
+    expect(cx.every((keyframe) => keyframe.easing === 'linear')).toBe(true);
+    // The hold after 2 s collapses to its two ends.
+    expect(cx.length).toBeLessThan(framesOf(4).length);
   });
 
-  it('resamples x and width set at different instants, and says so', () => {
+  it('samples x and width set at different instants at every frame', () => {
     const { masks } = migrated(
       v21Project({
         effects: [
@@ -293,16 +317,19 @@ describe('v21 → v22 mask effects → mask stack', () => {
         ],
       }),
     );
-    const cx = masks[0]!.keyframes.filter((keyframe) => keyframe.property === 'cx');
-    expect(cx.map((keyframe) => keyframe.sourceTime)).toEqual([3, 4, 5]);
-    // x is evaluated at 1s (0.2) against width's only point (0.2): cx = 0.2 + 0.1.
-    [0.1, 0.3, 0.5].forEach((fraction, index) => {
-      expect(cx[index]!.value).toBeCloseTo(fraction * WIDTH, 9);
-    });
-    expect(masks[0]!.migrationNote).toContain('combined at every instant');
+    const x: TimedCurvePoint[] = [
+      { time: 0, value: 0, easing: 'linear' },
+      { time: 2, value: 0.4, easing: 'linear' },
+    ];
+    for (const time of framesOf(4)) {
+      expect(storedAt(masks[0]!, 'cx', 3 + time * 1)).toBe(
+        (0 + (v21At(x, time) + 0.2 / 2) * 1) * WIDTH,
+      );
+    }
+    expect(masks[0]!.migrationNote).toContain('every frame');
   });
 
-  it('mirrors easing on a reversed clip so the same curve plays against source time', () => {
+  it('plays a reversed clip frame-exact against source time', () => {
     const { masks } = migrated(
       v21Project({
         speed: -1,
@@ -314,10 +341,14 @@ describe('v21 → v22 mask effects → mask stack', () => {
         ],
       }),
     );
-    expect(masks[0]!.keyframes.map((k) => [k.sourceTime, k.value, k.easing])).toEqual([
-      [3, 1, 'ease-out'],
-      [7, 0, 'linear'],
-    ]);
+    const opacity: TimedCurvePoint[] = [
+      { time: 0, value: 0, easing: 'ease-in' },
+      { time: 4, value: 1, easing: 'linear' },
+    ];
+    for (const time of framesOf(4)) {
+      // Reverse: source end 7 played backwards.
+      expect(storedAt(masks[0]!, 'opacity', 7 + time * -1)).toBe(v21At(opacity, time));
+    }
   });
 
   it('keeps only the first value on a freeze frame, with a note', () => {
@@ -336,7 +367,7 @@ describe('v21 → v22 mask effects → mask stack', () => {
     expect(masks[0]!.migrationNote).toContain('freeze frame');
   });
 
-  it('maps keyframe instants through a speed ramp', () => {
+  it('maps a single keyframe on a speed-ramped clip through the ramp', () => {
     const ramp = [
       { id: 'r0', sourceTime: 0, rate: 1, easing: 'linear' },
       { id: 'r1', sourceTime: 4, rate: 2, easing: 'linear' },
@@ -351,8 +382,44 @@ describe('v21 → v22 mask effects → mask stack', () => {
         ],
       }),
     );
+    expect(masks[0]!.keyframes).toHaveLength(1);
     expect(masks[0]!.keyframes[0]!.sourceTime).toBe(3 + sourceTimeAt(ramp as never, 0, 1.5, 4));
     expect(masks[0]!.migrationNote).toContain('speed ramp');
+  });
+
+  it('samples animation on a speed-ramped clip at every frame, exactly', () => {
+    const ramp = [
+      { id: 'r0', sourceTime: 0, rate: 1, easing: 'linear' },
+      { id: 'r1', sourceTime: 4, rate: 3, easing: 'linear' },
+    ];
+    const { masks } = migrated(
+      v21Project({
+        end: 2,
+        speedRamp: ramp,
+        effects: [
+          maskEffect({ shape: 'rectangle', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } }, [
+            { id: 'o1', time: 0, property: 'opacity', value: 0.2, easing: 'ease-in' },
+            { id: 'o2', time: 1.5, property: 'opacity', value: 0.9, easing: 'linear' },
+          ]),
+        ],
+      }),
+    );
+    const opacity = masks[0]!.keyframes.filter((keyframe) => keyframe.property === 'opacity');
+    // 30 fps over [0, 2): frames up to 1.5 s move; the held tail collapses to its two ends.
+    const frames = Array.from({ length: 60 }, (_, frame) => frame / 30);
+    const moving = frames.filter((time) => time <= 1.5 + 1 / 30);
+    expect(opacity.length).toBeGreaterThanOrEqual(moving.length);
+    for (const time of frames) {
+      const sourceTime = 3 + sourceTimeAt(ramp as never, 0, time, 4);
+      const stored = opacity.find((keyframe) => keyframe.sourceTime === sourceTime);
+      // v21 evaluation: the held last value from 1.5 s, eased (t^2) before it.
+      const progress = time / 1.5;
+      const expected = time >= 1.5 ? 0.9 : 0.2 + (0.9 - 0.2) * (progress * progress);
+      if (time < 1.5) expect(stored, `frame at ${time}`).toBeDefined();
+      if (stored !== undefined) expect(stored.value).toBe(expected);
+    }
+    expect(opacity.every((keyframe) => keyframe.easing === 'linear')).toBe(true);
+    expect(masks[0]!.migrationNote).toContain('every frame');
   });
 
   it('drops keyframes on properties a v21 mask never animated, with a note', () => {

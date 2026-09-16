@@ -257,9 +257,10 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
     """The v21 :class:`MaskSpec` (cropped-frame fractions) this legacy mask is, at source ``s``.
 
     It inverts ``packages/timeline-schema/src/mask-migration.ts`` expression for expression.
-    Static values are recovered exactly (:func:`_recover_fraction`), so a migrated mask draws
-    the identical Pillow raster it drew as a v21 ``mask`` effect; animated values are the
-    direct inverse of the source-clock curve.
+    Every value read at the source instant is recovered exactly (:func:`_recover_fraction`):
+    static values, and animated values at a keyframe instant, which is every rendered frame of a
+    mask migrated from a speed-ramped clip. A migrated mask therefore draws the identical Pillow
+    raster it drew as a v21 ``mask`` effect.
     """
     normalized = mask.units == "normalized"
     if normalized:
@@ -277,7 +278,6 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
     crop_width = crop_w * scale_w
     crop_height = crop_h * scale_h
     feather_scale = 1.0 if normalized else min(crop_width, crop_height)
-    animated = {keyframe.property.value for keyframe in mask.keyframes}
 
     def to_x(fraction: float) -> float:
         return fraction if normalized else (crop_x + fraction * crop_w) * scale_w
@@ -292,8 +292,6 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
         return py if normalized else (py / scale_h - crop_y) / crop_h
 
     def recover(name: str, estimate: float, forward: Callable[[float], float]) -> float:
-        if name in animated:
-            return estimate
         return _recover_fraction(estimate, forward, _scalar(mask, name, s))
 
     stored_feather = _scalar(mask, "featherOuterPx", s)
@@ -309,15 +307,10 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
     }
     if mask.kind == "path":
         points, _ = path_keyframe_at(mask, s)
-        exact = len(mask.path_keyframes) == 1
         polygon = tuple(
             (
-                _recover_fraction(from_x(points[i]), to_x, points[i])
-                if exact
-                else from_x(points[i]),
-                _recover_fraction(from_y(points[i + 1]), to_y, points[i + 1])
-                if exact
-                else from_y(points[i + 1]),
+                _recover_fraction(from_x(points[i]), to_x, points[i]),
+                _recover_fraction(from_y(points[i + 1]), to_y, points[i + 1]),
             )
             for i in range(0, len(points), 6)
         )
@@ -337,14 +330,8 @@ def _legacy_spec(mask: Any, clip: Any, media_size: tuple[int, int] | None, s: fl
     )
     cx = _scalar(mask, "cx", s)
     cy = _scalar(mask, "cy", s)
-    if size_w in animated or "cx" in animated:
-        fx = from_x(cx - box_w / 2.0)
-    else:
-        fx = _recover_fraction(from_x(cx) - fw / 2, lambda f: to_x(f + fw / 2), cx)
-    if size_h in animated or "cy" in animated:
-        fy = from_y(cy - box_h / 2.0)
-    else:
-        fy = _recover_fraction(from_y(cy) - fh / 2, lambda f: to_y(f + fh / 2), cy)
+    fx = _recover_fraction(from_x(cx) - fw / 2, lambda f: to_x(f + fw / 2), cx)
+    fy = _recover_fraction(from_y(cy) - fh / 2, lambda f: to_y(f + fh / 2), cy)
     return MaskSpec(shape=mask.kind, x=fx, y=fy, width=fw, height=fh, **common)
 
 

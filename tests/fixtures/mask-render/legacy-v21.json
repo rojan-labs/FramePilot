@@ -1,5 +1,5 @@
 {
-  "description": "v21 clips with mask effects (MK2.4). legacy-v21.migrated.json is the TS v21->v22 migration of each (written by packages/timeline-schema/src/mask-legacy-render-fixture.test.ts with vitest -u); engine/python/tests/test_mask_legacy_render.py requires the v22 stack to rasterise byte-identically to the v21 renderer at every sample.",
+  "description": "v21 clips with mask effects (MK2.4). legacy-v21.migrated.json is the TS v21->v22 migration of each (written by packages/timeline-schema/src/mask-legacy-render-fixture.test.ts with vitest -u); engine/python/tests/test_mask_legacy_render.py requires the v22 stack to rasterise byte-identically to the v21 renderer at every frame the export renders (clip-local n / fps - start).",
   "media": {
     "width": 320,
     "height": 240
@@ -14,7 +14,6 @@
     "sourceEnd": 7,
     "keyframes": []
   },
-  "samples": [0.0, 0.5, 1.0, 1.5, 1.9],
   "cases": [
     {
       "id": "static-rectangle",
@@ -485,5 +484,6 @@
         ]
       }
     }
-  ]
+  ],
+  "fps": 30
 }

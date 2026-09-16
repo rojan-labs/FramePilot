@@ -53,6 +53,19 @@ fight over order and double every validator, renderer and AI path.
    typed export error instead of drawing an approximation. The preview (`clip-mask.ts`) draws the
    same subset.
 
+## Amendment (2026-09-17, MK2): animated legacy masks are sampled per frame
+
+Decision 7 re-timed v21 keyframes onto the source clock. Measured against the v21 renderer
+at every exported frame, that was not byte-identical: through a speed ramp the timeline →
+source map is not affine, and even at constant speed the re-timed interpolation lands an ulp
+away from v21's timeline-clock value between keyframes, enough to move a Pillow edge (13 of 60
+frames on a 2x clip). The migration now writes a linear keyframe at every frame the export
+renders at the project frame rate for any moving legacy curve (a freeze still keeps its first
+value; runs of equal values collapse to their ends). The engine returns a keyframe's stored
+value exactly at its instant and recovers the v21 fraction exactly, so every migrated fixture
+exports bit-identically at every frame. Masks authored today through the v21 vocabulary
+(`maskLayerFromLegacyMaskEffect`, `add_mask_advanced`) keep re-timed, editable keyframes.
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports

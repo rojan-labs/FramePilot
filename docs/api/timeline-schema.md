@@ -311,7 +311,8 @@ Refused before rendering, with "Disable the mask to export now": `matte`, `key`,
 `gradient` and `layer` masks, tracked masks, `space: 'frame'` masks and masks on effect layers.
 Hard edges follow the nonzero winding rule exactly, including self-crossing and self-overlapping
 paths (those pixels use an exact per-cell slab sweep).
-Known limit: an animated mask migrated from a speed-ramped v21 clip matches v21 only at its keyframes.
+Migrated animated masks carry a keyframe per exported frame, so they export bit-identically to v21
+(ADR 0178 amendment).
 
 ## Schema versioning & migration
 

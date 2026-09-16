@@ -17,6 +17,7 @@ type Raw = Record<string, unknown>;
 const FIXTURE_DIR = fileURLToPath(new URL('../../../tests/fixtures/mask-render/', import.meta.url));
 
 interface LegacyFixture {
+  readonly fps: number;
   readonly media: Raw;
   readonly clipTemplate: Raw;
   readonly cases: readonly { id: string; media?: Raw | null; clip: Raw }[];
@@ -31,6 +32,7 @@ it('pins the migrated mask stack of every legacy render fixture', async () => {
     const clip = { ...fixture.clipTemplate, ...entry.clip };
     const raw: Raw = {
       schemaVersion: 21,
+      fps: fixture.fps,
       assets: [{ id: 'a1', path: 'a.mp4', kind: 'video', ...(media ? { media } : {}) }],
       timeline: { tracks: [{ id: 'v1', type: 'video', clips: [clip] }] },
     };

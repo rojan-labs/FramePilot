@@ -12,6 +12,7 @@ alpha by the clip opacity exactly as v21 did, so equal alpha is an identical exp
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -58,27 +59,20 @@ def test_every_fixture_case_was_migrated() -> None:
     assert len(_MIGRATED) >= 9
 
 
-#: Cases the v21 -> v22 migration cannot carry byte-identically, with the reason. NOT a lowered
-#: gate: each is a recorded miss (strict xfail, so a fix flips it to a failure to remove here).
-_KNOWN_MISSES = {
-    "ramped-keyframed": (
-        "MK1 migration: keyframes linear on the timeline clock are re-timed through the speed "
-        "ramp but keep their easing, so between keyframes the source-clock curve differs from "
-        "the v21 motion (exact at the keyframes). Needs resampled keyframes in the migration."
-    ),
-}
+def _frame_times(clip: dict[str, Any]) -> list[float]:
+    """Clip-local times of every frame the export renders: ``n / fps - start`` in [start, end)."""
+    fps = float(_INPUT["fps"])
+    start, end = float(clip["start"]), float(clip["end"])
+    times: list[float] = []
+    frame = max(0, math.floor(start * fps) - 1)
+    while frame / fps < end:
+        if frame / fps >= start:
+            times.append(frame / fps - start)
+        frame += 1
+    return times
 
 
-def _cases() -> list[Any]:
-    return [
-        pytest.param(case, id=case["id"], marks=pytest.mark.xfail(strict=True, reason=reason))
-        if (reason := _KNOWN_MISSES.get(case["id"])) is not None
-        else pytest.param(case, id=case["id"])
-        for case in _INPUT["cases"]
-    ]
-
-
-@pytest.mark.parametrize("case", _cases())
+@pytest.mark.parametrize("case", _INPUT["cases"], ids=lambda case: case["id"])
 def test_migrated_masks_rasterise_byte_identically_to_v21(case: dict[str, Any]) -> None:
     v21_clip = {**_INPUT["clipTemplate"], **case["clip"]}
     first_mask = next(effect for effect in v21_clip["effects"] if effect["type"] == "mask")
@@ -89,9 +83,7 @@ def test_migrated_masks_rasterise_byte_identically_to_v21(case: dict[str, Any]) 
     stacks = clip_mask_stacks(migrated, media_size)
     assert stacks is not None and len(stacks.alpha) == 1
     for width, height in _frame_sizes(v21_clip):
-        for t in _INPUT["samples"]:
-            if t >= v21_clip["end"] - v21_clip["start"]:
-                continue
+        for t in _frame_times(v21_clip):
             expected = _v21_alpha(effect, t, width, height)
             actual = stacks.alpha_at(t, width, height)
             assert actual is not None

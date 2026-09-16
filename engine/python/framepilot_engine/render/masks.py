@@ -168,6 +168,13 @@ def mask_scalar_at(mask: Any, property_name: str, source_time: float) -> float |
         if keyframe.property.value == property_name
     ]
     if points:
+        # A keyframe instant returns its stored value exactly. Interpolating to it
+        # (``a + (b - a) * 1``) can land an ulp away, and a mask migrated from a speed-ramped
+        # v21 clip stores one keyframe per rendered frame precisely so each frame reads the
+        # exact v21 value.
+        for point in points:
+            if point.time == source_time:
+                return point.value
         animated = evaluate_keyframes(points, property_name, source_time)
         if animated is not None:
             return animated
