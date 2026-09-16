@@ -117,7 +117,6 @@ from framepilot_engine.render.frame_plan import (
     back_to_front,
     caption_tracks,
     clips_in_sequence,
-    first_mask_effect,
     fit_scale,
     layer_opacity_at,
     layer_position_at,
@@ -137,9 +136,8 @@ from framepilot_engine.render.frame_plan import (
     transition_underlay_window as transition_underlay_window,
 )
 from framepilot_engine.render.masks import (
-    has_mask_keyframes,
-    mask_spec_at,
-    mask_spec_from_params,
+    UnsupportedMaskStack,
+    legacy_mask_for_clip,
     rasterize_mask,
 )
 from framepilot_engine.render.presets import ExportPreset
@@ -570,18 +568,35 @@ def _apply_transition_blur(
     return source.transform(blurred, keep_duration=True)
 
 
+def _asset_media_size(project: Project, clip: Clip) -> tuple[int, int] | None:
+    """The clip asset's probed ``(width, height)``; masks are stored in source pixels (v22)."""
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    if media is None or not media.width or not media.height:
+        return None
+    return (media.width, media.height)
+
+
 def _attach_mask(
-    source: VideoClip, clip: Clip, transition: transitions.Transition | None
+    source: VideoClip,
+    clip: Clip,
+    transition: transitions.Transition | None,
+    media_size: tuple[int, int] | None = None,
 ) -> VideoClip:
     width, height = source.size
-    mask_effect = first_mask_effect(clip)
-    geometry_animated = mask_effect is not None and has_mask_keyframes(mask_effect)
+    # Schema v22: the clip's mask stack, mapped onto the v21 rasteriser until MK2 ships the
+    # stack rasteriser; a stack it cannot draw faithfully refuses the export (ADR 0178).
+    try:
+        legacy_mask = legacy_mask_for_clip(clip, media_size)
+    except UnsupportedMaskStack as exc:
+        raise CompileError(str(exc)) from exc
+    geometry_animated = legacy_mask is not None and legacy_mask.animated
     opacity_animated = OPACITY in animated_properties(clip)
     fade_transition = transition is not None and transitions.affects_opacity(transition)
     wipe_transition = transition is not None and transitions.affects_wipe(transition)
     static_opacity = evaluate_clip_transform(clip, 0.0).opacity
     nothing_to_mask = (
-        mask_effect is None
+        legacy_mask is None
         and not opacity_animated
         and not fade_transition
         and not wipe_transition
@@ -605,15 +620,10 @@ def _attach_mask(
 
     def alpha_at(t: float) -> Any:
         opacity = opacity_at(t)
-        if mask_effect is None:
+        if legacy_mask is None:
             alpha = np.full((height, width), opacity, dtype=np.float64)
         else:
-            spec = (
-                mask_spec_at(mask_effect, t)
-                if geometry_animated
-                else mask_spec_from_params(mask_effect.params)
-            )
-            alpha = rasterize_mask(spec, width, height) * opacity
+            alpha = rasterize_mask(legacy_mask.spec_at(t), width, height) * opacity
         if wipe_transition:
             assert transition is not None
             reveal = transitions.wipe_progress_at(transition, t)
@@ -977,7 +987,9 @@ def compile_timeline(
                         use_legacy = uses_legacy_transition_path(clip)
                         transition = legacy_transition(clip)
                         source = _apply_transition_blur(source, transition)
-                        source = _attach_mask(source, clip, transition)
+                        source = _attach_mask(
+                            source, clip, transition, _asset_media_size(project, clip)
+                        )
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side
