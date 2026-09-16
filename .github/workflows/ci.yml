@@ -93,6 +93,31 @@ jobs:
         working-directory: engine/python
         run: uv run pytest tests/test_render_pipeline.py::test_export_video_completes_and_validates -q
 
+  # ── Mask rasteriser byte-equality on the other two desktop platforms (MK2.3) ──────────
+  # The vectors must reproduce byte for byte on macOS arm64 and Windows x64 as well as Linux
+  # x64 (covered by python-engine above). Only the vector test runs here: no ffmpeg, no renders.
+  mask-raster-vectors:
+    name: Mask rasteriser vectors · ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-14, windows-latest]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Sync deps
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - name: Rasteriser vectors
+        working-directory: engine/python
+        run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py -q
+
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:
     name: Professional operations · 33 rendered proofs
