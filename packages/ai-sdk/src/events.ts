@@ -15,6 +15,7 @@
  * This module is pure (no I/O, no clock) and exhaustively tested: it is the
  * contract every later milestone depends on, treated like the timeline schema.
  */
+import { plainPlanLabel } from './plan-label.js';
 import type { EditResult } from './assemble.js';
 import type { ReferenceProfile } from './references/profile.js';
 import type { ContextManifest } from './kernel/context/manifest.js';
@@ -986,7 +987,9 @@ export function createConversationViewBuilder(): ConversationViewBuilder {
           id: event.id,
           ts: event.ts,
           turnId: event.turnId,
-          steps: event.steps,
+          // Plain text for every host, including logs recorded before the drafter cleaned
+          // its labels — see plan-label.ts.
+          steps: event.steps.map((step) => ({ ...step, label: plainPlanLabel(step.label) })),
         });
         break;
       case 'tool_call': {

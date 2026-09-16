@@ -16,6 +16,7 @@ export * from './reliability/sourcing-notes.js';
 // the desktop package would be the duplicated-string defect it exists to catch.
 export * from './reliability/next-action.js';
 export * from './events.js';
+export * from './plan-label.js';
 export * from './run-contracts.js';
 export * from './stable-key.js';
 export * from './run-store.js';
