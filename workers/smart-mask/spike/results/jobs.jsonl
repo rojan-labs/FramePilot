@@ -1,0 +1,1 @@
+{"job": "parity_sam.py --ep cpu --precision fp32", "exitCode": 0, "seconds": 358.6, "peakGroupRssGiB": 6.26, "aborted": false, "at": "2026-09-17T00:00:55"}
