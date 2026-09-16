@@ -9,12 +9,12 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX4 — pixel oracle harness (qa-e2e agent), incl. PX0.3 colour measurement and PX0 screenshots
-- MK1 — schema v22 mask stack, migration, ops, validator (timeline-engineer agent)
+- MK2 — rasteriser + engine mask stack; first the frame plan moves to `Clip.masks` (render-debugger agent)
 - BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
 
 ## Done
 
-- MK1.1–MK1.6 committed (5f692689 … 5154492b); MK1.7 in flight
+- MK1.1–MK1.7 (5f692689 … 80d28e08): v22 stack, migration + backup, 38 op round trips, validator, split keyframe fix, ADR 0178. Interim engine/preview render one alpha rect/ellipse/polygon; the rest refused with typed reasons until MK2. Follow-ups: MK1.9 PAR/rotation probe; `use_track` for text → MK7.6
 - PX4.1 (74a464ad), PX4.2 (79fd67cc); BR0.1 (b82f2a8d), BR0.2 harness (90d31c37), BR0.3 helpers (cba6a64f)
 
 - PX1 (13555c1b, ad4cb4e2, 95461921): frame plan both sides, 43 parity cases
