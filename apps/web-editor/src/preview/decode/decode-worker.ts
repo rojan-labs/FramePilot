@@ -27,6 +27,9 @@
 import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
 import {
   demuxAllVideoSamples,
+  demuxSampleTableStreaming,
+  type ByteRangeReader,
+  type SampleLocation,
   nearestKeyframeIndexAtOrBefore,
   presentationIndexAtOrBefore,
   type DemuxedSampleTable,
@@ -80,6 +83,11 @@ export interface LoadedResponse {
   /** Nominal frame rate from the first sample (`timescale / duration`), exact for CFR proxies. */
   frameRate: number;
   codec: string;
+  /**
+   * True when the source was opened by range reads (larger than `WHOLE_FILE_MAX_BYTES`):
+   * `fileBytes` is then empty and the monitor has no footage audio for it.
+   */
+  streamed: boolean;
   /** The fetched file bytes, TRANSFERRED back to the main thread once the
    * demux has copied what it needs (EncodedVideoChunk copies sample data at
    * construction). Main uses them for `decodeAudioData` — the file is read
@@ -165,13 +173,46 @@ const STALL_OVERFEED_MAX = 8;
  * on a genuinely stalled pipeline, while still bounding worst-case latency. */
 const OUTPUT_STALL_TIMEOUT_MS = 50;
 
+/**
+ * Files at or below this size are read whole (PX2.6): the sample table demuxes from memory and
+ * the same bytes decode the footage audio. Larger files (unproxied camera originals) are opened
+ * by range reads, so nothing near their size is ever held; their footage audio is not decoded
+ * into the monitor (see `LoadedResponse.streamed`).
+ */
+export const WHOLE_FILE_MAX_BYTES = 256 * 1024 * 1024;
+/** Sample bytes kept around a streamed decode position. */
+const STREAMED_CHUNK_CACHE = 240;
+
+/** The demuxed table a session decodes from: chunks in memory, or located in the file. */
+type SessionTable = Omit<DemuxedSampleTable, 'chunks'> & { readonly chunkCount: number };
+
+/** `fetch` range reads, verified to be honoured. */
+function httpRangeReader(url: string, size: number): ByteRangeReader {
+  return {
+    size,
+    async read(start: number, end: number): Promise<ArrayBuffer> {
+      const response = await fetch(url, { headers: { Range: `bytes=${start}-${end - 1}` } });
+      if (response.status !== 206) {
+        throw new Error(`Range read of ${url} returned ${response.status}, expected 206.`);
+      }
+      return response.arrayBuffer();
+    },
+  };
+}
+
 class DecoderSession {
   /** One decoder for the lifetime of this session — reused via reset() +
    * configure() across every seek, never replaced. Creating a fresh
    * VideoDecoder per seek leaked decoder instances and silently exhausted
    * Chrome's concurrent hardware-decoder limit (gate #5). */
   private decoder: VideoDecoder | undefined;
-  private table: DemuxedSampleTable | undefined;
+  private table: SessionTable | undefined;
+  /** Whole-file mode: every chunk. */
+  private chunks: readonly EncodedVideoChunk[] = [];
+  /** Streaming mode: where each sample lives, and a small cache of fetched chunks. */
+  private locations: readonly SampleLocation[] = [];
+  private reader: ByteRangeReader | undefined;
+  private readonly chunkCache = new Map<number, EncodedVideoChunk>();
   private reconfigureCount = 0;
 
   // -- Streaming state (valid while `streamActive`) --------------------------
@@ -220,13 +261,45 @@ class DecoderSession {
     frameRate: number;
     codec: string;
     fileBytes: ArrayBuffer;
+    streamed: boolean;
   }> {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+    // Probe with a small range: a server that honours it reports the size; one that ignores it
+    // (a plain static route) sends the whole file, which is then used as-is.
+    const probe = await fetch(url, { headers: { Range: 'bytes=0-65535' } });
+    if (!probe.ok) {
+      throw new Error(`Failed to fetch ${url}: ${probe.status} ${probe.statusText}`);
     }
-    const arrayBuffer = await response.arrayBuffer();
-    this.table = await demuxAllVideoSamples(arrayBuffer);
+    const total = Number(/\/(\d+)$/.exec(probe.headers.get('Content-Range') ?? '')?.[1] ?? NaN);
+    if (probe.status === 206 && Number.isFinite(total) && total > WHOLE_FILE_MAX_BYTES) {
+      await probe.body?.cancel();
+      this.reader = httpRangeReader(url, total);
+      const streamed = await demuxSampleTableStreaming(this.reader);
+      this.locations = streamed.samples;
+      this.table = { ...streamed, chunkCount: streamed.samples.length };
+      return {
+        frameCount: this.table.presentationTimestampsUs.length,
+        frameDurationUs: this.table.frameDurationUs,
+        presentationTimestampsUs: this.table.presentationTimestampsUs,
+        frameRate: this.table.frameRate,
+        codec: this.table.config.codec,
+        fileBytes: new ArrayBuffer(0),
+        streamed: true,
+      };
+    }
+    let arrayBuffer: ArrayBuffer;
+    if (probe.status === 206) {
+      await probe.body?.cancel();
+      const response = await fetch(url);
+      if (!response.ok) {
+        throw new Error(`Failed to fetch ${url}: ${response.status} ${response.statusText}`);
+      }
+      arrayBuffer = await response.arrayBuffer();
+    } else {
+      arrayBuffer = await probe.arrayBuffer();
+    }
+    const demuxed = await demuxAllVideoSamples(arrayBuffer);
+    this.chunks = demuxed.chunks;
+    this.table = { ...demuxed, chunkCount: demuxed.chunks.length };
     return {
       frameCount: this.table.presentationTimestampsUs.length,
       frameDurationUs: this.table.frameDurationUs,
@@ -234,6 +307,7 @@ class DecoderSession {
       frameRate: this.table.frameRate,
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
+      streamed: false,
     };
   }
 
@@ -301,7 +375,7 @@ class DecoderSession {
   /** Abandon the current stream (a true seek): drop stashed frames, reset and
    * reconfigure the decoder, and aim the feed cursor at the nearest keyframe
    * at-or-before the target presentation index. */
-  private reseek(table: DemuxedSampleTable, fromPresentation: number): void {
+  private reseek(table: SessionTable, fromPresentation: number): void {
     this.closeStash();
     const keyframePresentation = nearestKeyframeIndexAtOrBefore(
       table.keyframePresentationIndices,
@@ -345,7 +419,7 @@ class DecoderSession {
    * resort `flush()` (which forcibly drains the pipeline but ends the stream —
    * the next call reseeks).
    */
-  private async feedAndAwait(table: DemuxedSampleTable, toPresentation: number): Promise<void> {
+  private async feedAndAwait(table: SessionTable, toPresentation: number): Promise<void> {
     const decoder = this.decoder;
     if (!decoder) throw new Error('feedAndAwait without a configured decoder.');
     const feedTarget = table.decodeThroughByPresentation[toPresentation];
@@ -355,7 +429,7 @@ class DecoderSession {
       );
     }
 
-    this.feedThrough(table, feedTarget);
+    await this.feedThrough(table, feedTarget);
 
     let overfed = 0;
     let consecutiveStalledWaits = 0;
@@ -366,8 +440,8 @@ class DecoderSession {
       // Repeated timed-out waits with input still queued means the pipeline
       // is wedged — escalate the same way rather than waiting forever.
       const stalled = decoder.decodeQueueSize === 0 || consecutiveStalledWaits >= 3;
-      if (stalled && this.feedCursor < table.chunks.length && overfed < STALL_OVERFEED_MAX) {
-        this.feedThrough(table, this.feedCursor); // dislodge with ONE more chunk
+      if (stalled && this.feedCursor < table.chunkCount && overfed < STALL_OVERFEED_MAX) {
+        await this.feedThrough(table, this.feedCursor); // dislodge with ONE more chunk
         overfed++;
         consecutiveStalledWaits = 0;
         continue;
@@ -388,14 +462,46 @@ class DecoderSession {
   }
 
   /** Feed decode-order chunks `[feedCursor .. throughDecodeIndex]`. */
-  private feedThrough(table: DemuxedSampleTable, throughDecodeIndex: number): void {
+  private async feedThrough(table: SessionTable, throughDecodeIndex: number): Promise<void> {
+    const last = Math.min(throughDecodeIndex, table.chunkCount - 1);
+    if (this.reader && this.feedCursor <= last) await this.fetchChunks(this.feedCursor, last);
     const decoder = this.decoder;
     if (!decoder) return;
-    while (this.feedCursor <= throughDecodeIndex && this.feedCursor < table.chunks.length) {
-      const chunk = table.chunks[this.feedCursor];
+    while (this.feedCursor <= throughDecodeIndex && this.feedCursor < table.chunkCount) {
+      const chunk = this.reader
+        ? this.chunkCache.get(this.feedCursor)
+        : this.chunks[this.feedCursor];
       if (!chunk) throw new Error(`Chunk ${this.feedCursor} missing for source ${this.sourceId}.`);
       decoder.decode(chunk);
       this.feedCursor++;
+    }
+  }
+
+  /** Streaming mode: read samples `[first, last]` (decode order) in one byte range. */
+  private async fetchChunks(first: number, last: number): Promise<void> {
+    const reader = this.reader;
+    if (!reader) return;
+    let from = first;
+    while (from <= last && this.chunkCache.has(from)) from++;
+    if (from > last) return;
+    const locations = this.locations.slice(from, last + 1);
+    const start = Math.min(...locations.map((l) => l.offset));
+    const end = Math.max(...locations.map((l) => l.offset + l.size));
+    const bytes = new Uint8Array(await reader.read(start, end));
+    locations.forEach((location, index) => {
+      this.chunkCache.set(
+        from + index,
+        new EncodedVideoChunk({
+          type: location.type,
+          timestamp: location.timestamp,
+          duration: location.duration,
+          data: bytes.subarray(location.offset - start, location.offset - start + location.size),
+        }),
+      );
+    });
+    for (const key of [...this.chunkCache.keys()]) {
+      if (this.chunkCache.size <= STREAMED_CHUNK_CACHE) break;
+      if (key < from) this.chunkCache.delete(key);
     }
   }
 
@@ -537,8 +643,15 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
       const session = new DecoderSession(request.sourceId, post);
       sessions.get(request.sourceId)?.dispose();
       sessions.set(request.sourceId, session);
-      const { frameCount, frameDurationUs, presentationTimestampsUs, frameRate, codec, fileBytes } =
-        await session.load(request.url);
+      const {
+        frameCount,
+        frameDurationUs,
+        presentationTimestampsUs,
+        frameRate,
+        codec,
+        fileBytes,
+        streamed,
+      } = await session.load(request.url);
       post(
         {
           type: 'loaded',
@@ -550,6 +663,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           frameRate,
           codec,
           fileBytes,
+          streamed,
         },
         [fileBytes],
       );

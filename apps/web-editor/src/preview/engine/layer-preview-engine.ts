@@ -151,6 +151,7 @@ export class LayerPreviewEngine {
   /** NaN until something is presented: a read at t=0 must not match the empty initial state. */
   private presented: PresentedFrame = { projectTimeSec: Number.NaN, layers: [] };
   private lastPresentedSignature = '';
+  private lastBitmap: ImageBitmap | null = null;
   private dbg = {
     ticks: 0,
     presented: 0,
@@ -638,7 +639,11 @@ export class LayerPreviewEngine {
     ctx.filter = 'none';
     ctx.drawImage(frame, 0, 0);
     ctx.restore();
-    if (typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap) frame.close();
+    // Closed on the NEXT present, not now: the 2D canvas may record the draw and rasterise it
+    // later (at the next read or composite), and a closed bitmap then draws nothing.
+    this.lastBitmap?.close();
+    this.lastBitmap =
+      typeof ImageBitmap !== 'undefined' && frame instanceof ImageBitmap ? frame : null;
     this.applyFrameEffects(plan, timeSec);
     this.lastPresentedSignature = signature;
     this.presented = { projectTimeSec: timeSec, layers: composed.presented };
@@ -842,6 +847,8 @@ export class LayerPreviewEngine {
     this.client.dispose();
     this.compositor?.dispose();
     this.compositor = null;
+    this.lastBitmap?.close();
+    this.lastBitmap = null;
     this.glEffects?.dispose();
     this.glEffects = null;
     for (const bitmap of this.images.values()) bitmap.close();

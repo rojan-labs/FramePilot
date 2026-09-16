@@ -210,6 +210,7 @@ export class DecodeWorkerClient {
     frameRate: number;
     codec: string;
     fileBytes: ArrayBuffer;
+    streamed: boolean;
   }> {
     const response = await this.send<Extract<WorkerResponse, { type: 'loaded' }>>({
       type: 'load',

@@ -6,6 +6,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import {
   buildPresentationTables,
   demuxAllVideoSamples,
+  demuxSampleTableStreaming,
   nearestKeyframeIndexAtOrBefore,
   presentationIndexAtOrBefore,
   type RawChunkInit,
@@ -229,6 +230,31 @@ describe.runIf(ffmpegAvailable())('demuxAllVideoSamples (real mp4box + real fixt
     expect(description).toBeInstanceOf(Uint8Array);
     // avcC configurationVersion byte must be 1 per ISO/IEC 14496-15.
     expect(description[0]).toBe(1);
+  });
+
+  it('reads the same sample table through range reads, touching only the index (PX2.6)', async () => {
+    const bytes = readFileSync(fixturePath);
+    const arrayBuffer = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+    const whole = await demuxAllVideoSamples(arrayBuffer, fakeChunkFactory);
+    const reads: [number, number][] = [];
+    const streamed = await demuxSampleTableStreaming({
+      size: bytes.byteLength,
+      read: (start, end) => {
+        reads.push([start, end]);
+        return Promise.resolve(arrayBuffer.slice(start, end));
+      },
+    });
+    expect(streamed.presentationTimestampsUs).toEqual(whole.presentationTimestampsUs);
+    expect(streamed.keyframePresentationIndices).toEqual(whole.keyframePresentationIndices);
+    expect(streamed.frameRate).toBe(whole.frameRate);
+    expect(streamed.config.codec).toBe(whole.config.codec);
+    streamed.samples.forEach((sample, i) => {
+      const raw = whole.chunks[i] as unknown as RawChunkInit;
+      expect(sample.timestamp).toBe(raw.timestamp);
+      expect(sample.type).toBe(raw.type);
+      expect([...new Uint8Array(arrayBuffer, sample.offset, sample.size)]).toEqual([...raw.data]);
+    });
+    expect(reads.length).toBeGreaterThan(0);
   });
 
   it('rejects a buffer with no video track', async () => {

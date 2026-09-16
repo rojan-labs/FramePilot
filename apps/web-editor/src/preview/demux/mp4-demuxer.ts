@@ -313,3 +313,86 @@ export function nearestKeyframeIndexAtOrBefore(
   }
   return best;
 }
+
+/** Random access to a media file's bytes (a `fetch` with `Range`, or an in-memory buffer). */
+export interface ByteRangeReader {
+  readonly size: number;
+  /** Bytes `[start, end)`. */
+  read(start: number, end: number): Promise<ArrayBuffer>;
+}
+
+/** One sample's location in the file, in decode order (PX2.6). */
+export interface SampleLocation {
+  readonly offset: number;
+  readonly size: number;
+  readonly type: 'key' | 'delta';
+  /** Normalised presentation timestamp (µs), as {@link DemuxedSampleTable} chunks carry. */
+  readonly timestamp: number;
+  readonly duration: number;
+}
+
+/** A sample table whose sample bytes stay in the file until a decode needs them. */
+export interface StreamedSampleTable extends Omit<DemuxedSampleTable, 'chunks'> {
+  readonly samples: readonly SampleLocation[];
+}
+
+/** How much of the file one parse step reads while looking for `moov`. */
+const STREAM_PARSE_STEP_BYTES = 4 * 1024 * 1024;
+
+/**
+ * Parse only the sample tables of an MP4 through range reads (PX2.6): `ftyp`/`moov` are read,
+ * `mdat` is skipped, so opening a feature-length camera original costs its index, not its size.
+ *
+ * @throws Error when there is no video track or no decodable codec configuration.
+ */
+export async function demuxSampleTableStreaming(
+  reader: ByteRangeReader,
+): Promise<StreamedSampleTable> {
+  const file = createFile();
+  let failure: Error | null = null;
+  let ready = false;
+  file.onError = (module, message) => {
+    failure = new Error(`mp4box demux error in ${module}: ${message}`);
+  };
+  file.onReady = () => {
+    ready = true;
+  };
+  let position = 0;
+  while (!ready && failure === null && position < reader.size) {
+    const end = Math.min(reader.size, position + STREAM_PARSE_STEP_BYTES);
+    const bytes = await reader.read(position, end);
+    const next = file.appendBuffer(
+      MP4BoxBuffer.fromArrayBuffer(bytes, position),
+      end >= reader.size,
+    );
+    position = next > position ? next : end;
+  }
+  if (!ready) file.flush();
+  if (failure !== null) throw failure;
+  const info = file.getInfo();
+  const track = info.videoTracks[0];
+  if (!track?.video) throw new Error('No video track found in media.');
+  const samples = file.getTrackSamplesInfo(track.id);
+  const first = samples[0];
+  if (!first) throw new Error('No video samples were found in the media.');
+  const config = buildVideoDecoderConfig(track.codec, track.video.width, track.video.height, first);
+  const meta = samples.map((sample) => ({
+    ctsUs: Math.round((sample.cts * 1_000_000) / sample.timescale),
+    isSync: Boolean(sample.is_sync),
+  }));
+  const minCtsUs = Math.min(...meta.map((m) => m.ctsUs));
+  const normalizedMeta = meta.map((m) => ({ ctsUs: m.ctsUs - minCtsUs, isSync: m.isSync }));
+  return {
+    config,
+    frameDurationUs: Math.round((first.duration * 1_000_000) / first.timescale),
+    frameRate: first.duration > 0 ? first.timescale / first.duration : 0,
+    samples: samples.map((sample, index) => ({
+      offset: sample.offset,
+      size: sample.size,
+      type: sample.is_sync ? 'key' : 'delta',
+      timestamp: normalizedMeta[index]!.ctsUs,
+      duration: Math.round((sample.duration * 1_000_000) / sample.timescale),
+    })),
+    ...buildPresentationTables(normalizedMeta),
+  };
+}
