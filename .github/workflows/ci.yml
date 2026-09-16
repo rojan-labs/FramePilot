@@ -214,6 +214,73 @@ jobs:
           name: playwright-report
           path: reports/e2e
 
+  # ── Preview/export pixel parity oracle (PX4, plan/background-removal-ai/09) ──
+  # Renders every frame-plan matrix sample through the export compositor (lossless
+  # frame_grab), then seeks the editor's WebCodecs monitor to the same times in real
+  # Chrome and compares pixels, sentinel layer colours and presented source pts. No GPU
+  # on the runner: Chrome falls back to SwiftShader, with the SAME thresholds. Known
+  # failures are test.fail() entries in tests/e2e/fixtures/preview-parity-baseline.json;
+  # a listed case that starts passing fails this job so the list only shrinks.
+  # CI is the ONLY place the full oracle runs (a local run exhausted a workstation's memory).
+  preview-parity-oracle:
+    name: Preview/export parity oracle (PX4)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    needs: [node-quality]
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - run: pnpm install --frozen-lockfile
+      - name: Sync engine dependencies
+        working-directory: engine/python
+        run: uv sync --extra dev
+      - run: pnpm build
+      - name: Install Google Chrome for Playwright
+        run: pnpm --filter @framepilot/e2e exec playwright install --with-deps --force chrome
+      - name: Generate synthetic media and engine frames
+        # Memory-bounded (the generator's module note): 2 render workers, one case per
+        # process, and a hard cap well under the runner's 16 GB.
+        run: pnpm px4:frames --workers 2 --max-rss-mb 8000
+      - name: Run the parity oracle
+        run: pnpm --filter @framepilot/e2e test:parity
+      - name: Summarise results
+        if: always()
+        run: |
+          if [ -d tests/e2e/.tmp-px4-parity/results ]; then
+            node tests/e2e/scripts/px4-baseline.mjs >> "$GITHUB_STEP_SUMMARY"
+          fi
+      # Always: the committed baseline (PX4-BASELINE.md, preview-parity-baseline.json) is
+      # regenerated from this artifact, never from a local run.
+      - name: Upload parity results
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview-parity-results
+          include-hidden-files: true
+          path: tests/e2e/.tmp-px4-parity/results
+      - name: Upload parity report and failure artifacts
+        if: failure()
+        uses: actions/upload-artifact@v7
+        with:
+          name: preview-parity-oracle
+          path: |
+            reports/e2e
+            reports/e2e-results
+
   # ── E2E visual regression (platform-specific screenshot baselines) ────────
   e2e-visual:
     name: E2E visual regression

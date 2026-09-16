@@ -101,6 +101,8 @@ export default defineConfig({
       fullyParallel: false,
       // Memory bound: one browser, one page, one case at a time (see the spec header).
       workers: 1,
+      // Deterministic by construction; a retry would re-render a whole case to hide a flake.
+      retries: 0,
       use: {
         ...devices['Desktop Chrome'],
         channel: 'chrome',
