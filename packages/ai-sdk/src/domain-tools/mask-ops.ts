@@ -8,7 +8,7 @@
  */
 import {
   assetDisplaySize,
-  maskLayerFromFrameShape,
+  compileMaskCommand,
   MEASURE_MEDIA_FIRST,
   nextMaskId,
   type MaskShape,
@@ -36,18 +36,56 @@ function clipAndSize(
   return { clip, ...size };
 }
 
-/** `add_mask`: a whole-frame rectangle or ellipse on the clip, in source pixels. */
+/**
+ * `add_mask`: a whole-frame rectangle or ellipse on the clip, in source pixels.
+ *
+ * Compiled through the same `draw_mask` command the monitor's Rectangle and Ellipse tools use
+ * (MK4.4), so an agent-drawn mask and a hand-drawn one get the same id, name, colour and
+ * validation.
+ */
 export function addShapeMaskOps(
   project: Project,
   args: { readonly clipId: string; readonly shape: MaskShape },
 ): Operation[] {
   const { clip, width, height } = clipAndSize(project, args.clipId);
-  const built = maskLayerFromFrameShape(
-    { id: nextMaskId(clip), shape: args.shape, sourceTime: clip.sourceStart },
-    { width, height },
-  );
-  if (!built.ok) throw new Error(built.message);
-  return [{ type: 'add_mask', clipId: clip.id, mask: built.mask }];
+  if (args.shape === 'polygon') {
+    throw new Error(
+      'add_mask draws a rectangle or an ellipse. Use add_mask_advanced for a polygon.',
+    );
+  }
+  const compiled = compileMaskCommand({
+    timeline: project.timeline,
+    assets: project.assets,
+    command: {
+      type: 'draw_mask',
+      timelineRevision: project.timeline.revision ?? 0,
+      clipId: clip.id,
+      createdBy: 'agent',
+      sourceTime: clip.sourceStart,
+      atTop: false,
+      geometry:
+        args.shape === 'ellipse'
+          ? {
+              kind: 'ellipse',
+              cx: width / 2,
+              cy: height / 2,
+              rx: width / 2,
+              ry: height / 2,
+              rotation: 0,
+            }
+          : {
+              kind: 'rectangle',
+              cx: width / 2,
+              cy: height / 2,
+              width,
+              height,
+              rotation: 0,
+              roundness: 0,
+            },
+    },
+  });
+  if (compiled.status === 'rejected') throw new Error(compiled.detail);
+  return [...compiled.patch.operations] as Operation[];
 }
 
 /** The v21-vocabulary mask `add_mask_advanced` accepts. */

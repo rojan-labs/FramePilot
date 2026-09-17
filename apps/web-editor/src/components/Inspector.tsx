@@ -6,22 +6,16 @@
  * a compact selection header, contextual category tabs, and a focused property page.
  */
 import { useMemo, useState } from 'react';
-import { Button } from '@framepilot/ui';
-import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
-  MASK_SHAPES,
-  type MaskShapeName,
-  addMaskPatch,
   removeEffectLayerPatch,
   setEffectLayerEnabledPatch,
   setEffectLayerParamsPatch,
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
-import { MaskPackActions } from './inspector/MaskPackActions.js';
 import { MaskPanel } from './inspector/masks/MaskPanel.js';
+import { MaskTracking } from './inspector/masks/MaskTracking.js';
 import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
-import { ScrubNumber } from './ScrubNumber.js';
 import {
   ArrowLeftRight,
   AudioLines,
@@ -41,7 +35,6 @@ import {
 import { Tooltip } from './Tooltip.js';
 import { InspectorRow } from './inspector/InspectorRow.js';
 import { InspectorSection } from './inspector/InspectorSection.js';
-import { LabeledSelect } from './inspector/LabeledSelect.js';
 import { visibleSections, type InspectorSectionDef } from './inspector/registry.js';
 import { resolveInspectorSelection } from './inspector/selection.js';
 import { useSectionState } from './inspector/useSectionState.js';
@@ -178,7 +171,12 @@ export function Inspector({
     () => resolveInspectorSelection(timeline, selectionId, selectedIds, selectedEffectLayerIds),
     [timeline, selectionId, selectedIds, selectedEffectLayerIds],
   );
-  const sections = useMemo(() => visibleSections(selection), [selection]);
+  // RD2.1: with the mask stack UI turned off the Mask tab is hidden; saved masks still render.
+  const [maskToolsOn] = useState(maskToolsEnabled);
+  const sections = useMemo(
+    () => visibleSections(selection).filter((section) => maskToolsOn || section.id !== 'mask'),
+    [selection, maskToolsOn],
+  );
   const tabs = useMemo(
     () =>
       INSPECTOR_TABS.filter((tab) =>
@@ -187,8 +185,6 @@ export function Inspector({
     [sections],
   );
   const sectionState = useSectionState();
-  // RD2.1: the mask stack UI (MK4) or, with the kill switch, the earlier add-mask form.
-  const [maskToolsOn] = useState(maskToolsEnabled);
 
   const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
     'inspectorTab',
@@ -196,11 +192,6 @@ export function Inspector({
     coerceInspectorTab,
   );
   const [copied, setCopied] = useState<ClipProperties | null>(null);
-  const [maskShape, setMaskShape] = useState<MaskShapeName>('ellipse');
-  const [maskFeather, setMaskFeather] = useState(0);
-  const [maskOpacity, setMaskOpacity] = useState(1);
-  // Keyed by clip so a refusal on one clip never shows under another selection.
-  const [maskRefusal, setMaskRefusal] = useState<{ clipId: string; message: string } | null>(null);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;
@@ -281,19 +272,6 @@ export function Inspector({
     if (patch) editor.applyPatch(patch);
   };
 
-  const applyMask = (): void => {
-    const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
-    // A v22 mask is stored in source pixels, so unmeasured media cannot take one; say so
-    // instead of letting the button silently do nothing.
-    if (assetDisplaySize(media) === null) {
-      setMaskRefusal({ clipId: clip.id, message: MEASURE_MEDIA_FIRST });
-      return;
-    }
-    setMaskRefusal(null);
-    const patch = addMaskPatch(timeline, clip.id, maskShape, maskFeather, maskOpacity, media);
-    if (patch) editor.applyPatch(patch);
-  };
-
   const sectionBody = (section: InspectorSectionDef): JSX.Element | null => {
     switch (section.id) {
       case 'transform':
@@ -320,53 +298,11 @@ export function Inspector({
       case 'transition':
         return <TransitionPanel key={`${clip.id}-transition`} editor={editor} clip={clip} />;
       case 'mask':
-        if (maskToolsOn) {
-          return (
-            <>
-              <MaskPanel key={`${clip.id}-masks`} editor={editor} clip={clip} />
-              <MaskPackActions editor={editor} clip={clip} fps={fps} />
-            </>
-          );
-        }
         return (
-          <div className="inspector-subpanel" aria-label="add-mask">
-            <LabeledSelect
-              caption="Shape"
-              label="mask shape"
-              value={maskShape}
-              options={MASK_SHAPES}
-              onChange={(value) => setMaskShape(value as MaskShapeName)}
-            />
-            <ScrubNumber
-              label="Feather"
-              ariaLabel="mask feather"
-              value={maskFeather}
-              min={0}
-              max={0.5}
-              step={0.01}
-              defaultValue={0}
-              onChange={setMaskFeather}
-            />
-            <ScrubNumber
-              label="Opacity"
-              ariaLabel="mask opacity"
-              value={maskOpacity}
-              min={0}
-              max={1}
-              step={0.05}
-              defaultValue={1}
-              onChange={setMaskOpacity}
-            />
-            <Button variant="secondary" type="button" onClick={applyMask}>
-              Add mask
-            </Button>
-            {maskRefusal !== null && maskRefusal.clipId === clip.id && (
-              <p role="alert" className="inspector-empty inspector-empty-inline">
-                {maskRefusal.message}
-              </p>
-            )}
-            <MaskPackActions editor={editor} clip={clip} fps={fps} />
-          </div>
+          <>
+            <MaskPanel key={`${clip.id}-masks`} editor={editor} clip={clip} />
+            <MaskTracking editor={editor} clip={clip} fps={fps} />
+          </>
         );
       case 'effects':
         return clip.effects.length === 0 ? (

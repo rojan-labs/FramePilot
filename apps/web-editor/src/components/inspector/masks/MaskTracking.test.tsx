@@ -10,8 +10,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MaskLayerSchema, masksOf, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import type { TrackingRunResultWire } from '@framepilot/shared-types';
-import { useEditor } from '../../editor/useEditor.js';
-import { MaskPackActions } from './MaskPackActions.js';
+import { useEditor } from '../../../editor/useEditor.js';
+import { MaskTracking } from './MaskTracking.js';
 
 const bridge = vi.hoisted(() => ({
   capabilityPackTrack: vi.fn(),
@@ -19,8 +19,8 @@ const bridge = vi.hoisted(() => ({
   capabilityPackCancelTrack: vi.fn(),
 }));
 
-vi.mock('../../editor/bridge.js', async (importOriginal) => ({
-  ...(await importOriginal<typeof import('../../editor/bridge.js')>()),
+vi.mock('../../../editor/bridge.js', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../editor/bridge.js')>()),
   getBridge: () => bridge,
 }));
 
@@ -80,7 +80,7 @@ function Host(): JSX.Element {
   return (
     <>
       <span data-testid="mask-keyframes">{mask?.keyframes.length ?? 0}</span>
-      <MaskPackActions editor={editor} clip={clip} fps={30} />
+      <MaskTracking editor={editor} clip={clip} fps={30} />
     </>
   );
 }
@@ -128,7 +128,7 @@ async function followSilhouette(): Promise<void> {
   await waitFor(() => expect(bridge.capabilityPackTrack).toHaveBeenCalledTimes(1));
 }
 
-describe('MaskPackActions', () => {
+describe('MaskTracking', () => {
   it('Follow silhouette applies the host-converted track to the mask', async () => {
     bridge.capabilityPackTrack.mockResolvedValue(trackingResult());
     render(<Host />);

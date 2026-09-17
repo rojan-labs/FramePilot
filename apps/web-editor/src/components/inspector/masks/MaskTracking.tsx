@@ -1,5 +1,6 @@
 /**
- * Pack-driven mask actions in the Inspector's Mask tab.
+ * Pack-driven mask tracking in the Inspector's Mask tab (formerly `MaskPackActions`; moved beside
+ * the mask panel in MK4.4, MK7 replaces it with per-mask tracking controls).
  *
  * The user drew the mask; these buttons MEASURE its subject through an
  * installed Capability Pack worker and animate that same mask from the
@@ -15,13 +16,13 @@ import {
   type ApplyTrackedMaskCommand,
 } from '@framepilot/editor-core';
 import { masksOf, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
-import type { UseEditor } from '../../editor/useEditor.js';
+import type { UseEditor } from '../../../editor/useEditor.js';
 import { Button } from '@framepilot/ui';
 import { professionalMaskEffectId } from '@framepilot/editor-core';
 import { silhouetteMasksToTrackSamples } from '@framepilot/ai-sdk';
 import type { TrackingSampleWire } from '@framepilot/shared-types';
-import { LabeledSelect } from './LabeledSelect.js';
-import { usePackJob } from './usePackJob.js';
+import { LabeledSelect } from '../LabeledSelect.js';
+import { usePackJob } from '../usePackJob.js';
 
 type FollowMode = 'box' | 'center' | 'silhouette';
 
@@ -34,7 +35,7 @@ function professionalMask(clip: Clip): MaskLayer | undefined {
   return masksOf(clip).find((mask) => mask.id === id);
 }
 
-export function MaskPackActions({
+export function MaskTracking({
   editor,
   clip,
   fps,

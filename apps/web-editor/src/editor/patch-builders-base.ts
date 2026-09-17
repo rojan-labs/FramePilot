@@ -12,9 +12,6 @@
  * same id (replayable, testable; consistent with the engine's id derivation).
  */
 import {
-  assetDisplaySize,
-  maskLayerFromFrameShape,
-  nextMaskId,
   buildAddMusicOps,
   buildAddStockOps,
   firstFreePictureStart,
@@ -64,10 +61,6 @@ import {
 /** Keyframe-animatable properties offered in the inspector UI. */
 export const KEYFRAME_PROPERTIES = ['scale', 'opacity', 'x', 'y', 'rotation'] as const;
 export type KeyframeProperty = (typeof KEYFRAME_PROPERTIES)[number];
-
-/** Mask shapes offered in the inspector UI (mirrors `AddMaskOp.shape`). */
-export const MASK_SHAPES = ['rectangle', 'ellipse', 'polygon'] as const;
-export type MaskShapeName = (typeof MASK_SHAPES)[number];
 
 /** Easing curves offered in the inspector UI (mirrors the schema enum). */
 export const EASINGS: readonly Easing[] = [
@@ -1352,50 +1345,6 @@ export function setClipTransformPatch(
     createdBy: 'user',
     reason: `Transform "${clipId}" (${summary})`,
     operations: [{ type: 'add_keyframes', clipId, keyframes, replace: true }],
-  };
-}
-
-/**
- * Add a mask to a clip — a centered shape covering the middle 60% of the picture.
- *
- * Schema v22 (ADR 0178): the mask is a layer on the clip's mask stack in source pixels,
- * built by the same `maskLayerFromFrameShape` the agent's `add_mask` uses. Returns `null`
- * when the clip is missing or its media was never measured (a mask cannot be stored in
- * pixels of an unknown picture; the Inspector says "Measure this media first").
- */
-export function addMaskPatch(
-  timeline: Timeline,
-  clipId: string,
-  shape: MaskShapeName,
-  feather = 0,
-  opacity = 1,
-  media?: Asset['media'],
-): Patch | null {
-  const found = findClip(timeline, clipId);
-  if (!found) {
-    return null;
-  }
-  const size = assetDisplaySize(media);
-  if (size === null) return null;
-  // Polygon falls back to that box until point editing lands (MK4).
-  const bounds = { x: 0.2, y: 0.2, width: 0.6, height: 0.6 };
-  const built = maskLayerFromFrameShape(
-    {
-      id: nextMaskId(found.clip),
-      shape: shape === 'polygon' ? 'rectangle' : shape,
-      bounds,
-      feather,
-      opacity,
-      sourceTime: found.clip.sourceStart,
-    },
-    size,
-  );
-  if (!built.ok) return null;
-  return {
-    patchId: patchId(`mask_${clipId}_${shape}_${ms(feather)}_${ms(opacity)}`),
-    createdBy: 'user',
-    reason: `Add ${shape} mask to "${clipId}"`,
-    operations: [{ type: 'add_mask', clipId, mask: built.mask }],
   };
 }
 
