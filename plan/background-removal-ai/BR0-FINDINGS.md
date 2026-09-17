@@ -78,8 +78,11 @@ modules replaced by onnxruntime sessions. BiRefNet: square crops of both clips' 
 | SAM 2.1 / BiRefNet | Windows ML (TensorRT-RTX / OpenVINO / Vitis AI) | fp32, fp16-stored | same | — | **not measured — maintainer hardware (MO-9)** |
 | SAM 2.1 / BiRefNet | DirectML | fp32, fp16-stored | same | — | **not measured — maintainer hardware (MO-9)** |
 
-**Windows parity runs unchanged** (`parity_sam.py`, `parity_birefnet.py`): `--reference`
-first (torch), then `--ep dml` or `--ep <VendorExecutionProviderName>` with `--precision fp32|fp16s`;
+**Windows parity runs unchanged:** `parity_sam.py --reference`, then `parity_sam.py --ep dml`
+(or `--ep <VendorExecutionProviderName>`) `--precision fp32|fp16s`; `parity_birefnet.py --size 2048
+--reference torch` (needs ~27 GB RAM; else `--reference onnx`, the CPU EP output), then
+`parity_birefnet.py --size 2048 --ep dml --precision fp32|fp16s`. Exports: `export_sam.py --module …`,
+`export_birefnet.py --size 2048`;
 needs torch, onnxruntime-directml / Windows ML onnxruntime, ffmpeg on PATH. The media is fetched
 by range request from download.blender.org, so the frames are identical.
 
