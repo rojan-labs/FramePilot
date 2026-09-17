@@ -36,7 +36,7 @@ import {
   type JobContext,
   type JobPriority,
 } from './job-scheduler.js';
-import { cleanUnusedMattes, matteStorageSummary } from './matte-storage.js';
+import { cleanUnusedMattes, MatteReferenceScanError, matteStorageSummary } from './matte-storage.js';
 
 const log = createLogger('desktop:capability-packs:matte-ipc');
 
@@ -258,7 +258,9 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
       ]);
       return { ok: true, ...summary };
     } catch (error) {
-      if (error instanceof MatteStagingError) return { ok: false, code: error.code, error: error.message };
+      if (error instanceof MatteStagingError || error instanceof MatteReferenceScanError) {
+        return { ok: false, code: error.code, error: error.message };
+      }
       throw error;
     }
   });
@@ -280,7 +282,9 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
       return { ok: true, ...result };
     } catch (error) {
       // A link in the matte store refuses the whole cleanup; nothing was deleted (BR4.12 M1).
-      if (error instanceof MatteStagingError) return { ok: false, code: error.code, error: error.message };
+      if (error instanceof MatteStagingError || error instanceof MatteReferenceScanError) {
+        return { ok: false, code: error.code, error: error.message };
+      }
       throw error;
     }
   });

@@ -7,7 +7,7 @@
  * the project on disk at the moment of deletion. A matte or correction referenced by the saved
  * project (timeline or saved history) or by the open session's undo history is never removed.
  */
-import { lstat, readdir, rm } from 'node:fs/promises';
+import { lstat, readdir, readFile, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -85,12 +85,66 @@ export function collectMatteReferences(project: unknown): { readonly artifacts: 
   return { artifacts, inputs };
 }
 
+/** Most project files one folder scan reads, and the largest one it parses. */
+export const FOLDER_SCAN_MAX_FILES = 500;
+export const FOLDER_SCAN_MAX_BYTES = 64 * 1024 * 1024;
+
+export class MatteReferenceScanError extends Error {
+  public readonly code = 'references_incomplete';
+  public constructor(message: string) {
+    super(message);
+    this.name = 'MatteReferenceScanError';
+  }
+}
+
+/**
+ * References from EVERY project file in the folder (BR4.12 M2).
+ *
+ * WHY: `.framepilot-derived` belongs to the folder, not to one project. Several `*.fp.json` files
+ * can share a folder (the default projects folder does), and a pre-migration backup
+ * (`<project>.v<N>.backup.fp.json`) still references the mattes and corrections of the version it
+ * preserves. Cleaning against the open project alone would delete another project's work. A file
+ * that cannot be read or is over the bound makes the scan incomplete, and an incomplete scan
+ * refuses to clean anything.
+ */
+export async function collectFolderMatteReferences(
+  projectDir: string,
+): Promise<{ readonly artifacts: Set<string>; readonly inputs: Set<string> }> {
+  const artifacts = new Set<string>();
+  const inputs = new Set<string>();
+  const names = (await readdir(path.resolve(projectDir))).filter((name) => name.endsWith('.fp.json'));
+  if (names.length > FOLDER_SCAN_MAX_FILES) {
+    throw new MatteReferenceScanError('This folder holds too many project files to check which mattes they use.');
+  }
+  for (const name of names) {
+    const file = path.join(path.resolve(projectDir), name);
+    const stat = await lstat(file);
+    if (!stat.isFile()) continue;
+    if (stat.size > FOLDER_SCAN_MAX_BYTES) {
+      throw new MatteReferenceScanError('A project file in this folder is too large to check which mattes it uses.');
+    }
+    let document: unknown;
+    try {
+      document = JSON.parse(await readFile(file, 'utf8'));
+    } catch {
+      throw new MatteReferenceScanError('A project file in this folder could not be read to check which mattes it uses.');
+    }
+    const found = collectMatteReferences(document);
+    for (const key of found.artifacts) artifacts.add(key);
+    for (const sha of found.inputs) inputs.add(sha);
+  }
+  return { artifacts, inputs };
+}
+
 export async function matteStorageSummary(
   projectDir: string,
   project: unknown,
   protectedKeys: readonly string[] = [],
 ): Promise<MatteStorageSummary> {
   const references = collectMatteReferences(project);
+  const folder = await collectFolderMatteReferences(projectDir);
+  for (const key of folder.artifacts) references.artifacts.add(key);
+  for (const sha of folder.inputs) references.inputs.add(sha);
   const guard = new Set(protectedKeys);
   // A link anywhere in `.framepilot-derived/mattes` refuses the whole summary (BR4.12 M1).
   const root = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR]);

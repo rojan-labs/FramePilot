@@ -93,3 +93,29 @@ describe('matte storage (MD-4)', () => {
     expect(await readdir(outside)).toEqual(['precious.mov']);
   });
 });
+
+describe('references from every project file in the folder (BR4.12 M2)', () => {
+  it('keeps mattes and corrections a backup or another project in the folder still uses', async () => {
+    const { dir, mattes, project } = await projectWithStore();
+    // B is unused by the open project, but a pre-migration backup still references it and F.
+    await writeFile(
+      path.join(dir, 'edit.v21.backup.fp.json'),
+      JSON.stringify({ timeline: { tracks: [{ clips: [{ masks: [{ kind: 'matte', artifact: { key: KEY('b') }, prompts: [{ kind: 'lock', sha256: KEY('f') }] }] }] }] } }),
+    );
+    // Another project in the same folder uses D.
+    await writeFile(path.join(dir, 'other.fp.json'), JSON.stringify({ timeline: { tracks: [{ clips: [{ masks: [{ kind: 'matte', artifact: { key: KEY('d') } }] }] }] } }));
+    const summary = await matteStorageSummary(dir, project);
+    expect(summary.artifacts.filter((item) => !item.referenced)).toEqual([]);
+    expect(summary.inputs.filter((item) => !item.referenced)).toEqual([]);
+    const result = await cleanUnusedMattes(dir, project, [KEY('b'), KEY('d'), KEY('f')]);
+    expect(result.removedKeys).toEqual([]);
+    expect((await readdir(path.join(mattes, '.inputs'))).sort()).toEqual([`${KEY('e')}.png`, `${KEY('f')}.png`]);
+  });
+
+  it('refuses to clean anything when a project file in the folder cannot be read', async () => {
+    const { dir, mattes, project } = await projectWithStore();
+    await writeFile(path.join(dir, 'broken.fp.json'), '{ not json');
+    await expect(cleanUnusedMattes(dir, project, [KEY('b')])).rejects.toMatchObject({ code: 'references_incomplete' });
+    expect((await readdir(mattes)).includes(KEY('b'))).toBe(true);
+  });
+});
