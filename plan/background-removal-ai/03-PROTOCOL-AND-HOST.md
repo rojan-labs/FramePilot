@@ -106,9 +106,13 @@ extra read surface:
   ceiling per request (frames × pixels × an FFV1 bound, more with foreground) is part of the
   protocol, polled by the host watchdog while the job runs and checked again by host verification.
   **None of this is an OS sandbox** (BR4.12): the worker runs as the user, and the guarantees are the
-  protocol, the worker's own process group (killed on timeout, abort and completion, and proven gone
-  before verification), host verification, and a re-`lstat` with `nlink == 1` just before the
-  atomic rename. An OS-level sandbox is an accepted risk in ADR 0114.
+  protocol, the worker's own process group (killed on timeout, abort and completion, and checked
+  before verification), host verification, and a re-`lstat` (`nlink == 1`, size, inode, mtime) just
+  before the atomic rename. **A malicious pack can escape on every OS:** on POSIX a descendant that
+  calls `setsid()` leaves the group, so it is neither killed nor memory-sampled; on Windows there is
+  no Job Object and only the worker's own pid is checked, so its children survive completion
+  undetected. These bounds contain a faulty worker, not a hostile one; signing and consent are what
+  keep hostile packs out. An OS-level sandbox is an accepted risk in ADR 0114.
 - **Read:** corrections and locked frames are written **by the host** into
   `.../.staging/<requestId>/inputs/` before the job starts, and passed as a read-only handle.
 - **Verification by the host, independent of the worker's claims:** `ffprobe` dimensions, pixel

@@ -85,14 +85,20 @@ verification of every file it wrote (names, sizes, digests, frame identity) and 
 `nlink == 1` immediately before the atomic rename; hardened ffmpeg on every host-side decode of its
 output or of untrusted media.
 
-**Known gaps accepted with it.**
-- Windows has no Job Object kill-on-close or memory limit (native code; the app adds no native
-  dependency for it): a descendant that leaves the process tree before the kill is not reached,
-  and memory is sampled from the worker's working set only.
-- The protocol's file-name and byte-ceiling rules are enforced by the worker's own code and
-  re-checked by the host afterwards and by polling, not prevented by the OS.
+**A malicious pack can escape on every OS.** The bounds above contain a buggy or crashed
+worker, not a hostile one:
+- **POSIX:** a descendant that calls `setsid()` (or `setpgid()`) leaves the worker's process group.
+  The group kill does not reach it and the memory watchdog does not sample it; it can keep running
+  and writing after the job ends.
+- **Windows:** there is no Job Object (native code; the app adds no native dependency for it).
+  `isWorkerGroupAlive` checks only the worker's own pid, so children survive a normal completion and
+  are neither killed nor detected; `taskkill /T` reaches only descendants still in the tree, and
+  memory is the worker's working set only.
+- **Everywhere:** the file-name and byte-ceiling rules are enforced by the worker's own code and
+  re-checked by the host afterwards and by polling, not prevented by the OS; the re-check before the
+  rename narrows the window but cannot close it against a process the host cannot see.
 
-**Decision.** Accepted until a dedicated hardening task adds an OS-level sandbox for pack workers
+**Decision.** Accepted, because packs are signed and installed only with consent, until a dedicated hardening task adds an OS-level sandbox for pack workers
 (seatbelt profile on macOS, AppContainer or a restricted token plus Job Object on Windows) that
 allows only the pack's install root (read), the approved media (read), the job's staging directory
 (write) and no network. No task is scheduled for it yet; this amendment is where it is tracked.
