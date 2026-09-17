@@ -9,10 +9,12 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR4.12 fixes — H1, H2, M1–M3, L1–L6, fuzz corpus (host agent)
+- BR4.12 re-review of the fixes (security-reviewer)
 - BR3 — Smart Mask worker scaffold + pipeline with injected backend (agent)
 
 ## Done
+
+- BR4.12 fixes (9ba7df01…47d572c1): process-group kill + nlink recheck, footprint/stall/staging watchdog, real-dir chain, folder-wide references, route semaphore/deadline + ffmpeg protocol/format whitelists, L1–L6, fuzz corpus + harnesses (213 desktop tests), ADR 0114 accepted-risk amendment
 
 - BR4.9/4.11/4.13/4.14 (999ff604…91076959): sidecar frame hashes + locked-frame compare, relink_asset op + STALE, job scheduler + JobsPanel + resume + quit prompt, job reports + diagnostic bundle
 
