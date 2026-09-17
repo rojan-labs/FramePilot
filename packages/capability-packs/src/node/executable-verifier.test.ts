@@ -106,6 +106,7 @@ describe('runBoundedCommand', () => {
     const script = [
       "const { spawn } = require('node:child_process');",
       "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      'child.unref();',
       'process.stdout.write(String(child.pid));',
     ].join('\n');
     const result = await runBoundedCommand({ executable: process.execPath, args: ['-e', script] });
