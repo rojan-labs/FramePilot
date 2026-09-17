@@ -502,6 +502,8 @@ export const CapabilityPackWorkerProgressSchema = z
       'foreground',
       'stabilise',
       'verify',
+      // First-run model preparation (EP graph optimisation, compiled-model cache), plan 02.
+      'prepare',
     ]),
     completed: z.number().int().nonnegative(),
     total: z.number().int().positive(),
