@@ -669,8 +669,11 @@ export function WebCodecsPreviewPlayer({
   // External seeks (timeline ruler, "at playhead" actions) while paused: move
   // the canvas to match. Guarded against our own onTimeUpdate echo by
   // comparing against the last value THIS component reported.
+  // Keyed on `hasSegments`, not the EDL: the layer compositor builds no EDL, and gating on it
+  // left paused ruler/transcript seeks unseen by that engine, whose next project reload then
+  // re-presented its stale time and dragged the editor playhead back to it.
   useEffect(() => {
-    if (edl.length === 0) return undefined;
+    if (!hasSegments) return undefined;
     return editor.subscribePlayhead(() => {
       const engine = engineRef.current;
       // isStarting: play() is mid-startup (audio clock resuming) — isPlaying is
@@ -680,7 +683,7 @@ export function WebCodecsPreviewPlayer({
       if (Math.abs(projectTime - lastReportedTimeRef.current) < 1 / Math.max(1, fps)) return;
       void engine.seek(projectTime);
     });
-  }, [edl.length, editor, fps]);
+  }, [hasSegments, editor, fps]);
 
   // Monitor volume/mute (revamp Phase 2). Pushed to the engine's master gain bus,
   // which applies to sources ALREADY playing — so the control works mid-playback
