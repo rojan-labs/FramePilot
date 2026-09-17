@@ -52,11 +52,11 @@ The design choices that keep the per-move cost flat at 200 vertices: the outline
 handles are single SVG paths (not an element per handle), hit testing is arithmetic in source
 pixels rather than DOM events, and the SVG group transform maps source to frame pixels once, so
 nothing is re-projected per vertex in JavaScript. That is why jsdom, which does no style or
-layout, measures 2 ms — and why the Chrome number below is *not* about the geometry work.
+layout, measures 2 ms — and why the Chrome number below is _not_ about the geometry work.
 
-### The Chrome miss: the live raster was starving the pointer
+### The Chrome miss, and what it actually was
 
-Chrome, CI run 35274471046 (E2E smoke), three attempts, before the fix:
+Chrome, CI run 35274471046 (E2E smoke), three attempts:
 
 | Attempt | `commit` p95 | `pointerToPaint` p95 | `composite` p95 |
 | ------- | ------------ | -------------------- | --------------- |
@@ -64,19 +64,38 @@ Chrome, CI run 35274471046 (E2E smoke), three attempts, before the fix:
 | 2       | 18.3 ms      | 18.5 ms              | 20.1 ms         |
 | 3       | 19.7 ms      | 19.9 ms              | 20.8 ms         |
 
-Two things fall out of that table. First, `pointerToPaint` sits only **0.2–0.4 ms** above
-`commit`, so the animation frame costs nothing here — an earlier reading of these numbers as a
-vsync floor was wrong, and this table is the refutation. Second, `commit` tracks `composite`
-almost exactly, which is the actual mechanism: both run on the main thread, the live re-composite
-was started synchronously in the effect the pointer move had just triggered, and the *next*
-pointer event then waited behind a ~19 ms raster. The measured latency was mostly input delay,
-not the monitor's geometry work.
+`pointerToPaint` sits only **0.2–0.4 ms** above `commit`, so the animation frame costs nothing
+here — an earlier reading of these numbers as a vsync floor was wrong, and this table is the
+refutation. `commit` tracked `composite`, which suggested the live re-composite was starving the
+pointer, so the live present was moved off the move handler onto the next animation frame
+(`WebCodecsPreviewPlayer.tsx`, still latest-wins with one present in flight).
 
-The fix (MK4.6, `WebCodecsPreviewPlayer.tsx`) defers the live present to the next animation frame,
-still latest-wins with one present in flight. The move handler returns the thread immediately, so
-queued input is delivered before the raster starts; the raster itself is unchanged and still
-re-composites at roughly frame rate. The budget was not lowered, and the deeper options
-(incremental raster of the edited region, worker raster) remain available if a future measurement
-needs them.
+Run 35277293869, after that change:
 
-**Measured after the fix:** see the E2E smoke log line of the run recorded in the PR.
+| Attempt | `commit` p95 | `pointerToPaint` p95 | `composite` p95 |
+| ------- | ------------ | -------------------- | --------------- |
+| 1       | 19.6 ms      | 19.7 ms              | 13.4 ms         |
+| 2       | 18.7 ms      | 18.8 ms              | 13.6 ms         |
+| 3       | 19.1 ms      | 19.2 ms              | 11.8 ms         |
+
+The raster got **~7 ms cheaper and `commit` did not move**, which rules out contention as the
+cause too. Two hypotheses down, so the instrument was split further: `inputDelay` (the pointer
+event's timestamp to handler entry — the browser delivering the event, which the spec does over
+CDP) and `work` (handler entry to the paintable DOM — everything the monitor does). Both are
+logged by the spec now.
+
+That split pointed at the monitor's own work, and there was one thing in it that jsdom can never
+charge for: `toSource` called `getBoundingClientRect()` on **every pointer move**, on a document
+React had just written to. Each call forces a synchronous style + layout of the whole editor;
+jsdom has no layout, which is exactly why it measured 2 ms while Chrome measured 19 ms for the
+same code. The canvas box cannot change while a pointer is down, so it is now measured once per
+gesture and held (`rectCache` in `MaskCanvasTools.tsx`), invalidated by the same ResizeObserver
+that already tracks the canvas' size.
+
+The budget was never lowered, and the deeper raster options (incremental raster of the edited
+region, worker raster) were not needed — the raster was never on the pointer's critical path.
+
+**Still to record:** the Chrome `commit`/`work`/`inputDelay` p95 after the layout fix. The E2E
+smoke job is gated behind the branch's node-quality job, which was red on an unrelated
+PX0-inventory row when this was written, so the measurement is pending the next run that reaches
+E2E smoke. The jsdom budget test asserts the same 16 ms budget on every run in the meantime.
