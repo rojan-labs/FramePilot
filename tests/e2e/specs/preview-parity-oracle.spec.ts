@@ -86,9 +86,10 @@ const MAX_ATTACHED_SAMPLES_PER_CASE = 3;
  * outgrew a flat six minutes.
  */
 const CASE_TIMEOUT_BASE_MS = 6 * 60_000;
-const CASE_TIMEOUT_PER_EXTRA_SAMPLE_MS = 15_000;
+/** Software-GL frame effects on the CI runner took over 17 s a sample (effect-kinds timed out). */
+const CASE_TIMEOUT_PER_SAMPLE_MS = 25_000;
 const caseTimeoutMs = (samples: number): number =>
-  CASE_TIMEOUT_BASE_MS + Math.max(0, samples - 24) * CASE_TIMEOUT_PER_EXTRA_SAMPLE_MS;
+  Math.max(CASE_TIMEOUT_BASE_MS, samples * CASE_TIMEOUT_PER_SAMPLE_MS);
 
 const CHECKS = ['renderer', 'pixels', 'sentinel', 'pts'] as const;
 type Check = (typeof CHECKS)[number];
@@ -161,6 +162,8 @@ interface SampleResult {
   expectedPts: string[];
   presentedPts: string[] | null;
   failures: Partial<Record<Check, string>>;
+  /** Readback facts recorded for a far-off sample (diagnosis only, never a verdict). */
+  diagnostic?: Record<string, unknown>;
 }
 interface CaseResult {
   key: string;
@@ -359,6 +362,7 @@ interface PageCompare {
   sentinel: SampleResult['sentinel'];
   previewPng: string | null;
   diffPng: string | null;
+  diagnostic: Record<string, unknown> | null;
 }
 
 /**
@@ -416,6 +420,7 @@ async function seekAndCompare(
         sentinel: null,
         previewPng: null,
         diffPng: null,
+        diagnostic: null,
       };
       if (preview === null) return result;
       const [br, bg, bb] = background;
@@ -489,6 +494,31 @@ async function seekAndCompare(
       result.withinFraction = within / n;
       result.maxChannelError = maxError;
       if (diff) result.diffPng = await toPng(diff, width, height);
+      if (result.psnr < 20) {
+        // Far off: record what was read, then read again without seeking, to tell a blank canvas
+        // from a blank reference and a late draw from a wrong one.
+        const centre = (width * (height >> 1) + (width >> 1)) * 4;
+        const px = (data: ArrayLike<number>, o: number) => [0, 1, 2, 3].map((k) => data[o + k]);
+        let opaque = 0;
+        for (let i = 0; i < n; i++) if (preview[i * 4 + 3]! > 0) opaque++;
+        await new Promise((resolve) => requestAnimationFrame(() => setTimeout(resolve, 50)));
+        const again = canvas.getContext('2d')!.getImageData(0, 0, width, height).data;
+        let changed = 0;
+        for (let i = 0; i < again.length; i++) if (again[i] !== preview[i]) changed++;
+        const later = engine.debugPresentedFrame();
+        result.diagnostic = {
+          previewCentre: px(preview, centre),
+          engineCentre: px(ref, centre),
+          previewNonTransparentPx: opaque,
+          rereadChangedBytes: changed,
+          rereadCentre: px(again, centre),
+          canvasConnected: canvas.isConnected,
+          canvases: document.querySelectorAll('.webcodecs-preview-canvas').length,
+          engineStillHooked:
+            (window as unknown as { __fpPreviewEngine?: Engine }).__fpPreviewEngine === engine,
+          presentedAfter: later ? later.projectTimeSec : null,
+        };
+      }
 
       // Sentinel classes: -1 = no sentinel; a class counts only where its 3x3 block agrees.
       const classify = (px: Uint8ClampedArray): Int16Array => {
@@ -670,6 +700,7 @@ async function measureCase(
         sample.psnr = compared.psnr;
         sample.withinFraction = compared.withinFraction;
         sample.maxChannelError = compared.maxChannelError;
+        if (compared.diagnostic) sample.diagnostic = compared.diagnostic;
         sample.sentinel = compared.sentinel;
         if (
           compared.psnr < PSNR_MIN_DB ||
