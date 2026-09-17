@@ -1,14 +1,28 @@
 """Composition root: the real models, media tools and pipeline behind :class:`WorkerServices`.
 
 Imported lazily by ``__main__`` so a protocol refusal never loads numpy or onnxruntime.
+Configuration comes from ``FRAMEPILOT_``-prefixed environment variables, the only channel the
+host's worker client passes through (``worker-env.ts``).
 """
 
 from __future__ import annotations
 
+import os
+from collections.abc import Mapping
+from dataclasses import asdict
+from typing import Any, Final
+
 from .backend import BackendUnavailableError, ModelUnavailableError
 from .identity import HealthFacts
 from .models import PINNED_MODELS, DigestCache, installed_tiles, models_directory
-from .runtime import WorkerServices
+from .protocol import MatteOutcome, MatteRequest, SegmentFrameRequest
+from .runtime import CancellationFlag, ProgressSink, SegmentFrameOutcome, WorkerServices
+
+ENV_MEMORY_CEILING_MIB: Final = "FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB"
+ENV_MATTING_TILE: Final = "FRAMEPILOT_SMART_MASK_MATTING_TILE"
+ENV_THREADS: Final = "FRAMEPILOT_SMART_MASK_THREADS"
+ENV_CACHE_DIR: Final = "FRAMEPILOT_CAPABILITY_PACK_CACHE"
+DEFAULT_MEMORY_CEILING_MIB: Final = 8192
 
 
 def verified_model_digests(cache: DigestCache | None = None) -> dict[str, str]:
@@ -42,5 +56,76 @@ def probe_health() -> HealthFacts:
     )
 
 
+def _int(environment: Mapping[str, str], name: str) -> int | None:
+    raw = environment.get(name, "")
+    try:
+        return int(raw) if raw else None
+    except ValueError:
+        return None
+
+
+def pipeline_config(environment: Mapping[str, str] | None = None) -> Any:
+    from .pipeline import GIB, PipelineConfig
+
+    env = os.environ if environment is None else environment
+    ceiling_mib = _int(env, ENV_MEMORY_CEILING_MIB) or DEFAULT_MEMORY_CEILING_MIB
+    return PipelineConfig(
+        memory_ceiling_bytes=ceiling_mib * 1024 * 1024,
+        matting_tile=_int(env, ENV_MATTING_TILE),
+        embedding_ram_bytes=min(ceiling_mib * 1024 * 1024 // 16, GIB),
+    )
+
+
+class PackServices:
+    """The real :class:`WorkerServices`."""
+
+    def __init__(self, environment: Mapping[str, str] | None = None) -> None:
+        from .media import FfmpegTools, verify_tools
+        from .onnx_backend import OnnxModelProvider
+
+        env = os.environ if environment is None else environment
+        ffmpeg, ffprobe, report = verify_tools(env)
+        self.tools = FfmpegTools(ffmpeg, ffprobe, report)
+        self.config = pipeline_config(env)
+        cache = env.get(ENV_CACHE_DIR, "")
+        from pathlib import Path
+
+        self.provider = OnnxModelProvider(
+            models_directory(env),
+            compiled_cache=Path(cache) if cache else None,
+            intra_op_threads=_int(env, ENV_THREADS) or 0,
+        )
+
+    @property
+    def backend_label(self) -> str:
+        return self.provider.backend_label
+
+    @property
+    def model_digests(self) -> dict[str, str]:
+        return self.provider.model_digests
+
+    def run_matte(
+        self, request: MatteRequest, progress: ProgressSink, cancellation: CancellationFlag
+    ) -> MatteOutcome:
+        from .pipeline import MatteJob, ToolPaths
+
+        report = asdict(self.tools.report)
+        job = MatteJob(
+            request,
+            provider=self.provider,
+            media=self.tools,
+            tools=ToolPaths(str(self.tools.ffmpeg), str(self.tools.ffprobe), report),
+            config=self.config,
+            progress=progress,
+            cancellation=cancellation,
+        )
+        return job.run()
+
+    def segment_frame(
+        self, request: SegmentFrameRequest, cancellation: CancellationFlag
+    ) -> SegmentFrameOutcome:
+        raise BackendUnavailableError("interactive segmentation is not available in this build.")
+
+
 def create_services() -> WorkerServices:
-    raise BackendUnavailableError("the Smart Mask pipeline is not assembled in this build.")
+    return PackServices()

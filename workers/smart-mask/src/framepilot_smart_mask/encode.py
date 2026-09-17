@@ -56,7 +56,8 @@ def encode_argv(
     source_format = "gray" if kind in ("matte", "preview") else "rgb24"
     argv = [
         ffmpeg, "-nostdin", "-v", "error", "-y",
-        "-f", "rawvideo", "-pix_fmt", source_format, "-s", f"{width}x{height}", "-framerate", RAW_RATE, "-i", "-",
+        "-f", "rawvideo", "-pix_fmt", source_format, "-s", f"{width}x{height}",
+        "-framerate", RAW_RATE, "-i", "-",
         "-map", "0:v:0", "-fps_mode", "passthrough",
     ]  # fmt: skip
     if kind == "matte":
@@ -66,6 +67,9 @@ def encode_argv(
     else:
         preview_w, preview_h = preview_size(width, height, preview_height)
         argv += ["-vf", f"scale={preview_w}:{preview_h}:flags=area", *VP9_ARGS]
+    # bitexact: no random segment UID or encoder string, so identical frames give identical bytes
+    # (a resumed job equals an uninterrupted one; a cache key over file digests is stable).
+    argv += ["-fflags", "+bitexact", "-flags:v", "+bitexact"]
     argv += ["-f", "matroska" if kind in ("matte", "foreground") else "webm", destination]
     return argv
 
@@ -129,7 +133,8 @@ def concat_segments(
     muxer = "webm" if destination.endswith(".webm") else "matroska"
     completed = subprocess.run(
         [ffmpeg, "-nostdin", "-v", "error", "-y", "-f", "concat", "-safe", "0", "-i", str(listing),
-         "-map", "0:v:0", "-c", "copy", "-fps_mode", "passthrough", "-f", muxer, destination],
+         "-map", "0:v:0", "-c", "copy", "-fps_mode", "passthrough", "-fflags", "+bitexact",
+         "-f", muxer, destination],
         capture_output=True, check=False, timeout=ENCODE_TIMEOUT_SECONDS, stdin=subprocess.DEVNULL,
     )  # fmt: skip
     listing.unlink(missing_ok=True)
