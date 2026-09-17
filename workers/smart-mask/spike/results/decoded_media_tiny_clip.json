@@ -1,0 +1,25 @@
+{
+  "meanIoUVsUpstreamSam": 0.267,
+  "minIoU": 0.2138,
+  "flagged": 16,
+  "executionProvider": "cpu",
+  "backend": "onnxruntime-1.30.0:birefnet=cpu:sam=cpu",
+  "tile": {
+    "ceilingBytes": 8589934592,
+    "reason": "configured",
+    "size": 768
+  },
+  "timingsSeconds": {
+    "consensus": 0.042,
+    "decode": 0.057,
+    "encode": 0.171,
+    "foreground": 0.335,
+    "matte": 64.972,
+    "refine": 67.046,
+    "segment": 143.76,
+    "self_correct": 0.0,
+    "stabilise": 0.176,
+    "verify": 0.259,
+    "windows": 276.863
+  }
+}

@@ -259,3 +259,90 @@ for model jobs.
 | 4K30 end to end | Would require 2048² tiles (above); extrapolated |
 | Recall/review load on human labels | MO-8 labels do not exist; construction-true pilot used, with the caveat above |
 | Self-correction, stabilisation, foreground colour | Out of BR0 scope (models/runtime verification) |
+
+## BR3.15 Accuracy pass on a rebuilt construction-true pilot
+
+> Recorded 2026-09-17 on the same Apple M1 Pro 16 GB, CPU EP for both models, BiRefNet at the
+> 768² tile, through the pack's own entrypoint (`workers/smart-mask/eval/run_eval.py`), one clip
+> per `spike/watchdog.py` job. Report: `workers/smart-mask/eval/reports/2026-09-17-darwin-arm64.json`.
+> Still construction-true, **not** MO-8's human-labelled set.
+
+### What changed from BR0
+
+| BR0 | BR3.15 | Why |
+| --- | --- | --- |
+| Pilot: 8 clips × 32 frames at 1080p; flat capsule figures, 260 sub-pixel hair strands, low light at 22% gain + 3% noise; every one of 256 frames wrong | `eval/pilot.py`: 10 categories (06 list, plus a product) × 2 seeds × 32 frames at 1280×720; shaded, textured bodies with joints, hair as a mass with a feathered fringe (flyaways only in `hair_busy`), real 180° shutter, low light at 40% gain + 1.2% noise | Built to look like footage while keeping exact ground truth |
+| Verify thresholds tuned on the set they were scored on (attempts 1–4) | Thresholds fitted on the `calibration` split only (coordinate search and forward selection; the lower calibration review load wins), frozen, applied to the `scored` split | Numbers reported below come from the scored split |
+| SAM orchestration: upstream PyTorch predictor with graphs swapped in | Numpy port in the pack (`tracker.py`), bounded memory bank. First parity run failed (min IoU 0.883 / 0.399): upstream's video builder sets `binarize_mask_from_pts_for_mem_enc=true`. Fixed; parity now passes (min per-frame IoU 1.0 over 24 frames and 0.999536 over 20, same as BR0.2) | The shipped path must be the measured one |
+| Consensus: every disagreement pixel went into the band and took BiRefNet's alpha, so the binarised matte *was* BiRefNet's mask (the main IoU loss in BR0.4) | Majority vote of SAM fwd, SAM bwd, BiRefNet and the flow-warped previous alpha; band = ring around the vote's boundary plus soft disagreement; BiRefNet alpha only where fractional or agreeing | Prompt and propagation bugs behind BR0's 0.006–0.967 |
+| Backward pass seeded from a box of the forward mask at "≥ 50% of frame-0 area" | Pass B seeded from the last frame pass A was confident about (object score, IoU, area), pass C covers frames before the prompt; locked frames condition every pass | Seed rule broke on subjects leaving frame |
+| No self-correction, stabilisation, foreground | K=3 self-correction, band alpha at source resolution, band-only stabilisation, foreground colour | Pipeline complete |
+| Job footprint 6.1 GB (SAM) | 4.2–4.5 GB peak: SAM image encoder released after each window's embeddings are encoded, never resident beside memory attention | Several runs were aborted by the watchdog's swap-growth rule before this |
+
+### Automatic accuracy (auto-mode prompt: the first frame's ground-truth box)
+
+Per category, scored split (the calibration split is within ±0.05 IoU except where noted):
+
+| Category | Mean IoU | 5th pct IoU | Mean BF@2px | Wrong frames (06 rule) |
+| --- | --- | --- | --- | --- |
+| hair_busy | 0.9972 | 0.9954 | 0.988 | 0 / 32 |
+| talking_head | 0.9824 | 0.9692 | 0.633 | 31 / 32 |
+| similar_colour | 0.9745 | 0.9655 | 0.934 | 27 / 32 |
+| walk_pan | 0.9745 | 0.9520 | 0.911 | 24 / 32 |
+| product_table † | 0.9724 | 0.9413 | 0.819 | 22 / 32 |
+| twin_distractor | 0.9581 | 0.8738 | 0.850 | 23 / 32 |
+| fast_motion | 0.9514 | 0.9041 | 0.822 | 32 / 32 |
+| crossing | 0.8891 | 0.3004 | 0.826 | 19 / 32 |
+| leave_reenter | 0.8710 | 0.4425 | 0.679 | 20 / 32 |
+| low_light | 0.8113 | 0.5662 | 0.332 | 32 / 32 |
+| **All scored** | **0.9382** | **0.7846** | **0.780** | **230 / 320 (71.9%)** |
+
+BR0 on its pilot (same rule): mean IoU 0.006–0.967, 256/256 frames wrong.
+
+† `product_table` renders identically in both splits (its seed only picks a colour, and both seeds
+have the same parity), so it is not held out. A pilot defect to fix before the next pass.
+
+**Reading.** Most frames now have IoU ≥ 0.97, but the 06 wrong-frame rule also needs BF@2px ≥ 0.95,
+and that is where most frames fail. Two kinds of edge error dominate: (1) on low-contrast edges the
+estimates bleed a 5–16 px sliver into a similarly dark background (`talking_head`: 80th/95th
+percentile boundary error 8.6/16 px at frame 16, on the same side whichever way the subject moves,
+so not a timing or flow error); (2) motion blur and noise (`fast_motion`, `low_light`) put the
+binarised edge outside 2 px. `crossing` and `leave_reenter` lose whole regions around occlusion and
+exit/re-entry (5th percentile IoU 0.30 and 0.44). **Automatic accuracy does not meet 06**
+(mean IoU ≥ 0.98 per category: 1 of 10; BF@2px ≥ 0.95: 1 of 10).
+
+### Verification: recall and review load (06 gates: recall ≥ 99.5%, review load ≤ 10%)
+
+| Thresholds | Split | Wrong frames | Caught | Recall | Wilson 95% lower | Flagged | Review load |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Shipped (BR0 attempt 4) | scored | 230 | 230 | **100%** | 98.4% | 306 / 320 | **95.6%** |
+| Calibrated on the calibration split (forward selection) | calibration | 181 | 181 | 100% | 97.9% | 236 / 256 | 92.2% |
+| Calibrated, frozen | **scored** | 230 | 222 | **96.5%** | 93.3% | 285 / 320 | **89.1%** |
+
+Calibrated thresholds: flow re-warp mismatch > 0.02, unexplained edges > 0.5, area log-ratio > 0.05,
+SAM/BiRefNet IoU < 0.95, hard disagreement > 0.005 (everything else off). Its 8 scored misses: 7 in
+`twin_distractor` (a category missing from the calibration split, see below) and 1 in `fast_motion`.
+
+- **Recall gate (≥ 99.5%): not demonstrated.** Frozen calibrated thresholds reach 96.5% on held-out
+  frames. The shipped thresholds reach 100% but were set on BR0's pilot, and their Wilson lower bound
+  (98.4%) is below the gate.
+- **Review load gate (≤ 10%): fails.** With 72% of frames actually wrong by the 06 rule, no honest
+  detector can flag fewer than about 72%. The best held-out load (89.1%) is 17 points above that
+  floor. Its extra flags are mostly `hair_busy` (0 wrong, 32 flagged, driven by the
+  unexplained-edges check).
+- Verify-stage findings for the next iteration: `c2` (unexplained edges) fires on 99 of 143 correct
+  calibration frames with nearly the same signal distribution as on wrong frames. It needs a
+  redesign, not a threshold. SAM/BiRefNet IoU and hard disagreement carry most of the separation.
+
+### Not measured, and why
+
+| Item | Why |
+| --- | --- |
+| `similar_colour` and `twin_distractor`, calibration split | Aborted by the watchdog's swap-growth rule (> 1 GB during the job) on every attempt: 3 and 2 tries, while the machine's swap rose from 6 to 12 GB alongside the editor, IDE and browser. So the calibration split has 8 of 10 categories, which is why `twin_distractor` misses dominate the scored recall |
+| BiRefNet at 1024² or 2048² tiles | 768² chosen to stay inside the local budget; 2048² exceeds it (BR0.7) |
+| Human-labelled accuracy, real footage (MO-8) | Labels do not exist |
+| Throughput per footage second | Pilot clips took 472–841 s for 32 frames of 720p (≈ 15–26 s/frame) on a shared machine, including self-correction; not a controlled measurement |
+
+`test_decoded_media` (16 frames of Sintel 02:40 at 640×272, BR0's click) runs end to end with host
+verification passing, but agrees poorly with upstream SAM's masks (mean IoU 0.267; the subject is
+about 190 px at that scale). Verify flagged all 16 frames. Not investigated further in BR3.15.
