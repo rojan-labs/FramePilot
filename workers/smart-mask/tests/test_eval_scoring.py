@@ -76,3 +76,23 @@ def test_boundary_f_and_iou() -> None:
     assert run_eval.iou(a, a) == 1.0 and run_eval.boundary_f(a, a) == 1.0
     assert run_eval.boundary_f(a, b) == 1.0, "a 1 px shift is inside the 2 px tolerance"
     assert run_eval.boundary_f(a, np.zeros_like(a)) == 0.0
+
+
+def test_forward_selection_drops_a_check_that_flags_correct_frames() -> None:
+    # Frames 1 and 3 are wrong and only the pair-IoU signal separates them; c2 fires everywhere.
+    calibration = [
+        run(
+            "calibration",
+            [0.99, 0.97, 0.99, 0.96, 0.99, 0.99],
+            [False, True, False, True, False, False],
+        )
+    ]
+    for frame in calibration[0]["frames"]:
+        frame["signals"]["unexplainedEdges"] = 2.0
+    fitted, trace = run_eval.forward_select(calibration)
+    result = run_eval.score(calibration, fitted)
+    assert result["recall"] == 1.0 and result["reviewLoad"] == pytest.approx(2 / 6)
+    assert fitted.c2_unexplained is None and trace[0]["add"].startswith("e_sam_pair_iou")
+    chosen, details = run_eval.best_calibration(calibration)
+    assert run_eval.score(calibration, chosen)["reviewLoad"] == pytest.approx(2 / 6)
+    assert details["chosen"] in ("coordinate", "forward")

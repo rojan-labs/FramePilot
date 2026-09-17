@@ -266,6 +266,100 @@ def calibrate(
     return dataclasses.replace(best, version="br3.15-calibrated"), trace
 
 
+#: Every check switched off: the starting point of forward selection.
+NOTHING = Thresholds(
+    a_rewarp_mismatch=None,
+    b_components=False,
+    c_edge_corr=None,
+    c2_unexplained=None,
+    d_area_logratio=None,
+    d_centroid_frac=None,
+    e_sam_pair_iou=None,
+    e_sam_birefnet_iou=None,
+    e_hard_disagreement=None,
+    e_band_frac=None,
+    f_object_score=False,
+    g_single_estimate=False,
+    h_presence_window=0,
+)
+#: The "off" value of each parameter, so forward selection knows what adding a rule means.
+OFF = {name: getattr(NOTHING, name) for name in SEARCH_SPACE}
+
+
+def _flag_sets(
+    runs: list[dict[str, Any]], thresholds: Thresholds
+) -> tuple[set[tuple[str, int]], set[tuple[str, int]]]:
+    flagged, wrong = set(), set()
+    for run in runs:
+        flags = flag_frames([frame["signals"] for frame in run["frames"]], thresholds, set())
+        for index, (frame, flag) in enumerate(zip(run["frames"], flags, strict=True)):
+            if flag:
+                flagged.add((run["name"], index))
+            if frame["wrong"]:
+                wrong.add((run["name"], index))
+    return flagged, wrong
+
+
+def forward_select(runs: list[dict[str, Any]]) -> tuple[Thresholds, list[dict[str, Any]]]:
+    """Add rules greedily by (new wrong frames caught) / (new correct frames flagged + 1),
+    until the recall gate holds on these runs; then drop any rule the gate does not need."""
+    current = NOTHING
+    trace: list[dict[str, Any]] = []
+    _, wrong = _flag_sets(runs, current)
+    total = len(runs and [f for r in runs for f in r["frames"]])
+    while True:
+        flagged, _ = _flag_sets(runs, current)
+        caught = len(flagged & wrong)
+        if not wrong or caught / len(wrong) >= RECALL_GATE:
+            break
+        best = None
+        for name, values in SEARCH_SPACE.items():
+            for value in values:
+                if value == OFF[name] or value == getattr(current, name):
+                    continue
+                candidate = dataclasses.replace(current, **{name: value})
+                cand_flagged, _ = _flag_sets(runs, candidate)
+                gain = len(cand_flagged & wrong) - caught
+                cost = len(cand_flagged - wrong) - len(flagged - wrong)
+                if gain <= 0:
+                    continue
+                ratio = gain / (max(cost, 0) + 1)
+                if best is None or ratio > best[0]:
+                    best = (ratio, candidate, f"{name}={value}", gain, cost)
+        if best is None:
+            break
+        current = best[1]
+        trace.append({"add": best[2], "caught": best[3], "extraFlags": best[4]})
+    for name in SEARCH_SPACE:
+        if getattr(current, name) == OFF[name]:
+            continue
+        candidate = dataclasses.replace(current, **{name: OFF[name]})
+        flagged, _ = _flag_sets(runs, candidate)
+        if wrong and len(flagged & wrong) / len(wrong) >= RECALL_GATE:
+            current = candidate
+            trace.append({"drop": name, "reviewLoad": len(flagged) / max(total, 1)})
+    return current, trace
+
+
+def best_calibration(runs: list[dict[str, Any]]) -> tuple[Thresholds, dict[str, Any]]:
+    """Both searches on the calibration split; keep the one with the better objective there."""
+    coordinate, coordinate_trace = calibrate(runs, Thresholds())
+    forward, forward_trace = forward_select(runs)
+    forward = dataclasses.replace(forward, version="br3.15-calibrated")
+    chosen = min((coordinate, forward), key=lambda t: objective(score(runs, t)))
+    return chosen, {
+        "chosen": "coordinate" if chosen is coordinate else "forward",
+        "coordinate": {
+            "trace": coordinate_trace,
+            "calibration": {k: score(runs, coordinate)[k] for k in ("recall", "reviewLoad")},
+        },
+        "forward": {
+            "trace": forward_trace,
+            "calibration": {k: score(runs, forward)[k] for k in ("recall", "reviewLoad")},
+        },
+    }
+
+
 def report(date: str) -> dict[str, Any]:
     names = sorted(path.name for path in PILOT_DIR.iterdir() if (path / "meta.json").is_file())
     loaded = [load_run(name) for name in names]
@@ -275,7 +369,7 @@ def report(date: str) -> dict[str, Any]:
     calibration = [run for run in runs if run["split"] == "calibration"]
     scored = [run for run in runs if run["split"] == "scored"]
     shipped = Thresholds()
-    fitted, trace = calibrate(calibration, shipped) if calibration else (shipped, [])
+    fitted, trace = best_calibration(calibration) if calibration else (shipped, {})
     accuracy = {
         split: {
             "meanIoU": round(float(np.mean([f["iou"] for r in group for f in r["frames"]])), 4) if group else None,
