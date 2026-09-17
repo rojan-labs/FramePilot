@@ -24,6 +24,17 @@ const KEYFRAMES = 1000;
 const VERTICES = 200;
 const RUNS = 5;
 
+/**
+ * Coverage instrumentation multiplies this CPU-bound path ~10× (CI measured 1.8 s), so a coverage
+ * run cannot measure the budget. It still checks the file layout, size and losslessness, and a
+ * catastrophic-regression ceiling; the 250 ms budget itself is asserted by the uninstrumented CI
+ * step "MK4.6 budgets" (`.github/workflows/ci.yml`), which runs this file on its own.
+ */
+const INSTRUMENTED =
+  (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } })
+    .__vitest_worker__?.config?.coverage?.enabled === true;
+const INSTRUMENTED_CEILING_MS = 10_000;
+
 function rotoscopeDocument(): Record<string, unknown> {
   let seed = 1;
   const random = (): number => (seed = (seed * 16807) % 2147483647) / 2147483647;
@@ -113,7 +124,7 @@ describe('save budget with 1,000 path keyframes × 200 vertices (MK4.6)', () => 
         `MK4.6 save budget: best ${best.toFixed(1)} ms of [${timings.map((t) => t.toFixed(0)).join(', ')}], file ${String(size)} bytes`,
       );
       expect(size).toBeLessThanOrEqual(FILE_SIZE_BUDGET_BYTES);
-      expect(best).toBeLessThanOrEqual(SAVE_BUDGET_MS);
+      expect(best).toBeLessThanOrEqual(INSTRUMENTED ? INSTRUMENTED_CEILING_MS : SAVE_BUDGET_MS);
 
       const text = readFileSync(join(directory, 'project.fp.json'), 'utf8');
       expect(text).toContain('"points": "f64le:');

@@ -15,7 +15,7 @@
  * hand-maintaining a parallel JSON Schema.
  */
 import { z } from 'zod/v4';
-import { FLOAT64_ARRAY_PREFIX, decodeFloat64Array } from './float-array-codec.js';
+import { decodeFloat64Array } from './float-array-codec.js';
 
 /**
  * Bump on any breaking change to the schema. A migration is required before the
@@ -456,25 +456,37 @@ export const MASK_VERTEX_TYPES = ['corner', 'smooth', 'broken'] as const;
 export type MaskVertexType = (typeof MASK_VERTEX_TYPES)[number];
 
 /**
- * A number array written in the exact `f64le:` file form (see `float-array-codec.ts`), decoded
- * on parse and then checked against `decoded`, so memory only ever holds plain arrays.
+ * Number arrays of a path keyframe, validated with one plain loop (MK4.6).
+ *
+ * WHY not `z.array(z.number())`: a rotoscope is 1.2 million numbers per 1,000 keyframes, and
+ * zod's per-element schema cost ~80 ms of the 250 ms save budget; this loop costs ~3 ms and
+ * accepts exactly the same values (finite numbers, optionally non-negative). A string in the
+ * exact `f64le:` file form (see `float-array-codec.ts`) is decoded first, so memory only ever
+ * holds plain arrays. The JSON Schema still describes an array of numbers
+ * ({@link buildProjectJsonSchema}).
  */
-function encodedFloat64Array<T extends z.ZodType<number[], number[]>>(decoded: T) {
-  return z
-    .string()
-    .startsWith(FLOAT64_ARRAY_PREFIX)
-    .transform((text, context) => {
-      const values = decodeFloat64Array(text);
-      if (values === null) {
-        context.addIssue({
-          code: 'custom',
-          message: 'An encoded number array must be whole float64 values in base64.',
-        });
-        return z.NEVER;
-      }
-      return values;
-    })
-    .pipe(decoded);
+const FAST_NUMBER_ARRAYS = new WeakMap<object, { readonly minimum?: number }>();
+
+function pathNumberArray(options: { readonly nonNegative?: boolean } = {}) {
+  const valid = (value: unknown): value is number[] => {
+    if (!Array.isArray(value)) return false;
+    for (let index = 0; index < value.length; index += 1) {
+      const item: unknown = value[index];
+      if (typeof item !== 'number' || !Number.isFinite(item)) return false;
+      if (options.nonNegative === true && item < 0) return false;
+    }
+    return true;
+  };
+  const checked = z.custom<number[]>(valid, {
+    message: options.nonNegative
+      ? 'Mask path values must be finite, non-negative numbers (or an f64le: encoded array).'
+      : 'Mask path values must be finite numbers (or an f64le: encoded array).',
+  });
+  FAST_NUMBER_ARRAYS.set(checked, options.nonNegative ? { minimum: 0 } : {});
+  return z.preprocess(
+    (value) => (typeof value === 'string' ? (decodeFloat64Array(value) ?? value) : value),
+    checked,
+  );
 }
 
 /**
@@ -493,14 +505,9 @@ export const MaskPathKeyframeSchema = z.object({
   easing: MaskEasingSchema.default('linear'),
   handles: z.object({ out: BezierHandleSchema, in: BezierHandleSchema }).optional(),
   /** In a file, a long array may be written in the exact `f64le:` binary form (MK4.6). */
-  points: z.union([z.array(z.number()), encodedFloat64Array(z.array(z.number()))]),
+  points: pathNumberArray(),
   vertexTypes: z.array(z.number().int().min(0).max(2)),
-  featherPx: z
-    .union([
-      z.array(z.number().nonnegative()),
-      encodedFloat64Array(z.array(z.number().nonnegative())),
-    ])
-    .optional(),
+  featherPx: pathNumberArray({ nonNegative: true }).optional(),
 });
 
 /** Closed Bezier path, animated by whole-path keyframes with matching vertex counts. */
@@ -1912,7 +1919,18 @@ export const safeParseProject = (input: unknown) => ProjectSchema.safeParse(inpu
  * @returns A draft-2020-12 JSON Schema object for the project document.
  */
 export const buildProjectJsonSchema = (): Record<string, unknown> =>
-  z.toJSONSchema(ProjectSchema) as Record<string, unknown>;
+  z.toJSONSchema(ProjectSchema, {
+    // Fast path arrays are `z.custom` checks; the override below describes them, so they are
+    // not "unrepresentable" (every other custom type still leaves `{}` and fails the drift test).
+    unrepresentable: 'any',
+    override: (context) => {
+      const fast = FAST_NUMBER_ARRAYS.get(context.zodSchema);
+      if (fast === undefined) return;
+      context.jsonSchema.type = 'array';
+      context.jsonSchema.items =
+        fast.minimum === undefined ? { type: 'number' } : { type: 'number', minimum: fast.minimum };
+    },
+  }) as Record<string, unknown>;
 
 // ---------------------------------------------------------------------------
 // Re-exports — pure (browser-safe) helpers. Node-only file IO is at `./file`.

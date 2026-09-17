@@ -2318,20 +2318,10 @@
                                       "additionalProperties": false
                                     },
                                     "points": {
-                                      "anyOf": [
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number"
-                                          }
-                                        },
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number"
-                                          }
-                                        }
-                                      ]
+                                      "type": "array",
+                                      "items": {
+                                        "type": "number"
+                                      }
                                     },
                                     "vertexTypes": {
                                       "type": "array",
@@ -2342,22 +2332,11 @@
                                       }
                                     },
                                     "featherPx": {
-                                      "anyOf": [
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number",
-                                            "minimum": 0
-                                          }
-                                        },
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number",
-                                            "minimum": 0
-                                          }
-                                        }
-                                      ]
+                                      "type": "array",
+                                      "items": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      }
                                     }
                                   },
                                   "required": [
@@ -7289,20 +7268,10 @@
                                       "additionalProperties": false
                                     },
                                     "points": {
-                                      "anyOf": [
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number"
-                                          }
-                                        },
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number"
-                                          }
-                                        }
-                                      ]
+                                      "type": "array",
+                                      "items": {
+                                        "type": "number"
+                                      }
                                     },
                                     "vertexTypes": {
                                       "type": "array",
@@ -7313,22 +7282,11 @@
                                       }
                                     },
                                     "featherPx": {
-                                      "anyOf": [
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number",
-                                            "minimum": 0
-                                          }
-                                        },
-                                        {
-                                          "type": "array",
-                                          "items": {
-                                            "type": "number",
-                                            "minimum": 0
-                                          }
-                                        }
-                                      ]
+                                      "type": "array",
+                                      "items": {
+                                        "type": "number",
+                                        "minimum": 0
+                                      }
                                     }
                                   },
                                   "required": [
@@ -11813,20 +11771,10 @@
                                 "additionalProperties": false
                               },
                               "points": {
-                                "anyOf": [
-                                  {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "number"
-                                    }
-                                  },
-                                  {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "number"
-                                    }
-                                  }
-                                ]
+                                "type": "array",
+                                "items": {
+                                  "type": "number"
+                                }
                               },
                               "vertexTypes": {
                                 "type": "array",
@@ -11837,22 +11785,11 @@
                                 }
                               },
                               "featherPx": {
-                                "anyOf": [
-                                  {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "number",
-                                      "minimum": 0
-                                    }
-                                  },
-                                  {
-                                    "type": "array",
-                                    "items": {
-                                      "type": "number",
-                                      "minimum": 0
-                                    }
-                                  }
-                                ]
+                                "type": "array",
+                                "items": {
+                                  "type": "number",
+                                  "minimum": 0
+                                }
                               }
                             },
                             "required": [

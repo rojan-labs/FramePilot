@@ -17,6 +17,15 @@ import { MaskCanvasTools } from './MaskCanvasTools.js';
 import { maskToolTelemetry } from './mask-tool-telemetry.js';
 
 const POINTER_TO_PAINT_BUDGET_MS = 16;
+
+/**
+ * Under coverage instrumentation the timing is not the product's; the run keeps a coarse ceiling
+ * and the budget itself is asserted by the uninstrumented CI step "MK4.6 budgets".
+ */
+const INSTRUMENTED =
+  (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } })
+    .__vitest_worker__?.config?.coverage?.enabled === true;
+const INSTRUMENTED_CEILING_MS = 200;
 const VERTICES = 200;
 const MOVES = 240;
 const RESOLUTION = { width: 3840, height: 2160 };
@@ -142,6 +151,8 @@ describe('pointer-to-paint on a 200-vertex path at 4K (MK4.6)', () => {
       `MK4.6 pointer-to-paint (jsdom): p95 ${p95.toFixed(2)} ms over ${String(samples.length)} moves`,
     );
     expect(samples.length).toBeGreaterThan(MOVES);
-    expect(p95).toBeLessThanOrEqual(POINTER_TO_PAINT_BUDGET_MS);
+    expect(p95).toBeLessThanOrEqual(
+      INSTRUMENTED ? INSTRUMENTED_CEILING_MS : POINTER_TO_PAINT_BUDGET_MS,
+    );
   }, 60_000);
 });
