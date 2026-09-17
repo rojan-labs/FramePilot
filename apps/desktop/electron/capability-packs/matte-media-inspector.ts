@@ -113,6 +113,7 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
         '-count_packets',
         '-show_entries', 'stream=width,height,pix_fmt,nb_read_packets',
         '-of', 'json',
+        ...hardenedInput(file),
         '-i', file,
       ],
       { timeoutMs: PROBE_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
@@ -124,12 +125,12 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
   public async videoTiming(file: string, signal?: AbortSignal): Promise<MatteVideoTiming> {
     const header = await this.run(
       this.options.ffprobe,
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=time_base', '-of', 'csv=p=0', '-i', file],
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'stream=time_base', '-of', 'csv=p=0', ...hardenedInput(file), '-i', file],
       { timeoutMs: PROBE_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     );
     const packets = await this.run(
       this.options.ffprobe,
-      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts,flags', '-of', 'csv=p=0', '-i', file],
+      ['-v', 'error', '-select_streams', 'v:0', '-show_entries', 'packet=pts,flags', '-of', 'csv=p=0', ...hardenedInput(file), '-i', file],
       { timeoutMs: TIMING_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
     );
     if (header.exitCode !== 0 || packets.exitCode !== 0) throw probeFailed(file);
@@ -287,6 +288,22 @@ export function parseTiming(headerStdout: string, packetStdout: string, file: st
   if (pts.length === 0) throw probeFailed(file);
   pts.sort((left, right) => left - right);
   return { timeBase: [numerator, denominator], pts };
+}
+
+/**
+ * Mirrors the engine's `frame_hashes.py` (BR4.12 M3): only local files, only real media
+ * containers (a playlist or ffconcat renamed to `.mp4` cannot open another file), and the
+ * Matroska demuxer forced for the host's own `matte.mkv`.
+ */
+export const MEDIA_FORMAT_WHITELIST =
+  'mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,mpeg,flv,mxf,ogg,asf,dv,ivf,gif,image2,png_pipe,jpeg_pipe,webp_pipe,tiff_pipe,bmp_pipe';
+
+export function hardenedInput(file: string): string[] {
+  return [
+    '-protocol_whitelist', 'file',
+    '-format_whitelist', MEDIA_FORMAT_WHITELIST,
+    ...(path.basename(file) === 'matte.mkv' || path.basename(file) === 'foreground.mkv' ? ['-f', 'matroska'] : []),
+  ];
 }
 
 function isAborted(signal: AbortSignal | undefined): boolean {

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import hashlib
+import subprocess
 from pathlib import Path
 
 import numpy as np
@@ -155,3 +156,136 @@ def test_routes_refuse_without_a_projects_root(tmp_path: Path) -> None:
         client.post("/mattes/frame-hashes", json={"input_path": str(matte), "pts": [0]}).status_code
         == 503
     )
+
+
+# --- BR4.12 M3: hardened ffmpeg, busy, deadline, bounds, no paths in errors --------------------
+
+
+def test_every_decode_is_hardened(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    import framepilot_engine.render.frame_hashes as module
+
+    matte = _matte(tmp_path, levels=[10, 20])
+    seen: list[list[str]] = []
+    real_run = subprocess.run
+
+    def spy(argv: list[str], **kwargs: object) -> subprocess.CompletedProcess[bytes]:
+        seen.append(list(argv))
+        return real_run(argv, **kwargs)  # type: ignore[call-overload,no-any-return]
+
+    monkeypatch.setattr(subprocess, "run", spy)
+    frame_hashes_by_index(matte, [1])
+    frame_hashes_by_pts(matte, [video_timing(matte).pts[0]], "gray")
+    # This module's own calls: the container gate and every decode. (The pts listing that follows
+    # the gate is the export's shared reader, reached only once the container is allowed.)
+    own = [argv for argv in seen if "framehash" in argv or "format=format_name" in argv]
+    assert any("format=format_name" in argv for argv in own)
+    for argv in own:
+        joined = " ".join(argv)
+        assert "-protocol_whitelist file" in joined
+        assert "-format_whitelist" in joined
+    decodes = [argv for argv in seen if "framehash" in argv]
+    assert decodes
+    for argv in decodes:
+        joined = " ".join(argv)
+        assert f"-max_pixels {module.MAX_PIXELS}" in joined
+        assert f"-threads {module.DECODE_THREADS}" in joined
+        # matte.mkv is always read with the Matroska demuxer, never probed into something else.
+        forced = [i for i in range(len(argv) - 1) if argv[i] == "-f" and argv[i + 1] == "matroska"]
+        assert forced and forced[0] < argv.index("-i")
+
+
+def test_a_playlist_renamed_to_a_video_extension_cannot_open_another_file(tmp_path: Path) -> None:
+    source = _matte(tmp_path / "real", levels=[10, 20])
+    renamed = tmp_path / "clip.mp4"
+    renamed.write_text(f"ffconcat version 1.0\nfile '{source}'\n", encoding="utf-8")
+    with pytest.raises(FrameHashError):
+        frame_hashes_by_pts(renamed, [0])
+    playlist = tmp_path / "clip2.mov"
+    playlist.write_text(f"#EXTM3U\n#EXTINF:1,\n{source}\n#EXT-X-ENDLIST\n", encoding="utf-8")
+    with pytest.raises(FrameHashError):
+        frame_hashes_by_pts(playlist, [0])
+
+
+def test_routes_answer_busy_while_one_check_runs(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import threading
+
+    import framepilot_engine.service as service
+
+    matte = _matte(tmp_path / "p", levels=[10])
+    entered = threading.Event()
+    release = threading.Event()
+
+    def slow(*_args: object, **_kwargs: object) -> list[str | None]:
+        entered.set()
+        release.wait(5)
+        return [None]
+
+    monkeypatch.setattr(service, "frame_hashes_by_pts", slow)
+    client = _client(tmp_path)
+    results: list[int] = []
+    worker = threading.Thread(
+        target=lambda: results.append(
+            client.post(
+                "/mattes/frame-hashes", json={"input_path": str(matte), "pts": [0]}
+            ).status_code
+        )
+    )
+    worker.start()
+    assert entered.wait(5)
+    busy = client.post("/mattes/frame-hashes", json={"input_path": str(matte), "pts": [0]})
+    assert busy.status_code == 503
+    release.set()
+    worker.join(5)
+    assert results == [200]
+
+
+def test_routes_enforce_a_total_deadline_and_int64_bounds(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import framepilot_engine.service as service
+
+    matte = _matte(tmp_path / "p", levels=[10, 20])
+    client = _client(tmp_path)
+    monkeypatch.setattr(service, "MATTE_ROUTE_DEADLINE_SECONDS", -1.0)
+    timed_out = client.post("/mattes/frame-hashes", json={"input_path": str(matte), "pts": [0]})
+    assert timed_out.status_code == 504
+    locked = client.post(
+        "/mattes/locked-frames",
+        json={"matte_path": str(matte), "expected": [{"index": 0, "sha256": "a" * 64}]},
+    )
+    assert locked.status_code == 504
+    assert (
+        client.post(
+            "/mattes/frame-hashes", json={"input_path": str(matte), "pts": [2**60]}
+        ).status_code
+        == 422
+    )
+    assert (
+        client.post(
+            "/mattes/locked-frames",
+            json={"matte_path": str(matte), "expected": [{"index": 2**40, "sha256": "a" * 64}]},
+        ).status_code
+        == 422
+    )
+
+
+def test_route_errors_never_echo_a_path(tmp_path: Path) -> None:
+    root = tmp_path / "root"
+    root.mkdir()
+    secret = tmp_path / "Client Secret Film" / "matte.mkv"
+    _matte(secret.parent)
+    garbage = root / "matte.mkv"
+    garbage.write_bytes(b"\x1aE\xdf\xa3 not really matroska")
+    client = _client(root)
+    for body in (
+        client.post("/mattes/frame-hashes", json={"input_path": str(secret), "pts": [0]}).text,
+        client.post(
+            "/mattes/locked-frames",
+            json={"matte_path": str(garbage), "expected": [{"index": 0, "sha256": "a" * 64}]},
+        ).text,
+        client.post("/mattes/frame-hashes", json={"input_path": str(garbage), "pts": [0]}).text,
+    ):
+        assert "Client Secret Film" not in body
+        assert str(tmp_path) not in body

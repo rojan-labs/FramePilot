@@ -248,6 +248,7 @@ from framepilot_engine.render.frame_grab import (
     grab_frame,
 )
 from framepilot_engine.render.frame_hashes import (
+    FrameHashDeadline,
     FrameHashError,
     compare_locked_frames,
     frame_hashes_by_pts,
@@ -422,13 +423,19 @@ class InspectMediaRequest(BaseModel):
     input_path: str = Field(description="Path to the media file to probe.")
 
 
+#: Total wall-clock budget for one /mattes/* request (BR4.12 M3).
+MATTE_ROUTE_DEADLINE_SECONDS = 600.0
+
+
 class MatteFrameHashesRequest(BaseModel):
     """Request body for ``POST /mattes/frame-hashes`` (BR4.13): decoded frames by exact pts."""
 
     model_config = ConfigDict(extra="forbid")
 
     input_path: str = Field(description="Media inside the projects root.")
-    pts: list[int] = Field(max_length=256, description="Source-stream pts to hash.")
+    pts: list[Annotated[int, Field(ge=-(2**52), le=2**52)]] = Field(
+        max_length=256, description="Source-stream pts to hash (bounded well inside int64)."
+    )
     pixel_format: Literal["native", "gray", "rgb24"] = "native"
 
 
@@ -441,15 +448,15 @@ class MatteFrameHashesResponse(BaseModel):
 class MatteLockedExpected(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    index: int = Field(ge=0)
+    index: int = Field(ge=0, le=2**31)
     sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
 
 
 class MatteLockedCarried(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    index: int = Field(ge=0)
-    previous_index: int = Field(ge=0)
+    index: int = Field(ge=0, le=2**31)
+    previous_index: int = Field(ge=0, le=2**31)
 
 
 class MatteLockedFramesRequest(BaseModel):
@@ -6141,24 +6148,63 @@ def create_app(
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
 
+    # BR4.12 M3: each /mattes/* route decodes untrusted media, so it runs one request at a time
+    # (a second concurrent one gets 503 busy), under one total deadline, and never echoes a
+    # path back (L1: sandbox refusals and decode errors carry at most a base name).
+    matte_route_locks = {
+        "frame-hashes": threading.BoundedSemaphore(1),
+        "locked-frames": threading.BoundedSemaphore(1),
+    }
+
+    def matte_path(candidate: str) -> Path:
+        try:
+            return sandbox(candidate)
+        except HTTPException as exc:
+            if exc.status_code == status.HTTP_400_BAD_REQUEST:
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "The file is outside the projects folder."
+                ) from None
+            raise
+
+    def matte_busy() -> HTTPException:
+        return HTTPException(
+            status.HTTP_503_SERVICE_UNAVAILABLE, "A frame check is already running; try again."
+        )
+
+    def matte_decode_failure(exc: Exception) -> HTTPException:
+        if isinstance(exc, FrameHashDeadline):
+            return HTTPException(
+                status.HTTP_504_GATEWAY_TIMEOUT, "The frame check ran out of time."
+            )
+        return HTTPException(
+            status.HTTP_422_UNPROCESSABLE_ENTITY, "The frames could not be decoded."
+        )
+
     @app.post("/mattes/frame-hashes", response_model=MatteFrameHashesResponse)
     def matte_frame_hashes_route(req: MatteFrameHashesRequest) -> MatteFrameHashesResponse:
         """Decoded-frame sha256 by exact pts, for the host's media re-check (BR4.13)."""
-        input_path = sandbox(req.input_path)
+        input_path = matte_path(req.input_path)
         if not input_path.is_file():
             raise HTTPException(status.HTTP_404_NOT_FOUND, "Media file not found.")
+        lock = matte_route_locks["frame-hashes"]
+        if not lock.acquire(blocking=False):
+            raise matte_busy()
         try:
+            deadline = time.monotonic() + MATTE_ROUTE_DEADLINE_SECONDS
             return MatteFrameHashesResponse(
-                hashes=frame_hashes_by_pts(input_path, req.pts, req.pixel_format)
+                hashes=frame_hashes_by_pts(input_path, req.pts, req.pixel_format, deadline=deadline)
             )
-        except (FrameHashError, subprocess.SubprocessError) as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except (FrameHashError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte frame hashes refused: %s", type(exc).__name__)
+            raise matte_decode_failure(exc) from None
+        finally:
+            lock.release()
 
     @app.post("/mattes/locked-frames", response_model=MatteLockedFramesResponse)
     def matte_locked_frames_route(req: MatteLockedFramesRequest) -> MatteLockedFramesResponse:
         """Whether locked matte frames are bit-identical to their inputs and previous matte."""
-        matte = sandbox(req.matte_path)
-        previous = None if req.previous_matte_path is None else sandbox(req.previous_matte_path)
+        matte = matte_path(req.matte_path)
+        previous = None if req.previous_matte_path is None else matte_path(req.previous_matte_path)
         for candidate in (matte, previous):
             if candidate is not None and (candidate.name != MATTE_FILE or not candidate.is_file()):
                 raise HTTPException(
@@ -6168,15 +6214,22 @@ def create_app(
             raise HTTPException(
                 status.HTTP_400_BAD_REQUEST, "Carried frames need a previous matte."
             )
+        lock = matte_route_locks["locked-frames"]
+        if not lock.acquire(blocking=False):
+            raise matte_busy()
         try:
             result = compare_locked_frames(
                 matte,
                 [(item.index, item.sha256) for item in req.expected],
                 previous,
                 [(item.index, item.previous_index) for item in req.carried],
+                deadline=time.monotonic() + MATTE_ROUTE_DEADLINE_SECONDS,
             )
-        except (FrameHashError, subprocess.SubprocessError) as exc:
-            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        except (FrameHashError, subprocess.SubprocessError, ValueError) as exc:
+            _log.info("matte locked frames refused: %s", type(exc).__name__)
+            raise matte_decode_failure(exc) from None
+        finally:
+            lock.release()
         return MatteLockedFramesResponse(expected=result.expected, carried=result.carried)
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
