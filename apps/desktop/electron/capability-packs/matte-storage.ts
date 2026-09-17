@@ -109,17 +109,28 @@ export class MatteReferenceScanError extends Error {
  */
 export async function collectFolderMatteReferences(
   projectDir: string,
+  extraFiles: readonly string[] = [],
 ): Promise<{ readonly artifacts: Set<string>; readonly inputs: Set<string> }> {
   const artifacts = new Set<string>();
   const inputs = new Set<string>();
-  const names = (await readdir(path.resolve(projectDir))).filter((name) => name.endsWith('.fp.json'));
+  // `.json` too: the open dialog accepts plain `.json` project files, and backups are `.fp.json`.
+  const names = (await readdir(path.resolve(projectDir))).filter((name) => name.endsWith('.json'));
   if (names.length > FOLDER_SCAN_MAX_FILES) {
     throw new MatteReferenceScanError('This folder holds too many project files to check which mattes they use.');
   }
-  for (const name of names) {
-    const file = path.join(path.resolve(projectDir), name);
-    const stat = await lstat(file);
-    if (!stat.isFile()) continue;
+  const scan = async (file: string, optional: boolean): Promise<void> => {
+    let stat;
+    try {
+      stat = await lstat(file);
+    } catch (error) {
+      if (optional && typeof error === 'object' && error !== null && 'code' in error && error.code === 'ENOENT') return;
+      throw new MatteReferenceScanError('A project file could not be read to check which mattes it uses.');
+    }
+    if (stat.isSymbolicLink()) {
+      // A linked project file could point anywhere; what it references cannot be vouched for.
+      throw new MatteReferenceScanError('A project file in this folder is a link, so unused mattes cannot be told apart.');
+    }
+    if (!stat.isFile()) return;
     if (stat.size > FOLDER_SCAN_MAX_BYTES) {
       throw new MatteReferenceScanError('A project file in this folder is too large to check which mattes it uses.');
     }
@@ -132,7 +143,10 @@ export async function collectFolderMatteReferences(
     const found = collectMatteReferences(document);
     for (const key of found.artifacts) artifacts.add(key);
     for (const sha of found.inputs) inputs.add(sha);
-  }
+  };
+  for (const name of names) await scan(path.join(path.resolve(projectDir), name), false);
+  // Files outside the folder that can still restore a project: the crash-recovery snapshot.
+  for (const file of extraFiles) await scan(file, true);
   return { artifacts, inputs };
 }
 
@@ -140,9 +154,10 @@ export async function matteStorageSummary(
   projectDir: string,
   project: unknown,
   protectedKeys: readonly string[] = [],
+  referenceFiles: readonly string[] = [],
 ): Promise<MatteStorageSummary> {
   const references = collectMatteReferences(project);
-  const folder = await collectFolderMatteReferences(projectDir);
+  const folder = await collectFolderMatteReferences(projectDir, referenceFiles);
   for (const key of folder.artifacts) references.artifacts.add(key);
   for (const sha of folder.inputs) references.inputs.add(sha);
   const guard = new Set(protectedKeys);
@@ -199,8 +214,9 @@ export async function cleanUnusedMattes(
   project: unknown,
   approvedKeys: readonly string[],
   protectedKeys: readonly string[] = [],
+  referenceFiles: readonly string[] = [],
 ): Promise<MatteCleanResult> {
-  const summary = await matteStorageSummary(projectDir, project, protectedKeys);
+  const summary = await matteStorageSummary(projectDir, project, protectedKeys, referenceFiles);
   const unusedArtifacts = new Map(summary.artifacts.filter((item) => !item.referenced).map((item) => [item.key, item]));
   const unusedInputs = new Map(summary.inputs.filter((item) => !item.referenced).map((item) => [item.sha256, item]));
   const removedKeys: string[] = [];

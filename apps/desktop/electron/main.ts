@@ -1242,6 +1242,8 @@ function registerIpcHandlers(): void {
     ipcMain,
     requireLicense,
     scheduler: packJobScheduler,
+    // The crash-recovery snapshot can restore a project, so Clean must keep what it references.
+    referenceFiles: [path.join(app.getPath('userData'), 'recovery-snapshot.json')],
     capabilityStatus: async (capability: string) => (await capabilityPackService).capabilityStatus(capability),
     matte: async () => (await capabilityPackService).matte(),
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,

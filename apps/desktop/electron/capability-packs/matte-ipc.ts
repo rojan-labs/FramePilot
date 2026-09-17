@@ -58,6 +58,8 @@ export interface MatteIpcDependencies {
   /** Path of the open project file, or null when none is open. */
   readonly activeProjectPath: () => Promise<string | null>;
   readonly readProject: (projectPath: string) => Promise<Project>;
+  /** Files outside the project folder that can restore a project (the recovery snapshot). */
+  readonly referenceFiles?: readonly string[];
   /** One GPU job at a time, priorities, pause during export (BR4.9). Absent → runs directly. */
   readonly scheduler?: CapabilityPackJobScheduler;
 }
@@ -255,7 +257,7 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
       const summary = await matteStorageSummary(path.dirname(projectPath), project, [
         ...parsed.data.protectedKeys,
         ...(await busyKeys()),
-      ]);
+      ], dependencies.referenceFiles ?? []);
       return { ok: true, ...summary };
     } catch (error) {
       if (error instanceof MatteStagingError || error instanceof MatteReferenceScanError) {
@@ -278,7 +280,7 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
       const result = await cleanUnusedMattes(path.dirname(projectPath), project, parsed.data.approvedKeys, [
         ...parsed.data.protectedKeys,
         ...(await busyKeys()),
-      ]);
+      ], dependencies.referenceFiles ?? []);
       return { ok: true, ...result };
     } catch (error) {
       // A link in the matte store refuses the whole cleanup; nothing was deleted (BR4.12 M1).
