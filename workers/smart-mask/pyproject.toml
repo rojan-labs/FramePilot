@@ -73,6 +73,10 @@ extend-exclude = ["spike"]
 select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
 allowed-confusables = ["–", "×"]
 
+[tool.ruff.lint.per-file-ignores]
+# Test tables and fixture command lines read better unwrapped.
+"tests/*" = ["E501"]
+
 [tool.mypy]
 python_version = "3.12"
 strict = true

@@ -37,7 +37,10 @@ import time
 import common
 
 SPIKE_SCRIPTS = ("parity_sam.py", "parity_birefnet.py", "pilot_generate.py", "pipeline_proto.py",
-                 "throughput.py", "coreml_probe.py", "verify_proto.py", "export_sam.py", "export_birefnet.py")
+                 "throughput.py", "coreml_probe.py", "verify_proto.py", "export_sam.py", "export_birefnet.py",
+                 # BR3: the pack's own heavy jobs share the same one-at-a-time rule.
+                 "export_onnx.py", "parity_tracker.py", "run_eval.py", "framepilot_smart_mask",
+                 "framepilot-smart-mask", "test_decoded_media.py")
 POLL_SECONDS = 1  # 5 s let a 2048² BiRefNet session overshoot to 12 GB before the kill
 _UNITS = {"B": 1, "K": 2**10, "M": 2**20, "G": 2**30, "T": 2**40}
 
@@ -98,7 +101,9 @@ def other_spike_jobs(own_pids: set[int]) -> list[str]:
 
 
 def run_job(job: str, max_fp: int, max_growth: int, start_free: int, min_free: int, start_max_swap: int, log) -> dict:
-    argv = [sys.executable, "-u", *job.split()]
+    parts = job.split()
+    # A job may name its own interpreter (the pack's .venv python) instead of a spike script.
+    argv = [parts[0], "-u", *parts[1:]] if not parts[0].endswith(".py") else [sys.executable, "-u", *parts]
     while True:
         busy = other_spike_jobs({os.getpid()})
         free = free_memory_pct()

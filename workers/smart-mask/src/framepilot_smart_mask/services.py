@@ -32,6 +32,10 @@ def probe_health() -> HealthFacts:
         import onnxruntime
     except ImportError as error:  # pragma: no cover - the pack always installs the cv extra
         raise BackendUnavailableError("onnxruntime is not installed in this pack.") from error
+    from .media import verify_tools
+
+    # Refuses a GPL/nonfree ffmpeg inside a pack (plan 02: LGPL-only FFmpeg).
+    verify_tools()
     return HealthFacts(
         backend_label=f"onnxruntime-{onnxruntime.__version__}",
         model_digests=verified_model_digests(),

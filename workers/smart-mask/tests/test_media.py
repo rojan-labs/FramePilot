@@ -131,7 +131,9 @@ def test_decode_argv_scales_only_anamorphic_sources() -> None:
 def test_unapproved_tool_needs_an_explicit_dev_override(tmp_path: Path) -> None:
     fake = tmp_path / "ffmpeg"
     fake.write_text(
-        f"#!/bin/sh\nif [ \"$2\" = \"-L\" ]; then printf '%s' '{GPL_LICENCE}'; else printf '%s' '{GPL_VERSION}'; fi\n"
+        "#!/bin/sh\n"
+        f"if [ \"$2\" = \"-L\" ]; then printf '%s' '{GPL_LICENCE}';"
+        f" else printf '%s' '{GPL_VERSION}'; fi\n"
     )
     fake.chmod(0o755)
     env = {"FRAMEPILOT_SMART_MASK_FFMPEG": str(fake), "FRAMEPILOT_SMART_MASK_FFPROBE": str(fake)}
