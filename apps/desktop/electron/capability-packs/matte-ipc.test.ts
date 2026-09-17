@@ -212,7 +212,7 @@ describe('generic capability status', () => {
       reason: 'checksum failed',
       proposal,
     });
-    expect(await resolveCapabilityPackStatus('subject.matte', { records: [record()], platform: { os: 'linux', arch: 'x64' }, propose: propose(proposal) })).toEqual({
+    expect(await resolveCapabilityPackStatus('subject.matte', { records: [record()], platform: { os: 'linux', arch: 'x64' }, propose: propose(proposal) })).toMatchObject({
       state: 'unsupported_platform',
       capability: 'subject.matte',
     });
@@ -223,6 +223,33 @@ describe('generic capability status', () => {
     });
     // An unknown capability is not an error: the catalog decides whether anything provides it.
     expect(await resolveCapabilityPackStatus('audio.stems', { records: [record()], platform, propose: propose(proposal) })).toMatchObject({ state: 'missing' });
+  });
+
+  it('says when this build has no pack catalog, and names the hardware minimum before any download', async () => {
+    const unconfigured = propose({ ok: false, code: 'catalog_unconfigured', error: 'Capability Pack catalog is not configured in this build.' });
+    const GIB = 1024 ** 3;
+    expect(await resolveCapabilityPackStatus('subject.matte', { records: [], platform, propose: unconfigured, totalMemoryBytes: 8 * GIB })).toEqual({
+      state: 'catalog_unconfigured',
+      capability: 'subject.matte',
+      hardware: {
+        requirement: 'Apple Silicon Mac or Windows x64 PC with 16 GB of memory',
+        platformSupported: true,
+        minMemoryBytes: 16 * GIB,
+        memoryBytes: 8 * GIB,
+        meets: false,
+      },
+    });
+    // Intel Macs publish no Smart Mask artifact: unsupported, with the requirement named.
+    expect(
+      await resolveCapabilityPackStatus('subject.matte', { records: [], platform: { os: 'darwin', arch: 'x64' }, propose: unconfigured, totalMemoryBytes: 64 * GIB }),
+    ).toMatchObject({ state: 'unsupported_platform', hardware: { platformSupported: false, meets: false } });
+    expect(await resolveCapabilityPackStatus('subject.matte', { records: [record()], platform, propose: unconfigured, totalMemoryBytes: 32 * GIB })).toMatchObject({
+      state: 'ready',
+      hardware: { meets: true },
+    });
+    // Packs without a published minimum carry no hardware block, and still work on Intel Macs.
+    const tracking = await resolveCapabilityPackStatus('tracking.point', { records: [], platform: { os: 'darwin', arch: 'x64' }, propose: unconfigured });
+    expect(tracking).toEqual({ state: 'catalog_unconfigured', capability: 'tracking.point' });
   });
 
   it('never proposes a download when a healthy pack is installed', async () => {

@@ -36,6 +36,7 @@ import {
 import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { MatteInspectorError, type MatteMediaInspector, type MatteVideoTiming } from './matte-media-inspector.js';
+import { estimateMatteBytes, freeDiskBytes } from './matte-disk.js';
 import { grayPixelSha256 } from './matte-png.js';
 import {
   commitMatteStaging,
@@ -148,6 +149,9 @@ export type MatteRunOutcome =
       readonly retryable: boolean;
       /** Set for `verification_failed`: which host check refused the artifact. */
       readonly verificationCode?: string;
+      /** Set for `insufficient_disk`: the estimate with headroom, and what is free. */
+      readonly requiredBytes?: number;
+      readonly freeBytes?: number;
     };
 
 /** Host-resolved auto prompt (BR4.5). `undefined` means "ask the editor to click". */
@@ -172,6 +176,8 @@ export interface CapabilityPackMatteServiceOptions {
   readonly isFile?: (absolutePath: string) => Promise<boolean>;
   readonly autoPrompt?: MatteAutoPrompt;
   readonly now?: () => Date;
+  /** Free bytes on the project's volume; injected for tests (BR4.10 preflight). */
+  readonly freeDiskBytes?: (directory: string) => Promise<number>;
 }
 
 export interface MatteRunContext {
@@ -309,6 +315,9 @@ export class CapabilityPackMatteService {
       return completed(hit, true, context.projectRevision);
     }
 
+    const preflight = await this.diskPreflight(context.projectDir, media, intent.foreground);
+    if (preflight !== undefined) return preflight;
+
     const tStage = Date.now();
     let staging: MatteStaging;
     try {
@@ -377,6 +386,35 @@ export class CapabilityPackMatteService {
     } finally {
       if (!committed) await staging.discard();
     }
+  }
+
+  /** Refuse to start when the estimate (BR0 storage per minute × 1.2) exceeds free space. */
+  private async diskPreflight(
+    projectDir: string,
+    media: ResolvedMedia,
+    foreground: boolean,
+  ): Promise<Extract<MatteRunOutcome, { status: 'failed' }> | undefined> {
+    const size = media.displaySize ?? { width: 3840, height: 2160 };
+    const estimate = estimateMatteBytes(size.width, size.height, media.frameCount, foreground);
+    let free: number;
+    try {
+      free = await (this.options.freeDiskBytes ?? freeDiskBytes)(projectDir);
+    } catch {
+      // A volume that cannot report free space is not a reason to refuse; the job still
+      // fails cleanly as output_unwritable if it runs out.
+      return undefined;
+    }
+    if (free >= estimate.requiredBytes) return undefined;
+    log.action('matteDiskPreflightRefused', { requiredBytes: estimate.requiredBytes, freeBytes: free });
+    return {
+      status: 'failed',
+      code: 'insufficient_disk',
+      // Stable text; the sizes travel as fields for the UI's "Needs about {size}; {free} free".
+      detail: 'Not enough free disk space for background removal. Free up space and try again.',
+      retryable: true,
+      requiredBytes: estimate.requiredBytes,
+      freeBytes: free,
+    };
   }
 
   private async resolveMedia(

@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
+import { totalmem } from 'node:os';
 import path from 'node:path';
 import {
   CapabilityPackInstallApprovalSchema,
@@ -308,6 +309,7 @@ export class CapabilityPackDesktopService {
       records: await this.store.list(),
       platform: this.platform,
       propose: (capability) => this.propose(capability),
+      totalMemoryBytes: totalmem(),
     });
   }
 

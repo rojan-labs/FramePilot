@@ -71,7 +71,8 @@ export interface MatteValidationIssue {
   readonly clipId: string;
   readonly maskId: string;
   readonly artifactKey: string;
-  readonly code: MatteRefusalCode;
+  /** An engine refusal code, or the host's `matte_media_changed` (BR4.10 media re-check). */
+  readonly code: MatteRefusalCode | 'matte_media_changed';
   readonly status: MatteStatus;
   readonly remedy: string;
 }

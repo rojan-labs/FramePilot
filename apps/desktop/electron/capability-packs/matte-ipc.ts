@@ -194,6 +194,8 @@ export function toWire(outcome: MatteRunOutcome): MatteRunResultWire {
         error: outcome.detail,
         retryable: outcome.retryable,
         ...(outcome.verificationCode === undefined ? {} : { verificationCode: outcome.verificationCode }),
+        ...(outcome.requiredBytes === undefined ? {} : { requiredBytes: outcome.requiredBytes }),
+        ...(outcome.freeBytes === undefined ? {} : { freeBytes: outcome.freeBytes }),
       };
   }
 }

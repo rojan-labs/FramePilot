@@ -66,6 +66,7 @@ interface HarnessOptions {
   isFile?: boolean;
   timing?: MatteVideoTiming;
   autoPrompt?: MatteAutoPrompt;
+  freeDiskBytes?: number;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -94,6 +95,7 @@ async function harness(options: HarnessOptions = {}) {
     runWorker: worker,
     isFile: async () => options.isFile ?? true,
     ...(options.autoPrompt === undefined ? {} : { autoPrompt: options.autoPrompt }),
+    freeDiskBytes: async () => options.freeDiskBytes ?? Number.MAX_SAFE_INTEGER,
     now: () => new Date('2026-09-17T12:00:00Z'),
   });
   let project = {
@@ -252,6 +254,16 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
     const mattes = await readdir(path.dirname(matteStagingRoot(h.projectDir)));
     expect(mattes.filter((name) => /^[0-9a-f]{64}$/u.test(name))).toEqual([]);
+  });
+
+  it('refuses to start without enough free disk space, before creating anything', async () => {
+    const h = await harness({ freeDiskBytes: 1_000 });
+    const outcome = await h.service.run(h.intent({ foreground: true }), h.context());
+    expect(outcome).toMatchObject({ status: 'failed', code: 'insufficient_disk', retryable: true, freeBytes: 1_000 });
+    if (outcome.status !== 'failed') return;
+    expect(outcome.requiredBytes).toBeGreaterThan(1_000);
+    expect(h.worker).not.toHaveBeenCalled();
+    await expect(readdir(matteStagingRoot(h.projectDir))).rejects.toMatchObject({ code: 'ENOENT' });
   });
 
   it('maps output_unwritable to its own retryable code', async () => {

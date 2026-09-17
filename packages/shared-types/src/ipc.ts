@@ -1235,20 +1235,40 @@ export type CapabilityPackStatusWire =
       readonly state: 'ready';
       readonly capability: string;
       readonly pack: CapabilityPackIdentityWire;
+      readonly hardware?: CapabilityPackHardwareWire;
     }
   | {
       readonly state: 'missing';
       readonly capability: string;
       readonly proposal: CapabilityPackProposalResultWire;
+      readonly hardware?: CapabilityPackHardwareWire;
     }
   | {
       readonly state: 'unhealthy';
       readonly capability: string;
       readonly reason: string;
       readonly proposal?: CapabilityPackProposalResultWire;
+      readonly hardware?: CapabilityPackHardwareWire;
     }
-  | { readonly state: 'unsupported_platform'; readonly capability: string }
+  | {
+      readonly state: 'unsupported_platform';
+      readonly capability: string;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
+  /** This build has no pack catalog: "This build can't download packs". */
+  | { readonly state: 'catalog_unconfigured'; readonly capability: string; readonly hardware?: CapabilityPackHardwareWire }
   | { readonly state: 'invalid'; readonly capability: string; readonly error: string };
+
+/** The published minimum hardware for a capability's pack, and whether this machine meets it. */
+export interface CapabilityPackHardwareWire {
+  /** Plain-language requirement, e.g. "Apple Silicon Mac or Windows x64 PC with 16 GB of memory". */
+  readonly requirement: string;
+  readonly platformSupported: boolean;
+  readonly minMemoryBytes: number;
+  readonly memoryBytes: number;
+  /** Platform supported and memory at or above the minimum. */
+  readonly meets: boolean;
+}
 
 /** Pushed after an install finished its health check, or a removal completed. */
 export interface CapabilityPackInstalledEventWire {
@@ -1322,6 +1342,9 @@ export type MatteRunResultWire =
       readonly error: string;
       readonly retryable: boolean;
       readonly verificationCode?: string;
+      /** `insufficient_disk`: bytes needed (estimate + 20% headroom) and bytes free. */
+      readonly requiredBytes?: number;
+      readonly freeBytes?: number;
     };
 
 export interface MatteProgressWire {
