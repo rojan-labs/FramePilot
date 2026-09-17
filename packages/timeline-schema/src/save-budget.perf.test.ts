@@ -22,7 +22,6 @@ const SAVE_BUDGET_MS = 250;
 const FILE_SIZE_BUDGET_BYTES = 14_000_000;
 const KEYFRAMES = 1000;
 const VERTICES = 200;
-const RUNS = 5;
 
 /**
  * Coverage instrumentation multiplies this CPU-bound path ~10× (CI measured 1.8 s), so a coverage
@@ -34,6 +33,8 @@ const INSTRUMENTED =
   (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } })
     .__vitest_worker__?.config?.coverage?.enabled === true;
 const INSTRUMENTED_CEILING_MS = 10_000;
+/** One run under coverage: its timing is not measured, and five runs starve parallel packages. */
+const RUNS = INSTRUMENTED ? 1 : 5;
 
 function rotoscopeDocument(): Record<string, unknown> {
   let seed = 1;

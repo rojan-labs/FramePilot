@@ -26,8 +26,8 @@ const INSTRUMENTED =
   (globalThis as { __vitest_worker__?: { config?: { coverage?: { enabled?: boolean } } } })
     .__vitest_worker__?.config?.coverage?.enabled === true;
 const INSTRUMENTED_CEILING_MS = 200;
+const MOVES = INSTRUMENTED ? 60 : 240;
 const VERTICES = 200;
-const MOVES = 240;
 const RESOLUTION = { width: 3840, height: 2160 };
 
 const assets: Asset[] = [
