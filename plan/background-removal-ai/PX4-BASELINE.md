@@ -4,13 +4,13 @@
 > [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) ("PX4 — the pixel parity oracle").
 
 **Source:** CI only. Workflow `CI`, job `preview-parity-oracle`, run
-[35186779763](https://github.com/rojan-labs/FramePilot/actions/runs/35186779763) at `6cbc8395`
+[35192216785](https://github.com/rojan-labs/FramePilot/actions/runs/35192216785) at `a603d60a`
 (Google Chrome, ubuntu-latest, SwiftShader CPU GL), artifact `preview-parity-results`. This file and
 `tests/e2e/fixtures/preview-parity-baseline.json` were generated from that artifact with
 `node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. Nothing here was run locally: a local
 full run exhausted a workstation's memory, and the harness documents that it is CI-only. The
 first baseline (run 35140382484 at `700f4e7d`, today's preview before PX2) listed 42 failing
-cases; the layer compositor (PX2) brought it to the 2 below.
+cases; the layer compositor (PX2) brought it to 2, and the exact mask stack pass (MK3) to the 1 below.
 
 **Gates (unchanged from 09, tightened only):** PSNR ≥ 40 dB whole frame; max per-channel error ≤
 8/255 on ≥ 99.5% of pixels; sentinel layer colours exact (same visible set, no pixel that is solidly
@@ -25,18 +25,20 @@ that newly fails is not listed and fails the job.
 
 ## Summary
 
-- **48 cases. 46 pass every check; 2 fail** (pixels 2, sentinel 2; renderer and pts pass everywhere).
+- **52 cases. 51 pass every check; 1 fails** (pixels 1, sentinel 1; renderer and pts pass everywhere).
   Every case renders on the layer compositor; no case is routed to the DOM player (ADR 0180).
-- **Blocked on MK3 — `alpha/mask-shapes`:** t=1 (a static rectangle) passes; t=3 (a keyframed
-  ellipse over a subtracted path, a two-mask stack) is 10.21 dB, 69.15% within 8/255, 278,161 px
-  showing a different layer. The compositor draws today's single-shape masks (`clip-mask.ts`); a
-  multi-mask v22 stack needs the exact rasteriser (`render/mask_stack.py` + `mask_raster.py`),
-  which is MK3.
+- **Mask rows pass bit-identically (MK3):** `alpha/mask-shapes` (was 10.21 dB), and the new
+  `alpha/mask-modes` (all six combine modes, rectangle/ellipse/path), `alpha/mask-edges` (invert,
+  expansion, inner/outer feather, three falloffs, per-vertex feather), `alpha/mask-effect-target`
+  (a grade limited to a keyframed ellipse minus a rectangle) and `alpha/mask-legacy` (the
+  `gaussian-legacy` Pillow path, alone and in a stack): every sample PSNR inf, 100% within 8/255,
+  0 sentinel disagreements. The monitor now rasterises the stack with the export's algorithm
+  (`preview/masks/`); `clip-mask.ts` is deleted.
 - **Blocked on BR5 — `alpha/matte-text-behind-subject`:** the oracle generator now synthesises the
   artifact the case pins (FFV1 `matte.mkv` + `foreground.mkv` at the source's display size,
   `frames.json` with the source's own pts, real digests in the engine's copy of the project), so
-  the export renders the row. The monitor has no matte pass yet (BR5, which waits for MK3): every
-  sample is 14.61 dB, 39.53% within 8/255, 309,511 px showing a different layer.
+  the export renders the row. The monitor has no matte pass yet (BR5): every sample is 14.61 dB,
+  39.61% within 8/255, 309,511 px showing a different layer.
 - **Text rows pass** (`text-only`, `text-transform`, `caption-track-order` were 37.0–39.8 dB): on
   the desktop the monitor draws text and captions from the engine's own Pillow rasters
   (`POST /preview/text-raster` through the bridge; the oracle starts a sidecar and stands in for
@@ -51,8 +53,12 @@ that newly fails is not listed and fails the job.
 
 | Case                                     | Renderer  | Samples | Min PSNR (dB) | Min % within 8/255 | Failing checks   | First failure per check                                                                                                        |
 | ---------------------------------------- | --------- | ------- | ------------- | ------------------ | ---------------- | ------------------------------------------------------------------------------------------------------------------------------ |
-| `alpha/mask-shapes`                      | WebCodecs | 2       | 10.21         | 69.152             | pixels, sentinel | **pixels** t=3: PSNR 10.21 dB (min 40), 69.152% within 8/255 (min 99.5%)<br>**sentinel** t=3: 278161 px show a different layer |
-| `alpha/matte-text-behind-subject`        | WebCodecs | 3       | 14.61         | 39.531             | pixels, sentinel | **pixels** t=0: PSNR 14.61 dB (min 40), 39.531% within 8/255 (min 99.5%)<br>**sentinel** t=0: 309511 px show a different layer |
+| `alpha/mask-edges`                       | WebCodecs | 4       | inf           | 100.000            | none             |                                                                                                                                |
+| `alpha/mask-effect-target`               | WebCodecs | 3       | inf           | 100.000            | none             |                                                                                                                                |
+| `alpha/mask-legacy`                      | WebCodecs | 3       | inf           | 100.000            | none             |                                                                                                                                |
+| `alpha/mask-modes`                       | WebCodecs | 6       | inf           | 100.000            | none             |                                                                                                                                |
+| `alpha/mask-shapes`                      | WebCodecs | 2       | inf           | 100.000            | none             |                                                                                                                                |
+| `alpha/matte-text-behind-subject`        | WebCodecs | 3       | 14.61         | 39.609             | pixels, sentinel | **pixels** t=0: PSNR 14.61 dB (min 40), 39.609% within 8/255 (min 99.5%)<br>**sentinel** t=0: 309511 px show a different layer |
 | `alpha/opacity-keyframes`                | WebCodecs | 3       | 71.94         | 100.000            | none             |                                                                                                                                |
 | `colour/blend-modes`                     | WebCodecs | 11      | 75.31         | 100.000            | none             |                                                                                                                                |
 | `colour/grade`                           | WebCodecs | 1       | inf           | 100.000            | none             |                                                                                                                                |
