@@ -114,7 +114,14 @@ interface Asset {
   id: string;
   path: string;
   kind: string;
-  media?: { width?: number; height?: number; proxyPath?: string | null };
+  durationSeconds?: number;
+  media?: {
+    width?: number;
+    height?: number;
+    proxyPath?: string | null;
+    pixelAspectRatio?: number;
+    rotation?: number;
+  };
 }
 interface MatrixCase {
   id: string;
@@ -201,7 +208,7 @@ function loadManifest(): Manifest {
 }
 
 function loadCases(): { area: string; kase: MatrixCase }[] {
-  return readdirSync(FIXTURE_DIR)
+  const cases = readdirSync(FIXTURE_DIR)
     .filter((n) => n.endsWith('.json'))
     .sort()
     .flatMap((name) => {
@@ -210,6 +217,43 @@ function loadCases(): { area: string; kase: MatrixCase }[] {
       };
       return doc.cases.map((kase) => ({ area: name.replace(/\.json$/, ''), kase }));
     });
+  separateMediaVariants(cases);
+  return cases;
+}
+
+/**
+ * Give a case its own media file when it describes a shared path with different facts (frame
+ * rate, duration, size, pixel aspect, rotation): `proxies/land.2.mp4`, in encounter order.
+ * Mirrors `_separate_media_variants` in `px4_parity_frames.py`; both sides read the same bytes.
+ */
+function separateMediaVariants(cases: { kase: MatrixCase }[]): void {
+  const variants = new Map<string, string[]>();
+  for (const { kase } of cases) {
+    for (const asset of kase.project.assets) {
+      if (asset.kind !== 'video') continue;
+      const rel = mediaPathOf(asset);
+      const facts = JSON.stringify([
+        Number(asset.media?.width ?? 0),
+        Number(asset.media?.height ?? 0),
+        Number(kase.probe.fps[asset.id] ?? 0),
+        Number(asset.durationSeconds || 10),
+        Number(asset.media?.pixelAspectRatio || 1),
+        Number(asset.media?.rotation || 0),
+      ]);
+      const known = variants.get(rel) ?? [];
+      variants.set(rel, known);
+      if (!known.includes(facts)) known.push(facts);
+      const index = known.indexOf(facts);
+      if (index === 0) continue;
+      const dot = rel.lastIndexOf('.');
+      const variant =
+        dot > rel.lastIndexOf('/')
+          ? `${rel.slice(0, dot)}.${index + 1}${rel.slice(dot)}`
+          : `${rel}.${index + 1}`;
+      if (asset.media?.proxyPath) asset.media.proxyPath = variant;
+      else asset.path = variant;
+    }
+  }
 }
 
 const baseline = JSON.parse(readFileSync(BASELINE_PATH, 'utf8')) as Baseline;

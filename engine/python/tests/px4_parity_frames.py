@@ -147,12 +147,55 @@ def input_hash() -> str:
 
 
 def load_cases() -> list[tuple[str, dict[str, Any]]]:
-    """Every matrix case as ``(area, case)``, in a stable order."""
+    """Every matrix case as ``(area, case)``, in a stable order, media paths made distinct."""
     cases: list[tuple[str, dict[str, Any]]] = []
     for path in sorted(FIXTURE_DIR.glob("*.json")):
         document = json.loads(path.read_text(encoding="utf-8"))
         cases.extend((path.stem, case) for case in document["cases"])
+    _separate_media_variants(cases)
     return cases
+
+
+def _video_facts(case: dict[str, Any], asset: dict[str, Any]) -> tuple[float, ...]:
+    media = asset.get("media") or {}
+    return (
+        float(media.get("width") or 0),
+        float(media.get("height") or 0),
+        float(case["probe"]["fps"].get(asset["id"], 0)),
+        float(asset.get("durationSeconds") or 10.0),
+        float(media.get("pixelAspectRatio") or 1.0),
+        float(media.get("rotation") or 0),
+    )
+
+
+def _separate_media_variants(cases: list[tuple[str, dict[str, Any]]]) -> None:
+    """Point a case at its own file when it describes a shared path with different facts.
+
+    Cases are written independently, so two may name ``proxies/land.mp4`` at different frame
+    rates or durations. Each distinct set of facts gets its own synthetic file
+    (``proxies/land.2.mp4``, in encounter order). Mirrored by ``separateMediaVariants`` in
+    ``preview-parity-oracle.spec.ts``: both sides must read the same bytes.
+    """
+    variants: dict[str, list[tuple[float, ...]]] = {}
+    for _area, case in cases:
+        for asset in case["project"]["assets"]:
+            if asset["kind"] != "video":
+                continue
+            rel = engine_asset_path(asset)
+            facts = _video_facts(case, asset)
+            known = variants.setdefault(rel, [])
+            if facts not in known:
+                known.append(facts)
+            index = known.index(facts)
+            if index == 0:
+                continue
+            stem, dot, suffix = rel.rpartition(".")
+            variant = f"{stem}.{index + 1}.{suffix}" if dot else f"{rel}.{index + 1}"
+            media = asset.get("media") or {}
+            if media.get("proxyPath"):
+                media["proxyPath"] = variant
+            else:
+                asset["path"] = variant
 
 
 def engine_asset_path(asset: dict[str, Any]) -> str:
