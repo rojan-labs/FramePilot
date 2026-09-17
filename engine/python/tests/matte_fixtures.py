@@ -164,3 +164,40 @@ def write_artifact(
 def matte_mask(mask_id: str, artifact: dict[str, Any], **extra: Any) -> dict[str, Any]:
     """A ``matte`` mask layer JSON over ``artifact``."""
     return {"kind": "matte", "id": mask_id, "artifact": artifact, **extra}
+
+
+def write_source(
+    path: Path,
+    frames: Sequence[npt.NDArray[np.uint8]],
+    *,
+    fps: str = "30",
+    ts_offset: float = 0.0,
+) -> None:
+    """A lossless RGB picture source (PNG frames in Matroska: no YUV step on decode)."""
+    height, width = frames[0].shape[:2]
+    argv = [
+        find_ffmpeg(),
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        fps,
+        "-i",
+        "-",
+        "-c:v",
+        "png",
+        "-pix_fmt",
+        "rgb24",
+    ]
+    if ts_offset:
+        argv += ["-output_ts_offset", repr(ts_offset)]
+    argv.append(str(path))
+    payload = b"".join(np.ascontiguousarray(frame).tobytes() for frame in frames)
+    subprocess.run(argv, input=payload, check=True, capture_output=True, timeout=60)
