@@ -83,6 +83,8 @@ export interface LoadedResponse {
   presentationTimestampsUs: number[];
   /** Nominal frame rate from the first sample (`timescale / duration`), exact for CFR proxies. */
   frameRate: number;
+  /** Variable-frame-rate sources: frame pts in seconds from the first frame; else `null`. */
+  frameTimesSec: number[] | null;
   codec: string;
   /**
    * True when the source was opened by range reads (larger than `WHOLE_FILE_MAX_BYTES`):
@@ -262,6 +264,7 @@ class DecoderSession implements PooledDecoderHolder {
     frameDurationUs: number;
     presentationTimestampsUs: number[];
     frameRate: number;
+    frameTimesSec: number[] | null;
     codec: string;
     fileBytes: ArrayBuffer;
     streamed: boolean;
@@ -284,6 +287,7 @@ class DecoderSession implements PooledDecoderHolder {
         frameDurationUs: this.table.frameDurationUs,
         presentationTimestampsUs: this.table.presentationTimestampsUs,
         frameRate: this.table.frameRate,
+        frameTimesSec: this.table.frameTimesSec,
         codec: this.table.config.codec,
         fileBytes: new ArrayBuffer(0),
         streamed: true,
@@ -308,6 +312,7 @@ class DecoderSession implements PooledDecoderHolder {
       frameDurationUs: this.table.frameDurationUs,
       presentationTimestampsUs: this.table.presentationTimestampsUs,
       frameRate: this.table.frameRate,
+      frameTimesSec: this.table.frameTimesSec,
       codec: this.table.config.codec,
       fileBytes: arrayBuffer,
       streamed: false,
@@ -673,6 +678,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         frameDurationUs,
         presentationTimestampsUs,
         frameRate,
+        frameTimesSec,
         codec,
         fileBytes,
         streamed,
@@ -686,6 +692,7 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           frameDurationUs,
           presentationTimestampsUs,
           frameRate,
+          frameTimesSec,
           codec,
           fileBytes,
           streamed,

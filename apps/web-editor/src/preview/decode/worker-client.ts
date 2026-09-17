@@ -208,6 +208,7 @@ export class DecodeWorkerClient {
     frameDurationUs: number;
     presentationTimestampsUs: number[];
     frameRate: number;
+    frameTimesSec: number[] | null;
     codec: string;
     fileBytes: ArrayBuffer;
     streamed: boolean;

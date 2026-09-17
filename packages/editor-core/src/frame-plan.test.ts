@@ -195,6 +195,15 @@ describe('framePlanAt', () => {
     expect(sourceFrameIndex(2.9999999999, 30)).toBe(90);
   });
 
+  it('numbers a variable-rate source by the last pts at or before the source time', () => {
+    const times = [0, 0.04, 0.1, 0.25];
+    expect(sourceFrameIndex(0, 30, times)).toBe(0);
+    expect(sourceFrameIndex(0.0999995, 30, times)).toBe(2);
+    expect(sourceFrameIndex(0.2, null, times)).toBe(2);
+    expect(sourceFrameIndex(9, 30, times)).toBe(3);
+    expect(sourceFrameIndex(-1, 30, times)).toBe(0);
+  });
+
   it('maps a speed ramp through the shared curve inversion', () => {
     const ramped = videoSourceTime(
       {

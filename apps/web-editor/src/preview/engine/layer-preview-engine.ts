@@ -89,6 +89,8 @@ interface VideoSource {
   readonly url: string;
   readonly frameCount: number;
   readonly frameRate: number;
+  /** Variable-frame-rate sources: frame pts in seconds from the first frame (PX2.10). */
+  readonly frameTimesSec: readonly number[] | null;
   readonly timestampsUs: readonly number[];
   readonly audioBuffer: AudioBuffer | undefined;
 }
@@ -313,6 +315,7 @@ export class LayerPreviewEngine {
           url,
           frameCount: loaded.frameCount,
           frameRate: loaded.frameRate > 0 ? loaded.frameRate : 1_000_000 / loaded.frameDurationUs,
+          frameTimesSec: loaded.frameTimesSec ?? null,
           timestampsUs: loaded.presentationTimestampsUs,
           audioBuffer,
         });
@@ -378,6 +381,15 @@ export class LayerPreviewEngine {
     return fps;
   }
 
+  /** Frame pts of the variable-rate sources, so the plan numbers their frames as the export. */
+  private sourceFrameTimes(): Map<string, readonly number[]> {
+    const times = new Map<string, readonly number[]>();
+    for (const [assetId, source] of this.sources) {
+      if (source.frameTimesSec) times.set(assetId, source.frameTimesSec);
+    }
+    return times;
+  }
+
   /** The frame playback rasterises at now (the canvas, or a shed step below it). */
   private renderSize(): PixelSize {
     const canvas = this.project?.canvasSize ?? { width: 1, height: 1 };
@@ -414,6 +426,7 @@ export class LayerPreviewEngine {
     this.clipsById = inputs.clipsById;
     return framePlanAt(inputs.timeline, project.assets, timeSec, frame, {
       sourceFps: this.sourceFps(),
+      sourceFrameTimes: this.sourceFrameTimes(),
       burnCaptions: project.burnCaptions === true,
       ...(project.transcript ? { transcript: project.transcript } : {}),
     });

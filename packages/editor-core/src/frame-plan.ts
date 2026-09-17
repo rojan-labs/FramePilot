@@ -157,6 +157,12 @@ export interface FramePlanOptions {
   readonly burnCaptions?: boolean;
   /** Probed source frame rate per asset id: frame numbers and reverse playback need it. */
   readonly sourceFps?: ReadonlyMap<string, number> | Readonly<Record<string, number>>;
+  /**
+   * Variable-frame-rate sources only: each frame's pts in seconds from the first frame, ascending.
+   * Their frame numbers follow the export's pts-exact reader (`render/pts_reader.py`).
+   */
+  readonly sourceFrameTimes?:
+    ReadonlyMap<string, readonly number[]> | Readonly<Record<string, readonly number[]>>;
   /** Project transcript, for caption clips without their own cue. */
   readonly transcript?: readonly TranscriptWord[];
 }
@@ -179,6 +185,8 @@ export const CUT_ADJACENCY_TOLERANCE = 1e-3;
 export const UNDERLAY_HANDLE_SLACK = 1.05;
 /** MoviePy's frame-number nudge: `int(fps * t + 1e-5)`. */
 export const FRAME_NUMBER_EPSILON = 0.00001;
+/** Slack when matching a source time to a variable-rate frame's pts (`FRAME_PTS_EPSILON`). */
+export const FRAME_PTS_EPSILON = 1e-6;
 /** The export composites on black. */
 export const FRAME_PLAN_BACKGROUND: readonly [number, number, number] = [0, 0, 0];
 /** Per-clip picture effects the export applies, in order. */
@@ -549,12 +557,29 @@ export function videoSourceTime(
   return subclipDuration - mirroredAt - 1 / sourceFps + start;
 }
 
-/** The frame MoviePy's ffmpeg reader decodes for `sourceTime`. */
+/**
+ * The frame the export's reader decodes for `sourceTime`: with `frameTimes` (a variable-rate
+ * source) the last frame whose pts is at or before it, else MoviePy's `int(fps * t + 1e-5)`.
+ */
 export function sourceFrameIndex(
   sourceTime: number | null,
   sourceFps: number | null,
+  frameTimes?: readonly number[],
 ): number | null {
-  if (sourceTime === null || sourceFps === null) return null;
+  if (sourceTime === null) return null;
+  if (frameTimes !== undefined && frameTimes.length > 0) {
+    // `bisect_right(times, t + eps) - 1`, clamped.
+    const needle = sourceTime + FRAME_PTS_EPSILON;
+    let lo = 0;
+    let hi = frameTimes.length;
+    while (lo < hi) {
+      const mid = (lo + hi) >> 1;
+      if (needle < frameTimes[mid]!) hi = mid;
+      else lo = mid + 1;
+    }
+    return Math.min(Math.max(lo - 1, 0), frameTimes.length - 1);
+  }
+  if (sourceFps === null) return null;
   return Math.trunc(sourceFps * sourceTime + FRAME_NUMBER_EPSILON);
 }
 
@@ -570,6 +595,7 @@ interface Context {
   readonly assetSizes: ReadonlyMap<string, readonly [number, number]>;
   readonly assetDurations: ReadonlyMap<string, number>;
   readonly sourceFps: ReadonlyMap<string, number>;
+  readonly sourceFrameTimes: ReadonlyMap<string, readonly number[]>;
   readonly transcript: readonly TranscriptWord[];
 }
 
@@ -730,7 +756,7 @@ function videoLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
   const fps = ctx.sourceFps.get(clip.assetId) ?? null;
   const time = videoSourceTime(clip, local, fps, ctx.assetDurations.get(clip.assetId) ?? null);
-  const frame = sourceFrameIndex(time, fps);
+  const frame = sourceFrameIndex(time, fps, ctx.sourceFrameTimes.get(clip.assetId));
   const tr = legacyTransition(clip);
   return {
     ...baseLayer('picture', track.id, clip.id, local),
@@ -771,7 +797,7 @@ function underlayLayer(ctx: Context, track: Track, clip: Clip, underlay: Underla
       assetId: neighbour.assetId,
       assetKind: 'video',
       time,
-      frame: sourceFrameIndex(time, fps),
+      frame: sourceFrameIndex(time, fps, ctx.sourceFrameTimes.get(neighbour.assetId)),
     },
     crop: cropJson(neighbour),
     // Plain picture: the neighbour's framing without its keyframes or its own transition.
@@ -879,10 +905,12 @@ function captionLayers(ctx: Context, timeline: Timeline): FramePlanLayer[] {
   return layers;
 }
 
-function toMap(source: FramePlanOptions['sourceFps']): ReadonlyMap<string, number> {
+function toMap<T>(
+  source: ReadonlyMap<string, T> | Readonly<Record<string, T>> | undefined,
+): ReadonlyMap<string, T> {
   if (source === undefined) return new Map();
   if (source instanceof Map) return source;
-  return new Map(Object.entries(source));
+  return new Map(Object.entries(source as Readonly<Record<string, T>>));
 }
 
 /**
@@ -922,6 +950,7 @@ export function framePlanAt(
     assetSizes,
     assetDurations,
     sourceFps: toMap(options.sourceFps),
+    sourceFrameTimes: toMap(options.sourceFrameTimes),
     transcript: options.transcript ?? [],
   };
 

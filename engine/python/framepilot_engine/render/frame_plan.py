@@ -26,6 +26,7 @@ an effect layer applies to the finished frame whatever its lane position. A plan
 
 from __future__ import annotations
 
+import bisect
 import logging
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, field
@@ -59,6 +60,9 @@ UNDERLAY_HANDLE_SLACK = 1.05
 
 #: MoviePy's frame-number nudge (``FFMPEG_VideoReader.get_frame_number``): ``int(fps*t + 1e-5)``.
 FRAME_NUMBER_EPSILON = 0.00001
+
+#: Slack when matching a source time to a variable-rate frame's pts (``pts_reader.PTS_EPSILON``).
+FRAME_PTS_EPSILON = 1e-6
 
 #: The export composites on black (``CompositeVideoClip(bg_color=(0, 0, 0))``).
 BACKGROUND_RGB = (0, 0, 0)
@@ -432,9 +436,23 @@ def video_source_time(
     return subclip_duration - mirrored_at - 1 / source_fps + start
 
 
-def source_frame_index(source_time: float | None, source_fps: float | None) -> int | None:
-    """The frame number MoviePy's ffmpeg reader decodes for ``source_time``."""
-    if source_time is None or source_fps is None:
+def source_frame_index(
+    source_time: float | None,
+    source_fps: float | None,
+    frame_times: Sequence[float] | None = None,
+) -> int | None:
+    """The frame number the export's reader decodes for ``source_time``.
+
+    ``frame_times`` (a variable-rate source's frame pts in seconds from its first frame) switches
+    to ``pts_reader.reader_frame_index``'s rule: the last frame at or before ``source_time``.
+    Otherwise MoviePy's ``int(fps * t + 1e-5)``.
+    """
+    if source_time is None:
+        return None
+    if frame_times:
+        index = bisect.bisect_right(frame_times, float(source_time) + FRAME_PTS_EPSILON) - 1
+        return min(max(index, 0), len(frame_times) - 1)
+    if source_fps is None:
         return None
     return int(source_fps * source_time + FRAME_NUMBER_EPSILON)
 
@@ -576,6 +594,7 @@ class _Context:
     asset_sizes: dict[str, tuple[float, float]]
     asset_durations: dict[str, float | None]
     source_fps: Mapping[str, float]
+    source_frame_times: Mapping[str, Sequence[float]]
 
 
 def _crop_json(clip: Clip) -> dict[str, float] | None:
@@ -667,7 +686,7 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
     local = ctx.t - clip.start
     fps = ctx.source_fps.get(clip.asset_id)
     source_time = video_source_time(clip, local, fps, ctx.asset_durations.get(clip.asset_id))
-    frame = source_frame_index(source_time, fps)
+    frame = source_frame_index(source_time, fps, ctx.source_frame_times.get(clip.asset_id))
     transition = legacy_transition(clip)
     return PlanLayer(
         kind="picture",
@@ -724,7 +743,10 @@ def _underlay_layer(ctx: _Context, track: Track, clip: Clip, underlay: Underlay)
         for_clip_id=clip.id,
         local_time=local,
         source=LayerSource(
-            neighbour.asset_id, "video", source_time, source_frame_index(source_time, fps)
+            neighbour.asset_id,
+            "video",
+            source_time,
+            source_frame_index(source_time, fps, ctx.source_frame_times.get(neighbour.asset_id)),
         ),
         crop=_crop_json(neighbour),
         geometry=_picture_geometry(ctx, plain, local, honour_crop=True, transition=None),
@@ -836,6 +858,7 @@ def frame_plan_at(
     target: tuple[int, int] | None = None,
     burn_captions: bool = False,
     source_fps: Mapping[str, float] | None = None,
+    source_frame_times: Mapping[str, Sequence[float]] | None = None,
 ) -> FramePlan:
     """Describe the exported frame at sequence time ``t``, back to front.
 
@@ -845,6 +868,9 @@ def frame_plan_at(
     :param burn_captions: Whether the export burns caption tracks in.
     :param source_fps: Probed frame rate per asset id. Needed for frame numbers and for
         reverse playback, whose time mirror is one source frame short.
+    :param source_frame_times: For variable-frame-rate sources only, each frame's pts in seconds
+        from the first frame (``pts_reader.VideoTiming.relative_seconds``); their frame numbers
+        follow the pts-exact reader.
     :raises FramePlanError: If ``t`` is not a finite number.
     """
     if t != t or t in (float("inf"), float("-inf")):
@@ -865,6 +891,7 @@ def frame_plan_at(
         asset_sizes=asset_sizes,
         asset_durations={asset.id: asset.duration_seconds for asset in project.assets},
         source_fps=dict(source_fps or {}),
+        source_frame_times=dict(source_frame_times or {}),
     )
     layers: list[PlanLayer] = []
     for track_layers in back_to_front(

@@ -258,6 +258,15 @@ def test_frame_index_matches_moviepys_reader_rule() -> None:
     assert source_frame_index(None, 30.0) is None
 
 
+def test_variable_rate_frame_index_is_the_last_pts_at_or_before_the_time() -> None:
+    times = [0.0, 0.04, 0.1, 0.25]
+    assert source_frame_index(0.0, 30.0, times) == 0
+    assert source_frame_index(0.0999995, 30.0, times) == 2
+    assert source_frame_index(0.2, None, times) == 2
+    assert source_frame_index(9.0, 30.0, times) == 3
+    assert source_frame_index(-1.0, 30.0, times) == 0
+
+
 # ---------------------------------------------------------------------------
 # The plan's source time is the export's source time, float for float
 # ---------------------------------------------------------------------------

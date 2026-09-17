@@ -36,9 +36,17 @@ def expected_plans(case: dict[str, Any]) -> list[dict[str, Any]]:
     """The engine's plan at each of a case's sample times."""
     project = Project.model_validate(case["project"])
     fps = {asset_id: float(rate) for asset_id, rate in case["probe"]["fps"].items()}
+    frame_times = {
+        asset_id: [float(value) for value in values]
+        for asset_id, values in case["probe"].get("frameTimes", {}).items()
+    }
     return [
         frame_plan_at(
-            project, float(t), burn_captions=bool(case["burnCaptions"]), source_fps=fps
+            project,
+            float(t),
+            burn_captions=bool(case["burnCaptions"]),
+            source_fps=fps,
+            source_frame_times=frame_times,
         ).to_json()
         for t in case["samples"]
     ]

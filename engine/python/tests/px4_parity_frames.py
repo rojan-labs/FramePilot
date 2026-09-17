@@ -82,6 +82,7 @@ SENTINELS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     "png": ((140, 44, 236), (44, 140, 236)),
     "anam": ((140, 140, 236), (140, 236, 140)),
     "phone": ((236, 140, 140), (140, 140, 140)),
+    "vfr": ((140, 236, 236), (236, 236, 140)),
 }
 #: Bits of the frame counter. 12 bits index 4096 frames: a 60 s asset at 30 fps is 1800.
 COUNTER_BITS = 12
@@ -130,6 +131,8 @@ class VideoSpec:
     pixel_aspect_ratio: float = 1.0
     #: Clockwise display rotation written into the track matrix (``Asset.media.rotation``).
     rotation: int = 0
+    #: Variable frame rate: each frame's pts in milliseconds (``probe.frameTimes``); empty = CFR.
+    frame_times_ms: tuple[int, ...] = ()
 
 
 def input_hash() -> str:
@@ -272,10 +275,21 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
             for bit in range(COUNTER_BITS)
         ),
     ]
+    variable = len(spec.frame_times_ms) > 0
+    frames_seconds = len(spec.frame_times_ms) / spec.fps if variable else spec.seconds
+    # A VFR source: one frame per listed pts, restamped in a millisecond time base.
+    restamp = (
+        [
+            "settb=1/1000",
+            "setpts=" + "+".join(f"eq(N\\,{i})*{ms}" for i, ms in enumerate(spec.frame_times_ms)),
+        ]
+        if variable
+        else []
+    )
     graph = ",".join(
         [
             f"color=c={_hex(spec.primary)}:s={spec.width}x{spec.height}:r={spec.fps:g}"
-            f":d={spec.seconds:g}",
+            f":d={frames_seconds:g}",
             "format=rgb24",
             f"drawbox=x=iw/2:y=0:w=iw/2:h=ih/2:color={_hex(spec.secondary)}:t=fill",
             *counter,
@@ -286,6 +300,7 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
                 if spec.pixel_aspect_ratio != 1.0
                 else []
             ),
+            *restamp,
         ]
     )
     keyframe_interval = str(max(1, round(spec.fps) // 2))
@@ -335,6 +350,18 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
             "bt709",
             "-color_range",
             "tv",
+            *(
+                [
+                    "-fps_mode",
+                    "passthrough",
+                    "-enc_time_base",
+                    "1/1000",
+                    "-video_track_timescale",
+                    "1000",
+                ]
+                if variable
+                else []
+            ),
             "-movflags",
             "+faststart",
             "-c:a",
@@ -433,6 +460,10 @@ def collect_media(
                     secondary=secondary,
                     pixel_aspect_ratio=float(media.get("pixelAspectRatio") or 1.0),
                     rotation=int(media.get("rotation") or 0),
+                    frame_times_ms=tuple(
+                        round(float(value) * 1000)
+                        for value in case["probe"].get("frameTimes", {}).get(asset["id"], [])
+                    ),
                 )
                 if videos.setdefault(rel, spec) != spec:
                     raise ValueError(f"Cases disagree about the media facts of {rel!r}")

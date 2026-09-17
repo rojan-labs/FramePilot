@@ -9,8 +9,20 @@ import {
   demuxSampleTableStreaming,
   nearestKeyframeIndexAtOrBefore,
   presentationIndexAtOrBefore,
+  variableFrameTimes,
   type RawChunkInit,
 } from './mp4-demuxer.js';
+
+describe('variableFrameTimes (render/pts_reader.py VideoTiming)', () => {
+  it('is null for a constant rate, one tick of container rounding allowed', () => {
+    expect(variableFrameTimes([0, 512, 1024, 1536], 15360)).toBeNull();
+    expect(variableFrameTimes([0, 1001, 2002, 3004], 30000)).toBeNull();
+  });
+
+  it('lists seconds from the first frame, in presentation order, for a variable rate', () => {
+    expect(variableFrameTimes([83, 0, 33, 100], 1000)).toEqual([0, 0.033, 0.083, 0.1]);
+  });
+});
 
 // --- pure presentation-table + time-mapping helpers ---------------------------
 

@@ -24,7 +24,10 @@ interface VectorCase {
   readonly id: string;
   readonly row: string;
   readonly burnCaptions: boolean;
-  readonly probe: { readonly fps: Readonly<Record<string, number>> };
+  readonly probe: {
+    readonly fps: Readonly<Record<string, number>>;
+    readonly frameTimes?: Readonly<Record<string, readonly number[]>>;
+  };
   readonly project: unknown;
   readonly samples: readonly number[];
   readonly expected?: readonly unknown[];
@@ -109,6 +112,7 @@ describe('frame plan parity vectors', () => {
               framePlanAt(project.timeline, project.assets, t, project.resolution, {
                 burnCaptions: vector.burnCaptions,
                 sourceFps: vector.probe.fps,
+                sourceFrameTimes: vector.probe.frameTimes ?? {},
                 transcript: project.transcript,
               }),
               vector.expected?.[index],
