@@ -9,7 +9,7 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR0 — ONNX exports, per-EP parity, verify-stage recall, sizes (general-purpose agent)
+- BR2 — engine matte kind (render-debugger agent)
 
 ## Done
 
@@ -38,6 +38,7 @@ Read this first after a context reset. Updated after every commit.
 - RD1.1–RD1.2, RD1.5–RD1.6, RD2.3–RD2.4, RD3 (MO-1..MO-7, MO-10)
 - BR7.1 labels (MO-8); win32-x64 evidence (MO-9)
 - BiRefNet_HR-matting training-data licence sign-off (MO-11) — BR0.5 open finding
+- Smart Mask hardware floor (MO-12) and ≥ 32 GB Mac for 2048² runs (MO-13)
 
 ## Next
 
@@ -51,6 +52,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- BR0 (BR0-FINDINGS.md): SAM CPU fp32 ✓ 0.99954; SAM fp16s ✗ 0.99832 → fp32; SAM CoreML disabled (decoder build error, 8.4 GB memory attention); BiRefNet CPU @768² fp32 ✓ (mean 0.0007/255) fp16s ✓ (mean 0.0047/255, max 0.108/255); @2048² not measured (12 GB > budget, MO-13); pilot mean IoU 0.006–0.967 ✗ (pipeline bugs → BR3.15); recall/review load NOT demonstrated (100%/100%); pack ≈ 1.47 GB (fp32 SAM); 1080p30 ≈ 520 compute-s/footage-s at 1024² CPU, ≈ 1,210 at 2048²; FFV1 1080p30 matte 23.2 + fg 81.4 MiB/min
 
 - MK2 ✓: coverage vs 256× supersample max 0.0023 (≤1/255) on all 36 cases incl. self-crossing; vs exact clipping 2.3e-5; distance feather straight 0 / circle 0.00133 / per-vertex 0; path interpolation ≤1e-6; legacy migration 15/15 byte-identical at every 30 fps frame (migrated animated masks carry per-frame keyframes); vectors byte-equal macOS arm64 + Windows x64 + Linux
 - BR0 SAM 2.1 ONNX CPU fp32 min per-frame IoU 0.99954 ✓; fp16-stored 0.99832 ✗ → SAM ships fp32 by rule; CoreML: decoder module fails to build (EP disabled for it), image encoder 422 s cold prepare

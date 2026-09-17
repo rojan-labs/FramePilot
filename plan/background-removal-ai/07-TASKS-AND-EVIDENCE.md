@@ -162,16 +162,16 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## BR — Background removal
 
-### BR0 — Spike: models, ONNX, licences, error detection `[ ]`
+### BR0 — Spike: models, ONNX, licences, error detection `[~]` (see `BR0-FINDINGS.md`; open: 2048² parity (MO-13), recall on a set with correct frames, licence MO-11)
 
-- [ ] BR0.1 ONNX exports: SAM 2.1 Hiera-L video modules (real-valued RoPE) and BiRefNet_HR-matting, each fp32 and fp16-stored/fp32-computed
-- [ ] BR0.2 Parity per (model, EP) vs PyTorch: CoreML (MLProgram, static shapes), Windows ML (TensorRT-RTX / OpenVINO / Vitis AI / DirectML), DirectML EP, CPU; failing pairs disabled by rule
-- [ ] BR0.3 Consensus + band-alpha prototype with BiRefNet_HR-matting at 2048² tiles
-- [ ] BR0.4 Verify-stage prototype → **error-detection recall and review load** on the labelled pilot set
-- [ ] BR0.5 Licence texts at pinned commits into `LICENSES.md` (Apache-2.0; MIT + DIS5K statement)
-- [ ] BR0.6 Pack size check (target ≈ 1.05 GB with fp16-stored weights; fp32 fallback if parity fails)
-- [ ] BR0.7 Throughput, memory, first-run preparation per EP; pack sizes; matte + foreground storage per minute; published minimum hardware
-- [ ] BR0.8 `BR0-FINDINGS.md`; ADR `docs/adr/0178-smart-mask-packs.md` recording the chosen models, runtime chain and rejection reasons
+- [x] BR0.1 ONNX exports: SAM 2.1 Hiera-L video modules (real-valued RoPE) and BiRefNet_HR-matting, each fp32 and fp16-stored/fp32-computed
+- [~] BR0.2 Parity per (model, EP) vs PyTorch: CoreML (MLProgram, static shapes), Windows ML (TensorRT-RTX / OpenVINO / Vitis AI / DirectML), DirectML EP, CPU; failing pairs disabled by rule
+- [x] BR0.3 Consensus + band-alpha prototype with BiRefNet_HR-matting at 2048² tiles
+- [~] BR0.4 Verify-stage prototype → **error-detection recall and review load** on the labelled pilot set
+- [~] BR0.5 Licence texts at pinned commits into `LICENSES.md` (Apache-2.0; MIT + DIS5K statement)
+- [x] BR0.6 Pack size check (target ≈ 1.05 GB with fp16-stored weights; fp32 fallback if parity fails)
+- [~] BR0.7 Throughput, memory, first-run preparation per EP; pack sizes; matte + foreground storage per minute; published minimum hardware
+- [x] BR0.8 `BR0-FINDINGS.md`; ADR `docs/adr/0178-smart-mask-packs.md` recording the chosen models, runtime chain and rejection reasons
 
 **DoD:** numbers in the findings doc and every (model, EP) pair either passing parity or disabled. The model set is not re-opened; a missed recall gate is fixed in the verify stage.
 
@@ -189,6 +189,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [ ] BR3.1 Scaffold `workers/smart-mask` mirroring `subject-intelligence`
 - [ ] BR3.2 Decode with pts and engine-matching colour; `frames.json`
 - [ ] BR3.3 Forward/backward SAM 2.1 propagation with locked-frame seeding; windowing
+- [ ] BR3.15 Pipeline accuracy pass on the construction-true pilot: rebuild the pilot so most frames are correct (as real footage is), fix the prompt and propagation bugs behind mean IoU 0.006–0.967, then re-measure recall and review load with thresholds fixed on a held-out split (not tuned on the scored set)
 - [ ] BR3.4 BiRefNet_HR-matting refinement at 2048² tiles; consensus; unknown band; per-frame score
 - [ ] BR3.5 Self-correction loop (auto prompts from confident neighbours, K=3)
 - [ ] BR3.6 Full-resolution band alpha (BiRefNet_HR-matting tiles); foreground colour estimation; band-only stabilisation
