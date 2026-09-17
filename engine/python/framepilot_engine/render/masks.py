@@ -178,11 +178,23 @@ def mask_scalar_at(mask: Any, property_name: str, source_time: float) -> float |
         animated = evaluate_keyframes(points, property_name, source_time)
         if animated is not None:
             return animated
-    attribute = {"featherOuterPx": "feather_outer_px", "featherInnerPx": "feather_inner_px"}.get(
-        property_name, property_name
-    )
-    value = getattr(mask, attribute, None)
+    value = getattr(mask, _mask_attribute(mask, property_name), None)
     return float(value) if isinstance(value, int | float) else None
+
+
+def _mask_attribute(mask: Any, property_name: str) -> str:
+    """The model attribute a camelCase mask property is stored in.
+
+    WHY by alias and not a hand list: the list named only the two feathers, so a static
+    ``expansionPx`` (and a matte's static ``edgeShiftPx``) read as absent and exported as 0
+    while the editor and the preview drew them. Found by the MK3.2 preview parity vectors.
+    """
+    fields = getattr(type(mask), "model_fields", None)
+    if isinstance(fields, dict):
+        for name, info in fields.items():
+            if getattr(info, "alias", None) == property_name:
+                return str(name)
+    return property_name
 
 
 def mask_frame_box(

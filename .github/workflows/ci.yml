@@ -119,7 +119,7 @@ jobs:
         run: uv sync --extra dev
       - name: Rasteriser vectors
         working-directory: engine/python
-        run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py -q
+        run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py tests/test_mask_stack_vectors.py -q
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -130,7 +130,7 @@ jobs:
       - run: pnpm install --frozen-lockfile
       - name: Preview rasteriser vectors (TypeScript)
         working-directory: apps/web-editor
-        run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts
+        run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts src/preview/masks/legacy-mask.test.ts src/preview/masks/mask-stack.test.ts
 
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:

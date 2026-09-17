@@ -48,7 +48,7 @@
     "engine:lint": "cd engine/python && uv run ruff check .",
     "engine:typecheck": "cd engine/python && uv run mypy .",
     "frame-plan:vectors": "cd engine/python && uv run python -m tests.frame_plan_vectors",
-    "mask-raster:vectors": "cd engine/python && uv run python -m tests.mask_raster_vectors",
+    "mask-raster:vectors": "cd engine/python && uv run python -m tests.mask_raster_vectors && uv run python -m tests.mask_stack_vectors",
     "mask-render:goldens": "cd engine/python && uv run python -m tests.mask_render_goldens",
     "matte-render:goldens": "cd engine/python && uv run python -m tests.matte_render_goldens",
     "px4:frames": "cd engine/python && uv run python -m tests.px4_parity_frames",
