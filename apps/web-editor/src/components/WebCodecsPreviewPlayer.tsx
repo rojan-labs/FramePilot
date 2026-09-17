@@ -668,9 +668,21 @@ export function WebCodecsPreviewPlayer({
   // A mask drag re-composites at pointer rate, but each present decodes and rasterises: only the
   // newest live geometry is sent, once the one in flight has been presented (latest wins), so a
   // slow raster never queues a backlog behind the hand.
-  const livePresent = useRef<{ inFlight: boolean; pending: (() => Promise<void>) | null }>({
+  //
+  // MK4.6: the raster is also deferred to the next animation frame rather than started inside the
+  // effect that the pointer move just ran. Both run on the main thread, so starting a ~19 ms
+  // raster synchronously with the move delays the *next* pointer event by that whole raster — the
+  // first Chrome measurement showed the pointer-to-commit p95 tracking the raster p95 almost
+  // exactly. Handing the frame back first lets the browser deliver queued input, and at most one
+  // raster is outstanding per frame either way.
+  const livePresent = useRef<{
+    inFlight: boolean;
+    pending: (() => Promise<void>) | null;
+    frame: number | null;
+  }>({
     inFlight: false,
     pending: null,
+    frame: null,
   });
   useEffect(() => {
     const engine = engineRef.current;
@@ -705,7 +717,11 @@ export function WebCodecsPreviewPlayer({
       return;
     }
     slot.inFlight = true;
-    void present().finally(drain);
+    if (slot.frame !== null) cancelAnimationFrame(slot.frame);
+    slot.frame = requestAnimationFrame(() => {
+      slot.frame = null;
+      void present().finally(drain);
+    });
     // Keyed on the live preview only: committed timelines go through the effect below.
   }, [previewTimeline]);
   useEffect(() => {

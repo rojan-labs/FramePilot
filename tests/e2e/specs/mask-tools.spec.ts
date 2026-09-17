@@ -92,8 +92,14 @@ async function openMaskTab(page: Page, injected: unknown): Promise<Locator> {
   return canvas;
 }
 
+/**
+ * The rows of the Inspector's mask list. Scoped to `li.mask-list-row` rather than
+ * `getByRole('option')`: each row carries a blend-mode `<select>`, whose six `<option>` elements
+ * are descendants of the listbox and have the same implicit role, so a role query counts seven
+ * elements per mask.
+ */
 const masks = (page: Page): Locator =>
-  page.getByRole('listbox', { name: 'Masks', exact: true }).getByRole('option');
+  page.getByRole('listbox', { name: 'Masks', exact: true }).locator('li.mask-list-row');
 
 test('draw a rectangle on the monitor, animate it, and undo', async ({ page }) => {
   const canvas = await openMaskTab(page, project(1920, 1080));
