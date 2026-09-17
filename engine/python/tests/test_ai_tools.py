@@ -1249,6 +1249,7 @@ def test_add_mask_measures_a_rotated_anamorphic_asset_in_display_pixels(
     ]
     result = run_tool("add_mask", {"clipId": "A", "shape": "rectangle"}, ctx)
     _assert_patch_ok(result, project)
+    assert result.operations is not None
     mask = result.operations[0]["mask"]
     assert (mask["cx"], mask["cy"], mask["width"], mask["height"]) == (540, 960, 1080, 1920)
 
