@@ -52,8 +52,8 @@ fight over order and double every validator, renderer and AI path.
 8. **Interim render.** Until the stack rasteriser (MK2), `render/masks.py#legacy_mask_for_clip`
    maps a single enabled alpha rectangle/ellipse/polygon-path (hard or `gaussian-legacy`) onto the
    v21 rasteriser, so migrated projects render as before, and refuses every other stack with a
-   typed export error instead of drawing an approximation. The preview (`clip-mask.ts`) draws the
-   same subset.
+   typed export error instead of drawing an approximation. The preview (`clip-mask.ts`, since
+   replaced by the MK3 stack pass below) drew the same subset.
 
 ## Amendment (2026-09-17, MK2): animated legacy masks are sampled per frame
 
@@ -67,6 +67,30 @@ value; runs of equal values collapse to their ends). The engine returns a keyfra
 value exactly at its instant and recovers the v21 fraction exactly, so every migrated fixture
 exports bit-identically at every frame. Masks authored today through the v21 vocabulary
 (`maskLayerFromLegacyMaskEffect`, `add_mask_advanced`) keep re-timed, editable keyframes.
+
+## Amendment (2026-09-17, MK3): the preview draws the stack with the export's algorithm
+
+`clip-mask.ts` (one shape, canvas/SVG primitives) is deleted. The program monitor evaluates the
+whole stack in `apps/web-editor/src/preview/masks/`: `mask-raster.ts` is a line-for-line port of
+`render/mask_raster.py` (byte-equal to the 36 vector cases at 3 resolutions on Linux, macOS arm64
+and Windows x64), `legacy-mask.ts` ports the Pillow 12 drawing and `GaussianBlur` the
+`gaussian-legacy` path runs, and `mask-stack.ts` mirrors `render/mask_stack.py` (source clock,
+crop mapping, `_legacy_spec` recovery, combine and quantise). `tests/fixtures/mask-raster/`
+`legacy.json` and `stack-clips.json` pin those float64 bytes. The layer compositor uploads the
+8-bit stack per layer: alpha targets cut the picture, effect targets mix the effect's output
+with its input in integers (`mix_by_alpha`). Kinds the export refuses (matte, key, analytic,
+layer, tracked, frame-space) are refused on the monitor with a visible "Mask not previewed yet".
+
+Two facts this measured:
+
+- **The engine ignored a static `expansionPx` and a matte's static `edgeShiftPx`.**
+  `mask_scalar_at` mapped only the two feathers to model attributes, so any other camelCase
+  property read as absent and exported as 0. It now resolves the attribute by field alias; the
+  two affected render goldens were regenerated.
+- **Pillow's macOS arm64 wheels fuse `a * b + c` in C float code** (clang floating-point
+  contraction); Linux and Windows compute two rounded steps. A legacy polygon edge that crosses a
+  row at exactly `.5` fills a different pixel on the two, in the export itself. The preview follows
+  the host (client hints), and the stored legacy vectors avoid such crossings.
 
 ## Consequences
 

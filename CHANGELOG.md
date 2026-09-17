@@ -8,12 +8,25 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Masks on the preview now match the export exactly.** The program monitor draws a clip's whole
+  mask stack (any number of rectangle, ellipse and path masks, every combine mode, invert,
+  expansion, inner, outer and per-vertex feather, and masks that limit a colour grade or LUT) with
+  the same algorithm the export uses, down to the last pixel value. Select a masked clip to switch
+  the monitor between Overlay, Mask only and Checkerboard views of the mask. Mask kinds the export
+  cannot render yet show "Mask not previewed yet" instead of a wrong picture.
+
 - **The background removal engine, ready for testing.** The Smart Mask pack that follows a subject
   through a clip is built: it cuts the subject out with two AI models, checks its own work frame by
   frame and lists the moments it is unsure about for you to review, keeps frames you locked exactly
   as you approved them, redoes only the part of a clip your fix affects, and carries on from where
   it stopped if the app quits mid-job. It is not downloadable yet: a licence question about one
   model and the minimum hardware are still being decided.
+
+### Fixed
+
+- **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
+  editor but was ignored when exporting (only animated expansion worked); the same applied to a
+  cut-out's fixed edge shift.
 
 ### Changed
 

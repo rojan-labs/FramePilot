@@ -36,8 +36,8 @@ pixel in CI. At CI run 35172331641, 43 of 48 cases pass the unchanged gates (PSN
    program monitor (`Editor.tsx`: `layerCompositorEnabled()` short-circuits the gate;
    `WebCodecsPreviewPlayer` treats every timeline as eligible).
 2. **A row that does not match yet is a listed oracle failure with a reason, never a routing
-   decision.** Today: the v22 multi-mask stack (MK3) and the matte pass (BR5). The baseline
-   JSON can only shrink.
+   decision.** Today: the matte pass (BR5); the v22 multi-mask stack moved to the exact
+   rasteriser in MK3 (ADR 0178 amendment). The baseline JSON can only shrink.
 3. **The browser build shows "Preview unavailable for this timeline in the browser"** when it
    cannot composite (no WebCodecs, no WebGL2, a codec the browser lacks). Browser parity is
    deferred; the desktop is product focus #1. On the desktop the specific error stays, because
