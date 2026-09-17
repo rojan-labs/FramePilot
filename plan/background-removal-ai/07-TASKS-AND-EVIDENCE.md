@@ -47,27 +47,27 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** the harness runs in CI on the PR; the baseline failure list is committed.
 
-### PX2 — N-layer compositor `[ ]`
+### PX2 — N-layer compositor `[~]` (46/48 oracle cases pass at 400c8b52, CI run 35188154157; `alpha/mask-shapes` → MK3, `alpha/matte-text-behind-subject` → BR5)
 
-- [ ] PX2.1 `layer-compositor.ts` (WebGL2, FBO pool, premultiplied alpha) driven by `framePlanAt`
-- [ ] PX2.2 Blend-mode shaders mirroring `render/blend.py`; existing effect, transition and mask chains become per-layer passes
-- [ ] PX2.3 Text and captions as layer textures at track position; delete `drawOverlays` and the DOM caption layer once parity passes
-- [ ] PX2.4 Shared `VideoFrame` for same asset + same pts; decoder pool LRU + reconfigure
-- [ ] PX2.5 Speed and speed ramps via plan source pts
-- [ ] PX2.6 Range-read streaming demux for unproxied originals (desktop)
-- [ ] PX2.7 Colour matrix and range matching in the shader (from PX0.3)
-- [ ] PX2.9 Clip fit/crop placement uses the display-corrected size (PAR + rotation) in `frame_plan.py` `asset_sizes` and `frame-plan.ts`; anamorphic and rotated geometry rows added to the matrix (found in MK1.9)
-- [ ] PX2.10 Frame plan `source.frame` for VFR sources uses probed frame timestamps (last pts at or before t), matching the export's `reader_frame_index` (found in BR2.5)
-- [ ] PX2.11 Export placement for footage that is both rotated and anamorphic (MoviePy applies the SAR stretch after the rotation swap); fix in the engine with a golden, mirrored in the plan
-- [ ] PX2.8 Load shedding: resolution first, then presentation frames; never layers; "Preview reduced" indicator
+- [x] PX2.1 `layer-compositor.ts` (WebGL2, FBO pool, premultiplied alpha) driven by `framePlanAt`
+- [x] PX2.2 Blend-mode shaders mirroring `render/blend.py`; existing effect, transition and mask chains become per-layer passes
+- [x] PX2.3 Text and captions as layer textures at track position; delete `drawOverlays` and the DOM caption layer once parity passes
+- [x] PX2.4 Shared `VideoFrame` for same asset + same pts; decoder pool LRU + reconfigure
+- [x] PX2.5 Speed and speed ramps via plan source pts
+- [x] PX2.6 Range-read streaming demux for unproxied originals (desktop)
+- [x] PX2.7 Colour matrix and range matching in the shader (from PX0.3)
+- [x] PX2.9 Clip fit/crop placement uses the display-corrected size (PAR + rotation) in `frame_plan.py` `asset_sizes` and `frame-plan.ts`; anamorphic and rotated geometry rows added to the matrix (found in MK1.9)
+- [x] PX2.10 Frame plan `source.frame` for VFR sources uses probed frame timestamps (last pts at or before t), matching the export's `reader_frame_index` (found in BR2.5)
+- [x] PX2.11 Export placement for footage that is both rotated and anamorphic (MoviePy applies the SAR stretch after the rotation swap); fix in the engine with a golden, mirrored in the plan
+- [x] PX2.8 Load shedding: resolution first, then presentation frames; never layers; "Preview reduced" indicator
 
 **DoD:** every PX4 matrix row passes on desktop.
 
-### PX3 — Delete the gates `[ ]`
+### PX3 — Delete the gates `[x]` (behind the RD2.1 flag; ADR 0180; legacy code removed when the kill switch goes at RD3)
 
-- [ ] PX3.1 Remove `canvasPreviewEligible` / `webCodecsPreviewEligible` and the DOM `PreviewPlayer` from the desktop program monitor
-- [ ] PX3.2 Browser build: explicit "Preview unavailable for this timeline in the browser" where it cannot decode
-- [ ] PX3.3 ADR superseding the gating role of ADR 0169/0170 (their geometry facts become test cases)
+- [x] PX3.1 Remove `canvasPreviewEligible` / `webCodecsPreviewEligible` and the DOM `PreviewPlayer` from the desktop program monitor
+- [x] PX3.2 Browser build: explicit "Preview unavailable for this timeline in the browser" where it cannot decode
+- [x] PX3.3 ADR superseding the gating role of ADR 0169/0170 (their geometry facts become test cases)
 
 **DoD:** no code path chooses a different renderer by timeline content on desktop; PX4 still green.
 
@@ -325,7 +325,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ### RD2 — Flags, telemetry, beta `[ ]`
 
-- [ ] RD2.1 Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
+- [~] RD2.1 (compositor flag done 2c6f1e3f; MK and AM flags pending) Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
 - [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
 - [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates

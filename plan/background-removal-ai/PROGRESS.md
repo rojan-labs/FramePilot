@@ -8,10 +8,14 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-- PX2 — N-layer WebGL compositor until the oracle passes (agent)
+- MK3 — preview mask pass, byte-equal TS rasteriser, debug views, mask oracle rows (agent)
+- Fix web-editor v21-mask tests (panels, MaskPackActions) (agent)
 - BR3 — Smart Mask worker scaffold + pipeline with injected backend (agent)
 
 ## Done
+
+- PX2 + PX3 (… 400c8b52): layer compositor, exact effect ports, sidecar Pillow text raster ("Preview text approximate" fallback), VFR pts, rotated-anamorphic export fix, decoder pool, range-read demux, load shedding, gates removed behind flag, browser "Preview unavailable", ADR 0180. Oracle 46/48
+- BR3.1–BR3.14 (7183d9a0…df52f3ca): Smart Mask worker, CI workflow, release list; BR3.15 running
 
 - BR4.12 post-approval (b8aa5615…4960a9a1): ADR/03/P17 wording, health-check group kill, inode/mtime pin, wider Clean scan, ffprobe whitelists, 503 retry + sized deadline, missing record → STALE, security runbook. Remaining condition: CI green on head
 
@@ -67,7 +71,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## Gate numbers
 
-- PX4 oracle (CI run 35172331641): 43/48 cases pass, all on the layer compositor; remaining: mask stack (MK3), matte row (needs synthetic artifact → then BR5), 3 text rows PSNR 37.0–39.8 dB (glyph hinting; fix = sidecar Pillow text raster on desktop, gate unchanged). Compositor colour error 0/255 on all four encodings
+- PX4 oracle (CI run 35188154157): 46/48 pass; mask-shapes 10.21 dB (MK3), matte row 14.61 dB (BR5)
+- (earlier) PX4 oracle (CI run 35172331641): 43/48 cases pass, all on the layer compositor; remaining: mask stack (MK3), matte row (needs synthetic artifact → then BR5), 3 text rows PSNR 37.0–39.8 dB (glyph hinting; fix = sidecar Pillow text raster on desktop, gate unchanged). Compositor colour error 0/255 on all four encodings
 
 - BR0 (BR0-FINDINGS.md): SAM CPU fp32 ✓ 0.99954; SAM fp16s ✗ 0.99832 → fp32; SAM CoreML disabled (decoder build error, 8.4 GB memory attention); BiRefNet CPU @768² fp32 ✓ (mean 0.0007/255) fp16s ✓ (mean 0.0047/255, max 0.108/255); @2048² not measured (12 GB > budget, MO-13); pilot mean IoU 0.006–0.967 ✗ (pipeline bugs → BR3.15); recall/review load NOT demonstrated (100%/100%); pack ≈ 1.47 GB (fp32 SAM); 1080p30 ≈ 520 compute-s/footage-s at 1024² CPU, ≈ 1,210 at 2048²; FFV1 1080p30 matte 23.2 + fg 81.4 MiB/min
 
