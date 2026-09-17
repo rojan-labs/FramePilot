@@ -617,10 +617,11 @@ def _clip_mask_stacks(
     clip: Clip,
     media_size: tuple[float, float] | None,
     mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
+    decoded_size: tuple[int, int] | None = None,
 ) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
-        return clip_mask_stacks(clip, media_size, mattes)
+        return clip_mask_stacks(clip, media_size, mattes, decoded_size)
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
 
@@ -741,7 +742,9 @@ def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | Non
             matte = stacks.mattes[str(mask.id)](t)
             if matte.foreground is None:  # pragma: no cover - reader opened with foreground
                 continue
-            picture = decontaminate(picture, matte.alpha, matte.maximum, matte.foreground, clip)
+            picture = decontaminate(
+                picture, matte.alpha, matte.maximum, matte.foreground, clip, stacks.decoded_size
+            )
         return picture
 
     return source.transform(cleaned, keep_duration=True)
@@ -1233,6 +1236,7 @@ def compile_timeline(
                             _bind_mattes(
                                 clip, prepared_mattes.get(clip.id, {}), reader, fps, opened
                             ),
+                            (int(reader.size[0]), int(reader.size[1])),
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)

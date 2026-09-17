@@ -353,7 +353,13 @@ def _legacy_spec(
 
 
 def matte_alpha(
-    mask: Any, clip: Any, frame: MatteFrame, width: int, height: int, source_time: float
+    mask: Any,
+    clip: Any,
+    frame: MatteFrame,
+    width: int,
+    height: int,
+    source_time: float,
+    decoded_size: tuple[int, int] | None = None,
 ) -> FloatArray:
     """One matte layer's alpha (after invert and opacity) on the clip's frame (BR2.2).
 
@@ -371,7 +377,7 @@ def matte_alpha(
         falloff=str(mask.falloff.value),
     )
     return layer_alpha(
-        to_frame(alpha, clip, width, height),
+        to_frame(alpha, clip, width, height, decoded_size),
         invert=bool(mask.invert),
         opacity=_scalar(mask, "opacity", source_time),
     )
@@ -385,6 +391,7 @@ def mask_alpha(
     height: int,
     source_time: float,
     matte_frame: MatteFrameSource | None = None,
+    decoded_size: tuple[int, int] | None = None,
 ) -> FloatArray:
     """One mask's alpha (after invert and opacity) on the clip's frame at a source instant.
 
@@ -397,7 +404,7 @@ def mask_alpha(
                 f"Matte mask {mask.id!r} on clip {clip.id!r} has no decoded frames bound. "
                 "Export again; if it repeats, report it."
             )
-        return matte_alpha(mask, clip, matte_frame(mask), width, height, source_time)
+        return matte_alpha(mask, clip, matte_frame(mask), width, height, source_time, decoded_size)
     if _is_legacy(mask):
         spec = _legacy_spec(mask, clip, media_size, source_time)
         return rasterize_mask(spec, width, height)
@@ -432,6 +439,7 @@ def stack_alpha(
     height: int,
     source_time: float,
     matte_frame: MatteFrameSource | None = None,
+    decoded_size: tuple[int, int] | None = None,
 ) -> FloatArray:
     """The combined alpha of an ordered (top first) stack of enabled masks.
 
@@ -443,7 +451,9 @@ def stack_alpha(
         return mask_alpha(masks[0], clip, media_size, width, height, source_time)
     accumulated = np.zeros((height, width), dtype=np.float64)
     for mask in masks:
-        alpha = mask_alpha(mask, clip, media_size, width, height, source_time, matte_frame)
+        alpha = mask_alpha(
+            mask, clip, media_size, width, height, source_time, matte_frame, decoded_size
+        )
         accumulated = combine(accumulated, alpha, str(mask.mode.value))
     return quantize_alpha(accumulated).astype(np.float64) / 255.0
 
@@ -550,6 +560,8 @@ class ClipMaskStacks:
     clock: Callable[[float], float]
     #: Per matte mask id, its decoded frame at CLIP-RELATIVE ``t`` (bound by the compiler).
     mattes: dict[str, Callable[[float], MatteFrame]] = field(default_factory=dict)
+    #: ``(width, height)`` the source was decoded at before its crop (matte resampling, BR2.7).
+    decoded_size: tuple[int, int] | None = None
 
     @property
     def alpha_animated(self) -> bool:
@@ -570,6 +582,7 @@ class ClipMaskStacks:
             height,
             self.clock(t),
             self._matte_frames_at(t),
+            self.decoded_size,
         )
 
     def effect_alpha_at(
@@ -587,6 +600,7 @@ class ClipMaskStacks:
             height,
             self.clock(t),
             self._matte_frames_at(t),
+            self.decoded_size,
         )
 
     def matte_masks(self) -> tuple[Any, ...]:
@@ -614,6 +628,7 @@ def clip_mask_stacks(
     clip: Any,
     media_size: tuple[float, float] | None,
     mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
+    decoded_size: tuple[int, int] | None = None,
 ) -> ClipMaskStacks | None:
     """A clip's enabled mask stacks, refused up front if export cannot draw one faithfully.
 
@@ -653,6 +668,7 @@ def clip_mask_stacks(
         by_effect=by_effect,
         clock=clip_source_clock(clip),
         mattes=dict(mattes or {}),
+        decoded_size=decoded_size,
     )
 
 

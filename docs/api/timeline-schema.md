@@ -385,12 +385,12 @@ frame) is at or before `t`; picture and matte use this same rule. The frame plan
 
 | Step | Rule |
 | --- | --- |
-| Decontaminate | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are cropped and resampled separately: `out = picture + (colour − picture × weight)` |
+| Decontaminate | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are resampled and cropped separately: `out = picture + (colour − picture × weight)` |
 | Alpha | stored value / format maximum (255 or 65535) |
 | `edgeShiftPx` | Positive grows, negative shrinks: grey dilation/erosion of the stored integers by the disc `dx² + dy² ≤ r²` (edge pixels replicate) for `floor(|r|)` and `ceil(|r|)`, mixed `a + (b − a) × frac` |
 | `edgeMode` → finesse | `smooth` (default) changes nothing. `sharp` sets clean black 0.25 and clean white 0.75 when `finesse.cleanBlack`/`cleanWhite` are at their defaults (0/1); explicit finesse values win. Levels: `(a − black) / (white − black)` clamped (a threshold at `black` when `white ≤ black`). This compresses the soft band to its middle half around the 50 % edge, keeping the edge where the matte put it (Premiere's Object Mask "Sharp") |
 | `expansionPx`, feathers | All zero: the matte's own soft alpha. Otherwise the 50 % contour (`a ≥ 0.5`) is redrawn with the shape feather formula, `s` = (distance to the nearest pixel centre on the other side − ½, negative inside) − expansion |
-| To the frame | MoviePy's integer crop of the clip's `crop` fractions, then bilinear resample (pixel centres aligned, edges clamped) to the decoded frame size |
+| To the frame | The picture's own path (BR2.7): resample to the size the source was decoded at (fit, decode cap or anamorphic stretch) with swscale's bicubic geometry (B = 0, C = 0.6; centre `(i + ½)·s − ½`, kernel stretched by `s` when shrinking, edges clamped, weights normalised tap by tap, horizontal then vertical, clamped to range), then MoviePy's integer crop of the clip's `crop` fractions. Same size: untouched. Deterministic and reproducible from this rule; not bit-identical to swscale's fixed-point filter |
 | Layer, mode | invert, opacity, combine mode and the stack's single quantisation, as for every kind |
 
 Other `finesse` controls (denoise, open/close, shrink/grow, blur, in/out ratio) refuse until the

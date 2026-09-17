@@ -167,9 +167,12 @@ def test_to_frame_crops_like_moviepy_and_resamples() -> None:
     assert np.array_equal(matte_edges.to_frame(plane, _clip(), W, H), plane)
     cropped = _clip(crop={"x": 0.25, "y": 0.5, "width": 0.5, "height": 0.5})
     assert np.array_equal(matte_edges.to_frame(plane, cropped, 8, 6), plane[6:12, 4:12])
-    halved = matte_edges.to_frame(plane, _clip(), 8, 6)
+    halved = matte_edges.to_frame(plane, _clip(), 8, 6, ceiling=255.0)
     assert halved.shape == (6, 8)
-    assert halved[0, 0] == pytest.approx((0 + 1 + 16 + 17) / 4)
+    assert np.array_equal(halved, matte_edges.resample(plane, 8, 6, 255.0))
+    # Decoded at half size, then cropped: the plane takes the picture's path.
+    decoded = matte_edges.to_frame(plane, cropped, 4, 3, decoded_size=(8, 6), ceiling=255.0)
+    assert np.array_equal(decoded, matte_edges.resample(plane, 8, 6, 255.0)[3:6, 2:6])
 
 
 def test_decontamination_replaces_only_the_soft_band() -> None:

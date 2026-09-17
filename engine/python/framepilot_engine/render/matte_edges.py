@@ -22,7 +22,8 @@ clip's frame (docs/api/timeline-schema.md, "Matte masks"):
    finesse group sets its own);
 4. base ``expansionPx`` / feathers: when any is non-zero, the matte's 50 % contour is redrawn
    with the distance-feather formula of the shape rasteriser;
-5. crop (MoviePy's integer crop) and bilinear resample to the clip's frame;
+5. resample to the size the picture was decoded at (swscale's bicubic geometry, B = 0,
+   C = 0.6), then MoviePy's integer crop, as the picture itself went;
 6. the base layer rules (invert, opacity, combine mode) in the stack, as for every kind.
 """
 
@@ -196,30 +197,99 @@ def _crop_slices(clip: Any, width: int, height: int) -> tuple[slice, slice]:
     return slice(y1, y2), slice(x1, x2)
 
 
-def _resize_axis(values: FloatArray, size: int, axis: int) -> FloatArray:
-    """Bilinear resample along one axis, pixel centres aligned, edges clamped."""
+#: ffmpeg's default scaler for the export's decode (MoviePy passes ``-sws_flags bicubic``):
+#: swscale's SWS_BICUBIC is the Mitchell-Netravali cubic with B = 0 and C = 0.6.
+BICUBIC_B = 0.0
+BICUBIC_C = 0.6
+
+
+def _cubic_weight(x: FloatArray) -> FloatArray:
+    """The B/C cubic at ``x`` (elementwise polynomials, Horner order, no ``pow``)."""
+    ax = np.abs(x)
+    b, c = BICUBIC_B, BICUBIC_C
+    near = (
+        ((12.0 - 9.0 * b - 6.0 * c) * ax + (-18.0 + 12.0 * b + 6.0 * c)) * ax * ax + (6.0 - 2.0 * b)
+    ) / 6.0
+    far = (
+        (((-b - 6.0 * c) * ax + (6.0 * b + 30.0 * c)) * ax + (-12.0 * b - 48.0 * c)) * ax
+        + (8.0 * b + 24.0 * c)
+    ) / 6.0
+    weight: FloatArray = np.where(ax < 1.0, near, np.where(ax < 2.0, far, 0.0))
+    return weight
+
+
+def resample_taps(source: int, size: int) -> tuple[npt.NDArray[np.int64], FloatArray]:
+    """Per output index, the source indices and normalised weights of the bicubic filter.
+
+    Geometry is swscale's: output pixel ``i`` centres on source ``(i + 0.5) * s - 0.5`` with
+    ``s = source / size``; a downscale stretches the kernel by ``s`` (so it averages every source
+    pixel it covers), an upscale does not. Indices clamp to the edge. Weights are divided by
+    their sum, accumulated tap by tap in index order (no floating reduction).
+
+    :returns: ``(indices, weights)``, both ``(size, taps)``.
+    """
+    scale = source / size
+    stretch = max(scale, 1.0)
+    taps = 2 * math.ceil(2.0 * stretch)
+    centres = (np.arange(size, dtype=np.float64) + 0.5) * scale - 0.5
+    first = np.floor(centres - 2.0 * stretch).astype(np.int64) + 1
+    offsets = np.arange(taps, dtype=np.int64)
+    positions = first[:, None] + offsets[None, :]
+    weights = _cubic_weight((positions.astype(np.float64) - centres[:, None]) / stretch)
+    total = weights[:, 0].copy()
+    for tap in range(1, taps):
+        total = total + weights[:, tap]
+    normalised: FloatArray = weights / total[:, None]
+    return np.clip(positions, 0, source - 1), normalised
+
+
+def _resample_axis(values: FloatArray, size: int, axis: int, ceiling: float) -> FloatArray:
+    """Bicubic resample along one axis (:func:`resample_taps`), clamped to ``[0, ceiling]``."""
     source = values.shape[axis]
     if source == size:
         return values
-    positions = (np.arange(size, dtype=np.float64) + 0.5) * (source / size) - 0.5
-    positions = np.minimum(np.maximum(positions, 0.0), float(source - 1))
-    low = np.floor(positions).astype(np.int64)
-    high = np.minimum(low + 1, source - 1)
-    fraction = positions - low.astype(np.float64)
-    shape = [1] * values.ndim
-    shape[axis] = size
-    weight = fraction.reshape(shape)
-    first = np.take(values, low, axis=axis)
-    second = np.take(values, high, axis=axis)
-    resampled: FloatArray = first + (second - first) * weight
-    return resampled
+    indices, weights = resample_taps(source, size)
+    moved = np.moveaxis(values, axis, 0)
+    shape = (size,) + (1,) * (moved.ndim - 1)
+    result = moved[indices[:, 0]] * weights[:, 0].reshape(shape)
+    for tap in range(1, indices.shape[1]):
+        result = result + moved[indices[:, tap]] * weights[:, tap].reshape(shape)
+    clamped: FloatArray = np.moveaxis(np.minimum(np.maximum(result, 0.0), ceiling), 0, axis)
+    return clamped
 
 
-def to_frame(values: FloatArray, clip: Any, width: int, height: int) -> FloatArray:
-    """A source-resolution plane (2-D or channels last), cropped as the clip, sized to the frame."""
-    rows, cols = _crop_slices(clip, values.shape[1], values.shape[0])
-    cropped = values[rows, cols]
-    return _resize_axis(_resize_axis(cropped, height, 0), width, 1)
+def resample(values: FloatArray, width: int, height: int, ceiling: float) -> FloatArray:
+    """Bicubic resample of a plane (2-D or channels last) to ``width`` x ``height``: rows first
+    (horizontal pass), then columns, as swscale filters."""
+    horizontal = _resample_axis(values, width, 1, ceiling)
+    return _resample_axis(horizontal, height, 0, ceiling)
+
+
+def to_frame(
+    values: FloatArray,
+    clip: Any,
+    width: int,
+    height: int,
+    decoded_size: tuple[int, int] | None = None,
+    ceiling: float = 1.0,
+) -> FloatArray:
+    """A display-space artifact plane, taken through the picture's own path onto its frame.
+
+    The picture is decoded (scaled by ffmpeg) to ``decoded_size`` and then cropped; the plane is
+    resampled to the same size with the same filter geometry (:func:`resample`) and cropped by
+    the same integer slices, so each value lands on the picture pixel it describes. A plane is
+    only resampled again if the crop still disagrees with the frame (never for the export).
+
+    :param decoded_size: ``(width, height)`` the source was decoded at; ``None`` = the plane's.
+    :param ceiling: Upper clamp after resampling (1 for alpha, 255 for colour).
+    """
+    full_w, full_h = (
+        decoded_size if decoded_size is not None else (values.shape[1], values.shape[0])
+    )
+    decoded = resample(values, full_w, full_h, ceiling)
+    rows, cols = _crop_slices(clip, full_w, full_h)
+    cropped = decoded[rows, cols]
+    return resample(cropped, width, height, ceiling)
 
 
 def decontaminate(
@@ -228,6 +298,7 @@ def decontaminate(
     maximum: int,
     foreground: npt.NDArray[np.uint8],
     clip: Any,
+    decoded_size: tuple[int, int] | None = None,
 ) -> npt.NDArray[np.uint8]:
     """Replace the picture's colour inside the matte's soft band with the foreground estimate.
 
@@ -239,8 +310,8 @@ def decontaminate(
     height, width = picture.shape[:2]
     band = ((alpha_int > 0) & (alpha_int < maximum)).astype(np.float64)
     premultiplied = foreground.astype(np.float64) * band[:, :, None]
-    weight = to_frame(band, clip, width, height)
-    colour = to_frame(premultiplied, clip, width, height)
+    weight = to_frame(band, clip, width, height, decoded_size)
+    colour = to_frame(premultiplied, clip, width, height, decoded_size, ceiling=255.0)
     base = picture.astype(np.float64)
     mixed = base + (colour - base * weight[:, :, None])
     return np.clip(np.rint(mixed), 0, 255).astype(np.uint8)
