@@ -19,6 +19,8 @@ import {
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
 import { MaskPackActions } from './inspector/MaskPackActions.js';
+import { MaskPanel } from './inspector/masks/MaskPanel.js';
+import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import { ScrubNumber } from './ScrubNumber.js';
 import {
   ArrowLeftRight,
@@ -185,6 +187,8 @@ export function Inspector({
     [sections],
   );
   const sectionState = useSectionState();
+  // RD2.1: the mask stack UI (MK4) or, with the kill switch, the earlier add-mask form.
+  const [maskToolsOn] = useState(maskToolsEnabled);
 
   const [preferredTab, setPreferredTab] = useViewPreference<InspectorTabId>(
     'inspectorTab',
@@ -316,6 +320,14 @@ export function Inspector({
       case 'transition':
         return <TransitionPanel key={`${clip.id}-transition`} editor={editor} clip={clip} />;
       case 'mask':
+        if (maskToolsOn) {
+          return (
+            <>
+              <MaskPanel key={`${clip.id}-masks`} editor={editor} clip={clip} />
+              <MaskPackActions editor={editor} clip={clip} fps={fps} />
+            </>
+          );
+        }
         return (
           <div className="inspector-subpanel" aria-label="add-mask">
             <LabeledSelect

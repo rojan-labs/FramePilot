@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { masksOf, parseProject } from '@framepilot/timeline-schema';
+import { parseProject } from '@framepilot/timeline-schema';
 import type { Project, Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
 import { addAsset, assetIdsOf, newProject } from '../editor/project.js';
@@ -640,27 +640,20 @@ describe('Inspector keyframes', () => {
     expect(screen.getByLabelText('inspector').textContent).toContain('Nothing selected');
   });
 
-  it("adds a mask to the selected clip's mask stack", () => {
+  it("opens the mask panel on the selected clip's mask stack", () => {
     // Schema v22 (ADR 0178): a mask is a layer on `clip.masks` in source pixels, so the
-    // clip's media must carry a probed size.
+    // clip's media must carry a probed size. Shapes are drawn on the monitor (MK4.1); the
+    // Inspector lists the stack and picks the drawing tool.
     const measured = demoProject.assets.map((asset) =>
       asset.id === 'asset_intro' ? { ...asset, media: { width: 1920, height: 1080 } } : asset,
     );
     function MeasuredHost(): JSX.Element {
       const editor = useEditor(demoProject.timeline, { assets: measured });
-      const clip = editor.state.timeline.tracks
-        .flatMap((track) => track.clips)
-        .find((candidate) => candidate.id === 'clip_intro');
       return (
         <>
           <button type="button" onClick={() => editor.select('clip_intro')}>
             pick
           </button>
-          <span data-testid="mask-stack">
-            {(clip === undefined ? [] : masksOf(clip))
-              .map((mask) => `${mask.id}:${mask.kind}`)
-              .join(',')}
-          </span>
           <Inspector editor={editor} />
         </>
       );
@@ -669,10 +662,8 @@ describe('Inspector keyframes', () => {
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     // Mask lives under its own category tab (industry inspector panel revamp).
     fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
-    fireEvent.click(screen.getByRole('combobox', { name: 'mask shape' }));
-    fireEvent.click(screen.getByRole('option', { name: 'rectangle' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add mask' }));
-    expect(screen.getByTestId('mask-stack').textContent).toBe('clip_intro__mask:rectangle');
+    expect(screen.getByText('No masks yet. Draw one on the monitor.')).toBeTruthy();
+    expect(screen.getByRole('button', { name: 'Draw rectangle mask' })).toBeTruthy();
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -680,7 +671,6 @@ describe('Inspector keyframes', () => {
     render(<Host />);
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
-    fireEvent.click(screen.getByRole('button', { name: 'Add mask' }));
     expect(screen.getByRole('alert').textContent).toContain('Measure this media first');
   });
 

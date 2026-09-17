@@ -58,7 +58,11 @@ import {
 } from '@framepilot/editor-core';
 import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../editor/useEditor.js';
-import { clipSourceTimeAt, runMaskCommand, type MaskCommandInput } from '../../editor/mask-editing.js';
+import {
+  clipSourceTimeAt,
+  runMaskCommand,
+  type MaskCommandInput,
+} from '../../editor/mask-editing.js';
 import {
   MASK_ZOOM_LEVELS,
   PIXEL_GRID_MIN_ZOOM,
@@ -115,13 +119,14 @@ const TOOL_KEYS: Readonly<Record<string, MaskTool>> = {
   f: 'freehand',
 };
 
-const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonly key: string }[] = [
-  { tool: 'select', label: 'Selection tool', key: 'V' },
-  { tool: 'rectangle', label: 'Rectangle tool', key: 'R' },
-  { tool: 'ellipse', label: 'Ellipse tool', key: 'E' },
-  { tool: 'pen', label: 'Pen tool', key: 'P' },
-  { tool: 'freehand', label: 'Freehand tool', key: 'F' },
-];
+const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonly key: string }[] =
+  [
+    { tool: 'select', label: 'Selection tool', key: 'V' },
+    { tool: 'rectangle', label: 'Rectangle tool', key: 'R' },
+    { tool: 'ellipse', label: 'Ellipse tool', key: 'E' },
+    { tool: 'pen', label: 'Pen tool', key: 'P' },
+    { tool: 'freehand', label: 'Freehand tool', key: 'F' },
+  ];
 
 const TOOL_ICONS = {
   select: MousePointer2,
@@ -143,7 +148,11 @@ type Gesture =
       readonly base: MaskGeometry;
       readonly mode:
         | { readonly type: 'move' }
-        | { readonly type: 'vertices'; readonly indices: ReadonlySet<number>; readonly grabbed: number }
+        | {
+            readonly type: 'vertices';
+            readonly indices: ReadonlySet<number>;
+            readonly grabbed: number;
+          }
         | { readonly type: 'tangent'; readonly vertex: number; readonly side: 'in' | 'out' }
         | { readonly type: 'box-resize'; readonly ux: number; readonly uy: number }
         | { readonly type: 'box-rotate'; readonly centre: PixelPoint }
@@ -172,16 +181,38 @@ type Gesture =
       readonly expansion: number;
       latest: number | null;
     }
-  | { readonly kind: 'marquee'; readonly pointerId: number; readonly start: PixelPoint; current: PixelPoint; readonly additive: boolean }
-  | { readonly kind: 'draw-box'; readonly pointerId: number; readonly shape: 'rectangle' | 'ellipse'; readonly start: PixelPoint; current: PixelPoint }
+  | {
+      readonly kind: 'marquee';
+      readonly pointerId: number;
+      readonly start: PixelPoint;
+      current: PixelPoint;
+      readonly additive: boolean;
+    }
+  | {
+      readonly kind: 'draw-box';
+      readonly pointerId: number;
+      readonly shape: 'rectangle' | 'ellipse';
+      readonly start: PixelPoint;
+      current: PixelPoint;
+    }
   | { readonly kind: 'freehand'; readonly pointerId: number; readonly samples: PixelPoint[] }
   | { readonly kind: 'pen-drag'; readonly pointerId: number; readonly index: number }
-  | { readonly kind: 'pan'; readonly pointerId: number; readonly startClient: PixelPoint; readonly basePan: PixelPoint };
+  | {
+      readonly kind: 'pan';
+      readonly pointerId: number;
+      readonly startClient: PixelPoint;
+      readonly basePan: PixelPoint;
+    };
 
 /** What the overlay draws for a gesture that is not a live mask geometry. */
 interface Draft {
   readonly box?: { readonly shape: 'rectangle' | 'ellipse'; readonly geometry: MaskGeometry };
-  readonly marquee?: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+  readonly marquee?: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
   readonly stroke?: readonly PixelPoint[];
   readonly guideX?: number | null;
   readonly guideY?: number | null;
@@ -202,7 +233,8 @@ export interface MaskCanvasToolsProps {
   readonly store?: MaskToolStore;
 }
 
-const describePoint = (point: PixelPoint): string => `${point.x.toFixed(2)}, ${point.y.toFixed(2)} px`;
+const describePoint = (point: PixelPoint): string =>
+  `${point.x.toFixed(2)}, ${point.y.toFixed(2)} px`;
 
 function editableMasks(clip: Clip): (MaskLayer & { kind: 'rectangle' | 'ellipse' | 'path' })[] {
   return masksOf(clip).filter(
@@ -281,7 +313,9 @@ export function MaskCanvasTools({
     const started = pendingPointerTs.current;
     if (started === null) return;
     pendingPointerTs.current = null;
-    requestAnimationFrame(() => maskToolTelemetry.record('pointerToPaint', performance.now() - started));
+    requestAnimationFrame(() =>
+      maskToolTelemetry.record('pointerToPaint', performance.now() - started),
+    );
   });
 
   if (space === null) return null;
@@ -304,7 +338,8 @@ export function MaskCanvasTools({
     // Nearest-instant value is enough for placing a knob; the panel shows the exact one.
     let best = keyframes[0]!;
     for (const keyframe of keyframes) {
-      if (Math.abs(keyframe.sourceTime - sourceTime) < Math.abs(best.sourceTime - sourceTime)) best = keyframe;
+      if (Math.abs(keyframe.sourceTime - sourceTime) < Math.abs(best.sourceTime - sourceTime))
+        best = keyframe;
     }
     return best.value;
   };
@@ -332,7 +367,8 @@ export function MaskCanvasTools({
     return applyAffine(space.toSource, frame);
   };
 
-  const snapOn = (event: { altKey: boolean }): boolean => (event.altKey ? !tools.snapping : tools.snapping);
+  const snapOn = (event: { altKey: boolean }): boolean =>
+    event.altKey ? !tools.snapping : tools.snapping;
 
   const snapTargets = (excludeMaskId: string | null): SnapTargets => {
     const lines = frameSnapLines({ width: space.sourceWidth, height: space.sourceHeight });
@@ -433,7 +469,15 @@ export function MaskCanvasTools({
     if (selectedMask !== null && !selectedMask.locked) {
       const geometry = base(selectedMask);
       if (geometry !== null) {
-        const start = { kind: 'geometry' as const, maskId: selectedMask.id, pointerId: event.pointerId, start: point, startClient: client, base: geometry, latest: null };
+        const start = {
+          kind: 'geometry' as const,
+          maskId: selectedMask.id,
+          pointerId: event.pointerId,
+          start: point,
+          startClient: client,
+          base: geometry,
+          latest: null,
+        };
         // Edge knobs.
         for (const knob of edgeKnobs(selectedMask, geometry)) {
           if (Math.hypot(knob.point.x - point.x, knob.point.y - point.y) <= tolerance) {
@@ -458,7 +502,11 @@ export function MaskCanvasTools({
               ...start,
               mode:
                 geometry.kind === 'path'
-                  ? { type: 'selection-rotate', indices: selectedVertices, centre: { x: box.cx, y: box.cy } }
+                  ? {
+                      type: 'selection-rotate',
+                      indices: selectedVertices,
+                      centre: { x: box.cx, y: box.cy },
+                    }
                   : { type: 'box-rotate', centre: { x: box.cx, y: box.cy } },
             };
             return;
@@ -470,7 +518,13 @@ export function MaskCanvasTools({
               ...start,
               mode:
                 geometry.kind === 'path'
-                  ? { type: 'selection-resize', indices: new Set(selectedVertices), box, ux: handle.ux, uy: handle.uy }
+                  ? {
+                      type: 'selection-resize',
+                      indices: new Set(selectedVertices),
+                      box,
+                      ux: handle.ux,
+                      uy: handle.uy,
+                    }
                   : { type: 'box-resize', ux: handle.ux, uy: handle.uy },
             };
             return;
@@ -479,7 +533,10 @@ export function MaskCanvasTools({
         if (geometry.kind === 'path') {
           const tangent = hitTangent(geometry.vertices, selectedVertices, point, tolerance);
           if (tangent !== null) {
-            gesture.current = { ...start, mode: { type: 'tangent', vertex: tangent.vertex, side: tangent.side } };
+            gesture.current = {
+              ...start,
+              mode: { type: 'tangent', vertex: tangent.vertex, side: tangent.side },
+            };
             return;
           }
           const vertex = hitVertex(geometry.vertices, point, tolerance);
@@ -500,7 +557,9 @@ export function MaskCanvasTools({
               if (indices.has(vertex)) indices.delete(vertex);
               else indices.add(vertex);
             } else {
-              indices = selectedVertices.has(vertex) ? new Set(selectedVertices) : new Set([vertex]);
+              indices = selectedVertices.has(vertex)
+                ? new Set(selectedVertices)
+                : new Set([vertex]);
             }
             store.update({ selectedVertices: [...indices].sort((a, b) => a - b) });
             gesture.current = { ...start, mode: { type: 'vertices', indices, grabbed: vertex } };
@@ -508,7 +567,10 @@ export function MaskCanvasTools({
           }
           const hit = nearestPointOnPath(geometry.vertices, point);
           if (hit !== null && hit.distance <= tolerance && hit.t > 0 && hit.t < 1) {
-            gesture.current = { ...start, mode: { type: 'segment', segment: hit.segment, t: hit.t } };
+            gesture.current = {
+              ...start,
+              mode: { type: 'segment', segment: hit.segment, t: hit.t },
+            };
             return;
           }
         }
@@ -522,7 +584,8 @@ export function MaskCanvasTools({
     for (const mask of masks) {
       if (mask.id === selectedMask?.id) continue;
       const geometry = base(mask);
-      if (geometry === null || !pointInPolygon(flattenOutline(outlineVertices(geometry)), point)) continue;
+      if (geometry === null || !pointInPolygon(flattenOutline(outlineVertices(geometry)), point))
+        continue;
       store.selectMask(mask.id);
       if (mask.locked) {
         report('This mask is locked. Unlock it in the mask list to edit it.');
@@ -578,7 +641,13 @@ export function MaskCanvasTools({
       case 'rectangle':
       case 'ellipse': {
         const start = snapped(point, event, null).point;
-        gesture.current = { kind: 'draw-box', pointerId: event.pointerId, shape: tools.tool, start, current: start };
+        gesture.current = {
+          kind: 'draw-box',
+          pointerId: event.pointerId,
+          shape: tools.tool,
+          start,
+          current: start,
+        };
         return;
       }
       case 'freehand':
@@ -592,16 +661,26 @@ export function MaskCanvasTools({
     }
   };
 
-  const addPenPoint = (raw: PixelPoint, modifiers: { shiftKey: boolean; altKey: boolean }): void => {
+  const addPenPoint = (
+    raw: PixelPoint,
+    modifiers: { shiftKey: boolean; altKey: boolean },
+  ): void => {
     const first = penPoints[0];
-    if (first !== undefined && penPoints.length >= 3 && Math.hypot(first.x - raw.x, first.y - raw.y) <= px(HIT_RADIUS_PX)) {
+    if (
+      first !== undefined &&
+      penPoints.length >= 3 &&
+      Math.hypot(first.x - raw.x, first.y - raw.y) <= px(HIT_RADIUS_PX)
+    ) {
       closePen(penPoints);
       return;
     }
     const previous = penPoints[penPoints.length - 1];
     let point = snapped(raw, modifiers, null).point;
     if (modifiers.shiftKey && previous !== undefined) point = constrainToAngle(previous, point);
-    const next = [...penPoints, { x: point.x, y: point.y, inX: 0, inY: 0, outX: 0, outY: 0, type: 'corner' as const }];
+    const next = [
+      ...penPoints,
+      { x: point.x, y: point.y, inX: 0, inY: 0, outX: 0, outY: 0, type: 'corner' as const },
+    ];
     setPenPoints(next);
     setAnnouncement(`Point ${String(next.length)} at ${describePoint(point)}`);
   };
@@ -613,7 +692,14 @@ export function MaskCanvasTools({
       return;
     }
     const id = nextMaskId(clip);
-    if (run({ type: 'draw_mask', clipId: clip.id, sourceTime, geometry: { kind: 'path', vertices: points } })) {
+    if (
+      run({
+        type: 'draw_mask',
+        clipId: clip.id,
+        sourceTime,
+        geometry: { kind: 'path', vertices: points },
+      })
+    ) {
       store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
       setAnnouncement('Path mask added');
     }
@@ -626,7 +712,8 @@ export function MaskCanvasTools({
     // Browsers stamp events on the performance clock; an environment that stamps on another
     // clock (a future value) falls back to handler entry, which under-reports only input delay.
     const now = performance.now();
-    pendingPointerTs.current = event.timeStamp > 0 && event.timeStamp <= now ? event.timeStamp : now;
+    pendingPointerTs.current =
+      event.timeStamp > 0 && event.timeStamp <= now ? event.timeStamp : now;
     if (active.kind === 'pan') {
       store.update({
         pan: {
@@ -639,7 +726,10 @@ export function MaskCanvasTools({
     const point = toSource(event);
     switch (active.kind) {
       case 'geometry': {
-        const moved = Math.hypot(event.clientX - active.startClient.x, event.clientY - active.startClient.y);
+        const moved = Math.hypot(
+          event.clientX - active.startClient.x,
+          event.clientY - active.startClient.y,
+        );
         if (active.latest === null && moved < CLICK_SLOP_PX) return;
         const next = nextGeometry(active, point, event);
         if (next === null) return;
@@ -657,7 +747,13 @@ export function MaskCanvasTools({
               ? Math.max(0, raw - active.expansion)
               : Math.max(0, active.expansion - raw);
         active.latest = value;
-        store.update({ liveScalars: { clipId: clip.id, maskId: active.maskId, values: { [active.property]: value } } });
+        store.update({
+          liveScalars: {
+            clipId: clip.id,
+            maskId: active.maskId,
+            values: { [active.property]: value },
+          },
+        });
         return;
       }
       case 'marquee':
@@ -667,12 +763,34 @@ export function MaskCanvasTools({
       case 'draw-box': {
         const target = snapped(point, event, null);
         active.current = target.point;
-        const box = dragBox(active.start, target.point, { square: event.shiftKey, fromCentre: event.altKey });
+        const box = dragBox(active.start, target.point, {
+          square: event.shiftKey,
+          fromCentre: event.altKey,
+        });
         const geometry: MaskGeometry =
           active.shape === 'rectangle'
-            ? { kind: 'rectangle', cx: box.cx, cy: box.cy, width: box.width, height: box.height, rotation: 0, roundness: 0 }
-            : { kind: 'ellipse', cx: box.cx, cy: box.cy, rx: box.width / 2, ry: box.height / 2, rotation: 0 };
-        setDraft({ box: { shape: active.shape, geometry }, guideX: target.guideX, guideY: target.guideY });
+            ? {
+                kind: 'rectangle',
+                cx: box.cx,
+                cy: box.cy,
+                width: box.width,
+                height: box.height,
+                rotation: 0,
+                roundness: 0,
+              }
+            : {
+                kind: 'ellipse',
+                cx: box.cx,
+                cy: box.cy,
+                rx: box.width / 2,
+                ry: box.height / 2,
+                rotation: 0,
+              };
+        setDraft({
+          box: { shape: active.shape, geometry },
+          guideX: target.guideX,
+          guideY: target.guideY,
+        });
         return;
       }
       case 'freehand':
@@ -716,14 +834,26 @@ export function MaskCanvasTools({
           if (Math.abs(moveX) >= Math.abs(moveY)) moveY = 0;
           else moveX = 0;
         }
-        return { geometry: translateGeometry(base, moveX, moveY), guideX: target.guideX, guideY: target.guideY };
+        return {
+          geometry: translateGeometry(base, moveX, moveY),
+          guideX: target.guideX,
+          guideY: target.guideY,
+        };
       }
       case 'vertices': {
         if (base.kind !== 'path') return null;
         const grabbed = base.vertices[mode.grabbed]!;
         const target = snapped({ x: grabbed.x + dx, y: grabbed.y + dy }, event, active.maskId);
         return {
-          geometry: { kind: 'path', vertices: moveVertices(base.vertices, mode.indices, target.point.x - grabbed.x, target.point.y - grabbed.y) },
+          geometry: {
+            kind: 'path',
+            vertices: moveVertices(
+              base.vertices,
+              mode.indices,
+              target.point.x - grabbed.x,
+              target.point.y - grabbed.y,
+            ),
+          },
           guideX: target.guideX,
           guideY: target.guideY,
         };
@@ -732,19 +862,34 @@ export function MaskCanvasTools({
         if (base.kind !== 'path') return null;
         const vertex = base.vertices[mode.vertex]!;
         return {
-          geometry: { kind: 'path', vertices: dragTangent(base.vertices, mode.vertex, mode.side, { x: point.x - vertex.x, y: point.y - vertex.y }, event.altKey) },
+          geometry: {
+            kind: 'path',
+            vertices: dragTangent(
+              base.vertices,
+              mode.vertex,
+              mode.side,
+              { x: point.x - vertex.x, y: point.y - vertex.y },
+              event.altKey,
+            ),
+          },
           guideX: null,
           guideY: null,
         };
       }
       case 'box-resize': {
         if (base.kind === 'path') return null;
-        const box = resizeBox(boxOf(base), mode.ux, mode.uy, point, { fromCentre: event.altKey, keepAspect: event.shiftKey });
+        const box = resizeBox(boxOf(base), mode.ux, mode.uy, point, {
+          fromCentre: event.altKey,
+          keepAspect: event.shiftKey,
+        });
         return { geometry: withBox(base, box), guideX: null, guideY: null };
       }
       case 'box-rotate': {
         if (base.kind === 'path') return null;
-        const startAngle = Math.atan2(active.start.y - mode.centre.y, active.start.x - mode.centre.x);
+        const startAngle = Math.atan2(
+          active.start.y - mode.centre.y,
+          active.start.x - mode.centre.x,
+        );
         const angle = Math.atan2(point.y - mode.centre.y, point.x - mode.centre.x);
         let degrees = base.rotation + ((angle - startAngle) * 180) / Math.PI;
         if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
@@ -752,13 +897,19 @@ export function MaskCanvasTools({
       }
       case 'selection-resize': {
         if (base.kind !== 'path') return null;
-        const next = resizeBox(mode.box, mode.ux, mode.uy, point, { fromCentre: event.altKey, keepAspect: event.shiftKey });
+        const next = resizeBox(mode.box, mode.ux, mode.uy, point, {
+          fromCentre: event.altKey,
+          keepAspect: event.shiftKey,
+        });
         const scaleX = mode.box.halfWidth > 0 ? next.halfWidth / mode.box.halfWidth : 1;
         const scaleY = mode.box.halfHeight > 0 ? next.halfHeight / mode.box.halfHeight : 1;
         // Scale about the handle opposite the one dragged (or the centre with Alt).
         const anchor = event.altKey
           ? { x: mode.box.cx, y: mode.box.cy }
-          : { x: mode.box.cx - mode.ux * mode.box.halfWidth, y: mode.box.cy - mode.uy * mode.box.halfHeight };
+          : {
+              x: mode.box.cx - mode.ux * mode.box.halfWidth,
+              y: mode.box.cy - mode.uy * mode.box.halfHeight,
+            };
         return {
           geometry: {
             kind: 'path',
@@ -774,12 +925,21 @@ export function MaskCanvasTools({
       }
       case 'selection-rotate': {
         if (base.kind !== 'path') return null;
-        const startAngle = Math.atan2(active.start.y - mode.centre.y, active.start.x - mode.centre.x);
+        const startAngle = Math.atan2(
+          active.start.y - mode.centre.y,
+          active.start.x - mode.centre.x,
+        );
         const angle = Math.atan2(point.y - mode.centre.y, point.x - mode.centre.x);
         let degrees = ((angle - startAngle) * 180) / Math.PI;
         if (event.shiftKey) degrees = Math.round(degrees / 15) * 15;
         return {
-          geometry: { kind: 'path', vertices: transformVertices(base.vertices, mode.indices, { ...identityTransform(mode.centre), rotation: degrees }) },
+          geometry: {
+            kind: 'path',
+            vertices: transformVertices(base.vertices, mode.indices, {
+              ...identityTransform(mode.centre),
+              rotation: degrees,
+            }),
+          },
           guideX: null,
           guideY: null,
         };
@@ -800,14 +960,26 @@ export function MaskCanvasTools({
         store.update({ live: null });
         if (active.latest === null) {
           if (active.mode.type === 'segment') {
-            run({ type: 'insert_mask_vertex', clipId: clip.id, maskId: active.maskId, segment: active.mode.segment, t: active.mode.t });
+            run({
+              type: 'insert_mask_vertex',
+              clipId: clip.id,
+              maskId: active.maskId,
+              segment: active.mode.segment,
+              t: active.mode.t,
+            });
             setAnnouncement('Point added');
           } else if (active.mode.type === 'move') {
             store.update({ selectedVertices: [] });
           }
           return;
         }
-        run({ type: 'set_mask_geometry', clipId: clip.id, maskId: active.maskId, sourceTime, geometry: active.latest });
+        run({
+          type: 'set_mask_geometry',
+          clipId: clip.id,
+          maskId: active.maskId,
+          sourceTime,
+          geometry: active.latest,
+        });
         return;
       }
       case 'edge': {
@@ -827,7 +999,10 @@ export function MaskCanvasTools({
         if (selectedMask === null || selectedMask.kind !== 'path') return;
         const geometry = geometryOf(selectedMask);
         if (geometry === null || geometry.kind !== 'path') return;
-        const inside = verticesInRect(geometry.vertices, rectFromCorners(active.start, active.current));
+        const inside = verticesInRect(
+          geometry.vertices,
+          rectFromCorners(active.start, active.current),
+        );
         const merged = active.additive ? new Set([...selectedVertices, ...inside]) : inside;
         store.update({ selectedVertices: [...merged].sort((a, b) => a - b) });
         return;
@@ -837,13 +1012,23 @@ export function MaskCanvasTools({
         return;
       }
       case 'freehand': {
-        const vertices = fitClosedStroke(active.samples, Math.max(0.25, px(FREEHAND_FIT_TOLERANCE_PX)));
+        const vertices = fitClosedStroke(
+          active.samples,
+          Math.max(0.25, px(FREEHAND_FIT_TOLERANCE_PX)),
+        );
         if (vertices === null) {
           report('Draw a larger shape.');
           return;
         }
         const id = nextMaskId(clip);
-        if (run({ type: 'draw_mask', clipId: clip.id, sourceTime, geometry: { kind: 'path', vertices } })) {
+        if (
+          run({
+            type: 'draw_mask',
+            clipId: clip.id,
+            sourceTime,
+            geometry: { kind: 'path', vertices },
+          })
+        ) {
           store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
           setAnnouncement(`Freehand mask added with ${String(vertices.length)} points`);
         }
@@ -866,8 +1051,23 @@ export function MaskCanvasTools({
     const id = nextMaskId(clip);
     const geometry: MaskGeometry =
       shape === 'rectangle'
-        ? { kind: 'rectangle', cx: box.cx, cy: box.cy, width: box.width, height: box.height, rotation: 0, roundness: 0 }
-        : { kind: 'ellipse', cx: box.cx, cy: box.cy, rx: box.width / 2, ry: box.height / 2, rotation: 0 };
+        ? {
+            kind: 'rectangle',
+            cx: box.cx,
+            cy: box.cy,
+            width: box.width,
+            height: box.height,
+            rotation: 0,
+            roundness: 0,
+          }
+        : {
+            kind: 'ellipse',
+            cx: box.cx,
+            cy: box.cy,
+            rx: box.width / 2,
+            ry: box.height / 2,
+            rotation: 0,
+          };
     if (run({ type: 'draw_mask', clipId: clip.id, sourceTime, geometry })) {
       store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
       setAnnouncement(`${shape === 'rectangle' ? 'Rectangle' : 'Ellipse'} mask added`);
@@ -897,9 +1097,20 @@ export function MaskCanvasTools({
     if (geometry === null) return;
     const next =
       geometry.kind === 'path' && selectedVertices.size > 0
-        ? { kind: 'path' as const, vertices: moveVertices(geometry.vertices, selectedVertices, dx, dy) }
+        ? {
+            kind: 'path' as const,
+            vertices: moveVertices(geometry.vertices, selectedVertices, dx, dy),
+          }
         : translateGeometry(geometry, dx, dy);
-    if (run({ type: 'set_mask_geometry', clipId: clip.id, maskId: selectedMask.id, sourceTime, geometry: next })) {
+    if (
+      run({
+        type: 'set_mask_geometry',
+        clipId: clip.id,
+        maskId: selectedMask.id,
+        sourceTime,
+        geometry: next,
+      })
+    ) {
       setAnnouncement(`Moved ${String(Math.abs(dx || dy))} px`);
     }
   };
@@ -931,7 +1142,10 @@ export function MaskCanvasTools({
     if (arrow !== undefined && !modifier) {
       handled();
       if (drawing) {
-        const from = cursor ?? { x: space.crop.x + space.crop.width / 2, y: space.crop.y + space.crop.height / 2 };
+        const from = cursor ?? {
+          x: space.crop.x + space.crop.width / 2,
+          y: space.crop.y + space.crop.height / 2,
+        };
         const next = { x: from.x + arrow[0], y: from.y + arrow[1] };
         setCursor(next);
         setAnnouncement(`Crosshair ${describePoint(next)}`);
@@ -946,14 +1160,19 @@ export function MaskCanvasTools({
         setSpaceHeld(true);
         return;
       }
-      const at = cursor ?? { x: space.crop.x + space.crop.width / 2, y: space.crop.y + space.crop.height / 2 };
+      const at = cursor ?? {
+        x: space.crop.x + space.crop.width / 2,
+        y: space.crop.y + space.crop.height / 2,
+      };
       setCursor(at);
       if (tools.tool === 'pen') {
         addPenPoint(at, { shiftKey: false, altKey: true });
       } else if (tools.tool === 'rectangle' || tools.tool === 'ellipse') {
         if (boxAnchor === null) {
           setBoxAnchor(at);
-          setAnnouncement(`Corner set at ${describePoint(at)}. Move the crosshair and press Space again.`);
+          setAnnouncement(
+            `Corner set at ${describePoint(at)}. Move the crosshair and press Space again.`,
+          );
         } else {
           commitBox(tools.tool, boxAnchor, at, { shiftKey: false, altKey: false });
           setBoxAnchor(null);
@@ -989,7 +1208,14 @@ export function MaskCanvasTools({
       }
       if (selectedMask === null) return;
       if (selectedMask.kind === 'path' && selectedVertices.size > 0) {
-        if (run({ type: 'remove_mask_vertices', clipId: clip.id, maskId: selectedMask.id, vertices: [...selectedVertices] })) {
+        if (
+          run({
+            type: 'remove_mask_vertices',
+            clipId: clip.id,
+            maskId: selectedMask.id,
+            vertices: [...selectedVertices],
+          })
+        ) {
           store.update({ selectedVertices: [] });
           setAnnouncement('Points deleted');
         }
@@ -1006,10 +1232,15 @@ export function MaskCanvasTools({
       if (geometry === null || geometry.kind !== 'path') return;
       handled();
       const count = geometry.vertices.length;
-      const current = tools.selectedVertices.length > 0 ? tools.selectedVertices[tools.selectedVertices.length - 1]! : -1;
+      const current =
+        tools.selectedVertices.length > 0
+          ? tools.selectedVertices[tools.selectedVertices.length - 1]!
+          : -1;
       const next = event.key === ']' ? (current + 1) % count : (current - 1 + count) % count;
       store.update({ selectedVertices: [next] });
-      setAnnouncement(`Point ${String(next + 1)} of ${String(count)} at ${describePoint(geometry.vertices[next]!)}`);
+      setAnnouncement(
+        `Point ${String(next + 1)} of ${String(count)} at ${describePoint(geometry.vertices[next]!)}`,
+      );
     }
   };
 
@@ -1022,7 +1253,10 @@ export function MaskCanvasTools({
   const zoomPercent = tools.zoom === 'fit' ? 0 : Number(tools.zoom);
   const strokeWidth = 1.5;
   const selectedGeometry = selectedMask === null ? null : geometryOf(selectedMask);
-  const box = selectedMask !== null && selectedGeometry !== null ? selectionBox(selectedMask, selectedGeometry) : null;
+  const box =
+    selectedMask !== null && selectedGeometry !== null
+      ? selectionBox(selectedMask, selectedGeometry)
+      : null;
 
   const chrome = (
     <>
@@ -1064,7 +1298,9 @@ export function MaskCanvasTools({
           <select
             aria-label="Mask zoom"
             value={tools.zoom}
-            onChange={(event) => store.update({ zoom: event.target.value as MaskZoom, pan: { x: 0, y: 0 } })}
+            onChange={(event) =>
+              store.update({ zoom: event.target.value as MaskZoom, pan: { x: 0, y: 0 } })
+            }
           >
             {MASK_ZOOM_LEVELS.map((level) => (
               <option key={level} value={level}>
@@ -1109,7 +1345,12 @@ export function MaskCanvasTools({
             <>
               <defs>
                 <pattern id="mask-pixel-grid" width={1} height={1} patternUnits="userSpaceOnUse">
-                  <path d="M1 0H0V1" className="mask-canvas-pixel-grid" strokeWidth={px(1)} fill="none" />
+                  <path
+                    d="M1 0H0V1"
+                    className="mask-canvas-pixel-grid"
+                    strokeWidth={px(1)}
+                    fill="none"
+                  />
                 </pattern>
               </defs>
               <rect
@@ -1163,7 +1404,12 @@ export function MaskCanvasTools({
             />
           )}
           {draft.stroke !== undefined && (
-            <path className="mask-canvas-draft" d={polylinePathData(draft.stroke)} vectorEffect="non-scaling-stroke" fill="none" />
+            <path
+              className="mask-canvas-draft"
+              d={polylinePathData(draft.stroke)}
+              vectorEffect="non-scaling-stroke"
+              fill="none"
+            />
           )}
           {draft.marquee !== undefined && (
             <rect
@@ -1177,29 +1423,68 @@ export function MaskCanvasTools({
           )}
           {penPoints.length > 0 && (
             <>
-              <path className="mask-canvas-draft" d={outlinePathData(penPoints).replace(/Z$/, '')} vectorEffect="non-scaling-stroke" fill="none" />
-              <path className="mask-canvas-vertex" d={squaresPathData(penPoints, px(VERTEX_HANDLE_PX))} />
+              <path
+                className="mask-canvas-draft"
+                d={outlinePathData(penPoints).replace(/Z$/, '')}
+                vectorEffect="non-scaling-stroke"
+                fill="none"
+              />
+              <path
+                className="mask-canvas-vertex"
+                d={squaresPathData(penPoints, px(VERTEX_HANDLE_PX))}
+              />
             </>
           )}
           {draft.guideX !== undefined && draft.guideX !== null && (
-            <line className="mask-canvas-guide" x1={draft.guideX} x2={draft.guideX} y1={0} y2={space.sourceHeight} vectorEffect="non-scaling-stroke" />
+            <line
+              className="mask-canvas-guide"
+              x1={draft.guideX}
+              x2={draft.guideX}
+              y1={0}
+              y2={space.sourceHeight}
+              vectorEffect="non-scaling-stroke"
+            />
           )}
           {draft.guideY !== undefined && draft.guideY !== null && (
-            <line className="mask-canvas-guide" y1={draft.guideY} y2={draft.guideY} x1={0} x2={space.sourceWidth} vectorEffect="non-scaling-stroke" />
+            <line
+              className="mask-canvas-guide"
+              y1={draft.guideY}
+              y2={draft.guideY}
+              x1={0}
+              x2={space.sourceWidth}
+              vectorEffect="non-scaling-stroke"
+            />
           )}
           {(cursor !== null || boxAnchor !== null) && (
             <g className="mask-canvas-crosshair" data-testid="mask-crosshair">
               {cursor !== null && (
                 <>
-                  <line x1={cursor.x - px(10)} x2={cursor.x + px(10)} y1={cursor.y} y2={cursor.y} vectorEffect="non-scaling-stroke" />
-                  <line y1={cursor.y - px(10)} y2={cursor.y + px(10)} x1={cursor.x} x2={cursor.x} vectorEffect="non-scaling-stroke" />
+                  <line
+                    x1={cursor.x - px(10)}
+                    x2={cursor.x + px(10)}
+                    y1={cursor.y}
+                    y2={cursor.y}
+                    vectorEffect="non-scaling-stroke"
+                  />
+                  <line
+                    y1={cursor.y - px(10)}
+                    y2={cursor.y + px(10)}
+                    x1={cursor.x}
+                    x2={cursor.x}
+                    vectorEffect="non-scaling-stroke"
+                  />
                 </>
               )}
               {boxAnchor !== null && cursor !== null && (
                 <path
                   className="mask-canvas-draft"
                   d={polylinePathData(
-                    [boxAnchor, { x: cursor.x, y: boxAnchor.y }, cursor, { x: boxAnchor.x, y: cursor.y }],
+                    [
+                      boxAnchor,
+                      { x: cursor.x, y: boxAnchor.y },
+                      cursor,
+                      { x: boxAnchor.x, y: cursor.y },
+                    ],
                     true,
                   )}
                   vectorEffect="non-scaling-stroke"
@@ -1249,9 +1534,20 @@ function SelectedMaskHandles({
 }: SelectedMaskHandlesProps): JSX.Element {
   const polygon = useMemo(() => flattenOutline(outlineVertices(geometry)), [geometry]);
   const guides: { key: string; distance: number; className: string }[] = [];
-  if (expansion !== 0) guides.push({ key: 'expansion', distance: expansion, className: 'mask-canvas-expansion' });
-  if (featherOuter > 0) guides.push({ key: 'outer', distance: expansion + featherOuter, className: 'mask-canvas-feather' });
-  if (featherInner > 0) guides.push({ key: 'inner', distance: expansion - featherInner, className: 'mask-canvas-feather' });
+  if (expansion !== 0)
+    guides.push({ key: 'expansion', distance: expansion, className: 'mask-canvas-expansion' });
+  if (featherOuter > 0)
+    guides.push({
+      key: 'outer',
+      distance: expansion + featherOuter,
+      className: 'mask-canvas-feather',
+    });
+  if (featherInner > 0)
+    guides.push({
+      key: 'inner',
+      distance: expansion - featherInner,
+      className: 'mask-canvas-feather',
+    });
 
   const vertexPoints: PixelPoint[] = [];
   const selectedPoints: PixelPoint[] = [];
@@ -1313,13 +1609,26 @@ function SelectedMaskHandles({
         </>
       )}
       {tangentLines.length > 0 && (
-        <path className="mask-canvas-tangent" d={tangentLines.join('')} vectorEffect="non-scaling-stroke" />
+        <path
+          className="mask-canvas-tangent"
+          d={tangentLines.join('')}
+          vectorEffect="non-scaling-stroke"
+        />
       )}
       {tangentPoints.map((point, index) => (
-        <circle key={index} className="mask-canvas-tangent-handle" cx={point.x} cy={point.y} r={px(TANGENT_HANDLE_PX) / 2} />
+        <circle
+          key={index}
+          className="mask-canvas-tangent-handle"
+          cx={point.x}
+          cy={point.y}
+          r={px(TANGENT_HANDLE_PX) / 2}
+        />
       ))}
       {vertexPoints.length > 0 && (
-        <path className="mask-canvas-vertex" d={squaresPathData(vertexPoints, px(VERTEX_HANDLE_PX))} />
+        <path
+          className="mask-canvas-vertex"
+          d={squaresPathData(vertexPoints, px(VERTEX_HANDLE_PX))}
+        />
       )}
       {selectedPoints.length > 0 && (
         <path
@@ -1349,13 +1658,29 @@ function rotateHandlePoint(box: OrientedBox, stalk: number): PixelPoint {
   return boxHandlePoint({ ...box, halfHeight: box.halfHeight + stalk }, 0, -1);
 }
 
-function RotateHandle({ box, px }: { readonly box: OrientedBox; readonly px: (screen: number) => number }): JSX.Element {
+function RotateHandle({
+  box,
+  px,
+}: {
+  readonly box: OrientedBox;
+  readonly px: (screen: number) => number;
+}): JSX.Element {
   const top = boxHandlePoint(box, 0, -1);
   const end = rotateHandlePoint(box, px(ROTATE_STALK_PX));
   return (
     <>
-      <path className="mask-canvas-box" d={`M${top.x} ${top.y}L${end.x} ${end.y}`} vectorEffect="non-scaling-stroke" />
-      <circle className="mask-canvas-rotate" cx={end.x} cy={end.y} r={px(BOX_HANDLE_PX) / 2} data-testid="mask-rotate-handle" />
+      <path
+        className="mask-canvas-box"
+        d={`M${top.x} ${top.y}L${end.x} ${end.y}`}
+        vectorEffect="non-scaling-stroke"
+      />
+      <circle
+        className="mask-canvas-rotate"
+        cx={end.x}
+        cy={end.y}
+        r={px(BOX_HANDLE_PX) / 2}
+        data-testid="mask-rotate-handle"
+      />
     </>
   );
 }

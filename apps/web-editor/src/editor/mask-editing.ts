@@ -114,7 +114,9 @@ export function timelineWithLiveMask(timeline: Timeline, live: LiveMaskPreview):
               clip.id === live.clipId && clip.masks !== undefined
                 ? {
                     ...clip,
-                    masks: clip.masks.map((mask) => (mask.id === live.maskId ? replaceMask(mask) : mask)),
+                    masks: clip.masks.map((mask) =>
+                      mask.id === live.maskId ? replaceMask(mask) : mask,
+                    ),
                   }
                 : clip,
             ),
@@ -122,6 +124,30 @@ export function timelineWithLiveMask(timeline: Timeline, live: LiveMaskPreview):
         : track,
     ),
   };
+}
+
+/** Bisection steps for the source → timeline inverse (2^-48 of a clip: far below a frame). */
+const INVERSE_STEPS = 48;
+
+/**
+ * The timeline second at which a clip shows asset source second `sourceTime`, clamped to the
+ * clip. The inverse of {@link clipSourceTimeAt}, by bisection so speed ramps and reverse play
+ * need no special case (the clock is monotone within a clip).
+ */
+export function clipTimelineTimeForSource(clip: Clip, sourceTime: number): number {
+  const duration = Math.max(0, clip.end - clip.start);
+  const first = maskSourceTime(clip, 0);
+  const last = maskSourceTime(clip, duration);
+  const ascending = last >= first;
+  let low = 0;
+  let high = duration;
+  for (let step = 0; step < INVERSE_STEPS; step += 1) {
+    const middle = (low + high) / 2;
+    const value = maskSourceTime(clip, middle);
+    if (value < sourceTime === ascending) low = middle;
+    else high = middle;
+  }
+  return clip.start + (low + high) / 2;
 }
 
 /**

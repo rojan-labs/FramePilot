@@ -30,7 +30,12 @@ export interface MonitorPictureSpace {
   /** Project-frame pixels per source pixel (uniform: the fit and the clip scale). */
   readonly scale: number;
   /** The visible (cropped) part of the source, source pixels. */
-  readonly crop: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+  readonly crop: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  };
   /** The display-corrected source size. */
   readonly sourceWidth: number;
   readonly sourceHeight: number;
@@ -38,7 +43,10 @@ export interface MonitorPictureSpace {
 
 /** Apply an affine map to a point. */
 export function applyAffine(map: Affine, point: PixelPoint): PixelPoint {
-  return { x: map.a * point.x + map.c * point.y + map.e, y: map.b * point.x + map.d * point.y + map.f };
+  return {
+    x: map.a * point.x + map.c * point.y + map.e,
+    y: map.b * point.x + map.d * point.y + map.f,
+  };
 }
 
 /** Invert an affine map, or `null` when it is singular. */
@@ -79,7 +87,8 @@ export function monitorPictureSpace(
     return null;
   }
   const layer = plan.layers.find(
-    (candidate) => candidate.kind === 'picture' && candidate.role === 'clip' && candidate.clipId === clipId,
+    (candidate) =>
+      candidate.kind === 'picture' && candidate.role === 'clip' && candidate.clipId === clipId,
   );
   const geometry = layer?.geometry;
   if (layer === undefined || geometry === null || geometry === undefined) return null;

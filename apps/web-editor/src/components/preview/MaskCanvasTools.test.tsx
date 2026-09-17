@@ -24,7 +24,13 @@ import { maskToolTelemetry } from './mask-tool-telemetry.js';
 
 const RESOLUTION = { width: 1920, height: 1080 };
 const ASSETS: Asset[] = [
-  { id: 'a1', path: 'media/a1.mp4', kind: 'video', durationSeconds: 10, media: { width: 3840, height: 2160 } } as Asset,
+  {
+    id: 'a1',
+    path: 'media/a1.mp4',
+    kind: 'video',
+    durationSeconds: 10,
+    media: { width: 3840, height: 2160 },
+  } as Asset,
 ];
 
 function timeline(masks: MaskLayerInput[] = []): Timeline {
@@ -45,7 +51,9 @@ function timeline(masks: MaskLayerInput[] = []): Timeline {
             sourceEnd: 10,
             effects: [],
             keyframes: [],
-            ...(masks.length > 0 ? { masks: masks.map((mask) => MaskLayerSchema.parse(mask)) } : {}),
+            ...(masks.length > 0
+              ? { masks: masks.map((mask) => MaskLayerSchema.parse(mask)) }
+              : {}),
           },
         ],
       },
@@ -66,13 +74,28 @@ const square = (x0: number, y0: number, size: number): MaskLayerInput => ({
           [x0 + size, y0],
           [x0 + size, y0 + size],
           [x0, y0 + size],
-        ].map(([x, y]) => ({ x: x!, y: y!, inX: 0, inY: 0, outX: 0, outY: 0, type: 'corner' as const })),
+        ].map(([x, y]) => ({
+          x: x!,
+          y: y!,
+          inX: 0,
+          inY: 0,
+          outX: 0,
+          outY: 0,
+          type: 'corner' as const,
+        })),
       ),
     },
   ],
 });
 
-const rect: MaskLayerInput = { kind: 'rectangle', id: 'c1__mask', cx: 1920, cy: 1080, width: 800, height: 400 };
+const rect: MaskLayerInput = {
+  kind: 'rectangle',
+  id: 'c1__mask',
+  cx: 1920,
+  cy: 1080,
+  width: 800,
+  height: 400,
+};
 
 let editor: UseEditor;
 let store: MaskToolStore;
@@ -80,7 +103,16 @@ let store: MaskToolStore;
 function Host({ initial }: { readonly initial: Timeline }): JSX.Element {
   editor = useEditor(initial, { assets: ASSETS });
   const clip = editor.state.timeline.tracks[0]!.clips[0]!;
-  return <MaskCanvasTools editor={editor} clip={clip} assets={editor.state.assets} resolution={RESOLUTION} frameWidth={1920} store={store} />;
+  return (
+    <MaskCanvasTools
+      editor={editor}
+      clip={clip}
+      assets={editor.state.assets}
+      resolution={RESOLUTION}
+      frameWidth={1920}
+      store={store}
+    />
+  );
 }
 
 const masks = (): readonly MaskLayer[] => masksOf(editor.state.timeline.tracks[0]!.clips[0]!);
@@ -99,7 +131,12 @@ const at = (x: number, y: number, extra: Record<string, unknown> = {}) => ({
   ...extra,
 });
 
-function drag(from: [number, number], to: [number, number], extra: Record<string, unknown> = {}, steps = 4): void {
+function drag(
+  from: [number, number],
+  to: [number, number],
+  extra: Record<string, unknown> = {},
+  steps = 4,
+): void {
   const target = canvas();
   fireEvent.pointerDown(target, at(from[0], from[1], extra));
   for (let step = 1; step <= steps; step += 1) {
@@ -149,7 +186,13 @@ describe('drawing tools', () => {
     expect(historyLength()).toBe(0);
     fireEvent.pointerUp(target, at(300.25, 200.5));
     expect(historyLength()).toBe(1);
-    expect(masks()[0]).toMatchObject({ kind: 'rectangle', cx: 400.25, cy: 300.5, width: 400.5, height: 201 });
+    expect(masks()[0]).toMatchObject({
+      kind: 'rectangle',
+      cx: 400.25,
+      cy: 300.5,
+      width: 400.5,
+      height: 201,
+    });
     expect(store.getState()).toMatchObject({ tool: 'select', selectedMaskId: 'c1__mask' });
     act(() => editor.undo());
     expect(masks()).toHaveLength(0);
@@ -232,7 +275,7 @@ describe('Select tool', () => {
   });
 
   it('drags a point, selects with a marquee and deletes the selection', () => {
-    mount(timeline([{ ...square(200, 200, 400), pathKeyframes: square(200, 200, 400).kind === 'path' ? square(200, 200, 400).pathKeyframes : [] } as MaskLayerInput]));
+    mount(timeline([square(200, 200, 400)]));
     // Add a fifth point by clicking the top edge.
     click(200, 100);
     expect(maskPathVerticesAt(masks()[0] as PathMask, 0)).toHaveLength(5);
@@ -264,7 +307,10 @@ describe('Select tool', () => {
     expect(masks()[0]).toMatchObject({ cx: 2020, cy: 1130, width: 1000, height: 500 });
     const box = masks()[0] as Extract<MaskLayer, { kind: 'rectangle' }>;
     const rotateAt = { x: box.cx / 2, y: (box.cy - box.height / 2) / 2 - 22 };
-    drag([rotateAt.x, rotateAt.y], [rotateAt.x + 200, rotateAt.y + 200], { shiftKey: true, altKey: true });
+    drag([rotateAt.x, rotateAt.y], [rotateAt.x + 200, rotateAt.y + 200], {
+      shiftKey: true,
+      altKey: true,
+    });
     expect((masks()[0] as Extract<MaskLayer, { kind: 'rectangle' }>).rotation % 15).toBe(0);
     expect((masks()[0] as Extract<MaskLayer, { kind: 'rectangle' }>).rotation).not.toBe(0);
   });
@@ -318,7 +364,9 @@ describe('keyboard drawing (a11y)', () => {
     fireEvent.keyDown(target, { key: 'ArrowDown', shiftKey: true });
     fireEvent.keyDown(target, { key: ' ' });
     fireEvent.keyDown(target, { key: 'Enter' });
-    expect(maskPathVerticesAt(masks()[0] as PathMask, 0).map((vertex) => [vertex.x, vertex.y])).toEqual([
+    expect(
+      maskPathVerticesAt(masks()[0] as PathMask, 0).map((vertex) => [vertex.x, vertex.y]),
+    ).toEqual([
       [1920, 1080],
       [1930, 1080],
       [1930, 1090],
@@ -338,7 +386,13 @@ describe('keyboard drawing (a11y)', () => {
     fireEvent.keyDown(target, { key: 'ArrowLeft', shiftKey: true });
     fireEvent.keyDown(target, { key: 'ArrowUp', shiftKey: true });
     fireEvent.keyDown(target, { key: ' ' });
-    expect(masks()[0]).toMatchObject({ kind: 'rectangle', cx: 1915, cy: 1075, width: 10, height: 10 });
+    expect(masks()[0]).toMatchObject({
+      kind: 'rectangle',
+      cx: 1915,
+      cy: 1075,
+      width: 10,
+      height: 10,
+    });
   });
 
   it('Escape cancels a pen path in progress', () => {
@@ -356,7 +410,9 @@ describe('view', () => {
   it('draws the source pixel grid at 400% and scales the frame to source pixels', () => {
     mount(timeline([rect]));
     expect(screen.queryByTestId('mask-pixel-grid')).toBeNull();
-    fireEvent.change(screen.getByRole('combobox', { name: 'Mask zoom' }), { target: { value: '400' } });
+    fireEvent.change(screen.getByRole('combobox', { name: 'Mask zoom' }), {
+      target: { value: '400' },
+    });
     expect(screen.getByTestId('mask-pixel-grid')).toBeTruthy();
     // Fit shows one source pixel as 0.5 CSS px; 400% needs 4, so the frame scales 8×.
     expect(store.getState().frameScale).toBe(8);

@@ -691,9 +691,10 @@ function buildToggleKeyframe(
     const existing = mask.pathKeyframes.find((keyframe) => same(keyframe.sourceTime));
     if (existing !== undefined) {
       if (mask.pathKeyframes.length === 1) {
+        // Refused with words rather than silently: the editor clicked expecting something.
         throw new Rejection(
-          'nothing_to_change',
-          'This is the path’s only shape. Delete the mask to remove it.',
+          'not_editable',
+          'This is the path’s only shape. Move the playhead and reshape the path to animate it.',
         );
       }
       return {

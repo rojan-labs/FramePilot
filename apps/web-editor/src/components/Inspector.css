@@ -882,3 +882,164 @@
     transition: none;
   }
 }
+
+/* ---- Mask tab (MK4.2) --------------------------------------------------- */
+.inspector-pro .mask-panel-tools {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: var(--space-1);
+}
+.inspector-pro .mask-panel-tool {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: var(--space-1) 0;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.inspector-pro .mask-panel-tool:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-panel-tool[aria-pressed='true'] {
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+  background: var(--bg-active);
+}
+.inspector-pro .mask-panel-tool:disabled {
+  color: var(--text-disabled);
+  cursor: not-allowed;
+}
+.inspector-pro .mask-panel-tool:focus-visible,
+.inspector-pro .mask-list-row:focus-visible,
+.inspector-pro .mask-list-toggle:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.inspector-pro .mask-list {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.inspector-pro .mask-list-row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-height: 28px;
+  padding: 0 var(--space-1);
+  border-radius: var(--radius-xs);
+  cursor: default;
+}
+.inspector-pro .mask-list-row:hover {
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-list-row[data-selected] {
+  background: var(--bg-selected);
+}
+.inspector-pro .mask-list-row[data-disabled] .mask-list-name {
+  color: var(--text-tertiary);
+}
+.inspector-pro .mask-list-row[data-drop] {
+  box-shadow: inset 0 2px 0 var(--accent);
+}
+.inspector-pro .mask-list-grip {
+  display: grid;
+  color: var(--text-tertiary);
+  cursor: grab;
+}
+.inspector-pro .mask-list-color {
+  position: relative;
+  flex: none;
+  width: 12px;
+  height: 12px;
+  border-radius: 3px;
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.35);
+  cursor: pointer;
+}
+.inspector-pro .mask-list-color input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  opacity: 0;
+  cursor: pointer;
+}
+.inspector-pro .mask-list-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.inspector-pro .mask-list-mode {
+  max-width: 76px;
+  height: 22px;
+  padding: 0 2px;
+  background: transparent;
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-list-toggle {
+  display: grid;
+  place-items: center;
+  flex: none;
+  min-width: 22px;
+  height: 22px;
+  padding: 0 2px;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  cursor: pointer;
+}
+.inspector-pro .mask-list-toggle:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.inspector-pro .mask-list-invert[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+.inspector-pro .mask-number {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  min-width: 0;
+}
+.inspector-pro .mask-number-scrub {
+  color: var(--text-tertiary);
+  cursor: ew-resize;
+  user-select: none;
+  touch-action: none;
+}
+.inspector-pro .mask-number[data-disabled] .mask-number-scrub {
+  cursor: not-allowed;
+}
+.inspector-pro .mask-number-input {
+  width: 100%;
+  min-width: 0;
+  height: 24px;
+  padding: 0 var(--space-1);
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-xs);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .mask-number-input:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+}

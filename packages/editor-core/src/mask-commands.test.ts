@@ -452,7 +452,7 @@ describe('toggle_mask_keyframe', () => {
         property: 'path',
         sourceTime: 2,
       }),
-    ).toMatchObject({ code: 'nothing_to_change' });
+    ).toMatchObject({ code: 'not_editable' });
     expect(
       compile(timeline([rect()]), {
         type: 'toggle_mask_keyframe',

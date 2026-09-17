@@ -49,9 +49,7 @@ export function outlinePathData(vertices: readonly MaskPathVertex[]): string {
   for (let index = 0; index < vertices.length; index += 1) {
     const a = vertices[index]!;
     const b = vertices[(index + 1) % vertices.length]!;
-    parts.push(
-      `C${a.x + a.outX} ${a.y + a.outY} ${b.x + b.inX} ${b.y + b.inY} ${b.x} ${b.y}`,
-    );
+    parts.push(`C${a.x + a.outX} ${a.y + a.outY} ${b.x + b.inX} ${b.y + b.inY} ${b.x} ${b.y}`);
   }
   parts.push('Z');
   return parts.join('');
@@ -104,7 +102,10 @@ export function pointInPolygon(polygon: readonly PixelPoint[], point: PixelPoint
   for (let i = 0, j = polygon.length - 1; i < polygon.length; j = i, i += 1) {
     const a = polygon[i]!;
     const b = polygon[j]!;
-    if (a.y > point.y !== b.y > point.y && point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x) {
+    if (
+      a.y > point.y !== b.y > point.y &&
+      point.x < ((b.x - a.x) * (point.y - a.y)) / (b.y - a.y) + a.x
+    ) {
       inside = !inside;
     }
   }
@@ -159,7 +160,10 @@ export function geometryCentre(geometry: MaskGeometry): PixelPoint {
  * Apply an anchor transform to a whole geometry. A rectangle/ellipse keeps its kind: the centre
  * moves, sizes scale in the shape's own frame, and rotation adds.
  */
-export function transformGeometry(geometry: MaskGeometry, transform: AnchorTransform): MaskGeometry {
+export function transformGeometry(
+  geometry: MaskGeometry,
+  transform: AnchorTransform,
+): MaskGeometry {
   if (geometry.kind === 'path') {
     return { kind: 'path', vertices: transformVertices(geometry.vertices, null, transform) };
   }
@@ -191,7 +195,11 @@ export function translateGeometry(geometry: MaskGeometry, dx: number, dy: number
   if (geometry.kind === 'path') {
     return {
       kind: 'path',
-      vertices: geometry.vertices.map((vertex) => ({ ...vertex, x: vertex.x + dx, y: vertex.y + dy })),
+      vertices: geometry.vertices.map((vertex) => ({
+        ...vertex,
+        x: vertex.x + dx,
+        y: vertex.y + dy,
+      })),
     };
   }
   return { ...geometry, cx: geometry.cx + dx, cy: geometry.cy + dy };
@@ -216,7 +224,13 @@ export function boxOf(geometry: Exclude<MaskGeometry, { kind: 'path' }>): Orient
         halfHeight: geometry.height / 2,
         rotation: geometry.rotation,
       }
-    : { cx: geometry.cx, cy: geometry.cy, halfWidth: geometry.rx, halfHeight: geometry.ry, rotation: geometry.rotation };
+    : {
+        cx: geometry.cx,
+        cy: geometry.cy,
+        halfWidth: geometry.rx,
+        halfHeight: geometry.ry,
+        rotation: geometry.rotation,
+      };
 }
 
 /** A box written back into its geometry kind. */
@@ -233,7 +247,14 @@ export function withBox(
         height: box.halfHeight * 2,
         rotation: box.rotation,
       }
-    : { ...geometry, cx: box.cx, cy: box.cy, rx: box.halfWidth, ry: box.halfHeight, rotation: box.rotation };
+    : {
+        ...geometry,
+        cx: box.cx,
+        cy: box.cy,
+        rx: box.halfWidth,
+        ry: box.halfHeight,
+        rotation: box.rotation,
+      };
 }
 
 /** The eight resize handles of a box and the rotation handle position, clockwise from top-left. */
@@ -296,7 +317,13 @@ export function resizeBox(
       shiftY = (local.y + anchor) / 2;
     }
   }
-  if (options.keepAspect === true && ux !== 0 && uy !== 0 && box.halfWidth > 0 && box.halfHeight > 0) {
+  if (
+    options.keepAspect === true &&
+    ux !== 0 &&
+    uy !== 0 &&
+    box.halfWidth > 0 &&
+    box.halfHeight > 0
+  ) {
     const factor = Math.max(halfWidth / box.halfWidth, halfHeight / box.halfHeight);
     halfWidth = box.halfWidth * factor;
     halfHeight = box.halfHeight * factor;
