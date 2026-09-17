@@ -48,6 +48,11 @@ import type { MaskDebugView } from '../preview/masks/mask-view.js';
 import { MaskViewToggle } from './MaskViewToggle.js';
 import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
 import { layerCompositorEnabled } from '../preview/compositor-flag.js';
+import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
+import { timelineWithLiveMask, type LiveMaskPreview } from '../editor/mask-editing.js';
+import { useMaskTools } from './inspector/masks/useMaskTools.js';
+import { MaskCanvasTools } from './preview/MaskCanvasTools.js';
+import { maskToolTelemetry } from './preview/mask-tool-telemetry.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
 import { isDesktop } from '../editor/bridge-base.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
@@ -196,6 +201,24 @@ export function WebCodecsPreviewPlayer({
   const selectedPicture =
     shownPicture && editor.state.selectedIds.includes(shownPicture.id) ? shownPicture : null;
   const transformSelected = selectedPicture !== null;
+  // MK4.1 (RD2.1 flag): with the Inspector's mask panel open for the selected picture, the
+  // monitor edits its masks instead of its transform.
+  const [maskToolsOn] = useState(maskToolsEnabled);
+  const maskTools = useMaskTools();
+  const maskEditing =
+    maskToolsOn && selectedPicture !== null && maskTools.panelClipId === selectedPicture.id;
+  const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
+  const frameRef = useRef<HTMLDivElement>(null);
+  const liveMask = useMemo((): LiveMaskPreview | null => {
+    if (!maskEditing) return null;
+    if (maskTools.live !== null) return maskTools.live;
+    return maskTools.liveScalars;
+  }, [maskEditing, maskTools.live, maskTools.liveScalars]);
+  const previewTimeline = useMemo(
+    () =>
+      liveMask === null ? editor.state.timeline : timelineWithLiveMask(editor.state.timeline, liveMask),
+    [editor.state.timeline, liveMask],
+  );
   // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
   const maskViewClipId =
     selectedPicture !== null && (selectedPicture.masks ?? []).some((mask) => mask.enabled)
@@ -639,9 +662,53 @@ export function WebCodecsPreviewPlayer({
     if (!layered || !(engine instanceof LayerPreviewEngine)) return;
     engine.setMaskView(maskView, maskViewClipId);
   }, [layered, maskView, maskViewClipId]);
+  // A mask drag re-composites at pointer rate, but each present decodes and rasterises: only the
+  // newest live geometry is sent, once the one in flight has been presented (latest wins), so a
+  // slow raster never queues a backlog behind the hand.
+  const livePresent = useRef<{ inFlight: boolean; pending: (() => Promise<void>) | null }>({
+    inFlight: false,
+    pending: null,
+  });
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine) || liveMask === null) return;
+    const requested = performance.now();
+    const present = (): Promise<void> =>
+      engine
+        .setProject({
+          timeline: previewTimeline,
+          assets,
+          mediaUrls,
+          projectResolution: resolution,
+          canvasSize: { width: canvasWidth, height: canvasHeight },
+          projectFps: fps,
+          ...(transcript ? { transcript } : {}),
+          hiddenOverlayIds,
+          burnCaptions: settings.previewBurnCaptions,
+        })
+        .then(() => maskToolTelemetry.record('composite', performance.now() - requested));
+    const slot = livePresent.current;
+    const drain = (): void => {
+      const next = slot.pending;
+      slot.pending = null;
+      if (next === null) {
+        slot.inFlight = false;
+        return;
+      }
+      void next().finally(drain);
+    };
+    if (slot.inFlight) {
+      slot.pending = present;
+      return;
+    }
+    slot.inFlight = true;
+    void present().finally(drain);
+    // Keyed on the live preview only: committed timelines go through the effect below.
+  }, [previewTimeline]);
   useEffect(() => {
     const engine = engineRef.current;
     if (!layered || !(engine instanceof LayerPreviewEngine)) return;
+    if (liveMask !== null) return;
     void engine
       .setProject({
         timeline: editor.state.timeline,
@@ -662,6 +729,7 @@ export function WebCodecsPreviewPlayer({
     layered,
     hasSegments,
     editor.state.timeline,
+    liveMask === null,
     assets,
     mediaUrls,
     resolution.width,
@@ -737,12 +805,18 @@ export function WebCodecsPreviewPlayer({
         soloedTrackIds={soloedTrackIds}
         monitorVolume={monitorGain}
       />
-      <div className="preview-stage">
+      <div className="preview-stage" ref={setStageHost}>
         <div
           className="preview-frame"
+          ref={frameRef}
           style={{
             ['--aspect' as string]: String(aspect),
-            transform: previewZoom === 'fit' ? undefined : `scale(${Number(previewZoom) / 100})`,
+            transform:
+              maskEditing && maskTools.zoom !== 'fit'
+                ? `translate(${maskTools.pan.x}px, ${maskTools.pan.y}px) scale(${maskTools.frameScale})`
+                : previewZoom === 'fit'
+                  ? undefined
+                  : `scale(${Number(previewZoom) / 100})`,
           }}
         >
           <div className="webcodecs-preview">
@@ -802,7 +876,18 @@ export function WebCodecsPreviewPlayer({
               onClick={() => editor.select(shownPicture.id)}
             />
           )}
-          {transformSelected && selectedPicture && (
+          {maskEditing && selectedPicture && (
+            <MaskCanvasTools
+              key={`mask-tools-${selectedPicture.id}`}
+              editor={editor}
+              clip={selectedPicture}
+              assets={assets}
+              resolution={resolution}
+              chromeHost={stageHost}
+              {...(frameRef.current ? { frameWidth: frameRef.current.offsetWidth } : {})}
+            />
+          )}
+          {transformSelected && selectedPicture && !maskEditing && (
             <PreviewTransform
               // Keyed by clip: switching selection starts a fresh gesture state
               // rather than carrying the previous clip's live override across.

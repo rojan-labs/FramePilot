@@ -116,6 +116,10 @@ export {
   // apart by shape weight and not by colour alone.
   Diamond,
   Paperclip,
+  // Mask tools (MK4): shape tools on the monitor and the mask list's drag grip.
+  Circle,
+  PenTool,
+  GripVertical,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

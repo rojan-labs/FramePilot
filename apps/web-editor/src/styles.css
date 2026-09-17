@@ -1135,6 +1135,174 @@ input[type='checkbox']:focus-visible {
   transform: translateY(-0.5px);
 }
 
+/* ---- Mask tools (MK4.1) ------------------------------------------------ */
+/* The canvas covers the frame exactly (its viewBox is the project frame), so
+   handles land on the picture the compositor draws. Handle ink matches the
+   transform box: white with a dark keyline, legible on any footage. */
+.mask-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  z-index: 3;
+  overflow: visible;
+  touch-action: none;
+  cursor: default;
+  outline: none;
+}
+.mask-canvas:focus-visible {
+  box-shadow: inset 0 0 0 2px var(--focus-ring);
+}
+.mask-canvas[data-tool='rectangle'],
+.mask-canvas[data-tool='ellipse'],
+.mask-canvas[data-tool='pen'],
+.mask-canvas[data-tool='freehand'] {
+  cursor: crosshair;
+}
+.mask-canvas[data-panning] {
+  cursor: grab;
+}
+.mask-canvas-outline {
+  opacity: 0.75;
+}
+.mask-canvas-outline[data-selected] {
+  opacity: 1;
+}
+.mask-canvas-outline:not([data-enabled]) {
+  stroke-dasharray: 2 3;
+  opacity: 0.45;
+}
+.mask-canvas-feather,
+.mask-canvas-expansion {
+  stroke: rgba(255, 255, 255, 0.85);
+  stroke-width: 1px;
+}
+.mask-canvas-feather {
+  stroke-dasharray: 5 4;
+}
+.mask-canvas-box,
+.mask-canvas-tangent {
+  stroke: rgba(255, 255, 255, 0.9);
+  stroke-width: 1px;
+  fill: none;
+}
+.mask-canvas-vertex,
+.mask-canvas-box-handle,
+.mask-canvas-rotate,
+.mask-canvas-knob {
+  fill: #fff;
+  stroke: rgba(0, 0, 0, 0.82);
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.mask-canvas-vertex[data-selected] {
+  fill: var(--accent);
+}
+.mask-canvas-tangent-handle {
+  fill: var(--accent);
+  stroke: #fff;
+  stroke-width: 1px;
+  vector-effect: non-scaling-stroke;
+}
+.mask-canvas-knob[data-knob='featherOuterPx'],
+.mask-canvas-knob[data-knob='featherInnerPx'] {
+  fill: rgba(0, 0, 0, 0.6);
+  stroke: #fff;
+}
+.mask-canvas-draft,
+.mask-canvas-marquee {
+  stroke: var(--accent);
+  stroke-width: 1px;
+}
+.mask-canvas-marquee {
+  fill: var(--accent-subtle);
+  stroke-dasharray: 3 3;
+}
+.mask-canvas-guide {
+  stroke: var(--accent);
+  stroke-width: 1px;
+}
+.mask-canvas-crosshair line {
+  stroke: #fff;
+  stroke-width: 1px;
+}
+.mask-canvas-pixel-grid {
+  stroke: rgba(255, 255, 255, 0.18);
+}
+.mask-canvas-toolbar {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  z-index: 5;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+}
+.mask-canvas-tool {
+  display: grid;
+  place-items: center;
+  width: var(--monitor-btn-size);
+  height: var(--monitor-btn-size);
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  cursor: pointer;
+  transition:
+    background var(--dur-fast) var(--ease),
+    color var(--dur-fast) var(--ease);
+}
+.mask-canvas-tool:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+.mask-canvas-tool[aria-pressed='true'] {
+  color: var(--text-primary);
+  background: var(--bg-active);
+}
+.mask-canvas-tool:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--focus-ring);
+}
+.mask-canvas-toolbar-divider {
+  width: 1px;
+  align-self: stretch;
+  margin: 2px;
+  background: var(--border-default);
+}
+.mask-canvas-zoom select {
+  height: var(--monitor-btn-size);
+  padding: 0 var(--space-1);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-xs);
+  color: var(--text-secondary);
+  font-size: var(--font-size-xs);
+  font-variant-numeric: tabular-nums;
+}
+.mask-canvas-message {
+  position: absolute;
+  left: 50%;
+  bottom: var(--space-2);
+  z-index: 5;
+  transform: translateX(-50%);
+  max-width: calc(100% - 2 * var(--space-2));
+  margin: 0;
+  padding: var(--space-1) var(--space-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-default);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font-size: var(--font-size-xs);
+  pointer-events: none;
+}
+
 /* Compact orientation Select inside the monitor chrome band (H5). Its trigger
    matches the band's icon-button height so the cluster lines up on one axis. */
 .transport-orientation .select-trigger {
