@@ -83,6 +83,18 @@ export default defineConfig({
     // vitest default when the full turbo graph runs in parallel; give them
     // real headroom instead of load-dependent flakes.
     testTimeout: 15_000,
+    // MK4.6 budget tests are CPU-bound wall-clock measurements. Coverage
+    // instrumentation multiplies their cost and starves the other packages'
+    // workers on a 2-vCPU runner (which is how an unrelated editor-core test
+    // hit its 5 s timeout). CI runs them alone, uninstrumented, with
+    // FRAMEPILOT_RUN_PERF=1; every other run skips them.
+    exclude: [
+      ...(process.env.FRAMEPILOT_RUN_PERF === '1'
+        ? []
+        : ['**/*.perf.test.{ts,tsx}']),
+      '**/node_modules/**',
+      '**/dist/**',
+    ],
     coverage: {
       // Measure source modules only. `main.tsx` is the DOM mount glue
       // (createRoot) with no logic to unit-test — mirroring the desktop app

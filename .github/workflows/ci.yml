@@ -48,6 +48,8 @@ jobs:
       - run: pnpm exec turbo run test:coverage --concurrency=4
       # MK4.6 budgets, uninstrumented and alone (coverage multiplies CPU-bound timings).
       - name: MK4.6 budgets
+        env:
+          FRAMEPILOT_RUN_PERF: '1'
         run: |
           pnpm --filter @framepilot/timeline-schema exec vitest run src/save-budget.perf.test.ts
           pnpm --filter @framepilot/web-editor exec vitest run src/components/preview/MaskCanvasTools.perf.test.tsx

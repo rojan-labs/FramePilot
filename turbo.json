@@ -3,6 +3,7 @@
   "ui": "stream",
   "globalEnv": [
     "NODE_ENV",
+    "FRAMEPILOT_RUN_PERF",
     "ANTHROPIC_API_KEY",
     "ANTHROPIC_MODEL",
     "ANTHROPIC_BASE_URL",
