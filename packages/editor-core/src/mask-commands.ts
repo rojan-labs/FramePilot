@@ -238,6 +238,12 @@ export interface DrawMaskCommand extends MaskCommandBase {
   readonly name?: string;
   /** Top of the stack (`0`) by default; absent index appends at the bottom when `false`. */
   readonly atTop?: boolean;
+  /**
+   * What the new mask limits (MK5.1). Absent = the clip's alpha, the ordinary cut-out.
+   * `{ kind: 'effect', effectId }` makes it an effect-target mask in ONE operation, so the
+   * "Add mask" button on an effect row is a single undo step rather than draw-then-retarget.
+   */
+  readonly target?: MaskTarget;
 }
 
 /** Change a mask's shape at a source instant (a monitor drag, a typed px field). */
@@ -362,6 +368,7 @@ export type MaskCommandRejectionCode =
   | 'stale_timeline'
   | 'missing_clip'
   | 'missing_mask'
+  | 'missing_effect'
   | 'needs_media_dimensions'
   | 'not_editable'
   | 'too_few_vertices'
@@ -416,6 +423,22 @@ function findMask(clip: Clip, maskId: string): MaskLayer {
     throw new Rejection('missing_mask', `Mask "${maskId}" is not on clip "${clip.id}".`);
   }
   return mask;
+}
+
+/**
+ * The target, refused up front when it names an effect the clip does not carry (MK5.1).
+ *
+ * The validator catches it too, but a command refused here says which effect is missing and
+ * leaves no half-built patch behind.
+ */
+function assertTarget(clip: Clip, target: MaskTarget): MaskTarget {
+  if (target.kind === 'effect' && !clip.effects.some((effect) => effect.id === target.effectId)) {
+    throw new Rejection(
+      'missing_effect',
+      `Effect "${target.effectId}" is not on clip "${clip.id}". Add the effect first.`,
+    );
+  }
+  return target;
 }
 
 function clipDisplaySize(clip: Clip, assets: readonly Pick<Asset, 'id' | 'media'>[]): DisplaySize {
@@ -546,6 +569,7 @@ function buildDraw(input: CompileMaskCommandInput, command: DrawMaskCommand): Bu
     id,
     name: command.name ?? `Mask ${String(masksOf(clip).length + 1)}`,
     color: nextMaskColor(clip),
+    ...(command.target === undefined ? {} : { target: assertTarget(clip, command.target) }),
   };
   const { geometry } = command;
   let mask: MaskLayerInput;
@@ -958,7 +982,12 @@ function build(input: CompileMaskCommandInput): Built {
       const mask = findMask(clip, command.maskId);
       return {
         operations: [
-          { type: 'set_mask_target', clipId: clip.id, maskId: mask.id, target: command.target },
+          {
+            type: 'set_mask_target',
+            clipId: clip.id,
+            maskId: mask.id,
+            target: assertTarget(clip, command.target),
+          },
         ],
         reason: `Change what mask "${mask.name || mask.id}" limits`,
       };

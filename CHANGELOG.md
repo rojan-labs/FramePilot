@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Limit an effect to part of the picture.** Every effect on a clip now has an "Add mask"
+  button in the Inspector's Effects tab. Click it and draw: the shape you draw limits that
+  effect instead of cutting the clip out, so a blur can sit on a face and a grade on the sky
+  while the rest of the frame stays untouched. The mask list's Target menu moves a mask between
+  the clip's cut-out and any effect on it at any time, and it is one undo either way.
+
 - **Draw and animate masks by hand.** Open a clip's Mask tab and draw rectangles, ellipses, pen
   paths (Shift for 45° lines) and freehand shapes right on the monitor. Move, reshape, rotate,
   add and delete points, bend tangents, set feather and expansion with on-canvas handles, zoom in

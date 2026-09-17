@@ -12,7 +12,7 @@ display-corrected source pixels and `sourceTime` in asset source seconds (ADR 01
 
 | Command                                                             | Fields                                                       | Compiles to                                                                                                                                                                        |
 | ------------------------------------------------------------------- | ------------------------------------------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `draw_mask`                                                         | `geometry`, `sourceTime`, `name?`, `atTop?`                  | `add_mask` with the next free id, `Mask N` name and an unused overlay colour; a path's first keyframe sits at `sourceTime`                                                         |
+| `draw_mask`                                                         | `geometry`, `sourceTime`, `name?`, `atTop?`, `target?`       | `add_mask` with the next free id, `Mask N` name and an unused overlay colour; a path's first keyframe sits at `sourceTime`. `target` (MK5.1) makes the new mask limit an effect instance instead of the clip's alpha, in the same operation |
 | `set_mask_geometry`                                                 | `maskId`, `sourceTime`, `geometry`                           | rect/ellipse: `update_mask` for unanimated fields, a keyframe at the instant for animated ones; path: `set_mask_path` (replace the only shape, or key the instant)                 |
 | `set_mask_properties`                                               | `maskId`, `sourceTime`, `changes`, `allKeyframes?`           | settings and unanimated scalars in one `update_mask`; animated scalars keyed at the instant, or with `allKeyframes` one `update_mask` whose `keyframeOffsets` shift every keyframe |
 | `toggle_mask_keyframe`                                              | `maskId`, `property` (scalar or `path`), `sourceTime`        | add a keyframe with the current value, or remove the one at the instant (the last one leaving writes its value back as static)                                                     |
@@ -25,9 +25,22 @@ display-corrected source pixels and `sourceTime` in asset source seconds (ADR 01
 | `apply_mask_preset`                                                 | `presetId`                                                   | `paste_masks` from the preset                                                                                                                                                      |
 | `remove_mask_preset`                                                | `presetId`                                                   | `remove_mask_preset`                                                                                                                                                               |
 
-Rejections: `stale_timeline`, `missing_clip`, `missing_mask`, `needs_media_dimensions`,
-`not_editable`, `too_few_vertices`, `nothing_to_change`, `invalid_patch` (validator message). The
-web runner treats `nothing_to_change` (a click that moved nothing) as silent success.
+Rejections: `stale_timeline`, `missing_clip`, `missing_mask`, `missing_effect`,
+`needs_media_dimensions`, `not_editable`, `too_few_vertices`, `nothing_to_change`,
+`invalid_patch` (validator message). The web runner treats `nothing_to_change` (a click that moved
+nothing) as silent success.
+
+## Effect-target masks (MK5.1)
+
+Every effect row in the Inspector's Effects tab carries "Add mask". It arms the shared mask tool
+store with `pendingTarget: { kind: 'effect', effectId }` and opens the Mask tab with the rectangle
+tool; the next shape drawn on the monitor compiles a `draw_mask` carrying that target, so the mask
+is created already limiting the effect — one operation, one undo, no invented bounds. The pending
+target is consumed only when a draw succeeds, and cleared when the panel moves to another clip.
+
+`set_mask_target` moves an existing mask between the clip's alpha and any effect on the clip (the
+mask panel's Target menu). Both refuse with `missing_effect` when the named effect is not on the
+clip, before any patch is built; the validator refuses the same state on apply.
 
 ## Geometry helpers
 

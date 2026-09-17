@@ -377,6 +377,25 @@ export function MaskCanvasTools({
     return refusal === null;
   };
 
+  /**
+   * Draw a new mask, carrying whatever "Add mask" armed as its target (MK5.1).
+   *
+   * The pending target is consumed on success only: a refused draw leaves the effect row's
+   * request armed, so the editor can simply draw a bigger shape and still get the effect mask.
+   */
+  const drawMask = (geometry: MaskGeometry): boolean => {
+    const target = tools.pendingTarget;
+    const drawn = run({
+      type: 'draw_mask',
+      clipId: clip.id,
+      sourceTime,
+      geometry,
+      ...(target === null ? {} : { target }),
+    });
+    if (drawn && target !== null) store.update({ pendingTarget: null });
+    return drawn;
+  };
+
   const canvasRect = (): DOMRect | undefined => {
     const cached = rectCache.current;
     if (cached !== null) return cached;
@@ -722,14 +741,7 @@ export function MaskCanvasTools({
       return;
     }
     const id = nextMaskId(clip);
-    if (
-      run({
-        type: 'draw_mask',
-        clipId: clip.id,
-        sourceTime,
-        geometry: { kind: 'path', vertices: points },
-      })
-    ) {
+    if (drawMask({ kind: 'path', vertices: points })) {
       store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
       setAnnouncement('Path mask added');
     }
@@ -1057,14 +1069,7 @@ export function MaskCanvasTools({
           return;
         }
         const id = nextMaskId(clip);
-        if (
-          run({
-            type: 'draw_mask',
-            clipId: clip.id,
-            sourceTime,
-            geometry: { kind: 'path', vertices },
-          })
-        ) {
+        if (drawMask({ kind: 'path', vertices })) {
           store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
           setAnnouncement(`Freehand mask added with ${String(vertices.length)} points`);
         }
@@ -1104,7 +1109,7 @@ export function MaskCanvasTools({
             ry: box.height / 2,
             rotation: 0,
           };
-    if (run({ type: 'draw_mask', clipId: clip.id, sourceTime, geometry })) {
+    if (drawMask(geometry)) {
       store.update({ selectedMaskId: id, selectedVertices: [], tool: 'select' });
       setAnnouncement(`${shape === 'rectangle' ? 'Rectangle' : 'Ellipse'} mask added`);
     }

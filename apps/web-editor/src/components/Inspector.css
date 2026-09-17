@@ -739,6 +739,26 @@
   white-space: nowrap;
 }
 
+/* MK5.1: the effect row's mask affordance and the count of masks already limiting it. */
+.inspector-pro .inspector-effect-list code {
+  flex: 1 1 auto;
+}
+
+.inspector-pro .inspector-effect-masked {
+  flex: 0 0 auto;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+  white-space: nowrap;
+}
+
+.inspector-pro .inspector-effect-list .inspector-text-button {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 4px;
+  align-items: center;
+  white-space: nowrap;
+}
+
 .inspector-pro .inspector-empty-inline {
   margin: 4px 0 0;
   padding: 18px 10px;

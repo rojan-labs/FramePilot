@@ -6,6 +6,7 @@
  * a compact selection header, contextual category tabs, and a focused property page.
  */
 import { useMemo, useState } from 'react';
+import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   removeEffectLayerPatch,
@@ -14,6 +15,7 @@ import {
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
 import { MaskPanel } from './inspector/masks/MaskPanel.js';
+import { maskToolStore } from './inspector/masks/useMaskTools.js';
 import { MaskTracking } from './inspector/masks/MaskTracking.js';
 import { maskToolsEnabled } from '../preview/mask-tools-flag.js';
 import {
@@ -53,6 +55,7 @@ import { BlendModePanel } from './inspector/sections/BlendSection.js';
 import { TransitionPanel } from './inspector/sections/TransitionSection.js';
 import { TextOverlayInspector } from './inspector/sections/TextSection.js';
 import { TransformPanel } from './inspector/sections/TransformSection.js';
+import { ClipEffectList } from './inspector/sections/ClipEffectList.js';
 import { oneOf, useViewPreference } from '../editor/useViewPreference.js';
 import './Inspector.css';
 
@@ -259,6 +262,7 @@ export function Inspector({
   }
 
   const { clip, track } = selection.primary;
+  const clipMedia = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
   const clipRelative = Math.max(0, Math.min(clip.end - clip.start, playhead - clip.start));
   const targetIds = selection.clips.map((location) => location.clip.id);
   const multi = selection.kind === 'multi-clip';
@@ -305,17 +309,18 @@ export function Inspector({
           </>
         );
       case 'effects':
-        return clip.effects.length === 0 ? (
-          <p className="inspector-empty inspector-empty-inline">No clip effects applied.</p>
-        ) : (
-          <ul className="inspector-effect-list">
-            {clip.effects.map((effect) => (
-              <li key={effect.id}>
-                <span>{effect.type}</span>
-                <code title={effect.id}>{effect.id}</code>
-              </li>
-            ))}
-          </ul>
+        return (
+          <ClipEffectList
+            clip={clip}
+            canAddMask={assetDisplaySize(clipMedia) !== null}
+            cannotAddReason={MEASURE_MEDIA_FIRST}
+            onAddMask={(effectId) => {
+              // Arm the next drawn shape for this effect, then send the editor to the Mask
+              // tab, where the panel publishes the clip and the monitor shows the tools.
+              maskToolStore.startMaskFor({ kind: 'effect', effectId });
+              setPreferredTab('mask');
+            }}
+          />
         );
       default:
         return null;

@@ -13,6 +13,7 @@
  */
 import { useSyncExternalStore } from 'react';
 import type { MaskClipboard, MaskGeometry } from '@framepilot/editor-core';
+import type { MaskTarget } from '@framepilot/timeline-schema';
 
 /** The hand tools on the monitor. */
 export type MaskTool = 'select' | 'rectangle' | 'ellipse' | 'pen' | 'freehand';
@@ -57,6 +58,14 @@ export interface MaskToolState {
   readonly live: LiveMaskEdit | null;
   readonly liveScalars: LiveMaskScalars | null;
   readonly clipboard: MaskClipboard | null;
+  /**
+   * What the NEXT mask drawn on the monitor limits (MK5.1). `null` = the clip's alpha.
+   *
+   * Set by "Add mask" on an effect row, so the shape the editor then draws is created as that
+   * effect's mask in one operation. Cleared as soon as a mask is drawn, or when the panel
+   * moves to another clip: a stale effect target would silently retarget the next cut-out.
+   */
+  readonly pendingTarget: MaskTarget | null;
   /** The last refusal to show, in plain words. */
   readonly message: string | null;
 }
@@ -74,6 +83,7 @@ const INITIAL: MaskToolState = {
   live: null,
   liveScalars: null,
   clipboard: null,
+  pendingTarget: null,
   message: null,
 };
 
@@ -115,6 +125,16 @@ export class MaskToolStore {
 
   public setTool(tool: MaskTool): void {
     this.update({ tool, message: null });
+  }
+
+  /**
+   * Start drawing a mask that will limit `target` (MK5.1's "Add mask" on an effect row).
+   *
+   * @param target - What the next drawn mask limits, or `null` for the clip's alpha.
+   * @param tool - The tool to arm; Rectangle is the fastest shape to place on an effect.
+   */
+  public startMaskFor(target: MaskTarget | null, tool: MaskTool = 'rectangle'): void {
+    this.update({ pendingTarget: target, tool, selectedVertices: [], message: null });
   }
 }
 

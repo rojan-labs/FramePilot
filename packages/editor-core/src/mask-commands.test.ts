@@ -640,3 +640,96 @@ describe('mask presets (schema v23)', () => {
     });
   });
 });
+
+/**
+ * MK5.1: "Add mask" on an effect row draws a mask that already limits that effect, and the
+ * panel's target menu retargets an existing one. Both refuse an effect the clip does not carry.
+ */
+describe('effect-target masks', () => {
+  /** The `c1` timeline with one grade the mask can be pointed at. */
+  const withGrade = (masks: MaskLayerInput[] = []): Timeline => {
+    const tl = timeline(masks);
+    const clip = tl.tracks[0]!.clips[0]!;
+    return {
+      ...tl,
+      tracks: [
+        {
+          ...tl.tracks[0]!,
+          clips: [
+            {
+              ...clip,
+              effects: [{ id: 'grade', type: 'color_grade', params: {}, keyframes: [] }],
+            },
+            tl.tracks[0]!.clips[1]!,
+          ],
+        },
+      ],
+    } as unknown as Timeline;
+  };
+
+  const SQUARE_GEOMETRY = {
+    kind: 'rectangle',
+    cx: 1000,
+    cy: 800,
+    width: 400,
+    height: 300,
+    rotation: 0,
+    roundness: 0,
+  } as const;
+
+  it('draws a mask that already targets the effect, in one reversible operation', () => {
+    const tl = withGrade();
+    const after = applied(tl, {
+      type: 'draw_mask',
+      sourceTime: 0,
+      geometry: SQUARE_GEOMETRY,
+      target: { kind: 'effect', effectId: 'grade' },
+    });
+    expect(masksOn(after)).toHaveLength(1);
+    expect(masksOn(after)[0]!.target).toEqual({ kind: 'effect', effectId: 'grade' });
+  });
+
+  it('draws an alpha mask when no target is armed', () => {
+    const after = applied(withGrade(), {
+      type: 'draw_mask',
+      sourceTime: 0,
+      geometry: SQUARE_GEOMETRY,
+    });
+    expect(masksOn(after)[0]!.target).toEqual({ kind: 'alpha' });
+  });
+
+  it('retargets an existing mask and back again', () => {
+    const tl = withGrade([rect()]);
+    const after = applied(tl, {
+      type: 'set_mask_target',
+      maskId: 'c1__mask',
+      target: { kind: 'effect', effectId: 'grade' },
+    });
+    expect(masksOn(after)[0]!.target).toEqual({ kind: 'effect', effectId: 'grade' });
+    const back = applied(after, {
+      type: 'set_mask_target',
+      maskId: 'c1__mask',
+      target: { kind: 'alpha' },
+    });
+    expect(masksOn(back)[0]!.target).toEqual({ kind: 'alpha' });
+  });
+
+  it('refuses an effect that is not on the clip, with the remedy', () => {
+    const tl = withGrade([rect()]);
+    const drawn = compile(tl, {
+      type: 'draw_mask',
+      sourceTime: 0,
+      geometry: SQUARE_GEOMETRY,
+      target: { kind: 'effect', effectId: 'not-here' },
+    });
+    expect(drawn).toMatchObject({ code: 'missing_effect' });
+    expect(drawn.status === 'rejected' ? drawn.detail : '').toContain('Add the effect first.');
+    expect(
+      compile(tl, {
+        type: 'set_mask_target',
+        maskId: 'c1__mask',
+        target: { kind: 'effect', effectId: 'not-here' },
+      }),
+    ).toMatchObject({ code: 'missing_effect' });
+  });
+});
