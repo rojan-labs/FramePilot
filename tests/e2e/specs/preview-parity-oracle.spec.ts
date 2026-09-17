@@ -44,7 +44,7 @@
  * for every case (parked on a blank document between cases so the previous editor's decoders,
  * frames and audio context are released); engine PNGs are fetched and decoded one sample at a
  * time and closed; image artifacts are built only for failing samples (at most
- * MAX_ATTACHED_SAMPLES_PER_CASE per case); each case has CASE_TIMEOUT_MS.
+ * MAX_ATTACHED_SAMPLES_PER_CASE per case); each case has caseTimeoutMs(samples).
  *
  * Inputs are generated before this runs (`pnpm px4:frames`): synthetic media both sides read
  * (so codec loss is identical), the engine frames and a manifest. The media are served to the
@@ -80,8 +80,15 @@ const SENTINEL_MIN_PIXELS = 64;
 const COLOUR_TOLERANCE = CHANNEL_TOLERANCE;
 /** Failing samples per case that get preview/engine/diff PNGs attached (report size bound). */
 const MAX_ATTACHED_SAMPLES_PER_CASE = 3;
-/** Per-case budget (hook + checks). The largest case, every transition kind, has 28 samples. */
-const CASE_TIMEOUT_MS = 6 * 60_000;
+/**
+ * Per-case budget (hook + checks): six minutes, plus fifteen seconds per sample beyond 24. Not a
+ * parity gate: every effect kind (41 samples) composites the export's own blurs on CPU GL and
+ * outgrew a flat six minutes.
+ */
+const CASE_TIMEOUT_BASE_MS = 6 * 60_000;
+const CASE_TIMEOUT_PER_EXTRA_SAMPLE_MS = 15_000;
+const caseTimeoutMs = (samples: number): number =>
+  CASE_TIMEOUT_BASE_MS + Math.max(0, samples - 24) * CASE_TIMEOUT_PER_EXTRA_SAMPLE_MS;
 
 const CHECKS = ['renderer', 'pixels', 'sentinel', 'pts'] as const;
 type Check = (typeof CHECKS)[number];
@@ -778,7 +785,7 @@ test.describe('PX4 preview/export parity oracle', () => {
   for (const { area, kase } of loadCases()) {
     const key = `${area}/${kase.id}`;
     test.describe(key, () => {
-      test.describe.configure({ mode: 'serial', timeout: CASE_TIMEOUT_MS });
+      test.describe.configure({ mode: 'serial', timeout: caseTimeoutMs(kase.samples.length) });
       let result: CaseResult | null = null;
 
       test.beforeAll(async ({ browser }, testInfo) => {

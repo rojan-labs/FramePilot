@@ -715,8 +715,10 @@ export function WebCodecsPreviewPlayer({
           <div className="webcodecs-preview">
             <canvas
               ref={canvasRef}
-              width={canvasWidth}
-              height={canvasHeight}
+              // The layer compositor sizes its canvas when it presents. Assigning `width` or
+              // `height` clears a canvas even to the same value, and a React commit landing
+              // after a presented frame blanked it (CI oracle: first read of a case).
+              {...(layered ? {} : { width: canvasWidth, height: canvasHeight })}
               className="webcodecs-preview-canvas"
               aria-label="preview"
               role="img"
