@@ -13,6 +13,7 @@ Checks per frame (02 stage 10, plus the pipeline's own consensus signals from st
   d  area and centroid continuity against the neighbourhood median
   e  model disagreement: forward vs backward SAM IoU, SAM vs BiRefNet IoU, band size
   f  object-score contradiction: SAM says "no object" while a mask is delivered (or reverse)
+  h  presence transition (attempt 4): an empty matte within N frames of a non-empty one
 
 A frame is wrong (06) when IoU < 0.98 or BF@2px < 0.95 vs ground truth.
 Recall = flagged ∩ wrong / wrong (gate >= 99.5%); review load = flagged / frames (<= 10%).
@@ -55,6 +56,14 @@ ATTEMPTS: dict[int, dict] = {
         "a_rewarp_mismatch": 0.05, "b_components": True, "c_edge_corr": 0.20, "c2_unexplained": 0.5,
         "d_area_logratio": 0.15, "d_centroid_frac": 0.25,
         "e_fwd_bwd_iou": 0.98, "e_sam_birefnet_iou": 0.98, "e_band_frac": 0.40, "f_object_score": True,
+    },
+    4: {  # attempt 3 missed 2 frames: a 146-176 px sliver of a subject leaving the frame, every
+          # estimate agreeing "absent". h: an empty matte within 3 frames of a non-empty one is a
+          # presence transition and is reviewed
+        "a_rewarp_mismatch": 0.05, "b_components": True, "c_edge_corr": 0.20, "c2_unexplained": 0.5,
+        "d_area_logratio": 0.15, "d_centroid_frac": 0.25,
+        "e_fwd_bwd_iou": 0.98, "e_sam_birefnet_iou": 0.98, "e_band_frac": 0.40, "f_object_score": True,
+        "h_presence_window": 3,
     },
 }
 
@@ -194,6 +203,9 @@ def flags_for(sig: list[dict], cfg: dict) -> list[list[str]]:
                 if not np.isnan(sc) and ((sc < 0) == (s["area"] > 0)):
                     why.append("f")
                     break
+        hw = cfg.get("h_presence_window")
+        if hw and s["area"] == 0 and any(sig[k]["area"] > 0 for k in range(max(0, t - hw), min(n, t + hw + 1))):
+            why.append("h")
         if cfg.get("g_no_backward") and not s["hasBwd"]:
             why.append("g")
         out.append(sorted(set(why)))

@@ -1,0 +1,203 @@
+{
+  "recordedAt": "2026-09-17T05:59:02",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "attempt": 4,
+  "config": {
+    "a_rewarp_mismatch": 0.05,
+    "b_components": true,
+    "c_edge_corr": 0.2,
+    "c2_unexplained": 0.5,
+    "d_area_logratio": 0.15,
+    "d_centroid_frac": 0.25,
+    "e_fwd_bwd_iou": 0.98,
+    "e_sam_birefnet_iou": 0.98,
+    "e_band_frac": 0.4,
+    "f_object_score": true,
+    "h_presence_window": 3
+  },
+  "clips": [
+    "crossing",
+    "fast_motion",
+    "hair_busy",
+    "leave_reenter",
+    "low_light",
+    "similar_colour",
+    "twin_distractor",
+    "walk_pan"
+  ],
+  "all": {
+    "frames": 256,
+    "wrongFrames": 256,
+    "caught": 256,
+    "flagged": 256,
+    "recall": 1.0,
+    "recallWilson95Lower": 0.9852156082782743,
+    "reviewLoad": 1.0,
+    "perClip": {
+      "crossing": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.8319,
+        "meanBF": 0.7067
+      },
+      "fast_motion": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.7683,
+        "meanBF": 0.5689
+      },
+      "hair_busy": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.821,
+        "meanBF": 0.5948
+      },
+      "leave_reenter": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.6504,
+        "meanBF": 0.5045
+      },
+      "low_light": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.0064,
+        "meanBF": 0.0047
+      },
+      "similar_colour": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.9669,
+        "meanBF": 0.8287
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.4966,
+        "meanBF": 0.604
+      },
+      "walk_pan": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.9483,
+        "meanBF": 0.6593
+      }
+    },
+    "missed": []
+  },
+  "splitA": {
+    "frames": 128,
+    "wrongFrames": 128,
+    "caught": 128,
+    "flagged": 128,
+    "recall": 1.0,
+    "recallWilson95Lower": 0.9708620041018918,
+    "reviewLoad": 1.0,
+    "perClip": {
+      "crossing": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.8319,
+        "meanBF": 0.7067
+      },
+      "hair_busy": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.821,
+        "meanBF": 0.5948
+      },
+      "low_light": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.0064,
+        "meanBF": 0.0047
+      },
+      "twin_distractor": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.4966,
+        "meanBF": 0.604
+      }
+    },
+    "missed": []
+  },
+  "splitB": {
+    "frames": 128,
+    "wrongFrames": 128,
+    "caught": 128,
+    "flagged": 128,
+    "recall": 1.0,
+    "recallWilson95Lower": 0.9708620041018918,
+    "reviewLoad": 1.0,
+    "perClip": {
+      "fast_motion": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.7683,
+        "meanBF": 0.5689
+      },
+      "leave_reenter": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.6504,
+        "meanBF": 0.5045
+      },
+      "similar_colour": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.9669,
+        "meanBF": 0.8287
+      },
+      "walk_pan": {
+        "frames": 32,
+        "wrong": 32,
+        "caught": 32,
+        "flagged": 32,
+        "meanIoU": 0.9483,
+        "meanBF": 0.6593
+      }
+    },
+    "missed": []
+  },
+  "gate": {
+    "recall": 0.995,
+    "reviewLoad": 0.1
+  }
+}
