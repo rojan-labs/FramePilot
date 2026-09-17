@@ -44,8 +44,13 @@ arm64 and Windows x64. Pixel parity of whole frames is the PX4 oracle's `alpha/m
 
 ## What the monitor refuses
 
+Matte finesse other than clean black/white is refused like the export (MK6). A matte artifact the
+export would refuse (missing file, a `frames.json` whose digest differs, a size or frame count that
+does not match, a matte frame whose pts is not the picture's) draws the clip unmasked with the
+export's own remedy sentence as the tooltip.
+
 Kinds and settings the export refuses before rendering are refused on the monitor too, never
-drawn approximately and never silently skipped: `matte` (BR5), `key` (MK6), `linear`/`band`/
+drawn approximately and never silently skipped: `key` (MK6), `linear`/`band`/
 `gradient`/`layer` (MK8), tracked masks (MK7), frame-space masks (MK9), plus project problems the
 export also rejects (media never measured, an effect target that is not on the clip). The clip is
 drawn unmasked and the monitor shows "Mask not previewed yet" with the reason as its tooltip.
@@ -54,5 +59,47 @@ drawn unmasked and the monitor shows "Mask not previewed yet" with the reason as
 
 With a masked clip selected, the monitor header shows **Mask view**: Off, Overlay (the whole
 picture, what the mask removes tinted in the mask colour), Mask only (the stack alpha in grey) and
-Checkerboard (the clip alone, cut out, over a checkerboard). Views only change the monitor; exports
-and the oracle never see them.
+Checkerboard (the clip alone, cut out, over a checkerboard), and Flagged (BR5.2: the overlay tinted
+red and outlined on a frame that needs review, grey otherwise). Flagged frames come from the
+artifact's `report.json` (read once, checked against the digest the mask pins; frames not verified
+become ranges) plus the mask's own `review.flagged` ranges, minus `review.approved`. Views only
+change the monitor; exports and the oracle never see them.
+
+## Mattes (BR5)
+
+A `matte` layer is drawn from its artifact (`<project folder>/.framepilot-derived/mattes/<key>/`,
+read over `fp-media` on the desktop) in the same pass as every other kind:
+
+- **Frame identity.** The matte frame is the one whose source frame is the picture's decoded
+  source frame (`frames.json` `firstFrame` + index), exactly as `render/mattes.py` binds it; a
+  speed ramp, reverse or VFR source changes the picture's frame and the matte follows. A frame
+  outside the artifact is *unprocessed*: the layer is left out (as if disabled), the monitor says
+  "Processing background removal", and no neighbouring frame is ever used. A frame whose pts does
+  not belong to the picture's timestamp is refused as misaligned.
+- **Math.** `masks/matte-edges.ts` ports `render/matte_edges.py` operation for operation: disc
+  morphology for edge shift, clean levels (`edgeMode: 'sharp'` = 0.25/0.75), the distance feather
+  on the matte's own 50 % contour, swscale's bicubic (B = 0, C = 0.6) to the size the picture was
+  decoded at, the integer crop, then invert/opacity/mode. Decontamination runs after the crop and
+  before effects, on a CPU read-back of the cropped picture (float64 `rint`, like the export).
+  `tests/fixtures/mask-raster/matte-clips.json` pins every float64 digest; `matte-edges.test.ts`
+  asserts them.
+- **Decoding: lossless masters, not the VP9 previews.** The pack also writes `preview.webm` and
+  `foreground.preview.webm` (VP9, 540p by default, CRF 34). Measured against the export's
+  composite on a hard-edged 1080p matte with one-pixel strands, the 540p VP9 matte gives 32.44 dB
+  PSNR and 98.34 % of pixels within 8/255, below the oracle's 40 dB / 99.5 % gates (a smooth 64 px
+  ramp passes at 69 dB, which is why a soft synthetic matte would hide the loss). Chromium also has
+  no WebM demuxer or FFV1 decoder. So the monitor decodes `matte.mkv` and `foreground.mkv` itself:
+  a Matroska index (`decode/matroska-demuxer.ts`, range reads, Cues or a cluster walk) and a port of
+  FFmpeg's FFV1 decoder (`decode/ffv1/`), byte-exact against ffmpeg on the fixtures in
+  `tests/fixtures/matte-ffv1` (v3/v4, Golomb and range coders, slices, CRCs, non-key frames). They
+  run in the shared decode worker under the picture decoder pool, and decoded frames share the
+  engine's byte-bounded picture cache. Cost: about 7 ms for a 1080p matte frame and 160 ms for a
+  1080p RGB foreground frame on an M-series CPU (node); playback holds the previous picture when a
+  matte frame is late, as it does for pictures.
+- **Digests.** `frames.json` and `report.json` are hashed before parsing. The masters are not
+  re-hashed by the monitor (a 4K foreground is gigabytes); desktop project-media validation and the
+  export check them, and the monitor still checks their size, pixel format and frame count.
+- **Oracle.** The PX4 `alpha/matte-*` rows: text behind subject, edge modes with edge shift,
+  decontaminate on/off, matte × shape stack and an effect-target matte, speed ramp and reverse, VFR,
+  rotated/anamorphic display space, and a progressive artifact (the preview reads a truncated copy;
+  a sample past it is exported with the matte disabled).

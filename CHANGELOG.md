@@ -8,6 +8,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Background removal shows on the preview exactly as it exports.** A clip with a removed
+  background now previews cut out, with the same edge, edge shift, feather and clean-edge colour
+  the export uses, including sped-up, reversed, rotated and variable-frame-rate clips. While
+  removal is still running, unfinished moments show the original picture and the monitor says
+  "Processing background removal". A new Flagged mask view highlights the frames background
+  removal marked for review.
+
 - **Masks on the preview now match the export exactly.** The program monitor draws a clip's whole
   mask stack (any number of rectangle, ellipse and path masks, every combine mode, invert,
   expansion, inner, outer and per-vertex feather, and masks that limit a colour grade or LUT) with
