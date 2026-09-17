@@ -199,6 +199,7 @@ import {
   createQuitGuard,
   FileJobJournal,
   QUIT_PROMPT,
+  type JobContext,
 } from './capability-packs/job-scheduler.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
@@ -1283,29 +1284,43 @@ function registerIpcHandlers(): void {
     scheduler: packJobScheduler,
     cancelMatte: (jobId) => void matteIpcDependencies.matte().then((service) => service.cancel(jobId)),
   });
-  // Journaled jobs resume once the pack service is up, if their project and asset still exist;
-  // a job whose matte already committed finishes instantly as a cache hit.
-  void capabilityPackService
-    .then(() =>
-      packJobScheduler.restore(async (descriptor) => {
-        if (descriptor.kind !== 'matte' || descriptor.projectPath === undefined) return undefined;
-        const projectPath = descriptor.projectPath;
-        const project = await readProjectFile(projectPath).catch(() => undefined);
-        const payload = descriptor.payload as { assetId?: unknown } | null;
-        if (project === undefined || !project.assets.some((asset) => asset.id === payload?.assetId)) return undefined;
-        // The saved revision may have moved while the app was closed: re-stamp it, and let the
-        // content fingerprint and cache key decide whether the media still matches.
-        const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
-        return {
-          priority: 'background' as const,
-          run: await matteJobRunner(matteIpcDependencies, projectPath, intent),
-        };
-      }),
-    )
-    .catch((error: unknown) =>
-      // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
-      aiLog.error('pack job restore failed', { error: error instanceof Error ? error.name : 'unknown' }),
-    );
+  // Journaled jobs load dormant at startup and resume only when the editor opens their project
+  // (BR4.12 L6); each re-checks the licence when it actually runs. A job whose matte already
+  // committed completes as a cache hit.
+  void packJobScheduler.loadDormant();
+  const resumeJobsForProject = (openedPath: string): void => {
+    void capabilityPackService
+      .then(() =>
+        packJobScheduler.resumeDormant(
+          (descriptor) => descriptor.kind === 'matte' && descriptor.projectPath === openedPath,
+          async (descriptor) => {
+            const project = await readProjectFile(openedPath).catch(() => undefined);
+            const payload = descriptor.payload as { assetId?: unknown } | null;
+            if (project === undefined || !project.assets.some((asset) => asset.id === payload?.assetId)) {
+              return undefined;
+            }
+            // The saved revision may have moved while the app was closed: re-stamp it, and let
+            // the content fingerprint and cache key decide whether the media still matches.
+            const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
+            const run = await matteJobRunner(matteIpcDependencies, openedPath, intent);
+            return {
+              priority: 'background' as const,
+              run: async (context?: JobContext) => {
+                await context?.checkpoint();
+                requireLicense();
+                const active = await activeProject.current();
+                if (active?.path !== openedPath) throw new Error('The project is no longer open.');
+                return run(context);
+              },
+            };
+          },
+        ),
+      )
+      .catch((error: unknown) =>
+        // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
+        aiLog.error('pack job restore failed', { error: error instanceof Error ? error.name : 'unknown' }),
+      );
+  };
   // Relink or replace an asset's file, then re-check its mattes (BR4.14).
   registerRelinkIpc({
     ipcMain,
@@ -1492,6 +1507,7 @@ function registerIpcHandlers(): void {
         const { revision } = projectCommands.observe(project);
         const capabilityPacks = await reconcileCapabilityPacks(project);
         const mattes = await validateOpenedMattes(guard.path, project);
+        resumeJobsForProject(guard.path);
         return { ok: true, path: guard.path, project, revision, capabilityPacks, mattes };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
@@ -1529,6 +1545,7 @@ function registerIpcHandlers(): void {
       const { revision } = projectCommands.observe(project);
       const capabilityPacks = await reconcileCapabilityPacks(project);
       const mattes = await validateOpenedMattes(selectedPath, project);
+      resumeJobsForProject(selectedPath);
       return { ok: true, path: selectedPath, project, revision, capabilityPacks, mattes };
     } catch (error) {
       return { ok: false, error: errorMessage(error) };

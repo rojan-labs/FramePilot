@@ -117,6 +117,7 @@ export interface JobSchedulerOptions {
 
 export class CapabilityPackJobScheduler {
   private readonly entries: Entry[] = [];
+  private dormant: JobDescriptor[] = [];
   private active: Entry | undefined;
   private exporting = false;
   private seq = 0;
@@ -224,32 +225,58 @@ export class CapabilityPackJobScheduler {
   }
 
   /**
-   * Re-queue journaled jobs after a restart. The factory confirms the clip and media still
-   * match and returns the runner, or `undefined` to drop the job.
+   * Load journaled jobs after a restart WITHOUT running them (BR4.12 L6). They stay dormant (kept
+   * in the journal, not shown or run) until {@link resumeDormant} wakes the ones whose project the
+   * editor has opened; a job never runs for a project nobody has open.
+   *
+   * @returns How many dormant jobs were loaded.
    */
-  public async restore(
-    factory: (descriptor: JobDescriptor) => Promise<{ priority: JobPriority; run: JobRunner<unknown> } | undefined>,
-  ): Promise<number> {
+  public async loadDormant(): Promise<number> {
     const journal = this.options.journal;
     if (journal === undefined) return 0;
-    let descriptors: readonly JobDescriptor[];
     try {
-      descriptors = await journal.load();
+      const live = new Set(this.entries.map((entry) => entry.descriptor.id));
+      for (const descriptor of await journal.load()) {
+        if (!live.has(descriptor.id) && !this.dormant.some((item) => item.id === descriptor.id)) {
+          this.dormant.push(descriptor);
+        }
+      }
     } catch (error) {
       log.warn('jobJournalUnreadable', { error: error instanceof Error ? error.name : 'unknown' });
-      return 0;
     }
+    log.action('jobsDormant', { count: this.dormant.length });
+    return this.dormant.length;
+  }
+
+  /**
+   * Queue the dormant jobs `matches` selects (their project was just opened). The factory confirms
+   * the clip and media still match and returns the runner, or `undefined` to drop the job.
+   */
+  public async resumeDormant(
+    matches: (descriptor: JobDescriptor) => boolean,
+    factory: (descriptor: JobDescriptor) => Promise<{ priority: JobPriority; run: JobRunner<unknown> } | undefined>,
+  ): Promise<number> {
+    const selected = this.dormant.filter(matches);
+    this.dormant = this.dormant.filter((descriptor) => !matches(descriptor));
     let restored = 0;
-    for (const descriptor of descriptors) {
+    for (const descriptor of selected) {
       const job = await factory(descriptor).catch(() => undefined);
       if (job === undefined) continue;
       restored += 1;
       // Nobody awaits a restored job; its outcome is visible in the panel and the cache.
       this.submit(descriptor, job.priority, job.run, true).catch(() => undefined);
     }
-    log.action('jobsRestored', { journaled: descriptors.length, restored });
+    log.action('jobsRestored', { selected: selected.length, restored });
     this.persist();
     return restored;
+  }
+
+  /** Compatibility: load and immediately resume every journaled job the factory accepts. */
+  public async restore(
+    factory: (descriptor: JobDescriptor) => Promise<{ priority: JobPriority; run: JobRunner<unknown> } | undefined>,
+  ): Promise<number> {
+    await this.loadDormant();
+    return this.resumeDormant(() => true, factory);
   }
 
   private live(jobId: string): Entry | undefined {
@@ -356,7 +383,11 @@ export class CapabilityPackJobScheduler {
   private persist(): void {
     const journal = this.options.journal;
     if (journal === undefined) return;
-    const descriptors = this.entries.filter((entry) => !TERMINAL.has(entry.state)).map((entry) => entry.descriptor);
+    // Dormant jobs stay journaled until their project is opened or they are dropped.
+    const descriptors = [
+      ...this.dormant,
+      ...this.entries.filter((entry) => !TERMINAL.has(entry.state)).map((entry) => entry.descriptor),
+    ];
     journal.save(descriptors).catch((error: unknown) => {
       log.warn('jobJournalWriteFailed', { error: error instanceof Error ? error.name : 'unknown' });
     });
