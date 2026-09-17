@@ -82,8 +82,6 @@ export type CommandRunner = (
 const MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 60_000;
 const TIMING_TIMEOUT_MS = 600_000;
-/** A sidecar decode of up to 256 seeks or a 2048-frame lock batch. */
-const SIDECAR_TIMEOUT_MS = 30 * 60 * 1_000;
 /** Mirrors the engine's per-call bound. */
 export const MAX_FRAMES_PER_SIDECAR_CALL = 256;
 const MAX_LOCK_CHECKS_PER_CALL = 1_024;
@@ -94,6 +92,9 @@ export interface MatteMediaInspectorOptions {
   readonly sidecarBaseUrl: string;
   readonly fetch: typeof fetch;
   readonly run?: CommandRunner;
+  /** Backoff between 503 busy retries; injectable for tests. */
+  readonly retryDelaysMs?: readonly number[];
+  readonly sleep?: (ms: number, signal: AbortSignal | undefined) => Promise<void>;
 }
 
 /** Production inspector: ffprobe for stream facts and timing, the sidecar for decoded pixels. */
@@ -149,6 +150,7 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
         '/mattes/frame-hashes',
         { input_path: file, pts: pts.slice(start, start + MAX_FRAMES_PER_SIDECAR_CALL), pixel_format: 'native' },
         signal,
+        sidecarTimeoutMs({ ptsCount: Math.min(MAX_FRAMES_PER_SIDECAR_CALL, pts.length - start) }),
       );
       const hashes = (body as { hashes?: unknown }).hashes;
       if (!Array.isArray(hashes) || hashes.length !== Math.min(MAX_FRAMES_PER_SIDECAR_CALL, pts.length - start)) {
@@ -182,6 +184,9 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
             }),
       },
       signal,
+      sidecarTimeoutMs({
+        highestFrame: Math.max(0, ...expected.map((item) => item.index), ...carried.map((item) => Math.max(item.index, item.previousIndex))),
+      }),
     );
     const verdicts = body as { expected?: unknown; carried?: unknown };
     const booleans = (value: unknown, length: number): boolean[] => {
@@ -194,36 +199,78 @@ export class DesktopMatteMediaInspector implements MatteMediaInspector {
   }
 
   /** POST JSON to the sidecar. Down, refused or malformed → a typed error; callers fail closed. */
-  private async post(route: string, payload: unknown, signal: AbortSignal | undefined): Promise<unknown> {
-    if (signal?.aborted === true) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
-    const timeout = AbortSignal.timeout(SIDECAR_TIMEOUT_MS);
-    const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
-    let response: Response;
-    try {
-      response = await this.options.fetch(new URL(route, this.options.sidecarBaseUrl), {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify(payload),
-        signal: combined,
-      });
-    } catch {
-      // The caller's signal may have aborted during the await.
+  /**
+   * POST JSON to the sidecar. A 503 "busy" (one check per route at a time) is retried with bounded
+   * backoff; down, refused, still busy after the retries, or malformed answers are typed errors and
+   * callers fail closed.
+   */
+  private async post(route: string, payload: unknown, signal: AbortSignal | undefined, timeoutMs: number): Promise<unknown> {
+    const delays = this.options.retryDelaysMs ?? SIDECAR_BUSY_RETRY_DELAYS_MS;
+    for (let attempt = 0; ; attempt += 1) {
       if (isAborted(signal)) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
-      throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine is not running, so frames cannot be checked.');
-    }
-    if (response.status === 503 || response.status === 502) {
-      throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine cannot check frames right now.');
-    }
-    if (!response.ok) {
-      // 400/404/422: outside the projects folder, missing or undecodable. Never "unchanged".
-      throw new MatteInspectorError('probe_failed', `The engine could not check frames (HTTP ${response.status}).`);
-    }
-    try {
-      return await response.json();
-    } catch {
-      throw new MatteInspectorError('probe_failed', 'The engine returned malformed JSON.');
+      const timeout = AbortSignal.timeout(timeoutMs);
+      const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+      let response: Response;
+      try {
+        response = await this.options.fetch(new URL(route, this.options.sidecarBaseUrl), {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify(payload),
+          signal: combined,
+        });
+      } catch {
+        // The caller's signal may have aborted during the await.
+        if (isAborted(signal)) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
+        throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine is not running, so frames cannot be checked.');
+      }
+      if (response.status === 503 && attempt < delays.length) {
+        await (this.options.sleep ?? sleep)(delays[attempt]!, signal);
+        continue;
+      }
+      if (response.status === 503 || response.status === 502) {
+        throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine cannot check frames right now.');
+      }
+      if (response.status === 504) {
+        throw new MatteInspectorError('tool_unavailable', 'The frame check ran out of time.');
+      }
+      if (!response.ok) {
+        // 400/404/422: outside the projects folder, missing or undecodable. Never "unchanged".
+        throw new MatteInspectorError('probe_failed', `The engine could not check frames (HTTP ${response.status}).`);
+      }
+      try {
+        return await response.json();
+      } catch {
+        throw new MatteInspectorError('probe_failed', 'The engine returned malformed JSON.');
+      }
     }
   }
+}
+
+/** Retries for a 503 busy route: 5 attempts over about 15 s. */
+export const SIDECAR_BUSY_RETRY_DELAYS_MS: readonly number[] = [500, 1_000, 2_000, 4_000, 8_000];
+
+/**
+ * The client-side budget for one sidecar check, a minute beyond the engine's own deadline
+ * (`matte_route_deadline` in service.py: 600 s + 30 s per pts + 0.05 s per frame up to the highest
+ * index, capped at 6 h), so the engine always answers first with a typed 504.
+ */
+export function sidecarTimeoutMs(work: { readonly ptsCount?: number; readonly highestFrame?: number }): number {
+  const engineSeconds = Math.min(6 * 60 * 60, 600 + 30 * (work.ptsCount ?? 0) + 0.05 * (work.highestFrame ?? 0));
+  return Math.ceil((engineSeconds + 60) * 1_000);
+}
+
+function sleep(ms: number, signal: AbortSignal | undefined): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener(
+      'abort',
+      () => {
+        clearTimeout(timer);
+        resolve();
+      },
+      { once: true },
+    );
+  });
 }
 
 /**

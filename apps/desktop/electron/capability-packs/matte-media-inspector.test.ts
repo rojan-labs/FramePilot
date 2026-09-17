@@ -22,7 +22,12 @@ function sidecar(respond: (route: string, body: Record<string, unknown>) => Resp
     calls.push({ route, body });
     return respond(route, body);
   }) as unknown as typeof fetch;
-  const inspector = new DesktopMatteMediaInspector({ ffprobe: 'ffprobe', sidecarBaseUrl: 'http://127.0.0.1:8799', fetch: fetchImpl });
+  const inspector = new DesktopMatteMediaInspector({
+    ffprobe: 'ffprobe',
+    sidecarBaseUrl: 'http://127.0.0.1:8799',
+    fetch: fetchImpl,
+    retryDelaysMs: [],
+  });
   return { inspector, calls };
 }
 

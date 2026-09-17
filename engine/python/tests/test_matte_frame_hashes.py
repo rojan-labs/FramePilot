@@ -249,6 +249,8 @@ def test_routes_enforce_a_total_deadline_and_int64_bounds(
     matte = _matte(tmp_path / "p", levels=[10, 20])
     client = _client(tmp_path)
     monkeypatch.setattr(service, "MATTE_ROUTE_DEADLINE_SECONDS", -1.0)
+    monkeypatch.setattr(service, "MATTE_DEADLINE_PER_PTS_SECONDS", 0.0)
+    monkeypatch.setattr(service, "MATTE_DEADLINE_PER_FRAME_SECONDS", 0.0)
     timed_out = client.post("/mattes/frame-hashes", json={"input_path": str(matte), "pts": [0]})
     assert timed_out.status_code == 504
     locked = client.post(
@@ -289,3 +291,13 @@ def test_route_errors_never_echo_a_path(tmp_path: Path) -> None:
     ):
         assert "Client Secret Film" not in body
         assert str(tmp_path) not in body
+
+
+def test_deadline_grows_with_the_work_and_is_capped() -> None:
+    import framepilot_engine.service as service
+
+    base = service.matte_route_deadline()
+    assert service.matte_route_deadline(pts_count=18) == base + 18 * 30.0
+    # A two-hour 30 fps matte locked near its end still gets time to decode forward to it.
+    assert service.matte_route_deadline(highest_frame=216_000) >= base + 216_000 * 0.05
+    assert service.matte_route_deadline(highest_frame=10**9) == service.MATTE_DEADLINE_MAX_SECONDS

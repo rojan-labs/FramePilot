@@ -430,6 +430,23 @@ class InspectMediaRequest(BaseModel):
 
 #: Total wall-clock budget for one /mattes/* request (BR4.12 M3).
 MATTE_ROUTE_DEADLINE_SECONDS = 600.0
+#: Extra budget per requested pts (one seek and decode each).
+MATTE_DEADLINE_PER_PTS_SECONDS = 30.0
+#: Extra budget per matte frame decoded up to the highest locked index (``select`` reads forward),
+#: so a finished hours-long matte is not discarded by a fixed deadline (BR4.12 re-review).
+MATTE_DEADLINE_PER_FRAME_SECONDS = 0.05
+#: No single /mattes/* request may run longer than this.
+MATTE_DEADLINE_MAX_SECONDS = 6 * 60 * 60.0
+
+
+def matte_route_deadline(pts_count: int = 0, highest_frame: int = 0) -> float:
+    """Seconds one /mattes/* request may take, sized from the work it asks for."""
+    budget = (
+        MATTE_ROUTE_DEADLINE_SECONDS
+        + MATTE_DEADLINE_PER_PTS_SECONDS * pts_count
+        + MATTE_DEADLINE_PER_FRAME_SECONDS * highest_frame
+    )
+    return min(MATTE_DEADLINE_MAX_SECONDS, budget)
 
 
 class MatteFrameHashesRequest(BaseModel):
@@ -6223,7 +6240,7 @@ def create_app(
         if not lock.acquire(blocking=False):
             raise matte_busy()
         try:
-            deadline = time.monotonic() + MATTE_ROUTE_DEADLINE_SECONDS
+            deadline = time.monotonic() + matte_route_deadline(pts_count=len(req.pts))
             return MatteFrameHashesResponse(
                 hashes=frame_hashes_by_pts(input_path, req.pts, req.pixel_format, deadline=deadline)
             )
@@ -6256,7 +6273,14 @@ def create_app(
                 [(item.index, item.sha256) for item in req.expected],
                 previous,
                 [(item.index, item.previous_index) for item in req.carried],
-                deadline=time.monotonic() + MATTE_ROUTE_DEADLINE_SECONDS,
+                deadline=time.monotonic()
+                + matte_route_deadline(
+                    highest_frame=max(
+                        [item.index for item in req.expected]
+                        + [max(item.index, item.previous_index) for item in req.carried]
+                        + [0]
+                    )
+                ),
             )
         except (FrameHashError, subprocess.SubprocessError, ValueError) as exc:
             _log.info("matte locked frames refused: %s", type(exc).__name__)
