@@ -434,7 +434,9 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
     case 'update_mask': {
       // Unlocking must stay possible on a locked mask, exactly as `set_track_flags` can
       // always unlock a locked track.
-      const onlyUnlocks = Object.keys(op.changes).every((key) => key === 'locked');
+      const onlyUnlocks =
+        op.keyframeOffsets === undefined &&
+        Object.keys(op.changes).every((key) => key === 'locked');
       if (onlyUnlocks) assertUnlocked(maskOwnerTrack(timeline, op), op.type);
       else assertMaskUnlocked(timeline, op, op.maskId, op.type);
       return;

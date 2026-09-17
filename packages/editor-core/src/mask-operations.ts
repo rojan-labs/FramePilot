@@ -93,6 +93,13 @@ export type UpdateMaskOp = MaskOwnerRef & {
   readonly type: 'update_mask';
   readonly maskId: string;
   readonly changes: Readonly<Record<string, unknown>>;
+  /**
+   * "Apply to all keyframes" (Premiere 26.0 clip edit mode, plan 12 §E): add this offset to
+   * EVERY keyframe of each named property, so one edit changes a feather or a position across
+   * the whole animation instead of keying the current instant. Values are clamped to the
+   * property's range. Properties without keyframes are untouched by this field.
+   */
+  readonly keyframeOffsets?: Readonly<Partial<Record<MaskScalarProperty, number>>>;
 };
 
 /** Insert or replace (by id) one whole-path keyframe of a path mask. */
@@ -687,8 +694,56 @@ function applyUpdate(owner: OwnerLocation, op: UpdateMaskOp): Timeline {
     }
   }
   const current = owner.masks[index]!;
-  const mask = normalized(parseMask({ ...current, ...op.changes }, 'update_mask'));
+  const keyframes =
+    op.keyframeOffsets === undefined
+      ? current.keyframes
+      : offsetKeyframes(current, op.keyframeOffsets);
+  const mask = normalized(parseMask({ ...current, ...op.changes, keyframes }, 'update_mask'));
   return replaceMask(owner, index, mask);
+}
+
+/** Properties that can never be negative, and those bounded to 0..1. */
+const NON_NEGATIVE_PROPERTIES: ReadonlySet<string> = new Set([
+  'featherInnerPx',
+  'featherOuterPx',
+  'width',
+  'height',
+  'rx',
+  'ry',
+  'softnessPx',
+  'widthPx',
+]);
+const UNIT_INTERVAL_PROPERTIES: ReadonlySet<string> = new Set(['opacity', 'roundness']);
+
+/**
+ * Clamp a mask scalar to the range its schema field allows.
+ *
+ * @param property - The scalar property.
+ * @param value - A candidate value.
+ */
+export function clampMaskScalar(property: MaskScalarProperty, value: number): number {
+  if (UNIT_INTERVAL_PROPERTIES.has(property)) return Math.min(1, Math.max(0, value));
+  if (NON_NEGATIVE_PROPERTIES.has(property)) return Math.max(0, value);
+  return value;
+}
+
+function offsetKeyframes(
+  mask: MaskLayer,
+  offsets: Readonly<Partial<Record<MaskScalarProperty, number>>>,
+): MaskKeyframe[] {
+  for (const [property, offset] of Object.entries(offsets)) {
+    if (typeof offset !== 'number' || !Number.isFinite(offset)) {
+      throw new MaskOperationError(
+        'invalid_mask',
+        `update_mask.keyframeOffsets.${property} on mask '${mask.id}' must be a finite number.`,
+      );
+    }
+  }
+  return mask.keyframes.map((keyframe) => {
+    const offset = offsets[keyframe.property];
+    if (offset === undefined) return keyframe;
+    return { ...keyframe, value: clampMaskScalar(keyframe.property, keyframe.value + offset) };
+  });
 }
 
 function applySetPath(owner: OwnerLocation, op: SetMaskPathOp): Timeline {

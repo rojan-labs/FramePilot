@@ -45,6 +45,10 @@ export * from './mask-geometry.js';
 // Mask stack operations and the frame-fraction ↔ source-pixel builders tools share (ADR 0178).
 export * from './mask-operations.js';
 export * from './mask-builders.js';
+// Hand-editing geometry, freehand fitting and the mask commands the UI and the agent share (MK4).
+export * from './mask-path-editing.js';
+export * from './mask-curve-fit.js';
+export * from './mask-commands.js';
 export * from './track-samples.js';
 export * from './tracking-commands.js';
 export * from './audio-commands.js';
