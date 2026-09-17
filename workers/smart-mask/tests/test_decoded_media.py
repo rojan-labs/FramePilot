@@ -105,10 +105,11 @@ def test_real_weights_tiny_clip(tmp_path: Path) -> None:
     matte = host_verify(staging, outcome, clip, 0, FRAMES)
     reference = np.load(REFERENCE)["masks"][:FRAMES]
     ious = []
+    # The matte is in DISPLAY space: scaling a 2.35:1 source to 640x360 keeps its display aspect.
     for index in range(FRAMES):
         expected = (
             cv2.resize(
-                reference[index].astype(np.uint8), (WIDTH, HEIGHT), interpolation=cv2.INTER_NEAREST
+                reference[index].astype(np.uint8), (matte.shape[2], matte.shape[1]), interpolation=cv2.INTER_NEAREST
             )
             > 0
         )

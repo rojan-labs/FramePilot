@@ -101,7 +101,11 @@ class FakeSam:
             no_obj_ptr=np.zeros((1, 256), np.float32),
         )
 
+    def _alive(self) -> None:
+        assert not self.closed, "a closed SAM session was used"
+
     def encode_image(self, image: np.ndarray) -> ImageFeatures:
+        self._alive()
         self.encodes += 1
         # Undo the ImageNet normalisation well enough to recover redness.
         mean = np.array([0.485, 0.456, 0.406], np.float32)[:, None, None]
@@ -135,6 +139,7 @@ class FakeSam:
     def decode_points(
         self, pix: Any, features: ImageFeatures, coords: Any, labels: Any, multimask: bool
     ) -> DecoderOutput:
+        self._alive()
         red = features.fpn2[0, 0] > 0.5
         seeds = np.zeros_like(red)
         label_list = labels.reshape(-1).tolist()
@@ -152,12 +157,14 @@ class FakeSam:
         return self._output(_component(red, seeds), multimask)
 
     def decode_mask(self, pix: Any, features: ImageFeatures, mask: Any) -> DecoderOutput:
+        self._alive()
         small = (
             cv2.resize(mask[0, 0].astype(np.float32), (64, 64), interpolation=cv2.INTER_AREA) > 0.5
         )
         return self._output(small, False)
 
     def attend(self, curr: Any, curr_pos: Any, memory: Any, memory_pos: Any, valid: Any) -> Any:
+        self._alive()
         spatial_valid = valid[: MEM_SLOTS * FEAT_TOKENS].reshape(MEM_SLOTS, FEAT_TOKENS)
         slots = [slot for slot in range(MEM_SLOTS) if spatial_valid[slot].all()]
         self.attend_valid_slots.append(len(slots))
@@ -171,6 +178,7 @@ class FakeSam:
         return out
 
     def encode_memory(self, pix_feat: Any, mask_for_mem: Any) -> tuple[Any, Any]:
+        self._alive()
         present = cv2.resize(
             (mask_for_mem[0, 0] > 0).astype(np.float32), (64, 64), interpolation=cv2.INTER_AREA
         )

@@ -626,7 +626,8 @@ class MatteJob:
         spill.mkdir(exist_ok=True)
         store = window.store
         embeddings = EmbeddingCache(
-            lambda key: sam.encode_image(preprocess(store[int(key)])),  # type: ignore[call-overload]
+            # The model is reopened after BiRefNet runs; always encode with the open session.
+            lambda key: self._use_sam().encode_image(preprocess(store[int(key)])),  # type: ignore[call-overload]
             max_ram_bytes=self.config.embedding_ram_bytes,
             spill_directory=spill,
             max_spill_bytes=self.config.embedding_spill_bytes,
@@ -1083,7 +1084,8 @@ class _CorrectionBinder:
         return warped
 
     def resegment(self, run: Run, cond_prompts: dict[int, CondPrompt]) -> dict[int, list[Bool]]:
-        self.job._use_sam()
+        # BiRefNet ran since the tracker was built and closed SAM: use the reopened session.
+        self.tracker.modules = self.job._use_sam()
         outside = {
             index: prompt
             for index, prompt in self.prompts.items()
