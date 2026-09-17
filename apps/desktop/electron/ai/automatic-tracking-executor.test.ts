@@ -14,22 +14,23 @@ import type { CapabilityPackWorkerRequest } from '@framepilot/capability-packs';
 import { createAutomaticTrackingExecutor } from './automatic-tracking-executor.js';
 
 function project(): Project {
-  const mask = {
-    id: 'shot__mask',
-    type: 'mask',
-    params: {
-      shape: 'rectangle',
-      bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
-    },
-    keyframes: [],
-  };
+  // Schema v22 mask stack: the v21 bounds {0.2, 0.1, 0.25, 0.4} in 1920x1080 source pixels.
+  const mask = { id: 'shot__mask', kind: 'rectangle', cx: 624, cy: 324, width: 480, height: 432 };
   return parseProject({
     id: 'auto_tracking_project',
     name: 'Automatic tracking fixture',
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [{ id: 'asset', path: '/tmp/media/shot.mp4', kind: 'video', durationSeconds: 900 }],
+    assets: [
+      {
+        id: 'asset',
+        path: '/tmp/media/shot.mp4',
+        kind: 'video',
+        durationSeconds: 900,
+        media: { width: 1920, height: 1080 },
+      },
+    ],
     timeline: {
       revision: 7,
       tracks: [
@@ -45,7 +46,8 @@ function project(): Project {
               end: 4,
               sourceStart: 0,
               sourceEnd: 4,
-              effects: [mask],
+              effects: [],
+              masks: [mask],
               keyframes: [],
             },
           ],
@@ -140,7 +142,7 @@ describe('createAutomaticTrackingExecutor', () => {
   it('surfaces the controller refusal when no mask exists', async () => {
     const bare = project();
     const clip = bare.timeline.tracks[0]!.clips[0]!;
-    bare.timeline.tracks[0]!.clips[0] = { ...clip, effects: [] };
+    bare.timeline.tracks[0]!.clips[0] = { ...clip, masks: [] };
     const executor = createAutomaticTrackingExecutor({
       tracking: async () => serviceWith(completedOutcome()).service,
     });
