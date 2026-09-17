@@ -126,6 +126,7 @@ function opIcon(type: string): JSX.Element {
       return <Pencil size={size} aria-hidden="true" />;
     case 'move_folder':
     case 'move_asset':
+    case 'relink_asset':
       return <Folder size={size} aria-hidden="true" />;
     case 'add_marker':
     case 'remove_marker':

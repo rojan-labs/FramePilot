@@ -82,6 +82,8 @@ import type {
   MatteStorageResultWire,
   MatteCleanRequestWire,
   MatteCleanResultWire,
+  RelinkFileChoiceWire,
+  MatteRecheckResultWire,
 } from './ipc/contract.js';
 import type {
   MediaImportChunkBridge,
@@ -167,6 +169,8 @@ const Channels = {
   matteSaveCorrection: 'framepilot:capability-pack:matte-save-correction',
   matteStorage: 'framepilot:capability-pack:matte-storage',
   matteCleanUnused: 'framepilot:capability-pack:matte-clean-unused',
+  projectChooseRelinkFile: 'framepilot:project:choose-relink-file',
+  matteRecheckMedia: 'framepilot:capability-pack:matte-recheck-media',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -258,6 +262,10 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
   matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
     ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
+  projectChooseRelinkFile: (assetId: string) =>
+    ipcRenderer.invoke(Channels.projectChooseRelinkFile, assetId) as Promise<RelinkFileChoiceWire>,
+  matteRecheckMedia: (request: { readonly assetIds: readonly string[] }) =>
+    ipcRenderer.invoke(Channels.matteRecheckMedia, request) as Promise<MatteRecheckResultWire>,
   matteCleanUnused: (request: MatteCleanRequestWire) =>
     ipcRenderer.invoke(Channels.matteCleanUnused, request) as Promise<MatteCleanResultWire>,
   capabilityPackTrack: (intent: TrackingRequestIntentWire) =>

@@ -1913,6 +1913,16 @@ export function deleteFolderPatch(folderId: string): Patch {
   };
 }
 
+/** Point an asset at a different file (relink missing media, replace footage). Undoable. */
+export function relinkAssetPatch(assetId: string, path: string): Patch {
+  return {
+    patchId: patchId(`relink_${assetId}_${path}`),
+    createdBy: 'user',
+    reason: `Relink asset "${assetId}"`,
+    operations: [{ type: 'relink_asset', assetId, path }],
+  };
+}
+
 /** Move an asset into a folder (`null` = bin root). */
 export function moveAssetToFolderPatch(assetId: string, folderId: string | null): Patch {
   return {

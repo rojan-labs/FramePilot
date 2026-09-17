@@ -27,6 +27,7 @@ import {
 } from './operations.js';
 import {
   isProjectOperation,
+  isValidAssetPath,
   wouldCreateFolderCycle,
   type ProjectOperation,
 } from './project-operations.js';
@@ -64,6 +65,7 @@ export type ValidationCode =
   | 'duplicate_asset'
   | 'asset_in_use'
   | 'missing_folder'
+  | 'invalid_asset_path'
   | 'duplicate_folder'
   | 'folder_cycle'
   | 'duplicate_layer'
@@ -595,6 +597,12 @@ function projectChecks(
         );
       }
       break;
+    case 'relink_asset':
+      if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
+      if (!isValidAssetPath(op.path)) {
+        issue('invalid_asset_path', 'relink_asset needs a non-empty file path. Choose the file again.');
+      }
+      break;
     case 'move_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       if (op.folderId !== null && !folderExists(op.folderId)) {
@@ -728,6 +736,7 @@ function advanceProjectState(
       }
       break;
     case 'move_asset':
+    case 'relink_asset':
     case 'set_transcript':
     case 'set_ai_memory':
       break;

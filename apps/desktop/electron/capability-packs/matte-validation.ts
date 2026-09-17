@@ -42,7 +42,8 @@ export type MatteRefusalCode =
   | 'matte_unsupported_pixel_format'
   | 'matte_size_mismatch'
   | 'matte_out_of_coverage'
-  | 'matte_frame_misaligned';
+  | 'matte_frame_misaligned'
+  | 'matte_media_changed';
 
 /** Verbatim from `MATTE_REMEDIES` in `render/mattes.py`; `matte-validation.test.ts` pins parity. */
 export const MATTE_REMEDIES: Readonly<Record<MatteRefusalCode, { readonly status: MatteStatus; readonly remedy: string }>> = {
@@ -65,14 +66,15 @@ export const MATTE_REMEDIES: Readonly<Record<MatteRefusalCode, { readonly status
     status: 'stale',
     remedy: 'Background removal frames do not line up with the media — run Remove background again.',
   },
+  // Relinked or replaced media decoding to different frames (BR4.14, matte-media-recheck.ts).
+  matte_media_changed: { status: 'stale', remedy: 'Media changed since background removal ran — run Remove background again.' },
 };
 
 export interface MatteValidationIssue {
   readonly clipId: string;
   readonly maskId: string;
   readonly artifactKey: string;
-  /** An engine refusal code, or the host's `matte_media_changed` (BR4.10 media re-check). */
-  readonly code: MatteRefusalCode | 'matte_media_changed';
+  readonly code: MatteRefusalCode;
   readonly status: MatteStatus;
   readonly remedy: string;
 }

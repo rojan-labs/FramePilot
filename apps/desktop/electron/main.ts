@@ -189,6 +189,7 @@ import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
 import { registerMatteIpc, registerMatteStorageIpc } from './capability-packs/matte-ipc.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
+import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
 import {
   DesktopMatteMediaInspector,
   resolveMatteFfprobe,
@@ -782,6 +783,19 @@ function registerIpcHandlers(): void {
     () => visualPackIdentities,
     async (identity) => (await capabilityPackService).acquireVisualPackLease(identity),
   );
+  // ffprobe for stream facts; decoded frames go through the sidecar, which has ffmpeg
+  // (BR4.13). A stopped sidecar makes lock and media checks fail closed.
+  const matteMediaInspector = new DesktopMatteMediaInspector({
+    ffprobe: resolveMatteFfprobe({
+      env: process.env,
+      isPackaged: app.isPackaged,
+      resourcesPath: process.resourcesPath,
+      platform: process.platform,
+      fileExists: existsSync,
+    }),
+    sidecarBaseUrl: engineBaseUrl,
+    fetch: electronFetch,
+  });
   const createCapabilityPackService = async (
     rootPath: string,
   ): Promise<CapabilityPackDesktopService> =>
@@ -793,19 +807,7 @@ function registerIpcHandlers(): void {
       trustedRootKeys: await capabilityPackRootKeys,
       appVersion: app.getVersion(),
       runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
-      // ffprobe for stream facts; decoded frames go through the sidecar, which has ffmpeg
-      // (BR4.13). A stopped sidecar makes lock and media checks fail closed.
-      matteMediaInspector: new DesktopMatteMediaInspector({
-        ffprobe: resolveMatteFfprobe({
-          env: process.env,
-          isPackaged: app.isPackaged,
-          resourcesPath: process.resourcesPath,
-          platform: process.platform,
-          fileExists: existsSync,
-        }),
-        sidecarBaseUrl: engineBaseUrl,
-        fetch: electronFetch,
-      }),
+      matteMediaInspector,
       onStoreChanged: (event) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(IpcChannels.capabilityPackInstalled, event);
@@ -1192,6 +1194,26 @@ function registerIpcHandlers(): void {
   };
   registerMatteIpc(matteIpcDependencies);
   registerMatteStorageIpc(matteIpcDependencies);
+  // Relink or replace an asset's file, then re-check its mattes (BR4.14).
+  registerRelinkIpc({
+    ipcMain,
+    requireLicense,
+    activeProjectPath: matteIpcDependencies.activeProjectPath,
+    readProject: matteIpcDependencies.readProject,
+    inspector: async () => matteMediaInspector,
+    chooseFile: async (assetName) => {
+      const options: OpenDialogOptions = {
+        title: `Relink "${assetName}"`,
+        buttonLabel: 'Relink',
+        properties: ['openFile'],
+      };
+      const picked =
+        mainWindow === null
+          ? await dialog.showOpenDialog(options)
+          : await dialog.showOpenDialog(mainWindow, options);
+      return picked.canceled ? undefined : picked.filePaths[0];
+    },
+  });
   ipcMain.handle(
     IpcChannels.capabilityPackInstall,
     async (_event, approval: unknown): Promise<CapabilityPackInstallStartResultWire> => {

@@ -164,3 +164,10 @@ export const MatteArtifactRecordSchema = z
   .strict();
 
 export type MatteArtifactRecord = z.infer<typeof MatteArtifactRecordSchema>;
+
+/** An asset id named by the renderer for a relink (BR4.14). */
+export const RelinkAssetIdSchema = z.string().min(1).max(256);
+
+export const MatteRecheckRequestSchema = z
+  .object({ assetIds: z.array(RelinkAssetIdSchema).min(1).max(1_000) })
+  .strict();

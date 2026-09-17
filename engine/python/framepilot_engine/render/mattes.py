@@ -95,6 +95,7 @@ class MatteRefusalCode(StrEnum):
     SIZE_MISMATCH = "matte_size_mismatch"
     OUT_OF_COVERAGE = "matte_out_of_coverage"
     FRAME_MISALIGNED = "matte_frame_misaligned"
+    MEDIA_CHANGED = "matte_media_changed"
 
 
 #: The one sentence the editor reads for each code: what happened and what to do.
@@ -128,6 +129,12 @@ MATTE_REMEDIES: dict[MatteRefusalCode, tuple[MatteStatus, str]] = {
     MatteRefusalCode.FRAME_MISALIGNED: (
         MatteStatus.STALE,
         "Background removal frames do not line up with the media — run Remove background again.",
+    ),
+    # Relinked or replaced media that decodes to different frames (BR4.14). Same sentence as a
+    # size change: to the editor both are "the media changed".
+    MatteRefusalCode.MEDIA_CHANGED: (
+        MatteStatus.STALE,
+        "Media changed since background removal ran — run Remove background again.",
     ),
 }
 

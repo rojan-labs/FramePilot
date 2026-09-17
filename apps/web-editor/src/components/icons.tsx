@@ -10,6 +10,7 @@
  * Icon-only controls must still carry an `aria-label`/`title` at the call site.
  */
 export {
+  Link2,
   Film,
   Lightbulb,
   Monitor,

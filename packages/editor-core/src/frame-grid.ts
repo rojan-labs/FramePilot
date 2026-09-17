@@ -243,6 +243,7 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'add_asset':
     case 'remove_asset':
     case 'move_asset':
+    case 'relink_asset':
     case 'create_folder':
     case 'rename_folder':
     case 'move_folder':

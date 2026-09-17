@@ -145,6 +145,7 @@ from framepilot_engine.render.mask_stack import (
     mix_by_alpha,
 )
 from framepilot_engine.render.matte_edges import decontaminate
+from framepilot_engine.render.matte_media import assert_media_unchanged
 from framepilot_engine.render.mattes import (
     MatteFrame,
     MatteReader,
@@ -706,6 +707,9 @@ def _bind_mattes(
     for mask_id, matte in prepared.items():
         try:
             assert_frames_align(matte, frames, timing)
+            filename = getattr(reader, "filename", None)
+            if isinstance(filename, str):
+                assert_media_unchanged(matte, filename)
         except MatteRefusal as exc:
             raise CompileError(str(exc)) from exc
         mask = next(m for m in clip.masks or [] if m.id == mask_id)

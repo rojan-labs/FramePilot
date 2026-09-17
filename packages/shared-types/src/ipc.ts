@@ -1384,6 +1384,16 @@ export interface MatteValidationIssueWire {
   readonly remedy: string;
 }
 
+/** A file main chose (native dialog) to relink one asset to; the renderer commits `relink_asset`. */
+export type RelinkFileChoiceWire =
+  | { readonly ok: true; readonly assetId: string; readonly path: string }
+  | { readonly ok: false; readonly code: 'cancelled' | 'no_project' | 'missing_asset' | 'not_a_file'; readonly error: string };
+
+/** STALE mattes after a relink or replace: decoded frames no longer match (BR4.14). */
+export type MatteRecheckResultWire =
+  | { readonly ok: true; readonly issues: readonly MatteValidationIssueWire[] }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
 /** The open project's background-removal storage (project-owned, MD-4). */
 export type MatteStorageResultWire =
   | {
@@ -1920,6 +1930,10 @@ export interface FramePilotBridge {
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
   /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
   matteStorage?(request?: { readonly protectedKeys?: readonly string[] }): Promise<MatteStorageResultWire>;
+  /** Pick the file to relink an asset to (missing or replaced media); main owns the dialog. */
+  projectChooseRelinkFile?(assetId: string): Promise<RelinkFileChoiceWire>;
+  /** Re-check the mattes on relinked assets; changed media comes back STALE with its remedy. */
+  matteRecheckMedia?(request: { readonly assetIds: readonly string[] }): Promise<MatteRecheckResultWire>;
   /** Remove exactly the confirmed unused mattes; referenced ones are always kept. */
   matteCleanUnused?(request: MatteCleanRequestWire): Promise<MatteCleanResultWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */

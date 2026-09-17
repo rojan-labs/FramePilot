@@ -23,9 +23,9 @@ import { MATTE_REMEDIES, matteMasksOf, type MatteValidationIssue } from './matte
 
 const log = createLogger('desktop:capability-packs:matte-media-recheck');
 
-/** Host code for "the source media changed"; STALE with the engine's media-changed sentence. */
+/** "The source media changed": STALE, refused by the export with the same sentence. */
 export const MATTE_MEDIA_CHANGED = 'matte_media_changed' as const;
-export const MATTE_MEDIA_CHANGED_REMEDY = MATTE_REMEDIES.matte_size_mismatch.remedy;
+export const MATTE_MEDIA_CHANGED_REMEDY = MATTE_REMEDIES.matte_media_changed.remedy;
 
 export type MatteMediaVerdict = 'unchanged' | 'changed';
 

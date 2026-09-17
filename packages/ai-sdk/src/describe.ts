@@ -30,6 +30,7 @@ const ACTION_LABELS: Record<string, string> = {
   track_object: 'Attached tracker (no motion yet)',
   add_asset: 'Added asset',
   move_asset: 'Moved asset',
+  relink_asset: 'Relinked media',
   create_folder: 'Created folder',
   rename_folder: 'Renamed folder',
   move_folder: 'Moved folder',
@@ -436,7 +437,8 @@ function operationSubject(
       return typeof id === 'string' ? (names?.asset(id) ?? id) : '';
     }
     case 'remove_asset':
-    case 'move_asset': {
+    case 'move_asset':
+    case 'relink_asset': {
       const id = record['assetId'];
       return typeof id === 'string' ? (names?.asset(id) ?? id) : '';
     }
