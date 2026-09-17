@@ -78,7 +78,7 @@ def assess_ffmpeg_build(version_output: str, licence_output: str) -> FfmpegBuild
     for flag in FORBIDDEN_CONFIGURE_FLAGS:
         if re.search(rf"(^|\s){re.escape(flag)}(\s|$)", configuration):
             reasons.append(f"configured with {flag}")
-    lowered = licence_output.lower()
+    lowered = " ".join(licence_output.lower().split())
     if "lesser general public license" in lowered:
         licence = "LGPL-3.0-or-later" if "version 3" in lowered else "LGPL-2.1-or-later"
     elif "general public license" in lowered:

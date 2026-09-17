@@ -1,13 +1,75 @@
-# Smart Mask — model licences (BR0.5)
+# Smart Mask — licences (hand reviewed; BR0.5, extended in BR3.12)
 
 Licence texts copied verbatim from the upstream repositories **at the pinned revisions** that
-BR0 exported and measured. BR3's `tools/generate_sbom.py` must regenerate this file from
-`pack/models.lock.toml`; until then this is the reviewed source. Weights are never committed.
+BR0 exported and measured. This file is **hand reviewed**, not generated: it carries a
+training-data finding no metadata can express. `tools/generate_sbom.py --check` verifies it
+against the real environment instead of overwriting it (every shipped distribution with its
+licence, every model file, the shipped ffmpeg licence, and this open finding). Weights are never
+committed.
 
 | Model | Pinned source | Weights file (sha256) | Licence | Verified |
 | --- | --- | --- | --- | --- |
 | SAM 2.1 Hiera-Large | github.com/facebookresearch/sam2 @ `2b90b9f5ceec907a1c18123530e92e794ad901a4` | `sam2.1_hiera_large.pt`, 898083611 B, `2647878d5dfa5098f2f8649825738a9345572bae2d4350a2468587ece47dd318` (dl.fbaipublicfiles.com/segment_anything_2/092824/) | Apache-2.0 (code and checkpoints, per upstream README) | Licence text: yes |
 | BiRefNet_HR-matting | huggingface.co/ZhengPeng7/BiRefNet_HR-matting @ `5d6b6f8adcb5b417c871b1d84ceaae9871355b7f`; code licence from github.com/ZhengPeng7/BiRefNet @ `ebcc0bc8ec7fe919cec829f2dea656b3078acddc` | `model.safetensors`, 444473596 B, `a5a4de698739ea5e0e8bbab28e1b293dde95092b87a442d566cbc585c53cef55` (matches the HF LFS oid) | MIT (HF card metadata `license: mit`; GitHub `LICENSE`) | Licence text: yes. **Training-data statement: NOT verified — see below** |
+
+## Shipped model files (derived by `tools/export_onnx.py`; digests in `pack/models.lock.toml`)
+
+| File | Derived from | Licence |
+| --- | --- | --- |
+| `sam21l_image_encoder.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_decoder_multi_n1.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_decoder_points.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_decoder_mask.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_memory_attention.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_memory_encoder.fp32.onnx` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `sam21l_constants.npz` | SAM 2.1 Hiera-L | Apache-2.0 |
+| `birefnet_hr_matting_768.fp16s.onnx` | BiRefNet_HR-matting | MIT (training-data terms open) |
+| `birefnet_hr_matting_1024.fp16s.onnx` | BiRefNet_HR-matting | MIT (training-data terms open) |
+| `birefnet_hr_matting_2048.fp16s.onnx` | BiRefNet_HR-matting | MIT (training-data terms open) |
+
+Apache-2.0 §4(b): the SAM graphs are modified forms of the Work (real-valued RoPE, static
+padded memory, per-prompt heads; see `spike/sam_modules.py`). The pack carries this notice and
+states those changes.
+
+## Shipped Python distributions (the `cv` extra, resolved by `uv.lock`)
+
+Reviewed 2026-09-17 against the installed wheels' own metadata.
+
+| Component | Version | License |
+| --- | --- | --- |
+| `flatbuffers` | 25.12.19 | Apache-2.0 |
+| `numpy` | 2.5.3 | BSD-3-Clause AND 0BSD AND MIT AND Zlib AND CC0-1.0 |
+| `onnxruntime` | 1.30.0 | MIT |
+| `opencv-contrib-python-headless` | 5.0.0.93 | Apache-2.0 |
+| `pillow` | 12.3.0 | MIT-CMU |
+| `protobuf` | 7.36.1 | BSD-3-Clause |
+
+OpenCV's wheel redistributes FFmpeg (LGPL-2.1-or-later) and other natives listed in its own
+`LICENSE-3RD-PARTY.txt`; `--check` verifies the notice still lists them. The pack never decodes
+through OpenCV's FFmpeg (`cv2.VideoCapture` has no pts or edit-list semantics).
+
+## FFmpeg: an LGPL-only binary, not PyAV
+
+Decode and encode run through `bin/ffmpeg` and `bin/ffprobe`, built by
+`tools/build_ffmpeg_lgpl.sh` from the pinned FFmpeg 7.1.1 source tarball (sha256
+`733984395e0dbbe5c046abda2dc49a5544e7e0e1e2366bba849222ae9e3a03b1`) with `--disable-gpl
+--disable-nonfree --disable-version3`, statically linked, enabling only FFV1, libvpx (BSD-3-Clause)
+VP9, matroska/webm and the scale filter family. Licence of the shipped build: LGPL-2.1-or-later.
+The worker's health check and `--check` both refuse a build configured with `--enable-gpl`,
+`--enable-nonfree`, x264, x265, xvid, fdk-aac, rubberband, vid.stab or frei0r.
+
+**Finding (BR3.12): PyAV cannot ship.** Every PyAV wheel checked (12.3.0, 13.1.0, 15.1.0, 16.0.1,
+17.0.0, 18.1.0 for macOS arm64) bundles `libx264` and `libx265` dylibs (GPL-2.0-or-later) next to
+its FFmpeg libraries, although FFmpeg's own `license()` string in those wheels reads "LGPL
+version 3 or later". The `av` distribution is therefore absent from the pack and `--check` fails
+if it appears.
+
+**Obligations (LGPL-2.1).** FramePilot must ship this notice with the pack, offer the
+corresponding FFmpeg source (the pinned tarball plus `tools/build_ffmpeg_lgpl.sh`), and keep
+ffmpeg replaceable: it is a separate executable the worker runs as a subprocess, never linked
+into the worker. The local development ffmpeg (Homebrew, `--enable-gpl`) is refused by the
+health check and must not be registered; `scripts/dev-register-smart-mask.sh` requires an
+LGPL build.
 
 ## Open finding: the DIS5K commercial-use statement was not found
 
