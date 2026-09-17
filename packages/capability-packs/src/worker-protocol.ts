@@ -93,6 +93,16 @@ export const MatteInputFileSchema = z
   .regex(/^(corrections|locked)\/-?(0|[1-9]\d{0,15})\.png$/u, {
     message: 'matte input files are corrections/<pts>.png or locked/<pts>.png',
   });
+/**
+ * The previous artifact's files, cloned read-only into the inputs handle for a partial re-run.
+ * The worker never gets a path into the committed store itself.
+ */
+export const MattePreviousInputFileSchema = z.enum([
+  'previous/matte.mkv',
+  'previous/foreground.mkv',
+  'previous/frames.json',
+]);
+const MatteHandleInputFileSchema = z.union([MatteInputFileSchema, MattePreviousInputFileSchema]);
 
 /**
  * Host-issued write handle: one empty staging directory the host created for this request
@@ -119,7 +129,7 @@ export const MatteInputHandleSchema = z
   .object({
     handleId: RequestIdSchema,
     absolutePath: AbsoluteDirectorySchema,
-    files: z.array(MatteInputFileSchema).min(1).max(CAPABILITY_PACK_MATTE_MAX_PROMPTS),
+    files: z.array(MatteHandleInputFileSchema).min(1).max(CAPABILITY_PACK_MATTE_MAX_PROMPTS + 3),
   })
   .strict()
   .refine((handle) => new Set(handle.files).size === handle.files.length, {
@@ -184,6 +194,17 @@ const MatteParametersSchema = z
       referenced.add(prompt.file);
     });
     for (const file of declared) {
+      if (file.startsWith('previous/')) {
+        if (parameters.previousArtifact === undefined) {
+          context.addIssue({
+            code: 'custom',
+            path: ['inputs', 'files'],
+            message: 'previous artifact files need previousArtifact',
+          });
+          break;
+        }
+        continue;
+      }
       if (!referenced.has(file)) {
         context.addIssue({
           code: 'custom',

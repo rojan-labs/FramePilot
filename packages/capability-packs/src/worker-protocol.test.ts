@@ -483,6 +483,25 @@ describe('Capability Pack worker protocol', () => {
       ).toThrow(/its pts/);
     });
 
+    it('lets a re-run read the cloned previous artifact, and only with previousArtifact', () => {
+      const inputs = {
+        handleId: 'matte-in:1',
+        absolutePath: '/s/in',
+        files: ['previous/matte.mkv', 'previous/frames.json'],
+      };
+      expect(
+        CapabilityPackWorkerRequestSchema.parse(matteRequest({ inputs, previousArtifact: sha('d') })),
+      ).toBeDefined();
+      expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ inputs }))).toThrow(
+        /previousArtifact/,
+      );
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          matteRequest({ inputs: { ...inputs, files: ['previous/../../x'] }, previousArtifact: sha('d') }),
+        ),
+      ).toThrow();
+    });
+
     it('refuses an empty prompt list and a corrections-only first run', () => {
       expect(() => CapabilityPackWorkerRequestSchema.parse(matteRequest({ prompts: [] }))).toThrow();
       expect(() =>
