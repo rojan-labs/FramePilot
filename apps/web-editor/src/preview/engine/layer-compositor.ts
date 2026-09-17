@@ -39,10 +39,11 @@ import {
   type SwsFilter,
 } from './raster/swscale.js';
 import { GlResources, type RenderTarget } from './gl/gl-resources.js';
-import { pilRotationMatrix } from './raster/pil.js';
+import { pilBoxWeights, pilGaussianBoxRadius, pilRotationMatrix } from './raster/pil.js';
 import {
   ALPHA_FRAGMENT,
   ROTATE_FRAGMENT,
+  PIL_BOX_BLUR_FRAGMENT,
   BLEND_FRAGMENT,
   BLEND_MODE_INDEX,
   GRADE_FRAGMENT,
@@ -248,6 +249,7 @@ export class LayerCompositor {
       if (effect.type === 'color_grade') current = this.grade(current, effect.params);
       else if (effect.type === 'lut') current = this.lut(current, effect.params);
     }
+    if (step.blurRadius > 0.5) current = this.pilGaussianBlur(current, step.blurRadius);
     if (step.opacity !== null || step.wipe !== null) {
       current = this.alpha(current, step);
     }
@@ -430,6 +432,26 @@ export class LayerCompositor {
     program.int('u_alpha8', alpha8 ?? -1);
     r.draw(out, width, height);
     return out;
+  }
+
+  /** Pillow `GaussianBlur(radius)`: three extended box passes across, then three down. */
+  private pilGaussianBlur(source: RenderTarget, radius: number): RenderTarget {
+    const { radius: boxRadius, ww, fw } = pilBoxWeights(pilGaussianBoxRadius(radius));
+    const r = this.resources;
+    const program = r.program('pil-box-blur', PIL_BOX_BLUR_FRAGMENT);
+    let current = source;
+    for (const axis of [0, 0, 0, 1, 1, 1]) {
+      const out = r.target(current.width, current.height, 'rgba8');
+      this.gl.useProgram(program.handle);
+      r.bind(program, 'u_source', 0, current.texture);
+      program.int('u_axis', axis);
+      program.int('u_radius', Math.min(512, boxRadius));
+      this.gl.uniform1ui(program.location('u_ww'), ww);
+      this.gl.uniform1ui(program.location('u_fw'), fw);
+      r.draw(out, out.width, out.height);
+      current = out;
+    }
+    return current;
   }
 
   private alpha(source: RenderTarget, step: PictureRasterStep): RenderTarget {

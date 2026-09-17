@@ -242,3 +242,37 @@ export function pilRotationMatrix(
   m[5] = d * -cx + e * -cy + 0 + cy;
   return m as [number, number, number, number, number, number];
 }
+
+/** `_gaussian_blur_radius` (float32 arithmetic, as Pillow computes it). */
+export function pilGaussianBoxRadius(radius: number, passes = 3): number {
+  const f = Math.fround;
+  const sigma2 = f(f(radius * radius) / passes);
+  const L = f(Math.sqrt(f(12 * sigma2 + 1)));
+  const l = f(Math.floor(f((L - 1) / 2)));
+  let a = f((2 * l + 1) * f(l * (l + 1) - 3 * sigma2));
+  a = f(a / f(6 * f(sigma2 - (l + 1) * (l + 1))));
+  return f(l + a);
+}
+
+/** The integer weights `ImagingHorizontalBoxBlur` uses for a fractional radius. */
+export function pilBoxWeights(floatRadius: number): { radius: number; ww: number; fw: number } {
+  const radius = Math.trunc(floatRadius);
+  const ww = Math.trunc(Math.fround((1 << 24) / Math.fround(floatRadius * 2 + 1)));
+  const fw = Math.trunc(((1 << 24) - (radius * 2 + 1) * ww) / 2);
+  return { radius, ww, fw };
+}
+
+/** CPU reference of one `ImagingHorizontalBoxBlur` line (edge-clamped extended box). */
+export function pilBoxBlurLine(line: Uint8Array, floatRadius: number): Uint8Array {
+  const { radius, ww, fw } = pilBoxWeights(floatRadius);
+  const last = line.length - 1;
+  const at = (i: number): number => line[Math.min(last, Math.max(0, i))]!;
+  const out = new Uint8Array(line.length);
+  for (let x = 0; x <= last; x++) {
+    let acc = 0;
+    for (let k = -radius; k <= radius; k++) acc += at(x + k);
+    const bulk = acc * ww + (at(x - radius - 1) + at(x + radius + 1)) * fw;
+    out[x] = Math.floor((bulk + (1 << 23)) / (1 << 24)) & 0xff;
+  }
+  return out;
+}

@@ -15,6 +15,7 @@ import { readAlignment, type FramePlanLayer } from '@framepilot/editor-core';
 import type { Asset, Clip } from '@framepilot/timeline-schema';
 import {
   affectsWipe,
+  blurRadiusAt,
   transitionFromClip,
   wipeAxis,
   wipeEdge,
@@ -74,6 +75,11 @@ export interface PictureRasterStep {
    * Composited as the truncated 8-bit value.
    */
   readonly opacity: number | null;
+  /**
+   * A legacy `blur` transition's Pillow GaussianBlur radius at this frame (0 = none), applied to
+   * the cropped, graded picture before its mask (`_apply_transition_blur`).
+   */
+  readonly blurRadius: number;
   /** A legacy wipe's band across the layer's own width or height, `null` when not wiping. */
   readonly wipe: LayerWipe | null;
   /** Live catalog transition halves, applied after the mask in export order (out, then in). */
@@ -269,6 +275,10 @@ export function pictureRasterStep(
     isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping)
       ? Math.min(1, Math.max(0, layer.opacity))
       : null;
+  const blurRadius =
+    legacy !== null && legacy.kind === 'blur'
+      ? blurRadiusAt(legacy, layer.localTime, Math.min(placed.width, placed.height))
+      : 0;
   let wipe: LayerWipe | null = null;
   if (wiping && legacy !== null) {
     const [axis, inverted] = wipeAxis(legacy);
@@ -342,6 +352,7 @@ export function pictureRasterStep(
     decode,
     crop,
     opacity,
+    blurRadius,
     wipe,
     transitions,
     resize,
@@ -418,6 +429,7 @@ export function textRasterStep(
     decode: { kind: 'native' },
     crop: null,
     opacity: null,
+    blurRadius: 0,
     wipe: null,
     transitions: [],
     resize,

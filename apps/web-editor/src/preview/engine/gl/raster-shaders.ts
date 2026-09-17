@@ -446,3 +446,33 @@ void main() {
   o_color = clamp(floor(v), 0.0, 255.0) / 255.0;
 }
 `;
+
+/**
+ * One Pillow `ImagingHorizontalBoxBlur` pass (u_axis 0) or its transposed vertical twin
+ * (u_axis 1): edge-clamped window sum times `ww`, the two far taps times `fw`, `>> 24` with
+ * rounding. RGB only (the export blurs the RGB frame; the mask is separate).
+ */
+export const PIL_BOX_BLUR_FRAGMENT = `${HEADER}
+uniform sampler2D u_source;
+uniform int u_axis;
+uniform int u_radius;
+uniform uint u_ww;
+uniform uint u_fw;
+out vec4 o_color;
+uvec3 px(ivec2 p, int k, ivec2 size) {
+  ivec2 q = u_axis == 0 ? ivec2(clamp(p.x + k, 0, size.x - 1), p.y) : ivec2(p.x, clamp(p.y + k, 0, size.y - 1));
+  return uvec3(texelFetch(u_source, q, 0).rgb * 255.0 + 0.5);
+}
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  ivec2 size = textureSize(u_source, 0);
+  uvec3 acc = uvec3(0u);
+  for (int k = -512; k <= 512; k++) {
+    if (k < -u_radius || k > u_radius) continue;
+    acc += px(p, k, size);
+  }
+  uvec3 bulk = acc * u_ww + (px(p, -u_radius - 1, size) + px(p, u_radius + 1, size)) * u_fw;
+  uvec3 v = (bulk + uvec3(1u << 23u)) >> 24u;
+  o_color = vec4(vec3(v & uvec3(255u)) / 255.0, texelFetch(u_source, p, 0).a);
+}
+`;
