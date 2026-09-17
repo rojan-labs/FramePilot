@@ -8,7 +8,7 @@ twice in BR0):
         ".venv/bin/python -m pytest -m decoded_media tests/test_decoded_media.py -q"
 
 Media: 16 frames of Sintel 02:40 (Blender Foundation, CC-BY 3.0; BR0's parity clip A),
-downscaled to 640×360 so the run stays inside the local budget. Prompt: BR0's parity click.
+downscaled to 640×272 so the run stays inside the local budget. Prompt: BR0's parity click.
 Reference: the upstream PyTorch predictor's masks for the same frames (BR0.2), downscaled.
 The pipeline's matte is not the reference's output (BiRefNet, consensus and stabilisation
 refine it), so the check is a floor on agreement, not parity; parity itself is
@@ -32,8 +32,9 @@ CACHE = PACK / ".cache"
 SOURCE = CACHE / "media" / "sintel_000240.mkv"
 REFERENCE = CACHE / "parity" / "sam_ref_sintel_000240.npz"
 FRAMES = 16
-WIDTH, HEIGHT = 640, 360
-CLICK = (715.0 / 1920, 470.0 / 1080)
+#: Sintel's 1080p release is 1920x818 (2.35:1); 640x272 keeps square pixels.
+WIDTH, HEIGHT = 640, 272
+CLICK = (715.0 / 1920, 470.0 / 818)
 MIN_MEAN_IOU = 0.85
 
 
@@ -105,7 +106,7 @@ def test_real_weights_tiny_clip(tmp_path: Path) -> None:
     matte = host_verify(staging, outcome, clip, 0, FRAMES)
     reference = np.load(REFERENCE)["masks"][:FRAMES]
     ious = []
-    # The matte is in DISPLAY space: scaling a 2.35:1 source to 640x360 keeps its display aspect.
+    # Compare at the matte's display size, whatever the scale filter produced.
     for index in range(FRAMES):
         expected = (
             cv2.resize(

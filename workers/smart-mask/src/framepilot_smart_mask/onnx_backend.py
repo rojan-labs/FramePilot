@@ -130,15 +130,32 @@ class GuardedSession:
 
 
 class OnnxSam:
-    """The five SAM 2.1 graphs plus constants, implementing :class:`SamModules`."""
+    """The SAM 2.1 graphs plus constants, implementing :class:`SamModules`.
 
-    def __init__(self, sessions: dict[str, GuardedSession], constants: SamConstants) -> None:
-        self._sessions = sessions
+    Sessions open on first use and :meth:`release` drops one, so the image encoder (3.4 GB on
+    the CPU EP) and memory attention (2.4 GB) need not be resident together (BR0.7).
+    """
+
+    def __init__(
+        self, open_session: Callable[[str], GuardedSession], constants: SamConstants
+    ) -> None:
+        self._open = open_session
+        self._sessions: dict[str, GuardedSession] = {}
         self._constants = constants
+
+    def _session(self, name: str) -> GuardedSession:
+        if name not in self._sessions:
+            self._sessions[name] = self._open(name)
+        return self._sessions[name]
+
+    def release(self, name: str) -> None:
+        session = self._sessions.pop(name, None)
+        if session is not None:
+            session.close()
 
     @property
     def provider(self) -> str:
-        providers = {session.provider for session in self._sessions.values()}
+        providers = {session.provider for session in self._sessions.values()} or {"cpu"}
         return "cpu" if "cpu" in providers else next(iter(providers))
 
     @property
@@ -146,7 +163,7 @@ class OnnxSam:
         return self._constants
 
     def encode_image(self, image: Any) -> ImageFeatures:
-        fpn0, fpn1, fpn2, _pos0, _pos1, pos2 = self._sessions["sam_image_encoder"].run(
+        fpn0, fpn1, fpn2, _pos0, _pos1, pos2 = self._session("sam_image_encoder").run(
             {"image": image}
         )
         return ImageFeatures(fpn0=fpn0, fpn1=fpn1, fpn2=fpn2, pos2=pos2)
@@ -176,7 +193,7 @@ class OnnxSam:
             "point_coords": np.asarray(coords, np.float32),
             "point_labels": np.asarray(labels, np.int32),
         }
-        return self._decoded(self._sessions[name].run(feeds))
+        return self._decoded(self._session(name).run(feeds))
 
     def decode_mask(self, pix_feat: Any, features: ImageFeatures, mask: Any) -> DecoderOutput:
         feeds = {
@@ -185,10 +202,10 @@ class OnnxSam:
             "high_res1": features.fpn1,
             "mask": np.asarray(mask, np.float32),
         }
-        return self._decoded(self._sessions["sam_decoder_mask"].run(feeds))
+        return self._decoded(self._session("sam_decoder_mask").run(feeds))
 
     def attend(self, curr: Any, curr_pos: Any, memory: Any, memory_pos: Any, valid: Any) -> Any:
-        (out,) = self._sessions["sam_memory_attention"].run(
+        (out,) = self._session("sam_memory_attention").run(
             {
                 "curr": curr,
                 "curr_pos": curr_pos,
@@ -200,7 +217,7 @@ class OnnxSam:
         return out
 
     def encode_memory(self, pix_feat: Any, mask_for_mem: Any) -> tuple[Any, Any]:
-        features, pos = self._sessions["sam_memory_encoder"].run(
+        features, pos = self._session("sam_memory_encoder").run(
             {
                 "pix_feat": np.asarray(pix_feat, np.float32),
                 "mask_for_mem": np.asarray(mask_for_mem, np.float32),
@@ -372,18 +389,7 @@ class OnnxModelProvider:
         return session
 
     def open_sam(self) -> OnnxSam:
-        sessions = {
-            model_id: self._session(model_id, "sam")
-            for model_id in (
-                "sam_image_encoder",
-                "sam_decoder_multi_n1",
-                "sam_decoder_points",
-                "sam_decoder_mask",
-                "sam_memory_attention",
-                "sam_memory_encoder",
-            )
-        }
-        return OnnxSam(sessions, self.load_constants())
+        return OnnxSam(lambda model_id: self._session(model_id, "sam"), self.load_constants())
 
     def load_constants(self) -> SamConstants:
         path = self._digests.resolve("sam_constants", self.directory)

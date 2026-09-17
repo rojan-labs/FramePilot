@@ -621,7 +621,7 @@ class MatteJob:
             )
 
         started = time.monotonic()
-        sam = self._use_sam()
+        self._use_sam()
         spill = self.scratch_dir / f"embeddings-{window.plan.index}"
         spill.mkdir(exist_ok=True)
         store = window.store
@@ -633,12 +633,26 @@ class MatteJob:
             max_spill_bytes=self.config.embedding_spill_bytes,
         )
         try:
-            tracker = SamTracker(sam, embeddings.get, should_stop=self._check)
+            # Encode every frame first (RAM + scratch spill), then release the image encoder so it
+            # is never resident beside memory attention: the job's peak drops by ~3 GB.
+            for index in range(count):
+                self._check()
+                embeddings.get(index)
+                self.progress(
+                    "segment",
+                    index + 1,
+                    3 * count,
+                    detail="encoding frames" if index == 0 else None,
+                )
+            release = getattr(self._use_sam(), "release", None)
+            if release is not None:
+                release("sam_image_encoder")
+            tracker = SamTracker(self._use_sam(), embeddings.get, should_stop=self._check)
             tracked = {"frames": 0}
 
             def on_tracked(_which: str, _index: int) -> None:
                 tracked["frames"] += 1
-                self.progress("segment", min(tracked["frames"], 2 * count), 2 * count)
+                self.progress("segment", count + min(tracked["frames"], 2 * count), 3 * count)
 
             segmentation = segment_window(
                 tracker, count, ctx.height, ctx.width, prompts, on_frame=on_tracked
