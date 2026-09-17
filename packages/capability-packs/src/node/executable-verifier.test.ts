@@ -102,6 +102,19 @@ describe('runBoundedCommand', () => {
     expect(result).toEqual({ exitCode: 0, stdout: 'ok', stderr: '' });
   });
 
+  it.skipIf(process.platform === 'win32')('kills what the checked executable started when it exits (BR4.12)', async () => {
+    const script = [
+      "const { spawn } = require('node:child_process');",
+      "const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: 'ignore' });",
+      'process.stdout.write(String(child.pid));',
+    ].join('\n');
+    const result = await runBoundedCommand({ executable: process.execPath, args: ['-e', script] });
+    const pid = Number(result.stdout);
+    expect(pid).toBeGreaterThan(0);
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(() => process.kill(pid, 0)).toThrow();
+  });
+
   it('rejects an already cancelled command before spawning', async () => {
     const controller = new AbortController();
     controller.abort();

@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { killWorkerGroup, workerGroupSpawnOptions } from './process-group.js';
 import type { CapabilityPackArtifact } from '../contracts.js';
 
 /**
@@ -130,6 +131,8 @@ export async function runBoundedCommand(
       windowsHide: true,
       env: withProcessLaunchEssentials(request.env),
       stdio: ['ignore', 'pipe', 'pipe'],
+      // Health checks run pack code too: same process group as a worker job (BR4.12).
+      ...workerGroupSpawnOptions(),
     });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
@@ -137,6 +140,7 @@ export async function runBoundedCommand(
     let stderrBytes = 0;
     let settled = false;
     const terminate = (): void => {
+      killWorkerGroup(child.pid);
       child.kill('SIGKILL');
     };
     const timeout = setTimeout(terminate, request.timeoutMs ?? COMMAND_TIMEOUT_MS);
@@ -168,13 +172,15 @@ export async function runBoundedCommand(
       stderrBytes = append(stderr, stderrBytes, chunk);
     });
     child.on('error', (error) => finish(untrusted(`Could not run verifier: ${error.message}`)));
-    child.on('close', (exitCode) =>
+    child.on('close', (exitCode) => {
+      // Nothing the checked executable started may outlive the check.
+      killWorkerGroup(child.pid);
       finish(undefined, {
         exitCode,
         stdout: Buffer.concat(stdout).toString('utf8'),
         stderr: Buffer.concat(stderr).toString('utf8'),
-      }),
-    );
+      });
+    });
   });
 }
 
