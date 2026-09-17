@@ -514,7 +514,10 @@ def _encode_ffv1_frames(
             process.stdin.write(payload)
     finally:
         process.stdin.close()
-    _, stderr = process.communicate(timeout=600)
+    # Not `communicate()`: it flushes stdin, which is closed above (Python 3.11 raises on that).
+    assert process.stderr is not None
+    stderr = process.stderr.read()
+    process.wait(timeout=600)
     if process.returncode != 0:
         raise RuntimeError(f"ffv1 encode failed: {stderr.decode(errors='replace')[:400]}")
 
