@@ -109,7 +109,14 @@ def test_an_accelerator_fallback_is_reported_in_the_result_backend(tmp_path) -> 
 
     provider = OnnxModelProvider(tmp_path)
     provider._chosen.update({"sam": "cpu", "birefnet": "directml"})
-    provider._fallbacks.append({"model": "birefnet_hr_matting_1024.fp16s.onnx", "from": "directml", "to": "cpu", "reason": "accelerator out of memory"})
+    provider._fallbacks.append(
+        {
+            "model": "birefnet_hr_matting_1024.fp16s.onnx",
+            "from": "directml",
+            "to": "cpu",
+            "reason": "accelerator out of memory",
+        }
+    )
     assert provider.backend_label.endswith(":birefnet=directml:sam=cpu:fallback=directml")
     assert len(provider.backend_label) <= 128
     assert provider.provider_report()["fallbacks"][0]["reason"] == "accelerator out of memory"

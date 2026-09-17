@@ -59,6 +59,8 @@ docs/quality/foundation-real-eval/*.json
 *.aac
 !tests/fixtures/**
 !engine/python/tests/fixtures/**
+# The fixture re-include above must not re-include bytecode from fixture generators.
+engine/python/tests/fixtures/**/__pycache__/
 projects/
 !apps/desktop/electron/projects/
 *.fp.json
