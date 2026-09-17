@@ -1,0 +1,213 @@
+/**
+ * Per-project matte storage accounting and "Clean unused mattes" (plan 03, MD-4, BR4.6).
+ *
+ * Mattes are project-owned, so this is not the pack storage manager's LRU: nothing is evicted
+ * automatically. The summary reports bytes per artifact and whether anything references it;
+ * cleaning is an explicit action over the exact keys the editor confirmed, re-checked against
+ * the project on disk at the moment of deletion. A matte or correction referenced by the saved
+ * project (timeline or saved history) or by the open session's undo history is never removed.
+ */
+import { lstat, readdir, rm } from 'node:fs/promises';
+import path from 'node:path';
+import { createLogger } from '@framepilot/shared-types';
+import { MATTE_INPUTS_STORE_DIR, MATTE_STAGING_DIR, MATTES_RELATIVE_DIR, isMatteCacheKey } from './matte-staging.js';
+import { MATTE_RESULTS_DIR, readMatteRecord } from './matte-store.js';
+
+const log = createLogger('desktop:capability-packs:matte-storage');
+
+export interface MatteStorageArtifact {
+  readonly key: string;
+  readonly bytes: number;
+  readonly referenced: boolean;
+  readonly assetId?: string;
+  readonly createdAt?: string;
+}
+
+export interface MatteStorageInput {
+  readonly sha256: string;
+  readonly bytes: number;
+  readonly referenced: boolean;
+}
+
+export interface MatteStorageSummary {
+  readonly totalBytes: number;
+  readonly referencedBytes: number;
+  /** What "Clean unused mattes" would free right now. */
+  readonly unusedBytes: number;
+  readonly stagingBytes: number;
+  readonly artifacts: readonly MatteStorageArtifact[];
+  readonly inputs: readonly MatteStorageInput[];
+}
+
+export interface MatteCleanResult {
+  readonly removedKeys: readonly string[];
+  /** Approved keys that are referenced now (or no longer exist) and were left alone. */
+  readonly keptKeys: readonly string[];
+  readonly freedBytes: number;
+}
+
+/**
+ * Every matte artifact key and correction digest the project references, anywhere in its JSON:
+ * clip and effect-layer mask stacks, and any saved history entries that embed masks.
+ */
+export function collectMatteReferences(project: unknown): { readonly artifacts: Set<string>; readonly inputs: Set<string> } {
+  const artifacts = new Set<string>();
+  const inputs = new Set<string>();
+  const stack: unknown[] = [project];
+  let visited = 0;
+  while (stack.length > 0) {
+    const value = stack.pop();
+    // Bounded walk: a project is a tree, but never trust that.
+    if (++visited > 5_000_000) break;
+    if (Array.isArray(value)) {
+      for (const item of value) stack.push(item);
+      continue;
+    }
+    if (typeof value !== 'object' || value === null) continue;
+    const record = value as Record<string, unknown>;
+    if (record.kind === 'matte' && typeof record.artifact === 'object' && record.artifact !== null) {
+      const key = (record.artifact as Record<string, unknown>).key;
+      if (isMatteCacheKey(key)) artifacts.add(key);
+    }
+    if ((record.kind === 'brush' || record.kind === 'lock') && isMatteCacheKey(record.sha256)) {
+      inputs.add(record.sha256);
+    }
+    for (const child of Object.values(record)) {
+      if (typeof child === 'object' && child !== null) stack.push(child);
+    }
+  }
+  return { artifacts, inputs };
+}
+
+export async function matteStorageSummary(
+  projectDir: string,
+  project: unknown,
+  protectedKeys: readonly string[] = [],
+): Promise<MatteStorageSummary> {
+  const references = collectMatteReferences(project);
+  const guard = new Set(protectedKeys);
+  const root = path.join(path.resolve(projectDir), ...MATTES_RELATIVE_DIR);
+  const artifacts: MatteStorageArtifact[] = [];
+  for (const key of await listKeys(root)) {
+    const record = await readMatteRecord(projectDir, key);
+    artifacts.push({
+      key,
+      bytes: await directoryBytes(path.join(root, key)),
+      referenced: references.artifacts.has(key) || guard.has(key),
+      ...(record === undefined ? {} : { assetId: record.assetId, createdAt: record.createdAt }),
+    });
+  }
+  const inputs: MatteStorageInput[] = [];
+  for (const entry of await safeReaddir(path.join(root, MATTE_INPUTS_STORE_DIR))) {
+    const sha256 = entry.endsWith('.png') ? entry.slice(0, -4) : '';
+    if (!isMatteCacheKey(sha256)) continue;
+    inputs.push({
+      sha256,
+      bytes: await fileBytes(path.join(root, MATTE_INPUTS_STORE_DIR, entry)),
+      referenced: references.inputs.has(sha256) || guard.has(sha256),
+    });
+  }
+  const stagingBytes = await directoryBytes(path.join(root, MATTE_STAGING_DIR));
+  const artifactBytes = artifacts.reduce((sum, item) => sum + item.bytes, 0);
+  const inputBytes = inputs.reduce((sum, item) => sum + item.bytes, 0);
+  const referencedBytes =
+    artifacts.filter((item) => item.referenced).reduce((sum, item) => sum + item.bytes, 0) +
+    inputs.filter((item) => item.referenced).reduce((sum, item) => sum + item.bytes, 0);
+  return {
+    totalBytes: artifactBytes + inputBytes + stagingBytes,
+    referencedBytes,
+    unusedBytes: artifactBytes + inputBytes - referencedBytes,
+    stagingBytes,
+    artifacts,
+    inputs,
+  };
+}
+
+/**
+ * Remove exactly the approved, currently unreferenced artifacts and correction inputs.
+ *
+ * @param project - The project as main just re-read it from disk, not the renderer's copy.
+ */
+export async function cleanUnusedMattes(
+  projectDir: string,
+  project: unknown,
+  approvedKeys: readonly string[],
+  protectedKeys: readonly string[] = [],
+): Promise<MatteCleanResult> {
+  const summary = await matteStorageSummary(projectDir, project, protectedKeys);
+  const root = path.join(path.resolve(projectDir), ...MATTES_RELATIVE_DIR);
+  const unusedArtifacts = new Map(summary.artifacts.filter((item) => !item.referenced).map((item) => [item.key, item]));
+  const unusedInputs = new Map(summary.inputs.filter((item) => !item.referenced).map((item) => [item.sha256, item]));
+  const removedKeys: string[] = [];
+  const keptKeys: string[] = [];
+  let freedBytes = 0;
+  for (const key of new Set(approvedKeys)) {
+    if (!isMatteCacheKey(key)) continue;
+    const artifact = unusedArtifacts.get(key);
+    const input = unusedInputs.get(key);
+    if (artifact === undefined && input === undefined) {
+      keptKeys.push(key);
+      continue;
+    }
+    if (artifact !== undefined) {
+      await removeEntry(path.join(root, key));
+      await rm(path.join(root, MATTE_RESULTS_DIR, `${key}.json`), { force: true });
+      freedBytes += artifact.bytes;
+    }
+    if (input !== undefined) {
+      await removeEntry(path.join(root, MATTE_INPUTS_STORE_DIR, `${key}.png`));
+      freedBytes += input.bytes;
+    }
+    removedKeys.push(key);
+  }
+  log.action('matteCleanUnused', { removed: removedKeys.length, kept: keptKeys.length, freedBytes });
+  return { removedKeys, keptKeys, freedBytes };
+}
+
+async function listKeys(root: string): Promise<string[]> {
+  return (await safeReaddir(root)).filter((name) => isMatteCacheKey(name));
+}
+
+async function safeReaddir(directory: string): Promise<string[]> {
+  try {
+    const stat = await lstat(directory);
+    if (!stat.isDirectory()) return [];
+    return await readdir(directory);
+  } catch {
+    return [];
+  }
+}
+
+/** Bytes under a directory, never following links (a link counts as its own small size). */
+async function directoryBytes(directory: string): Promise<number> {
+  let total = 0;
+  const pending = [directory];
+  while (pending.length > 0) {
+    const current = pending.pop()!;
+    let stat;
+    try {
+      stat = await lstat(current);
+    } catch {
+      continue;
+    }
+    if (stat.isDirectory()) {
+      for (const entry of await safeReaddir(current)) pending.push(path.join(current, entry));
+    } else {
+      total += stat.size;
+    }
+  }
+  return total;
+}
+
+async function fileBytes(file: string): Promise<number> {
+  try {
+    return (await lstat(file)).size;
+  } catch {
+    return 0;
+  }
+}
+
+/** Remove a directory tree or file; a symlink is unlinked, never followed. */
+async function removeEntry(target: string): Promise<void> {
+  await rm(target, { recursive: true, force: true });
+}

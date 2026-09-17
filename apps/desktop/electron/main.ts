@@ -186,7 +186,7 @@ import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
-import { registerMatteIpc } from './capability-packs/matte-ipc.js';
+import { registerMatteIpc, registerMatteStorageIpc } from './capability-packs/matte-ipc.js';
 import {
   FfmpegMatteMediaInspector,
   resolveMatteMediaTools,
@@ -1160,15 +1160,17 @@ function registerIpcHandlers(): void {
     if (typeof requestId !== 'string') return;
     trackingRuns.get(requestId)?.abort();
   });
-  // Background removal + generic pack status (plan/background-removal-ai/03, BR4.4).
-  registerMatteIpc({
+  // Background removal + generic pack status (plan/background-removal-ai/03, BR4.4, BR4.6).
+  const matteIpcDependencies = {
     ipcMain,
     requireLicense,
-    capabilityStatus: async (capability) => (await capabilityPackService).capabilityStatus(capability),
+    capabilityStatus: async (capability: string) => (await capabilityPackService).capabilityStatus(capability),
     matte: async () => (await capabilityPackService).matte(),
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,
-    readProject: (projectPath) => readProjectFile(projectPath),
-  });
+    readProject: (projectPath: string) => readProjectFile(projectPath),
+  };
+  registerMatteIpc(matteIpcDependencies);
+  registerMatteStorageIpc(matteIpcDependencies);
   ipcMain.handle(
     IpcChannels.capabilityPackInstall,
     async (_event, approval: unknown): Promise<CapabilityPackInstallStartResultWire> => {

@@ -1346,6 +1346,41 @@ export type MatteSaveCorrectionResultWire =
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
 
+/** The open project's background-removal storage (project-owned, MD-4). */
+export type MatteStorageResultWire =
+  | {
+      readonly ok: true;
+      readonly totalBytes: number;
+      readonly referencedBytes: number;
+      readonly unusedBytes: number;
+      readonly stagingBytes: number;
+      readonly artifacts: readonly {
+        readonly key: string;
+        readonly bytes: number;
+        readonly referenced: boolean;
+        readonly assetId?: string;
+        readonly createdAt?: string;
+      }[];
+      readonly inputs: readonly { readonly sha256: string; readonly bytes: number; readonly referenced: boolean }[];
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
+/** "Clean unused mattes": exactly the confirmed keys, re-checked against the saved project. */
+export interface MatteCleanRequestWire {
+  readonly approvedKeys: readonly string[];
+  /** Digests the open session's undo history still references; they are never removed. */
+  readonly protectedKeys?: readonly string[];
+}
+
+export type MatteCleanResultWire =
+  | {
+      readonly ok: true;
+      readonly removedKeys: readonly string[];
+      readonly keptKeys: readonly string[];
+      readonly freedBytes: number;
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
 export interface CapabilityPackEvictionPlanWire {
   readonly planId: string;
   readonly requestedBytes: number;
@@ -1845,6 +1880,10 @@ export interface FramePilotBridge {
   onCapabilityPackMatteProgress?(handler: (progress: MatteProgressWire) => void): () => void;
   /** Store a brush fix or locked frame as a project-owned input; returns its reference. */
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
+  /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
+  matteStorage?(request?: { readonly protectedKeys?: readonly string[] }): Promise<MatteStorageResultWire>;
+  /** Remove exactly the confirmed unused mattes; referenced ones are always kept. */
+  matteCleanUnused?(request: MatteCleanRequestWire): Promise<MatteCleanResultWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
   capabilityPackTrack?(intent: TrackingRequestIntentWire): Promise<TrackingRunResultWire>;
   /** Cancel an in-flight tracking job by request id. */

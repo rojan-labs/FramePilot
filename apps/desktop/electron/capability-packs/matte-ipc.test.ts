@@ -164,6 +164,38 @@ describe('matte IPC channels', () => {
   });
 });
 
+describe('matte storage IPC', () => {
+  it('summarises and cleans the open project, protecting keys a running re-run reads', async () => {
+    const projectDir = await mkdtemp(path.join(tmpdir(), 'framepilot-matte-storage-ipc-'));
+    const mattes = path.join(projectDir, '.framepilot-derived', 'mattes');
+    for (const key of ['a'.repeat(64), 'b'.repeat(64)]) {
+      await mkdir(path.join(mattes, key), { recursive: true });
+      await writeFile(path.join(mattes, key, 'matte.mkv'), Buffer.alloc(8));
+    }
+    const handlers = new Map<string, (event: MatteIpcEvent, ...args: unknown[]) => unknown>();
+    const busy = new Set(['b'.repeat(64)]);
+    const { registerMatteStorageIpc } = await import('./matte-ipc.js');
+    registerMatteStorageIpc({
+      ipcMain: { handle: (channel, listener) => void handlers.set(channel, listener), on: () => undefined },
+      requireLicense: () => undefined,
+      capabilityStatus: vi.fn(),
+      matte: async () => ({ busyArtifactKeys: () => busy }) as unknown as CapabilityPackMatteService,
+      activeProjectPath: async () => path.join(projectDir, 'edit.fp.json'),
+      readProject: async () => ({ timeline: { tracks: [] } }) as unknown as Project,
+    });
+    const event = { sender: { isDestroyed: () => false, send: () => undefined } };
+    expect([...handlers.keys()].sort()).toEqual([IpcChannels.matteCleanUnused, IpcChannels.matteStorage].sort());
+    expect(await handlers.get(IpcChannels.matteStorage)!(event, {})).toMatchObject({ ok: true, unusedBytes: 8 });
+    expect(await handlers.get(IpcChannels.matteStorage)!(event, { protectedKeys: ['nope'] })).toMatchObject({ ok: false, code: 'invalid_request' });
+    expect(await handlers.get(IpcChannels.matteCleanUnused)!(event, { approvedKeys: ['a'.repeat(64), 'b'.repeat(64)] })).toMatchObject({
+      ok: true,
+      removedKeys: ['a'.repeat(64)],
+      keptKeys: ['b'.repeat(64)],
+    });
+    expect(await handlers.get(IpcChannels.matteCleanUnused)!(event, { approvedKeys: 'all' })).toMatchObject({ ok: false, code: 'invalid_request' });
+  });
+});
+
 describe('generic capability status', () => {
   const propose = (result: CapabilityPackProposalResultWire) => vi.fn(async () => result);
   const proposal = { ok: true, proposal: { proposalId: 'p' } } as unknown as CapabilityPackProposalResultWire;

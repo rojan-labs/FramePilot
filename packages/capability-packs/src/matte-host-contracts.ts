@@ -81,8 +81,19 @@ export const MatteCleanRequestSchema = z
   .object({
     /** Exactly the keys the confirmation dialog listed; anything referenced is still refused. */
     approvedKeys: z.array(Sha256HexSchema).max(100_000),
+    /**
+     * Artifact and input digests the open session's undo history still references. They can
+     * only PROTECT more files from deletion, never less, so the renderer is trusted with them.
+     */
+    protectedKeys: z.array(Sha256HexSchema).max(100_000).default([]),
   })
   .strict();
+
+export const MatteStorageRequestSchema = z
+  .object({ protectedKeys: z.array(Sha256HexSchema).max(100_000).default([]) })
+  .strict();
+
+export type MatteStorageRequest = z.infer<typeof MatteStorageRequestSchema>;
 
 export type MatteRunIntent = z.infer<typeof MatteRunIntentSchema>;
 export type MatteIntentPrompt = z.infer<typeof MatteIntentPromptSchema>;

@@ -79,6 +79,9 @@ import type {
   MatteProgressWire,
   MatteSaveCorrectionWire,
   MatteSaveCorrectionResultWire,
+  MatteStorageResultWire,
+  MatteCleanRequestWire,
+  MatteCleanResultWire,
 } from './ipc/contract.js';
 import type {
   MediaImportChunkBridge,
@@ -162,6 +165,8 @@ const Channels = {
   capabilityPackCancelMatte: 'framepilot:capability-pack:cancel-matte',
   capabilityPackMatteProgress: 'framepilot:capability-pack:matte-progress',
   matteSaveCorrection: 'framepilot:capability-pack:matte-save-correction',
+  matteStorage: 'framepilot:capability-pack:matte-storage',
+  matteCleanUnused: 'framepilot:capability-pack:matte-clean-unused',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -251,6 +256,10 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
   },
   matteSaveCorrection: (correction: MatteSaveCorrectionWire) =>
     ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
+  matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
+    ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
+  matteCleanUnused: (request: MatteCleanRequestWire) =>
+    ipcRenderer.invoke(Channels.matteCleanUnused, request) as Promise<MatteCleanResultWire>,
   capabilityPackTrack: (intent: TrackingRequestIntentWire) =>
     ipcRenderer.invoke(Channels.capabilityPackTrack, intent) as Promise<TrackingRunResultWire>,
   capabilityPackCancelTrack: (requestId: string) => {

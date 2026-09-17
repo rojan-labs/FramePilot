@@ -9,10 +9,14 @@
 import path from 'node:path';
 import {
   CapabilityIdSchema,
+  MatteCleanRequestSchema,
   MatteSaveCorrectionSchema,
+  MatteStorageRequestSchema,
 } from '@framepilot/capability-packs';
 import {
   createLogger,
+  type MatteCleanResultWire,
+  type MatteStorageResultWire,
   type CapabilityPackStatusWire,
   type MatteProgressWire,
   type MatteRunResultWire,
@@ -23,6 +27,7 @@ import { IpcChannels } from '../ipc/contract.js';
 import type { CapabilityPackMatteService, MatteRunOutcome } from './matte.js';
 import { readMatteRecord, saveMatteInput, MatteStoreError } from './matte-store.js';
 import { MatteStagingError, sweepMatteStaging } from './matte-staging.js';
+import { cleanUnusedMattes, matteStorageSummary } from './matte-storage.js';
 
 const log = createLogger('desktop:capability-packs:matte-ipc');
 
@@ -128,6 +133,41 @@ export function registerMatteIpc(dependencies: MatteIpcDependencies): void {
       log.error('matteCorrectionSaveFailed', { error: error instanceof Error ? error.name : 'unknown' });
       return { ok: false, code: 'output_unwritable', error: 'Disk full or folder not writable. Free up space and try again.' };
     }
+  });
+}
+
+/** Storage summary and "Clean unused mattes" for the open project (BR4.6). */
+export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): void {
+  const { ipcMain } = dependencies;
+  const busyKeys = async (): Promise<string[]> => [...(await dependencies.matte()).busyArtifactKeys()];
+
+  ipcMain.handle(IpcChannels.matteStorage, async (_event, input: unknown): Promise<MatteStorageResultWire> => {
+    const parsed = MatteStorageRequestSchema.safeParse(input ?? {});
+    if (!parsed.success) return { ok: false, code: 'invalid_request', error: 'Storage request is malformed.' };
+    const projectPath = await dependencies.activeProjectPath();
+    if (projectPath === null) return { ok: false, code: 'no_project', error: 'No project is open.' };
+    const project = await dependencies.readProject(projectPath);
+    const summary = await matteStorageSummary(path.dirname(projectPath), project, [
+      ...parsed.data.protectedKeys,
+      ...(await busyKeys()),
+    ]);
+    return { ok: true, ...summary };
+  });
+
+  ipcMain.handle(IpcChannels.matteCleanUnused, async (_event, input: unknown): Promise<MatteCleanResultWire> => {
+    dependencies.requireLicense();
+    const parsed = MatteCleanRequestSchema.safeParse(input);
+    if (!parsed.success) return { ok: false, code: 'invalid_request', error: 'Cleanup request is malformed.' };
+    const projectPath = await dependencies.activeProjectPath();
+    if (projectPath === null) return { ok: false, code: 'no_project', error: 'No project is open.' };
+    // Re-read at the moment of deletion: the project on disk is the authority, not the
+    // summary the dialog showed a minute ago.
+    const project = await dependencies.readProject(projectPath);
+    const result = await cleanUnusedMattes(path.dirname(projectPath), project, parsed.data.approvedKeys, [
+      ...parsed.data.protectedKeys,
+      ...(await busyKeys()),
+    ]);
+    return { ok: true, ...result };
   });
 }
 

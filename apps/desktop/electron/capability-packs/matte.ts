@@ -197,12 +197,18 @@ interface ResolvedMedia {
 
 export class CapabilityPackMatteService {
   private readonly jobs = new Map<string, AbortController>();
+  private readonly previousKeys = new Map<string, string>();
 
   public constructor(private readonly options: CapabilityPackMatteServiceOptions) {}
 
   /** Job ids with a live run, so the startup/periodic sweep never removes their staging. */
   public activeJobIds(): ReadonlySet<string> {
     return new Set(this.jobs.keys());
+  }
+
+  /** Artifacts a running re-run is reading from; storage cleanup must leave them alone. */
+  public busyArtifactKeys(): ReadonlySet<string> {
+    return new Set(this.previousKeys.values());
   }
 
   public cancel(requestId: unknown): void {
@@ -221,6 +227,7 @@ export class CapabilityPackMatteService {
     }
     const controller = new AbortController();
     this.jobs.set(intent.requestId, controller);
+    if (intent.previousArtifactKey !== undefined) this.previousKeys.set(intent.requestId, intent.previousArtifactKey);
     const started = Date.now();
     log.action('matteJobStart', { prompts: intent.prompts.length, rerun: intent.previousArtifactKey !== undefined });
     try {
@@ -240,6 +247,7 @@ export class CapabilityPackMatteService {
       return outcome;
     } finally {
       this.jobs.delete(intent.requestId);
+      this.previousKeys.delete(intent.requestId);
     }
   }
 
