@@ -448,6 +448,8 @@ export function WebCodecsPreviewPlayer({
   const [previewReduced, setPreviewReduced] = useState(false);
   const [textApproximate, setTextApproximate] = useState(false);
   const [maskRefusal, setMaskRefusal] = useState<MaskPreviewRefusal | null>(null);
+  /** BR5.1: a presented clip's background removal is still processing at this frame. */
+  const [matteProcessing, setMatteProcessing] = useState(false);
   const [maskView, setMaskView] = useState<MaskDebugView>('off');
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
@@ -505,6 +507,7 @@ export function WebCodecsPreviewPlayer({
         onRenderScaleChange: (scale) => setPreviewReduced(scale < 1),
         onTextApproximateChange: setTextApproximate,
         onMaskRefusalChange: setMaskRefusal,
+        onMatteProcessingChange: setMatteProcessing,
         onError: (message) => {
           log.error('webcodecs preview engine error', { message });
           setError(previewFailureMessage(message, isDesktop()));
@@ -836,21 +839,27 @@ export function WebCodecsPreviewPlayer({
               captionClips={captionClips}
               transcript={transcript ?? []}
             />
-            {(previewReduced || textApproximate || maskRefusal !== null) && !error && (
-              <div className="webcodecs-preview-reduced" role="status" title={maskRefusal?.message}>
-                {[
-                  previewReduced ? 'Preview reduced' : null,
-                  textApproximate ? 'Preview text approximate' : null,
-                  maskRefusal === null
-                    ? null
-                    : maskRefusal.task !== null
-                      ? 'Mask not previewed yet'
-                      : 'Mask not drawn: fix the mask to preview or export it',
-                ]
-                  .filter(Boolean)
-                  .join(' · ')}
-              </div>
-            )}
+            {(previewReduced || textApproximate || maskRefusal !== null || matteProcessing) &&
+              !error && (
+                <div
+                  className="webcodecs-preview-reduced"
+                  role="status"
+                  title={maskRefusal?.message}
+                >
+                  {[
+                    previewReduced ? 'Preview reduced' : null,
+                    textApproximate ? 'Preview text approximate' : null,
+                    matteProcessing ? 'Processing background removal' : null,
+                    maskRefusal === null
+                      ? null
+                      : maskRefusal.task !== null
+                        ? 'Mask not previewed yet'
+                        : 'Mask not drawn: fix the mask to preview or export it',
+                  ]
+                    .filter(Boolean)
+                    .join(' · ')}
+                </div>
+              )}
             {error && (
               <div className="webcodecs-preview-error" role="alert">
                 {error}

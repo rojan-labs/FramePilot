@@ -7,6 +7,7 @@
  * Full snapshots remain the path for first save, explicit Save/export checkpoints,
  * browser persistence, recovery and non-patch metadata changes.
  */
+import { setActiveProjectPath } from './preview/masks/matte-location.js';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   commitProjectPatch,
@@ -58,6 +59,8 @@ export function App(): JSX.Element {
   const [boot] = useState(loadAppBootState);
   const [project, setProject] = useState<Project | null>(boot.project);
   const [path, setPath] = useState<string>(boot.path);
+  // The monitor reads background-removal artifacts from the open project's folder (BR5.1).
+  setActiveProjectPath(isFilePath(path) ? path : '');
   const [projectRevision, setProjectRevision] = useState(0);
   const [saveState, setSaveState] = useState<SaveState>('saved');
   /**
