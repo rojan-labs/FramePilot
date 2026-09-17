@@ -52,7 +52,8 @@ import {
 import { MatteSource } from '../masks/matte-source.js';
 import { resolveMatteArtifactLocator } from '../masks/matte-location.js';
 import type { MatteFrameData } from '../masks/matte-edges.js';
-import type { MaskDebugView } from '../masks/mask-view.js';
+import { isFlaggedFrame, type MaskDebugView } from '../masks/mask-view.js';
+import type { FlaggedRange } from '../masks/matte-source.js';
 import {
   EngineTextRasters,
   resolveTextRasterSource,
@@ -191,6 +192,8 @@ export class LayerPreviewEngine {
   /** BR5.1: matte artifact frames, decoded in the same worker into the same cache. */
   private readonly mattes: MatteSource;
   private lastMatteProcessing = false;
+  /** BR5.2: review ranges per artifact key (`undefined` while `report.json` is being read). */
+  private readonly flaggedRanges = new Map<string, readonly FlaggedRange[] | null>();
   private cacheBytes = 0;
   private useCounter = 0;
   private readonly decoding = new Set<string>();
@@ -882,11 +885,18 @@ export class LayerPreviewEngine {
           mattes = { decodedWidth: decoded.width, decodedHeight: decoded.height, frames };
         }
       }
+      const viewed =
+        layer.role === 'clip' && layer.clipId === this.maskViewClipId && step.mask !== null;
+      const flagged =
+        viewed && this.maskView === 'flagged' && step.mask !== null
+          ? this.isFlagged(step.mask.stack.mattes, frame, layer.mask?.sourceTime ?? null)
+          : false;
       layers.push({
         kind: 'picture',
         step: { ...step, frame },
         source: { kind: 'decoded', key, picture: cached.picture },
         ...(mattes !== null ? { mattes } : {}),
+        ...(flagged ? { flagged } : {}),
         ...(layer.role === 'clip' && layer.clipId === this.maskViewClipId && step.mask !== null
           ? { maskView: this.maskView }
           : {}),
@@ -899,6 +909,45 @@ export class LayerPreviewEngine {
       });
     }
     return { layers, presented, processing };
+  }
+
+  /**
+   * BR5.2: whether a matte frame at source frame `sourceFrame` needs review: in the pack's
+   * `report.json` flags (read once per artifact, digest-verified) or the mask's own review
+   * ranges, and not approved. The report arrives asynchronously; the paused frame is presented
+   * again when it does.
+   */
+  private isFlagged(
+    mattes: readonly MatteMask[],
+    sourceFrame: number,
+    sourceTime: number | null,
+  ): boolean {
+    for (const mask of mattes) {
+      const approved =
+        sourceTime !== null &&
+        mask.review.approved.some((r) => sourceTime >= r.start && sourceTime <= r.end);
+      if (approved) continue;
+      if (
+        sourceTime !== null &&
+        mask.review.flagged.some((r) => sourceTime >= r.start && sourceTime <= r.end)
+      ) {
+        return true;
+      }
+      const key = mask.artifact.key;
+      if (!this.flaggedRanges.has(key)) {
+        this.flaggedRanges.set(key, null);
+        void this.mattes.flaggedRanges(mask).then((ranges) => {
+          if (this.disposed) return;
+          this.flaggedRanges.set(key, ranges);
+          this.lastPresentedSignature = '';
+          if (!this.playing && this.maskView === 'flagged') void this.seek(this.pausedAtSec);
+        });
+      }
+      const ranges = this.flaggedRanges.get(key);
+      const index = this.mattes.frameIndexFor(mask, sourceFrame);
+      if (ranges && index !== null && isFlaggedFrame(ranges, index)) return true;
+    }
+    return false;
   }
 
   /** Tell the monitor whether a presented matte is still being processed (BR5.1). */
@@ -927,6 +976,7 @@ export class LayerPreviewEngine {
       plan.frameEffects.length > 0 ? timeSec : null,
       this.maskView,
       this.maskViewClipId,
+      composed.layers.map((l) => (l.kind === 'picture' ? (l.flagged ?? false) : null)),
       composed.layers.map((l) =>
         l.kind === 'picture' && l.mattes
           ? [...l.mattes.frames].map(([id, f]) => `${id}=${f?.id ?? '-'}`)

@@ -443,12 +443,18 @@ uniform int u_mode;
 uniform float u_scale;
 uniform vec3 u_color;
 uniform float u_strength;
+uniform int u_outline;
 out vec4 o_color;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec4 texel = texelFetch(u_source, p, 0);
   float a = clamp(float(texelFetch(u_mask, p, 0).r) / 255.0 * u_scale, 0.0, 1.0);
-  if (u_mode == 2) {
+  ivec2 size = textureSize(u_source, 0);
+  bool edge = u_outline > 0 &&
+    (p.x < u_outline || p.y < u_outline || p.x >= size.x - u_outline || p.y >= size.y - u_outline);
+  if (u_mode == 3 && edge) {
+    o_color = vec4(u_color, 1.0);
+  } else if (u_mode == 2) {
     o_color = vec4(vec3(a), 1.0);
   } else {
     o_color = vec4(mix(texel.rgb, u_color, (1.0 - a) * u_strength), texel.a);

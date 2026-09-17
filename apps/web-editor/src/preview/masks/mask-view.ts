@@ -7,13 +7,16 @@
  * - `overlay`: the whole picture, with what the mask removes tinted in the mask's colour;
  * - `mask`: the stack's alpha itself as a grey picture (white keeps, black removes);
  * - `checkerboard`: the clip alone, cut out, over a checkerboard, so partial alpha reads;
+ * - `flagged` (BR5.2): the overlay view for AI mattes, answering "does this frame need a look?".
+ *   A frame the pack flagged for review (its `report.json`, digest-verified, or the mask's own
+ *   review ranges) is tinted red and outlined; any other frame is tinted neutral grey;
  * - `off`: the program picture, exactly what the export renders.
  *
  * The views change only what the monitor draws for the SELECTED clip; they are never baked into
  * a frame the parity oracle or an export reads (the view resets to `off` without a selection).
  */
 
-export type MaskDebugView = 'off' | 'overlay' | 'mask' | 'checkerboard';
+export type MaskDebugView = 'off' | 'overlay' | 'mask' | 'checkerboard' | 'flagged';
 
 export const MASK_DEBUG_VIEWS: readonly {
   readonly value: MaskDebugView;
@@ -23,6 +26,7 @@ export const MASK_DEBUG_VIEWS: readonly {
   { value: 'overlay', label: 'Overlay' },
   { value: 'mask', label: 'Mask only' },
   { value: 'checkerboard', label: 'Checkerboard' },
+  { value: 'flagged', label: 'Flagged' },
 ];
 
 /** Shader mode for the per-layer view pass (the checkerboard is a frame-level choice). */
@@ -31,7 +35,26 @@ export const MASK_VIEW_MODE: Readonly<Record<MaskDebugView, number>> = {
   overlay: 1,
   mask: 2,
   checkerboard: 0,
+  flagged: 3,
 };
+
+/** Flagged view tint for a frame that needs review (the review UI's red, plan 05). */
+export const FLAGGED_RGB: readonly [number, number, number] = [0.9, 0.16, 0.16];
+/** Flagged view tint for a frame nothing flagged. */
+export const UNFLAGGED_RGB: readonly [number, number, number] = [0.5, 0.5, 0.5];
+/** Width in pixels of the outline around a flagged frame's layer. */
+export const FLAGGED_OUTLINE_PX = 6;
+
+/** A matte frame range flagged for review, inclusive, in matte frame indices. */
+export interface FlaggedFrames {
+  readonly first: number;
+  readonly last: number;
+}
+
+/** Whether `frame` falls in any of `ranges` (sorted or not). */
+export function isFlaggedFrame(ranges: readonly FlaggedFrames[], frame: number): boolean {
+  return ranges.some((range) => frame >= range.first && frame <= range.last);
+}
 
 /** How much of the mask colour covers fully removed pixels in the overlay view. */
 export const OVERLAY_TINT_STRENGTH = 0.5;

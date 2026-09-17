@@ -236,6 +236,14 @@ export class MatteSource {
     return { state: 'pending' };
   }
 
+  /** The matte frame index of `sourceFrame`, when the artifact is loaded and holds it. */
+  frameIndexFor(mask: MatteMask, sourceFrame: number): number | null {
+    const frames = this.artifacts.get(mask.artifact.key)?.frames ?? null;
+    if (frames === null) return null;
+    const index = sourceFrame - frames.firstFrame;
+    return index < 0 || index >= frames.pts.length ? null : index;
+  }
+
   /** The shared-cache key of `mask`'s frame at `sourceFrame`, when the artifact holds it. */
   cacheKeyFor(mask: MatteMask, sourceFrame: number): string | null {
     const frames = this.artifacts.get(mask.artifact.key)?.frames ?? null;

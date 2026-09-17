@@ -35,8 +35,11 @@ import {
 } from '../masks/mask-stack.js';
 import { decontaminate } from '../masks/matte-edges.js';
 import {
+  FLAGGED_OUTLINE_PX,
+  FLAGGED_RGB,
   MASK_VIEW_MODE,
   OVERLAY_TINT_STRENGTH,
+  UNFLAGGED_RGB,
   layersForMaskView,
   maskColorRgb,
   type MaskDebugView,
@@ -105,6 +108,8 @@ export type CompositeLayer =
       readonly maskView?: MaskDebugView;
       /** BR5.1: decoded matte frames for the clip's `matte` layers at this instant. */
       readonly mattes?: MatteStackInputs;
+      /** BR5.2: under the Flagged view, whether this frame is flagged for review. */
+      readonly flagged?: boolean;
     }
   | {
       /** A pre-rasterised RGBA layer (text, captions) placed at an integer position. */
@@ -213,6 +218,7 @@ export class LayerCompositor {
                 decodedMemo,
                 layer.maskView ?? 'off',
                 layer.mattes ?? null,
+                layer.flagged === true,
               )
             : {
                 target: r.imageTarget(layer.image, layer.width, layer.height),
@@ -281,6 +287,7 @@ export class LayerCompositor {
     decodedMemo: Map<string, RenderTarget>,
     view: MaskDebugView = 'off',
     mattes: MatteStackInputs | null = null,
+    flagged = false,
   ): { target: RenderTarget; x: number; y: number } | null {
     // PX2.4: two layers showing the same frame at the same decode size share one decode.
     const decodeKey =
@@ -324,7 +331,7 @@ export class LayerCompositor {
       // Overlay and mask-only views draw the stack instead of cutting the picture with it.
       const viewed = this.viewedStack(step, current.width, current.height, mattes);
       if (viewed !== null) {
-        current = this.maskView(current, viewed.raster, viewMode, viewed.color);
+        current = this.maskView(current, viewed.raster, viewMode, viewed.color, flagged);
         if (step.opacity !== null || step.wipe !== null) {
           current = this.alpha(current, { ...step, mask: null }, null);
         }
@@ -652,6 +659,7 @@ export class LayerCompositor {
     mask: MaskStackRaster,
     mode: number,
     color: string | undefined,
+    flagged = false,
   ): RenderTarget {
     const r = this.resources;
     const out = r.target(source.width, source.height, 'rgba8');
@@ -662,7 +670,9 @@ export class LayerCompositor {
     r.bind(program, 'u_mask', 1, r.plane(mask.width, mask.height, mask.alpha8));
     program.int('u_mode', mode);
     gl.uniform1f(program.location('u_scale'), mask.scale);
-    gl.uniform3f(program.location('u_color'), ...maskColorRgb(color));
+    const rgb = mode === 3 ? (flagged ? FLAGGED_RGB : UNFLAGGED_RGB) : maskColorRgb(color);
+    gl.uniform3f(program.location('u_color'), ...rgb);
+    program.int('u_outline', mode === 3 && flagged ? FLAGGED_OUTLINE_PX : 0);
     gl.uniform1f(program.location('u_strength'), OVERLAY_TINT_STRENGTH);
     r.draw(out, out.width, out.height);
     return out;
