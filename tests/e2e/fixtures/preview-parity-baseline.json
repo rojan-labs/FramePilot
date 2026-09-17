@@ -7,15 +7,6 @@
     "alpha/matte-text-behind-subject": [
       "pixels",
       "sentinel"
-    ],
-    "text/caption-track-order": [
-      "pixels"
-    ],
-    "text/text-only": [
-      "pixels"
-    ],
-    "text/text-transform": [
-      "pixels"
     ]
   },
   "colour": {
@@ -35,8 +26,8 @@
     },
     "alpha/matte-text-behind-subject": {
       "renderer": "webcodecs",
-      "minPsnr": null,
-      "minWithinPercent": null,
+      "minPsnr": 14.61,
+      "minWithinPercent": 39.531,
       "failing": [
         "pixels",
         "sentinel"
@@ -182,11 +173,9 @@
     },
     "text/caption-track-order": {
       "renderer": "webcodecs",
-      "minPsnr": 39.79,
-      "minWithinPercent": 99.79,
-      "failing": [
-        "pixels"
-      ]
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
     },
     "text/captions-burn-off": {
       "renderer": "webcodecs",
@@ -196,8 +185,8 @@
     },
     "text/text-above": {
       "renderer": "webcodecs",
-      "minPsnr": 41.99,
-      "minWithinPercent": 99.869,
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
       "failing": []
     },
     "text/text-below": {
@@ -214,19 +203,15 @@
     },
     "text/text-only": {
       "renderer": "webcodecs",
-      "minPsnr": 38.74,
-      "minWithinPercent": 99.873,
-      "failing": [
-        "pixels"
-      ]
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
     },
     "text/text-transform": {
       "renderer": "webcodecs",
-      "minPsnr": 37.02,
-      "minWithinPercent": 99.534,
-      "failing": [
-        "pixels"
-      ]
+      "minPsnr": 101.09,
+      "minWithinPercent": 100,
+      "failing": []
     },
     "time/mixed-frame-rates": {
       "renderer": "webcodecs",
