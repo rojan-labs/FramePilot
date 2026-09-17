@@ -95,7 +95,10 @@ jobs:
 
   # ── Mask rasteriser byte-equality on the other two desktop platforms (MK2.3) ──────────
   # The vectors must reproduce byte for byte on macOS arm64 and Windows x64 as well as Linux
-  # x64 (covered by python-engine above). Only the vector test runs here: no ffmpeg, no renders.
+  # x64 (covered by python-engine above). Only the vector tests run here: no ffmpeg, no renders.
+  # MK3.1: the TypeScript preview twin (apps/web-editor/src/preview/masks/mask-raster.test.ts)
+  # runs on Linux in node-quality and here on the other two platforms, because byte equality
+  # of the preview mask on every desktop platform is a production budget, not a Linux fact.
   mask-raster-vectors:
     name: Mask rasteriser vectors · ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
@@ -117,6 +120,17 @@ jobs:
       - name: Rasteriser vectors
         working-directory: engine/python
         run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py -q
+      - uses: pnpm/action-setup@v6
+        with:
+          version: ${{ env.PNPM_VERSION }}
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Preview rasteriser vectors (TypeScript)
+        working-directory: apps/web-editor
+        run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts
 
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:
