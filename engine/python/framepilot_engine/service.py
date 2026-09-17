@@ -255,6 +255,11 @@ from framepilot_engine.render.frame_hashes import (
 )
 from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
+from framepilot_engine.render.preview_text import (
+    PreviewTextError,
+    baseline_caption_raster,
+    text_overlay_raster,
+)
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -795,6 +800,34 @@ class RenderFrameResponse(BaseModel):
     duration_seconds: float = Field(description="The timeline's full duration.")
 
 
+class PreviewTextRasterRequest(BaseModel):
+    """Request body for ``POST /preview/text-raster`` (PX2.3): one text or caption layer."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["text", "caption"] = Field(
+        description="'text': a text clip's `text` effect params; 'caption': an unstyled cue."
+    )
+    params: dict[str, Any] | None = Field(
+        default=None, description="The text effect's params (kind 'text')."
+    )
+    text: str | None = Field(
+        default=None, max_length=2000, description="The caption cue text (kind 'caption')."
+    )
+    frame_width: int = Field(ge=1, le=8192, description="Output frame width in pixels.")
+    frame_height: int = Field(ge=1, le=8192, description="Output frame height in pixels.")
+
+
+class PreviewTextRasterResponse(BaseModel):
+    """A text raster as Pillow stores it (straight RGBA, row-major, top row first)."""
+
+    width: int
+    height: int
+    rgba_base64: str = Field(description="width x height x 4 bytes, base64-encoded.")
+    x: int | None = Field(default=None, description="Caption paste x; None for a text clip.")
+    y: int | None = Field(default=None, description="Caption paste y; None for a text clip.")
+
+
 class TemporalEvidenceBatchRequest(AnalysisProjectSource):
     """A bounded evidence batch against the live working project revision."""
 
@@ -962,6 +995,7 @@ DEFAULT_LEDGER_PAGE = 500
 #: of the assets ITS timeline references and pages; nothing may pull a library into one
 #: response.
 MAX_LEDGER_PAGE = 5000
+
 
 class VisualCaptionProviderPayload(BaseModel):
     """The host-resolved vision provider for captioning, in the request body.
@@ -2729,8 +2763,7 @@ def create_app(
 
         try:
             keyframes = {
-                s.t0: extract_keyframe_jpeg(media_path, s.keyframe_t, timeout=timeout)
-                for s in todo
+                s.t0: extract_keyframe_jpeg(media_path, s.keyframe_t, timeout=timeout) for s in todo
             }
         except (FrameExtractionError, FFmpegError) as exc:
             return VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc))
@@ -2872,9 +2905,7 @@ def create_app(
         except BrainError as exc:
             return _TierOutcome("failed", str(exc))
         try:
-            stats = measure_asset(
-                media_path, duration=duration, is_image=is_image, timeout=timeout
-            )
+            stats = measure_asset(media_path, duration=duration, is_image=is_image, timeout=timeout)
         except (FFmpegError, OSError) as exc:
             _log.warning("tier 0 measurement failed: asset=%s reason=%s", asset_id, exc)
             return _TierOutcome("failed", str(exc))
@@ -2884,9 +2915,7 @@ def create_app(
         # so `_link_duplicate_shots` filtered on `phash is not None` and matched nothing on
         # every project. One 9x8 grayscale frame per shot, and a frame that will not decode
         # yields no entry rather than a zero every other shot would look like.
-        phashes = keyframe_dhashes(
-            media_path, [s.keyframe_t for s in stats], timeout=timeout
-        )
+        phashes = keyframe_dhashes(media_path, [s.keyframe_t for s in stats], timeout=timeout)
         # `MeasuredFacts.loudnessLufs` had a schema field, a store parameter and no
         # producer: null for every shot of every asset, including assets with an audio
         # stream, which is indistinguishable from "this asset is silent". One `ebur128`
@@ -2916,9 +2945,7 @@ def create_app(
                     content_hash,
                     _asset_shots(store, asset_id),
                     duration_s=duration,
-                    has_speech=bool(
-                        store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)
-                    ),
+                    has_speech=bool(store.list_analysis(asset_id, kind=AnalysisKind.TRANSCRIPTION)),
                 )
             )
         except BrainError as exc:
@@ -3180,9 +3207,7 @@ def create_app(
         observations.extend(seed_from_centroid(row.id, row.centroid) for row in stored)
         for item in labelled:
             observations.extend(
-                FaceObservation(
-                    asset_id=asset_id, shot_index=item.shot_index, vector=tuple(vector)
-                )
+                FaceObservation(asset_id=asset_id, shot_index=item.shot_index, vector=tuple(vector))
                 for vector in item.face_vectors
             )
         if not any(observation.shot_index >= 0 for observation in observations):
@@ -3715,9 +3740,7 @@ def create_app(
         payload["assetIds"] = asset_ids
         payload["cursor"] = measured_cursor
         payload["deepCursor"] = deep_cursor
-        return _plan_from_payload(
-            payload, deep_possible=deep_possible, want_measured=want_measured
-        )
+        return _plan_from_payload(payload, deep_possible=deep_possible, want_measured=want_measured)
 
     def _plan_from_payload(
         payload: dict[str, Any], *, deep_possible: bool, want_measured: bool
@@ -3995,9 +4018,7 @@ def create_app(
         tier_states = {
             "measured": "ok" if want_measured else f"skipped: {NOT_REQUESTED_REASON}",
             "labelled": "skipped: the TwelveLabs backend produces no tier-1 labels",
-            "described": (
-                "skipped: TwelveLabs describes footage in its own index, not the ledger"
-            ),
+            "described": ("skipped: TwelveLabs describes footage in its own index, not the ledger"),
         }
         # Phase 1 — resolve/create the job + ensure the project's TL index exists.
         try:
@@ -4140,9 +4161,7 @@ def create_app(
                 # tier 2 runs locally for it — the same producer the built-in route uses,
                 # writing the same `shots.described` rows.
                 if still_producer is not None:
-                    tier2 = _describe_tier2(
-                        store, still_producer, asset_id, resolved_root, timeout
-                    )
+                    tier2 = _describe_tier2(store, still_producer, asset_id, resolved_root, timeout)
                     tiers = {**tiers, "described": tier2.label()}
                     still_item.captioned = tier2.shots
                 still_item.tiers = tiers
@@ -4151,9 +4170,7 @@ def create_app(
                 media_path = resolve_within(resolved_root, asset.path)
             except PathTraversalError as exc:
                 return _AssetOutcome(
-                    item=VisualIndexItem(
-                        asset_id=asset_id, ok=False, reason=str(exc), tiers=tiers
-                    ),
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=str(exc), tiers=tiers),
                     advanced=True,
                 )
             content_hash = asset.content_sha256 or _sha256_file(media_path)
@@ -4191,9 +4208,7 @@ def create_app(
                 store_video_mapping(store, asset_id, content_hash=content_hash, status="failed")
                 _log.warning("twelvelabs index asset failed: asset=%s reason=%s", asset_id, reason)
                 return _AssetOutcome(
-                    item=VisualIndexItem(
-                        asset_id=asset_id, ok=False, reason=reason, tiers=tiers
-                    ),
+                    item=VisualIndexItem(asset_id=asset_id, ok=False, reason=reason, tiers=tiers),
                     advanced=True,
                 )
             return _AssetOutcome(
@@ -4663,8 +4678,7 @@ def create_app(
                         # prevent, on the only install where it matters most.
                         max_workers=index_governor.tier_workers(
                             "measured" if current.phase == MEASURED_PHASE else "labelled",
-                            hosted=current.phase == DEEP_PHASE
-                            and embedder_res.client is not None,
+                            hosted=current.phase == DEEP_PHASE and embedder_res.client is not None,
                         ),
                     )
                 except (
@@ -4735,9 +4749,7 @@ def create_app(
                         ),
                         progress=_job_progress(payload, total, plan.deep_possible),
                         payload=payload,
-                        error=(
-                            EXHAUSTED_REASON if exhausted is not None else all_failed_reason
-                        ),
+                        error=(EXHAUSTED_REASON if exhausted is not None else all_failed_reason),
                     )
                     if captioned and (req.project is not None or req.project_path is not None):
                         reindex_project_embeddings(
@@ -5416,9 +5428,7 @@ def create_app(
                 grouped.setdefault(row.asset_id, []).append(row)
         return grouped
 
-    def _caption_for_span(
-        captions: Sequence[VisualCaptionRow], t0: float, t1: float
-    ) -> str | None:
+    def _caption_for_span(captions: Sequence[VisualCaptionRow], t0: float, t1: float) -> str | None:
         """The stored summary that best covers ``[t0, t1)``, by TIME overlap.
 
         Captions used to be joined to spans by ``scene_index``, which worked only while
@@ -6069,6 +6079,29 @@ def create_app(
             height=frame.height,
             time_seconds=frame.time_seconds,
             duration_seconds=frame.duration_seconds,
+        )
+
+    @app.post("/preview/text-raster", response_model=PreviewTextRasterResponse)
+    def preview_text_raster_route(req: PreviewTextRasterRequest) -> PreviewTextRasterResponse:
+        """Rasterise one text clip or unstyled caption through the export's own Pillow calls.
+
+        The desktop program monitor composites the result on the GPU, so its glyphs are the
+        export's glyphs (see :mod:`framepilot_engine.render.preview_text`). Pure CPU on a
+        single layer; no project, media or MoviePy.
+        """
+        try:
+            if req.kind == "text":
+                raster = text_overlay_raster(req.params or {}, req.frame_width, req.frame_height)
+            else:
+                raster = baseline_caption_raster(req.text or "", req.frame_width, req.frame_height)
+        except PreviewTextError as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return PreviewTextRasterResponse(
+            width=raster.width,
+            height=raster.height,
+            rgba_base64=raster.base64(),
+            x=raster.x,
+            y=raster.y,
         )
 
     @app.post("/review/temporal-evidence", response_model=TemporalEvidenceBatch)

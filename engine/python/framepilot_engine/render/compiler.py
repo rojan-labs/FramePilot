@@ -163,7 +163,7 @@ from framepilot_engine.render.pts_reader import (
     video_timing,
 )
 from framepilot_engine.render.resources import close_clip_tree
-from framepilot_engine.render.text_overlay import render_text_overlay_image, text_overlay_layout
+from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.timeline.models import (
     Clip,
@@ -441,16 +441,7 @@ def _compile_text_clip(image_clip_cls: Any, clip: Clip, target: tuple[int, int])
         return None
     text, style_params = content
     layout = text_overlay_layout(style_params, target[0], target[1])
-    image = render_text_overlay_image(
-        text,
-        target[0],
-        target[1],
-        font_size=layout.font_size,
-        color=layout.color,
-        max_width=layout.box_width,
-        align=layout.align,
-        background=layout.background,
-    )
+    image = rasterize_text_overlay(text, style_params, target[0], target[1])
     layer = image_clip_cls(image, transparent=True).with_duration(clip.end - clip.start)
     placed = _place_video_clip(
         layer, clip, target, None, fit_to_frame=False, centre=(layout.centre_x, layout.centre_y)
@@ -1418,6 +1409,22 @@ def _caption_position(
     )
 
 
+def baseline_caption_position(
+    target_w: int, target_h: int, box_w: int, box_h: int
+) -> tuple[int, int]:
+    """Where an unstyled caption box is pasted: centred, in the lower safe area.
+
+    Shared with the desktop preview's text raster route, which returns the placement with the
+    raster so the monitor pastes the export's box where the export pastes it.
+    """
+    from framepilot_engine.timeline.models import CaptionStyle
+
+    margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
+    return _caption_position(
+        CaptionStyle(position="bottom"), target_w, target_h, box_w, box_h, margin
+    )
+
+
 def _caption_layers(project: Project, target: tuple[int, int]) -> list[tuple[Any, str | None]]:
     target_w, target_h = target
     margin = int(target_h * _CAPTION_BOTTOM_MARGIN_FRACTION)
@@ -1460,10 +1467,9 @@ def _caption_clip(
         box_w, box_h = picture.size
         placement_style = resolved
         if placement_style is None:
-            from framepilot_engine.timeline.models import CaptionStyle
-
-            placement_style = CaptionStyle(position="bottom")
-        x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
+            x, y = baseline_caption_position(target_w, target_h, box_w, box_h)
+        else:
+            x, y = _caption_position(placement_style, target_w, target_h, box_w, box_h, margin)
         return picture.with_start(clip.start).with_position((x, y))
 
     if style is not None and caption_style_is_animated(style):
