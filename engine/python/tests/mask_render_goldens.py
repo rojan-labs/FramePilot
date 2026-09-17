@@ -1,10 +1,11 @@
 """Render goldens for the v22 mask stack (MK2.4): every shape kind, mode and target.
 
 Each case compiles a real timeline (``compile_timeline``: speed stage, grade, mask stack,
-compositing) over a deterministic lossless ``testsrc2`` source at the output size, so no
-resize runs, and records each sampled frame as 8x6 block means per channel. Block means,
-compared to within one level, are stable across numpy/ffmpeg builds yet catch a mask that
-moved, grew, lost its feather, combined wrongly or limited the wrong effect.
+compositing) over a numpy-synthesised picture written losslessly (PNG frames, RGB, no YUV
+step) at the output size, so no resize runs and no codec or generator version can move a
+pixel. Each sampled frame is recorded as 8x6 block means per channel, compared to within one
+level: stable across builds, yet a mask that moved, grew, lost its feather, combined wrongly
+or limited the wrong effect is caught.
 
 Regenerate after a deliberate render change::
 
@@ -17,7 +18,6 @@ from __future__ import annotations
 
 import json
 import logging
-import subprocess
 import sys
 import tempfile
 from pathlib import Path
@@ -26,11 +26,11 @@ from typing import Any
 import numpy as np
 
 from framepilot_engine.media.assets import index_assets
-from framepilot_engine.media.ffmpeg import find_ffmpeg
 from framepilot_engine.render.compiler import compile_timeline
 from framepilot_engine.render.presets import frame_target
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.timeline.models import Project
+from tests.matte_fixtures import write_source
 
 _log = logging.getLogger(__name__)
 
@@ -39,7 +39,7 @@ WIDTH, HEIGHT, FPS = 96, 72, 30
 SECONDS = 0.5
 SAMPLES = (0.1, 0.4)
 BLOCKS = (8, 6)
-LAVFI = f"testsrc2=s={WIDTH}x{HEIGHT}:r={FPS}:d={SECONDS}"
+FRAMES = round(SECONDS * FPS)
 
 
 def _rect(mask_id: str, **extra: Any) -> dict[str, Any]:
@@ -206,26 +206,28 @@ CASES: list[dict[str, Any]] = [
 ]
 
 
+def source_frames() -> list[np.ndarray]:
+    """The picture: colour gradients, a checkerboard, and a bar that moves one step per frame.
+
+    Synthesised in numpy rather than taken from ffmpeg's ``testsrc2``, whose pixels differ
+    between ffmpeg releases (measured: 7.1 and 8.1 disagree), which moved the golden on CI.
+    """
+    ys, xs = np.mgrid[0:HEIGHT, 0:WIDTH]
+    checker = ((xs // 8 + ys // 8) % 2) * 40
+    frames = []
+    for frame in range(FRAMES):
+        bar = (np.abs(xs - (6 + 5 * frame)) < 4) * 90
+        red = np.clip(40 + xs * 2 + checker + bar, 0, 255)
+        green = np.clip(30 + ys * 3 + checker, 0, 255)
+        blue = np.clip(200 - xs - ys + bar, 0, 255)
+        frames.append(np.stack([red, green, blue], axis=-1).astype(np.uint8))
+    return frames
+
+
 def make_source(directory: Path) -> Path:
-    """The lossless RGB ``testsrc2`` source (PNG frames: no YUV conversion on decode)."""
-    out = directory / "src.mov"
-    subprocess.run(
-        [
-            find_ffmpeg(),
-            "-y",
-            "-f",
-            "lavfi",
-            "-i",
-            LAVFI,
-            "-c:v",
-            "png",
-            "-pix_fmt",
-            "rgb24",
-            str(out),
-        ],
-        check=True,
-        capture_output=True,
-    )
+    """Write the lossless source (PNG frames in Matroska) into ``directory``."""
+    out = directory / "src.mkv"
+    write_source(out, source_frames(), fps=str(FPS))
     return out
 
 
@@ -253,7 +255,7 @@ def case_project(case: dict[str, Any]) -> Project:
             "assets": [
                 {
                     "id": "a1",
-                    "path": "src.mov",
+                    "path": "src.mkv",
                     "kind": "video",
                     "media": {"width": WIDTH, "height": HEIGHT},
                 }
@@ -292,7 +294,7 @@ def render_all() -> dict[str, Any]:
         root = Path(tmp)
         make_source(root)
         return {
-            "source": {"lavfi": LAVFI, "codec": "png rgb24"},
+            "source": {"synthesised": "numpy", "frames": FRAMES, "codec": "png rgb24"},
             "samples": list(SAMPLES),
             "blocks": list(BLOCKS),
             "tolerance": 1.0,
