@@ -13,7 +13,9 @@ Rules:
   group and kills the whole group above ``--max-footprint-gib`` (default 8), when system swap
   grows by more than ``--max-swap-growth-gib`` (default 1) during the job, or when the
   kernel's free-memory level (``kern.memorystatus_level``, %) drops below ``--min-free-pct``
-  (default 15). A job starts only when free memory is at least ``--start-free-pct`` (default 50).
+  (default 15). A job starts only when ``memory_pressure -Q`` reports a system-wide free percentage of
+  at least ``--start-free-pct`` (default 40) and no other watched job runs (BR3.15: the earlier
+  absolute-swap start gate is gone because macOS does not give swap back).
   (Absolute "swap used" was tried as a gate and never opened: macOS keeps swap allocated after
   pressure ends, 8.5 GB "used" with 76% of memory free and no spike job running. Swap *growth*
   and free memory are what a job actually changes.)
@@ -73,6 +75,13 @@ def footprint_bytes(pids: list[int]) -> int:
     return total
 
 
+def pressure_free_pct() -> int:
+    """`memory_pressure -Q`: "System-wide memory free percentage" (the start gate since BR3.15)."""
+    out = subprocess.run(["memory_pressure", "-Q"], capture_output=True, text=True).stdout
+    m = re.search(r"System-wide memory free percentage:\s*(\d+)%", out)
+    return int(m.group(1)) if m else 0
+
+
 def free_memory_pct() -> int:
     out = subprocess.run(["sysctl", "-n", "kern.memorystatus_level"], capture_output=True, text=True).stdout
     return int(out.strip() or 0)
@@ -108,7 +117,11 @@ def run_job(job: str, max_fp: int, max_growth: int, start_free: int, min_free: i
         busy = other_spike_jobs({os.getpid()})
         free = free_memory_pct()
         swap = swap_used_bytes()
-        if not busy and free >= start_free and swap <= start_max_swap:
+        # Absolute swap is not a start gate: macOS keeps swap allocated for hours after pressure
+        # ends (it sat at 6.1-6.3 GB with nothing heavy running), so a swap ceiling can block forever.
+        # Swap GROWTH during the job stays an abort rule below.
+        free = pressure_free_pct()
+        if not busy and free >= start_free:
             break
         log.write(f"waiting: busy={busy} freeMemoryPct={free} swapUsedGiB={swap / 2**30:.2f}\n")
         time.sleep(30)
@@ -153,9 +166,10 @@ def main() -> None:
     ap.add_argument("--log", required=True)
     ap.add_argument("--max-footprint-gib", type=float, default=8.0)
     ap.add_argument("--max-swap-growth-gib", type=float, default=1.0)
-    ap.add_argument("--start-free-pct", type=int, default=50)
+    ap.add_argument("--start-free-pct", type=int, default=40,
+                    help="start only when memory_pressure -Q reports at least this free percentage")
     ap.add_argument("--min-free-pct", type=int, default=15)
-    ap.add_argument("--start-max-swap-gib", type=float, default=6.0,
+    ap.add_argument("--start-max-swap-gib", type=float, default=6.0,  # accepted for old job files; unused
                     help="coordinator rule: no new heavy job while system swap used is above this")
     ap.add_argument("--jobs-file", help="one job per line (blank lines and # comments ignored)")
     ap.add_argument("jobs", nargs="*")
