@@ -39,6 +39,10 @@ import {
 } from './text-raster.js';
 import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
 import {
+  configureLegacyMaskArithmeticFromHost,
+  type MaskPreviewRefusal,
+} from '../masks/mask-stack.js';
+import {
   EngineTextRasters,
   resolveTextRasterSource,
   textRasterKey,
@@ -183,6 +187,7 @@ export class LayerPreviewEngine {
   /** NaN until something is presented: a read at t=0 must not match the empty initial state. */
   private presented: PresentedFrame = { projectTimeSec: Number.NaN, layers: [] };
   private lastPresentedSignature = '';
+  private lastMaskRefusalKey = '';
   private lastBitmap: ImageBitmap | null = null;
   private lastPictureKeys: string[] = [];
   private dbg = {
@@ -206,6 +211,30 @@ export class LayerPreviewEngine {
     );
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
+    // Legacy (v21) masks follow the host Pillow's float arithmetic (`masks/legacy-mask.ts`).
+    void configureLegacyMaskArithmeticFromHost();
+  }
+
+  /** Tell the monitor whether a presented clip's mask stack is refused (first one wins). */
+  private reportMaskRefusal(layers: readonly CompositeLayer[]): void {
+    let refusal: MaskPreviewRefusal | null = null;
+    for (const layer of layers) {
+      if (layer.kind === 'picture' && layer.step.maskRefusal !== null) {
+        refusal = layer.step.maskRefusal;
+        break;
+      }
+    }
+    const key = refusal === null ? '' : `${refusal.clipId}|${refusal.maskId}|${refusal.message}`;
+    if (key === this.lastMaskRefusalKey) return;
+    this.lastMaskRefusalKey = key;
+    if (refusal !== null) {
+      log.warn('mask stack not previewed', {
+        clipId: refusal.clipId,
+        maskId: refusal.maskId,
+        task: refusal.task,
+      });
+    }
+    this.callbacks.onMaskRefusalChange?.(refusal);
   }
 
   get durationSeconds(): number {
@@ -759,6 +788,7 @@ export class LayerPreviewEngine {
     if (!compositor || !project) return false;
     const composed = this.compose(plan);
     if (!composed) return false;
+    this.reportMaskRefusal(composed.layers);
     this.lastPictureKeys = composed.layers.flatMap((layer) =>
       layer.kind === 'picture' && layer.source.kind === 'decoded' ? [layer.source.key] : [],
     );

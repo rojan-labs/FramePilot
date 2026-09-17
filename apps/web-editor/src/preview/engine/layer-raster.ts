@@ -22,7 +22,7 @@ import {
   wipeProgressAt,
   wipeSoftness,
 } from '../transition-envelope.js';
-import { clipMaskSource, isIdentityMask, maskAt, type PreviewMask } from '../clip-mask.js';
+import { clipMaskStack, type ClipMaskStack, type MaskPreviewRefusal } from '../masks/mask-stack.js';
 import {
   resolveTransitionParamsFor,
   type ResolvedTransition,
@@ -77,11 +77,16 @@ export interface PictureRasterStep {
    */
   readonly opacity: number | null;
   /**
-   * The clip's alpha mask in frame fractions of the cropped picture, `null` for none. The
-   * monitor draws today's single-shape masks (`clip-mask.ts`); the export's exact v22 stack
-   * rasteriser is MK3, so edges and multi-mask stacks can still differ.
+   * The clip's schema-v22 mask stacks (alpha and effect targets) and the clip-relative time
+   * they are evaluated at, `null` when the clip has none or they cannot be previewed. The
+   * compositor rasterises them at the cropped picture's size with the export's own algorithm
+   * (`masks/mask-stack.ts`).
    */
-  readonly mask: PreviewMask | null;
+  readonly mask: LayerMaskStack | null;
+  /** Why the clip's masks are not drawn (the export refuses the same stack); shown on the monitor. */
+  readonly maskRefusal: MaskPreviewRefusal | null;
+  /** The clip's effect id for each entry of {@link effects} (effect-target masks key on it). */
+  readonly effectIds: readonly (string | null)[];
   /**
    * A legacy `blur` transition's Pillow GaussianBlur radius at this frame (0 = none), applied to
    * the cropped, graded picture before its mask (`_apply_transition_blur`).
@@ -101,6 +106,12 @@ export interface PictureRasterStep {
   readonly blendMode: string;
   /** Per-clip picture effects in export order (`color_grade`, then `lut`). */
   readonly effects: FramePlanLayer['effects'];
+}
+
+export interface LayerMaskStack {
+  readonly stack: ClipMaskStack;
+  /** Seconds from the clip's start (the stack maps it to the asset source clock). */
+  readonly clipTime: number;
 }
 
 export interface LayerWipe {
@@ -291,13 +302,14 @@ export function pictureRasterStep(
 
   const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
   const wiping = legacy !== null && affectsWipe(legacy);
-  const maskSource = isVideo && layer.role === 'clip' ? clipMaskSource(clip, asset.media) : null;
-  const resolvedMask = maskSource === null ? null : maskAt(maskSource, layer.localTime);
-  const mask = resolvedMask !== null && !isIdentityMask(resolvedMask) ? resolvedMask : null;
+  // Only a video clip draws its stack: stills are placed without crop or mask (the export's rule).
+  const stack = isVideo && layer.role === 'clip' ? clipMaskStack(clip, asset.media) : null;
+  const drawable = stack !== null && stack.refusal === null ? stack : null;
+  const mask: LayerMaskStack | null =
+    drawable === null ? null : { stack: drawable, clipTime: layer.localTime };
+  const alphaStack = drawable !== null && drawable.alpha.length > 0;
   const opacity =
-    isVideo &&
-    layer.role === 'clip' &&
-    (attachesOpacityMask(clip, layer) || wiping || maskSource !== null)
+    isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping || alphaStack)
       ? Math.min(1, Math.max(0, layer.opacity))
       : null;
   const blurRadius =
@@ -377,7 +389,11 @@ export function pictureRasterStep(
     decode,
     crop,
     opacity,
-    mask,
+    mask: alphaStack || (drawable?.byEffect.size ?? 0) > 0 ? mask : null,
+    maskRefusal: stack?.refusal ?? null,
+    effectIds: layer.effects.map(
+      (planned) => clip.effects.find((effect) => effect.type === planned.type)?.id ?? null,
+    ),
     blurRadius,
     wipe,
     transitions,
@@ -456,6 +472,8 @@ export function textRasterStep(
     crop: null,
     opacity: null,
     mask: null,
+    maskRefusal: null,
+    effectIds: [],
     blurRadius: 0,
     wipe: null,
     transitions: [],

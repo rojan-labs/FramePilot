@@ -381,6 +381,7 @@ uniform bool u_wipeInverted;
 uniform float u_wipeEdge;
 uniform float u_wipeFeather;
 uniform bool u_hasMask;
+uniform float u_maskScale;
 uniform highp usampler2D u_mask;
 out vec4 o_color;
 void main() {
@@ -388,7 +389,7 @@ void main() {
   ivec2 size = textureSize(u_source, 0);
   vec4 texel = texelFetch(u_source, p, 0);
   float alpha = u_opacity;
-  if (u_hasMask) alpha *= float(texelFetch(u_mask, p, 0).r) / 255.0;
+  if (u_hasMask) alpha *= float(texelFetch(u_mask, p, 0).r) / 255.0 * u_maskScale;
   if (u_wipeAxis != 0) {
     float extent = float(u_wipeAxis == 1 ? size.x : size.y);
     float f = (float(u_wipeAxis == 1 ? p.x : p.y) + 0.5) / extent;
@@ -396,6 +397,37 @@ void main() {
     alpha *= clamp((u_wipeEdge - f) / u_wipeFeather, 0.0, 1.0);
   }
   o_color = vec4(texel.rgb, floor(clamp(alpha, 0.0, 1.0) * 255.0 + 1e-4) / 255.0);
+}
+`;
+
+/**
+ * An effect limited by a mask (`render/mask_stack.py#mix_by_alpha`): the effect's output mixed
+ * with its input by the stack alpha, RGB only, input alpha kept. A quantised stack
+ * (`u_scale == 1`, alpha `q / 255`) is mixed in integers: `rint((255 o + (e - o) q) / 255)` has
+ * no ties, so it is `(2n + 255) / 510`. A lone legacy mask carries a float factor and is mixed
+ * in float with round-half-even.
+ */
+export const MASK_MIX_FRAGMENT = `${HEADER}
+uniform sampler2D u_original;
+uniform sampler2D u_effected;
+uniform highp usampler2D u_mask;
+uniform float u_scale;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 original = texelFetch(u_original, p, 0);
+  ivec3 o = ivec3(floor(original.rgb * 255.0 + 0.5));
+  ivec3 e = ivec3(floor(texelFetch(u_effected, p, 0).rgb * 255.0 + 0.5));
+  int q = int(texelFetch(u_mask, p, 0).r);
+  vec3 mixed;
+  if (u_scale == 1.0) {
+    ivec3 n = o * 255 + (e - o) * q;
+    mixed = vec3((n * 2 + 255) / 510);
+  } else {
+    float a = float(q) / 255.0 * u_scale;
+    mixed = clamp(roundEven(vec3(o) + vec3(e - o) * a), 0.0, 255.0);
+  }
+  o_color = vec4(mixed / 255.0, original.a);
 }
 `;
 

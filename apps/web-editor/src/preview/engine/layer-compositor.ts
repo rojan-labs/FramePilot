@@ -27,7 +27,7 @@ import {
 } from '../transitions/transition-engine.js';
 import { pilCoefficients } from './raster/pil.js';
 import type { CubeLut } from './raster/cube-lut.js';
-import { paintClipMask, type PreviewMask } from '../clip-mask.js';
+import { MaskStackRasterCache, type MaskStackRaster } from '../masks/mask-stack.js';
 import {
   swsFilter,
   swsMatrixOf,
@@ -49,6 +49,7 @@ import {
   BLEND_MODE_INDEX,
   GRADE_FRAGMENT,
   LUT_FRAGMENT,
+  MASK_MIX_FRAGMENT,
   COMPOSITE_FRAGMENT,
   COPY_FRAGMENT,
   FILL_FRAGMENT,
@@ -66,8 +67,6 @@ const log = createLogger('web-editor:preview:layer-compositor');
 const BACKGROUND: readonly [number, number, number, number] = [0, 0, 0, 1];
 /** Transition noise clock quantum — the effect chain's and the engine's. */
 const TRANSITION_TIME_QUANTUM = 1 / 60;
-/** Rasterised masks kept for static and repeated shapes. */
-const MASK_CACHE_ENTRIES = 32;
 const OPAQUE_COVERAGE = new Uint8Array([255]);
 
 /** A picture the compositor can draw a {@link PictureRasterStep} from. */
@@ -95,6 +94,11 @@ export type CompositeLayer =
       readonly y: number;
     };
 
+/** Whether the export attaches the clip's alpha-target stack (`_attach_mask`). */
+function hasAlphaMask(step: PictureRasterStep): boolean {
+  return step.mask !== null && step.mask.stack.alpha.length > 0;
+}
+
 export class LayerCompositorUnavailableError extends Error {
   constructor(message: string) {
     super(message);
@@ -107,7 +111,8 @@ export class LayerCompositor {
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
   private readonly failedTransitions = new Set<string>();
-  private readonly maskCache = new Map<string, Uint8Array>();
+  /** Exact mask stack rasters (`masks/mask-stack.ts`), cached by semantic signature. */
+  private readonly maskRasters = new MaskStackRasterCache();
   private frameEffects: FrameEffectRenderer | null = null;
   private effectsUnavailable = false;
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
@@ -250,12 +255,26 @@ export class LayerCompositor {
       if (rect.width <= 0 || rect.height <= 0) return null;
       current = this.copy(current, rect.x, rect.y, rect.width, rect.height, null);
     }
-    for (const effect of step.effects) {
-      if (effect.type === 'color_grade') current = this.grade(current, effect.params);
-      else if (effect.type === 'lut') current = this.lut(current, effect.params);
-    }
+    step.effects.forEach((effect, index) => {
+      const input = current;
+      if (effect.type === 'color_grade') current = this.grade(input, effect.params);
+      else if (effect.type === 'lut') current = this.lut(input, effect.params);
+      else return;
+      // An effect-target mask mixes the effect's output with its input by the stack's alpha,
+      // inside the effect application (`_masked_effect`), before any blur or alpha.
+      const effectId = step.effectIds[index] ?? null;
+      if (step.mask === null || effectId === null || current === input) return;
+      const raster = this.maskRasters.raster(
+        step.mask.stack,
+        { kind: 'effect', effectId },
+        input.width,
+        input.height,
+        step.mask.clipTime,
+      );
+      if (raster !== null) current = this.mixByMask(input, current, raster);
+    });
     if (step.blurRadius > 0.5) current = this.pilGaussianBlur(current, step.blurRadius);
-    if (step.opacity !== null || step.wipe !== null || step.mask !== null) {
+    if (step.opacity !== null || step.wipe !== null || hasAlphaMask(step)) {
       current = this.alpha(current, step);
     }
     for (const half of step.transitions) {
@@ -271,7 +290,7 @@ export class LayerCompositor {
         step.assetKind === 'image' ||
         step.opacity !== null ||
         step.wipe !== null ||
-        step.mask !== null ||
+        hasAlphaMask(step) ||
         step.transitions.length > 0;
       if (!masked) current = this.copy(current, 0, 0, current.width, current.height, 255);
     }
@@ -473,36 +492,49 @@ export class LayerCompositor {
     gl.uniform1i(program.location('u_wipeInverted'), wipe?.inverted ? 1 : 0);
     gl.uniform1f(program.location('u_wipeEdge'), wipe?.edge ?? 1);
     gl.uniform1f(program.location('u_wipeFeather'), wipe?.feather ?? 1);
+    // The clip's alpha-target stack at the cropped picture's own size (`_attach_mask`).
     const mask =
-      step.mask === null ? null : this.maskCoverage(step.mask, source.width, source.height);
+      step.mask === null || step.mask.stack.alpha.length === 0
+        ? null
+        : this.maskRasters.raster(
+            step.mask.stack,
+            { kind: 'alpha' },
+            source.width,
+            source.height,
+            step.mask.clipTime,
+          );
     gl.uniform1i(program.location('u_hasMask'), mask === null ? 0 : 1);
+    gl.uniform1f(program.location('u_maskScale'), mask?.scale ?? 1);
     // An integer sampler must always see an integer texture, even when the branch skips it.
     const texture =
-      mask === null ? r.plane(1, 1, OPAQUE_COVERAGE) : r.plane(source.width, source.height, mask);
+      mask === null
+        ? r.plane(1, 1, OPAQUE_COVERAGE)
+        : r.plane(source.width, source.height, mask.alpha8);
     r.bind(program, 'u_mask', 1, texture);
     r.draw(out, out.width, out.height);
     return out;
   }
 
-  /** 8-bit coverage of `mask` over a `width`×`height` picture, top row first (cached). */
-  private maskCoverage(mask: PreviewMask, width: number, height: number): Uint8Array | null {
-    const key = `${width}x${height}|${JSON.stringify(mask)}`;
-    const cached = this.maskCache.get(key);
-    if (cached !== undefined) return cached;
-    if (typeof OffscreenCanvas === 'undefined') return null;
-    const ctx = new OffscreenCanvas(width, height).getContext('2d', { willReadFrequently: true });
-    if (!ctx) return null;
-    ctx.fillStyle = '#fff';
-    ctx.fillRect(0, 0, width, height);
-    paintClipMask(ctx, mask, { x: 0, y: 0, width, height });
-    const rgba = ctx.getImageData(0, 0, width, height).data;
-    const coverage = new Uint8Array(width * height);
-    for (let i = 0; i < coverage.length; i++) coverage[i] = rgba[i * 4 + 3]!;
-    if (this.maskCache.size >= MASK_CACHE_ENTRIES) {
-      this.maskCache.delete(this.maskCache.keys().next().value!);
-    }
-    this.maskCache.set(key, coverage);
-    return coverage;
+  /**
+   * `mix_by_alpha(original, effected, alpha)`: `rint(o + (e - o) * alpha)` per RGB channel. A
+   * quantised stack (`alpha = q / 255`) never lands on a tie, so the integer form is exact.
+   */
+  private mixByMask(
+    original: RenderTarget,
+    effected: RenderTarget,
+    mask: MaskStackRaster,
+  ): RenderTarget {
+    const r = this.resources;
+    const out = r.target(original.width, original.height, 'rgba8');
+    const program = r.program('mask-mix', MASK_MIX_FRAGMENT);
+    const gl = this.gl;
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_original', 0, original.texture);
+    r.bind(program, 'u_effected', 1, effected.texture);
+    r.bind(program, 'u_mask', 2, r.plane(mask.width, mask.height, mask.alpha8));
+    gl.uniform1f(program.location('u_scale'), mask.scale);
+    r.draw(out, out.width, out.height);
+    return out;
   }
 
   private transition(source: RenderTarget, half: LayerTransition): RenderTarget {

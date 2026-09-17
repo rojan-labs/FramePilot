@@ -35,7 +35,8 @@ import { AudioMasterClock } from '../clock/audio-clock.js';
 import { GlEffectChain } from '../effects/gl-effect-chain.js';
 import type { TimedEffectLayer } from '../effects/gl-effect-chain.js';
 import { cropFillPlacement } from '../crop-fill.js';
-import { isIdentityMask, maskAt, paintClipMask } from '../clip-mask.js';
+import { MaskStackRasterCache, type MaskPreviewRefusal } from '../masks/mask-stack.js';
+import { paintMaskRaster } from '../masks/mask-canvas.js';
 import { heldFrameIsPreviousSegment } from '../held-frame.js';
 import {
   type ClipCompositing,
@@ -81,6 +82,9 @@ const DEFAULT_RESOLUTION: Resolution = { width: 1280, height: 720 };
  * demand and never disposed: only one picture segment is active at a time.
  */
 let sharedMaskLayer: CanvasRenderingContext2D | null = null;
+
+/** Mask stack rasters for this legacy path, cached by semantic signature. */
+const legacyMaskRasters = new MaskStackRasterCache();
 
 function maskLayer(width: number, height: number): CanvasRenderingContext2D | null {
   sharedMaskLayer ??= document.createElement('canvas').getContext('2d');
@@ -147,6 +151,12 @@ export interface PreviewEngineCallbacks {
    * rasters (no engine, or it refused). The monitor says "Preview text approximate".
    */
   onTextApproximateChange?(approximate: boolean): void;
+  /**
+   * MK3.2: a clip in the presented frame has a mask stack the monitor cannot draw (the export
+   * refuses the same stack), or `null` once none does. The monitor says so instead of silently
+   * drawing the clip unmasked.
+   */
+  onMaskRefusalChange?(refusal: MaskPreviewRefusal | null): void;
 }
 
 /** One span of the engine's input EDL, in PROJECT-timeline seconds.
@@ -937,14 +947,22 @@ export class WebCodecsPreviewEngine {
         : NO_TRANSITION,
     );
 
-    // THE CLIP'S MASK, resolved at this frame exactly as the export's `_attach_mask` resolves
-    // it (`clip-mask.ts`). Nothing drew one here, so every mask — and every tracked subject,
-    // whose motion lives on the mask's keyframes — was visible only in a render. A masked
-    // picture is drawn on its own layer (see `maskLayer`) and masked INSIDE the transform
-    // below, in the clip's own frame, because the export masks the picture before it places
-    // it: the mask moves, scales and rotates with the clip.
-    const liveMask = compositing?.mask ? maskAt(compositing.mask, clipTime) : null;
-    const mask = liveMask !== null && !isIdentityMask(liveMask) ? liveMask : null;
+    // THE CLIP'S MASK STACK, rasterised at this frame by the export's own algorithm
+    // (`masks/mask-stack.ts`). A masked picture is drawn on its own layer (see `maskLayer`) and
+    // masked INSIDE the transform below, in the clip's own frame, because the export masks the
+    // picture before it places it: the mask moves, scales and rotates with the clip. A stack
+    // the export refuses is not drawn here; the layer compositor's monitor names the refusal.
+    const stack = compositing?.mask ?? null;
+    const mask =
+      stack !== null && stack.refusal === null && stack.alpha.length > 0
+        ? legacyMaskRasters.raster(
+            stack,
+            { kind: 'alpha' },
+            Math.max(1, Math.round(cw)),
+            Math.max(1, Math.round(ch)),
+            clipTime,
+          )
+        : null;
     const layer = mask !== null ? maskLayer(cw, ch) : null;
     const pictureCtx = layer ?? ctx;
 
@@ -1000,7 +1018,7 @@ export class WebCodecsPreviewEngine {
     }
     // Still inside the picture's transform, so the frame box is the clip's own frame.
     if (layer !== null && mask !== null) {
-      paintClipMask(layer, mask, { x: -cw / 2, y: -ch / 2, width: cw, height: ch });
+      paintMaskRaster(layer, mask, { x: -cw / 2, y: -ch / 2, width: cw, height: ch });
     }
     pictureCtx.restore();
     if (layer !== null) {

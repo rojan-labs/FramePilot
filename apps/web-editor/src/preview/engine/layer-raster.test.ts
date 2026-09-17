@@ -110,7 +110,7 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     expect(stepFor(clip('c', 'x'), asset)).toBeNull();
   });
 
-  it('carries a single-shape clip mask into the alpha pass at the clip opacity', () => {
+  it('carries the clip mask stack into the alpha pass at the clip opacity', () => {
     const land = video('land', 1920, 1080);
     const host = clip('c', 'land');
     const mask = MaskLayerSchema.parse(
@@ -126,8 +126,31 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     );
     const step = stepFor({ ...host, masks: [mask] }, land);
     expect(step?.opacity).toBe(1);
-    expect(step?.mask).toMatchObject({ shape: 'ellipse', width: 0.5, height: 0.5 });
+    expect(step?.mask?.stack.alpha.map((layer) => layer.kind)).toEqual(['ellipse']);
+    expect(step?.maskRefusal).toBeNull();
     expect(stepFor(host, land)?.mask).toBeNull();
+  });
+
+  it('refuses, visibly, a stack the export cannot draw yet and keeps effect ids', () => {
+    const land = video('land', 1920, 1080);
+    const host = {
+      ...clip('c', 'land'),
+      effects: [{ id: 'g1', type: 'color_grade', params: { exposure: 0.5 } }],
+    } as unknown as Clip;
+    const frameSpace = MaskLayerSchema.parse({
+      id: 'k',
+      kind: 'rectangle',
+      cx: 960,
+      cy: 540,
+      width: 400,
+      height: 300,
+      space: 'frame',
+    });
+    const step = stepFor({ ...host, masks: [frameSpace] }, land);
+    expect(step?.mask).toBeNull();
+    expect(step?.maskRefusal?.task).toBe('MK9');
+    expect(step?.maskRefusal?.message).toMatch(/^Mask not previewed yet/);
+    expect(stepFor(host, land)?.effectIds).toEqual(['g1']);
   });
 
   it('stretches the upright height of a quarter-turned anamorphic source (PX2.11)', () => {

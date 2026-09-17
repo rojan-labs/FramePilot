@@ -226,8 +226,8 @@ function divergences(vector: VectorCase, project: Project, renderer: ProgramRend
   if (plans.some((plan) => plan.layers.some((layer) => layer.mask !== null))) {
     found.push(
       dom
-        ? 'clip mask: DOM draws it on the one visible clip only (maskCssImage)'
-        : 'clip mask: canvas paints it (paintClipMask); pixel agreement unmeasured',
+        ? 'clip mask: DOM draws the stack raster on the one visible clip only (maskRasterCssImage)'
+        : 'clip mask: canvas paints the stack raster (paintMaskRaster); pixel agreement unmeasured',
     );
   }
   const stillQuirk = pictures.some(

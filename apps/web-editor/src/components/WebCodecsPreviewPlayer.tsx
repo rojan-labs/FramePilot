@@ -43,6 +43,7 @@ import {
   type EngineSegment,
   type PreviewEngineCallbacks,
 } from '../preview/engine/webcodecs-preview-engine.js';
+import type { MaskPreviewRefusal } from '../preview/masks/mask-stack.js';
 import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
 import { layerCompositorEnabled } from '../preview/compositor-flag.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
@@ -408,6 +409,7 @@ export function WebCodecsPreviewPlayer({
   const [error, setError] = useState<string | null>(null);
   const [previewReduced, setPreviewReduced] = useState(false);
   const [textApproximate, setTextApproximate] = useState(false);
+  const [maskRefusal, setMaskRefusal] = useState<MaskPreviewRefusal | null>(null);
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
   // engine.loadSegments below, which is INCREMENTAL (already-loaded sources,
@@ -463,6 +465,7 @@ export function WebCodecsPreviewPlayer({
         },
         onRenderScaleChange: (scale) => setPreviewReduced(scale < 1),
         onTextApproximateChange: setTextApproximate,
+        onMaskRefusalChange: setMaskRefusal,
         onError: (message) => {
           log.error('webcodecs preview engine error', { message });
           setError(previewFailureMessage(message, isDesktop()));
@@ -735,11 +738,16 @@ export function WebCodecsPreviewPlayer({
               captionClips={captionClips}
               transcript={transcript ?? []}
             />
-            {(previewReduced || textApproximate) && !error && (
-              <div className="webcodecs-preview-reduced" role="status">
+            {(previewReduced || textApproximate || maskRefusal !== null) && !error && (
+              <div className="webcodecs-preview-reduced" role="status" title={maskRefusal?.message}>
                 {[
                   previewReduced ? 'Preview reduced' : null,
                   textApproximate ? 'Preview text approximate' : null,
+                  maskRefusal === null
+                    ? null
+                    : maskRefusal.task !== null
+                      ? 'Mask not previewed yet'
+                      : 'Mask not drawn: fix the mask to preview or export it',
                 ]
                   .filter(Boolean)
                   .join(' · ')}

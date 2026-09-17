@@ -20,7 +20,7 @@ import type {
   Track,
 } from '@framepilot/timeline-schema';
 import { effectLayersOf } from '@framepilot/timeline-schema';
-import { clipMaskSource, type PreviewMaskSource } from '../preview/clip-mask.js';
+import { clipMaskStack, type ClipMaskStack } from '../preview/masks/mask-stack.js';
 import { transitionFromClip, type TransitionEnvelope } from '../preview/transition-envelope.js';
 import {
   resolveTransitionParamsFor,
@@ -618,13 +618,12 @@ export interface ClipCompositing {
    */
   readonly catalogTransition: CatalogTransitionPair | null;
   /**
-   * The clip's mask effect (the first, as the compiler picks it), or `null`.
-   *
-   * Kept as the EFFECT, not a resolved shape: a tracked mask animates through the effect's
-   * own keyframes, so the engine resolves it per frame with `maskAt`.
+   * The clip's schema-v22 mask stack (ADR 0178), or `null` when it has no enabled mask. Kept as
+   * the STACK, not a resolved raster: masks animate on the source clock, so the monitor
+   * rasterises it per frame (`preview/masks/mask-stack.ts`). A stack the export refuses carries
+   * its `refusal`, which the monitor shows instead of drawing it.
    */
-  /** The clip's drawable mask (schema v22), or `null`. See `preview/clip-mask.ts`. */
-  readonly mask: PreviewMaskSource | null;
+  readonly mask: ClipMaskStack | null;
 }
 
 /** Project a clip's compositing state for the canvas pass. */
@@ -641,7 +640,7 @@ export function clipCompositing(clip: Clip, media?: Asset['media']): ClipComposi
     transition: transitionFromClip(clip),
     catalogTransition: catalogTransitionPair(clip),
     // Schema v22: the clip's mask stack, resolvable once the media's size is known.
-    mask: clipMaskSource(clip, media),
+    mask: clipMaskStack(clip, media),
   };
 }
 
