@@ -28,6 +28,14 @@ HTML/canvas, render is MoviePy/FFmpeg.
 | AI proposal diff render (mock provider)             | **< 100 ms** | review UX feels immediate                    |
 | Project open → editable (cold, demo project)        | **< 1 s**    | startup snappiness                           |
 
+Mask editing on the program monitor has its own instrument for the first row, because the gesture
+runs beside a live re-composite of the frame: the monitor records `commit` (pointer event →
+paintable overlay), `pointerToPaint` and `composite` separately
+(`components/preview/mask-tool-telemetry.ts`). The 16 ms budget is asserted on `commit`, in
+`MaskCanvasTools.perf.test.tsx` and in `tests/e2e/specs/mask-tools.spec.ts`, for a 200-vertex path
+on 4K media. Measured numbers, and why the live raster had to stop running synchronously with the
+move, are in `plan/background-removal-ai/MK4-BUDGETS.md`.
+
 Every edit is a pure, synchronous `validate → apply → record` over an immutable
 timeline (`@framepilot/editor-core`), so interaction cost is dominated by React render,
 not by the patch engine. The patch engine itself is O(clips) per operation (no nested
