@@ -175,6 +175,7 @@ export class LayerPreviewEngine {
   private presented: PresentedFrame = { projectTimeSec: Number.NaN, layers: [] };
   private lastPresentedSignature = '';
   private lastBitmap: ImageBitmap | null = null;
+  private lastPictureKeys: string[] = [];
   private dbg = {
     ticks: 0,
     presented: 0,
@@ -679,6 +680,9 @@ export class LayerPreviewEngine {
     if (!compositor || !project) return false;
     const composed = this.compose(plan);
     if (!composed) return false;
+    this.lastPictureKeys = composed.layers.flatMap((layer) =>
+      layer.kind === 'picture' && layer.source.kind === 'decoded' ? [layer.source.key] : [],
+    );
     const signature = JSON.stringify([
       composed.presented,
       plan.layers.map((l) => [l.clipId, l.localTime, l.opacity, l.geometry]),
@@ -946,6 +950,29 @@ export class LayerPreviewEngine {
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */
   debugPresentedFrame(): PresentedFrame {
     return this.presented;
+  }
+
+  /** Test hook: plane means of the decoded pictures the last composite read (readback triage). */
+  debugPresentedPictures(): Record<string, unknown>[] {
+    const mean = (plane: Uint8Array): number => {
+      let sum = 0;
+      for (let i = 0; i < plane.length; i += 97) sum += plane[i]!;
+      return Math.round((sum / Math.max(1, Math.ceil(plane.length / 97))) * 10) / 10;
+    };
+    return this.lastPictureKeys.map((key) => {
+      const entry = this.cache.get(key);
+      if (!entry) return { key, cached: false };
+      const picture = entry.picture;
+      if (picture.kind !== 'i420') return { key, kind: picture.kind };
+      return {
+        key,
+        size: `${picture.width}x${picture.height}`,
+        y: mean(picture.y),
+        u: mean(picture.u),
+        v: mean(picture.v),
+        ts: entry.timestampUs,
+      };
+    });
   }
 
   dispose(): void {

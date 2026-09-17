@@ -561,6 +561,10 @@ async function seekAndCompare(
           engineStillHooked:
             (window as unknown as { __fpPreviewEngine?: Engine }).__fpPreviewEngine === engine,
           presentedAfter: later ? later.projectTimeSec : null,
+          pictures:
+            (
+              engine as unknown as { debugPresentedPictures?: () => unknown }
+            ).debugPresentedPictures?.() ?? null,
         };
       }
 
@@ -865,6 +869,8 @@ test.describe('PX4 preview/export parity oracle', () => {
 
       test.beforeAll(async ({ browser }, testInfo) => {
         if (manifest === null) return;
+        // A hook does not inherit `describe.configure({ timeout })` everywhere; set it here.
+        testInfo.setTimeout(caseTimeoutMs(kase.samples.length));
         result = await measureCase(browser, area, kase, manifest, testInfo);
       });
 
