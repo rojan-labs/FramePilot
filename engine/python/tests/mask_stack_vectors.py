@@ -713,7 +713,7 @@ def _matte_document() -> dict[str, Any]:
             assert stacks is not None, case["id"]
             for t in case.get("times", [0.0]):
                 picture = matte_picture(width, height)
-                for mask in reversed([m for m in stacks.matte_masks() if m.decontaminate]):
+                for _mask in reversed([m for m in stacks.matte_masks() if m.decontaminate]):
                     picture = decontaminate(
                         picture, values, maximum, foreground, clip, (decoded_w, decoded_h)
                     )
