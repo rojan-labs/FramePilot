@@ -198,6 +198,7 @@ export type {
   MatteSaveCorrectionWire,
   MatteSaveCorrectionResultWire,
   MatteStorageResultWire,
+  MatteValidationIssueWire,
   MatteCleanRequestWire,
   MatteCleanResultWire,
   LicenseStatus,

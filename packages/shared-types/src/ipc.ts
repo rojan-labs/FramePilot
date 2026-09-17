@@ -51,6 +51,8 @@ export type ProjectOpenResult =
       project: unknown;
       revision?: number;
       capabilityPacks?: CapabilityPackProjectResolutionWire;
+      /** Matte masks whose files are missing, changed or damaged (BROKEN) or out of date (STALE). */
+      mattes?: readonly MatteValidationIssueWire[];
     }
   | { ok: false; error: string };
 
@@ -1345,6 +1347,19 @@ export type MatteSaveCorrectionResultWire =
       readonly reference: { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string };
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
+
+/**
+ * One matte mask the export would refuse, with the engine's own code, status and remedy
+ * sentence (`render/mattes.py` `MATTE_REMEDIES`), so the Inspector and export say the same.
+ */
+export interface MatteValidationIssueWire {
+  readonly clipId: string;
+  readonly maskId: string;
+  readonly artifactKey: string;
+  readonly code: string;
+  readonly status: 'broken' | 'stale';
+  readonly remedy: string;
+}
 
 /** The open project's background-removal storage (project-owned, MD-4). */
 export type MatteStorageResultWire =

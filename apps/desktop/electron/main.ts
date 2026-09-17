@@ -160,6 +160,7 @@ import {
   type CapabilityPackStorageSnapshotWire,
   type CapabilityPackRelocationResultWire,
   type CapabilityPackProjectResolutionWire,
+  type MatteValidationIssueWire,
 } from './ipc/contract.js';
 import { SidecarManager, type SidecarProcess } from './sidecar/manager.js';
 import { resolveSidecarCommand, killProcessGroup } from './sidecar/spawn.js';
@@ -187,6 +188,7 @@ import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
 import { registerMatteIpc, registerMatteStorageIpc } from './capability-packs/matte-ipc.js';
+import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import {
   FfmpegMatteMediaInspector,
   resolveMatteMediaTools,
@@ -909,6 +911,21 @@ function registerIpcHandlers(): void {
       });
     })
     .finally(() => sidecar.start());
+  /**
+   * Quick matte file checks on open (BR4.7): missing, resized or unparseable artifacts come
+   * back with the engine's own code and remedy. Hashing waits for export, which re-verifies.
+   */
+  const validateOpenedMattes = async (
+    projectPath: string,
+    project: Project,
+  ): Promise<readonly MatteValidationIssueWire[]> => {
+    try {
+      return await validateProjectMattes(path.dirname(projectPath), project, { mode: 'quick' });
+    } catch (error) {
+      aiLog.error('matte validation failed', { error: errorMessage(error) });
+      return [];
+    }
+  };
   const reconcileCapabilityPacks = async (
     project: Project,
   ): Promise<CapabilityPackProjectResolutionWire> => {
@@ -1336,7 +1353,8 @@ function registerIpcHandlers(): void {
         warmSessionAnalysis(project.id, guard.path);
         const { revision } = projectCommands.observe(project);
         const capabilityPacks = await reconcileCapabilityPacks(project);
-        return { ok: true, path: guard.path, project, revision, capabilityPacks };
+        const mattes = await validateOpenedMattes(guard.path, project);
+        return { ok: true, path: guard.path, project, revision, capabilityPacks, mattes };
       } catch (error) {
         return { ok: false, error: errorMessage(error) };
       }
@@ -1372,7 +1390,8 @@ function registerIpcHandlers(): void {
       warmSessionAnalysis(project.id, selectedPath);
       const { revision } = projectCommands.observe(project);
       const capabilityPacks = await reconcileCapabilityPacks(project);
-      return { ok: true, path: selectedPath, project, revision, capabilityPacks };
+      const mattes = await validateOpenedMattes(selectedPath, project);
+      return { ok: true, path: selectedPath, project, revision, capabilityPacks, mattes };
     } catch (error) {
       return { ok: false, error: errorMessage(error) };
     }
