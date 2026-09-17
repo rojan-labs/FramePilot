@@ -152,8 +152,11 @@ export type MatteRunOutcome =
 
 /** Host-resolved auto prompt (BR4.5). `undefined` means "ask the editor to click". */
 export type MatteAutoPrompt = (context: {
+  readonly requestId: string;
   readonly asset: Project['assets'][number];
-  readonly firstFrameSeconds: number;
+  /** The clip's first in-range frame: decode-order index, its source seconds and pts. */
+  readonly frame: { readonly index: number; readonly seconds: number; readonly pts: number };
+  readonly fps: number;
   readonly projectRevision: number;
   readonly mediaRoot: string;
   readonly signal: AbortSignal;
@@ -261,13 +264,22 @@ export class CapabilityPackMatteService {
       return failed('invalid_intent', errorMessage(error), false);
     }
     if (prompts.length === 0 && intent.previousArtifactKey === undefined) {
+      const tAuto = Date.now();
       const auto = await this.options.autoPrompt?.({
+        requestId: intent.requestId,
         asset: media.asset,
-        firstFrameSeconds: relativeSeconds(media.timing, media.firstFrame),
+        frame: {
+          index: media.firstFrame,
+          seconds: relativeSeconds(media.timing, media.firstFrame),
+          pts: media.timing.pts[media.firstFrame]!,
+        },
+        fps: media.fps,
         projectRevision: context.projectRevision,
         mediaRoot: path.dirname(media.asset.path),
         signal,
       });
+      log.action('matteAutoPrompt', { found: auto !== undefined && auto.length > 0, elapsedMs: Date.now() - tAuto });
+      if (signal.aborted) return failed('cancelled', 'Background removal cancelled.', false);
       if (auto === undefined || auto.length === 0) return { status: 'needs_prompt' };
       prompts = [...auto];
     }

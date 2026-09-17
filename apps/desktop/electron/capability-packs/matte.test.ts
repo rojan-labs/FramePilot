@@ -20,6 +20,7 @@ import {
   frameRange,
   sampleSourcePts,
   SMART_MASK_PACK_ID,
+  type MatteAutoPrompt,
   type MatteProgress,
   type MatteRunContext,
 } from './matte.js';
@@ -64,6 +65,7 @@ interface HarnessOptions {
   records?: InstalledCapabilityPack[];
   isFile?: boolean;
   timing?: MatteVideoTiming;
+  autoPrompt?: MatteAutoPrompt;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -91,6 +93,7 @@ async function harness(options: HarnessOptions = {}) {
     inspector,
     runWorker: worker,
     isFile: async () => options.isFile ?? true,
+    ...(options.autoPrompt === undefined ? {} : { autoPrompt: options.autoPrompt }),
     now: () => new Date('2026-09-17T12:00:00Z'),
   });
   let project = {
@@ -329,6 +332,23 @@ describe('CapabilityPackMatteService lifecycle', () => {
     const h = await harness();
     expect(await h.service.run(h.intent({ prompts: [] }), h.context())).toEqual({ status: 'needs_prompt' });
     expect(h.worker).not.toHaveBeenCalled();
+  });
+
+  it('uses the auto prompt for the first in-range frame, and still asks for a click when it finds nothing', async () => {
+    const seen: unknown[] = [];
+    const autoPrompt = vi.fn<MatteAutoPrompt>(async (context) => {
+      seen.push(context.frame);
+      return [{ kind: 'box' as const, pts: context.frame.pts, box: { x: 0.2, y: 0.1, width: 0.5, height: 0.8 } }];
+    });
+    const h = await harness({ autoPrompt });
+    const outcome = await h.service.run(h.intent({ prompts: [] }), h.context());
+    expect(outcome.status).toBe('completed');
+    expect(seen).toEqual([{ index: 15, seconds: 0.5, pts: TIMING.pts[15] }]);
+    const request = h.requests[0]!;
+    if (request.capability !== 'subject.matte') throw new Error('expected a matte request');
+    expect(request.parameters.prompts).toEqual([{ kind: 'box', pts: TIMING.pts[15], box: { x: 0.2, y: 0.1, width: 0.5, height: 0.8 } }]);
+    autoPrompt.mockResolvedValueOnce([]);
+    expect(await h.service.run(h.intent({ requestId: 'again', prompts: [], sourceStart: 1 }), h.context())).toEqual({ status: 'needs_prompt' });
   });
 });
 

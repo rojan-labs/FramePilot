@@ -47,7 +47,8 @@ import { resolveCapabilityPackStatus } from './capability-status.js';
 import { CapabilityPackMatteService, type MatteAutoPrompt } from './matte.js';
 import type { MatteMediaInspector } from './matte-media-inspector.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
-import { CapabilityPackTrackingService } from './tracking.js';
+import { CapabilityPackTrackingService, SUBJECT_PACK_ID } from './tracking.js';
+import { createSubjectDetectAutoPrompt } from './matte-auto-prompt.js';
 import {
   resolveVisualPackHandles,
   resolveVisualPackIdentities,
@@ -325,7 +326,18 @@ export class CapabilityPackDesktopService {
       platform: this.platform,
       propose: (capabilityId) => this.propose(capabilityId),
       inspector: this.matteMediaInspector,
-      ...(autoPrompt === undefined ? {} : { autoPrompt }),
+      autoPrompt:
+        autoPrompt ??
+        createSubjectDetectAutoPrompt({
+          subjectPackReady: async () =>
+            (await this.store.list()).some(
+              (record) =>
+                record.identity.id === SUBJECT_PACK_ID &&
+                record.state === 'installed' &&
+                record.health.status === 'healthy',
+            ),
+          tracking: () => this.tracking(),
+        }),
     });
     return this.matteService;
   }
