@@ -309,11 +309,15 @@ export function MaskCanvasTools({
     store.update({ frameScale: Number(tools.zoom) / 100 / screenPerSourceAtFit });
   }, [tools.zoom, space, frameWidth, resolution.width, store]);
 
-  // Pointer-to-paint: the frame after the overlay commit that drew a pointer move.
+  // MK4.6. `commit` is the monitor's own work: the pointer event's timestamp to the end of the
+  // layout effect, by which point the overlay's DOM is written and the moved geometry is
+  // paintable. That is what the 16 ms budget is about. `pointerToPaint` adds the wait for the
+  // next vsync, which no amount of optimising the monitor can shorten.
   useLayoutEffect(() => {
     const started = pendingPointerTs.current;
     if (started === null) return;
     pendingPointerTs.current = null;
+    maskToolTelemetry.record('commit', performance.now() - started);
     requestAnimationFrame(() =>
       maskToolTelemetry.record('pointerToPaint', performance.now() - started),
     );

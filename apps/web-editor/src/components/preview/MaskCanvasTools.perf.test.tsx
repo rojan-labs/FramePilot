@@ -145,10 +145,12 @@ describe('pointer-to-paint on a 200-vertex path at 4K (MK4.6)', () => {
     }
     fireEvent.pointerUp(canvas, { clientX: 1000, clientY: 560, pointerId: 2 });
 
-    const samples = maskToolTelemetry.samples('pointerToPaint');
-    const p95 = maskToolTelemetry.p95('pointerToPaint');
+    // The budget is on `commit`: the pointer event to the paintable DOM. See the e2e spec and
+    // MK4-BUDGETS.md for why the vsync wait in `pointerToPaint` is reported and not gated.
+    const samples = maskToolTelemetry.samples('commit');
+    const p95 = maskToolTelemetry.p95('commit');
     console.log(
-      `MK4.6 pointer-to-paint (jsdom): p95 ${p95.toFixed(2)} ms over ${String(samples.length)} moves`,
+      `MK4.6 pointer-to-paint (jsdom): commit p95 ${p95.toFixed(2)} ms over ${String(samples.length)} moves`,
     );
     expect(samples.length).toBeGreaterThan(MOVES);
     expect(p95).toBeLessThanOrEqual(

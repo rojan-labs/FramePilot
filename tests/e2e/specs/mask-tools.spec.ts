@@ -11,6 +11,14 @@
 import { expect, test, type Locator, type Page } from '@playwright/test';
 import { clip, seekTo, selectClip, undoButton } from './helpers.js';
 
+/**
+ * Plan 06: editing a 200-vertex path on 4K footage must stay inside one frame. It is asserted on
+ * the monitor's `commit` channel — the pointer event's timestamp to the instant its geometry is
+ * paintable — which is the work the monitor controls. The `pointerToPaint` channel adds the wait
+ * for the next vsync; `page.mouse.move` injects moves through CDP unaligned to the frame clock,
+ * so that wait is up to a whole frame of pure idling and says nothing about the monitor. It is
+ * reported, not gated (plan/background-removal-ai/MK4-BUDGETS.md).
+ */
 const POINTER_TO_PAINT_BUDGET_MS = 16;
 
 function project(width: number, height: number, masks: unknown[] = []) {
@@ -187,8 +195,9 @@ test('pointer-to-paint stays within budget dragging a 200-point path on 4K media
       }
     ).__fpMaskToolTelemetry;
     return {
-      samples: telemetry.samples('pointerToPaint').length,
-      p95: telemetry.p95('pointerToPaint'),
+      samples: telemetry.samples('commit').length,
+      commitP95: telemetry.p95('commit'),
+      pointerToPaintP95: telemetry.p95('pointerToPaint'),
       compositeSamples: telemetry.samples('composite').length,
       compositeP95: telemetry.p95('composite'),
     };
@@ -199,5 +208,5 @@ test('pointer-to-paint stays within budget dragging a 200-point path on 4K media
   // The budget document (plan/background-removal-ai/MK4-BUDGETS.md) reads this line from CI logs.
   console.log(`MK4.6 pointer-to-paint ${JSON.stringify(stats)}`);
   expect(stats.samples).toBeGreaterThan(50);
-  expect(stats.p95).toBeLessThanOrEqual(POINTER_TO_PAINT_BUDGET_MS);
+  expect(stats.commitP95).toBeLessThanOrEqual(POINTER_TO_PAINT_BUDGET_MS);
 });

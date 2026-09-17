@@ -434,6 +434,7 @@ describe('view', () => {
     });
     mount(timeline([rect]));
     drag([960, 540], [980, 560], { altKey: true }, 8);
+    expect(maskToolTelemetry.samples('commit').length).toBeGreaterThan(0);
     expect(maskToolTelemetry.samples('pointerToPaint').length).toBeGreaterThan(0);
     vi.unstubAllGlobals();
   });
