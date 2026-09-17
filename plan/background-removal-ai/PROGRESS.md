@@ -9,10 +9,11 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - MK3 — preview mask pass, byte-equal TS rasteriser, debug views, mask oracle rows (agent)
-- Fix web-editor v21-mask tests (panels, MaskPackActions) (agent)
 - BR3 — Smart Mask worker scaffold + pipeline with injected backend (agent)
 
 ## Done
+
+- Web-editor v21-mask test fixes (95220dde, 3a294134); product bug fixed: Add mask on unmeasured media silently did nothing → Inspector now shows "Measure this media first"
 
 - PX2 + PX3 (… 400c8b52): layer compositor, exact effect ports, sidecar Pillow text raster ("Preview text approximate" fallback), VFR pts, rotated-anamorphic export fix, decoder pool, range-read demux, load shedding, gates removed behind flag, browser "Preview unavailable", ADR 0180. Oracle 46/48
 - BR3.1–BR3.14 (7183d9a0…df52f3ca): Smart Mask worker, CI workflow, release list; BR3.15 running
