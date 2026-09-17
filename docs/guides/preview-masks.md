@@ -11,11 +11,23 @@ byte, and how to change it without breaking that. Decision record: ADR 0178 (MK3
 | `gaussian-legacy` masks (Pillow draw + `GaussianBlur`)                           | `preview/masks/legacy-mask.ts`                               | `render/masks.py#rasterize_mask`                          |
 | Stack evaluation (source clock, crop, legacy spec, refusals, raster cache)       | `preview/masks/mask-stack.ts`                                | `render/mask_stack.py`                                    |
 | GPU pass (alpha cut, effect-target mix, debug views)                             | `preview/engine/layer-compositor.ts`, `gl/raster-shaders.ts` | `compiler.py#_attach_mask`, `_masked_effect`              |
+| Frame-space stacks on an adjustment lane (MK5.2)                                 | `preview/masks/frame-masks.ts`                               | `render/frame_masks.py`                                   |
+| Adjustment-lane mask mix (any catalog kind, in the finish pass)                  | `preview/engine/gl/frame-effects.ts`                         | `render/frame_effects.py#apply_layer_to_frame`            |
 | Legacy canvas and DOM monitors                                                   | `preview/masks/mask-canvas.ts`                               | the same raster, scaled by the browser (approximate edge) |
 
 The compositor rasterises a stack at the cropped picture's decoded size, the size the export
 attaches the mask at, then uploads it as an 8-bit texture. Static stacks are cached by the clip's
 semantic identity and size; animated ones by source time.
+
+An **adjustment lane's** mask is a different owner with the same pixels (MK5.2). It has no asset,
+no crop and no speed, so its geometry is output-frame pixels mapped by the identity and its clock
+is seconds from the layer's `start` (`space: 'frame'`). Both sides reach the shared evaluator
+through a stand-in owner whose "media size" is the frame itself, so the rasteriser, the combine
+modes and the single quantisation are the same code the clip path runs. The alpha then mixes the
+layer's fully-affected frame back toward the untouched one — after the intensity mix and before
+the clip, on both sides — which is what limits any of the 40 catalog render kinds to a region.
+`tests/fixtures/mask-raster/frame-layers.json` pins the two implementations float64-byte-exact,
+and the `effects/effect-kinds-masked` oracle case exercises every kind with a mask in CI.
 
 ## Why it is byte-exact, and the rules that keep it so
 

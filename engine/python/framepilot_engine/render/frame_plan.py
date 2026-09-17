@@ -40,6 +40,7 @@ from framepilot_engine.render.text_overlay import text_overlay_layout
 from framepilot_engine.timeline.models import (
     Clip,
     Effect,
+    EffectLayer,
     MaskLayer,
     Project,
     Track,
@@ -310,6 +311,32 @@ def _mask_plan_json(clip: Clip, local: float, source_frame: int | None) -> dict[
             layer["matte"] = {"artifactKey": mask.artifact.key, "sourceFrame": source_frame}
         layers.append(layer)
     return {"sourceTime": mask_source_time(clip, local), "layers": layers}
+
+
+def _layer_mask_plan_json(layer: EffectLayer, t: float) -> dict[str, Any]:
+    """An effect layer's enabled frame-space mask stack (MK5.2), or nothing when unmasked.
+
+    Unlike a clip's stack this is on the LAYER's clock — seconds from its ``start`` — and its
+    geometry is output-frame pixels, so there is no source time and no crop to report.
+    """
+    masks = [mask for mask in (layer.masks or []) if mask.enabled]
+    if not masks:
+        return {}
+    return {
+        "mask": {
+            "localTime": max(0.0, t - layer.start),
+            "layers": [
+                {
+                    "id": mask.id,
+                    "kind": mask.kind,
+                    "mode": str(mask.mode.value),
+                    "invert": mask.invert,
+                    "featherModel": str(mask.feather_model.value),
+                }
+                for mask in masks
+            ],
+        }
+    }
 
 
 def fit_scale(
@@ -920,6 +947,7 @@ def frame_plan_at(
             "effectId": layer.effect_id,
             "params": dict(layer.params),
             "intensity": layer.strength,
+            **_layer_mask_plan_json(layer, t),
         }
         for track, layer in project.timeline.active_effect_layers_at(t)
     ]

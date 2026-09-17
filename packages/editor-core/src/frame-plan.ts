@@ -22,6 +22,7 @@ import {
   type Asset,
   type Clip,
   type Effect,
+  type EffectLayer,
   type Keyframe,
   type MaskLayer,
   masksOf,
@@ -132,6 +133,20 @@ export interface FramePlanMaskStack {
   readonly layers: readonly FramePlanMaskLayer[];
 }
 
+/** An effect layer's enabled frame-space mask stack at this instant (MK5.2). */
+export interface FramePlanLayerMaskStack {
+  /** Seconds from the layer's `start`: an adjustment lane's masks run on their own clock. */
+  readonly localTime: number;
+  /** Enabled masks, top first. Geometry is in output-frame pixels, so there is no crop. */
+  readonly layers: readonly {
+    readonly id: string;
+    readonly kind: MaskLayer['kind'];
+    readonly mode: MaskLayer['mode'];
+    readonly invert: boolean;
+    readonly featherModel: MaskLayer['featherModel'];
+  }[];
+}
+
 export interface FramePlanFrameEffect {
   readonly trackId: string;
   readonly layerId: string;
@@ -139,6 +154,8 @@ export interface FramePlanFrameEffect {
   readonly effectId: string;
   readonly params: Record<string, number>;
   readonly intensity: number;
+  /** Absent when the adjustment covers the whole frame. */
+  readonly mask?: FramePlanLayerMaskStack;
 }
 
 export interface FramePlan {
@@ -727,6 +744,27 @@ export function maskSourceTime(
   return start + local * speed;
 }
 
+/** `_layer_mask_plan_json`: an effect layer's frame-space stack, or nothing when unmasked. */
+function layerMaskPlan(
+  layer: EffectLayer,
+  projectTime: number,
+): { mask?: FramePlanLayerMaskStack } {
+  const masks = masksOf(layer).filter((mask) => mask.enabled);
+  if (masks.length === 0) return {};
+  return {
+    mask: {
+      localTime: Math.max(0, projectTime - layer.start),
+      layers: masks.map((mask) => ({
+        id: mask.id,
+        kind: mask.kind,
+        mode: mask.mode,
+        invert: mask.invert,
+        featherModel: mask.featherModel,
+      })),
+    },
+  };
+}
+
 function maskPlan(
   clip: Clip,
   local: number,
@@ -979,6 +1017,7 @@ export function framePlanAt(
     effectId: layer.effectId,
     params: { ...layer.params },
     intensity: layer.intensity ?? 1,
+    ...layerMaskPlan(layer, projectTime),
   }));
 
   return {

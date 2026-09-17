@@ -53,6 +53,7 @@ import { MatteSource } from '../masks/matte-source.js';
 import { resolveMatteArtifactLocator } from '../masks/matte-location.js';
 import type { MatteFrameData } from '../masks/matte-edges.js';
 import { isFlaggedFrame, type MaskDebugView } from '../masks/mask-view.js';
+import { FrameMaskRasterCache, effectLayerMaskStack } from '../masks/frame-masks.js';
 import type { FlaggedRange, MatteLookup } from '../masks/matte-source.js';
 import {
   EngineTextRasters,
@@ -199,6 +200,8 @@ export class LayerPreviewEngine {
     { readonly timeline: Timeline; readonly clipsById: Map<string, Clip> }
   >();
   private clipsById = new Map<string, Clip>();
+  /** MK5.2: frame-space mask rasters for masked adjustment lanes, cached by size and instant. */
+  private readonly frameMaskRasters = new FrameMaskRasterCache();
   private renderScaleIndex = 0;
   private renderMsEma = 0;
   private slowTicks = 0;
@@ -1070,12 +1073,20 @@ export class LayerPreviewEngine {
     );
     return plan.frameEffects.map((effect) => {
       const layer = layers.get(effect.layerId);
+      const localTime = Math.max(0, timeSec - (layer?.start ?? timeSec));
+      // MK5.2: a masked adjustment lane is limited to its stack's alpha, in output-frame
+      // pixels, exactly as `apply_effect_layers` limits it on export.
+      const stack = layer === undefined ? null : effectLayerMaskStack(layer);
       return {
         kind: effect.kind as FrameEffectInstance['kind'],
         params: effect.params,
         intensity: effect.intensity,
-        localTime: Math.max(0, timeSec - (layer?.start ?? timeSec)),
+        localTime,
         duration: Math.max(0, (layer?.end ?? timeSec) - (layer?.start ?? timeSec)),
+        mask:
+          stack === null
+            ? null
+            : this.frameMaskRasters.raster(stack, plan.width, plan.height, localTime),
       };
     });
   }

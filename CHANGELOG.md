@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Mask an adjustment layer.** A mask drawn on an effect layer now limits that adjustment on
+  both the monitor and the export, for every effect in the catalog — so a blur, a glitch or a
+  grade on an adjustment lane can cover a region instead of the whole frame. The mask stays where
+  you put it on the frame, and animates on the layer's own clock, so moving the layer never moves
+  the mask.
+
 - **Limit an effect to part of the picture.** Every effect on a clip now has an "Add mask"
   button in the Inspector's Effects tab. Click it and draw: the shape you draw limits that
   effect instead of cutting the clip out, so a blur can sit on a face and a grade on the sky

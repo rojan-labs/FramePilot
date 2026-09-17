@@ -34,9 +34,10 @@ from typing import Any
 
 import numpy as np
 
+from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.mask_stack import clip_mask_stacks
 from framepilot_engine.render.masks import MaskSpec, rasterize_mask
-from framepilot_engine.timeline.models import Clip
+from framepilot_engine.timeline.models import Clip, EffectLayer
 
 _log = logging.getLogger(__name__)
 
@@ -756,6 +757,141 @@ def _matte_document() -> dict[str, Any]:
     }
 
 
+# --- Frame-space stacks on an adjustment lane (MK5.2) --------------------------------------
+
+#: An effect layer's mask stack is in OUTPUT-FRAME pixels on a layer-local clock. These cover a
+#: static shape, a two-mask combine, a keyframed rectangle and an animated path, so the TS twin
+#: (`preview/masks/frame-masks.ts`) is pinned on the mapping AND the clock.
+_FRAME_LAYER_CASES: list[dict[str, Any]] = [
+    {
+        "id": "frame-rectangle",
+        "layer": {
+            "id": "fx-rect",
+            "effectId": "soft-veil",
+            "kind": "blur-gaussian",
+            "start": 1.5,
+            "end": 3.5,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="rectangle",
+                    space="frame",
+                    cx=140.0,
+                    cy=70.0,
+                    width=120.5,
+                    height=60.25,
+                    rotation=12.0,
+                    roundness=0.3,
+                    featherOuterPx=6.0,
+                    falloff="smooth",
+                )
+            ],
+        },
+        "sizes": [[256, 144], [128, 72]],
+        "times": [0.0, 1.0],
+    },
+    {
+        "id": "frame-combine",
+        "layer": {
+            "id": "fx-combine",
+            "effectId": "halo-bloom",
+            "kind": "bloom",
+            "start": 0.0,
+            "end": 2.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="ellipse",
+                    space="frame",
+                    cx=128.0,
+                    cy=72.0,
+                    rx=70.0,
+                    ry=40.0,
+                    featherOuterPx=4.0,
+                    featherInnerPx=2.0,
+                ),
+                _mask(
+                    id="m2",
+                    kind="rectangle",
+                    space="frame",
+                    mode="subtract",
+                    cx=128.0,
+                    cy=100.0,
+                    width=90.0,
+                    height=40.0,
+                    expansionPx=3.0,
+                ),
+            ],
+        },
+        "sizes": [[256, 144]],
+        "times": [0.0, 0.75],
+    },
+    {
+        "id": "frame-keyframed",
+        "layer": {
+            "id": "fx-keyed",
+            "effectId": "mosaic-blocks",
+            "kind": "mosaic",
+            "start": 4.0,
+            "end": 6.0,
+            "params": {},
+            "keyframes": [],
+            "masks": [
+                _mask(
+                    id="m1",
+                    kind="rectangle",
+                    space="frame",
+                    cx=60.0,
+                    cy=72.0,
+                    width=80.0,
+                    height=80.0,
+                    keyframes=[
+                        {"id": "k0", "property": "cx", "sourceTime": 0.0, "value": 60.0},
+                        {
+                            "id": "k1",
+                            "property": "cx",
+                            "sourceTime": 2.0,
+                            "value": 196.0,
+                            "easing": "ease-in-out",
+                        },
+                    ],
+                )
+            ],
+        },
+        "sizes": [[256, 144]],
+        "times": [0.0, 0.5, 1.0, 2.0],
+    },
+]
+
+
+def _frame_layer_document() -> dict[str, Any]:
+    cases = []
+    for case in _FRAME_LAYER_CASES:
+        layer = EffectLayer.model_validate(case["layer"])
+        stack = layer_mask_stack(layer)
+        assert stack is not None, case["id"]
+        expected = [
+            {
+                "width": width,
+                "height": height,
+                "localTime": t,
+                "alpha": _digest(stack.alpha_at(t, width, height)),
+            }
+            for width, height in case["sizes"]
+            for t in case["times"]
+        ]
+        cases.append({**case, "expected": expected})
+    return {
+        "area": "frame-layers",
+        "spec": "engine/python/tests/mask_stack_vectors.py; render/frame_masks.py FrameMaskStack",
+        "cases": cases,
+    }
+
+
 def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
@@ -764,6 +900,7 @@ DOCUMENTS = {
     "legacy": _legacy_document,
     "stack-clips": _clip_document,
     "matte-clips": _matte_document,
+    "frame-layers": _frame_layer_document,
 }
 
 

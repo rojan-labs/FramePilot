@@ -16,6 +16,7 @@
  */
 import type { EffectRenderKind } from '@framepilot/timeline-schema';
 import { clampParamsForKind } from '@framepilot/timeline-schema/effect-params';
+import type { MaskStackRaster } from '../../masks/mask-stack.js';
 import type { GlResources, Program, RenderTarget } from './gl-resources.js';
 
 /** One live effect layer at the frame being drawn. */
@@ -27,6 +28,12 @@ export interface FrameEffectInstance {
   readonly localTime: number;
   /** Layer length in seconds. */
   readonly duration: number;
+  /**
+   * The layer's frame-space mask stack at this instant (MK5.2), or `null`/absent when the
+   * adjustment covers the whole frame. The pass runs on the whole frame and is mixed back
+   * toward the untouched frame by this alpha, as `apply_layer_to_frame` does.
+   */
+  readonly mask?: MaskStackRaster | null;
 }
 
 const HEADER = `#version 300 es
@@ -583,15 +590,26 @@ void main() {
   o_color = vec4(reg.r, torn.g, torn.b, 1.0);
 }`;
 
-/** Dispatcher tail: intensity mix, clip, `(x * 255 + 0.5)` truncation into 8 bits. */
+/**
+ * Dispatcher tail: intensity mix, the frame-space mask mix, clip, `(x * 255 + 0.5)` truncation
+ * into 8 bits — in that order, exactly as `apply_layer_to_frame` does them.
+ *
+ * `u_maskScale` is 0 when the layer is unmasked, which leaves the mask sampler unread.
+ */
 const FINISH = `${HEADER}
 uniform sampler2D u_result;
+uniform sampler2D u_mask;
 uniform float u_strength;
+uniform float u_maskScale;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   vec3 source = texelFetch(u_src, p, 0).rgb;
   vec3 result = texelFetch(u_result, p, 0).rgb;
   if (u_strength < 1.0) result = source + (result - source) * u_strength;
+  if (u_maskScale > 0.0) {
+    float alpha = texelFetch(u_mask, p, 0).r * u_maskScale;
+    result = source + (result - source) * alpha;
+  }
   result = clamp(result, 0.0, 1.0);
   o_color = vec4(floor(result * 255.0 + 0.5) / 255.0, 1.0);
 }`;
@@ -682,8 +700,23 @@ export class FrameEffectRenderer {
       this.gl.useProgram(program.handle);
       this.resources.bind(program, 'u_src', 0, current.texture);
       this.resources.bind(program, 'u_result', 1, result.texture);
+      // A mask whose raster is not the frame's size cannot be sampled per texel; it is a
+      // caller bug, and drawing the adjustment everywhere would be worse than skipping it.
+      const mask =
+        effect.mask != null &&
+        effect.mask.width === current.width &&
+        effect.mask.height === current.height
+          ? effect.mask
+          : null;
+      this.resources.bind(
+        program,
+        'u_mask',
+        2,
+        mask === null ? result.texture : this.resources.plane(mask.width, mask.height, mask.alpha8),
+      );
       program.ivec2('u_size', current.width, current.height);
       this.gl.uniform1f(program.location('u_strength'), strength);
+      this.gl.uniform1f(program.location('u_maskScale'), mask === null ? 0 : mask.scale);
       this.resources.draw(finished, finished.width, finished.height);
       current = finished;
     }
