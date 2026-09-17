@@ -301,9 +301,41 @@ function parseTracks(data: Uint8Array): MatroskaVideoTrack | null {
         }
       }
     }
-    if (type === VIDEO_TRACK_TYPE) return { number, codecId, codecPrivate, width, height };
+    if (type === VIDEO_TRACK_TYPE) {
+      const unwrapped = unwrapVfw(codecId, codecPrivate);
+      return { number, ...unwrapped, width, height };
+    }
   }
   return null;
+}
+
+/** `BITMAPINFOHEADER`, which a `V_MS/VFW/FOURCC` track's `CodecPrivate` starts with. */
+const VFW_HEADER_BYTES = 40;
+/** Offset of `biCompression` (the FourCC) inside it. */
+const VFW_FOURCC_AT = 16;
+
+/**
+ * A `V_MS/VFW/FOURCC` track read as its native codec.
+ *
+ * Matroska carries FFV1 either natively (`V_FFV1`) or wrapped in a Video-for-Windows header,
+ * and which one a file has is the muxer's choice, not the pack's: FFmpeg only gained the native
+ * CodecID for FFV1 in a recent release, so the same `ffv1` encode writes `V_MS/VFW/FOURCC` on an
+ * older ffmpeg (the CI runner's) and `V_FFV1` on a newer one (a developer's). The export's reader
+ * is ffmpeg, which takes both, so the monitor takes both too: the FourCC names the codec and the
+ * bytes after the `BITMAPINFOHEADER` are the codec's global header.
+ */
+function unwrapVfw(
+  codecId: string,
+  codecPrivate: Uint8Array | null,
+): { codecId: string; codecPrivate: Uint8Array | null } {
+  if (codecId !== 'V_MS/VFW/FOURCC' || codecPrivate === null) return { codecId, codecPrivate };
+  if (codecPrivate.length < VFW_HEADER_BYTES) return { codecId, codecPrivate: null };
+  const fourcc = String.fromCharCode(
+    ...codecPrivate.subarray(VFW_FOURCC_AT, VFW_FOURCC_AT + 4),
+  ).toUpperCase();
+  if (fourcc !== 'FFV1') return { codecId, codecPrivate };
+  const extradata = codecPrivate.subarray(VFW_HEADER_BYTES);
+  return { codecId: 'V_FFV1', codecPrivate: extradata.length > 0 ? extradata.slice() : null };
 }
 
 /** Parse a block's header at `bytes[0..]`; returns where its frame data starts. */

@@ -73,7 +73,12 @@ export class MatteDecodeSession implements PooledDecoderHolder {
   async load(url: string, expectedFrames: number | null): Promise<MatteFileInfo> {
     const index = await MatroskaVideoIndex.open(await this.openReader(url), expectedFrames);
     if (index.track.codecId !== 'V_FFV1' || index.track.codecPrivate === null) {
-      throw new Error('Matte file is not FFV1.');
+      // Name what was found: a codec id and "no global header" are the two ways this fails, and
+      // a refusal that does not say which one costs a whole parity run to tell apart.
+      throw new Error(
+        `Matte file is not FFV1: codec ${JSON.stringify(index.track.codecId)}` +
+          `${index.track.codecPrivate === null ? ', no global header' : ''}.`,
+      );
     }
     // Parse the global header now, so a format the preview cannot read fails at load.
     const probe = new Ffv1Decoder(index.track.width, index.track.height, index.track.codecPrivate);
