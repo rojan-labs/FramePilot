@@ -9,9 +9,11 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR2.5–BR2.7 — VFR frame-exact decode, rotated/PAR mattes, deterministic matte resample (render-debugger agent)
+- BR4 — subject.matte protocol + desktop host (agent)
 
 ## Done
+
+- BR2.5–BR2.7 (8dc28312, 4bf845c6, df5c5e25) + mypy fix a404c99a: VFR decode by pts, display-space mattes, deterministic resample; follow-ups PX2.10/PX2.11; pts probe cost on multi-GB files unmeasured (PX5)
 
 - BR2.1–BR2.4 (38bde7a3…44b990e1): matte reader, stack integration (decontaminate, edge shift, edgeMode sharp = clean 0.25/0.75), typed refusals, alignment 100%, 6 goldens; frames.json format defined for BR3.2
 

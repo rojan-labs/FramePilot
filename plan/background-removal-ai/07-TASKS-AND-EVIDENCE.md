@@ -57,6 +57,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [ ] PX2.6 Range-read streaming demux for unproxied originals (desktop)
 - [ ] PX2.7 Colour matrix and range matching in the shader (from PX0.3)
 - [ ] PX2.9 Clip fit/crop placement uses the display-corrected size (PAR + rotation) in `frame_plan.py` `asset_sizes` and `frame-plan.ts`; anamorphic and rotated geometry rows added to the matrix (found in MK1.9)
+- [ ] PX2.10 Frame plan `source.frame` for VFR sources uses probed frame timestamps (last pts at or before t), matching the export's `reader_frame_index` (found in BR2.5)
+- [ ] PX2.11 Export placement for footage that is both rotated and anamorphic (MoviePy applies the SAR stretch after the rotation swap); fix in the engine with a golden, mirrored in the plan
 - [ ] PX2.8 Load shedding: resolution first, then presentation frames; never layers; "Preview reduced" indicator
 
 **DoD:** every PX4 matrix row passes on desktop.
@@ -175,16 +177,16 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** numbers in the findings doc and every (model, EP) pair either passing parity or disabled. The model set is not re-opened; a missed recall gate is fixed in the verify stage.
 
-### BR2 — Engine: matte kind `[~]` (needs MK2; BR2.1–BR2.4 through 44b990e1, 100% alignment, 6 goldens; VFR/rotated/downscale refused → BR2.5–BR2.7)
+### BR2 — Engine: matte kind `[x]` (through df5c5e25: 100% alignment incl. VFR/ramp/reverse, display-space mattes on rotated/anamorphic, bit-exact resample vs reference, goldens byte-identical)
 
 - [x] BR2.1 `render/mattes.py` reader (pts lookup, sequential cursor, LRU) for matte + foreground
 - [x] BR2.2 Matte in `mask_stack.py`: decontamination before targets, edge shift, then base stack rules
 - [x] BR2.3 Typed pre-render refusals
 - [x] BR2.4 Fixtures: synthetic mattes, VFR, edit list, speed ramp; render golden for video → text → matted copy
 
-- [ ] BR2.5 Frame-exact decode for VFR sources in the export (decode by pts, not MoviePy's constant-rate resample), so VFR mattes render instead of refusing `matte_variable_frame_rate`
-- [ ] BR2.6 Mattes on rotated and non-square-pixel sources (display-corrected space, MK1.9) instead of `matte_unsupported_media`
-- [ ] BR2.7 Reduced-size export decodes resample the matte with the same deterministic filter as the picture; bit-exact edge test
+- [x] BR2.5 Frame-exact decode for VFR sources in the export (decode by pts, not MoviePy's constant-rate resample), so VFR mattes render instead of refusing `matte_variable_frame_rate`
+- [x] BR2.6 Mattes on rotated and non-square-pixel sources (display-corrected space, MK1.9) instead of `matte_unsupported_media`
+- [x] BR2.7 Reduced-size export decodes resample the matte with the same deterministic filter as the picture; bit-exact edge test
 
 **DoD:** engine tests for new modules pass; golden updated in the same PR.
 
