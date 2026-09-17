@@ -35,6 +35,7 @@ from pathlib import Path
 from typing import Literal
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.untrusted import FORMAT_WHITELIST
 from framepilot_engine.render.pts_reader import video_timing
 from framepilot_engine.subprocess_safety import validate_safe_argv
 
@@ -50,12 +51,6 @@ MAX_PIXELS = 8192 * 8192
 DECODE_THREADS = 2
 #: Largest pts or index accepted (well inside int64 and float precision).
 MAX_ABS_PTS = 2**52
-#: Demuxers a camera file or matte may use. No playlist, concat or network demuxers, so a file
-#: renamed to ``.mp4`` cannot make ffmpeg open another file (HLS, ffconcat) on our behalf.
-FORMAT_WHITELIST = (
-    "mov,mp4,m4a,3gp,3g2,mj2,matroska,webm,avi,mpegts,mpeg,flv,mxf,ogg,asf,dv,ivf,gif,"
-    "image2,png_pipe,jpeg_pipe,webp_pipe,tiff_pipe,bmp_pipe"
-)
 
 PixelFormat = Literal["native", "gray", "rgb24"]
 

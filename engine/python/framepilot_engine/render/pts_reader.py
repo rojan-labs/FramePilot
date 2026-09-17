@@ -35,6 +35,7 @@ import numpy as np
 import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.untrusted import untrusted_input_options
 from framepilot_engine.subprocess_safety import validate_safe_argv
 
 _log = logging.getLogger(__name__)
@@ -100,6 +101,7 @@ def video_timing(path: str | Path) -> VideoTiming:
                 probe,
                 "-v",
                 "error",
+                *untrusted_input_options(),
                 "-select_streams",
                 "v:0",
                 "-show_entries",
@@ -119,6 +121,7 @@ def video_timing(path: str | Path) -> VideoTiming:
                 probe,
                 "-v",
                 "error",
+                *untrusted_input_options(),
                 "-select_streams",
                 "v:0",
                 "-show_entries",
