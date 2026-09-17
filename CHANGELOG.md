@@ -8,6 +8,18 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Exports draw background-removal mattes (engine; the Remove background button is not
+  released yet).** A clip's AI matte now exports with its soft edges, edge shift, Sharp or Smooth
+  edge mode, clean edge colour (the old background's colour is replaced inside hair and motion
+  blur), invert, opacity and any combination with shape masks, including a matte limiting a
+  colour grade. Every matte frame is matched to the exact source frame the export draws, through
+  trims, speed changes, reverse and speed ramps. Before rendering starts the export checks the
+  matte's files against the fingerprints saved in the project, and stops with one clear
+  instruction instead of drawing a wrong cut-out: "Background removal data is missing — run
+  Remove background again", a changed or damaged file, a clip trimmed beyond the removed range
+  ("update the background removal for the new range"), media that changed size, or
+  variable-frame-rate footage (convert it to a constant frame rate first).
+
 - **The program monitor composites every layer the export does (development builds).** A new
   WebGL2 compositor draws the frame from the same frame plan the export uses: every picture layer
   back to front, stacked and picture-in-picture clips, hidden tracks, gaps and speed changes, with

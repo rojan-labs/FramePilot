@@ -70,6 +70,9 @@ FOREGROUND_PIXEL_FORMATS = frozenset({"gbrp", "bgr0", "rgb24", "bgra", "rgba", "
 
 #: Frames kept for random access. Export reads forward and hits the cursor, not the LRU.
 DEFAULT_LRU_FRAMES = 8
+#: Relative slack between the matte's mean frame step and the export reader's rate. MoviePy
+#: parses "29.97" for 30000/1001 (0.001 % apart); a different rate is several percent apart.
+FRAME_RATE_TOLERANCE = 0.005
 #: A forward jump up to this many frames reads through instead of restarting the decoder.
 FORWARD_READ_THROUGH = 48
 
@@ -476,8 +479,9 @@ def assert_frames_align(
         step = frames.constant_step()
         if step is None:
             raise refuse(MatteRefusalCode.VARIABLE_FRAME_RATE)
+        mean_step = (frames.pts[-1] - frames.pts[0]) / (frames.count - 1)
         expected = 1.0 / (source_fps * float(frames.time_base)) if source_fps > 0 else 0.0
-        if abs(step - expected) > 1.0:
+        if expected <= 0.0 or abs(mean_step - expected) > expected * FRAME_RATE_TOLERANCE:
             raise refuse(MatteRefusalCode.VARIABLE_FRAME_RATE)
     for frame in source_frames:
         try:
