@@ -259,6 +259,16 @@ export function MaskCanvasTools({
   const pendingPointerTs = useRef<number | null>(null);
   /** When the pointer handler was entered, so input delay and the monitor's work stay separable. */
   const pendingHandlerTs = useRef<number | null>(null);
+  /**
+   * The canvas' box in client pixels, held for the duration of a gesture (MK4.6).
+   *
+   * Every pointer move maps client pixels to source pixels, and `getBoundingClientRect` on a
+   * document React has just written to forces a synchronous style + layout of the whole editor.
+   * Doing that once per move is layout thrash and was the bulk of the Chrome pointer latency
+   * (jsdom never showed it: it has no layout). The box cannot change while a pointer is down —
+   * the ResizeObserver below clears the cache if the canvas is resized anyway.
+   */
+  const rectCache = useRef<DOMRect | null>(null);
   const [draft, setDraft] = useState<Draft>({});
   const [penPoints, setPenPoints] = useState<MaskPathVertex[]>([]);
   const [cursor, setCursor] = useState<PixelPoint | null>(null);
@@ -288,6 +298,7 @@ export function MaskCanvasTools({
     const svg = svgRef.current;
     if (svg === null) return undefined;
     const measure = (): void => {
+      rectCache.current = null;
       const width = svg.getBoundingClientRect().width;
       setScreenPerFrame(width > 0 ? width / resolution.width : 1);
     };
@@ -366,9 +377,16 @@ export function MaskCanvasTools({
     return refusal === null;
   };
 
+  const canvasRect = (): DOMRect | undefined => {
+    const cached = rectCache.current;
+    if (cached !== null) return cached;
+    const measured = svgRef.current?.getBoundingClientRect();
+    if (measured !== undefined && gesture.current !== null) rectCache.current = measured;
+    return measured;
+  };
+
   const toSource = (event: { clientX: number; clientY: number }): PixelPoint => {
-    const svg = svgRef.current;
-    const rect = svg?.getBoundingClientRect();
+    const rect = canvasRect();
     const width = rect && rect.width > 0 ? rect.width : resolution.width;
     const height = rect && rect.height > 0 ? rect.height : resolution.height;
     const frame = {
@@ -698,6 +716,7 @@ export function MaskCanvasTools({
 
   const closePen = (points: readonly MaskPathVertex[]): void => {
     gesture.current = null;
+    rectCache.current = null;
     if (points.length < 3) {
       report('A path needs at least three points.');
       return;
@@ -967,6 +986,7 @@ export function MaskCanvasTools({
     const active = gesture.current;
     if (active === null || active.pointerId !== event.pointerId) return;
     gesture.current = null;
+    rectCache.current = null;
     setDraft({});
     switch (active.kind) {
       case 'pan':
@@ -1092,6 +1112,7 @@ export function MaskCanvasTools({
 
   const onPointerCancel = (): void => {
     gesture.current = null;
+    rectCache.current = null;
     setDraft({});
     store.update({ live: null, liveScalars: null });
   };
