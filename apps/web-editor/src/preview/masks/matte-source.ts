@@ -236,6 +236,26 @@ export class MatteSource {
     return { state: 'pending' };
   }
 
+  /**
+   * BR5.4: what is known about `mask`'s artifact right now — whether its index loaded, the
+   * source-frame range it holds and any refusal. Facts for the PX4 oracle's diagnostic; no
+   * drawing decision reads it.
+   */
+  debugState(mask: MatteMask): {
+    loaded: boolean;
+    refusal: MatteRefusalCode | null;
+    firstFrame: number | null;
+    frameCount: number | null;
+  } {
+    const state = this.artifacts.get(mask.artifact.key);
+    return {
+      loaded: (state?.frames ?? null) !== null,
+      refusal: state?.refusal ?? null,
+      firstFrame: state?.frames?.firstFrame ?? null,
+      frameCount: state?.frames?.pts.length ?? null,
+    };
+  }
+
   /** The matte frame index of `sourceFrame`, when the artifact is loaded and holds it. */
   frameIndexFor(mask: MatteMask, sourceFrame: number): number | null {
     const frames = this.artifacts.get(mask.artifact.key)?.frames ?? null;

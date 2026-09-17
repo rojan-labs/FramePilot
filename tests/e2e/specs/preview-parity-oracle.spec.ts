@@ -660,6 +660,12 @@ async function seekAndCompare(
             (
               engine as unknown as { debugPresentedPictures?: () => unknown }
             ).debugPresentedPictures?.() ?? null,
+          // BR5.4: how each matte layer resolved (ready / unprocessed / refused, and the index
+          // range its artifact holds) — the one fact a matte row's pixels cannot show.
+          mattes:
+            (
+              engine as unknown as { debugPresentedMattes?: () => unknown }
+            ).debugPresentedMattes?.() ?? null,
         };
       }
 

@@ -53,7 +53,7 @@ import { MatteSource } from '../masks/matte-source.js';
 import { resolveMatteArtifactLocator } from '../masks/matte-location.js';
 import type { MatteFrameData } from '../masks/matte-edges.js';
 import { isFlaggedFrame, type MaskDebugView } from '../masks/mask-view.js';
-import type { FlaggedRange } from '../masks/matte-source.js';
+import type { FlaggedRange, MatteLookup } from '../masks/matte-source.js';
 import {
   EngineTextRasters,
   resolveTextRasterSource,
@@ -136,6 +136,25 @@ const entryBytes = (entry: CacheEntry): number =>
 interface MatteNeed {
   readonly mask: MatteMask;
   readonly sourceFrame: number;
+}
+
+/**
+ * What one matte layer resolved to on the last composite, for the PX4 oracle's diagnostic
+ * (BR5.4). Facts only: no verdict is taken from it, and nothing but a failing sample reads it.
+ */
+interface MatteDebugState {
+  readonly clipId: string;
+  readonly maskId: string;
+  readonly artifact: string;
+  readonly sourceFrame: number;
+  readonly pictureSeconds: number;
+  readonly state: MatteLookup['state'];
+  readonly code: string | null;
+  readonly frameIndex: number | null;
+  readonly loaded: boolean;
+  readonly refusal: string | null;
+  readonly firstFrame: number | null;
+  readonly frameCount: number | null;
 }
 
 /** A source frame some layer needs. */
@@ -224,6 +243,8 @@ export class LayerPreviewEngine {
   private maskViewClipId: string | null = null;
   private lastBitmap: ImageBitmap | null = null;
   private lastPictureKeys: string[] = [];
+  /** BR5.4: how every matte layer of the last composite resolved (oracle diagnostic only). */
+  private lastMatteStates: MatteDebugState[] = [];
   private dbg = {
     ticks: 0,
     presented: 0,
@@ -801,6 +822,10 @@ export class LayerPreviewEngine {
     const size = { width: plan.width, height: plan.height };
     const layers: CompositeLayer[] = [];
     const presented: PresentedLayer[] = [];
+    // Filled in place, so an abandoned composite (a frame still decoding) still leaves the
+    // states it reached behind for the diagnostic.
+    const matteStates: MatteDebugState[] = [];
+    this.lastMatteStates = matteStates;
     let processing = false;
     for (const layer of plan.layers) {
       if (layer.kind === 'caption' || layer.kind === 'text') {
@@ -863,7 +888,19 @@ export class LayerPreviewEngine {
       if (step.mask !== null && step.mask.stack.mattes.length > 0) {
         const frames = new Map<string, MatteFrameData | null>();
         for (const mask of step.mask.stack.mattes) {
-          const found = this.mattes.lookup(mask, frame, cached.timestampUs / 1_000_000);
+          const pictureSeconds = cached.timestampUs / 1_000_000;
+          const found = this.mattes.lookup(mask, frame, pictureSeconds);
+          matteStates.push({
+            clipId: clip.id,
+            maskId: mask.id,
+            artifact: mask.artifact.key.slice(0, 12),
+            sourceFrame: frame,
+            pictureSeconds,
+            state: found.state,
+            code: found.state === 'refused' ? found.code : null,
+            frameIndex: this.mattes.frameIndexFor(mask, frame),
+            ...this.mattes.debugState(mask),
+          });
           if (found.state === 'pending') return null;
           if (found.state === 'refused') {
             // The export refuses this clip; the monitor draws it unmasked and says why.
@@ -1269,6 +1306,11 @@ export class LayerPreviewEngine {
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */
   debugPresentedFrame(): PresentedFrame {
     return this.presented;
+  }
+
+  /** BR5.4 test hook: how each matte layer of the last composite resolved (parity triage). */
+  debugPresentedMattes(): Record<string, unknown>[] {
+    return this.lastMatteStates.map((state) => ({ ...state }));
   }
 
   /** Test hook: plane means of the decoded pictures the last composite read (readback triage). */
