@@ -82,7 +82,7 @@ and measured size, throughput and memory on a 16 GB Apple M1 Pro.
   floor is not supported by the measurements; the published minimum hardware is a maintainer
   decision informed by BR0-FINDINGS.
 - **Pack size.** fp32 SAM (≈ 0.92 GB of ONNX) + fp16-stored BiRefNet (≈ 0.45 GB) + runtime
-  (≈ 0.1 GB) ≈ 1.45 GB, above the 1.05 GB target, because SAM failed the fp16-stored gate.
+  (≈ 0.1 GB) ≈ 1.47 GB, above the 1.05 GB target, because SAM failed the fp16-stored gate.
 - **Verification is a gate, not a promise.** The verify stage's error-detection recall and
   review load on the construction-true pilot set are in BR0-FINDINGS; the human-labelled set
   (MO-8) is still required before the pack can claim "Verified".

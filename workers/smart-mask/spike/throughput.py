@@ -13,6 +13,8 @@ read from the parity and probe results, not re-run. The per-footage-second figur
 explicit formula (written into the result) rather than a hidden extrapolation:
 
   per frame = 2 × SAM(frame) + tiles(res) × BiRefNet(tile) + cpu_stages(res)
+  (FFV1 sizes here are from the pilot's synthetic subjects over real backgrounds; the foreground
+  stream carries only band pixels, so its size tracks band area, not frame area)
   compute s per footage s = per frame × 30
 
 with tiles(1080p) = 1 (a subject crop ≤ 1080 px fits one 2048² input) and tiles(4K) = 4
@@ -39,13 +41,18 @@ FPS_OUT = 30
 SIZES = {"1080p": (1920, 1080), "4K": (3840, 2160)}
 
 
-def ffv1_bytes(frames: np.ndarray, pix_fmt: str) -> int:
-    t, h, w = frames.shape[:3]
+def ffv1_bytes(frames, w: int, h: int, pix_fmt: str) -> int:
+    """Encode an iterable of frames to FFV1 by streaming (one frame in memory at a time)."""
     with tempfile.TemporaryDirectory() as d:
         out = Path(d) / "x.mkv"
-        subprocess.run(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", pix_fmt, "-s",
-                        f"{w}x{h}", "-r", str(FPS_OUT), "-i", "-", "-c:v", "ffv1", "-level", "3", "-y", str(out)],
-                       input=np.ascontiguousarray(frames).tobytes(), check=True)
+        enc = subprocess.Popen(["ffmpeg", "-nostdin", "-loglevel", "error", "-f", "rawvideo", "-pix_fmt", pix_fmt,
+                                "-s", f"{w}x{h}", "-r", str(FPS_OUT), "-i", "-", "-c:v", "ffv1", "-level", "3", "-y",
+                                str(out)], stdin=subprocess.PIPE)
+        for f in frames:
+            enc.stdin.write(np.ascontiguousarray(f).tobytes())
+        enc.stdin.close()
+        if enc.wait() != 0:
+            raise RuntimeError("ffmpeg FFV1 encode failed")
         return out.stat().st_size
 
 
@@ -84,17 +91,24 @@ def storage(clip: str) -> dict:
     t = len(final)
     res = {}
     for name, (w, h) in SIZES.items():
-        al = np.stack([cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR) for a in final])
-        fr = np.stack([cv2.resize(f, (w, h), interpolation=cv2.INTER_CUBIC) for f in frames])
-        band = (al > 0) & (al < 255)
-        fg = np.where(band[..., None], fr, 0).astype(np.uint8)
-        matte_b = ffv1_bytes(al, "gray")
-        fg_b = ffv1_bytes(fg, "rgb24")
+        def scaled_alpha():
+            for a in final:
+                yield cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR)
+
+        def band_foreground():
+            for f, a in zip(frames, final):
+                al = cv2.resize(a, (w, h), interpolation=cv2.INTER_LINEAR)
+                fr = cv2.resize(f, (w, h), interpolation=cv2.INTER_CUBIC)
+                band = (al > 0) & (al < 255)
+                yield np.where(band[..., None], fr, 0).astype(np.uint8)
+
+        band_frac = float(np.mean([((a > 0) & (a < 255)).mean() for a in final]))
+        matte_b = ffv1_bytes(scaled_alpha(), w, h, "gray")
+        fg_b = ffv1_bytes(band_foreground(), w, h, "rgb24")
         per_min = 60 * FPS_OUT / t
         res[name] = {"matteMiBPerMinute": round(matte_b * per_min / 2**20, 1),
                      "foregroundMiBPerMinute": round(fg_b * per_min / 2**20, 1),
-                     "framesMeasured": t, "bandPixelFraction": round(float(band.mean()), 5)}
-        del al, fr, fg
+                     "framesMeasured": t, "bandPixelFractionAtSource": round(band_frac, 5)}
     return res
 
 
