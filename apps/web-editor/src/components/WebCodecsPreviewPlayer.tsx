@@ -44,6 +44,8 @@ import {
   type PreviewEngineCallbacks,
 } from '../preview/engine/webcodecs-preview-engine.js';
 import type { MaskPreviewRefusal } from '../preview/masks/mask-stack.js';
+import type { MaskDebugView } from '../preview/masks/mask-view.js';
+import { MaskViewToggle } from './MaskViewToggle.js';
 import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
 import { layerCompositorEnabled } from '../preview/compositor-flag.js';
 import { previewFailureMessage } from '../preview/preview-availability.js';
@@ -194,6 +196,11 @@ export function WebCodecsPreviewPlayer({
   const selectedPicture =
     shownPicture && editor.state.selectedIds.includes(shownPicture.id) ? shownPicture : null;
   const transformSelected = selectedPicture !== null;
+  // MK3.3: the mask view switch appears only while the selected picture carries an enabled mask.
+  const maskViewClipId =
+    selectedPicture !== null && (selectedPicture.masks ?? []).some((mask) => mask.enabled)
+      ? selectedPicture.id
+      : null;
   const baseTransform = useMemo(
     () => baseTransformOf(selectedPicture?.keyframes ?? []),
     [selectedPicture],
@@ -410,6 +417,7 @@ export function WebCodecsPreviewPlayer({
   const [previewReduced, setPreviewReduced] = useState(false);
   const [textApproximate, setTextApproximate] = useState(false);
   const [maskRefusal, setMaskRefusal] = useState<MaskPreviewRefusal | null>(null);
+  const [maskView, setMaskView] = useState<MaskDebugView>('off');
 
   // ONE persistent engine per mounted canvas. An EDL change streams through
   // engine.loadSegments below, which is INCREMENTAL (already-loaded sources,
@@ -618,6 +626,11 @@ export function WebCodecsPreviewPlayer({
     () => new Set(selectedOverlay ? [selectedOverlay.id] : []),
     [selectedOverlay?.id],
   );
+  useEffect(() => {
+    const engine = engineRef.current;
+    if (!layered || !(engine instanceof LayerPreviewEngine)) return;
+    engine.setMaskView(maskView, maskViewClipId);
+  }, [layered, maskView, maskViewClipId]);
   useEffect(() => {
     const engine = engineRef.current;
     if (!layered || !(engine instanceof LayerPreviewEngine)) return;
@@ -852,6 +865,9 @@ export function WebCodecsPreviewPlayer({
       </div>
       <PreviewTransport editor={editor} durationSec={durationSec} fps={fps} />
       <MonitorHeaderPortal host={headerControlsHost}>
+        {layered && maskViewClipId !== null && (
+          <MaskViewToggle value={maskView} onChange={setMaskView} />
+        )}
         <PreviewViewControls
           resolution={resolution}
           {...(onChangeOrientation ? { onChangeOrientation } : {})}

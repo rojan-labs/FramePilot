@@ -42,6 +42,7 @@ import {
   configureLegacyMaskArithmeticFromHost,
   type MaskPreviewRefusal,
 } from '../masks/mask-stack.js';
+import type { MaskDebugView } from '../masks/mask-view.js';
 import {
   EngineTextRasters,
   resolveTextRasterSource,
@@ -188,6 +189,9 @@ export class LayerPreviewEngine {
   private presented: PresentedFrame = { projectTimeSec: Number.NaN, layers: [] };
   private lastPresentedSignature = '';
   private lastMaskRefusalKey = '';
+  /** MK3.3: the mask debug view and the clip it applies to (the selected clip). */
+  private maskView: MaskDebugView = 'off';
+  private maskViewClipId: string | null = null;
   private lastBitmap: ImageBitmap | null = null;
   private lastPictureKeys: string[] = [];
   private dbg = {
@@ -213,6 +217,19 @@ export class LayerPreviewEngine {
     this.compositor = new LayerCompositor();
     // Legacy (v21) masks follow the host Pillow's float arithmetic (`masks/legacy-mask.ts`).
     void configureLegacyMaskArithmeticFromHost();
+  }
+
+  /**
+   * Show a mask debug view for one clip (MK3.3), re-presenting the paused frame. `off`, or no
+   * clip, restores the program picture.
+   */
+  setMaskView(view: MaskDebugView, clipId: string | null): void {
+    const next = clipId === null ? 'off' : view;
+    if (next === this.maskView && clipId === this.maskViewClipId) return;
+    this.maskView = next;
+    this.maskViewClipId = clipId;
+    this.lastPresentedSignature = '';
+    if (!this.playing && this.project !== null) void this.seek(this.pausedAtSec);
   }
 
   /** Tell the monitor whether a presented clip's mask stack is refused (first one wins). */
@@ -770,6 +787,9 @@ export class LayerPreviewEngine {
         kind: 'picture',
         step: { ...step, frame },
         source: { kind: 'decoded', key, picture: cached.picture },
+        ...(layer.role === 'clip' && layer.clipId === this.maskViewClipId && step.mask !== null
+          ? { maskView: this.maskView }
+          : {}),
       });
       presented.push({
         role: layer.role === 'underlay' ? 'held' : 'clip',
@@ -796,6 +816,8 @@ export class LayerPreviewEngine {
       composed.presented,
       plan.layers.map((l) => [l.clipId, l.localTime, l.opacity, l.geometry]),
       plan.frameEffects.length > 0 ? timeSec : null,
+      this.maskView,
+      this.maskViewClipId,
     ]);
     if (!force && signature === this.lastPresentedSignature) {
       this.presented = { projectTimeSec: timeSec, layers: composed.presented };

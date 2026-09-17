@@ -29,6 +29,13 @@ import { pilCoefficients } from './raster/pil.js';
 import type { CubeLut } from './raster/cube-lut.js';
 import { MaskStackRasterCache, type MaskStackRaster } from '../masks/mask-stack.js';
 import {
+  MASK_VIEW_MODE,
+  OVERLAY_TINT_STRENGTH,
+  layersForMaskView,
+  maskColorRgb,
+  type MaskDebugView,
+} from '../masks/mask-view.js';
+import {
   swsFilter,
   swsMatrixOf,
   swsRgbTables,
@@ -50,6 +57,8 @@ import {
   GRADE_FRAGMENT,
   LUT_FRAGMENT,
   MASK_MIX_FRAGMENT,
+  MASK_VIEW_FRAGMENT,
+  CHECKERBOARD_FRAGMENT,
   COMPOSITE_FRAGMENT,
   COPY_FRAGMENT,
   FILL_FRAGMENT,
@@ -82,7 +91,13 @@ export type LayerSource =
 
 /** One layer of a frame, back to front. */
 export type CompositeLayer =
-  | { readonly kind: 'picture'; readonly step: PictureRasterStep; readonly source: LayerSource }
+  | {
+      readonly kind: 'picture';
+      readonly step: PictureRasterStep;
+      readonly source: LayerSource;
+      /** MK3.3: a mask debug view for this layer (the selected clip); absent = the program picture. */
+      readonly maskView?: MaskDebugView;
+    }
   | {
       /** A pre-rasterised RGBA layer (text, captions) placed at an integer position. */
       readonly kind: 'raster';
@@ -164,16 +179,27 @@ export class LayerCompositor {
     const r = this.resources;
     try {
       let frame = r.target(size.width, size.height, 'rgba8');
-      const fill = r.program('fill', FILL_FRAGMENT);
-      this.gl.useProgram(fill.handle);
-      fill.vec4('u_color', BACKGROUND);
-      r.draw(frame, size.width, size.height);
+      const viewed = layers.find(
+        (layer) => layer.kind === 'picture' && (layer.maskView ?? 'off') !== 'off',
+      );
+      const view: MaskDebugView = viewed?.kind === 'picture' ? (viewed.maskView ?? 'off') : 'off';
+      const shown = layersForMaskView(view, layers, (layer) => layer === viewed);
+      if (shown.checkerboard) {
+        const checker = r.program('checkerboard', CHECKERBOARD_FRAGMENT);
+        this.gl.useProgram(checker.handle);
+        r.draw(frame, size.width, size.height);
+      } else {
+        const fill = r.program('fill', FILL_FRAGMENT);
+        this.gl.useProgram(fill.handle);
+        fill.vec4('u_color', BACKGROUND);
+        r.draw(frame, size.width, size.height);
+      }
 
       const decodedMemo = new Map<string, RenderTarget>();
-      for (const layer of layers) {
+      for (const layer of shown.layers) {
         const placed =
           layer.kind === 'picture'
-            ? this.rasterPicture(layer.step, layer.source, decodedMemo)
+            ? this.rasterPicture(layer.step, layer.source, decodedMemo, layer.maskView ?? 'off')
             : {
                 target: r.imageTarget(layer.image, layer.width, layer.height),
                 x: layer.x,
@@ -187,7 +213,8 @@ export class LayerCompositor {
             : this.blend(frame, placed.target, placed.x, placed.y, size, mode);
       }
 
-      if (effects.length > 0) {
+      // A debug view shows the clip's own mask, not the adjustment lanes above it.
+      if (effects.length > 0 && view === 'off') {
         if (this.frameEffects === null) {
           if (!this.effectsUnavailable && !FrameEffectRenderer.supported(this.gl)) {
             this.effectsUnavailable = true;
@@ -238,6 +265,7 @@ export class LayerCompositor {
     step: PictureRasterStep,
     source: LayerSource,
     decodedMemo: Map<string, RenderTarget>,
+    view: MaskDebugView = 'off',
   ): { target: RenderTarget; x: number; y: number } | null {
     // PX2.4: two layers showing the same frame at the same decode size share one decode.
     const decodeKey =
@@ -274,7 +302,17 @@ export class LayerCompositor {
       if (raster !== null) current = this.mixByMask(input, current, raster);
     });
     if (step.blurRadius > 0.5) current = this.pilGaussianBlur(current, step.blurRadius);
-    if (step.opacity !== null || step.wipe !== null || hasAlphaMask(step)) {
+    const viewMode = MASK_VIEW_MODE[view];
+    if (viewMode !== 0 && step.mask !== null) {
+      // Overlay and mask-only views draw the stack instead of cutting the picture with it.
+      const viewed = this.viewedStack(step, current.width, current.height);
+      if (viewed !== null) {
+        current = this.maskView(current, viewed.raster, viewMode, viewed.color);
+        if (step.opacity !== null || step.wipe !== null) {
+          current = this.alpha(current, { ...step, mask: null });
+        }
+      }
+    } else if (step.opacity !== null || step.wipe !== null || hasAlphaMask(step)) {
       current = this.alpha(current, step);
     }
     for (const half of step.transitions) {
@@ -511,6 +549,53 @@ export class LayerCompositor {
         ? r.plane(1, 1, OPAQUE_COVERAGE)
         : r.plane(source.width, source.height, mask.alpha8);
     r.bind(program, 'u_mask', 1, texture);
+    r.draw(out, out.width, out.height);
+    return out;
+  }
+
+  /** The stack a debug view shows: the alpha target, else the first effect target. */
+  private viewedStack(
+    step: PictureRasterStep,
+    width: number,
+    height: number,
+  ): { raster: MaskStackRaster; color: string | undefined } | null {
+    const mask = step.mask;
+    if (mask === null) return null;
+    const { stack, clipTime } = mask;
+    if (stack.alpha.length > 0) {
+      const raster = this.maskRasters.raster(stack, { kind: 'alpha' }, width, height, clipTime);
+      return raster === null ? null : { raster, color: stack.alpha[0]?.color };
+    }
+    const [effectId, masks] = [...stack.byEffect][0] ?? [];
+    if (effectId === undefined) return null;
+    const raster = this.maskRasters.raster(
+      stack,
+      { kind: 'effect', effectId },
+      width,
+      height,
+      clipTime,
+    );
+    return raster === null ? null : { raster, color: masks?.[0]?.color };
+  }
+
+  /** MK3.3 overlay (`mode` 1) or mask-only (`mode` 2) view of a stack over its picture. */
+  private maskView(
+    source: RenderTarget,
+    mask: MaskStackRaster,
+    mode: number,
+    color: string | undefined,
+  ): RenderTarget {
+    const r = this.resources;
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('mask-view', MASK_VIEW_FRAGMENT);
+    const gl = this.gl;
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    r.bind(program, 'u_mask', 1, r.plane(mask.width, mask.height, mask.alpha8));
+    program.int('u_mode', mode);
+    gl.uniform1f(program.location('u_scale'), mask.scale);
+    gl.uniform3f(program.location('u_color'), ...maskColorRgb(color));
+    gl.uniform1f(program.location('u_strength'), OVERLAY_TINT_STRENGTH);
     r.draw(out, out.width, out.height);
     return out;
   }

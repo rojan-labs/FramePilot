@@ -432,6 +432,45 @@ void main() {
 `;
 
 /**
+ * MK3.3 mask debug views on one layer. Mode 1 (overlay): the picture, with what the mask removes
+ * tinted toward the mask colour (`u_strength` at alpha 0). Mode 2 (mask only): the stack's alpha
+ * as an opaque grey picture. Never part of a program frame.
+ */
+export const MASK_VIEW_FRAGMENT = `${HEADER}
+uniform sampler2D u_source;
+uniform highp usampler2D u_mask;
+uniform int u_mode;
+uniform float u_scale;
+uniform vec3 u_color;
+uniform float u_strength;
+out vec4 o_color;
+void main() {
+  ivec2 p = ivec2(gl_FragCoord.xy);
+  vec4 texel = texelFetch(u_source, p, 0);
+  float a = clamp(float(texelFetch(u_mask, p, 0).r) / 255.0 * u_scale, 0.0, 1.0);
+  if (u_mode == 2) {
+    o_color = vec4(vec3(a), 1.0);
+  } else {
+    o_color = vec4(mix(texel.rgb, u_color, (1.0 - a) * u_strength), texel.a);
+  }
+}
+`;
+
+/**
+ * MK3.3 checkerboard backdrop (16 px squares, two neutral greys) for the cut-out view. Plain
+ * constants rather than design tokens: GL cannot read CSS, and a transparency checkerboard is a
+ * universal convention, not a brand surface.
+ */
+export const CHECKERBOARD_FRAGMENT = `${HEADER}
+out vec4 o_color;
+void main() {
+  ivec2 cell = ivec2(gl_FragCoord.xy) / 16;
+  float shade = ((cell.x + cell.y) % 2 == 0) ? 0.8 : 0.6;
+  o_color = vec4(vec3(shade), 1.0);
+}
+`;
+
+/**
  * Pillow `Image.rotate(angle, BICUBIC, expand=False)` through `ImagingGenericTransform`:
  * the inverse affine map at pixel centres, Pillow's own cubic (`BICUBIC` macro), edge-clamped
  * taps, zero outside the source, truncated to 8 bits. Every channel, alpha included (MoviePy

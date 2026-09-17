@@ -15315,3 +15315,13 @@ a.export-credits-license {
   flex-wrap: wrap;
   gap: var(--space-1);
 }
+
+/* MK3.3 mask view switch in the monitor header: the shared segmented control, sized to sit
+   beside the view controls without widening the header. */
+.preview-mask-view {
+  flex: none;
+}
+
+.preview-mask-view button {
+  font-size: var(--font-size-xs);
+}

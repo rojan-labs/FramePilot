@@ -259,3 +259,60 @@ describe('program monitor — on-canvas transform', () => {
     expect(keyframes.find((k) => k.property === 'rotation')?.value).toBe(0);
   });
 });
+
+describe('program monitor — mask view switch (MK3.3)', () => {
+  const masked: Timeline = {
+    tracks: [
+      {
+        id: 'v',
+        type: 'video',
+        clips: [
+          {
+            ...clip('c1', 0, 4),
+            masks: [
+              {
+                id: 'm',
+                name: '',
+                color: '#3b82f6',
+                enabled: true,
+                locked: false,
+                target: { kind: 'alpha' },
+                mode: 'add',
+                opacity: 1,
+                invert: false,
+                expansionPx: 0,
+                featherInnerPx: 0,
+                featherOuterPx: 0,
+                falloff: 'smooth',
+                featherModel: 'distance',
+                space: 'source',
+                keyframes: [],
+                kind: 'ellipse',
+                cx: 100,
+                cy: 100,
+                rx: 50,
+                ry: 50,
+                rotation: 0,
+              },
+            ],
+          },
+          clip('c2', 4, 8),
+        ],
+      },
+    ],
+  };
+  const toggle = () => screen.queryByRole('group', { name: 'Mask view' });
+
+  it('appears only while the selected, shown clip has an enabled mask', () => {
+    render(<Host editorTimeline={masked} />);
+    expect(toggle()).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+    expect(toggle()).not.toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: 'Mask only' }));
+    expect(screen.getByRole('button', { name: 'Mask only' }).getAttribute('aria-pressed')).toBe(
+      'true',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'deselect' }));
+    expect(toggle()).toBeNull();
+  });
+});
