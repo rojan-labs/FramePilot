@@ -84,6 +84,8 @@ import type {
   MatteCleanResultWire,
   RelinkFileChoiceWire,
   MatteRecheckResultWire,
+  CapabilityPackJobWire,
+  CapabilityPackJobActionWire,
 } from './ipc/contract.js';
 import type {
   MediaImportChunkBridge,
@@ -171,6 +173,9 @@ const Channels = {
   matteCleanUnused: 'framepilot:capability-pack:matte-clean-unused',
   projectChooseRelinkFile: 'framepilot:project:choose-relink-file',
   matteRecheckMedia: 'framepilot:capability-pack:matte-recheck-media',
+  capabilityPackJobs: 'framepilot:capability-pack:jobs',
+  capabilityPackJobsChanged: 'framepilot:capability-pack:jobs-changed',
+  capabilityPackJobAction: 'framepilot:capability-pack:job-action',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -262,6 +267,15 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
   matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
     ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
+  capabilityPackJobs: () =>
+    ipcRenderer.invoke(Channels.capabilityPackJobs) as Promise<readonly CapabilityPackJobWire[]>,
+  onCapabilityPackJobsChanged: (listener: (jobs: readonly CapabilityPackJobWire[]) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: readonly CapabilityPackJobWire[]): void => listener(payload);
+    ipcRenderer.on(Channels.capabilityPackJobsChanged, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackJobsChanged, handler);
+  },
+  capabilityPackJobAction: (action: CapabilityPackJobActionWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackJobAction, action) as Promise<boolean>,
   projectChooseRelinkFile: (assetId: string) =>
     ipcRenderer.invoke(Channels.projectChooseRelinkFile, assetId) as Promise<RelinkFileChoiceWire>,
   matteRecheckMedia: (request: { readonly assetIds: readonly string[] }) =>

@@ -164,6 +164,46 @@ describe('matte IPC channels', () => {
   });
 });
 
+describe('matte jobs through the scheduler', () => {
+  it('runs an IPC matte job as a scheduled job and lists it for the jobs panel', async () => {
+    const { CapabilityPackJobScheduler } = await import('./job-scheduler.js');
+    const { registerJobIpc, scheduleMatteJob } = await import('./matte-ipc.js');
+    const h = await setup();
+    const scheduler = new CapabilityPackJobScheduler();
+    const handlers = new Map<string, (event: MatteIpcEvent, ...args: unknown[]) => unknown>();
+    const cancelMatte = vi.fn();
+    registerJobIpc({
+      ipcMain: { handle: (channel, listener) => void handlers.set(channel, listener), on: () => undefined },
+      scheduler,
+      cancelMatte,
+    });
+    const event = { sender: { isDestroyed: () => false, send: () => undefined } };
+    const deps = {
+      matte: async () => h.service,
+      readProject: async () =>
+        ({
+          assets: [{ id: 'asset-1', path: path.join(h.projectDir, 'shot.mp4'), kind: 'video', media: { width: 64, height: 36 } }],
+          timeline: { tracks: [], revision: 2 },
+        }) as unknown as Project,
+      scheduler,
+    };
+    const outcome = await scheduleMatteJob(deps, path.join(h.projectDir, 'edit.fp.json'), { ...intent, clipId: 'clip-9' }, 'focused', false);
+    expect(outcome.status).toBe('completed');
+    const jobs = (await handlers.get(IpcChannels.capabilityPackJobs)!(event)) as { id: string; clipId: string; state: string; progress?: unknown }[];
+    expect(jobs).toEqual([expect.objectContaining({ id: 'job1', clipId: 'clip-9', state: 'completed', kind: 'matte', label: 'Remove background' })]);
+    expect(await handlers.get(IpcChannels.capabilityPackJobAction)!(event, { jobId: 'job1', action: 'cancel' })).toBe(false);
+    expect(await handlers.get(IpcChannels.capabilityPackJobAction)!(event, { jobId: '../x', action: 'cancel' })).toBe(false);
+    expect(await handlers.get(IpcChannels.capabilityPackJobAction)!(event, { jobId: 'job1', action: 'delete' })).toBe(false);
+    // A duplicate id while the first is live is refused, never run twice.
+    scheduler.beginExport();
+    const queued = scheduleMatteJob(deps, path.join(h.projectDir, 'edit.fp.json'), { ...intent, requestId: 'job2' }, 'focused', false);
+    await vi.waitFor(() => expect(scheduler.snapshot().some((job) => job.id === 'job2' && job.state === 'queued')).toBe(true));
+    expect(await handlers.get(IpcChannels.capabilityPackJobAction)!(event, { jobId: 'job2', action: 'cancel' })).toBe(true);
+    expect(cancelMatte).toHaveBeenCalledWith('job2');
+    expect(await queued).toMatchObject({ status: 'failed', code: 'cancelled' });
+  });
+});
+
 describe('matte storage IPC', () => {
   it('summarises and cleans the open project, protecting keys a running re-run reads', async () => {
     const projectDir = await mkdtemp(path.join(tmpdir(), 'framepilot-matte-storage-ipc-'));

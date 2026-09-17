@@ -1293,9 +1293,11 @@ export type MattePromptRefWire =
 
 /** Renderer intent for one background-removal job. No path, no pack, no handle. */
 export interface MatteRunIntentWire {
-  /** 1-64 letters, digits, `-` or `_`; also the cancel handle. */
+  /** 1-64 letters, digits, `-` or `_`; also the cancel handle and the job id. */
   readonly requestId: string;
   readonly assetId: string;
+  /** The clip being worked on, for the jobs panel ("Show clip") and priority. */
+  readonly clipId?: string;
   /** Coverage in asset source seconds, handles included. */
   readonly sourceStart: number;
   readonly sourceEnd: number;
@@ -1382,6 +1384,31 @@ export interface MatteValidationIssueWire {
   readonly code: string;
   readonly status: 'broken' | 'stale';
   readonly remedy: string;
+}
+
+/** One pack inference job as the jobs panel shows it (BR4.9). */
+export interface CapabilityPackJobWire {
+  readonly id: string;
+  readonly kind: 'matte' | 'tracking' | 'segment_frame';
+  readonly label: string;
+  readonly clipId?: string;
+  readonly priority: 'interactive' | 'focused' | 'background';
+  readonly state: 'queued' | 'running' | 'preempted' | 'paused' | 'paused_export' | 'completed' | 'failed' | 'cancelled';
+  readonly progress?: {
+    readonly phase: string;
+    readonly completed: number;
+    readonly total: number;
+    readonly round?: number;
+    readonly etaSeconds?: number;
+  };
+  /** Queued again after the app restarted. */
+  readonly resumed: boolean;
+  readonly error?: string;
+}
+
+export interface CapabilityPackJobActionWire {
+  readonly jobId: string;
+  readonly action: 'pause' | 'resume' | 'cancel';
 }
 
 /** A file main chose (native dialog) to relink one asset to; the renderer commits `relink_asset`. */
@@ -1930,6 +1957,11 @@ export interface FramePilotBridge {
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
   /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
   matteStorage?(request?: { readonly protectedKeys?: readonly string[] }): Promise<MatteStorageResultWire>;
+  /** Every running, queued, paused and recently finished pack job. */
+  capabilityPackJobs?(): Promise<readonly CapabilityPackJobWire[]>;
+  onCapabilityPackJobsChanged?(handler: (jobs: readonly CapabilityPackJobWire[]) => void): () => void;
+  /** Pause, resume or cancel one job; resolves false when the job is not live. */
+  capabilityPackJobAction?(action: CapabilityPackJobActionWire): Promise<boolean>;
   /** Pick the file to relink an asset to (missing or replaced media); main owns the dialog. */
   projectChooseRelinkFile?(assetId: string): Promise<RelinkFileChoiceWire>;
   /** Re-check the mattes on relinked assets; changed media comes back STALE with its remedy. */

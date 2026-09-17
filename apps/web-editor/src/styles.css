@@ -15256,3 +15256,62 @@ a.export-credits-license {
   min-width: 0;
   font-size: var(--text-sm, 13px);
 }
+
+/* ---- Jobs panel (background removal and other pack jobs, BR4.9) ------------ */
+.jobs-list {
+  display: grid;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.jobs-row {
+  display: grid;
+  gap: var(--space-1);
+  padding: var(--space-3);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-sm);
+}
+.jobs-row-head {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  min-width: 0;
+}
+.jobs-row-name {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.jobs-row-clip,
+.jobs-row-status {
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 0.8rem;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.jobs-row-resumed {
+  color: var(--text-tertiary);
+}
+.jobs-progress {
+  height: 4px;
+  overflow: hidden;
+  background: var(--surface-3, var(--surface-2));
+  border-radius: 2px;
+}
+.jobs-progress-fill {
+  display: block;
+  height: 100%;
+  background: var(--accent);
+  transition: width 120ms linear;
+}
+@media (prefers-reduced-motion: reduce) {
+  .jobs-progress-fill {
+    transition: none;
+  }
+}
+.jobs-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}

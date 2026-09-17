@@ -46,6 +46,8 @@ export const MatteRunIntentSchema = z
   .object({
     requestId: MatteJobIdSchema,
     assetId: z.string().min(1).max(256),
+    /** The clip the editor is working on, for the jobs panel and scheduling priority. */
+    clipId: z.string().min(1).max(256).optional(),
     /** Coverage in asset source seconds, handles included. */
     sourceStart: SourceTimeSchema,
     sourceEnd: SourceTimeSchema,
@@ -171,3 +173,13 @@ export const RelinkAssetIdSchema = z.string().min(1).max(256);
 export const MatteRecheckRequestSchema = z
   .object({ assetIds: z.array(RelinkAssetIdSchema).min(1).max(1_000) })
   .strict();
+
+/** A jobs-panel action on one scheduled pack job (BR4.9). */
+export const CapabilityPackJobActionSchema = z
+  .object({
+    jobId: MatteJobIdSchema,
+    action: z.enum(['pause', 'resume', 'cancel']),
+  })
+  .strict();
+
+export type CapabilityPackJobAction = z.infer<typeof CapabilityPackJobActionSchema>;

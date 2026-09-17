@@ -187,7 +187,18 @@ import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
-import { registerMatteIpc, registerMatteStorageIpc } from './capability-packs/matte-ipc.js';
+import {
+  matteJobRunner,
+  registerJobIpc,
+  registerMatteIpc,
+  registerMatteStorageIpc,
+} from './capability-packs/matte-ipc.js';
+import {
+  CapabilityPackJobScheduler,
+  createQuitGuard,
+  FileJobJournal,
+  QUIT_PROMPT,
+} from './capability-packs/job-scheduler.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
 import {
@@ -1184,9 +1195,42 @@ function registerIpcHandlers(): void {
     trackingRuns.get(requestId)?.abort();
   });
   // Background removal + generic pack status (plan/background-removal-ai/03, BR4.4, BR4.6).
+  // One GPU inference job at a time, priorities, pause while exporting, resume after a restart
+  // and a quit prompt (plan/background-removal-ai/03 "Job scheduler", BR4.9).
+  const packJobScheduler = new CapabilityPackJobScheduler({
+    journal: new FileJobJournal(path.join(app.getPath('userData'), 'capability-pack-jobs.json')),
+    onChange: (jobs) => {
+      if (mainWindow !== null && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send(IpcChannels.capabilityPackJobsChanged, jobs);
+      }
+    },
+  });
+  app.on(
+    'before-quit',
+    createQuitGuard({
+      hasActiveJobs: () => packJobScheduler.hasActiveJobs(),
+      confirmQuit: async () => {
+        const options = {
+          type: 'warning' as const,
+          message: QUIT_PROMPT.message,
+          detail: QUIT_PROMPT.detail,
+          buttons: [...QUIT_PROMPT.buttons],
+          defaultId: 0,
+          cancelId: 0,
+        };
+        const answer =
+          mainWindow === null
+            ? await dialog.showMessageBox(options)
+            : await dialog.showMessageBox(mainWindow, options);
+        return answer.response === 1;
+      },
+      quit: () => app.quit(),
+    }),
+  );
   const matteIpcDependencies = {
     ipcMain,
     requireLicense,
+    scheduler: packJobScheduler,
     capabilityStatus: async (capability: string) => (await capabilityPackService).capabilityStatus(capability),
     matte: async () => (await capabilityPackService).matte(),
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,
@@ -1194,6 +1238,31 @@ function registerIpcHandlers(): void {
   };
   registerMatteIpc(matteIpcDependencies);
   registerMatteStorageIpc(matteIpcDependencies);
+  registerJobIpc({
+    ipcMain,
+    scheduler: packJobScheduler,
+    cancelMatte: (jobId) => void matteIpcDependencies.matte().then((service) => service.cancel(jobId)),
+  });
+  // Journaled jobs resume once the pack service is up, if their project and asset still exist;
+  // a job whose matte already committed finishes instantly as a cache hit.
+  void capabilityPackService
+    .then(() =>
+      packJobScheduler.restore(async (descriptor) => {
+        if (descriptor.kind !== 'matte' || descriptor.projectPath === undefined) return undefined;
+        const projectPath = descriptor.projectPath;
+        const project = await readProjectFile(projectPath).catch(() => undefined);
+        const payload = descriptor.payload as { assetId?: unknown } | null;
+        if (project === undefined || !project.assets.some((asset) => asset.id === payload?.assetId)) return undefined;
+        // The saved revision may have moved while the app was closed: re-stamp it, and let the
+        // content fingerprint and cache key decide whether the media still matches.
+        const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
+        return {
+          priority: 'background' as const,
+          run: await matteJobRunner(matteIpcDependencies, projectPath, intent),
+        };
+      }),
+    )
+    .catch((error: unknown) => aiLog.error('pack job restore failed', { error: errorMessage(error) }));
   // Relink or replace an asset's file, then re-check its mattes (BR4.14).
   registerRelinkIpc({
     ipcMain,
@@ -1701,6 +1770,9 @@ function registerIpcHandlers(): void {
     progressChannel: IpcChannels.renderExportProgress,
     baseUrl: () => engineBaseUrl,
     fetchFn: electronFetch,
+    // Pack inference pauses at its next window while any export runs (BR4.9).
+    onActiveCountChange: (active) =>
+      active > 0 ? packJobScheduler.beginExport() : packJobScheduler.endExport(),
   });
   ipcMain.handle(IpcChannels.renderExportStart, async (event, req: unknown): Promise<string> => {
     const requestId = exportHub.mintId();

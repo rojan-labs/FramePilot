@@ -48,6 +48,11 @@ interface HubOptions {
   readonly pollIntervalMs?: number;
   /** Injectable poll delay, threaded to `exportViaSidecar` (tests only). */
   readonly sleepFn?: (ms: number) => Promise<void>;
+  /**
+   * Fires when the number of running exports changes, so pack inference can pause while an
+   * export runs (plan/background-removal-ai/03, BR4.9) and resume when none does.
+   */
+  readonly onActiveCountChange?: (active: number) => void;
 }
 
 interface ActiveExport {
@@ -78,6 +83,7 @@ export class ExportHub {
   public start(sender: ExportSender, req: ExportRequest, requestId: string = this.newId()): string {
     const controller = new AbortController();
     this.runs.set(requestId, { controller, senderId: sender.id });
+    this.options.onActiveCountChange?.(this.runs.size);
 
     let lastJobId: string | undefined;
     let lastStatus: RenderJobStatus | undefined;
@@ -130,6 +136,7 @@ export class ExportHub {
       } finally {
         sender.removeListener('destroyed', onDestroyed);
         this.runs.delete(requestId);
+        this.options.onActiveCountChange?.(this.runs.size);
       }
     })();
 
