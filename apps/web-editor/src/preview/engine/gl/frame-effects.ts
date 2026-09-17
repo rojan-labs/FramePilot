@@ -560,11 +560,11 @@ const GLITCH_TEAR = `${HEADER}
 uniform uint u_seed0;
 uniform uint u_seed1;
 uniform int u_blockH;
-float active(int row) { return noise01(0, row, u_seed0) > u_f[0] ? 1.0 : 0.0; }
+float rowActive(int row) { return noise01(0, row, u_seed0) > u_f[0] ? 1.0 : 0.0; }
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   int row = p.y / u_blockH;
-  float a = active(row);
+  float a = rowActive(row);
   float amount = (noise01(0, row, u_seed1) - 0.5) * 2.0;
   float offset = a * amount * u_f[1] * 0.25 * float(u_size.x);
   o_color = vec4(sampleBilinear(u_src, float(p.y), float(p.x) + offset), 1.0);
