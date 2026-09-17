@@ -7,7 +7,7 @@
  */
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { parseProject } from '@framepilot/timeline-schema';
+import { masksOf, parseProject } from '@framepilot/timeline-schema';
 import type { Project, Timeline } from '@framepilot/timeline-schema';
 import { useEditor } from '../editor/useEditor.js';
 import { addAsset, assetIdsOf, newProject } from '../editor/project.js';
@@ -640,15 +640,48 @@ describe('Inspector keyframes', () => {
     expect(screen.getByLabelText('inspector').textContent).toContain('Nothing selected');
   });
 
-  it('adds a mask effect to the selected clip', () => {
-    render(<Host />);
+  it("adds a mask to the selected clip's mask stack", () => {
+    // Schema v22 (ADR 0178): a mask is a layer on `clip.masks` in source pixels, so the
+    // clip's media must carry a probed size.
+    const measured = demoProject.assets.map((asset) =>
+      asset.id === 'asset_intro' ? { ...asset, media: { width: 1920, height: 1080 } } : asset,
+    );
+    function MeasuredHost(): JSX.Element {
+      const editor = useEditor(demoProject.timeline, { assets: measured });
+      const clip = editor.state.timeline.tracks
+        .flatMap((track) => track.clips)
+        .find((candidate) => candidate.id === 'clip_intro');
+      return (
+        <>
+          <button type="button" onClick={() => editor.select('clip_intro')}>
+            pick
+          </button>
+          <span data-testid="mask-stack">
+            {(clip === undefined ? [] : masksOf(clip))
+              .map((mask) => `${mask.id}:${mask.kind}`)
+              .join(',')}
+          </span>
+          <Inspector editor={editor} />
+        </>
+      );
+    }
+    render(<MeasuredHost />);
     fireEvent.click(screen.getByRole('button', { name: 'pick' }));
     // Mask lives under its own category tab (industry inspector panel revamp).
     fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
     fireEvent.click(screen.getByRole('combobox', { name: 'mask shape' }));
     fireEvent.click(screen.getByRole('option', { name: 'rectangle' }));
     fireEvent.click(screen.getByRole('button', { name: 'Add mask' }));
-    expect(screen.getByLabelText('effects').textContent).toContain('mask');
+    expect(screen.getByTestId('mask-stack').textContent).toBe('clip_intro__mask:rectangle');
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('says to measure the media instead of silently not adding a mask', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'pick' }));
+    fireEvent.click(screen.getByRole('tab', { name: 'Mask' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Add mask' }));
+    expect(screen.getByRole('alert').textContent).toContain('Measure this media first');
   });
 
   it('sets audio fade + mute on the selected clip', () => {

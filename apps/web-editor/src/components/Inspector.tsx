@@ -7,6 +7,7 @@
  */
 import { useMemo, useState } from 'react';
 import { Button } from '@framepilot/ui';
+import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
 import type { UseEditor } from '../editor/useEditor.js';
 import {
   MASK_SHAPES,
@@ -194,6 +195,8 @@ export function Inspector({
   const [maskShape, setMaskShape] = useState<MaskShapeName>('ellipse');
   const [maskFeather, setMaskFeather] = useState(0);
   const [maskOpacity, setMaskOpacity] = useState(1);
+  // Keyed by clip so a refusal on one clip never shows under another selection.
+  const [maskRefusal, setMaskRefusal] = useState<{ clipId: string; message: string } | null>(null);
 
   if (selection.kind === 'effect-layer' && selection.effectLayer !== null) {
     const { layer } = selection.effectLayer;
@@ -276,6 +279,13 @@ export function Inspector({
 
   const applyMask = (): void => {
     const media = editor.state.assets.find((asset) => asset.id === clip.assetId)?.media;
+    // A v22 mask is stored in source pixels, so unmeasured media cannot take one; say so
+    // instead of letting the button silently do nothing.
+    if (assetDisplaySize(media) === null) {
+      setMaskRefusal({ clipId: clip.id, message: MEASURE_MEDIA_FIRST });
+      return;
+    }
+    setMaskRefusal(null);
     const patch = addMaskPatch(timeline, clip.id, maskShape, maskFeather, maskOpacity, media);
     if (patch) editor.applyPatch(patch);
   };
@@ -338,6 +348,11 @@ export function Inspector({
             <Button variant="secondary" type="button" onClick={applyMask}>
               Add mask
             </Button>
+            {maskRefusal !== null && maskRefusal.clipId === clip.id && (
+              <p role="alert" className="inspector-empty inspector-empty-inline">
+                {maskRefusal.message}
+              </p>
+            )}
             <MaskPackActions editor={editor} clip={clip} fps={fps} />
           </div>
         );
