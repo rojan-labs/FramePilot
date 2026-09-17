@@ -76,9 +76,7 @@ export interface ProjectPatchCommitRequest {
 }
 
 export type ProjectPatchConflictKind =
-  | 'disjoint_rebaseable'
-  | 'overlapping_replan'
-  | 'authority_required';
+  'disjoint_rebaseable' | 'overlapping_replan' | 'authority_required';
 
 export type ProjectPatchCommitResult =
   | {
@@ -780,6 +778,33 @@ export interface AiStreamReferenceProfile {
   readonly image?: Record<string, unknown> | undefined;
 }
 
+/**
+ * `framepilot:preview:text-raster` — one text clip or unstyled caption rasterised by the engine's
+ * own Pillow path, so the program monitor's glyphs are the export's (PX2.3).
+ */
+export interface PreviewTextRasterRequest {
+  readonly kind: 'text' | 'caption';
+  /** The text effect's params (kind `text`). */
+  readonly params?: Readonly<Record<string, unknown>>;
+  /** The caption cue text (kind `caption`). */
+  readonly text?: string;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+}
+
+export type PreviewTextRasterResult =
+  | {
+      ok: true;
+      readonly width: number;
+      readonly height: number;
+      /** Straight RGBA as Pillow stores it, row-major, top row first. */
+      readonly rgba: Uint8Array;
+      /** A caption's paste position; `null` for a text clip (the frame plan places it). */
+      readonly x: number | null;
+      readonly y: number | null;
+    }
+  | { ok: false; error: string };
+
 /** `framepilot:references:analyze` — measure one attached reference file once. */
 export interface AnalyzeReferenceRequest {
   readonly projectId: string;
@@ -1138,11 +1163,7 @@ export type CapabilityPackInstallStartResultWire =
  * claim a project state that is no longer current.
  */
 export type PackJobCapabilityWire =
-  | 'tracking.point'
-  | 'tracking.region'
-  | 'tracking.planar'
-  | 'subject.detect'
-  | 'subject.segment';
+  'tracking.point' | 'tracking.region' | 'tracking.planar' | 'subject.detect' | 'subject.segment';
 
 export interface TrackingRequestIntentWire {
   readonly requestId: string;
@@ -1256,7 +1277,11 @@ export type CapabilityPackStatusWire =
       readonly hardware?: CapabilityPackHardwareWire;
     }
   /** This build has no pack catalog: "This build can't download packs". */
-  | { readonly state: 'catalog_unconfigured'; readonly capability: string; readonly hardware?: CapabilityPackHardwareWire }
+  | {
+      readonly state: 'catalog_unconfigured';
+      readonly capability: string;
+      readonly hardware?: CapabilityPackHardwareWire;
+    }
   | { readonly state: 'invalid'; readonly capability: string; readonly error: string };
 
 /** The published minimum hardware for a capability's pack, and whether this machine meets it. */
@@ -1281,12 +1306,21 @@ export type MattePromptRefWire =
   | {
       readonly kind: 'points';
       readonly sourceTime: number;
-      readonly points: readonly { readonly x: number; readonly y: number; readonly label: 'include' | 'exclude' }[];
+      readonly points: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly label: 'include' | 'exclude';
+      }[];
     }
   | {
       readonly kind: 'box';
       readonly sourceTime: number;
-      readonly box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+      readonly box: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+      };
     }
   | { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string }
   | { readonly kind: 'candidate'; readonly candidateId: string };
@@ -1331,12 +1365,20 @@ export type MatteRunResultWire =
         readonly lockedFrames: number;
         readonly selfCorrectionRounds: number;
       };
-      readonly needsReview: readonly { readonly start: number; readonly end: number; readonly reason: string }[];
+      readonly needsReview: readonly {
+        readonly start: number;
+        readonly end: number;
+        readonly reason: string;
+      }[];
       readonly executionProvider: 'coreml' | 'directml' | 'cpu';
       readonly cacheHit: boolean;
       readonly projectRevision: number;
     }
-  | { readonly ok: false; readonly code: 'pack_missing'; readonly proposal: CapabilityPackProposalResultWire }
+  | {
+      readonly ok: false;
+      readonly code: 'pack_missing';
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
   | { readonly ok: false; readonly code: 'needs_prompt' }
   | {
       readonly ok: false;
@@ -1371,7 +1413,11 @@ export interface MatteSaveCorrectionWire {
 export type MatteSaveCorrectionResultWire =
   | {
       readonly ok: true;
-      readonly reference: { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string };
+      readonly reference: {
+        readonly kind: 'brush' | 'lock';
+        readonly sourceTime: number;
+        readonly sha256: string;
+      };
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
 
@@ -1395,7 +1441,15 @@ export interface CapabilityPackJobWire {
   readonly label: string;
   readonly clipId?: string;
   readonly priority: 'interactive' | 'focused' | 'background';
-  readonly state: 'queued' | 'running' | 'preempted' | 'paused' | 'paused_export' | 'completed' | 'failed' | 'cancelled';
+  readonly state:
+    | 'queued'
+    | 'running'
+    | 'preempted'
+    | 'paused'
+    | 'paused_export'
+    | 'completed'
+    | 'failed'
+    | 'cancelled';
   readonly progress?: {
     readonly phase: string;
     readonly completed: number;
@@ -1416,7 +1470,11 @@ export interface CapabilityPackJobActionWire {
 /** A file main chose (native dialog) to relink one asset to; the renderer commits `relink_asset`. */
 export type RelinkFileChoiceWire =
   | { readonly ok: true; readonly assetId: string; readonly path: string }
-  | { readonly ok: false; readonly code: 'cancelled' | 'no_project' | 'missing_asset' | 'not_a_file'; readonly error: string };
+  | {
+      readonly ok: false;
+      readonly code: 'cancelled' | 'no_project' | 'missing_asset' | 'not_a_file';
+      readonly error: string;
+    };
 
 /** STALE mattes after a relink or replace: decoded frames no longer match (BR4.14). */
 export type MatteRecheckResultWire =
@@ -1438,7 +1496,11 @@ export type MatteStorageResultWire =
         readonly assetId?: string;
         readonly createdAt?: string;
       }[];
-      readonly inputs: readonly { readonly sha256: string; readonly bytes: number; readonly referenced: boolean }[];
+      readonly inputs: readonly {
+        readonly sha256: string;
+        readonly bytes: number;
+        readonly referenced: boolean;
+      }[];
     }
   | { readonly ok: false; readonly code: string; readonly error: string };
 
@@ -1949,7 +2011,9 @@ export interface FramePilotBridge {
   /** Whether any capability is ready, missing (with its proposal), unhealthy or unsupported. */
   capabilityPackStatus?(capability: string): Promise<CapabilityPackStatusWire>;
   /** Fires after any install finishes its health check or any removal completes. */
-  onCapabilityPackInstalled?(handler: (event: CapabilityPackInstalledEventWire) => void): () => void;
+  onCapabilityPackInstalled?(
+    handler: (event: CapabilityPackInstalledEventWire) => void,
+  ): () => void;
   /** Run background removal on the active project's asset; main resolves media and pack. */
   capabilityPackMatte?(intent: MatteRunIntentWire): Promise<MatteRunResultWire>;
   /** Cancel an in-flight background-removal job by request id. */
@@ -1958,23 +2022,30 @@ export interface FramePilotBridge {
   /** Store a brush fix or locked frame as a project-owned input; returns its reference. */
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
   /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
-  matteStorage?(request?: { readonly protectedKeys?: readonly string[] }): Promise<MatteStorageResultWire>;
+  matteStorage?(request?: {
+    readonly protectedKeys?: readonly string[];
+  }): Promise<MatteStorageResultWire>;
   /**
    * Write an opt-in diagnostic bundle (recent job outcomes and timings, queue, pack health) to a
    * file the editor chooses. Contains no paths, media, prompts or project ids; nothing uploads.
    */
   capabilityPackExportDiagnostics?(): Promise<
-    { readonly ok: true } | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+    | { readonly ok: true }
+    | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
   >;
   /** Every running, queued, paused and recently finished pack job. */
   capabilityPackJobs?(): Promise<readonly CapabilityPackJobWire[]>;
-  onCapabilityPackJobsChanged?(handler: (jobs: readonly CapabilityPackJobWire[]) => void): () => void;
+  onCapabilityPackJobsChanged?(
+    handler: (jobs: readonly CapabilityPackJobWire[]) => void,
+  ): () => void;
   /** Pause, resume or cancel one job; resolves false when the job is not live. */
   capabilityPackJobAction?(action: CapabilityPackJobActionWire): Promise<boolean>;
   /** Pick the file to relink an asset to (missing or replaced media); main owns the dialog. */
   projectChooseRelinkFile?(assetId: string): Promise<RelinkFileChoiceWire>;
   /** Re-check the mattes on relinked assets; changed media comes back STALE with its remedy. */
-  matteRecheckMedia?(request: { readonly assetIds: readonly string[] }): Promise<MatteRecheckResultWire>;
+  matteRecheckMedia?(request: {
+    readonly assetIds: readonly string[];
+  }): Promise<MatteRecheckResultWire>;
   /** Remove exactly the confirmed unused mattes; referenced ones are always kept. */
   matteCleanUnused?(request: MatteCleanRequestWire): Promise<MatteCleanResultWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
@@ -2093,6 +2164,8 @@ export interface FramePilotBridge {
   /** Derive engine media (waveform peaks + thumbnails) for an on-disk media file,
    * so the timeline draws real waveforms/frames. Non-fatal on engine failure. */
   importAsset(req: ImportAssetRequest): Promise<ImportAssetResult>;
+  /** Rasterise one text or caption layer through the engine (program monitor, PX2.3). */
+  previewTextRaster?(req: PreviewTextRasterRequest): Promise<PreviewTextRasterResult>;
   /** Analyze one attached reference file (video/image) once, in the trusted host. */
   analyzeReference?(req: AnalyzeReferenceRequest): Promise<AnalyzeReferenceResult>;
   /** Run configured speech-to-text in the trusted host for one saved media asset. */

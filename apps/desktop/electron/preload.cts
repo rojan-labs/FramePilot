@@ -94,6 +94,8 @@ import type {
   ProjectSnapshotBridge,
   AnalyzeReferenceRequest,
   AnalyzeReferenceResult,
+  PreviewTextRasterRequest,
+  PreviewTextRasterResult,
 } from '@framepilot/shared-types';
 import type { IpcRendererEvent } from 'electron';
 
@@ -125,6 +127,7 @@ const Channels = {
   mediaImportChunk: 'framepilot:media:import-chunk',
   mediaImportAsset: 'framepilot:media:import-asset',
   referencesAnalyze: 'framepilot:references:analyze',
+  previewTextRaster: 'framepilot:preview:text-raster',
   transcribe: 'framepilot:ai:transcribe',
   aiChat: 'framepilot:ai:chat',
   aiPlan: 'framepilot:ai:plan',
@@ -247,7 +250,10 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     return () => ipcRenderer.removeListener(Channels.capabilityPackProgress, handler);
   },
   capabilityPackStatus: (capability: string) =>
-    ipcRenderer.invoke(Channels.capabilityPackStatus, capability) as Promise<CapabilityPackStatusWire>,
+    ipcRenderer.invoke(
+      Channels.capabilityPackStatus,
+      capability,
+    ) as Promise<CapabilityPackStatusWire>,
   onCapabilityPackInstalled: (listener: (event: CapabilityPackInstalledEventWire) => void) => {
     const handler = (_event: IpcRendererEvent, payload: CapabilityPackInstalledEventWire): void =>
       listener(payload);
@@ -260,22 +266,28 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.send(Channels.capabilityPackCancelMatte, requestId);
   },
   onCapabilityPackMatteProgress: (listener: (progress: MatteProgressWire) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: MatteProgressWire): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: MatteProgressWire): void =>
+      listener(payload);
     ipcRenderer.on(Channels.capabilityPackMatteProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackMatteProgress, handler);
   },
   matteSaveCorrection: (correction: MatteSaveCorrectionWire) =>
-    ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
+    ipcRenderer.invoke(
+      Channels.matteSaveCorrection,
+      correction,
+    ) as Promise<MatteSaveCorrectionResultWire>,
   matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
     ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
   capabilityPackExportDiagnostics: () =>
     ipcRenderer.invoke(Channels.capabilityPackExportDiagnostics) as Promise<
-      { readonly ok: true } | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+      | { readonly ok: true }
+      | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
     >,
   capabilityPackJobs: () =>
     ipcRenderer.invoke(Channels.capabilityPackJobs) as Promise<readonly CapabilityPackJobWire[]>,
   onCapabilityPackJobsChanged: (listener: (jobs: readonly CapabilityPackJobWire[]) => void) => {
-    const handler = (_event: IpcRendererEvent, payload: readonly CapabilityPackJobWire[]): void => listener(payload);
+    const handler = (_event: IpcRendererEvent, payload: readonly CapabilityPackJobWire[]): void =>
+      listener(payload);
     ipcRenderer.on(Channels.capabilityPackJobsChanged, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackJobsChanged, handler);
   },
@@ -398,6 +410,8 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.mediaImportChunk, req) as Promise<MediaImportChunkResult>,
   importAsset: (req: ImportAssetRequest) =>
     ipcRenderer.invoke(Channels.mediaImportAsset, req) as Promise<ImportAssetResult>,
+  previewTextRaster: (req: PreviewTextRasterRequest) =>
+    ipcRenderer.invoke(Channels.previewTextRaster, req) as Promise<PreviewTextRasterResult>,
   analyzeReference: (req: AnalyzeReferenceRequest) =>
     ipcRenderer.invoke(Channels.referencesAnalyze, req) as Promise<AnalyzeReferenceResult>,
   transcribe: (req: TranscriptionRequest) =>

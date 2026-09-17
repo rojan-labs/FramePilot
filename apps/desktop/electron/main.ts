@@ -241,6 +241,7 @@ import { exportViaSidecar } from './render/export-client.js';
 import { ExportHub } from './render/export-hub.js';
 import { saveExportAs } from './render/export-save.js';
 import { importAssetViaSidecar } from './media/asset-media-client.js';
+import { previewTextRasterViaSidecar } from './render/preview-text-client.js';
 import { cacheDerivedMedia, sidecarDerive } from './media/derived-media-cache.js';
 import { MusicService } from './media/music-service.js';
 import { StockService, isStockKind } from './media/stock-service.js';
@@ -950,7 +951,9 @@ function registerIpcHandlers(): void {
       return await validateProjectMattes(path.dirname(projectPath), project, { mode: 'quick' });
     } catch (error) {
       // Name only: fs messages carry project paths (BR4.11).
-      aiLog.error('matte validation failed', { error: error instanceof Error ? error.name : 'unknown' });
+      aiLog.error('matte validation failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
       return [];
     }
   };
@@ -1244,7 +1247,8 @@ function registerIpcHandlers(): void {
     scheduler: packJobScheduler,
     // The crash-recovery snapshot can restore a project, so Clean must keep what it references.
     referenceFiles: [path.join(app.getPath('userData'), 'recovery-snapshot.json')],
-    capabilityStatus: async (capability: string) => (await capabilityPackService).capabilityStatus(capability),
+    capabilityStatus: async (capability: string) =>
+      (await capabilityPackService).capabilityStatus(capability),
     matte: async () => (await capabilityPackService).matte(),
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,
     readProject: (projectPath: string) => readProjectFile(projectPath),
@@ -1259,7 +1263,9 @@ function registerIpcHandlers(): void {
       filters: [{ name: 'JSON', extensions: ['json'] }],
     };
     const picked =
-      mainWindow === null ? await dialog.showSaveDialog(options) : await dialog.showSaveDialog(mainWindow, options);
+      mainWindow === null
+        ? await dialog.showSaveDialog(options)
+        : await dialog.showSaveDialog(mainWindow, options);
     if (picked.canceled || picked.filePath === undefined) {
       return { ok: false as const, code: 'cancelled' as const, error: 'Export cancelled.' };
     }
@@ -1268,7 +1274,12 @@ function registerIpcHandlers(): void {
       const bundle = buildDiagnosticBundle({
         generatedAt: new Date().toISOString(),
         appVersion: app.getVersion(),
-        platform: { os: process.platform, arch: process.arch, totalMemoryBytes: totalmem(), cpuCount: cpus().length },
+        platform: {
+          os: process.platform,
+          arch: process.arch,
+          totalMemoryBytes: totalmem(),
+          cpuCount: cpus().length,
+        },
         ...(storage === undefined ? {} : { storage }),
         jobs: packJobScheduler.snapshot(),
         reports: matteReportLog.list(),
@@ -1277,14 +1288,21 @@ function registerIpcHandlers(): void {
       aiLog.action('pack diagnostics exported', { reports: matteReportLog.list().length });
       return { ok: true as const };
     } catch (error) {
-      aiLog.error('pack diagnostics export failed', { error: error instanceof Error ? error.name : 'unknown' });
-      return { ok: false as const, code: 'write_failed' as const, error: 'The diagnostic bundle could not be written there.' };
+      aiLog.error('pack diagnostics export failed', {
+        error: error instanceof Error ? error.name : 'unknown',
+      });
+      return {
+        ok: false as const,
+        code: 'write_failed' as const,
+        error: 'The diagnostic bundle could not be written there.',
+      };
     }
   });
   registerJobIpc({
     ipcMain,
     scheduler: packJobScheduler,
-    cancelMatte: (jobId) => void matteIpcDependencies.matte().then((service) => service.cancel(jobId)),
+    cancelMatte: (jobId) =>
+      void matteIpcDependencies.matte().then((service) => service.cancel(jobId)),
   });
   // Journaled jobs load dormant at startup and resume only when the editor opens their project
   // (BR4.12 L6); each re-checks the licence when it actually runs. A job whose matte already
@@ -1298,12 +1316,18 @@ function registerIpcHandlers(): void {
           async (descriptor) => {
             const project = await readProjectFile(openedPath).catch(() => undefined);
             const payload = descriptor.payload as { assetId?: unknown } | null;
-            if (project === undefined || !project.assets.some((asset) => asset.id === payload?.assetId)) {
+            if (
+              project === undefined ||
+              !project.assets.some((asset) => asset.id === payload?.assetId)
+            ) {
               return undefined;
             }
             // The saved revision may have moved while the app was closed: re-stamp it, and let
             // the content fingerprint and cache key decide whether the media still matches.
-            const intent = { ...(descriptor.payload as object), timelineRevision: project.timeline.revision ?? 0 };
+            const intent = {
+              ...(descriptor.payload as object),
+              timelineRevision: project.timeline.revision ?? 0,
+            };
             const run = await matteJobRunner(matteIpcDependencies, openedPath, intent);
             return {
               priority: 'background' as const,
@@ -1320,7 +1344,9 @@ function registerIpcHandlers(): void {
       )
       .catch((error: unknown) =>
         // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
-        aiLog.error('pack job restore failed', { error: error instanceof Error ? error.name : 'unknown' }),
+        aiLog.error('pack job restore failed', {
+          error: error instanceof Error ? error.name : 'unknown',
+        }),
       );
   };
   // Relink or replace an asset's file, then re-check its mattes (BR4.14).
@@ -1938,6 +1964,12 @@ function registerIpcHandlers(): void {
   // sits inside the projects root, the sidecar measures it, and the renderer gets back a
   // typed profile it cannot have forged. Declared in the contract since Phase 3 but only
   // wired here once `main-channel-registration.test.ts` showed nothing served it.
+  // Program monitor text (PX2.3): text, style params and a frame size only, no paths; the
+  // client validates and bounds the request before the sidecar sees it.
+  ipcMain.handle(IpcChannels.previewTextRaster, (_event, req: unknown) =>
+    previewTextRasterViaSidecar(engineBaseUrl, req, electronFetch),
+  );
+
   ipcMain.handle(
     IpcChannels.referencesAnalyze,
     async (_event, req: unknown): Promise<AnalyzeReferenceResult> => {

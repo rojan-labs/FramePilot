@@ -21,7 +21,7 @@
  */
 import { framePlanAt, type FramePlan, type FramePlanLayer } from '@framepilot/editor-core';
 import type { Asset, Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient } from '../decode/worker-client.js';
 import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
@@ -29,13 +29,20 @@ import type { FrameEffectInstance } from './gl/frame-effects.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
 import {
+  exportText,
   loadExportTextFont,
   rasterizeBaselineCaption,
   rasterizeTextOverlay,
+  textOverlayLayout,
   type CaptionRaster,
   type TextRaster,
 } from './text-raster.js';
 import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
+import {
+  EngineTextRasters,
+  resolveTextRasterSource,
+  textRasterKey,
+} from './engine-text-rasters.js';
 import { mediaSrc } from '../../editor/media.js';
 import type {
   PresentedFrame,
@@ -159,6 +166,8 @@ export class LayerPreviewEngine {
   private readonly captionRasters = new Map<string, CaptionRaster | null>();
   private styledCaptionClipIds = new Set<string>();
   private textFontReady = false;
+  /** The engine's own Pillow rasters for text and captions (desktop; canvas fallback). */
+  private readonly engineTexts: EngineTextRasters;
 
   private durationSec = 0;
   private audioCtx: AudioContext | undefined;
@@ -192,6 +201,9 @@ export class LayerPreviewEngine {
     const ctx = canvas.getContext('2d', { colorSpace: 'srgb' });
     if (!ctx) throw new Error('Canvas 2D context unavailable.');
     this.ctx2d = ctx;
+    this.engineTexts = new EngineTextRasters(resolveTextRasterSource(), (approximate) =>
+      this.callbacks.onTextApproximateChange?.(approximate),
+    );
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
   }
@@ -532,9 +544,24 @@ export class LayerPreviewEngine {
   // --- presentation --------------------------------------------------------------------------
 
   /** A burned caption in the export's baseline style, placed in the lower safe area. */
-  private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
-    if (!this.textFontReady || layer.text === null || layer.clipId === null) return null;
-    if (this.styledCaptionClipIds.has(layer.clipId)) return null;
+  private captionLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+    const request = this.captionRequest(layer, size);
+    if (request === null || layer.text === null) return null;
+    const engine = this.engineTexts.lookup(request);
+    if (engine.state === 'pending') return 'pending';
+    if (engine.state === 'ready') {
+      const raster = engine.raster;
+      return {
+        kind: 'raster',
+        key: `caption:${textRasterKey(request)}`,
+        image: raster.image,
+        width: raster.width,
+        height: raster.height,
+        x: raster.x ?? 0,
+        y: raster.y ?? 0,
+      };
+    }
+    if (!this.textFontReady) return null;
     const key = `${size.width}x${size.height}|${layer.text}`;
     let raster = this.captionRasters.get(key);
     if (raster === undefined) {
@@ -555,12 +582,31 @@ export class LayerPreviewEngine {
   }
 
   /** A text clip as the export rasterises and places it (PX2.3). */
-  private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null {
-    if (layer.clipId === null || !this.textFontReady) return null;
-    if (this.project?.hiddenOverlayIds?.has(layer.clipId)) return null;
-    const clip = this.clipsById.get(layer.clipId);
-    const effect = clip?.effects.find((candidate) => candidate.type === 'text');
-    if (!clip || !effect) return null;
+  private textLayer(layer: FramePlanLayer, size: PixelSize): CompositeLayer | null | 'pending' {
+    const request = this.textRequest(layer, size);
+    if (request === null || layer.clipId === null) return null;
+    const clip = this.clipsById.get(layer.clipId)!;
+    const effect = clip.effects.find((candidate) => candidate.type === 'text')!;
+    const engine = this.engineTexts.lookup(request);
+    if (engine.state === 'pending') return 'pending';
+    if (engine.state === 'ready') {
+      const raster = engine.raster;
+      const layout = textOverlayLayout(effect.params, size.width, size.height);
+      const step = textRasterStep(layer, clip, raster, { x: layout.centreX, y: layout.centreY });
+      if (step === null) return null;
+      return {
+        kind: 'picture',
+        step,
+        source: {
+          kind: 'image',
+          key: `text:${textRasterKey(request)}`,
+          image: raster.image,
+          width: raster.width,
+          height: raster.height,
+        },
+      };
+    }
+    if (!this.textFontReady) return null;
     const key = `${size.width}x${size.height}|${JSON.stringify(effect.params)}`;
     let raster = this.textRasters.get(key);
     if (raster === undefined) {
@@ -587,6 +633,41 @@ export class LayerPreviewEngine {
     };
   }
 
+  /** The engine raster request for a text layer, or `null` when it draws nothing. */
+  private textRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
+    if (layer.kind !== 'text' || layer.clipId === null) return null;
+    if (this.project?.hiddenOverlayIds?.has(layer.clipId)) return null;
+    const clip = this.clipsById.get(layer.clipId);
+    const effect = clip?.effects.find((candidate) => candidate.type === 'text');
+    if (!clip || !effect || exportText(effect.params) === null) return null;
+    return {
+      kind: 'text',
+      params: effect.params,
+      frameWidth: size.width,
+      frameHeight: size.height,
+    };
+  }
+
+  /** The engine raster request for an unstyled burned caption, or `null`. */
+  private captionRequest(layer: FramePlanLayer, size: PixelSize): PreviewTextRasterRequest | null {
+    if (layer.kind !== 'caption' || layer.text === null || layer.clipId === null) return null;
+    if (this.styledCaptionClipIds.has(layer.clipId) || layer.text.trim() === '') return null;
+    return { kind: 'caption', text: layer.text, frameWidth: size.width, frameHeight: size.height };
+  }
+
+  private textRequestsOf(plan: FramePlan): PreviewTextRasterRequest[] {
+    const size = { width: plan.width, height: plan.height };
+    return plan.layers.flatMap((layer) => {
+      const request =
+        layer.kind === 'text'
+          ? this.textRequest(layer, size)
+          : layer.kind === 'caption'
+            ? this.captionRequest(layer, size)
+            : null;
+      return request === null ? [] : [request];
+    });
+  }
+
   /**
    * Build the composite for `plan` from what is decoded. Returns `null` when a picture layer's
    * frame is not available (the caller keeps the previous presentation).
@@ -600,13 +681,11 @@ export class LayerPreviewEngine {
     const layers: CompositeLayer[] = [];
     const presented: PresentedLayer[] = [];
     for (const layer of plan.layers) {
-      if (layer.kind === 'caption') {
-        const caption = this.captionLayer(layer, size);
-        if (caption) layers.push(caption);
-        continue;
-      }
-      if (layer.kind === 'text') {
-        const raster = this.textLayer(layer, size);
+      if (layer.kind === 'caption' || layer.kind === 'text') {
+        const raster =
+          layer.kind === 'caption' ? this.captionLayer(layer, size) : this.textLayer(layer, size);
+        // An engine raster still on its way: keep the previous presentation, as for a frame.
+        if (raster === 'pending') return null;
         if (raster) layers.push(raster);
         continue;
       }
@@ -761,7 +840,10 @@ export class LayerPreviewEngine {
         if (this.disposed || this.generation !== myGeneration) return;
         // Re-plan: a source that finished loading meanwhile may have changed frame numbers.
         const current = this.planAt(clamped) ?? plan;
-        await this.ensureFrames(this.needsOf(current));
+        await Promise.all([
+          this.ensureFrames(this.needsOf(current)),
+          this.engineTexts.ensure(this.textRequestsOf(current)),
+        ]);
         if (this.disposed || this.generation !== myGeneration) return;
         this.present(current, clamped, true, true);
         this.evict(new Set(this.needsOf(current).map((n) => pictureKey(n.assetId, n.frame))));
@@ -891,6 +973,8 @@ export class LayerPreviewEngine {
       if (t >= this.durationSec) break;
       const plan = this.planAt(t, this.renderSize());
       if (!plan) break;
+      if (k === 0 || k === LOOKAHEAD_FRAMES)
+        void this.engineTexts.ensure(this.textRequestsOf(plan));
       for (const need of this.needsOf(plan)) {
         const key = pictureKey(need.assetId, need.frame);
         pinned.add(key);

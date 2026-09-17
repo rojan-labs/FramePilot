@@ -142,6 +142,11 @@ export interface PreviewEngineCallbacks {
    * playback at to keep up. Content is unchanged; the monitor says "Preview reduced".
    */
   onRenderScaleChange?(scale: number): void;
+  /**
+   * PX2.3: text or captions are drawn by the browser's canvas instead of the engine's own Pillow
+   * rasters (no engine, or it refused). The monitor says "Preview text approximate".
+   */
+  onTextApproximateChange?(approximate: boolean): void;
 }
 
 /** One span of the engine's input EDL, in PROJECT-timeline seconds.

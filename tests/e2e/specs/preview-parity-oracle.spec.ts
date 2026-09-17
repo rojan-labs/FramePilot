@@ -67,6 +67,12 @@ const BASELINE_PATH = join(HERE, '..', 'fixtures', 'preview-parity-baseline.json
 /** Must equal `MANIFEST_VERSION` in `engine/python/tests/px4_parity_frames.py`. */
 const MANIFEST_VERSION = 2;
 const MEDIA_PREFIX = '/__px4-media/';
+/**
+ * The engine sidecar the desktop monitor would reach through its bridge for text rasters
+ * (PX2.3). CI starts one and sets this; the page gets a stand-in for the bridge method that
+ * forwards to it. Unset, text renders through the browser fallback.
+ */
+const SIDECAR_URL = process.env.PX4_SIDECAR_URL ?? '';
 
 // --- gates (09-PREVIEW-EXPORT-PARITY.md, PX4). Tighten only. ---------------------------------
 const PSNR_MIN_DB = 40;
@@ -298,6 +304,46 @@ async function oraclePage(browser: Browser): Promise<Page> {
       headers: { 'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream' },
     });
   });
+  if (SIDECAR_URL) {
+    // Node-side forwarding: the page never talks to the sidecar directly, as on the desktop.
+    await page.exposeFunction('__fpSidecarTextRaster', async (req: Record<string, unknown>) => {
+      const response = await fetch(`${SIDECAR_URL}/preview/text-raster`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          kind: req.kind,
+          ...(req.kind === 'text' ? { params: req.params } : { text: req.text }),
+          frame_width: req.frameWidth,
+          frame_height: req.frameHeight,
+        }),
+      });
+      if (!response.ok) return { ok: false, error: `sidecar ${response.status}` };
+      return { ok: true, ...(await response.json()) };
+    });
+    await page.addInitScript(() => {
+      type Wire = {
+        ok: boolean;
+        error?: string;
+        width: number;
+        height: number;
+        rgba_base64: string;
+        x: number | null;
+        y: number | null;
+      };
+      const host = window as unknown as {
+        __fpSidecarTextRaster: (req: unknown) => Promise<Wire>;
+        __fpTextRasterSource: (req: unknown) => Promise<unknown>;
+      };
+      host.__fpTextRasterSource = async (req) => {
+        const wire = await host.__fpSidecarTextRaster(req);
+        if (!wire.ok) return { ok: false, error: wire.error ?? 'refused' };
+        const binary = atob(wire.rgba_base64);
+        const rgba = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) rgba[i] = binary.charCodeAt(i);
+        return { ok: true, width: wire.width, height: wire.height, rgba, x: wire.x, y: wire.y };
+      };
+    });
+  }
   sharedPage = page;
   return page;
 }

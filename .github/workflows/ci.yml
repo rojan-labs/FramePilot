@@ -282,7 +282,14 @@ jobs:
         # under the runner's 16 GB. One worker: the every-transition-kind case alone opens a
         # reader per clip, and two workers measured 8 GB peak on that case.
         run: pnpm px4:frames --workers 1 --max-rss-mb 10000
+      - name: Start the engine sidecar (text rasters, as the desktop monitor uses)
+        working-directory: engine/python
+        run: |
+          nohup uv run framepilot serve --host 127.0.0.1 --port 8799 > "$RUNNER_TEMP/sidecar.log" 2>&1 &
+          for i in $(seq 1 60); do curl -sf http://127.0.0.1:8799/health && break; sleep 1; done
       - name: Run the parity oracle
+        env:
+          PX4_SIDECAR_URL: http://127.0.0.1:8799
         run: pnpm --filter @framepilot/e2e test:parity
       - name: Summarise results
         if: always()
