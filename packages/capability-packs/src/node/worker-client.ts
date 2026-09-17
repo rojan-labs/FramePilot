@@ -1,9 +1,10 @@
 /** Safe one-shot runtime client for an installed Capability Pack worker. */
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
-import { realpath } from 'node:fs/promises';
+import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import {
+  CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
   CAPABILITY_PACK_WORKER_MAX_LINE_BYTES,
   CapabilityPackWorkerCancelSchema,
   CapabilityPackWorkerFailureSchema,
@@ -30,6 +31,12 @@ export interface CapabilityPackWorkerRunOptions {
   readonly entrypoint: string;
   /** Project/media sandbox root already selected by the desktop authority. */
   readonly mediaRoot: string;
+  /**
+   * The host's matte staging root (`<project>/.framepilot-derived/mattes/.staging`). Required
+   * for a capability that carries a write handle: its output and inputs directories must be
+   * real (non-symlink) directories strictly inside this root (MD-3).
+   */
+  readonly outputRoot?: string;
   readonly request: CapabilityPackWorkerRequest;
   readonly signal?: AbortSignal;
   readonly timeoutMs?: number;
@@ -111,8 +118,48 @@ async function assertMediaInsideRoot(mediaRoot: string, mediaPath: string): Prom
   );
 }
 
+/**
+ * A write handle (and its inputs handle) must name a real directory strictly inside the
+ * host's staging root. Symlinked handle directories are refused outright: the host created
+ * them, so a link means something else touched the tree.
+ */
+async function assertHandlesInsideOutputRoot(
+  outputRoot: string | undefined,
+  directories: readonly string[],
+): Promise<void> {
+  if (outputRoot === undefined) {
+    throw new CapabilityPackWorkerRuntimeError(
+      'media_escape',
+      'A capability with a write handle needs the host staging root to check it against.',
+    );
+  }
+  const root = await realpath(outputRoot);
+  for (const directory of directories) {
+    let resolved: string;
+    try {
+      const stat = await lstat(directory);
+      if (!stat.isDirectory() || stat.isSymbolicLink()) throw new Error('not a directory');
+      resolved = await realpath(directory);
+    } catch {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        'Capability Pack write handle is not a host-created directory.',
+      );
+    }
+    const relative = path.relative(root, resolved);
+    if (relative === '' || relative.startsWith('..') || path.isAbsolute(relative)) {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        'Capability Pack write handle escapes the host staging root.',
+      );
+    }
+  }
+}
+
 /** How many items a terminal result carried, for the completion log line only. */
 function terminalSampleCount(terminal: CapabilityPackWorkerResult): number {
+  if ('artifact' in terminal) return terminal.artifact.frameCount;
+  if ('maskPng' in terminal) return 1;
   if ('samples' in terminal) return terminal.samples.length;
   if ('detections' in terminal) return terminal.detections.length;
   if ('masks' in terminal) return terminal.masks.length;
@@ -151,6 +198,19 @@ export async function runCapabilityPackWorker(
       );
     }
     await assertMediaInsideRoot(options.mediaRoot, request.media.absolutePath);
+  }
+  if (CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES.has(request.capability)) {
+    if (request.capability !== 'subject.matte') {
+      throw new CapabilityPackWorkerRuntimeError(
+        'media_escape',
+        `Capability "${request.capability}" has no write-handle check.`,
+      );
+    }
+    const { output, inputs } = request.parameters;
+    await assertHandlesInsideOutputRoot(options.outputRoot, [
+      output.absolutePath,
+      ...(inputs === undefined ? [] : [inputs.absolutePath]),
+    ]);
   }
   if (options.signal?.aborted === true) {
     throw new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.');

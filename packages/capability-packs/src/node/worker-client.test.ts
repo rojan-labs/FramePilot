@@ -247,3 +247,101 @@ describe('runCapabilityPackWorker', () => {
     );
   });
 });
+
+describe('runCapabilityPackWorker write handles (MD-3)', () => {
+  async function matteSandbox() {
+    const { root, media } = await sandbox();
+    const stagingRoot = path.join(root, '.framepilot-derived', 'mattes', '.staging');
+    const output = path.join(stagingRoot, 'req-1');
+    await mkdir(path.join(output, 'inputs'), { recursive: true });
+    return { root, media, stagingRoot, output };
+  }
+  function matteRequest(media: string, output: string, inputs?: string): CapabilityPackWorkerRequest {
+    return {
+      ...request(media),
+      requestId: 'matte:req-1',
+      capability: 'subject.matte',
+      parameters: {
+        output: {
+          handleId: 'matte-out:req-1',
+          absolutePath: output,
+          allowedFiles: ['matte.mkv', 'frames.json'],
+          maxBytes: 1_000_000,
+        },
+        ...(inputs === undefined
+          ? {}
+          : {
+              inputs: {
+                handleId: 'matte-in:req-1',
+                absolutePath: inputs,
+                files: ['locked/0.png'],
+              },
+            }),
+        prompts: [
+          { kind: 'box', pts: 0, box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+          ...(inputs === undefined ? [] : [{ kind: 'lock' as const, pts: 0, file: 'locked/0.png' }]),
+        ],
+        previewHeight: 540,
+      },
+    } as CapabilityPackWorkerRequest;
+  }
+  const neverLaunch: CapabilityPackWorkerLauncher = () => {
+    throw new Error('the worker must not start');
+  };
+
+  it('refuses a write handle without a staging root to check it against', async () => {
+    const { root, media, output } = await matteSandbox();
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: matteRequest(media, output),
+        launch: neverLaunch,
+      }),
+    ).rejects.toMatchObject({ code: 'media_escape' });
+  });
+
+  it('refuses output or inputs outside the staging root, the root itself, and symlinks', async () => {
+    const { root, media, stagingRoot, output } = await matteSandbox();
+    const outside = path.join(root, 'elsewhere');
+    await mkdir(outside);
+    const linked = path.join(stagingRoot, 'linked');
+    await symlink(outside, linked);
+    for (const [out, inputs] of [
+      [outside, undefined],
+      [stagingRoot, undefined],
+      [linked, undefined],
+      [output, outside],
+      [path.join(stagingRoot, 'missing'), undefined],
+    ] as const) {
+      await expect(
+        runCapabilityPackWorker({
+          entrypoint: '/signed/worker',
+          mediaRoot: root,
+          outputRoot: stagingRoot,
+          request: matteRequest(media, out, inputs),
+          launch: neverLaunch,
+        }),
+      ).rejects.toMatchObject({ code: 'media_escape' });
+    }
+  });
+
+  it('starts the worker when both handles are host-created directories inside the root', async () => {
+    const { root, media, stagingRoot, output } = await matteSandbox();
+    let started = false;
+    const launch: CapabilityPackWorkerLauncher = (entrypoint, args, env) => {
+      started = true;
+      return launcher('malformed')(entrypoint, args, env);
+    };
+    await expect(
+      runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        outputRoot: stagingRoot,
+        request: matteRequest(media, output, path.join(output, 'inputs')),
+        launch,
+      }),
+    ).rejects.toMatchObject({ code: 'protocol_error' });
+    expect(started).toBe(true);
+  });
+});

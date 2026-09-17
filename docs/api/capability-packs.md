@@ -450,3 +450,32 @@ not receive project-write access, arbitrary command execution, or unrelated prov
 Tracking and segmentation results are compiled into typed reversible project operations. The pack
 that inferred a path is recorded as provenance, but ordinary project rendering consumes the baked
 track/mask data rather than rerunning hidden inference.
+
+## Background removal: `subject.matte` and `subject.segment_frame`
+
+Plan: `plan/background-removal-ai/03-PROTOCOL-AND-HOST.md`. Decisions MD-3 (one host-created
+staging directory per job) and MD-4 (mattes and correction inputs are project-owned).
+
+**Protocol (`worker-protocol.ts`).** Both capabilities are new members of the version-1 unions, so
+the protocol version stays 1. A pack built before them does not list them in its handshake;
+`negotiateCapabilityPackCapability` reports `capability_absent` and the host answers with an
+install/update proposal (`pack_missing`), never a crash.
+
+- `subject.matte` request parameters: `output` (host-issued write handle: absolute staging
+  directory, the file names the worker may create, a byte ceiling), optional `inputs` (read-only
+  handle listing `corrections/<pts>.png` and `locked/<pts>.png`), `prompts` (`points`, `box`,
+  `brush`, `lock`, 1–512; a grounding candidate is resolved to boxes host-side first), optional
+  `previousArtifact` (sha256 key for a partial re-run) and `previewHeight` (180–1080). A brush or
+  lock file must be named for its own pts and listed in `inputs`; `inputs` may list nothing else.
+- Result: an `artifact` descriptor (`files[{name,bytes,sha256}]`, display-space `width`/`height`,
+  `frameCount`, `firstPts`/`lastPts`, `timeBase`), `executionProvider`, `summary` (verified,
+  flagged, locked frames and self-correction rounds; verified + flagged never exceeds the frame
+  count) and up to 4096 `needsReview` ranges with a closed reason enum.
+- Progress adds `refine`, `consensus`, `self_correct` (with `round`), `matte`, `foreground`,
+  `stabilise` and `verify`. Failures add `output_unwritable` (disk full or folder not writable).
+- `subject.segment_frame` takes `{ pts, points?, box?, hoverPoint?, previewHeight }` and returns a
+  base64 8-bit grayscale PNG (≤ 900 000 characters) with a score. It writes nothing.
+
+**Worker client.** `CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES` is a closed list (`subject.matte`).
+For those, `runCapabilityPackWorker` needs `outputRoot` and refuses to launch unless the output and
+inputs directories exist, are not symlinks, and resolve strictly inside that root.
