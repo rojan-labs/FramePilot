@@ -155,6 +155,8 @@ interface MatteDebugState {
   readonly refusal: string | null;
   readonly firstFrame: number | null;
   readonly frameCount: number | null;
+  readonly stage: string | null;
+  readonly cause: string | null;
 }
 
 /** A source frame some layer needs. */

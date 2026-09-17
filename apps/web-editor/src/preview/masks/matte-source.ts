@@ -94,10 +94,29 @@ export interface FlaggedRange {
 }
 
 class MatteArtifactError extends Error {
-  constructor(readonly code: MatteRefusalCode) {
+  /**
+   * @param code - The export's refusal code.
+   * @param origin - BR5.4: the type name of the error this stands in for, for the diagnostic
+   *   only. Never a message: a message can carry a path.
+   */
+  constructor(
+    readonly code: MatteRefusalCode,
+    readonly origin: string | null = null,
+  ) {
     super(MATTE_REMEDIES[code]);
     this.name = 'MatteArtifactError';
   }
+}
+
+/**
+ * BR5.4: a refusal's cause for the diagnostic — the reader's own words, with anything that
+ * could be a URL or a path taken out (the reader never puts one in a message; this keeps that
+ * true if one day it does).
+ */
+function describeCause(error: unknown): string {
+  if (!(error instanceof Error)) return typeof error;
+  const text = `${error.name}: ${error.message}`;
+  return text.replace(/(?:[a-z]+:\/\/|\/)\S+/gi, '<path>').slice(0, 120);
 }
 
 const isInteger = (value: unknown): value is number =>
@@ -190,6 +209,8 @@ interface ArtifactState {
   ready: Promise<void>;
   frames: MatteFrames | null;
   refusal: MatteRefusalCode | null;
+  /** BR5.4 diagnostic only: which step of {@link MatteSource.loadArtifact} refused, and with what. */
+  failure: { readonly stage: string; readonly cause: string } | null;
   foreground: Promise<MatteRefusalCode | null> | null;
   flagged: Promise<readonly FlaggedRange[] | null> | null;
 }
@@ -246,6 +267,8 @@ export class MatteSource {
     refusal: MatteRefusalCode | null;
     firstFrame: number | null;
     frameCount: number | null;
+    stage: string | null;
+    cause: string | null;
   } {
     const state = this.artifacts.get(mask.artifact.key);
     return {
@@ -253,6 +276,8 @@ export class MatteSource {
       refusal: state?.refusal ?? null,
       firstFrame: state?.frames?.firstFrame ?? null,
       frameCount: state?.frames?.pts.length ?? null,
+      stage: state?.failure?.stage ?? null,
+      cause: state?.failure?.cause ?? null,
     };
   }
 
@@ -334,6 +359,7 @@ export class MatteSource {
       ready: Promise.resolve(),
       frames: null,
       refusal: null,
+      failure: null,
       foreground: null,
       flagged: null,
     };
@@ -367,18 +393,22 @@ export class MatteSource {
 
   private async loadArtifact(state: ArtifactState, mask: MatteMask): Promise<void> {
     const artifact = mask.artifact;
+    let stage = 'read-frames';
     try {
       const document = await this.readPinnedJson(artifact, 'frames.json');
       let parsed: MatteFrames;
+      stage = 'parse-frames';
       try {
         parsed = parseMatteFrames(document);
       } catch (error) {
         if (error instanceof MatteArtifactError) throw error;
-        throw new MatteArtifactError('matte_unreadable');
+        throw new MatteArtifactError('matte_unreadable', describeCause(error));
       }
+      stage = 'pin-matte';
       if (!artifact.files.some((file) => file.name === 'matte.mkv')) {
         throw new MatteArtifactError('matte_missing');
       }
+      stage = 'open-matte';
       await this.openFile(artifact, 'matte', parsed.pts.length);
       state.frames = parsed;
       log.debug('matte artifact ready', {
@@ -388,11 +418,15 @@ export class MatteSource {
       });
     } catch (error) {
       state.refusal = error instanceof MatteArtifactError ? error.code : 'matte_unreadable';
+      // Type name only: a message can carry a path.
+      const cause =
+        error instanceof MatteArtifactError ? (error.origin ?? error.name) : describeCause(error);
+      state.failure = { stage, cause };
       log.warn('matte artifact refused', {
         artifact: state.key.slice(0, 12),
         code: state.refusal,
-        // Type name only: a message can carry a path.
-        cause: error instanceof Error ? error.name : typeof error,
+        stage,
+        cause,
       });
     }
   }
@@ -416,7 +450,7 @@ export class MatteSource {
       if (/not supported|not matte|YUV|float/i.test(message)) {
         throw new MatteArtifactError('matte_unsupported_pixel_format');
       }
-      throw new MatteArtifactError('matte_unreadable');
+      throw new MatteArtifactError('matte_unreadable', describeCause(error));
     }
     const formatOk = file === 'matte' ? info.format !== 'rgb24' : info.format === 'rgb24';
     if (!formatOk) throw new MatteArtifactError('matte_unsupported_pixel_format');
