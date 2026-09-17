@@ -22,6 +22,7 @@ import {
   wipeProgressAt,
   wipeSoftness,
 } from '../transition-envelope.js';
+import { clipMaskSource, isIdentityMask, maskAt, type PreviewMask } from '../clip-mask.js';
 import {
   resolveTransitionParamsFor,
   type ResolvedTransition,
@@ -75,6 +76,12 @@ export interface PictureRasterStep {
    * Composited as the truncated 8-bit value.
    */
   readonly opacity: number | null;
+  /**
+   * The clip's alpha mask in frame fractions of the cropped picture, `null` for none. The
+   * monitor draws today's single-shape masks (`clip-mask.ts`); the export's exact v22 stack
+   * rasteriser is MK3, so edges and multi-mask stacks can still differ.
+   */
+  readonly mask: PreviewMask | null;
   /**
    * A legacy `blur` transition's Pillow GaussianBlur radius at this frame (0 = none), applied to
    * the cropped, graded picture before its mask (`_apply_transition_blur`).
@@ -271,8 +278,13 @@ export function pictureRasterStep(
 
   const legacy = isVideo && layer.role === 'clip' ? legacyEnvelope(clip) : null;
   const wiping = legacy !== null && affectsWipe(legacy);
+  const maskSource = isVideo && layer.role === 'clip' ? clipMaskSource(clip, asset.media) : null;
+  const resolvedMask = maskSource === null ? null : maskAt(maskSource, layer.localTime);
+  const mask = resolvedMask !== null && !isIdentityMask(resolvedMask) ? resolvedMask : null;
   const opacity =
-    isVideo && layer.role === 'clip' && (attachesOpacityMask(clip, layer) || wiping)
+    isVideo &&
+    layer.role === 'clip' &&
+    (attachesOpacityMask(clip, layer) || wiping || maskSource !== null)
       ? Math.min(1, Math.max(0, layer.opacity))
       : null;
   const blurRadius =
@@ -352,6 +364,7 @@ export function pictureRasterStep(
     decode,
     crop,
     opacity,
+    mask,
     blurRadius,
     wipe,
     transitions,
@@ -429,6 +442,7 @@ export function textRasterStep(
     decode: { kind: 'native' },
     crop: null,
     opacity: null,
+    mask: null,
     blurRadius: 0,
     wipe: null,
     transitions: [],

@@ -380,12 +380,15 @@ uniform int u_wipeAxis;
 uniform bool u_wipeInverted;
 uniform float u_wipeEdge;
 uniform float u_wipeFeather;
+uniform bool u_hasMask;
+uniform highp usampler2D u_mask;
 out vec4 o_color;
 void main() {
   ivec2 p = ivec2(gl_FragCoord.xy);
   ivec2 size = textureSize(u_source, 0);
   vec4 texel = texelFetch(u_source, p, 0);
   float alpha = u_opacity;
+  if (u_hasMask) alpha *= float(texelFetch(u_mask, p, 0).r) / 255.0;
   if (u_wipeAxis != 0) {
     float extent = float(u_wipeAxis == 1 ? size.x : size.y);
     float f = (float(u_wipeAxis == 1 ? p.x : p.y) + 0.5) / extent;

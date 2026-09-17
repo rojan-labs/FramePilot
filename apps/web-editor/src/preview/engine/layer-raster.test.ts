@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { framePlanAt } from '@framepilot/editor-core';
-import type { Asset, Clip, Timeline } from '@framepilot/timeline-schema';
+import {
+  MaskLayerSchema,
+  maskLayerFromLegacyMaskEffect,
+  type Asset,
+  type Clip,
+  type Timeline,
+} from '@framepilot/timeline-schema';
 import {
   cappedDecodeSize,
   cropRect,
@@ -101,5 +107,25 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
   it('returns null for an asset with no measurable size', () => {
     const asset: Asset = { id: 'x', path: 'x.mp4', kind: 'video', durationSeconds: 4 };
     expect(stepFor(clip('c', 'x'), asset)).toBeNull();
+  });
+
+  it('carries a single-shape clip mask into the alpha pass at the clip opacity', () => {
+    const land = video('land', 1920, 1080);
+    const host = clip('c', 'land');
+    const mask = MaskLayerSchema.parse(
+      maskLayerFromLegacyMaskEffect(
+        {
+          id: 'c__mask',
+          params: { shape: 'ellipse', bounds: { x: 0.25, y: 0.25, width: 0.5, height: 0.5 } },
+          keyframes: [],
+        },
+        host as unknown as Record<string, unknown>,
+        { width: 1920, height: 1080 },
+      ),
+    );
+    const step = stepFor({ ...host, masks: [mask] }, land);
+    expect(step?.opacity).toBe(1);
+    expect(step?.mask).toMatchObject({ shape: 'ellipse', width: 0.5, height: 0.5 });
+    expect(stepFor(host, land)?.mask).toBeNull();
   });
 });

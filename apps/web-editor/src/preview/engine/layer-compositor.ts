@@ -27,6 +27,7 @@ import {
 } from '../transitions/transition-engine.js';
 import { pilCoefficients } from './raster/pil.js';
 import type { CubeLut } from './raster/cube-lut.js';
+import { paintClipMask, type PreviewMask } from '../clip-mask.js';
 import {
   swsFilter,
   swsMatrixOf,
@@ -65,6 +66,9 @@ const log = createLogger('web-editor:preview:layer-compositor');
 const BACKGROUND: readonly [number, number, number, number] = [0, 0, 0, 1];
 /** Transition noise clock quantum — the effect chain's and the engine's. */
 const TRANSITION_TIME_QUANTUM = 1 / 60;
+/** Rasterised masks kept for static and repeated shapes. */
+const MASK_CACHE_ENTRIES = 32;
+const OPAQUE_COVERAGE = new Uint8Array([255]);
 
 /** A picture the compositor can draw a {@link PictureRasterStep} from. */
 export type LayerSource =
@@ -103,6 +107,7 @@ export class LayerCompositor {
   private readonly gl: WebGL2RenderingContext;
   private readonly resources: GlResources;
   private readonly failedTransitions = new Set<string>();
+  private readonly maskCache = new Map<string, Uint8Array>();
   private frameEffects: FrameEffectRenderer | null = null;
   private effectsUnavailable = false;
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
@@ -250,7 +255,7 @@ export class LayerCompositor {
       else if (effect.type === 'lut') current = this.lut(current, effect.params);
     }
     if (step.blurRadius > 0.5) current = this.pilGaussianBlur(current, step.blurRadius);
-    if (step.opacity !== null || step.wipe !== null) {
+    if (step.opacity !== null || step.wipe !== null || step.mask !== null) {
       current = this.alpha(current, step);
     }
     for (const half of step.transitions) {
@@ -266,6 +271,7 @@ export class LayerCompositor {
         step.assetKind === 'image' ||
         step.opacity !== null ||
         step.wipe !== null ||
+        step.mask !== null ||
         step.transitions.length > 0;
       if (!masked) current = this.copy(current, 0, 0, current.width, current.height, 255);
     }
@@ -467,8 +473,38 @@ export class LayerCompositor {
     gl.uniform1i(program.location('u_wipeInverted'), wipe?.inverted ? 1 : 0);
     gl.uniform1f(program.location('u_wipeEdge'), wipe?.edge ?? 1);
     gl.uniform1f(program.location('u_wipeFeather'), wipe?.feather ?? 1);
+    const mask =
+      step.mask === null ? null : this.maskCoverage(step.mask, source.width, source.height);
+    gl.uniform1i(program.location('u_hasMask'), mask === null ? 0 : 1);
+    // An integer sampler must always see an integer texture, even when the branch skips it.
+    const texture =
+      mask === null ? r.plane(1, 1, OPAQUE_COVERAGE) : r.plane(source.width, source.height, mask);
+    gl.activeTexture(gl.TEXTURE1);
+    gl.bindTexture(gl.TEXTURE_2D, texture);
+    program.int('u_mask', 1);
     r.draw(out, out.width, out.height);
     return out;
+  }
+
+  /** 8-bit coverage of `mask` over a `width`×`height` picture, top row first (cached). */
+  private maskCoverage(mask: PreviewMask, width: number, height: number): Uint8Array | null {
+    const key = `${width}x${height}|${JSON.stringify(mask)}`;
+    const cached = this.maskCache.get(key);
+    if (cached !== undefined) return cached;
+    if (typeof OffscreenCanvas === 'undefined') return null;
+    const ctx = new OffscreenCanvas(width, height).getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+    ctx.fillStyle = '#fff';
+    ctx.fillRect(0, 0, width, height);
+    paintClipMask(ctx, mask, { x: 0, y: 0, width, height });
+    const rgba = ctx.getImageData(0, 0, width, height).data;
+    const coverage = new Uint8Array(width * height);
+    for (let i = 0; i < coverage.length; i++) coverage[i] = rgba[i * 4 + 3]!;
+    if (this.maskCache.size >= MASK_CACHE_ENTRIES) {
+      this.maskCache.delete(this.maskCache.keys().next().value!);
+    }
+    this.maskCache.set(key, coverage);
+    return coverage;
   }
 
   private transition(source: RenderTarget, half: LayerTransition): RenderTarget {
