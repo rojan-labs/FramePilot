@@ -48,6 +48,7 @@ import numpy as np
 import numpy.typing as npt
 
 from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.render.pts_reader import VideoTiming
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.subprocess_safety import validate_safe_argv
 
@@ -70,9 +71,6 @@ FOREGROUND_PIXEL_FORMATS = frozenset({"gbrp", "bgr0", "rgb24", "bgra", "rgba", "
 
 #: Frames kept for random access. Export reads forward and hits the cursor, not the LRU.
 DEFAULT_LRU_FRAMES = 8
-#: Relative slack between the matte's mean frame step and the export reader's rate. MoviePy
-#: parses "29.97" for 30000/1001 (0.001 % apart); a different rate is several percent apart.
-FRAME_RATE_TOLERANCE = 0.005
 #: A forward jump up to this many frames reads through instead of restarting the decoder.
 FORWARD_READ_THROUGH = 48
 
@@ -96,7 +94,6 @@ class MatteRefusalCode(StrEnum):
     SIZE_MISMATCH = "matte_size_mismatch"
     OUT_OF_COVERAGE = "matte_out_of_coverage"
     FRAME_MISALIGNED = "matte_frame_misaligned"
-    VARIABLE_FRAME_RATE = "matte_variable_frame_rate"
     UNSUPPORTED_MEDIA = "matte_unsupported_media"
 
 
@@ -131,12 +128,6 @@ MATTE_REMEDIES: dict[MatteRefusalCode, tuple[MatteStatus, str]] = {
     MatteRefusalCode.FRAME_MISALIGNED: (
         MatteStatus.STALE,
         "Background removal frames do not line up with the media — run Remove background again.",
-    ),
-    MatteRefusalCode.VARIABLE_FRAME_RATE: (
-        MatteStatus.BROKEN,
-        "This footage has a variable frame rate, so the export cannot line the background "
-        "removal up frame by frame — convert it to a constant frame rate and run Remove "
-        "background again.",
     ),
     MatteRefusalCode.UNSUPPORTED_MEDIA: (
         MatteStatus.BROKEN,
@@ -217,14 +208,6 @@ class MatteFrames:
     def source_seconds(self, index: int) -> float:
         """Asset source seconds of matte frame ``index``."""
         return float((self.pts[index] - self.origin_pts) * self.time_base)
-
-    def constant_step(self) -> int | None:
-        """The pts step when every frame is one step apart (±1 tick of rounding), else ``None``."""
-        if self.count < 2:
-            return None
-        steps = np.diff(np.asarray(self.pts, dtype=np.int64))
-        low, high = int(steps.min()), int(steps.max())
-        return low if high - low <= 1 and low > 0 else None
 
 
 def parse_frames(document: Any) -> MatteFrames:
@@ -458,36 +441,38 @@ def prepare_matte(
 
 
 def assert_frames_align(
-    prepared: PreparedMatte, source_frames: list[int], source_fps: float
+    prepared: PreparedMatte, source_frames: list[int], timing: VideoTiming | None
 ) -> None:
-    """Refuse, before rendering, unless every source frame the export decodes is in the matte.
+    """Refuse, before rendering, unless the matte is frame-exact for everything the export reads.
 
-    The export decodes a CONSTANT-rate frame sequence (MoviePy's ffmpeg reader), so frame
-    identity holds only for constant-rate footage whose frame step matches the reader's rate.
-    Variable-frame-rate footage is refused rather than drawn with a matte that slides.
+    Two checks. Every decode-order source frame the clip reads must be in the artifact. And each
+    matte frame's pts must be the pts of the source frame it claims (``firstFrame + i``), within
+    half the coarser of the two time bases' ticks, measured from each clock's own zero: this is
+    what catches a matte made from other footage, another frame rate, or a frame dropped or
+    duplicated by the pack, on constant- and variable-rate sources alike.
 
     :param source_frames: Every decode-order source frame number the clip reads.
-    :param source_fps: The rate the export's reader decodes the source at.
-    :raises MatteRefusal: ``matte_variable_frame_rate`` or ``matte_frame_misaligned``.
+    :param timing: The source's frame timestamps (:func:`video_timing`), when they could be read.
+    :raises MatteRefusal: ``matte_frame_misaligned``.
     """
     frames = prepared.frames
-
-    def refuse(code: MatteRefusalCode) -> MatteRefusal:
-        return MatteRefusal(code, prepared.mask_id, prepared.clip_id)
-
-    if frames.count >= 2:
-        step = frames.constant_step()
-        if step is None:
-            raise refuse(MatteRefusalCode.VARIABLE_FRAME_RATE)
-        mean_step = (frames.pts[-1] - frames.pts[0]) / (frames.count - 1)
-        expected = 1.0 / (source_fps * float(frames.time_base)) if source_fps > 0 else 0.0
-        if expected <= 0.0 or abs(mean_step - expected) > expected * FRAME_RATE_TOLERANCE:
-            raise refuse(MatteRefusalCode.VARIABLE_FRAME_RATE)
+    refusal = MatteRefusal(MatteRefusalCode.FRAME_MISALIGNED, prepared.mask_id, prepared.clip_id)
     for frame in source_frames:
         try:
             frames.index_for_source_frame(frame)
         except MatteFrameMissing as exc:
-            raise refuse(MatteRefusalCode.FRAME_MISALIGNED) from exc
+            raise refusal from exc
+    if timing is None:
+        return
+    if frames.first_frame + frames.count > timing.count:
+        raise refusal
+    source_tick = float(timing.time_base)
+    tolerance = max(source_tick, float(frames.time_base)) / 2.0 + 1e-9
+    origin = timing.pts[0]
+    for index in range(frames.count):
+        source_seconds = float((timing.pts[frames.first_frame + index] - origin) * timing.time_base)
+        if abs(source_seconds - frames.source_seconds(index)) > tolerance:
+            raise refusal
 
 
 # --- Decoding -----------------------------------------------------------------------------

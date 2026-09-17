@@ -17,8 +17,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matte's files against the fingerprints saved in the project, and stops with one clear
   instruction instead of drawing a wrong cut-out: "Background removal data is missing — run
   Remove background again", a changed or damaged file, a clip trimmed beyond the removed range
-  ("update the background removal for the new range"), media that changed size, or
-  variable-frame-rate footage (convert it to a constant frame rate first).
+  ("update the background removal for the new range"), or media that changed size.
+
+- **Variable-frame-rate footage exports the right frames.** Phone and screen recordings with a
+  variable frame rate used to export a neighbouring frame now and then, because the decoder
+  resampled them to a constant rate. The export now picks each frame by its own timestamp, so
+  cuts, speed changes and mattes land on exactly the frame you saw. Constant-frame-rate
+  footage exports exactly as before.
 
 - **The program monitor composites every layer the export does (development builds).** A new
   WebGL2 compositor draws the frame from the same frame plan the export uses: every picture layer

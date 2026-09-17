@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 import re
 import subprocess
+from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
@@ -26,6 +27,7 @@ from framepilot_engine.render.mattes import (
 )
 from framepilot_engine.render.pipeline import plain_render_error
 from framepilot_engine.render.presets import frame_target
+from framepilot_engine.render.pts_reader import VideoTiming
 from framepilot_engine.timeline.models import AssetMedia, Clip, MatteMask, Project
 from tests import matte_fixtures as fx
 
@@ -176,25 +178,38 @@ def test_clip_range_outside_coverage_is_stale(tmp_path: Path) -> None:
     assert refusal.remedy.endswith("update the background removal for the new range.")
 
 
+def _timing(pts: list[int], time_base: tuple[int, int] = (1, 30)) -> VideoTiming:
+    return VideoTiming(time_base=Fraction(*time_base), pts=tuple(pts), start_time=0.0)
+
+
 def test_frame_alignment_gate(tmp_path: Path) -> None:
     artifact = fx.write_artifact(tmp_path, pts=list(range(3, 9)), first_frame=3)
     prepared = prepare_matte(_mask(artifact), _clip(0.1, 0.25), tmp_path, _media(), FPS)
-    assert_frames_align(prepared, [3, 4, 8], 30.0)
+    source = _timing(list(range(24)))
+    assert_frames_align(prepared, [3, 4, 8], source)
+    assert_frames_align(prepared, [3, 4, 8], None)
     with pytest.raises(MatteRefusal) as missing:
-        assert_frames_align(prepared, [3, 9], 30.0)
+        assert_frames_align(prepared, [3, 9], source)
     assert missing.value.code is MatteRefusalCode.FRAME_MISALIGNED
-    with pytest.raises(MatteRefusal) as wrong_rate:
-        assert_frames_align(prepared, [3], 25.0)
-    assert wrong_rate.value.code is MatteRefusalCode.VARIABLE_FRAME_RATE
+    # A matte made at another frame rate: its pts are not the source frames' pts.
+    with pytest.raises(MatteRefusal) as other_rate:
+        assert_frames_align(prepared, [3], _timing([k * 36 for k in range(24)], (1, 1000)))
+    assert other_rate.value.code is MatteRefusalCode.FRAME_MISALIGNED
+    # A source shorter than the matte claims.
+    with pytest.raises(MatteRefusal):
+        assert_frames_align(prepared, [3], _timing(list(range(7))))
 
 
-def test_variable_frame_rate_pts_refuse_the_export(tmp_path: Path) -> None:
-    artifact = fx.write_artifact(tmp_path, pts=[0, 3003, 9009, 10010], time_base=(1, 90000))
+def test_variable_frame_rate_pts_align_exactly(tmp_path: Path) -> None:
+    """VFR pts in a 1/90000 time base agree with a source listed in milliseconds."""
+    vfr = [0, 3003, 9009, 10010]
+    artifact = fx.write_artifact(tmp_path, pts=vfr, time_base=(1, 90000))
     prepared = prepare_matte(_mask(artifact), _clip(0.0, 0.1), tmp_path, _media(), FPS)
-    with pytest.raises(MatteRefusal) as caught:
-        assert_frames_align(prepared, [0, 1], 29.97)
-    assert caught.value.code is MatteRefusalCode.VARIABLE_FRAME_RATE
-    assert caught.value.status is MatteStatus.BROKEN
+    assert_frames_align(prepared, [0, 1, 2, 3], _timing([0, 33, 100, 111], (1, 1000)))
+    with pytest.raises(MatteRefusal) as dropped:
+        assert_frames_align(prepared, [0, 1], _timing([0, 33, 67, 100], (1, 1000)))
+    assert dropped.value.code is MatteRefusalCode.FRAME_MISALIGNED
+    assert dropped.value.status is MatteStatus.STALE
 
 
 # --- Wired into the export -----------------------------------------------------------------

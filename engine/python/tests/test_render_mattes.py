@@ -76,7 +76,6 @@ def test_vfr_pts_lookup_is_exact_and_never_nearest() -> None:
     assert frames.index_for_source_seconds(9009 / 90000) == 2
     with pytest.raises(MatteFrameMissing):
         frames.index_for_source_seconds(6006 / 90000)
-    assert frames.constant_step() is None
     assert frames.index_for_source_frame(4) == 0
     assert frames.index_for_source_frame(8) == 4
     for outside in (3, 9):
@@ -97,16 +96,6 @@ def test_edit_list_origin_maps_raw_pts_to_the_asset_clock() -> None:
     )
     assert frames.source_seconds(0) == pytest.approx(0.1)
     assert frames.index_for_source_seconds(0.2) == 1
-    assert frames.constant_step() == 100
-
-
-def test_constant_step_tolerates_one_tick_of_container_rounding() -> None:
-    """29.97 fps in a 1 ms time base stores 33/34 ms steps; that is still constant rate."""
-    pts = [round(i * 1001 / 30) for i in range(12)]
-    frames = parse_frames(
-        {"version": 1, "timeBase": [1, 1000], "originPts": 0, "firstFrame": 0, "pts": pts}
-    )
-    assert frames.constant_step() == 33
 
 
 # --- Decoding --------------------------------------------------------------------------------

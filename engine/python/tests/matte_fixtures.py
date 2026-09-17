@@ -201,3 +201,41 @@ def write_source(
     argv.append(str(path))
     payload = b"".join(np.ascontiguousarray(frame).tobytes() for frame in frames)
     subprocess.run(argv, input=payload, check=True, capture_output=True, timeout=60)
+
+
+def write_vfr_source(
+    path: Path, frames: Sequence[npt.NDArray[np.uint8]], pts_ms: Sequence[int]
+) -> None:
+    """A variable-frame-rate lossless RGB source: frame ``i`` is presented at ``pts_ms[i]``."""
+    height, width = frames[0].shape[:2]
+    expression = "+".join(f"eq(N\\,{i})*{value}" for i, value in enumerate(pts_ms))
+    argv = [
+        find_ffmpeg(),
+        "-nostdin",
+        "-v",
+        "error",
+        "-y",
+        "-f",
+        "rawvideo",
+        "-pix_fmt",
+        "rgb24",
+        "-s",
+        f"{width}x{height}",
+        "-r",
+        "30",
+        "-i",
+        "-",
+        "-vf",
+        f"settb=1/1000,setpts={expression}",
+        "-fps_mode",
+        "passthrough",
+        "-enc_time_base",
+        "1/1000",
+        "-c:v",
+        "png",
+        "-pix_fmt",
+        "rgb24",
+        str(path),
+    ]
+    payload = b"".join(np.ascontiguousarray(frame).tobytes() for frame in frames)
+    subprocess.run(argv, input=payload, check=True, capture_output=True, timeout=60)

@@ -126,7 +126,6 @@ from framepilot_engine.render.frame_plan import (
     legacy_transition,
     live_catalog_transitions,
     picture_effects,
-    source_frame_index,
     text_overlay_text,
     transition_underlays,
     underlay_material,
@@ -155,6 +154,13 @@ from framepilot_engine.render.mattes import (
     prepare_matte,
 )
 from framepilot_engine.render.presets import ExportPreset
+from framepilot_engine.render.pts_reader import (
+    VideoTiming,
+    VideoTimingError,
+    reader_frame_index,
+    use_pts_reader,
+    video_timing,
+)
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.render.text_overlay import render_text_overlay_image, text_overlay_layout
 from framepilot_engine.safety import PathTraversalError, resolve_within
@@ -641,25 +647,38 @@ def _prepare_clip_mattes(project: Project, clip: Clip, base_dir: Path) -> dict[s
 
 
 def _export_source_frames(
-    clip: Clip, output_fps: float, source_fps: float, asset_duration: float | None
+    clip: Clip, reader: Any, output_fps: float, source_fps: float, asset_duration: float | None
 ) -> list[int]:
     """Every decode-order source frame the export reads for ``clip`` at ``output_fps``.
 
     The composite samples ``t = k / fps`` and a layer plays for ``start <= t < end``; each
-    sample reads the source frame the frame plan names (:func:`video_source_time`).
+    sample reads the frame :func:`reader_frame_index` names for :func:`video_source_time`
+    (by pts on a variable-rate source).
     """
     first = math.ceil(clip.start * output_fps - 1e-9)
     frames: list[int] = []
     k = first
     while k / output_fps < clip.end:
         local = k / output_fps - clip.start
-        frame = source_frame_index(
-            video_source_time(clip, local, source_fps, asset_duration), source_fps
+        frame = reader_frame_index(
+            reader, video_source_time(clip, local, source_fps, asset_duration), source_fps
         )
         if frame is not None:
             frames.append(frame)
         k += 1
     return frames
+
+
+def _source_timing(reader: Any) -> VideoTiming | None:
+    """The opened source's frame timestamps, or ``None`` when they cannot be listed."""
+    filename = getattr(reader, "filename", None)
+    if not isinstance(filename, str):
+        return None
+    try:
+        return video_timing(filename)
+    except (VideoTimingError, OSError) as exc:
+        _log.warning("could not list frame timestamps of %s: %s", Path(filename).name, exc)
+        return None
 
 
 def _bind_mattes(
@@ -678,11 +697,14 @@ def _bind_mattes(
         return {}
     source_fps = float(reader.fps)
     asset_duration = float(reader.duration) if reader.duration is not None else None
-    frames = sorted(set(_export_source_frames(clip, output_fps, source_fps, asset_duration)))
+    frames = sorted(
+        set(_export_source_frames(clip, reader, output_fps, source_fps, asset_duration))
+    )
+    timing = _source_timing(reader)
     bound: dict[str, Callable[[float], MatteFrame]] = {}
     for mask_id, matte in prepared.items():
         try:
-            assert_frames_align(matte, frames, source_fps)
+            assert_frames_align(matte, frames, timing)
         except MatteRefusal as exc:
             raise CompileError(str(exc)) from exc
         mask = next(m for m in clip.masks or [] if m.id == mask_id)
@@ -692,7 +714,7 @@ def _bind_mattes(
 
         def frame_at(t: float, matte_reader: MatteReader = matte_reader) -> MatteFrame:
             source_time = video_source_time(clip, t, source_fps, asset_duration)
-            frame = source_frame_index(source_time, source_fps)
+            frame = reader_frame_index(reader, source_time, source_fps)
             if frame is None:  # pragma: no cover - fps is known once a reader is open
                 raise CompileError(f"Clip {clip.id!r}: the matte frame could not be resolved.")
             return matte_reader.frame_for_source_frame(frame)
@@ -1530,26 +1552,14 @@ def _even(value: float) -> int:
     return max(2, round(value / 2) * 2)
 
 
-def _open_source_reader(
+def _open_moviepy_reader(
     video_file_clip_cls: Any,
     path: str,
     max_decode_dimension: int | None,
     fit_target: tuple[int, int] | None = None,
     pixel_aspect_ratio: float = 1.0,
 ) -> Any:
-    """Open a source, decoding no larger than the export actually needs.
-
-    ``fit_target`` is the frame a *statically fitted* clip lands in — no keyframes, no
-    crop, no transform, no geometry transition — where the displayed size is known now and
-    ffmpeg can be asked for exactly it, leaving MoviePy's per-frame resize a no-op. Any
-    clip that moves, scales or is cropped falls back to ``max_decode_dimension``, which
-    keeps headroom because the zoom it reaches is not knowable here.
-
-    ``pixel_aspect_ratio`` (PX2.9, ``Asset.media.pixelAspectRatio``): MoviePy reads storage
-    pixels and ignores the sample aspect ratio, so an anamorphic source is decoded straight
-    to its display-corrected size (width times PAR, even-rounded) and every later stage sees
-    square pixels. Rotation needs nothing here: ffmpeg autorotates and MoviePy swaps the size.
-    """
+    """MoviePy's reader at the decode size the export needs (see :func:`_open_source_reader`)."""
     reader = video_file_clip_cls(path)
     width, height = reader.size
     par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
@@ -1573,6 +1583,44 @@ def _open_source_reader(
     target = (_even(display[0] * scale), _even(display[1] * scale))
     reader.close()
     return video_file_clip_cls(path, target_resolution=target)
+
+
+def _open_source_reader(
+    video_file_clip_cls: Any,
+    path: str,
+    max_decode_dimension: int | None,
+    fit_target: tuple[int, int] | None = None,
+    pixel_aspect_ratio: float = 1.0,
+) -> Any:
+    """Open a source, decoding no larger than the export actually needs.
+
+    ``fit_target`` is the frame a *statically fitted* clip lands in — no keyframes, no
+    crop, no transform, no geometry transition — where the displayed size is known now and
+    ffmpeg can be asked for exactly it, leaving MoviePy's per-frame resize a no-op. Any
+    clip that moves, scales or is cropped falls back to ``max_decode_dimension``, which
+    keeps headroom because the zoom it reaches is not knowable here.
+
+    ``pixel_aspect_ratio`` (PX2.9, ``Asset.media.pixelAspectRatio``): MoviePy reads storage
+    pixels and ignores the sample aspect ratio, so an anamorphic source is decoded straight
+    to its display-corrected size (width times PAR, even-rounded) and every later stage sees
+    square pixels. Rotation needs nothing here: ffmpeg autorotates and MoviePy swaps the size.
+
+    A variable-frame-rate source (BR2.5) then reads frames by pts
+    (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps
+    MoviePy's reader, so its export is unchanged.
+    """
+    clip = _open_moviepy_reader(
+        video_file_clip_cls, path, max_decode_dimension, fit_target, pixel_aspect_ratio
+    )
+    from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
+
+    if not isinstance(getattr(clip, "reader", None), FFMPEG_VideoReader):
+        return clip
+    try:
+        return use_pts_reader(clip, path)
+    except (VideoTimingError, OSError) as exc:
+        _log.warning("could not check %s for a variable frame rate: %s", Path(path).name, exc)
+        return clip
 
 
 def _resolve_clip_asset(clip: Clip, asset_index: AssetIndex) -> str:

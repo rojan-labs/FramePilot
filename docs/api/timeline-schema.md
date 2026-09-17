@@ -362,7 +362,17 @@ matte frame 0; `pts[i]` is the source pts of matte frame `i`, strictly increasin
 decodes (the frame plan's `source.frame`, also on the plan's matte layer as `matte.sourceFrame`),
 through speed, reverse, freeze and ramps. A caller with a real pts looks up by pts exactly. A frame
 the artifact does not hold is an error, never the nearest frame. Before rendering, every source
-frame the clip will read is checked against `frames.json`.
+frame the clip will read must be in the artifact, and every matte frame's pts must equal the pts
+of the source frame it names (each measured from its own clock zero, within half the coarser
+tick).
+
+**Variable-frame-rate sources (BR2.5, `render/pts_reader.py`).** The export lists each video
+source's packet timestamps once (demux only, cached; about 0.1 s for a two-minute 1080p file).
+When every frame step is within one tick of the others the source keeps MoviePy's reader, so
+constant-rate exports are unchanged. Otherwise frames are decoded once each (`-fps_mode
+passthrough`) and the frame shown at source second `t` is the last one whose pts (from the first
+frame) is at or before `t`; picture and matte use this same rule. The frame plan's
+`source.frame` still assumes a constant rate for such sources (it has no timestamps).
 
 **Per layer, in order** (source pixels of the artifact, then the clip's frame):
 
@@ -390,13 +400,10 @@ finesse renderer ships (MK6.2); `gaussian-legacy` on a matte refuses.
 | `matte_size_mismatch` | STALE | Media changed since background removal ran — run Remove background again. |
 | `matte_out_of_coverage` | STALE | Background removal does not cover the clip's whole range — update the background removal for the new range. |
 | `matte_frame_misaligned` | STALE | Background removal frames do not line up with the media — run Remove background again. |
-| `matte_variable_frame_rate` | BROKEN | This footage has a variable frame rate, so the export cannot line the background removal up frame by frame — … |
 | `matte_unsupported_media` | BROKEN | Background removal on rotated or non-square-pixel footage exports once that footage is supported — disable the mask to export now. |
 
 Digests of `matte.mkv`, `frames.json` and (when decontaminating) `foreground.mkv` must equal the
-mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame. Variable frame
-rate is refused because the export's decoder resamples such footage to a constant rate, so no
-matte frame can be proven to belong to the picture drawn.
+mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame.
 
 ## Schema versioning & migration
 

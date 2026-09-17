@@ -202,28 +202,53 @@ def test_artifact_starting_mid_source_aligns_by_first_frame(tmp_path: Path) -> N
     assert pairs[0] == (6, 6)
 
 
-def test_variable_frame_rate_source_refuses_instead_of_sliding(tmp_path: Path) -> None:
-    pts = [k * 3 + (1 if k % 4 == 3 else 0) for k in range(FRAMES)]
-    artifact = _setup(tmp_path, pts=pts)
-    artifact["coverage"] = {"sourceStart": 0.0, "sourceEnd": 0.8}
-    project = _project(artifact, sourceStart=0.0, sourceEnd=0.5)
-    document = json.loads(json.dumps(project.model_dump(by_alias=True)))
-    document["timeline"]["tracks"][0]["clips"][0]["masks"][0]["artifact"]["files"] = [
-        {"name": entry["name"], "sha256": entry["sha256"]} for entry in artifact["files"]
+#: A variable-frame-rate source: steps of 20, 40, 60 and 100 ms (pts in ms).
+VFR_PTS = [0, 20, 60, 80, 140, 240, 260, 300, 360, 380, 480, 500, 540, 620, 640, 700]
+
+
+def test_variable_frame_rate_source_aligns_frame_by_frame(tmp_path: Path) -> None:
+    """Picture and matte both follow the source's own pts: the frame shown at ``t`` is the last
+    one whose pts is at or before ``t``, and its matte is that same frame."""
+    count = len(VFR_PTS)
+    fx.write_vfr_source(tmp_path / "src.mkv", _pictures()[:count], VFR_PTS)
+    artifact = fx.write_artifact(
+        tmp_path, pts=VFR_PTS, time_base=(1, 1000), mattes=_mattes()[:count]
+    )
+    artifact["coverage"] = {"sourceStart": 0.0, "sourceEnd": 0.72}
+    for clip in (
+        {"sourceStart": 0.0, "sourceEnd": 0.7},
+        {"sourceStart": 0.05, "sourceEnd": 0.65, "speed": -1.0},
+        {
+            "sourceStart": 0.0,
+            "sourceEnd": 0.7,
+            "speedRamp": [
+                {"id": "p0", "sourceTime": 0.0, "rate": 0.5},
+                {"id": "p1", "sourceTime": 0.7, "rate": 2.0},
+            ],
+        },
+    ):
+        pairs = _identities(_project(artifact, **clip), tmp_path)
+        _assert_aligned(pairs)
+    pairs = _identities(_project(artifact, sourceStart=0.0, sourceEnd=0.7), tmp_path)
+    seconds = [value / 1000 for value in VFR_PTS]
+    expected = [
+        max(i for i, pts in enumerate(seconds) if pts <= k / FPS + 1e-6) for k in range(len(pairs))
     ]
+    assert [picture for picture, _ in pairs] == expected
+
+
+def test_matte_from_other_timing_is_misaligned(tmp_path: Path) -> None:
+    """A constant-rate matte over the VFR source claims pts the source frames do not have."""
+    count = len(VFR_PTS)
+    fx.write_vfr_source(tmp_path / "src.mkv", _pictures()[:count], VFR_PTS)
+    artifact = fx.write_artifact(
+        tmp_path, pts=list(range(count)), time_base=(1, FPS), mattes=_mattes()[:count]
+    )
+    artifact["coverage"] = {"sourceStart": 0.0, "sourceEnd": 0.72}
+    project = _project(artifact, sourceStart=0.0, sourceEnd=0.5)
     index = index_assets([a.model_dump(by_alias=True) for a in project.assets], tmp_path)
-    frames_json = tmp_path / ".framepilot-derived/mattes" / fx.KEY / "frames.json"
-    stored = json.loads(frames_json.read_text(encoding="utf-8"))
-    stored["timeBase"] = [1, FPS * 3]
-    frames_json.write_text(json.dumps(stored), encoding="utf-8")
-    for entry in document["timeline"]["tracks"][0]["clips"][0]["masks"][0]["artifact"]["files"]:
-        if entry["name"] == "frames.json":
-            entry["sha256"] = fx.sha256(frames_json)
     with pytest.raises(CompileError) as caught:
-        compile_timeline(
-            Project.model_validate(document), index, frame_target(fx.WIDTH, fx.HEIGHT, FPS)
-        )
+        compile_timeline(project, index, frame_target(fx.WIDTH, fx.HEIGHT, FPS))
     assert (
-        plain_render_error(caught.value)
-        == (MATTE_REMEDIES[MatteRefusalCode.VARIABLE_FRAME_RATE][1])
+        plain_render_error(caught.value) == (MATTE_REMEDIES[MatteRefusalCode.FRAME_MISALIGNED][1])
     )
