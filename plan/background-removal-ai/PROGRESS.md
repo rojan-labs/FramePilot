@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**RESUME HERE (paused 2026-09-17 22:05 by the maintainer; all agents stopped, tree clean at 6ec24d91).**
+**Resumed 2026-09-18 01:59.** Two agents running: finish BR5 (matte oracle rows red at 22f038be) and finish MK4 (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
