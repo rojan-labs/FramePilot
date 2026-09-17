@@ -212,6 +212,30 @@ class MatteFrames:
         return float((self.pts[index] - self.origin_pts) * self.time_base)
 
 
+#: Largest ``frames.json`` the export reads (BR4.12 L4); an honest one is ~18 bytes per frame.
+FRAMES_MAX_BYTES = 64 * 1024 * 1024
+
+
+def read_frames_file(path: Path) -> MatteFrames:
+    """Read and parse ``frames.json`` with bounds for untrusted artifacts (BR4.12 fuzz corpus).
+
+    :raises ValueError: Over :data:`FRAMES_MAX_BYTES`, not strict UTF-8 JSON (a BOM is refused),
+        nested too deeply to parse, or not a valid frames document.
+    """
+    if path.stat().st_size > FRAMES_MAX_BYTES:
+        raise ValueError("frames.json is larger than any matte needs.")
+    raw = path.read_bytes()
+    if raw.startswith(b"\xef\xbb\xbf"):
+        raise ValueError("frames.json must not start with a byte-order mark.")
+    try:
+        document = json.loads(raw.decode("utf-8"))
+    except RecursionError as exc:
+        raise ValueError("frames.json is nested too deeply.") from exc
+    except UnicodeDecodeError as exc:
+        raise ValueError("frames.json is not UTF-8.") from exc
+    return parse_frames(document)
+
+
 def parse_frames(document: Any) -> MatteFrames:
     """Validate a ``frames.json`` document.
 
@@ -243,6 +267,14 @@ def parse_frames(document: Any) -> MatteFrames:
         raise ValueError("frames.json pts must be a non-empty list of integers.")
     if any(b <= a for a, b in pairwise(pts)):
         raise ValueError("frames.json pts must be strictly increasing.")
+    # Values the export does arithmetic on must fit int64 with room to spare (BR4.12 fuzz corpus).
+    bound = 2**52
+    if (
+        any(abs(v) > bound for v in (*time_base, origin, first))
+        or abs(pts[0]) > bound
+        or abs(pts[-1]) > bound
+    ):
+        raise ValueError("frames.json values are out of range.")
     return MatteFrames(
         time_base=Fraction(time_base[0], time_base[1]),
         origin_pts=origin,
@@ -394,13 +426,14 @@ def prepare_matte(
         if file_sha256(directory / name) != pinned[name]:
             raise refuse(MatteRefusalCode.DIGEST_MISMATCH)
     try:
-        frames = parse_frames(json.loads((directory / FRAMES_FILE).read_text(encoding="utf-8")))
+        frames = read_frames_file(directory / FRAMES_FILE)
         matte_stream = probe_stream(directory / MATTE_FILE)
         foreground_stream = (
             probe_stream(directory / FOREGROUND_FILE) if mask.decontaminate else None
         )
     except (ValueError, OSError, subprocess.SubprocessError) as exc:
-        _log.warning("matte %s unreadable: %s", artifact.key[:12], exc)
+        # Type name only: OSError text carries the project path (BR4.12 L1).
+        _log.warning("matte %s unreadable: %s", artifact.key[:12], type(exc).__name__)
         raise refuse(MatteRefusalCode.UNREADABLE) from exc
     if matte_stream.pixel_format not in MATTE_PIXEL_FORMATS or (
         foreground_stream is not None

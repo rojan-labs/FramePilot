@@ -638,15 +638,6 @@ export class CapabilityPackMatteService {
         if (prompt.kind === 'lock') locks.push({ pts: prompt.pts, pixelSha256: grayPixelSha256(input.image) });
       } catch (error) {
         if (error instanceof MatteStoreError) return failed('correction_invalid', error.message, false);
-  if (error instanceof MatteStagingError && error.code === 'changed_after_verify') {
-    return {
-      status: 'failed',
-      code: 'verification_failed',
-      detail: 'The background removal result failed FramePilot’s checks and was discarded. Try again.',
-      retryable: true,
-      verificationCode: 'changed_after_verify',
-    };
-  }
         throw error;
       }
     }
@@ -1082,6 +1073,15 @@ function classifyFailure(error: unknown, signal: AbortSignal): Extract<MatteRunO
     return failed('worker_failed', 'The Smart Mask pack stopped unexpectedly. Try again.', true);
   }
   if (error instanceof MatteStoreError) return failed('correction_invalid', error.message, false);
+  if (error instanceof MatteStagingError && error.code === 'changed_after_verify') {
+    return {
+      status: 'failed',
+      code: 'verification_failed',
+      detail: 'The background removal result failed FramePilot’s checks and was discarded. Try again.',
+      retryable: true,
+      verificationCode: 'changed_after_verify',
+    };
+  }
   if (isNodeCode(error, 'ENOSPC') || isNodeCode(error, 'EACCES') || isNodeCode(error, 'EROFS')) {
     return failed('output_unwritable', 'Disk full or folder not writable. Free up space and try again.', true);
   }
