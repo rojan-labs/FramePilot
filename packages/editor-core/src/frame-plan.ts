@@ -121,6 +121,8 @@ export interface FramePlanMaskLayer {
   readonly space: MaskLayer['space'];
   readonly featherModel: MaskLayer['featherModel'];
   readonly target: { kind: 'alpha' } | { kind: 'effect'; effectId: string };
+  /** Matte layers only: the artifact, read at the picture's own decoded source frame (BR2). */
+  readonly matte?: { readonly artifactKey: string; readonly sourceFrame: number | null };
 }
 
 export interface FramePlanMaskStack {
@@ -699,7 +701,11 @@ export function maskSourceTime(
   return start + local * speed;
 }
 
-function maskPlan(clip: Clip, local: number): FramePlanMaskStack | null {
+function maskPlan(
+  clip: Clip,
+  local: number,
+  sourceFrame: number | null,
+): FramePlanMaskStack | null {
   const enabled = masksOf(clip).filter((mask) => mask.enabled);
   if (enabled.length === 0) return null;
   return {
@@ -715,6 +721,7 @@ function maskPlan(clip: Clip, local: number): FramePlanMaskStack | null {
         mask.target.kind === 'effect'
           ? { kind: 'effect', effectId: mask.target.effectId }
           : { kind: 'alpha' },
+      ...(mask.kind === 'matte' ? { matte: { artifactKey: mask.artifact.key, sourceFrame } } : {}),
     })),
   };
 }
@@ -723,16 +730,17 @@ function videoLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer {
   const local = ctx.t - clip.start;
   const fps = ctx.sourceFps.get(clip.assetId) ?? null;
   const time = videoSourceTime(clip, local, fps, ctx.assetDurations.get(clip.assetId) ?? null);
+  const frame = sourceFrameIndex(time, fps);
   const tr = legacyTransition(clip);
   return {
     ...baseLayer('picture', track.id, clip.id, local),
-    source: { assetId: clip.assetId, assetKind: 'video', time, frame: sourceFrameIndex(time, fps) },
+    source: { assetId: clip.assetId, assetKind: 'video', time, frame },
     crop: cropJson(clip),
     geometry: pictureGeometry(ctx, clip, clip.keyframes, local, true, tr),
     opacity: layerOpacityAt(clip, local, tr),
     blendMode: clip.blendMode ?? 'normal',
     effects: effectsJson(clip),
-    mask: maskPlan(clip, local),
+    mask: maskPlan(clip, local, frame),
     transitions: transitionStates(clip, local),
   };
 }

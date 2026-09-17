@@ -279,7 +279,12 @@ def mask_source_time(clip: Clip, local: float) -> float:
     return start + local * speed
 
 
-def _mask_plan_json(clip: Clip, local: float) -> dict[str, Any] | None:
+def _mask_plan_json(clip: Clip, local: float, source_frame: int | None) -> dict[str, Any] | None:
+    """The clip's enabled mask stack at clip-local ``local``.
+
+    A ``matte`` layer also names its artifact and the SOURCE FRAME its matte frame is read for:
+    the picture's own decoded frame (BR2), never a frame derived from the mask clock.
+    """
     masks = enabled_masks(clip)
     if not masks:
         return None
@@ -288,17 +293,18 @@ def _mask_plan_json(clip: Clip, local: float) -> dict[str, Any] | None:
         target: dict[str, Any] = {"kind": mask.target.kind}
         if mask.target.kind == "effect":
             target["effectId"] = mask.target.effect_id
-        layers.append(
-            {
-                "id": mask.id,
-                "kind": mask.kind,
-                "mode": str(mask.mode.value),
-                "invert": mask.invert,
-                "space": str(mask.space.value),
-                "featherModel": str(mask.feather_model.value),
-                "target": target,
-            }
-        )
+        layer: dict[str, Any] = {
+            "id": mask.id,
+            "kind": mask.kind,
+            "mode": str(mask.mode.value),
+            "invert": mask.invert,
+            "space": str(mask.space.value),
+            "featherModel": str(mask.feather_model.value),
+            "target": target,
+        }
+        if mask.kind == "matte":
+            layer["matte"] = {"artifactKey": mask.artifact.key, "sourceFrame": source_frame}
+        layers.append(layer)
     return {"sourceTime": mask_source_time(clip, local), "layers": layers}
 
 
@@ -661,6 +667,7 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
     local = ctx.t - clip.start
     fps = ctx.source_fps.get(clip.asset_id)
     source_time = video_source_time(clip, local, fps, ctx.asset_durations.get(clip.asset_id))
+    frame = source_frame_index(source_time, fps)
     transition = legacy_transition(clip)
     return PlanLayer(
         kind="picture",
@@ -669,15 +676,13 @@ def _video_layer(ctx: _Context, track: Track, clip: Clip) -> PlanLayer:
         clip_id=clip.id,
         for_clip_id=None,
         local_time=local,
-        source=LayerSource(
-            clip.asset_id, "video", source_time, source_frame_index(source_time, fps)
-        ),
+        source=LayerSource(clip.asset_id, "video", source_time, frame),
         crop=_crop_json(clip),
         geometry=_picture_geometry(ctx, clip, local, honour_crop=True, transition=transition),
         opacity=layer_opacity_at(clip, local, transition),
         blend_mode=_blend(clip),
         effects=_effects_json(clip),
-        mask=_mask_plan_json(clip, local),
+        mask=_mask_plan_json(clip, local, frame),
         transitions=_transition_states(clip, local),
     )
 
