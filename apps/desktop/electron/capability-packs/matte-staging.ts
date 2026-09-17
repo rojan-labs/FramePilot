@@ -18,7 +18,7 @@
  * half-written artifact under a cache key.
  */
 import { constants as fsConstants } from 'node:fs';
-import { copyFile, lstat, mkdir, readdir, rename, rm, writeFile } from 'node:fs/promises';
+import { copyFile, lstat, mkdir, readdir, realpath, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import {
@@ -90,7 +90,48 @@ export async function ensureRealDirectory(base: string, segments: readonly strin
       throw new MatteStagingError('unsafe_path', 'The project matte store contains a link or a file where a folder belongs.');
     }
   }
+  await assertRealpathMatches(base, segments, current);
   return current;
+}
+
+/**
+ * The existing directory `<projectDir>/<segments...>` as a chain of REAL directories, or
+ * `undefined` when a segment does not exist (BR4.12 M1).
+ *
+ * Every segment is `lstat`-checked (a symlink or file anywhere refuses) and the final realpath must
+ * equal the project's realpath joined with the segments, so a rename race that swaps a parent for a
+ * link between the checks is caught too. Every reader and deleter of the matte store goes through
+ * this; nothing lists, hashes or removes through a link.
+ *
+ * @throws MatteStagingError `unsafe_path`.
+ */
+export async function existingRealDirectory(projectDir: string, segments: readonly string[]): Promise<string | undefined> {
+  let current = path.resolve(projectDir);
+  for (const segment of segments) {
+    if (segment === '' || segment === '.' || segment === '..' || /[\\/]/u.test(segment)) {
+      throw new MatteStagingError('unsafe_path', 'Matte store path segment is invalid.');
+    }
+    current = path.join(current, segment);
+    let stat;
+    try {
+      stat = await lstat(current);
+    } catch (error) {
+      if (isCode(error, 'ENOENT') || isCode(error, 'ENOTDIR')) return undefined;
+      throw error;
+    }
+    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+      throw new MatteStagingError('unsafe_path', 'The project matte store contains a link or a file where a folder belongs.');
+    }
+  }
+  await assertRealpathMatches(projectDir, segments, current);
+  return current;
+}
+
+async function assertRealpathMatches(base: string, segments: readonly string[], current: string): Promise<void> {
+  const [baseReal, currentReal] = await Promise.all([realpath(base), realpath(current)]);
+  if (currentReal !== path.join(baseReal, ...segments)) {
+    throw new MatteStagingError('unsafe_path', 'The project matte store resolves outside the project folder.');
+  }
 }
 
 /** Absolute committed-artifact directory for `key`, or `undefined` for a malformed key. */
@@ -260,17 +301,17 @@ export interface MatteStagingSweepOptions {
  * entries went.
  */
 export async function sweepMatteStaging(projectDir: string, options: MatteStagingSweepOptions): Promise<number> {
-  const root = matteStagingRoot(projectDir);
+  let root: string | undefined;
   try {
-    const stat = await lstat(root);
-    if (stat.isSymbolicLink() || !stat.isDirectory()) {
+    root = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_STAGING_DIR]);
+  } catch (error) {
+    if (error instanceof MatteStagingError) {
       log.warn('matteStagingRootUnsafe', {});
       return 0;
     }
-  } catch (error) {
-    if (isCode(error, 'ENOENT')) return 0;
     throw error;
   }
+  if (root === undefined) return 0;
   const maxAge = options.maxAgeMs ?? MATTE_STAGING_ORPHAN_AGE_MS;
   let removed = 0;
   for (const entry of await readdir(root)) {

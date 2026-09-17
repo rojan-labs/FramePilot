@@ -50,7 +50,8 @@ import { grayPixelSha256 } from './matte-png.js';
 import {
   commitMatteStaging,
   createMatteStaging,
-  matteArtifactDirectory,
+  existingRealDirectory,
+  MATTES_RELATIVE_DIR,
   MatteStagingError,
   type MatteStaging,
 } from './matte-staging.js';
@@ -645,7 +646,10 @@ export class CapabilityPackMatteService {
       }
     }
     if (intent.previousArtifactKey === undefined) return { files, locks };
-    const directory = matteArtifactDirectory(projectDir, intent.previousArtifactKey)!;
+    const directory = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, intent.previousArtifactKey]).catch(() => undefined);
+    if (directory === undefined) {
+      return failed('invalid_intent', 'The background removal to update is missing or was changed. Run it from scratch.', false);
+    }
     const record = await readMatteRecord(projectDir, intent.previousArtifactKey);
     if (record === undefined || record.assetId !== intent.assetId || !(await verifyRecordDigests(directory, record))) {
       return failed('invalid_intent', 'The background removal to update is missing or was changed. Run it from scratch.', false);
@@ -837,7 +841,7 @@ export class CapabilityPackMatteService {
   }
 
   private async cacheHit(projectDir: string, key: string, signal: AbortSignal): Promise<MatteArtifactRecord | undefined> {
-    const directory = matteArtifactDirectory(projectDir, key);
+    const directory = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, key]).catch(() => undefined);
     if (directory === undefined) return undefined;
     const record = await readMatteRecord(projectDir, key);
     if (record === undefined) return undefined;

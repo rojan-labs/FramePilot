@@ -19,6 +19,7 @@ import type { MatteVideoTiming } from './matte-media-inspector.js';
 import { BRUSH_VALUES, decodeGrayPng, MattePngError, type GrayPng } from './matte-png.js';
 import {
   ensureRealDirectory,
+  existingRealDirectory,
   isMatteCacheKey,
   MATTE_INPUTS_STORE_DIR,
   MATTES_RELATIVE_DIR,
@@ -75,9 +76,11 @@ export async function saveMatteInput(
 /** Read a stored input back, proving its bytes still match its name. */
 export async function readMatteInput(projectDir: string, sha256: string): Promise<{ readonly bytes: Buffer; readonly image: GrayPng }> {
   if (!isMatteCacheKey(sha256)) throw new MatteStoreError('input_missing', 'Correction reference is malformed.');
-  const file = path.join(path.resolve(projectDir), ...MATTES_RELATIVE_DIR, MATTE_INPUTS_STORE_DIR, `${sha256}.png`);
   let bytes: Buffer;
   try {
+    const store = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_INPUTS_STORE_DIR]);
+    if (store === undefined) throw new Error('no inputs store');
+    const file = path.join(store, `${sha256}.png`);
     const stat = await lstat(file);
     if (!stat.isFile()) throw new Error('not a file');
     bytes = await readFile(file);
@@ -113,7 +116,9 @@ export async function writeMatteRecord(projectDir: string, record: MatteArtifact
 export async function readMatteRecord(projectDir: string, key: string): Promise<MatteArtifactRecord | undefined> {
   if (!isMatteCacheKey(key)) return undefined;
   try {
-    const file = matteRecordPath(projectDir, key);
+    const results = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_RESULTS_DIR]);
+    if (results === undefined) return undefined;
+    const file = path.join(results, `${key}.json`);
     const stat = await lstat(file);
     if (!stat.isFile() || stat.size > RECORD_MAX_BYTES) return undefined;
     const parsed = MatteArtifactRecordSchema.safeParse(JSON.parse(await readFile(file, 'utf8')));

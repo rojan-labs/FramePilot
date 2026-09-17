@@ -10,7 +10,13 @@
 import { lstat, readdir, rm } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
-import { MATTE_INPUTS_STORE_DIR, MATTE_STAGING_DIR, MATTES_RELATIVE_DIR, isMatteCacheKey } from './matte-staging.js';
+import {
+  existingRealDirectory,
+  isMatteCacheKey,
+  MATTE_INPUTS_STORE_DIR,
+  MATTE_STAGING_DIR,
+  MATTES_RELATIVE_DIR,
+} from './matte-staging.js';
 import { MATTE_RESULTS_DIR, readMatteRecord } from './matte-store.js';
 
 const log = createLogger('desktop:capability-packs:matte-storage');
@@ -86,9 +92,15 @@ export async function matteStorageSummary(
 ): Promise<MatteStorageSummary> {
   const references = collectMatteReferences(project);
   const guard = new Set(protectedKeys);
-  const root = path.join(path.resolve(projectDir), ...MATTES_RELATIVE_DIR);
+  // A link anywhere in `.framepilot-derived/mattes` refuses the whole summary (BR4.12 M1).
+  const root = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR]);
+  if (root === undefined) {
+    return { totalBytes: 0, referencedBytes: 0, unusedBytes: 0, stagingBytes: 0, artifacts: [], inputs: [] };
+  }
   const artifacts: MatteStorageArtifact[] = [];
   for (const key of await listKeys(root)) {
+    // Only real directories are artifacts; a link or file named like a key is ignored.
+    if (!(await isRealDirectory(path.join(root, key)))) continue;
     const record = await readMatteRecord(projectDir, key);
     artifacts.push({
       key,
@@ -98,16 +110,16 @@ export async function matteStorageSummary(
     });
   }
   const inputs: MatteStorageInput[] = [];
-  for (const entry of await safeReaddir(path.join(root, MATTE_INPUTS_STORE_DIR))) {
+  const inputsRoot = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_INPUTS_STORE_DIR]);
+  for (const entry of inputsRoot === undefined ? [] : await safeReaddir(inputsRoot)) {
     const sha256 = entry.endsWith('.png') ? entry.slice(0, -4) : '';
     if (!isMatteCacheKey(sha256)) continue;
-    inputs.push({
-      sha256,
-      bytes: await fileBytes(path.join(root, MATTE_INPUTS_STORE_DIR, entry)),
-      referenced: references.inputs.has(sha256) || guard.has(sha256),
-    });
+    const bytes = await regularFileBytes(path.join(inputsRoot!, entry));
+    if (bytes === undefined) continue;
+    inputs.push({ sha256, bytes, referenced: references.inputs.has(sha256) || guard.has(sha256) });
   }
-  const stagingBytes = await directoryBytes(path.join(root, MATTE_STAGING_DIR));
+  const stagingRoot = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_STAGING_DIR]);
+  const stagingBytes = stagingRoot === undefined ? 0 : await directoryBytes(stagingRoot);
   const artifactBytes = artifacts.reduce((sum, item) => sum + item.bytes, 0);
   const inputBytes = inputs.reduce((sum, item) => sum + item.bytes, 0);
   const referencedBytes =
@@ -135,7 +147,6 @@ export async function cleanUnusedMattes(
   protectedKeys: readonly string[] = [],
 ): Promise<MatteCleanResult> {
   const summary = await matteStorageSummary(projectDir, project, protectedKeys);
-  const root = path.join(path.resolve(projectDir), ...MATTES_RELATIVE_DIR);
   const unusedArtifacts = new Map(summary.artifacts.filter((item) => !item.referenced).map((item) => [item.key, item]));
   const unusedInputs = new Map(summary.inputs.filter((item) => !item.referenced).map((item) => [item.sha256, item]));
   const removedKeys: string[] = [];
@@ -149,14 +160,21 @@ export async function cleanUnusedMattes(
       keptKeys.push(key);
       continue;
     }
-    if (artifact !== undefined) {
-      await removeEntry(path.join(root, key));
-      await rm(path.join(root, MATTE_RESULTS_DIR, `${key}.json`), { force: true });
+    // Re-assert the chain right before each deletion: the tree may have changed since the summary.
+    const root = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR]);
+    if (root === undefined) break;
+    if (artifact !== undefined && (await isRealDirectory(path.join(root, key)))) {
+      await rm(path.join(root, key), { recursive: true, force: true });
+      const results = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_RESULTS_DIR]);
+      if (results !== undefined) await rm(path.join(results, `${key}.json`), { force: true });
       freedBytes += artifact.bytes;
     }
     if (input !== undefined) {
-      await removeEntry(path.join(root, MATTE_INPUTS_STORE_DIR, `${key}.png`));
-      freedBytes += input.bytes;
+      const inputsRoot = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_INPUTS_STORE_DIR]);
+      if (inputsRoot !== undefined && (await regularFileBytes(path.join(inputsRoot, `${key}.png`))) !== undefined) {
+        await rm(path.join(inputsRoot, `${key}.png`), { force: true });
+        freedBytes += input.bytes;
+      }
     }
     removedKeys.push(key);
   }
@@ -199,15 +217,21 @@ async function directoryBytes(directory: string): Promise<number> {
   return total;
 }
 
-async function fileBytes(file: string): Promise<number> {
+/** Size of a regular file, or `undefined` for a link, folder or missing entry. */
+async function regularFileBytes(file: string): Promise<number | undefined> {
   try {
-    return (await lstat(file)).size;
+    const stat = await lstat(file);
+    return stat.isFile() ? stat.size : undefined;
   } catch {
-    return 0;
+    return undefined;
   }
 }
 
-/** Remove a directory tree or file; a symlink is unlinked, never followed. */
-async function removeEntry(target: string): Promise<void> {
-  await rm(target, { recursive: true, force: true });
+async function isRealDirectory(target: string): Promise<boolean> {
+  try {
+    const stat = await lstat(target);
+    return stat.isDirectory() && !stat.isSymbolicLink();
+  } catch {
+    return false;
+  }
 }

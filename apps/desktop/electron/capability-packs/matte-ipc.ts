@@ -251,11 +251,16 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
     const projectPath = await dependencies.activeProjectPath();
     if (projectPath === null) return { ok: false, code: 'no_project', error: 'No project is open.' };
     const project = await dependencies.readProject(projectPath);
-    const summary = await matteStorageSummary(path.dirname(projectPath), project, [
-      ...parsed.data.protectedKeys,
-      ...(await busyKeys()),
-    ]);
-    return { ok: true, ...summary };
+    try {
+      const summary = await matteStorageSummary(path.dirname(projectPath), project, [
+        ...parsed.data.protectedKeys,
+        ...(await busyKeys()),
+      ]);
+      return { ok: true, ...summary };
+    } catch (error) {
+      if (error instanceof MatteStagingError) return { ok: false, code: error.code, error: error.message };
+      throw error;
+    }
   });
 
   ipcMain.handle(IpcChannels.matteCleanUnused, async (_event, input: unknown): Promise<MatteCleanResultWire> => {
@@ -267,11 +272,17 @@ export function registerMatteStorageIpc(dependencies: MatteIpcDependencies): voi
     // Re-read at the moment of deletion: the project on disk is the authority, not the
     // summary the dialog showed a minute ago.
     const project = await dependencies.readProject(projectPath);
-    const result = await cleanUnusedMattes(path.dirname(projectPath), project, parsed.data.approvedKeys, [
-      ...parsed.data.protectedKeys,
-      ...(await busyKeys()),
-    ]);
-    return { ok: true, ...result };
+    try {
+      const result = await cleanUnusedMattes(path.dirname(projectPath), project, parsed.data.approvedKeys, [
+        ...parsed.data.protectedKeys,
+        ...(await busyKeys()),
+      ]);
+      return { ok: true, ...result };
+    } catch (error) {
+      // A link in the matte store refuses the whole cleanup; nothing was deleted (BR4.12 M1).
+      if (error instanceof MatteStagingError) return { ok: false, code: error.code, error: error.message };
+      throw error;
+    }
   });
 }
 

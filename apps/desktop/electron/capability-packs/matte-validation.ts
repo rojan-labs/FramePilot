@@ -21,7 +21,7 @@ import { lstat, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import { MatteInspectorError, type MatteMediaInspector } from './matte-media-inspector.js';
-import { matteArtifactDirectory } from './matte-staging.js';
+import { existingRealDirectory, isMatteCacheKey, MATTES_RELATIVE_DIR, MatteStagingError } from './matte-staging.js';
 import { readMatteRecord } from './matte-store.js';
 import {
   FOREGROUND_PIXEL_FORMATS,
@@ -122,8 +122,13 @@ async function checkArtifact(
   mask: MatteMaskRef,
   options: MatteValidationOptions,
 ): Promise<MatteRefusalCode | null> {
-  const directory = matteArtifactDirectory(projectDir, mask.key);
-  if (directory === undefined || !(await isRealDirectory(directory))) return 'matte_missing';
+  // The whole chain must be real directories inside the project (BR4.12 M1); a link is missing data.
+  if (!isMatteCacheKey(mask.key)) return 'matte_missing';
+  const directory = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, mask.key]).catch((error: unknown) => {
+    if (error instanceof MatteStagingError) return undefined;
+    throw error;
+  });
+  if (directory === undefined) return 'matte_missing';
   const pinned = new Map(mask.files.map((file) => [file.name, file.sha256]));
   const wanted = ['matte.mkv', 'frames.json', ...(mask.decontaminate ? ['foreground.mkv'] : [])];
   for (const name of wanted) {
@@ -217,15 +222,6 @@ async function cachedSha256(file: string, signal: AbortSignal | undefined): Prom
 
 function arrayOf(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
-}
-
-async function isRealDirectory(target: string): Promise<boolean> {
-  try {
-    const info = await lstat(target);
-    return info.isDirectory() && !info.isSymbolicLink();
-  } catch {
-    return false;
-  }
 }
 
 async function isRegularFile(target: string): Promise<boolean> {

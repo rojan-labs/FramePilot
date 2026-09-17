@@ -86,8 +86,10 @@ describe('matte storage (MD-4)', () => {
     const outside = await mkdtemp(path.join(tmpdir(), 'framepilot-outside-'));
     await writeFile(path.join(outside, 'precious.mov'), 'keep');
     await symlink(outside, path.join(mattes, KEY('7')));
+    // A link named like a key is not an artifact: not counted, not removed, not followed.
     const result = await cleanUnusedMattes(dir, project, [KEY('7')]);
-    expect(result.removedKeys).toEqual([KEY('7')]);
+    expect(result.removedKeys).toEqual([]);
+    expect(result.keptKeys).toEqual([KEY('7')]);
     expect(await readdir(outside)).toEqual(['precious.mov']);
   });
 });
