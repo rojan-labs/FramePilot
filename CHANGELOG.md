@@ -8,6 +8,20 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **The desktop app can now run background removal jobs behind the scenes (no button yet).**
+  When the Smart Mask pack is installed, the app runs a job on your computer, checks every file
+  the pack writes (only the expected files, their fingerprints, and that each matte frame lines
+  up with the exact frame of your footage) and only then saves it inside the project, under
+  `.framepilot-derived/mattes`. A job can be cancelled, a changed project throws the result
+  away, and running the same request again returns the saved result at once. Fixes you paint
+  and frames you lock are saved with the project, and a locked frame is proven unchanged on
+  every re-run. Before starting, the app checks there is enough free disk space and says how
+  much is needed. When a project opens, missing or changed background removal data gets the
+  same message the export shows. Media that changed after a relink can be re-checked by
+  comparing decoded frames. Pack status now also says when a build can't download packs, and
+  names the hardware a pack needs before you download it. "Clean unused mattes" removes only
+  results nothing in the project still uses.
+
 - **Exports draw background-removal mattes (engine; the Remove background button is not
   released yet).** A clip's AI matte now exports with its soft edges, edge shift, Sharp or Smooth
   edge mode, clean edge colour (the old background's colour is replaced inside hair and motion

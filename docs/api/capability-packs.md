@@ -479,3 +479,92 @@ install/update proposal (`pack_missing`), never a crash.
 **Worker client.** `CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES` is a closed list (`subject.matte`).
 For those, `runCapabilityPackWorker` needs `outputRoot` and refuses to launch unless the output and
 inputs directories exist, are not symlinks, and resolve strictly inside that root.
+
+### Desktop host (`apps/desktop/electron/capability-packs/matte*.ts`)
+
+**Lifecycle (`matte.ts`).** `CapabilityPackMatteService.run(intent, context)`: zod-parse the
+intent (`MatteRunIntentSchema`, no paths) → refuse a stale `timelineRevision` → resolve the asset,
+its decoded timing (packet pts, discarded packets dropped, as `render/pts_reader.py`) and content
+fingerprint → worker prompts in source pts → auto prompt when there are none → cache key → cache
+hit (host record + file digests re-hashed) → disk preflight → pack resolution (`pack_missing`
+proposal for a missing or pre-`1.0.0` Smart Mask; `pack_unhealthy`, `pack_incomplete`) → staging
+and host-written inputs → worker under a storage lease, cancellable, per-job time limit
+(30 min + 30 s/frame, ≤ 24 h), progress with ETA → verification → revision re-check → commit →
+record. A project that moved during the job returns `stale_revision`; the verified artifact is
+kept for a cached retry only if the asset is still in the saved project. Every failure removes the
+staging directory.
+
+Cache key: `sha256(canonical{pipeline, contentFingerprint, firstPts, lastPts, sorted prompts
+rounded to 1e-4 with brush/lock by PNG sha256, packId@version, releaseDigest, foreground,
+previewHeight})`. The release digest stands in for `modelDigests` (unknown before the worker
+runs); it pins the signed artifact and every model in it. The content fingerprint is size +
+sha256 of the first and last 8 MiB + the decoded pts list.
+
+**Project layout (MD-3, MD-4).**
+
+```
+<project>/.framepilot-derived/mattes/
+  <key>/                 committed artifact (only the files a mask pins)
+  .staging/<jobId>/      one host-created directory per job; inputs/{corrections,locked,previous}
+  .inputs/<sha256>.png   project-owned brush fixes and locked alpha
+  .results/<key>.json    host record: summary, review ranges, locked pts, source samples
+```
+
+Every segment is created and `lstat`-checked (a symlink anywhere refuses the job). Commit is one
+`rename`; the first commit of a key wins. The first matte call per project per session sweeps
+staging directories with no live job and older than 24 h. A partial re-run gets copy-on-write
+clones of the previous `matte.mkv`/`frames.json` in `inputs/previous/`, never a path into the store.
+
+**Verification (`matte-verify.ts`), independent of the worker's claims:** only declared, allowed,
+regular files (plus the host's `inputs/`); sizes and the byte ceiling (frames × pixels × 1.1, ×4 with
+RGB foreground, + 256 MiB); sha256 of every file; `frames.json` parsed as the engine does and equal
+to the source's decoded pts over exactly the requested frames (time base and origin included);
+ffprobe pixel format, size (the source's display size) and frame count; locked frames' decoded
+pixels bit-identical to their inputs and to the previous artifact. A check the host cannot run
+(no ffmpeg) fails closed as `verification_unavailable`. Failures return `verification_failed` with
+`verificationCode`.
+
+**Media inspector (`matte-media-inspector.ts`).** The app's own ffprobe/ffmpeg (existing
+`FRAMEPILOT_FFPROBE`/`FRAMEPILOT_FFMPEG`, then the bundled engine folder, then PATH in development).
+Paths are only ever separate argv elements, never filter-graph text. Decoded frame hashes use
+`-f framehash -hash sha256`: artifact frames by index (`select` built from integers), source frames
+by exact pts (`-copyts -ss (pts-0.5 tick)`, pts checked on the way back).
+
+**Auto prompt (`matte-auto-prompt.ts`).** With no prompts, and only if a healthy Subject
+Intelligence pack is in the local index, `subject.detect` runs on the first in-range frame and the
+largest confident (≥ 0.5, ≥ 1% of the frame) person, else object, box becomes the prompt. Otherwise
+`needs_prompt`. It never proposes a download.
+
+**Storage (`matte-storage.ts`).** `matteStorageSummary` reports bytes per artifact and input,
+referenced/unused totals and staging bytes. References are found anywhere in the saved project JSON
+(clips, effect layers, saved history). `cleanUnusedMattes` removes exactly the confirmed keys that
+are still unreferenced when the project is re-read; `protectedKeys` (undo history) and artifacts a
+running re-run reads are never removed; links are unlinked, not followed.
+
+**Validation (`matte-validation.ts`, `matte-media-recheck.ts`).** Project open returns
+`ProjectOpenResult.mattes`: quick checks (files present, sizes match the record, `frames.json`
+parses) with the engine's codes, BROKEN/STALE status and remedy sentences verbatim (a test reads
+`render/mattes.py`). `full` mode adds cached sha256 and ffprobe. Coverage and display size stay in
+`editor-core/mask-validation.ts`. `recheckProjectMatteMedia` (for relink/replace) compares the
+fingerprint, then the decoded-frame hashes of the coverage's first and last frames plus 16 samples
+recorded at commit; a differing, undecodable or unsampled source is STALE `matte_media_changed`.
+
+**Disk preflight (`matte-disk.ts`).** BR0 storage per minute (1080p30: 23.2 + 81.4 MiB; 4K30:
+61.2 + 218.6 MiB; linear in pixel count), × frames, + 10% previews, × 1.2 headroom, against
+`statfs` free space → `insufficient_disk` with `requiredBytes`/`freeBytes`.
+
+**IPC (named channels only; payloads zod-parsed).**
+
+| Channel | Kind | Purpose |
+| --- | --- | --- |
+| `capabilityPackStatus` | invoke | `ready` / `missing` (proposal) / `unhealthy` (reason) / `unsupported_platform` / `catalog_unconfigured` / `invalid`, with `hardware` for packs with a published minimum |
+| `capabilityPackInstalled` | push | `{ kind: 'installed' \| 'removed', identity }` after the health check and any project pin, or after removal |
+| `capabilityPackMatte` | invoke | run one job; `MatteRunResultWire` |
+| `capabilityPackCancelMatte` | send | cancel by request id |
+| `capabilityPackMatteProgress` | push | `{ requestId, phase, completed, total, round?, etaSeconds? }` |
+| `matteSaveCorrection` | invoke | store a brush fix or locked frame (8-bit gray PNG at the artifact's size, inside its coverage) |
+| `matteStorage` | invoke | per-project storage summary |
+| `matteCleanUnused` | invoke | remove exactly the confirmed unused keys |
+
+Smart Mask's published hardware minimum (Apple Silicon or Windows x64, 16 GB) is provisional until
+the maintainer decides the floor from BR0-FINDINGS.
