@@ -91,7 +91,13 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   no WebM demuxer or FFV1 decoder. So the monitor decodes `matte.mkv` and `foreground.mkv` itself:
   a Matroska index (`decode/matroska-demuxer.ts`, range reads, Cues or a cluster walk) and a port of
   FFmpeg's FFV1 decoder (`decode/ffv1/`), byte-exact against ffmpeg on the fixtures in
-  `tests/fixtures/matte-ffv1` (v3/v4, Golomb and range coders, slices, CRCs, non-key frames). They
+  `tests/fixtures/matte-ffv1` (v3/v4, Golomb and range coders, slices, CRCs, non-key frames).
+  Matroska carries an FFV1 track either natively (`V_FFV1`) or wrapped in a Video-for-Windows
+  header (`V_MS/VFW/FOURCC`, the FourCC then naming the codec and the global header following the
+  `BITMAPINFOHEADER`) — which one is the muxer's choice, and FFmpeg only gained the native CodecID
+  recently, so the same `ffv1` encode differs between ffmpeg versions. The export's reader is
+  ffmpeg, which takes both, so the demuxer takes both; the checked-in fixtures are native, so only
+  the oracle (whose artifacts CI's own ffmpeg writes) caught it. They
   run in the shared decode worker under the picture decoder pool, and decoded frames share the
   engine's byte-bounded picture cache. Cost: about 7 ms for a 1080p matte frame and 160 ms for a
   1080p RGB foreground frame on an M-series CPU (node); playback holds the previous picture when a
@@ -102,4 +108,11 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
 - **Oracle.** The PX4 `alpha/matte-*` rows: text behind subject, edge modes with edge shift,
   decontaminate on/off, matte × shape stack and an effect-target matte, speed ramp and reverse, VFR,
   rotated/anamorphic display space, and a progressive artifact (the preview reads a truncated copy;
-  a sample past it is exported with the matte disabled).
+  a sample past it is exported with the matte disabled). All eight pass at the unchanged gates:
+  seven are bit-identical to the export (PSNR inf, 100 % within 8/255, no sentinel disagreement,
+  presented source pts equal to the frame plan) and text-behind-subject is 53.68 dB / 100 %, the
+  residual being its burned text raster. Numbers and the run:
+  [`plan/background-removal-ai/PX4-BASELINE.md`](../../plan/background-removal-ai/PX4-BASELINE.md).
+  A far-off sample records `debugPresentedMattes()` — per matte layer, the source frame asked for,
+  the artifact's loaded range, and `ready` / `unprocessed` / `refused` with its code — because
+  pixels alone cannot tell a refused artifact from one still being processed.

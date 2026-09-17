@@ -1,7 +1,5 @@
 {
-  "cases": {
-    "alpha/matte-text-behind-subject": ["pixels", "sentinel"]
-  },
+  "cases": {},
   "colour": {
     "bt709-limited": ["webgl"]
   },
@@ -36,11 +34,53 @@
       "minWithinPercent": 100,
       "failing": []
     },
+    "alpha/matte-decontaminate": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-display-space": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-edge-modes": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-progressive": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-shape-stack": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-speed": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
     "alpha/matte-text-behind-subject": {
       "renderer": "webcodecs",
-      "minPsnr": 14.61,
-      "minWithinPercent": 39.609,
-      "failing": ["pixels", "sentinel"]
+      "minPsnr": 53.68,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/matte-vfr": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
     },
     "alpha/opacity-keyframes": {
       "renderer": "webcodecs",
