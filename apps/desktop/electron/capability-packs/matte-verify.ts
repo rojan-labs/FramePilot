@@ -341,43 +341,29 @@ async function verifyLockedFrames(input: MatteVerificationInput, frames: MatteFr
     }
   }
   if (checks.length === 0 && carried.length === 0) return;
+  // Chunks stay under the engine's per-call bound (1024 checks).
+  const chunk = 1_024;
   await withInspector(async () => {
     const matte = path.join(input.directory, 'matte.mkv');
-    const actual = await hashInBatches(input.inspector, matte, [
-      ...checks.map((check) => check.index),
-      ...carried.map((check) => check.index),
-    ], input.signal);
-    checks.forEach((check, position) => {
-      if (actual[position] !== check.expected) {
+    for (let start = 0; start < Math.max(checks.length, carried.length); start += chunk) {
+      const expected = checks.slice(start, start + chunk).map((check) => ({ index: check.index, sha256: check.expected }));
+      const carriedChunk = carried.slice(start, start + chunk);
+      const verdicts = await input.inspector.compareLockedFrames(
+        matte,
+        expected,
+        previous === undefined || carriedChunk.length === 0
+          ? undefined
+          : { file: path.join(previous.directory, 'matte.mkv'), carried: carriedChunk },
+        input.signal,
+      );
+      if (verdicts.expected.some((same) => !same)) {
         throw new MatteVerificationError('locked_frame_changed', 'A locked frame changed in the new matte.');
       }
-    });
-    if (carried.length === 0 || previous === undefined) return;
-    const before = await hashInBatches(
-      input.inspector,
-      path.join(previous.directory, 'matte.mkv'),
-      carried.map((check) => check.previousIndex),
-      input.signal,
-    );
-    carried.forEach((_check, position) => {
-      if (actual[checks.length + position] !== before[position]) {
+      if (verdicts.carried.some((same) => !same)) {
         throw new MatteVerificationError('locked_frame_changed', 'A frame locked on the previous matte changed.');
       }
-    });
+    }
   });
-}
-
-async function hashInBatches(
-  inspector: MatteMediaInspector,
-  file: string,
-  indexes: readonly number[],
-  signal: AbortSignal | undefined,
-): Promise<string[]> {
-  const out: string[] = [];
-  for (let start = 0; start < indexes.length; start += 256) {
-    out.push(...(await inspector.frameHashesByIndex(file, indexes.slice(start, start + 256), 'gray', signal)));
-  }
-  return out;
 }
 
 /** Inspector failures become a typed refusal; a verification the host cannot run fails closed. */

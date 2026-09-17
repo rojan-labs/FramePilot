@@ -200,12 +200,18 @@ export function fakeMatteInspector(sources: ReadonlyMap<string, FakeSourceMedia>
       if (source === undefined) throw new Error('no timing for this file');
       return source.timing;
     },
-    async frameHashesByIndex(file, indexes) {
-      calls.push(`hashIndex:${path.basename(file)}`);
+    async compareLockedFrames(file, expected, previous) {
+      calls.push(`locked:${path.basename(file)}`);
       const parsed = await container(file);
-      return indexes.map((index) => parsed.frames[index]!);
+      const before = previous === undefined ? undefined : await container(previous.file);
+      return {
+        expected: expected.map((check) => parsed.frames[check.index] === check.sha256),
+        carried: (previous?.carried ?? []).map(
+          (check) => parsed.frames[check.index] !== undefined && parsed.frames[check.index] === before?.frames[check.previousIndex],
+        ),
+      };
     },
-    async frameHashesByPts(file, _timing, pts) {
+    async frameHashesByPts(file, pts) {
       calls.push(`hashPts:${path.basename(file)}`);
       const source = sources.get(file);
       if (source === undefined) throw new Error('no source for this file');

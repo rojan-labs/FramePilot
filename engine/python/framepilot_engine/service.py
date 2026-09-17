@@ -26,6 +26,7 @@ import logging
 import os
 import re
 import signal
+import subprocess
 import threading
 import time
 from collections.abc import Callable, Iterable, Mapping, Sequence
@@ -246,6 +247,12 @@ from framepilot_engine.render.frame_grab import (
     FrameGrabError,
     grab_frame,
 )
+from framepilot_engine.render.frame_hashes import (
+    FrameHashError,
+    compare_locked_frames,
+    frame_hashes_by_pts,
+)
+from framepilot_engine.render.mattes import MATTE_FILE
 from framepilot_engine.render.pipeline import RenderJob, RenderOptions, render
 from framepilot_engine.render.queue import JobStatus, RenderQueue, RenderTask
 from framepilot_engine.render.queue import RenderRequest as QueuedRenderRequest
@@ -413,6 +420,52 @@ class InspectMediaRequest(BaseModel):
     """Request body for ``POST /inspect-media`` (plan 2.1)."""
 
     input_path: str = Field(description="Path to the media file to probe.")
+
+
+class MatteFrameHashesRequest(BaseModel):
+    """Request body for ``POST /mattes/frame-hashes`` (BR4.13): decoded frames by exact pts."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    input_path: str = Field(description="Media inside the projects root.")
+    pts: list[int] = Field(max_length=256, description="Source-stream pts to hash.")
+    pixel_format: Literal["native", "gray", "rgb24"] = "native"
+
+
+class MatteFrameHashesResponse(BaseModel):
+    """One sha256 per requested pts, or ``None`` when that exact frame did not decode."""
+
+    hashes: list[str | None]
+
+
+class MatteLockedExpected(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(ge=0)
+    sha256: str = Field(pattern=r"^[0-9a-f]{64}$")
+
+
+class MatteLockedCarried(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    index: int = Field(ge=0)
+    previous_index: int = Field(ge=0)
+
+
+class MatteLockedFramesRequest(BaseModel):
+    """Request body for ``POST /mattes/locked-frames`` (BR4.13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    matte_path: str = Field(description="A staged or committed matte.mkv inside the projects root.")
+    expected: list[MatteLockedExpected] = Field(default_factory=list, max_length=1024)
+    previous_matte_path: str | None = None
+    carried: list[MatteLockedCarried] = Field(default_factory=list, max_length=1024)
+
+
+class MatteLockedFramesResponse(BaseModel):
+    expected: list[bool]
+    carried: list[bool]
 
 
 class ReferenceAnalysisRequest(BaseModel):
@@ -6087,6 +6140,44 @@ def create_app(
             raise HTTPException(status.HTTP_404_NOT_FOUND, str(exc)) from exc
         except FFmpegError as exc:
             raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    @app.post("/mattes/frame-hashes", response_model=MatteFrameHashesResponse)
+    def matte_frame_hashes_route(req: MatteFrameHashesRequest) -> MatteFrameHashesResponse:
+        """Decoded-frame sha256 by exact pts, for the host's media re-check (BR4.13)."""
+        input_path = sandbox(req.input_path)
+        if not input_path.is_file():
+            raise HTTPException(status.HTTP_404_NOT_FOUND, "Media file not found.")
+        try:
+            return MatteFrameHashesResponse(
+                hashes=frame_hashes_by_pts(input_path, req.pts, req.pixel_format)
+            )
+        except (FrameHashError, subprocess.SubprocessError) as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+
+    @app.post("/mattes/locked-frames", response_model=MatteLockedFramesResponse)
+    def matte_locked_frames_route(req: MatteLockedFramesRequest) -> MatteLockedFramesResponse:
+        """Whether locked matte frames are bit-identical to their inputs and previous matte."""
+        matte = sandbox(req.matte_path)
+        previous = None if req.previous_matte_path is None else sandbox(req.previous_matte_path)
+        for candidate in (matte, previous):
+            if candidate is not None and (candidate.name != MATTE_FILE or not candidate.is_file()):
+                raise HTTPException(
+                    status.HTTP_400_BAD_REQUEST, "Only matte.mkv files can be compared."
+                )
+        if req.carried and previous is None:
+            raise HTTPException(
+                status.HTTP_400_BAD_REQUEST, "Carried frames need a previous matte."
+            )
+        try:
+            result = compare_locked_frames(
+                matte,
+                [(item.index, item.sha256) for item in req.expected],
+                previous,
+                [(item.index, item.previous_index) for item in req.carried],
+            )
+        except (FrameHashError, subprocess.SubprocessError) as exc:
+            raise HTTPException(status.HTTP_422_UNPROCESSABLE_ENTITY, str(exc)) from exc
+        return MatteLockedFramesResponse(expected=result.expected, carried=result.carried)
 
     @app.post("/references/analyze", response_model=ReferenceAnalysisResponse)
     def references_analyze_route(req: ReferenceAnalysisRequest) -> ReferenceAnalysisResponse:

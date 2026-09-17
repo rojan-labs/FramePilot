@@ -190,8 +190,8 @@ import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.
 import { registerMatteIpc, registerMatteStorageIpc } from './capability-packs/matte-ipc.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import {
-  FfmpegMatteMediaInspector,
-  resolveMatteMediaTools,
+  DesktopMatteMediaInspector,
+  resolveMatteFfprobe,
 } from './capability-packs/matte-media-inspector.js';
 import type { CapabilityPackWorkerProgress } from '@framepilot/capability-packs';
 import { AiConfigStore } from './ai/ai-config.js';
@@ -793,15 +793,19 @@ function registerIpcHandlers(): void {
       trustedRootKeys: await capabilityPackRootKeys,
       appVersion: app.getVersion(),
       runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
-      matteMediaInspector: new FfmpegMatteMediaInspector(
-        resolveMatteMediaTools({
+      // ffprobe for stream facts; decoded frames go through the sidecar, which has ffmpeg
+      // (BR4.13). A stopped sidecar makes lock and media checks fail closed.
+      matteMediaInspector: new DesktopMatteMediaInspector({
+        ffprobe: resolveMatteFfprobe({
           env: process.env,
           isPackaged: app.isPackaged,
           resourcesPath: process.resourcesPath,
           platform: process.platform,
           fileExists: existsSync,
         }),
-      ),
+        sidecarBaseUrl: engineBaseUrl,
+        fetch: electronFetch,
+      }),
       onStoreChanged: (event) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(IpcChannels.capabilityPackInstalled, event);

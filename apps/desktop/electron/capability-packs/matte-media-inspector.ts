@@ -2,13 +2,18 @@
  * What the matte host measures about media itself, independent of anything a worker claims.
  *
  * WHY a separate seam: host verification (BR4.2) and the media re-check (BR4.10) must not
- * trust the pack's descriptor, so they probe, list timestamps and hash decoded frames with
- * the application's own ffprobe/ffmpeg. Tests inject a fake; production spawns the binaries
- * with a fixed argv (`shell: false`). Paths are only ever passed as their own `-i` argument,
- * never interpolated into a filter graph, so a file name cannot change what runs.
+ * trust the pack's descriptor. Two sources answer:
  *
- * Frame identity follows the engine (`render/pts_reader.py`): packet pts of the first video
- * stream, discarded (`D`) packets dropped, sorted into presentation order.
+ * - **ffprobe** (bundled with the base app): stream facts and the decoded timestamps. Frame
+ *   identity follows the engine (`render/pts_reader.py`): packet pts of the first video
+ *   stream, discarded (`D`) packets dropped, sorted into presentation order.
+ * - **The Python sidecar** (BR4.13), which carries ffmpeg: decoded-frame sha256 by exact pts,
+ *   and locked-frame comparison. A packaged build ships no desktop ffmpeg, so these go through
+ *   `/mattes/frame-hashes` and `/mattes/locked-frames`. When the sidecar is down or refuses, the
+ *   error is typed and every caller fails closed.
+ *
+ * Paths are only ever passed as their own argv element or JSON field; nothing is interpolated
+ * into a filter graph or shell.
  */
 import { spawn } from 'node:child_process';
 import path from 'node:path';
@@ -28,30 +33,29 @@ export interface MatteVideoTiming {
   readonly pts: readonly number[];
 }
 
+export interface LockedFrameVerdicts {
+  readonly expected: readonly boolean[];
+  readonly carried: readonly boolean[];
+}
+
 export interface MatteMediaInspector {
   probeVideo(file: string, signal?: AbortSignal): Promise<MatteVideoProbe>;
   videoTiming(file: string, signal?: AbortSignal): Promise<MatteVideoTiming>;
   /**
-   * sha256 of the decoded pixels of frames `indexes` (0-based, decode-output order), in the
-   * requested pixel format. Used on host-owned artifact files (FFV1, intra-only).
+   * sha256 of the decoded frame at each exact pts (source stream ticks). A pts whose decoded
+   * frame does not come back with that pts yields `undefined` (treated as changed).
    */
-  frameHashesByIndex(
-    file: string,
-    indexes: readonly number[],
-    pixelFormat: 'gray' | 'rgb24',
-    signal?: AbortSignal,
-  ): Promise<readonly string[]>;
+  frameHashesByPts(file: string, pts: readonly number[], signal?: AbortSignal): Promise<readonly (string | undefined)[]>;
   /**
-   * sha256 of the decoded frame at each exact pts (source stream ticks). Seeks per frame, so
-   * sampling a long clip costs a handful of short decodes, not the whole file. A pts whose
-   * decoded frame does not come back with that pts yields `undefined` (treated as changed).
+   * Whether matte frames (by decode index, 8-bit gray) are bit-identical to expected pixel
+   * hashes, and to frames of a previous matte. The previous matte's hashes never cross over.
    */
-  frameHashesByPts(
-    file: string,
-    timing: MatteVideoTiming,
-    pts: readonly number[],
+  compareLockedFrames(
+    matteFile: string,
+    expected: readonly { readonly index: number; readonly sha256: string }[],
+    previous: { readonly file: string; readonly carried: readonly { readonly index: number; readonly previousIndex: number }[] } | undefined,
     signal?: AbortSignal,
-  ): Promise<readonly (string | undefined)[]>;
+  ): Promise<LockedFrameVerdicts>;
 }
 
 export class MatteInspectorError extends Error {
@@ -74,26 +78,29 @@ export type CommandRunner = (
   options: { readonly timeoutMs: number; readonly signal?: AbortSignal },
 ) => Promise<CommandResult>;
 
-/** ffprobe/ffmpeg output is bounded: a packet list for hours of 60 fps footage fits well inside. */
+/** ffprobe output is bounded: a packet list for hours of 60 fps footage fits well inside. */
 const MAX_STDOUT_BYTES = 64 * 1024 * 1024;
 const PROBE_TIMEOUT_MS = 60_000;
 const TIMING_TIMEOUT_MS = 600_000;
-const FRAME_HASH_TIMEOUT_MS = 120_000;
-/** Most frames one select-by-index call may name; the expression stays small. */
-export const MAX_FRAME_HASHES_PER_CALL = 256;
+/** A sidecar decode of up to 256 seeks or a 2048-frame lock batch. */
+const SIDECAR_TIMEOUT_MS = 30 * 60 * 1_000;
+/** Mirrors the engine's per-call bound. */
+export const MAX_FRAMES_PER_SIDECAR_CALL = 256;
+const MAX_LOCK_CHECKS_PER_CALL = 1_024;
 
-export interface FfmpegMatteMediaInspectorOptions {
+export interface MatteMediaInspectorOptions {
   readonly ffprobe: string;
-  /** Absent when this build has no ffmpeg; decoded-frame checks then fail closed. */
-  readonly ffmpeg?: string;
+  /** The render sidecar, e.g. `http://127.0.0.1:8799`. */
+  readonly sidecarBaseUrl: string;
+  readonly fetch: typeof fetch;
   readonly run?: CommandRunner;
 }
 
-/** Production inspector over the app's ffprobe and ffmpeg binaries. */
-export class FfmpegMatteMediaInspector implements MatteMediaInspector {
+/** Production inspector: ffprobe for stream facts and timing, the sidecar for decoded pixels. */
+export class DesktopMatteMediaInspector implements MatteMediaInspector {
   private readonly run: CommandRunner;
 
-  public constructor(private readonly options: FfmpegMatteMediaInspectorOptions) {
+  public constructor(private readonly options: MatteMediaInspectorOptions) {
     this.run = options.run ?? runBounded;
   }
 
@@ -129,119 +136,114 @@ export class FfmpegMatteMediaInspector implements MatteMediaInspector {
     return parseTiming(header.stdout, packets.stdout, file);
   }
 
-  public async frameHashesByIndex(
-    file: string,
-    indexes: readonly number[],
-    pixelFormat: 'gray' | 'rgb24',
-    signal?: AbortSignal,
-  ): Promise<readonly string[]> {
-    const ffmpeg = this.requireFfmpeg();
-    if (indexes.length === 0) return [];
-    if (
-      indexes.length > MAX_FRAME_HASHES_PER_CALL ||
-      indexes.some((index) => !Number.isSafeInteger(index) || index < 0)
-    ) {
-      throw new RangeError('frame indexes must be at most 256 non-negative integers');
-    }
-    const sorted = [...new Set(indexes)].sort((left, right) => left - right);
-    // The expression is built from integers only; the path stays its own argv element.
-    const select = `select=${sorted.map((index) => `eq(n\\,${index})`).join('+')}`;
-    const result = await this.run(
-      ffmpeg,
-      [
-        '-v', 'error', '-nostdin',
-        '-i', file,
-        '-map', '0:v:0',
-        '-vf', select,
-        '-fps_mode', 'passthrough',
-        '-pix_fmt', pixelFormat,
-        '-f', 'framehash', '-hash', 'sha256', '-',
-      ],
-      { timeoutMs: FRAME_HASH_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
-    );
-    if (result.exitCode !== 0) throw probeFailed(file);
-    const hashes = parseFramehash(result.stdout).map((row) => row.hash);
-    if (hashes.length !== sorted.length) throw probeFailed(file);
-    const byIndex = new Map(sorted.map((index, position) => [index, hashes[position]!]));
-    return indexes.map((index) => byIndex.get(index)!);
-  }
-
   public async frameHashesByPts(
     file: string,
-    timing: MatteVideoTiming,
     pts: readonly number[],
     signal?: AbortSignal,
   ): Promise<readonly (string | undefined)[]> {
-    const ffmpeg = this.requireFfmpeg();
-    const [numerator, denominator] = timing.timeBase;
-    const hashes: (string | undefined)[] = [];
-    for (const target of pts) {
-      if (!Number.isSafeInteger(target)) throw new RangeError('pts must be integers');
-      // Seek to half a tick before the frame: the first frame at or after that time is it.
-      const seconds = ((target - 0.5) * numerator) / denominator;
-      const result = await this.run(
-        ffmpeg,
-        [
-          '-v', 'error', '-nostdin',
-          '-copyts',
-          '-ss', seconds.toFixed(9),
-          '-i', file,
-          '-map', '0:v:0',
-          '-frames:v', '1',
-          '-fps_mode', 'passthrough',
-          '-enc_time_base', `${numerator}/${denominator}`,
-          '-f', 'framehash', '-hash', 'sha256', '-',
-        ],
-        { timeoutMs: FRAME_HASH_TIMEOUT_MS, ...(signal === undefined ? {} : { signal }) },
+    if (pts.some((value) => !Number.isSafeInteger(value))) throw new RangeError('pts must be integers');
+    const out: (string | undefined)[] = [];
+    for (let start = 0; start < pts.length; start += MAX_FRAMES_PER_SIDECAR_CALL) {
+      const body = await this.post(
+        '/mattes/frame-hashes',
+        { input_path: file, pts: pts.slice(start, start + MAX_FRAMES_PER_SIDECAR_CALL), pixel_format: 'native' },
+        signal,
       );
-      if (result.exitCode !== 0) {
-        hashes.push(undefined);
-        continue;
+      const hashes = (body as { hashes?: unknown }).hashes;
+      if (!Array.isArray(hashes) || hashes.length !== Math.min(MAX_FRAMES_PER_SIDECAR_CALL, pts.length - start)) {
+        throw new MatteInspectorError('probe_failed', 'The engine returned a malformed frame hash list.');
       }
-      const row = parseFramehash(result.stdout)[0];
-      hashes.push(row !== undefined && row.pts === target ? row.hash : undefined);
+      for (const hash of hashes) out.push(typeof hash === 'string' && /^[0-9a-f]{64}$/u.test(hash) ? hash : undefined);
     }
-    return hashes;
+    return out;
   }
 
-  private requireFfmpeg(): string {
-    if (this.options.ffmpeg === undefined) {
-      throw new MatteInspectorError(
-        'tool_unavailable',
-        'This build has no ffmpeg to check decoded frames with.',
-      );
+  public async compareLockedFrames(
+    matteFile: string,
+    expected: readonly { readonly index: number; readonly sha256: string }[],
+    previous: { readonly file: string; readonly carried: readonly { readonly index: number; readonly previousIndex: number }[] } | undefined,
+    signal?: AbortSignal,
+  ): Promise<LockedFrameVerdicts> {
+    const carried = previous?.carried ?? [];
+    if (expected.length > MAX_LOCK_CHECKS_PER_CALL || carried.length > MAX_LOCK_CHECKS_PER_CALL) {
+      throw new RangeError('at most 1024 locked-frame checks per call');
     }
-    return this.options.ffmpeg;
+    const body = await this.post(
+      '/mattes/locked-frames',
+      {
+        matte_path: matteFile,
+        expected: expected.map((item) => ({ index: item.index, sha256: item.sha256 })),
+        ...(previous === undefined
+          ? {}
+          : {
+              previous_matte_path: previous.file,
+              carried: carried.map((item) => ({ index: item.index, previous_index: item.previousIndex })),
+            }),
+      },
+      signal,
+    );
+    const verdicts = body as { expected?: unknown; carried?: unknown };
+    const booleans = (value: unknown, length: number): boolean[] => {
+      if (!Array.isArray(value) || value.length !== length || !value.every((item) => typeof item === 'boolean')) {
+        throw new MatteInspectorError('probe_failed', 'The engine returned a malformed locked-frame verdict.');
+      }
+      return value as boolean[];
+    };
+    return { expected: booleans(verdicts.expected, expected.length), carried: booleans(verdicts.carried, carried.length) };
+  }
+
+  /** POST JSON to the sidecar. Down, refused or malformed → a typed error; callers fail closed. */
+  private async post(route: string, payload: unknown, signal: AbortSignal | undefined): Promise<unknown> {
+    if (signal?.aborted === true) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
+    const timeout = AbortSignal.timeout(SIDECAR_TIMEOUT_MS);
+    const combined = signal === undefined ? timeout : AbortSignal.any([signal, timeout]);
+    let response: Response;
+    try {
+      response = await this.options.fetch(new URL(route, this.options.sidecarBaseUrl), {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: combined,
+      });
+    } catch {
+      // The caller's signal may have aborted during the await.
+      if (isAborted(signal)) throw new MatteInspectorError('cancelled', 'Media check cancelled.');
+      throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine is not running, so frames cannot be checked.');
+    }
+    if (response.status === 503 || response.status === 502) {
+      throw new MatteInspectorError('tool_unavailable', 'The FramePilot engine cannot check frames right now.');
+    }
+    if (!response.ok) {
+      // 400/404/422: outside the projects folder, missing or undecodable. Never "unchanged".
+      throw new MatteInspectorError('probe_failed', `The engine could not check frames (HTTP ${response.status}).`);
+    }
+    try {
+      return await response.json();
+    } catch {
+      throw new MatteInspectorError('probe_failed', 'The engine returned malformed JSON.');
+    }
   }
 }
 
 /**
- * Resolve the app's own ffprobe/ffmpeg: the existing `FRAMEPILOT_FFPROBE`/`FRAMEPILOT_FFMPEG`
- * overrides, then the binaries staged beside the bundled engine, then PATH names.
+ * Resolve the app's own ffprobe: the existing `FRAMEPILOT_FFPROBE` override, then the binary
+ * staged beside the bundled engine, then the PATH name.
  */
-export function resolveMatteMediaTools(context: {
+export function resolveMatteFfprobe(context: {
   readonly env: Readonly<Record<string, string | undefined>>;
   readonly isPackaged: boolean;
   readonly resourcesPath: string;
   readonly platform: NodeJS.Platform;
   readonly fileExists: (file: string) => boolean;
-}): { readonly ffprobe: string; readonly ffmpeg?: string } {
+}): string {
   const suffix = context.platform === 'win32' ? '.exe' : '';
-  const staged = (name: string): string | undefined => {
-    if (!context.isPackaged) return undefined;
-    const candidate = path.join(context.resourcesPath, 'engine', `${name}${suffix}`);
-    return context.fileExists(candidate) ? candidate : undefined;
-  };
-  const ffprobe =
-    nonEmpty(context.env.FRAMEPILOT_FFPROBE) ?? staged('ffprobe') ?? `ffprobe${suffix}`;
-  const ffmpeg = nonEmpty(context.env.FRAMEPILOT_FFMPEG) ?? staged('ffmpeg') ??
-    (context.isPackaged ? undefined : `ffmpeg${suffix}`);
-  return { ffprobe, ...(ffmpeg === undefined ? {} : { ffmpeg }) };
-}
-
-function nonEmpty(value: string | undefined): string | undefined {
-  const trimmed = value?.trim();
-  return trimmed === undefined || trimmed === '' ? undefined : trimmed;
+  const override = context.env.FRAMEPILOT_FFPROBE?.trim();
+  if (override !== undefined && override !== '') return override;
+  if (context.isPackaged) {
+    const staged = path.join(context.resourcesPath, 'engine', `ffprobe${suffix}`);
+    if (context.fileExists(staged)) return staged;
+  }
+  return `ffprobe${suffix}`;
 }
 
 export function parseProbe(stdout: string, file: string): MatteVideoProbe {
@@ -287,17 +289,8 @@ export function parseTiming(headerStdout: string, packetStdout: string, file: st
   return { timeBase: [numerator, denominator], pts };
 }
 
-export function parseFramehash(stdout: string): { readonly pts: number; readonly hash: string }[] {
-  const rows: { pts: number; hash: string }[] = [];
-  for (const line of stdout.split(/\r?\n/u)) {
-    if (line.startsWith('#') || line.trim() === '') continue;
-    const fields = line.split(',').map((field) => field.trim());
-    const hash = fields[5];
-    const pts = Number(fields[2]);
-    if (hash === undefined || !/^[0-9a-f]{64}$/u.test(hash) || !Number.isSafeInteger(pts)) continue;
-    rows.push({ pts, hash });
-  }
-  return rows;
+function isAborted(signal: AbortSignal | undefined): boolean {
+  return signal?.aborted === true;
 }
 
 function probeFailed(file: string): MatteInspectorError {

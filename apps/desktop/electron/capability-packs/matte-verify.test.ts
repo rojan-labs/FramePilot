@@ -186,8 +186,8 @@ describe('host matte verification', () => {
         ...input,
         inspector: {
           ...inspector,
-          frameHashesByIndex: async () => {
-            throw new MatteInspectorError('tool_unavailable', 'no ffmpeg');
+          compareLockedFrames: async () => {
+            throw new MatteInspectorError('tool_unavailable', 'engine down');
           },
         },
       }),

@@ -678,7 +678,7 @@ export class CapabilityPackMatteService {
   private async sampleSource(media: ResolvedMedia, signal: AbortSignal): Promise<MatteArtifactRecord['sourceSamples']> {
     const pts = sampleSourcePts(media.timing, media.firstFrame, media.frameCount, MATTE_SOURCE_SAMPLES);
     try {
-      const hashes = await this.options.inspector.frameHashesByPts(media.asset.path, media.timing, pts, signal);
+      const hashes = await this.options.inspector.frameHashesByPts(media.asset.path, pts, signal);
       return pts.flatMap((value, index) => (hashes[index] === undefined ? [] : [{ pts: value, sha256: hashes[index]! }]));
     } catch (error) {
       // No ffmpeg (or a decode failure) leaves the re-check unable to prove "unchanged", which

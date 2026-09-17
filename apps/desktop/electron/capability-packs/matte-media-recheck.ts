@@ -41,7 +41,6 @@ export async function recheckMatteSource(
     if (record.sourceSamples.length === 0) return 'changed';
     const hashes = await inspector.frameHashesByPts(
       mediaPath,
-      timing,
       record.sourceSamples.map((sample) => sample.pts),
       signal,
     );
