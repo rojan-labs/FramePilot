@@ -80,7 +80,8 @@ describe('FFV1 in Matroska (byte-exact vs ffmpeg)', () => {
     const bytes = new Uint8Array(readFileSync(path.join(FIXTURES, fixture.file)));
     const index = await MatroskaVideoIndex.open(memoryReader(bytes), fixture.frames);
     const packet = (await index.readFrame(1)).slice();
-    packet[Math.floor(packet.length / 2)] ^= 0x55;
+    const middle = Math.floor(packet.length / 2);
+    packet[middle] = packet[middle]! ^ 0x55;
     const decoder = new Ffv1Decoder(fixture.width, fixture.height, index.track.codecPrivate!);
     expect(() => decoder.decode(packet)).toThrow(Ffv1DecodeError);
   });

@@ -4,7 +4,8 @@
  * Executes the integer raster work `layer-raster.ts` derives from `framePlanAt`, back to front,
  * with the export's own arithmetic at every step:
  *
- *   decode (swscale, scaled or unscaled) → crop → mask alpha → resize (Pillow LANCZOS)
+ *   decode (swscale, scaled or unscaled) → crop → matte decontamination → effects (with
+ *   effect-target masks) → mask alpha → resize (Pillow LANCZOS)
  *   → paste at an integer position (Pillow `alpha_composite`)
  *
  * The finished frame is drawn into this compositor's own WebGL canvas; the engine copies it to
@@ -27,7 +28,12 @@ import {
 } from '../transitions/transition-engine.js';
 import { pilCoefficients } from './raster/pil.js';
 import type { CubeLut } from './raster/cube-lut.js';
-import { MaskStackRasterCache, type MaskStackRaster } from '../masks/mask-stack.js';
+import {
+  MaskStackRasterCache,
+  type MaskStackRaster,
+  type MatteStackInputs,
+} from '../masks/mask-stack.js';
+import { decontaminate } from '../masks/matte-edges.js';
 import {
   MASK_VIEW_MODE,
   OVERLAY_TINT_STRENGTH,
@@ -97,6 +103,8 @@ export type CompositeLayer =
       readonly source: LayerSource;
       /** MK3.3: a mask debug view for this layer (the selected clip); absent = the program picture. */
       readonly maskView?: MaskDebugView;
+      /** BR5.1: decoded matte frames for the clip's `matte` layers at this instant. */
+      readonly mattes?: MatteStackInputs;
     }
   | {
       /** A pre-rasterised RGBA layer (text, captions) placed at an integer position. */
@@ -199,7 +207,13 @@ export class LayerCompositor {
       for (const layer of shown.layers) {
         const placed =
           layer.kind === 'picture'
-            ? this.rasterPicture(layer.step, layer.source, decodedMemo, layer.maskView ?? 'off')
+            ? this.rasterPicture(
+                layer.step,
+                layer.source,
+                decodedMemo,
+                layer.maskView ?? 'off',
+                layer.mattes ?? null,
+              )
             : {
                 target: r.imageTarget(layer.image, layer.width, layer.height),
                 x: layer.x,
@@ -266,6 +280,7 @@ export class LayerCompositor {
     source: LayerSource,
     decodedMemo: Map<string, RenderTarget>,
     view: MaskDebugView = 'off',
+    mattes: MatteStackInputs | null = null,
   ): { target: RenderTarget; x: number; y: number } | null {
     // PX2.4: two layers showing the same frame at the same decode size share one decode.
     const decodeKey =
@@ -283,6 +298,7 @@ export class LayerCompositor {
       if (rect.width <= 0 || rect.height <= 0) return null;
       current = this.copy(current, rect.x, rect.y, rect.width, rect.height, null);
     }
+    if (mattes !== null && step.mask !== null) current = this.decontaminate(current, step, mattes);
     step.effects.forEach((effect, index) => {
       const input = current;
       if (effect.type === 'color_grade') current = this.grade(input, effect.params);
@@ -298,6 +314,7 @@ export class LayerCompositor {
         input.width,
         input.height,
         step.mask.clipTime,
+        mattes,
       );
       if (raster !== null) current = this.mixByMask(input, current, raster);
     });
@@ -305,15 +322,15 @@ export class LayerCompositor {
     const viewMode = MASK_VIEW_MODE[view];
     if (viewMode !== 0 && step.mask !== null) {
       // Overlay and mask-only views draw the stack instead of cutting the picture with it.
-      const viewed = this.viewedStack(step, current.width, current.height);
+      const viewed = this.viewedStack(step, current.width, current.height, mattes);
       if (viewed !== null) {
         current = this.maskView(current, viewed.raster, viewMode, viewed.color);
         if (step.opacity !== null || step.wipe !== null) {
-          current = this.alpha(current, { ...step, mask: null });
+          current = this.alpha(current, { ...step, mask: null }, null);
         }
       }
     } else if (step.opacity !== null || step.wipe !== null || hasAlphaMask(step)) {
-      current = this.alpha(current, step);
+      current = this.alpha(current, step, mattes);
     }
     for (const half of step.transitions) {
       current = this.transition(current, half);
@@ -517,7 +534,48 @@ export class LayerCompositor {
     return current;
   }
 
-  private alpha(source: RenderTarget, step: PictureRasterStep): RenderTarget {
+  /**
+   * `_apply_matte_decontamination`: each decontaminating matte (bottom of the stack first)
+   * replaces the edge band's colour with its foreground estimate, before any effect or alpha.
+   * Exact float64 arithmetic, so it runs on the CPU over a read-back of the cropped picture.
+   */
+  private decontaminate(
+    source: RenderTarget,
+    step: PictureRasterStep,
+    mattes: MatteStackInputs,
+  ): RenderTarget {
+    const stack = step.mask!.stack;
+    const cleaning = [...stack.mattes]
+      .reverse()
+      .filter((mask) => mask.decontaminate)
+      .map((mask) => mattes.frames.get(mask.id) ?? null)
+      .filter((frame) => frame !== null && frame.foreground !== null);
+    if (cleaning.length === 0) return source;
+    const gl = this.gl;
+    const pixels = new Uint8Array(source.width * source.height * 4);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, source.framebuffer);
+    gl.readPixels(0, 0, source.width, source.height, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
+    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+    for (const frame of cleaning) {
+      decontaminate(
+        pixels,
+        source.width,
+        source.height,
+        4,
+        frame!,
+        stack.clip.crop,
+        mattes.decodedWidth,
+        mattes.decodedHeight,
+      );
+    }
+    return this.resources.bytesTarget(pixels, source.width, source.height);
+  }
+
+  private alpha(
+    source: RenderTarget,
+    step: PictureRasterStep,
+    mattes: MatteStackInputs | null,
+  ): RenderTarget {
     const r = this.resources;
     const out = r.target(source.width, source.height, 'rgba8');
     const program = r.program('alpha', ALPHA_FRAGMENT);
@@ -540,6 +598,7 @@ export class LayerCompositor {
             source.width,
             source.height,
             step.mask.clipTime,
+            mattes,
           );
     gl.uniform1i(program.location('u_hasMask'), mask === null ? 0 : 1);
     gl.uniform1f(program.location('u_maskScale'), mask?.scale ?? 1);
@@ -558,12 +617,20 @@ export class LayerCompositor {
     step: PictureRasterStep,
     width: number,
     height: number,
+    mattes: MatteStackInputs | null,
   ): { raster: MaskStackRaster; color: string | undefined } | null {
     const mask = step.mask;
     if (mask === null) return null;
     const { stack, clipTime } = mask;
     if (stack.alpha.length > 0) {
-      const raster = this.maskRasters.raster(stack, { kind: 'alpha' }, width, height, clipTime);
+      const raster = this.maskRasters.raster(
+        stack,
+        { kind: 'alpha' },
+        width,
+        height,
+        clipTime,
+        mattes,
+      );
       return raster === null ? null : { raster, color: stack.alpha[0]?.color };
     }
     const [effectId, masks] = [...stack.byEffect][0] ?? [];
@@ -574,6 +641,7 @@ export class LayerCompositor {
       width,
       height,
       clipTime,
+      mattes,
     );
     return raster === null ? null : { raster, color: masks?.[0]?.color };
   }

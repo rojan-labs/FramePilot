@@ -15,6 +15,11 @@
  * (`decoded-picture.ts`) and live in a byte-bounded cache shared by every layer (PX2.4: a
  * text-behind-subject stack decodes its frame once).
  *
+ * Mattes (BR5.1): a clip's `matte` layers are read at the SAME source frame its picture decodes
+ * (`masks/matte-source.ts`), decoded in the same worker and held in the same byte-bounded cache.
+ * A frame not decoded yet holds the previous presentation like a missing picture; a frame the
+ * artifact does not hold (still processing) leaves that layer out and the monitor says so.
+ *
  * Clock: footage audio is the master (`AudioMasterClock`), exactly as before. When a frame is
  * not decoded in time the previous picture stays up and the tick is counted as missing; a
  * wrong picture is never shown.
@@ -41,7 +46,12 @@ import { parseCubeLut, type CubeLut } from './raster/cube-lut.js';
 import {
   configureLegacyMaskArithmeticFromHost,
   type MaskPreviewRefusal,
+  type MatteMask,
+  type MatteStackInputs,
 } from '../masks/mask-stack.js';
+import { MatteSource } from '../masks/matte-source.js';
+import { resolveMatteArtifactLocator } from '../masks/matte-location.js';
+import type { MatteFrameData } from '../masks/matte-edges.js';
 import type { MaskDebugView } from '../masks/mask-view.js';
 import {
   EngineTextRasters,
@@ -107,10 +117,24 @@ interface VideoSource {
   readonly audioBuffer: AudioBuffer | undefined;
 }
 
-interface CachedPicture {
-  readonly picture: DecodedPicture;
-  readonly timestampUs: number;
-  lastUsed: number;
+type CacheEntry =
+  | {
+      readonly kind: 'picture';
+      readonly picture: DecodedPicture;
+      readonly timestampUs: number;
+      lastUsed: number;
+    }
+  | { readonly kind: 'matte'; readonly frame: MatteFrameData; lastUsed: number };
+
+const entryBytes = (entry: CacheEntry): number =>
+  entry.kind === 'picture'
+    ? entry.picture.byteLength
+    : entry.frame.alpha.byteLength + (entry.frame.foreground?.byteLength ?? 0);
+
+/** A matte layer some presented picture needs, at that picture's source frame. */
+interface MatteNeed {
+  readonly mask: MatteMask;
+  readonly sourceFrame: number;
 }
 
 /** A source frame some layer needs. */
@@ -163,7 +187,10 @@ export class LayerPreviewEngine {
   private readonly images = new Map<string, ImageBitmap>();
   /** `.cube` tables by the `lut` effect's stored path. */
   private readonly luts = new Map<string, CubeLut>();
-  private readonly cache = new Map<string, CachedPicture>();
+  private readonly cache = new Map<string, CacheEntry>();
+  /** BR5.1: matte artifact frames, decoded in the same worker into the same cache. */
+  private readonly mattes: MatteSource;
+  private lastMatteProcessing = false;
   private cacheBytes = 0;
   private useCounter = 0;
   private readonly decoding = new Set<string>();
@@ -213,6 +240,21 @@ export class LayerPreviewEngine {
     this.engineTexts = new EngineTextRasters(resolveTextRasterSource(), (approximate) =>
       this.callbacks.onTextApproximateChange?.(approximate),
     );
+    this.mattes = new MatteSource(this.client, resolveMatteArtifactLocator, {
+      get: (key) => {
+        const entry = this.cache.get(key);
+        if (entry?.kind !== 'matte') return undefined;
+        entry.lastUsed = ++this.useCounter;
+        return entry.frame;
+      },
+      put: (key, frame) => {
+        const previous = this.cache.get(key);
+        if (previous !== undefined) this.releaseEntry(key, previous);
+        const entry: CacheEntry = { kind: 'matte', frame, lastUsed: ++this.useCounter };
+        this.cache.set(key, entry);
+        this.cacheBytes += entryBytes(entry);
+      },
+    });
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
     // Legacy (v21) masks follow the host Pillow's float arithmetic (`masks/legacy-mask.ts`).
@@ -336,6 +378,17 @@ export class LayerPreviewEngine {
       this.dropCachedAsset(assetId);
       void this.client.unloadSource(assetId).catch(() => undefined);
     }
+    this.mattes.retain(
+      new Set(
+        project.timeline.tracks.flatMap((track) =>
+          track.clips.flatMap((clip) =>
+            (clip.masks ?? []).flatMap((mask) =>
+              mask.kind === 'matte' ? [mask.artifact.key] : [],
+            ),
+          ),
+        ),
+      ),
+    );
     for (const [url, bitmap] of [...this.images]) {
       if (wantedImages.has(url)) continue;
       bitmap.close();
@@ -500,6 +553,22 @@ export class LayerPreviewEngine {
     return Math.min(Math.max(0, source.frame), Math.max(0, info.frameCount - 1));
   }
 
+  /** The matte layers the plan's clips draw, each at its picture's decoded source frame. */
+  private matteNeedsOf(plan: FramePlan): MatteNeed[] {
+    const needs: MatteNeed[] = [];
+    for (const layer of plan.layers) {
+      if (layer.kind !== 'picture' || layer.role !== 'clip' || layer.clipId === null) continue;
+      if (!layer.mask?.layers.some((planned) => planned.kind === 'matte')) continue;
+      const frame = this.frameIndexFor(layer);
+      const clip = this.clipsById.get(layer.clipId);
+      if (frame === null || clip === undefined) continue;
+      for (const mask of clip.masks ?? []) {
+        if (mask.enabled && mask.kind === 'matte') needs.push({ mask, sourceFrame: frame });
+      }
+    }
+    return needs;
+  }
+
   private needsOf(plan: FramePlan): FrameNeed[] {
     const needs: FrameNeed[] = [];
     for (const layer of plan.layers) {
@@ -519,10 +588,12 @@ export class LayerPreviewEngine {
     }
   }
 
-  private releaseEntry(key: string, entry: CachedPicture): void {
+  private releaseEntry(key: string, entry: CacheEntry): void {
     this.cache.delete(key);
-    this.cacheBytes -= entry.picture.byteLength;
-    if (entry.picture.kind === 'frame') this.client.closeFrame(entry.picture.frame);
+    this.cacheBytes -= entryBytes(entry);
+    if (entry.kind === 'picture' && entry.picture.kind === 'frame') {
+      this.client.closeFrame(entry.picture.frame);
+    }
   }
 
   private evict(pinned: ReadonlySet<string>): void {
@@ -579,6 +650,7 @@ export class LayerPreviewEngine {
           ? rotateI420(message.picture, rotation)
           : message.picture;
       this.cache.set(key, {
+        kind: 'picture',
         picture,
         timestampUs: message.timestampUs,
         lastUsed: ++this.useCounter,
@@ -720,12 +792,13 @@ export class LayerPreviewEngine {
    */
   private compose(
     plan: FramePlan,
-  ): { layers: CompositeLayer[]; presented: PresentedLayer[] } | null {
+  ): { layers: CompositeLayer[]; presented: PresentedLayer[]; processing: boolean } | null {
     const project = this.project;
     if (!project) return null;
     const size = { width: plan.width, height: plan.height };
     const layers: CompositeLayer[] = [];
     const presented: PresentedLayer[] = [];
+    let processing = false;
     for (const layer of plan.layers) {
       if (layer.kind === 'caption' || layer.kind === 'text') {
         const raster =
@@ -776,17 +849,44 @@ export class LayerPreviewEngine {
       if (frame === null) continue;
       const key = pictureKey(asset.id, frame);
       const cached = this.cache.get(key);
-      if (!cached) return null;
+      if (cached?.kind !== 'picture') return null;
       cached.lastUsed = ++this.useCounter;
-      const step = pictureRasterStep(layer, clip, asset, size, {
+      let step = pictureRasterStep(layer, clip, asset, size, {
         width: cached.picture.width,
         height: cached.picture.height,
       });
       if (!step) continue;
+      let mattes: MatteStackInputs | null = null;
+      if (step.mask !== null && step.mask.stack.mattes.length > 0) {
+        const frames = new Map<string, MatteFrameData | null>();
+        for (const mask of step.mask.stack.mattes) {
+          const found = this.mattes.lookup(mask, frame, cached.timestampUs / 1_000_000);
+          if (found.state === 'pending') return null;
+          if (found.state === 'refused') {
+            // The export refuses this clip; the monitor draws it unmasked and says why.
+            step = {
+              ...step,
+              mask: null,
+              maskRefusal: { clipId: clip.id, maskId: mask.id, task: null, message: found.message },
+            };
+            break;
+          }
+          if (found.state === 'unprocessed') processing = true;
+          frames.set(mask.id, found.state === 'ready' ? found.frame : null);
+        }
+        if (step.mask !== null) {
+          const decoded =
+            step.decode.kind === 'scaled'
+              ? step.decode
+              : { width: cached.picture.width, height: cached.picture.height };
+          mattes = { decodedWidth: decoded.width, decodedHeight: decoded.height, frames };
+        }
+      }
       layers.push({
         kind: 'picture',
         step: { ...step, frame },
         source: { kind: 'decoded', key, picture: cached.picture },
+        ...(mattes !== null ? { mattes } : {}),
         ...(layer.role === 'clip' && layer.clipId === this.maskViewClipId && step.mask !== null
           ? { maskView: this.maskView }
           : {}),
@@ -798,7 +898,15 @@ export class LayerPreviewEngine {
         timestampUs: cached.timestampUs,
       });
     }
-    return { layers, presented };
+    return { layers, presented, processing };
+  }
+
+  /** Tell the monitor whether a presented matte is still being processed (BR5.1). */
+  private reportMatteProcessing(processing: boolean): void {
+    if (processing === this.lastMatteProcessing) return;
+    this.lastMatteProcessing = processing;
+    if (processing) log.debug('presenting a frame whose matte is still processing');
+    this.callbacks.onMatteProcessingChange?.(processing);
   }
 
   /** Composite and show `plan`. Returns false when a needed frame was missing. */
@@ -809,6 +917,7 @@ export class LayerPreviewEngine {
     const composed = this.compose(plan);
     if (!composed) return false;
     this.reportMaskRefusal(composed.layers);
+    this.reportMatteProcessing(composed.processing);
     this.lastPictureKeys = composed.layers.flatMap((layer) =>
       layer.kind === 'picture' && layer.source.kind === 'decoded' ? [layer.source.key] : [],
     );
@@ -818,6 +927,11 @@ export class LayerPreviewEngine {
       plan.frameEffects.length > 0 ? timeSec : null,
       this.maskView,
       this.maskViewClipId,
+      composed.layers.map((l) =>
+        l.kind === 'picture' && l.mattes
+          ? [...l.mattes.frames].map(([id, f]) => `${id}=${f?.id ?? '-'}`)
+          : null,
+      ),
     ]);
     if (!force && signature === this.lastPresentedSignature) {
       this.presented = { projectTimeSec: timeSec, layers: composed.presented };
@@ -899,10 +1013,16 @@ export class LayerPreviewEngine {
         await Promise.all([
           this.ensureFrames(this.needsOf(current)),
           this.engineTexts.ensure(this.textRequestsOf(current)),
+          this.mattes.ensure(this.matteNeedsOf(current)),
         ]);
         if (this.disposed || this.generation !== myGeneration) return;
         this.present(current, clamped, true, true);
-        this.evict(new Set(this.needsOf(current).map((n) => pictureKey(n.assetId, n.frame))));
+        this.evict(
+          new Set([
+            ...this.needsOf(current).map((n) => pictureKey(n.assetId, n.frame)),
+            ...this.matteNeedsOf(current).flatMap((n) => this.matteKeysOf(n)),
+          ]),
+        );
       }
     } catch (err) {
       if (this.disposed || this.generation !== myGeneration) return;
@@ -1031,6 +1151,9 @@ export class LayerPreviewEngine {
       if (!plan) break;
       if (k === 0 || k === LOOKAHEAD_FRAMES)
         void this.engineTexts.ensure(this.textRequestsOf(plan));
+      const matteNeeds = this.matteNeedsOf(plan);
+      for (const need of matteNeeds) for (const key of this.matteKeysOf(need)) pinned.add(key);
+      if (matteNeeds.length > 0) void this.mattes.ensure(matteNeeds);
       for (const need of this.needsOf(plan)) {
         const key = pictureKey(need.assetId, need.frame);
         pinned.add(key);
@@ -1059,6 +1182,12 @@ export class LayerPreviewEngine {
         })
         .finally(() => this.decoding.delete(assetId));
     }
+  }
+
+  /** The cache key a matte need occupies, once its artifact's index is known. */
+  private matteKeysOf(need: MatteNeed): string[] {
+    const key = this.mattes.cacheKeyFor(need.mask, need.sourceFrame);
+    return key === null ? [] : [key];
   }
 
   pause(): void {
@@ -1102,6 +1231,7 @@ export class LayerPreviewEngine {
     return this.lastPictureKeys.map((key) => {
       const entry = this.cache.get(key);
       if (!entry) return { key, cached: false };
+      if (entry.kind !== 'picture') return { key, kind: 'matte' };
       const picture = entry.picture;
       if (picture.kind !== 'i420') return { key, kind: picture.kind };
       return {

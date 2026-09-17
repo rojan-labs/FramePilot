@@ -203,6 +203,16 @@ export class GlResources {
     return target;
   }
 
+  /** An `RGBA8` render target holding straight RGBA bytes, rows top first. */
+  bytesTarget(data: Uint8Array, width: number, height: number): RenderTarget {
+    const gl = this.gl;
+    const target = this.target(width, height, 'rgba8');
+    this.useScratchUnit();
+    gl.bindTexture(gl.TEXTURE_2D, target.texture);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, data);
+    return target;
+  }
+
   /**
    * A persistent `R32I` data texture (`width × height`), built once per key: filter tables.
    */

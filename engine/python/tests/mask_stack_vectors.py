@@ -507,11 +507,260 @@ def _clip_document() -> dict[str, Any]:
     }
 
 
+# --- Matte layers (BR5.1) ------------------------------------------------------------------
+
+#: The synthetic matte artifact every matte vector reads: DISPLAY pixels, like a real artifact.
+MATTE_SIZE = (48, 27)
+_MATTE_ARTIFACT = {
+    "key": "d" * 64,
+    "files": [
+        {"name": "matte.mkv", "sha256": "e" * 64},
+        {"name": "foreground.mkv", "sha256": "f" * 64},
+        {"name": "frames.json", "sha256": "0" * 64},
+    ],
+    "width": MATTE_SIZE[0],
+    "height": MATTE_SIZE[1],
+    "coverage": {"sourceStart": 0.0, "sourceEnd": 10.0},
+    "packId": "framepilot.smart-mask",
+    "packVersion": "1.0.0",
+    "modelDigests": [],
+}
+
+
+def matte_frame_values(maximum: int) -> np.ndarray:
+    """A soft disc, a hard one-pixel line and a ramp, stored at ``maximum`` (255 or 65535)."""
+    width, height = MATTE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    disc = np.clip(9.5 - np.hypot(x - 17.0, y - 13.0), 0.0, 1.0)
+    ramp = np.clip((x - 30.0) / 12.0, 0.0, 1.0) * (y > 6)
+    alpha = np.maximum(disc, ramp)
+    alpha[:, 44] = 1.0
+    alpha[3, :] = 0.5
+    dtype = np.uint16 if maximum > 255 else np.uint8
+    return np.rint(alpha * maximum).astype(dtype)
+
+
+def matte_foreground() -> np.ndarray:
+    width, height = MATTE_SIZE
+    y, x = np.mgrid[0:height, 0:width].astype(np.int64)
+    return np.stack([(x * 11 + 40) & 255, (y * 9 + 7) & 255, (x * y) & 255], axis=-1).astype(
+        np.uint8
+    )
+
+
+def matte_picture(width: int, height: int) -> np.ndarray:
+    """The decoded, cropped picture a decontamination vector cleans (both sides make it)."""
+    y, x = np.mgrid[0:height, 0:width].astype(np.int64)
+    return np.stack(
+        [(x * 13 + y * 7) & 255, (x * 5 + y * 3 + 40) & 255, (x ^ y) & 255], axis=-1
+    ).astype(np.uint8)
+
+
+def _matte(**fields: Any) -> dict[str, Any]:
+    return _mask(kind="matte", artifact=_MATTE_ARTIFACT, **fields)
+
+
+def _matte_clip(clip_id: str, masks: list[dict[str, Any]], **extra: Any) -> dict[str, Any]:
+    return {**_clip(clip_id, masks, **extra), "assetId": "land"}
+
+
+_MATTE_MEDIA = {"width": MATTE_SIZE[0], "height": MATTE_SIZE[1]}
+_MATTE_SIZES = [[48, 27], [32, 18], [96, 54], [40, 30]]
+
+MATTE_CASES: list[dict[str, Any]] = [
+    {
+        "id": "matte/sharp-decontaminate",
+        "clip": _matte_clip("ms", [_matte(id="m", edgeMode="sharp")]),
+    },
+    {
+        "id": "matte/smooth-grow-fraction",
+        "clip": _matte_clip("mg", [_matte(id="m", edgeShiftPx=1.5, decontaminate=False)]),
+    },
+    {
+        "id": "matte/shrink-invert-opacity",
+        "clip": _matte_clip(
+            "mi", [_matte(id="m", edgeShiftPx=-2, invert=True, opacity=0.6, decontaminate=False)]
+        ),
+    },
+    {
+        "id": "matte/feather-expansion-gaussian",
+        "clip": _matte_clip(
+            "mf",
+            [
+                _matte(
+                    id="m",
+                    expansionPx=2,
+                    featherOuterPx=3,
+                    featherInnerPx=1.5,
+                    falloff="gaussian",
+                )
+            ],
+        ),
+    },
+    {
+        "id": "matte/feather-smooth-contract",
+        "clip": _matte_clip(
+            "mc", [_matte(id="m", expansionPx=-1.25, featherOuterPx=2, falloff="smooth")]
+        ),
+    },
+    {
+        "id": "matte/finesse-clean-levels",
+        "clip": _matte_clip(
+            "ml",
+            [_matte(id="m", edgeMode="sharp", finesse={"cleanBlack": 0.2, "cleanWhite": 0.7})],
+        ),
+    },
+    {
+        "id": "matte/finesse-threshold",
+        "clip": _matte_clip("mt", [_matte(id="m", finesse={"cleanBlack": 0.5, "cleanWhite": 0.5})]),
+    },
+    {
+        "id": "matte/cropped-minus-rectangle",
+        "clip": _matte_clip(
+            "mr",
+            [
+                _matte(id="m", edgeShiftPx=0.5),
+                _mask(
+                    id="stand", kind="rectangle", mode="subtract", cx=30, cy=20, width=8, height=12
+                ),
+            ],
+            crop={"x": 0.1, "y": 0.2, "width": 0.7, "height": 0.75},
+        ),
+    },
+    {
+        "id": "matte/effect-target-and-alpha",
+        "clip": _matte_clip(
+            "me",
+            [
+                _matte(id="cut", decontaminate=False),
+                _matte(
+                    id="bg",
+                    invert=True,
+                    target={"kind": "effect", "effectId": "grade1"},
+                ),
+            ],
+            effects=[{"id": "grade1", "type": "color_grade", "params": {"exposure": -1}}],
+        ),
+        "effects": ["grade1"],
+    },
+    {
+        "id": "matte/gray16",
+        "clip": _matte_clip("m16", [_matte(id="m", edgeShiftPx=-0.75, featherOuterPx=1)]),
+        "maximum": 65535,
+    },
+    {
+        "id": "matte/keyframed-shift-ramped",
+        "clip": _matte_clip(
+            "mk",
+            [
+                _matte(
+                    id="m",
+                    keyframes=[
+                        {
+                            "id": "s0",
+                            "sourceTime": 2.0,
+                            "property": "edgeShiftPx",
+                            "value": -1,
+                            "easing": "linear",
+                        },
+                        {
+                            "id": "s1",
+                            "sourceTime": 4.0,
+                            "property": "edgeShiftPx",
+                            "value": 2.5,
+                            "easing": "linear",
+                        },
+                    ],
+                )
+            ],
+            speedRamp=[
+                {"id": "r0", "sourceTime": 0.0, "rate": 1.0, "easing": "ease-in-out"},
+                {"id": "r1", "sourceTime": 2.0, "rate": 2.0},
+            ],
+        ),
+        "times": [0.0, 0.45, 1.1],
+    },
+]
+
+
+def _float_digest(values: np.ndarray) -> str:
+    return hashlib.sha256(np.ascontiguousarray(values, dtype="<f8").tobytes()).hexdigest()
+
+
+def _matte_document() -> dict[str, Any]:
+    from framepilot_engine.render.matte_edges import _crop_slices, decontaminate
+    from framepilot_engine.render.mattes import MatteFrame
+
+    cases = []
+    for case in MATTE_CASES:
+        maximum = int(case.get("maximum", 255))
+        values = matte_frame_values(maximum)
+        foreground = matte_foreground()
+        frame = MatteFrame(index=0, alpha=values, maximum=maximum, foreground=foreground)
+        clip = Clip.model_validate(case["clip"])
+        media = (float(_MATTE_MEDIA["width"]), float(_MATTE_MEDIA["height"]))
+        expected = []
+        for decoded_w, decoded_h in _MATTE_SIZES:
+            rows, cols = _crop_slices(clip, decoded_w, decoded_h)
+            width = len(range(*cols.indices(decoded_w)))
+            height = len(range(*rows.indices(decoded_h)))
+            mattes = {
+                str(mask.id): (lambda _t, frame=frame: frame)
+                for mask in clip.masks or []
+                if mask.kind == "matte"
+            }
+            stacks = clip_mask_stacks(clip, media, mattes, (decoded_w, decoded_h))
+            assert stacks is not None, case["id"]
+            for t in case.get("times", [0.0]):
+                picture = matte_picture(width, height)
+                for mask in reversed([m for m in stacks.matte_masks() if m.decontaminate]):
+                    picture = decontaminate(
+                        picture, values, maximum, foreground, clip, (decoded_w, decoded_h)
+                    )
+                entry: dict[str, Any] = {
+                    "decoded": [decoded_w, decoded_h],
+                    "width": width,
+                    "height": height,
+                    "time": t,
+                    "alpha": _digest(stacks.alpha_at(t, width, height)),
+                    "decontaminated": hashlib.sha256(picture.tobytes()).hexdigest(),
+                }
+                for effect_id in case.get("effects", []):
+                    entry[f"effect:{effect_id}"] = _digest(
+                        stacks.effect_alpha_at(effect_id, t, width, height)
+                    )
+                expected.append(entry)
+        cases.append(
+            {
+                **case,
+                "maximum": maximum,
+                "media": _MATTE_MEDIA,
+                "matte": base64.b64encode(
+                    values.astype(values.dtype.newbyteorder("<")).tobytes()
+                ).decode("ascii"),
+                "foreground": base64.b64encode(foreground.tobytes()).decode("ascii"),
+                "expected": expected,
+            }
+        )
+    return {
+        "area": "matte-clips",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py matte layers, "
+            "render/matte_edges.py decontaminate. Pictures: matte_picture(width, height)."
+        ),
+        "cases": cases,
+    }
+
+
 def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
 
-DOCUMENTS = {"legacy": _legacy_document, "stack-clips": _clip_document}
+DOCUMENTS = {
+    "legacy": _legacy_document,
+    "stack-clips": _clip_document,
+    "matte-clips": _matte_document,
+}
 
 
 def main() -> int:

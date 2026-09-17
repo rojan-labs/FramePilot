@@ -157,6 +157,8 @@ export interface PreviewEngineCallbacks {
    * drawing the clip unmasked.
    */
   onMaskRefusalChange?(refusal: MaskPreviewRefusal | null): void;
+  /** BR5.1: a presented clip's matte has frames still being processed (drawn without it). */
+  onMatteProcessingChange?(processing: boolean): void;
 }
 
 /** One span of the engine's input EDL, in PROJECT-timeline seconds.

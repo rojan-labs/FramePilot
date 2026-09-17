@@ -50,6 +50,8 @@ export class DecodeWorkerClient {
   private disposed = false;
   /** Desired worker-owned source registrations. Replayed after a worker-level failure. */
   private readonly sourceUrls = new Map<string, string>();
+  /** Matte artifact files (BR5.1), replayed the same way. */
+  private readonly matteUrls = new Map<string, { url: string; expectedFrames: number }>();
   private workerNeedsRehydrate = false;
   private rehydratePromise: Promise<void> | undefined;
 
@@ -75,7 +77,7 @@ export class DecodeWorkerClient {
       this.failPending(error);
     };
     this.worker = worker;
-    this.workerNeedsRehydrate = this.sourceUrls.size > 0;
+    this.workerNeedsRehydrate = this.sourceUrls.size > 0 || this.matteUrls.size > 0;
     return worker;
   }
 
@@ -93,6 +95,14 @@ export class DecodeWorkerClient {
             type: 'load',
             sourceId,
             url,
+          });
+        }
+        for (const [sourceId, { url, expectedFrames }] of [...this.matteUrls.entries()]) {
+          await this.sendToWorker<Extract<WorkerResponse, { type: 'matteLoaded' }>>(worker, {
+            type: 'loadMatte',
+            sourceId,
+            url,
+            expectedFrames,
           });
         }
         if (this.worker !== worker) {
@@ -222,10 +232,39 @@ export class DecodeWorkerClient {
     return response;
   }
 
+  /** Open a matte artifact file (FFV1 in Matroska) in the worker (BR5.1). */
+  async loadMatte(
+    sourceId: string,
+    url: string,
+    expectedFrames: number,
+  ): Promise<Extract<WorkerResponse, { type: 'matteLoaded' }>> {
+    const response = await this.send<Extract<WorkerResponse, { type: 'matteLoaded' }>>({
+      type: 'loadMatte',
+      sourceId,
+      url,
+      expectedFrames,
+    });
+    this.matteUrls.set(sourceId, { url, expectedFrames });
+    return response;
+  }
+
+  /** Decode one matte frame (file order); the planes are transferred to the caller. */
+  decodeMatte(
+    sourceId: string,
+    frame: number,
+  ): Promise<Extract<WorkerResponse, { type: 'matteFrame' }>> {
+    return this.send<Extract<WorkerResponse, { type: 'matteFrame' }>>({
+      type: 'decodeMatte',
+      sourceId,
+      frame,
+    });
+  }
+
   unloadSource(sourceId: string): Promise<void> {
     // Desired state changes before transport: if this request itself loses the worker, a later
     // replacement must not resurrect the source the caller already asked to unload.
     this.sourceUrls.delete(sourceId);
+    this.matteUrls.delete(sourceId);
     return this.send<Extract<WorkerResponse, { type: 'unloaded' }>>({
       type: 'unload',
       sourceId,
@@ -348,6 +387,7 @@ export class DecodeWorkerClient {
     this.workerNeedsRehydrate = false;
     this.rehydratePromise = undefined;
     this.sourceUrls.clear();
+    this.matteUrls.clear();
     // Requests rejected above now run their decodeRange finally blocks in microtasks. Close
     // anything still owned here immediately, then clear the waiter map so those finally blocks
     // see an empty collection and cannot double-close frames.

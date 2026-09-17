@@ -26,6 +26,8 @@
  */
 import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
 import { DecoderPool, type PooledDecoderHolder } from './decoder-pool.js';
+import { MatteDecodeSession } from './matte-decode-session.js';
+import type { Ffv1Picture } from './ffv1/ffv1-decoder.js';
 import {
   demuxAllVideoSamples,
   demuxSampleTableStreaming,
@@ -69,8 +71,31 @@ export interface UnloadSourceRequest {
   sourceId: string;
 }
 
+/** BR5.1: open a matte artifact file (FFV1 in Matroska) as its own source. */
+export interface LoadMatteRequest {
+  type: 'loadMatte';
+  requestId: number;
+  sourceId: string;
+  url: string;
+  /** `frames.json`'s frame count. */
+  expectedFrames: number;
+}
+
+export interface DecodeMatteRequest {
+  type: 'decodeMatte';
+  requestId: number;
+  sourceId: string;
+  /** Matte frame index (file order). */
+  frame: number;
+}
+
 export type WorkerRequest =
-  LoadSourceRequest | DecodeRangeRequest | StatsRequest | UnloadSourceRequest;
+  | LoadSourceRequest
+  | DecodeRangeRequest
+  | StatsRequest
+  | UnloadSourceRequest
+  | LoadMatteRequest
+  | DecodeMatteRequest;
 
 export interface LoadedResponse {
   type: 'loaded';
@@ -143,6 +168,28 @@ export interface StatsResponse {
   reconfigureCount: number;
 }
 
+export interface MatteLoadedResponse {
+  type: 'matteLoaded';
+  requestId: number;
+  sourceId: string;
+  width: number;
+  height: number;
+  format: Ffv1Picture['format'];
+  frameCount: number;
+}
+
+export interface MatteFrameResponse {
+  type: 'matteFrame';
+  requestId: number;
+  sourceId: string;
+  frame: number;
+  width: number;
+  height: number;
+  format: Ffv1Picture['format'];
+  /** `gray8`: one byte per pixel; `gray16`: native-endian `Uint16Array` bytes; `rgb24`: RGB. */
+  data: ArrayBuffer;
+}
+
 export interface ErrorResponse {
   type: 'error';
   requestId: number;
@@ -156,6 +203,8 @@ export type WorkerResponse =
   | DecodedPictureMessage
   | RangeDoneResponse
   | StatsResponse
+  | MatteLoadedResponse
+  | MatteFrameResponse
   | ErrorResponse;
 
 interface PostMessageTarget {
@@ -660,7 +709,8 @@ class DecoderSession implements PooledDecoderHolder {
 }
 
 const sessions = new Map<string, DecoderSession>();
-const decoderPool = new DecoderPool<DecoderSession>();
+const matteSessions = new Map<string, MatteDecodeSession>();
+const decoderPool = new DecoderPool<PooledDecoderHolder>();
 
 function post(message: WorkerResponse, transfer: Transferable[]): void {
   (self as unknown as PostMessageTarget).postMessage(message, transfer);
@@ -699,9 +749,38 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
         },
         [fileBytes],
       );
+    } else if (request.type === 'loadMatte') {
+      matteSessions.get(request.sourceId)?.dispose();
+      const session = new MatteDecodeSession(decoderPool);
+      matteSessions.set(request.sourceId, session);
+      const info = await session.load(request.url, request.expectedFrames);
+      post(
+        { type: 'matteLoaded', requestId: request.requestId, sourceId: request.sourceId, ...info },
+        [],
+      );
+    } else if (request.type === 'decodeMatte') {
+      const session = matteSessions.get(request.sourceId);
+      if (!session) throw new Error(`Matte source ${request.sourceId} not loaded.`);
+      const picture = await session.decode(request.frame);
+      const data = picture.data.buffer as ArrayBuffer;
+      post(
+        {
+          type: 'matteFrame',
+          requestId: request.requestId,
+          sourceId: request.sourceId,
+          frame: request.frame,
+          width: picture.width,
+          height: picture.height,
+          format: picture.format,
+          data,
+        },
+        [data],
+      );
     } else if (request.type === 'unload') {
       sessions.get(request.sourceId)?.dispose();
       sessions.delete(request.sourceId);
+      matteSessions.get(request.sourceId)?.dispose();
+      matteSessions.delete(request.sourceId);
       post({ type: 'unloaded', requestId: request.requestId, sourceId: request.sourceId }, []);
     } else if (request.type === 'decodeRange') {
       const session = sessions.get(request.sourceId);

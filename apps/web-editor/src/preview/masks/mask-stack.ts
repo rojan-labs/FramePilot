@@ -16,6 +16,12 @@
  * - combine top to bottom, quantise once; a stack of exactly one `add` legacy mask keeps the
  *   v21 float alpha.
  *
+ * - `matte` layers (BR5.1) from their decoded artifact frame through `matte-edges.ts` (edge
+ *   shift, clean levels, distance feather on the matte's own contour, the decoded size and
+ *   crop), then the same invert/opacity/mode rules. A matte frame the artifact does not hold yet
+ *   (a job still processing) leaves that layer out, exactly as if it were disabled, and the
+ *   monitor says "Processing"; it is never answered with a neighbouring frame.
+ *
  * What the export refuses before rendering, the preview refuses too, and says so
  * ({@link MaskPreviewRefusal}); it never silently draws a clip unmasked.
  *
@@ -53,6 +59,7 @@ import {
   type MaskCombineMode,
 } from './mask-raster.js';
 import { previewIdentity } from '../semantic-signature.js';
+import { cleanLevels, matteFrameAlpha, type MatteFrameData } from './matte-edges.js';
 
 const log = createLogger('web-editor:preview:mask-stack');
 
@@ -63,13 +70,27 @@ const RASTER_CACHE_ENTRIES = 48;
 
 type ShapeMask = Extract<MaskLayer, { kind: 'rectangle' | 'ellipse' | 'path' }>;
 type PathMask = Extract<MaskLayer, { kind: 'path' }>;
+export type MatteMask = Extract<MaskLayer, { kind: 'matte' }>;
+/** A mask kind the preview draws. */
+export type DrawnMask = ShapeMask | MatteMask;
+
+/**
+ * What a stack with `matte` layers needs at one instant: the size the source was decoded at
+ * (before its crop) and, per matte mask id, its decoded frame or `null` when the artifact does
+ * not hold that frame yet (the layer is left out, as a disabled one).
+ */
+export interface MatteStackInputs {
+  readonly decodedWidth: number;
+  readonly decodedHeight: number;
+  readonly frames: ReadonlyMap<string, MatteFrameData | null>;
+}
 
 /** Why the monitor cannot draw a clip's mask stack (the export refuses the same stack). */
 export interface MaskPreviewRefusal {
   readonly clipId: string;
   readonly maskId: string;
   /** The plan task that ships the renderer, or `null` when the project itself needs a fix. */
-  readonly task: 'BR5' | 'MK6' | 'MK7' | 'MK8' | 'MK9' | null;
+  readonly task: 'MK6' | 'MK7' | 'MK8' | 'MK9' | null;
   /** One sentence with the remedy; no varying numbers. */
   readonly message: string;
 }
@@ -79,8 +100,10 @@ export interface ClipMaskStack {
   readonly clip: Clip;
   /** Display-corrected source size, `null` when the media was never measured. */
   readonly size: DisplaySize | null;
-  readonly alpha: readonly ShapeMask[];
-  readonly byEffect: ReadonlyMap<string, readonly ShapeMask[]>;
+  readonly alpha: readonly DrawnMask[];
+  readonly byEffect: ReadonlyMap<string, readonly DrawnMask[]>;
+  /** Every enabled matte layer, alpha target first (the decontamination order is its reverse). */
+  readonly mattes: readonly MatteMask[];
   /** Set when the stack cannot be previewed; `alpha`/`byEffect` are then empty. */
   readonly refusal: MaskPreviewRefusal | null;
 }
@@ -92,7 +115,6 @@ export type MaskStackTarget =
 const KIND_REFUSALS: Partial<
   Record<MaskLayer['kind'], { task: MaskPreviewRefusal['task']; what: string }>
 > = {
-  matte: { task: 'BR5', what: 'AI matte masks preview once the matte pass ships' },
   key: { task: 'MK6', what: 'colour key masks preview once the key renderer ships' },
   linear: { task: 'MK8', what: 'split masks preview once the analytic mask renderer ships' },
   band: { task: 'MK8', what: 'band masks preview once the analytic mask renderer ships' },
@@ -171,6 +193,10 @@ function refusalFor(
       );
     }
   }
+  if (mask.kind === 'matte') {
+    const matte = matteRefusal(clip, mask);
+    if (matte !== null) return matte;
+  }
   const shape = mask as ShapeMask;
   if (isLegacy(mask) && !legacyDrawable(shape)) {
     return refusal(
@@ -199,6 +225,44 @@ function refusalFor(
   return null;
 }
 
+/** Finesse controls the matte renderer draws (`_DRAWN_FINESSE`). */
+const DRAWN_FINESSE = new Set(['cleanBlack', 'cleanWhite']);
+const DEFAULT_FINESSE: Readonly<Record<string, number>> = {
+  denoise: 0,
+  morphOpenPx: 0,
+  morphClosePx: 0,
+  shrinkGrowPx: 0,
+  blurPx: 0,
+  inOutRatio: 0,
+  cleanBlack: 0,
+  cleanWhite: 1,
+};
+
+/** `_assert_matte_drawable`: edge shift, clean levels, expansion and distance feather only. */
+function matteRefusal(clip: Clip, mask: MatteMask): MaskPreviewRefusal | null {
+  const finesse = mask.finesse as unknown as Record<string, number>;
+  const undrawn = Object.keys(DEFAULT_FINESSE).some(
+    (name) => !DRAWN_FINESSE.has(name) && finesse[name] !== DEFAULT_FINESSE[name],
+  );
+  if (undrawn) {
+    return refusal(
+      clip,
+      mask,
+      'MK6',
+      'Mask not previewed yet: matte finesse other than clean black and clean white previews once the matte finesse renderer ships.',
+    );
+  }
+  if (isLegacy(mask)) {
+    return refusal(
+      clip,
+      mask,
+      null,
+      "A matte uses the legacy blur feather, which only shapes migrated from older projects have. Switch the mask's feather model to Distance.",
+    );
+  }
+  return null;
+}
+
 function pathVertexCountsMatch(mask: PathMask): boolean {
   const first = mask.pathKeyframes[0];
   if (first === undefined) return false;
@@ -221,11 +285,11 @@ export function clipMaskStack(
   for (const mask of enabled) {
     const refused = refusalFor(clip, mask, size);
     if (refused !== null) {
-      return { clip, size, alpha: [], byEffect: new Map(), refusal: refused };
+      return { clip, size, alpha: [], byEffect: new Map(), mattes: [], refusal: refused };
     }
   }
-  const shapes = enabled as ShapeMask[];
-  const byEffect = new Map<string, ShapeMask[]>();
+  const shapes = enabled as DrawnMask[];
+  const byEffect = new Map<string, DrawnMask[]>();
   for (const mask of shapes) {
     if (mask.target.kind !== 'effect') continue;
     const list = byEffect.get(mask.target.effectId) ?? [];
@@ -237,13 +301,41 @@ export function clipMaskStack(
     size,
     alpha: shapes.filter((mask) => mask.target.kind === 'alpha'),
     byEffect,
+    mattes: [
+      ...shapes.filter((mask) => mask.target.kind === 'alpha'),
+      ...[...byEffect.values()].flat(),
+    ].filter((mask): mask is MatteMask => mask.kind === 'matte'),
     refusal: null,
   };
 }
 
 /** The masks of `target`, top first (empty when the target is unmasked). */
-export function stackMasks(stack: ClipMaskStack, target: MaskStackTarget): readonly ShapeMask[] {
+export function stackMasks(stack: ClipMaskStack, target: MaskStackTarget): readonly DrawnMask[] {
   return target.kind === 'alpha' ? stack.alpha : (stack.byEffect.get(target.effectId) ?? []);
+}
+
+/**
+ * The masks `target` draws at this instant: a matte whose frame is not in the artifact (still
+ * processing) is left out, as a disabled mask is.
+ *
+ * @throws MaskRasterError when a matte layer's frame was not supplied at all (a caller bug: the
+ *   compositor only draws a stack once every matte frame is decoded or known missing).
+ */
+export function drawnMasks(
+  stack: ClipMaskStack,
+  target: MaskStackTarget,
+  mattes: MatteStackInputs | null,
+): readonly DrawnMask[] {
+  const masks = stackMasks(stack, target);
+  if (!masks.some((mask) => mask.kind === 'matte')) return masks;
+  return masks.filter((mask) => {
+    if (mask.kind !== 'matte') return true;
+    const frame = mattes?.frames.get(mask.id);
+    if (frame === undefined) {
+      throw new MaskRasterError('A matte frame was not decoded before its stack was drawn.');
+    }
+    return frame !== null;
+  });
 }
 
 // --- Keyframes --------------------------------------------------------------------------------
@@ -300,6 +392,38 @@ export function pathKeyframeAt(
     return { points, feathers: from.map((a, i) => a + (to[i]! - a) * progress) };
   }
   return { points: [...last.points], feathers: feathersOf(last) };
+}
+
+/** `matte_alpha`: one matte layer's float alpha (after invert and opacity) on the frame. */
+function matteAlpha(
+  mask: MatteMask,
+  stack: ClipMaskStack,
+  width: number,
+  height: number,
+  s: number,
+  mattes: MatteStackInputs,
+): Float64Array {
+  const frame = mattes.frames.get(mask.id);
+  if (frame === undefined || frame === null) {
+    throw new MaskRasterError('A matte frame was not decoded before its stack was drawn.');
+  }
+  const alpha = matteFrameAlpha(
+    frame,
+    cleanLevels(mask),
+    maskScalar(mask, 'edgeShiftPx', s),
+    {
+      expansion: maskScalar(mask, 'expansionPx', s),
+      featherInner: Math.max(maskScalar(mask, 'featherInnerPx', s), 0.0),
+      featherOuter: Math.max(maskScalar(mask, 'featherOuterPx', s), 0.0),
+      falloff: mask.falloff,
+    },
+    stack.clip.crop,
+    width,
+    height,
+    mattes.decodedWidth,
+    mattes.decodedHeight,
+  );
+  return applyLayerAlpha(alpha, mask.invert, maskScalar(mask, 'opacity', s));
 }
 
 /** `mask_path_at`: a shape mask as a closed Bezier path in its stored units. */
@@ -448,12 +572,20 @@ export function legacySpec(
 
 /** `mask_alpha`: one mask's float alpha (after invert and opacity) on a `width`×`height` frame. */
 function maskAlpha(
-  mask: ShapeMask,
+  drawn: DrawnMask,
   stack: ClipMaskStack,
   width: number,
   height: number,
   s: number,
+  mattes: MatteStackInputs | null,
 ): Float64Array {
+  if (drawn.kind === 'matte') {
+    if (mattes === null) {
+      throw new MaskRasterError('A matte frame was not decoded before its stack was drawn.');
+    }
+    return matteAlpha(drawn, stack, width, height, s, mattes);
+  }
+  const mask = drawn;
   const { clip, size } = stack;
   if (isLegacy(mask)) return legacyMaskAlpha(legacySpec(mask, clip, size, s), width, height);
   const crop = clip.crop;
@@ -484,7 +616,7 @@ function maskAlpha(
 }
 
 /** Whether a single `add` legacy mask keeps its v21 float alpha (no quantisation). */
-function isLegacyPassthrough(masks: readonly ShapeMask[]): boolean {
+function isLegacyPassthrough(masks: readonly DrawnMask[]): masks is readonly [ShapeMask] {
   return masks.length === 1 && isLegacy(masks[0]!) && masks[0]!.mode === 'add';
 }
 
@@ -498,16 +630,18 @@ export function stackAlphaAt(
   width: number,
   height: number,
   clipTime: number,
+  mattes: MatteStackInputs | null = null,
 ): Float64Array | null {
-  const masks = stackMasks(stack, target);
-  if (masks.length === 0 || stack.refusal !== null) return null;
+  if (stack.refusal !== null) return null;
+  const masks = drawnMasks(stack, target, mattes);
+  if (masks.length === 0) return null;
   const s = maskSourceTime(stack.clip, clipTime);
-  if (isLegacyPassthrough(masks)) return maskAlpha(masks[0]!, stack, width, height, s);
+  if (isLegacyPassthrough(masks)) return maskAlpha(masks[0], stack, width, height, s, mattes);
   const accumulated = new Float64Array(width * height);
   for (const mask of masks) {
     combineInto(
       accumulated,
-      maskAlpha(mask, stack, width, height, s),
+      maskAlpha(mask, stack, width, height, s, mattes),
       mask.mode as MaskCombineMode,
     );
   }
@@ -528,10 +662,22 @@ export interface MaskStackRaster {
   readonly scale: number;
 }
 
-function isAnimated(masks: readonly ShapeMask[]): boolean {
+function isAnimated(masks: readonly DrawnMask[]): boolean {
   return masks.some(
-    (mask) => mask.keyframes.length > 0 || (mask.kind === 'path' && mask.pathKeyframes.length > 1),
+    (mask) =>
+      mask.kind === 'matte' ||
+      mask.keyframes.length > 0 ||
+      (mask.kind === 'path' && mask.pathKeyframes.length > 1),
   );
+}
+
+/** Which matte frames and decode geometry a raster depends on. */
+function matteKey(masks: readonly DrawnMask[], mattes: MatteStackInputs | null): string {
+  if (mattes === null || !masks.some((mask) => mask.kind === 'matte')) return '';
+  const frames = masks
+    .filter((mask) => mask.kind === 'matte')
+    .map((mask) => `${mask.id}=${mattes.frames.get(mask.id)?.id ?? 'none'}`);
+  return `decoded:${mattes.decodedWidth}x${mattes.decodedHeight}|${frames.join(',')}`;
 }
 
 /** Rasterised stacks by semantic signature; static masks are drawn once per size. */
@@ -548,6 +694,7 @@ export class MaskStackRasterCache {
    * @param width - Frame width the layer is masked at (the cropped decoded picture).
    * @param height - Frame height.
    * @param clipTime - Seconds from the clip's start.
+   * @param mattes - Decoded matte frames and decode size, when the stack has matte layers.
    */
   raster(
     stack: ClipMaskStack,
@@ -555,9 +702,11 @@ export class MaskStackRasterCache {
     width: number,
     height: number,
     clipTime: number,
+    mattes: MatteStackInputs | null = null,
   ): MaskStackRaster | null {
-    const masks = stackMasks(stack, target);
-    if (masks.length === 0 || stack.refusal !== null || width <= 0 || height <= 0) return null;
+    if (stack.refusal !== null || width <= 0 || height <= 0) return null;
+    const masks = drawnMasks(stack, target, mattes);
+    if (masks.length === 0) return null;
     const s = maskSourceTime(stack.clip, clipTime);
     const key = [
       previewIdentity(stack.clip),
@@ -565,6 +714,7 @@ export class MaskStackRasterCache {
       `${width}x${height}`,
       stack.size === null ? 'unsized' : `${stack.size.width}x${stack.size.height}`,
       isAnimated(masks) ? String(s) : 'static',
+      matteKey(masks, mattes),
     ].join('|');
     const cached = this.entries.get(key);
     if (cached !== undefined) {
@@ -573,7 +723,7 @@ export class MaskStackRasterCache {
       this.entries.set(key, cached);
       return cached;
     }
-    const raster = this.draw(stack, masks, width, height, s);
+    const raster = this.draw(stack, masks, width, height, s, mattes);
     if (this.entries.size >= this.capacity) this.entries.delete(this.entries.keys().next().value!);
     this.entries.set(key, raster);
     return raster;
@@ -581,15 +731,16 @@ export class MaskStackRasterCache {
 
   private draw(
     stack: ClipMaskStack,
-    masks: readonly ShapeMask[],
+    masks: readonly DrawnMask[],
     width: number,
     height: number,
     s: number,
+    mattes: MatteStackInputs | null,
   ): MaskStackRaster {
     const started = performance.now();
     let raster: MaskStackRaster;
     if (isLegacyPassthrough(masks)) {
-      const mask = masks[0]!;
+      const mask = masks[0];
       const spec = legacySpec(mask, stack.clip, stack.size, s);
       const alpha8 = legacyMaskPixels(spec, width, height);
       if (spec.invert) for (let i = 0; i < alpha8.length; i += 1) alpha8[i] = 255 - alpha8[i]!;
@@ -600,7 +751,7 @@ export class MaskStackRasterCache {
       for (const mask of masks) {
         combineInto(
           accumulated,
-          maskAlpha(mask, stack, width, height, s),
+          maskAlpha(mask, stack, width, height, s, mattes),
           mask.mode as MaskCombineMode,
         );
       }
