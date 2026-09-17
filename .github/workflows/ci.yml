@@ -128,6 +128,9 @@ jobs:
           node-version: ${{ env.NODE_VERSION }}
           cache: pnpm
       - run: pnpm install --frozen-lockfile
+      # The stack vectors import editor-core (and its workspace deps) from their built dist.
+      - name: Build the packages the preview mask stack imports
+        run: pnpm exec turbo run build --filter=@framepilot/editor-core...
       - name: Preview rasteriser vectors (TypeScript)
         working-directory: apps/web-editor
         run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts src/preview/masks/legacy-mask.test.ts src/preview/masks/mask-stack.test.ts
