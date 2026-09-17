@@ -1,5 +1,47 @@
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { describe, expect, it } from 'vitest';
-import { exportText, textOverlayLayout } from './text-raster.js';
+import {
+  PillowTextMeasure,
+  exportText,
+  parsePillowMetrics,
+  textOverlayLayout,
+} from './text-raster.js';
+
+const metrics = parsePillowMetrics(
+  JSON.parse(
+    readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        '../../../public/fonts/Aileron-Regular.pillow-metrics.json',
+      ),
+      'utf8',
+    ),
+  ),
+);
+
+describe('Pillow text metrics (values from Pillow 12.3 textbbox/getlength/getmetrics)', () => {
+  it('measures a stroked title line like draw.textbbox', () => {
+    const measure = new PillowTextMeasure(51, metrics, null);
+    expect(measure.ascent).toBe(50);
+    expect(measure.length('Hello World')).toBe(274);
+    expect(measure.bbox('Hello World', 4)).toEqual([-4, 8, 278, 55]);
+  });
+
+  it('includes first-glyph overhang and last-glyph ink past the advance', () => {
+    const measure = new PillowTextMeasure(33, metrics, null);
+    expect(measure.bbox(';jV')).toEqual([-2, 10, 35, 39]);
+    expect(measure.ascent).toBe(33);
+  });
+
+  it('wraps on integer advances', () => {
+    const measure = new PillowTextMeasure(26, metrics, null);
+    expect(measure.bbox('Caption text here')).toEqual([0, 7, 207, 31]);
+    expect(measure.wrap('Caption text here', 207)).toEqual(['Caption text here']);
+    expect(measure.wrap('Caption text here', 206)).toEqual(['Caption text', 'here']);
+  });
+});
 
 describe('text overlay layout mirrors render/text_overlay.py', () => {
   it('defaults to a frame-relative size, white, centred in an 80% box', () => {

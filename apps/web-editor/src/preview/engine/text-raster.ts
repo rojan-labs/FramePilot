@@ -10,7 +10,8 @@
  * layers the export draws over it.
  *
  * This module reproduces the layout arithmetic exactly (sizes, wrap, bounding boxes, padding,
- * gaps) with the same font bytes (`public/fonts/Aileron-Regular.ttf`, extracted from Pillow).
+ * gaps, integer glyph pens) with the same font bytes (`public/fonts/Aileron-Regular.ttf`,
+ * extracted from Pillow) and Pillow's own metrics for them.
  * Glyph anti-aliasing comes from the browser's rasteriser rather than FreeType's, so edge pixels
  * can differ by a few levels; geometry and layer order do not.
  *
@@ -22,14 +23,72 @@
 /** The family name the export's text font is registered under. */
 export const EXPORT_TEXT_FONT_FAMILY = 'FramePilotExportText';
 const FONT_URL = '/fonts/Aileron-Regular.ttf';
+/**
+ * Pillow's own measurements of that font (see `PillowFontMetrics`). Generated from Pillow 12.3's
+ * `ImageFont.load_default(size)` for every size in range: per character the hinted integer advance
+ * and the glyph bbox, per size the ascent/descent.
+ */
+const METRICS_URL = '/fonts/Aileron-Regular.pillow-metrics.json';
 const MIN_FONT_SIZE = 16;
 const FONT_HEIGHT_FRACTION = 1 / 14;
 const DEFAULT_BOX_WIDTH_PERCENT = 80;
 const ALIGNMENTS = new Set(['left', 'center', 'right']);
 type Rgba = readonly [number, number, number, number];
 const DEFAULT_COLOR: Rgba = [255, 255, 255, 255];
+const GLYPH_FIELDS = 5;
+const SIZE_FIELDS = 2;
+
+/**
+ * Pillow's basic-layout text metrics for the export font.
+ *
+ * Pillow places glyphs at whole-pixel pens (hinted integer advances, no kerning), measures a
+ * line's bbox as the union of the glyph boxes (x starting at 0 or the first glyph's overhang), and
+ * anchors "la" text at the font ascent. Browser text measurement uses unhinted fractional
+ * advances, which drifts glyphs by a pixel or two per line; these tables remove that drift.
+ */
+export interface PillowFontMetrics {
+  readonly minSize: number;
+  readonly maxSize: number;
+  readonly chars: ReadonlyMap<string, number>;
+  /** `[advance, x0, x1, y0, y1]` per size per char. */
+  readonly glyphs: Int16Array;
+  /** `[ascent, descent]` per size. */
+  readonly sizes: Int16Array;
+}
+
+interface PillowMetricsDocument {
+  readonly minSize: number;
+  readonly maxSize: number;
+  readonly chars: string;
+  readonly glyphs: string;
+  readonly metrics: string;
+}
+
+function int16FromBase64(encoded: string): Int16Array {
+  const binary = atob(encoded);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  const view = new DataView(bytes.buffer);
+  const out = new Int16Array(bytes.length >> 1);
+  for (let i = 0; i < out.length; i++) out[i] = view.getInt16(i * 2, true);
+  return out;
+}
+
+/** Decode the metrics JSON shipped next to the font. */
+export function parsePillowMetrics(doc: PillowMetricsDocument): PillowFontMetrics {
+  const chars = new Map<string, number>();
+  Array.from(doc.chars).forEach((char, index) => chars.set(char, index));
+  return {
+    minSize: doc.minSize,
+    maxSize: doc.maxSize,
+    chars,
+    glyphs: int16FromBase64(doc.glyphs),
+    sizes: int16FromBase64(doc.metrics),
+  };
+}
 
 let fontLoad: Promise<boolean> | null = null;
+let loadedMetrics: PillowFontMetrics | null = null;
 
 /** Register the export's text font once. Resolves `false` when it cannot load (text is skipped). */
 export function loadExportTextFont(): Promise<boolean> {
@@ -38,14 +97,141 @@ export function loadExportTextFont(): Promise<boolean> {
     if (typeof FontFace === 'undefined' || typeof document === 'undefined') return false;
     try {
       const face = new FontFace(EXPORT_TEXT_FONT_FAMILY, `url(${FONT_URL})`);
+      const metrics = fetch(METRICS_URL)
+        .then((response) => (response.ok ? response.json() : null))
+        .catch(() => null) as Promise<PillowMetricsDocument | null>;
       await face.load();
       document.fonts.add(face);
+      const doc = await metrics;
+      // Without the tables text still draws, measured by the browser (a pixel or two off).
+      if (doc) loadedMetrics = parsePillowMetrics(doc);
       return true;
     } catch {
       return false;
     }
   })();
   return fontLoad;
+}
+
+type Context2D = OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D;
+/** `[advance, x0, x1, y0, y1]`, y measured down from the ascent line. */
+type GlyphBox = readonly [number, number, number, number, number];
+
+/** Measures text the way Pillow's basic layout does, for one font size. */
+export class PillowTextMeasure {
+  private readonly row: number | null;
+  readonly ascent: number;
+
+  constructor(
+    readonly size: number,
+    private readonly metrics: PillowFontMetrics | null,
+    private readonly probe: Context2D | null,
+  ) {
+    this.row =
+      metrics && size >= metrics.minSize && size <= metrics.maxSize ? size - metrics.minSize : null;
+    this.ascent =
+      this.row !== null && metrics
+        ? metrics.sizes[this.row * SIZE_FIELDS]!
+        : Math.ceil(probe?.measureText('H').fontBoundingBoxAscent ?? size);
+  }
+
+  glyph(char: string): GlyphBox {
+    const index = this.metrics?.chars.get(char);
+    if (this.row !== null && this.metrics && index !== undefined) {
+      const o = (this.row * this.metrics.chars.size + index) * GLYPH_FIELDS;
+      const g = this.metrics.glyphs;
+      return [g[o]!, g[o + 1]!, g[o + 2]!, g[o + 3]!, g[o + 4]!];
+    }
+    if (!this.probe) return [0, 0, 0, 0, 0];
+    const m = this.probe.measureText(char);
+    return [
+      Math.round(m.width),
+      Math.floor(-m.actualBoundingBoxLeft),
+      Math.ceil(m.actualBoundingBoxRight),
+      this.ascent - Math.ceil(m.actualBoundingBoxAscent),
+      this.ascent + Math.ceil(m.actualBoundingBoxDescent),
+    ];
+  }
+
+  /** `font.getlength(text)`. */
+  length(text: string): number {
+    let total = 0;
+    for (const char of text) total += this.glyph(char)[0];
+    return total;
+  }
+
+  /** Integer pen x of every glyph. */
+  pens(text: string): number[] {
+    const pens: number[] = [];
+    let pen = 0;
+    for (const char of text) {
+      pens.push(pen);
+      pen += this.glyph(char)[0];
+    }
+    return pens;
+  }
+
+  /** `draw.textbbox((0, 0), text, stroke_width=stroke)`. */
+  bbox(text: string, stroke = 0): readonly [number, number, number, number] {
+    let pen = 0;
+    let x0 = Infinity;
+    let x1 = -Infinity;
+    let y0 = Infinity;
+    let y1 = -Infinity;
+    for (const char of text) {
+      const [advance, gx0, gx1, gy0, gy1] = this.glyph(char);
+      x0 = Math.min(x0, pen + gx0);
+      x1 = Math.max(x1, pen + gx1);
+      y0 = Math.min(y0, gy0);
+      y1 = Math.max(y1, gy1);
+      pen += advance;
+    }
+    if (x0 === Infinity) return [-stroke, -stroke, stroke, stroke];
+    return [Math.min(0, x0) - stroke, y0 - stroke, x1 + stroke, y1 + stroke];
+  }
+
+  /** `wrap_lines(text.split(), font, max_width)`. */
+  wrap(text: string, maxWidth: number): string[] {
+    const words = text.split(/\s+/).filter((word) => word.length > 0);
+    const lines: string[] = [];
+    let current = '';
+    for (const word of words) {
+      const candidate = `${current} ${word}`.trim();
+      if (current !== '' && this.length(candidate) > maxWidth) {
+        lines.push(current);
+        current = word;
+      } else {
+        current = candidate;
+      }
+    }
+    if (current !== '') lines.push(current);
+    return lines;
+  }
+}
+
+function measureFor(size: number, probe: Context2D, metrics: PillowFontMetrics | null) {
+  probe.font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
+  // Pillow's basic layout applies no GPOS kerning; the browser's shaper would.
+  probe.fontKerning = 'none';
+  return new PillowTextMeasure(size, metrics, probe);
+}
+
+/** Draw `line` glyph by glyph at Pillow's integer pens, with the text origin at (x, y) "la". */
+function drawLine(
+  ctx: Context2D,
+  measure: PillowTextMeasure,
+  line: string,
+  x: number,
+  y: number,
+  paint: 'fill' | 'stroke',
+): void {
+  const pens = measure.pens(line);
+  let index = 0;
+  for (const char of line) {
+    const pen = x + pens[index++]!;
+    if (paint === 'fill') ctx.fillText(char, pen, y + measure.ascent);
+    else ctx.strokeText(char, pen, y + measure.ascent);
+  }
 }
 
 const isNumber = (value: unknown): value is number =>
@@ -131,47 +317,20 @@ export function rasterizeTextOverlay(
   frameHeight: number,
   createCanvas: (width: number, height: number) => OffscreenCanvas | HTMLCanvasElement = (w, h) =>
     new OffscreenCanvas(w, h),
+  metrics: PillowFontMetrics | null = loadedMetrics,
 ): TextRaster | null {
   const text = exportText(params);
   if (text === null) return null;
   const layout = textOverlayLayout(params, frameWidth, frameHeight);
   const size = layout.fontSize;
-  const probe = createCanvas(1, 1).getContext('2d') as
-    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  const probe = createCanvas(1, 1).getContext('2d') as Context2D | null;
   if (!probe) return null;
-  const font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
-  probe.font = font;
-  // Pillow's basic layout applies no GPOS kerning; the browser's shaper would.
-  probe.fontKerning = 'none';
-
-  // `wrap_lines(text.split(), font, max_width)`.
-  const words = text.split(/\s+/).filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = `${current} ${word}`.trim();
-    if (current !== '' && probe.measureText(candidate).width > layout.boxWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current !== '') lines.push(current);
+  const measure = measureFor(size, probe, metrics);
+  const lines = measure.wrap(text, layout.boxWidth);
+  if (lines.length === 0) return null;
 
   const stroke = Math.max(1, Math.trunc(size / 12));
-  // `textbbox((0, 0), line, stroke_width=…)` with Pillow's default "la" anchor: y is measured
-  // from the ascender line.
-  const ascender = Math.ceil(probe.measureText('H').fontBoundingBoxAscent);
-  const boxes = lines.map((line) => {
-    const m = probe.measureText(line);
-    return [
-      Math.floor(-m.actualBoundingBoxLeft) - stroke,
-      ascender - Math.ceil(m.actualBoundingBoxAscent) - stroke,
-      Math.ceil(m.actualBoundingBoxRight) + stroke,
-      ascender + Math.ceil(m.actualBoundingBoxDescent) + stroke,
-    ] as const;
-  });
+  const boxes = lines.map((line) => measure.bbox(line, stroke));
   const lineWidths = boxes.map((b) => Math.trunc(b[2] - b[0]));
   const lineHeight = Math.trunc(Math.max(...boxes.map((b) => b[3] - b[1])));
   const lineGap = Math.max(1, Math.trunc(size / 6));
@@ -183,14 +342,13 @@ export function rasterizeTextOverlay(
   if (width <= 0 || height <= 0) return null;
 
   const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as
-    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  const ctx = canvas.getContext('2d', { willReadFrequently: true }) as Context2D | null;
   if (!ctx) return null;
   if (layout.background) {
     ctx.fillStyle = css(layout.background);
     ctx.fillRect(0, 0, width, height);
   }
-  ctx.font = font;
+  ctx.font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
   ctx.fontKerning = 'none';
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
@@ -198,9 +356,8 @@ export function rasterizeTextOverlay(
   ctx.lineWidth = stroke * 2;
   ctx.strokeStyle = 'rgb(0, 0, 0)';
   ctx.fillStyle = css(layout.color);
-  let y = pad;
-  lines.forEach((line, index) => {
-    const box = boxes[index]!;
+  // `canvas.text((x - bbox[0], y - bbox[1]), …)`: Pillow strokes the whole line, then fills it.
+  const origins = lines.map((_, index) => {
     const lineWidth = lineWidths[index]!;
     const x =
       layout.align === 'left'
@@ -208,12 +365,13 @@ export function rasterizeTextOverlay(
         : layout.align === 'right'
           ? pad + (textWidth - lineWidth)
           : pad + Math.floor((textWidth - lineWidth) / 2);
-    const originX = x - box[0];
-    const baseline = y - box[1] + ascender;
-    ctx.strokeText(line, originX, baseline);
-    ctx.fillText(line, originX, baseline);
-    y += lineHeight + lineGap;
+    const y = pad + index * (lineHeight + lineGap);
+    return [x - boxes[index]![0], y - boxes[index]![1]] as const;
   });
+  lines.forEach((line, i) =>
+    drawLine(ctx, measure, line, origins[i]![0], origins[i]![1], 'stroke'),
+  );
+  lines.forEach((line, i) => drawLine(ctx, measure, line, origins[i]![0], origins[i]![1], 'fill'));
 
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
@@ -260,6 +418,7 @@ export function rasterizeBaselineCaption(
   frameHeight: number,
   createCanvas: (width: number, height: number) => OffscreenCanvas | HTMLCanvasElement = (w, h) =>
     new OffscreenCanvas(w, h),
+  metrics: PillowFontMetrics | null = loadedMetrics,
 ): CaptionRaster | null {
   if (text.trim() === '') return null;
   const size = Math.max(
@@ -268,37 +427,12 @@ export function rasterizeBaselineCaption(
   );
   const pad = Math.trunc(size * CAPTION_BOX_PAD_FRACTION);
   const maxTextWidth = Math.trunc(frameWidth * CAPTION_MAX_WIDTH_FRACTION) - 2 * pad;
-  const probe = createCanvas(1, 1).getContext('2d') as
-    OffscreenCanvasRenderingContext2D | CanvasRenderingContext2D | null;
+  const probe = createCanvas(1, 1).getContext('2d') as Context2D | null;
   if (!probe) return null;
-  const font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
-  probe.font = font;
-  // Pillow's basic layout applies no GPOS kerning; the browser's shaper would.
-  probe.fontKerning = 'none';
-  const words = text.split(/\s+/).filter((word) => word.length > 0);
-  const lines: string[] = [];
-  let current = '';
-  for (const word of words) {
-    const candidate = `${current} ${word}`.trim();
-    if (current !== '' && probe.measureText(candidate).width > maxTextWidth) {
-      lines.push(current);
-      current = word;
-    } else {
-      current = candidate;
-    }
-  }
-  if (current !== '') lines.push(current);
+  const measure = measureFor(size, probe, metrics);
+  const lines = measure.wrap(text, maxTextWidth);
   if (lines.length === 0) return null;
-  const ascender = Math.ceil(probe.measureText('H').fontBoundingBoxAscent);
-  const boxes = lines.map((line) => {
-    const m = probe.measureText(line);
-    return [
-      Math.floor(-m.actualBoundingBoxLeft),
-      ascender - Math.ceil(m.actualBoundingBoxAscent),
-      Math.ceil(m.actualBoundingBoxRight),
-      ascender + Math.ceil(m.actualBoundingBoxDescent),
-    ] as const;
-  });
+  const boxes = lines.map((line) => measure.bbox(line));
   const lineWidths = boxes.map((b) => Math.trunc(b[2] - b[0]));
   const lineHeight = Math.trunc(Math.max(...boxes.map((b) => b[3] - b[1])));
   const lineGap = Math.max(1, Math.trunc(size / 6));
@@ -329,17 +463,16 @@ export function rasterizeBaselineCaption(
     }
   }
   ctx.putImageData(box, 0, 0);
-  ctx.font = font;
+  ctx.font = `${size}px ${EXPORT_TEXT_FONT_FAMILY}`;
   ctx.fontKerning = 'none';
   ctx.textBaseline = 'alphabetic';
   ctx.textAlign = 'left';
   ctx.fillStyle = css(CAPTION_TEXT_FILL);
-  let y = pad;
   lines.forEach((line, index) => {
     const b = boxes[index]!;
     const x = Math.floor((width - lineWidths[index]!) / 2);
-    ctx.fillText(line, x - b[0], y - b[1] + ascender);
-    y += lineHeight + lineGap;
+    const y = pad + index * (lineHeight + lineGap);
+    drawLine(ctx, measure, line, x - b[0], y - b[1], 'fill');
   });
   const image = ctx.getImageData(0, 0, width, height);
   const data = image.data;
