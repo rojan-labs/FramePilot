@@ -62,6 +62,7 @@ pay no per-frame cost.
 
 from __future__ import annotations
 
+import logging
 import math
 from collections.abc import Callable, Mapping, Sequence
 from functools import partial
@@ -125,10 +126,12 @@ from framepilot_engine.render.frame_plan import (
     legacy_transition,
     live_catalog_transitions,
     picture_effects,
+    source_frame_index,
     text_overlay_text,
     transition_underlays,
     underlay_material,
     uses_legacy_transition_path,
+    video_source_time,
 )
 from framepilot_engine.render.frame_plan import (
     clip_kind as clip_kind,
@@ -141,6 +144,15 @@ from framepilot_engine.render.mask_stack import (
     MaskStackRefusal,
     clip_mask_stacks,
     mix_by_alpha,
+)
+from framepilot_engine.render.matte_edges import decontaminate
+from framepilot_engine.render.mattes import (
+    MatteFrame,
+    MatteReader,
+    MatteRefusal,
+    PreparedMatte,
+    assert_frames_align,
+    prepare_matte,
 )
 from framepilot_engine.render.presets import ExportPreset
 from framepilot_engine.render.resources import close_clip_tree
@@ -595,16 +607,131 @@ def _asset_media_size(project: Project, clip: Clip) -> tuple[float, float] | Non
     return media.display_size() if media is not None else None
 
 
-def _clip_mask_stacks(clip: Clip, media_size: tuple[float, float] | None) -> ClipMaskStacks | None:
+def _clip_mask_stacks(
+    clip: Clip,
+    media_size: tuple[float, float] | None,
+    mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
+) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
-        return clip_mask_stacks(clip, media_size)
+        return clip_mask_stacks(clip, media_size, mattes)
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
 
 
-def _refuse_unrenderable_masks(project: Project) -> None:
-    """Refuse, before any reader opens, a mask stack the export cannot draw faithfully."""
+_log = logging.getLogger(__name__)
+
+#: Per clip id, per matte mask id: the artifact that passed its pre-render checks.
+PreparedMattes = dict[str, dict[str, PreparedMatte]]
+
+
+def _prepare_clip_mattes(project: Project, clip: Clip, base_dir: Path) -> dict[str, PreparedMatte]:
+    """Check every enabled matte on ``clip`` (files, digests, format, size, coverage) (BR2.3)."""
+    asset = next((a for a in project.assets if a.id == clip.asset_id), None)
+    media = asset.media if asset is not None else None
+    prepared: dict[str, PreparedMatte] = {}
+    for mask in clip.masks or []:
+        if not mask.enabled or mask.kind != "matte":
+            continue
+        try:
+            prepared[mask.id] = prepare_matte(mask, clip, base_dir, media, float(project.fps))
+        except MatteRefusal as exc:
+            raise CompileError(str(exc)) from exc
+    return prepared
+
+
+def _export_source_frames(
+    clip: Clip, output_fps: float, source_fps: float, asset_duration: float | None
+) -> list[int]:
+    """Every decode-order source frame the export reads for ``clip`` at ``output_fps``.
+
+    The composite samples ``t = k / fps`` and a layer plays for ``start <= t < end``; each
+    sample reads the source frame the frame plan names (:func:`video_source_time`).
+    """
+    first = math.ceil(clip.start * output_fps - 1e-9)
+    frames: list[int] = []
+    k = first
+    while k / output_fps < clip.end:
+        local = k / output_fps - clip.start
+        frame = source_frame_index(
+            video_source_time(clip, local, source_fps, asset_duration), source_fps
+        )
+        if frame is not None:
+            frames.append(frame)
+        k += 1
+    return frames
+
+
+def _bind_mattes(
+    clip: Clip,
+    prepared: dict[str, PreparedMatte],
+    reader: Any,
+    output_fps: float,
+    opened: list[Any],
+) -> dict[str, Callable[[float], MatteFrame]]:
+    """Open a :class:`MatteReader` per matte and bind "frame at clip-relative ``t``" to it.
+
+    Before any frame renders, every source frame the export will read is checked against the
+    artifact (:func:`assert_frames_align`): a matte that cannot be proven frame-exact refuses.
+    """
+    if not prepared:
+        return {}
+    source_fps = float(reader.fps)
+    asset_duration = float(reader.duration) if reader.duration is not None else None
+    frames = sorted(set(_export_source_frames(clip, output_fps, source_fps, asset_duration)))
+    bound: dict[str, Callable[[float], MatteFrame]] = {}
+    for mask_id, matte in prepared.items():
+        try:
+            assert_frames_align(matte, frames, source_fps)
+        except MatteRefusal as exc:
+            raise CompileError(str(exc)) from exc
+        mask = next(m for m in clip.masks or [] if m.id == mask_id)
+        want_foreground = bool(getattr(mask, "decontaminate", False))
+        matte_reader = MatteReader(matte, want_foreground=want_foreground)
+        opened.append(matte_reader)
+
+        def frame_at(t: float, matte_reader: MatteReader = matte_reader) -> MatteFrame:
+            source_time = video_source_time(clip, t, source_fps, asset_duration)
+            frame = source_frame_index(source_time, source_fps)
+            if frame is None:  # pragma: no cover - fps is known once a reader is open
+                raise CompileError(f"Clip {clip.id!r}: the matte frame could not be resolved.")
+            return matte_reader.frame_for_source_frame(frame)
+
+        bound[mask_id] = frame_at
+    _log.debug(
+        "clip %s: %d matte reader(s) over %d source frames", clip.id, len(bound), len(frames)
+    )
+    return bound
+
+
+def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
+    """Replace edge colour with each matte's foreground estimate before any effect or alpha."""
+    if stacks is None:
+        return source
+    cleaning = [mask for mask in stacks.matte_masks() if mask.decontaminate]
+    if not cleaning:
+        return source
+    clip = stacks.clip
+
+    def cleaned(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        picture = get_frame(t)
+        for mask in reversed(cleaning):
+            matte = stacks.mattes[str(mask.id)](t)
+            if matte.foreground is None:  # pragma: no cover - reader opened with foreground
+                continue
+            picture = decontaminate(picture, matte.alpha, matte.maximum, matte.foreground, clip)
+        return picture
+
+    return source.transform(cleaned, keep_duration=True)
+
+
+def _refuse_unrenderable_masks(project: Project, base_dir: Path | None = None) -> PreparedMattes:
+    """Refuse, before any reader opens, a mask stack the export cannot draw faithfully.
+
+    With ``base_dir`` (the project directory) every enabled matte's artifact is checked too, and
+    the artifacts that passed are returned for the compile to open.
+    """
+    prepared: PreparedMattes = {}
     kinds = _asset_kinds_from_project(project)
     for track in project.timeline.tracks:
         for layer in track.effect_layers or []:
@@ -620,6 +747,11 @@ def _refuse_unrenderable_masks(project: Project) -> None:
             # Only video clips draw their stack (stills are placed without crop or mask).
             if clip.masks and kinds.get(clip.asset_id) == "video":
                 _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                if base_dir is not None:
+                    matte = _prepare_clip_mattes(project, clip, base_dir)
+                    if matte:
+                        prepared[clip.id] = matte
+    return prepared
 
 
 def _attach_mask(
@@ -1014,7 +1146,7 @@ def compile_timeline(
     lut_base_dir = Path(asset_index.base_dir)
     total_clips = sum(len(track.clips) for track in project.timeline.tracks)
     prepared = 0
-    _refuse_unrenderable_masks(project)
+    prepared_mattes = _refuse_unrenderable_masks(project, lut_base_dir)
 
     def _prepared_one() -> None:
         nonlocal prepared
@@ -1073,7 +1205,14 @@ def compile_timeline(
                             footage = _apply_audio_effects(source.audio, clip, project.timeline)
                             audio_layers.append(footage.with_start(clip.start))
                         source = source.without_audio()
-                        stacks = _clip_mask_stacks(clip, _asset_media_size(project, clip))
+                        stacks = _clip_mask_stacks(
+                            clip,
+                            _asset_media_size(project, clip),
+                            _bind_mattes(
+                                clip, prepared_mattes.get(clip.id, {}), reader, fps, opened
+                            ),
+                        )
+                        source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
                         use_legacy = uses_legacy_transition_path(clip)
                         transition = legacy_transition(clip)

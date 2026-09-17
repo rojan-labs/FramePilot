@@ -331,12 +331,72 @@ byte against `tests/fixtures/mask-raster`.
 | `target: effect` | That effect (today `color_grade`, `lut`) runs on the whole frame and is mixed with the input by the stack's alpha |
 | `gaussian-legacy` | The v21 blur, byte-identical for migrated masks; rotation, roundness, curves, expansion, inner or per-vertex feather refuse with "Switch the mask's feather model to Distance" |
 
-Refused before rendering, with "Disable the mask to export now": `matte`, `key`, `linear`, `band`,
+Refused before rendering, with "Disable the mask to export now": `key`, `linear`, `band`,
 `gradient` and `layer` masks, tracked masks, `space: 'frame'` masks and masks on effect layers.
 Hard edges follow the nonzero winding rule exactly, including self-crossing and self-overlapping
 paths (those pixels use an exact per-cell slab sweep).
 Migrated animated masks carry a keyframe per exported frame, so they export bit-identically to v21
 (ADR 0178 amendment).
+
+### Matte masks in the export (BR2)
+
+A `matte` layer is a raster from the Smart Mask pack, stored in the project at
+`.framepilot-derived/mattes/<artifact.key>/` (`render/mattes.py` reads it, `render/matte_edges.py`
+draws it). **Why each rule:** a matte one frame off its picture is a halo on every moving edge,
+and a matte drawn from a changed file silently differs from what the editor reviewed.
+
+**Artifact files.** `matte.mkv` (FFV1, `gray` or `gray16le`), `foreground.mkv` (FFV1 lossless
+RGB: `gbrp`, `bgr0`, `rgb24`, `bgra`, `rgba`, `0rgb`; colour only inside the soft band),
+`frames.json`:
+
+```json
+{ "version": 1, "timeBase": [1, 15360], "originPts": 0, "firstFrame": 12, "pts": [6144, 6656] }
+```
+
+`timeBase` is the source stream's; `originPts` is the pts of the source's first decoded frame
+(edit lists honoured, so asset second 0); `firstFrame` is the decode-order source frame number of
+matte frame 0; `pts[i]` is the source pts of matte frame `i`, strictly increasing. Matte frame
+`i` is the `i`-th decoded frame of each `.mkv`.
+
+**Frame identity.** The export reads the matte frame for the SOURCE FRAME NUMBER its picture
+decodes (the frame plan's `source.frame`, also on the plan's matte layer as `matte.sourceFrame`),
+through speed, reverse, freeze and ramps. A caller with a real pts looks up by pts exactly. A frame
+the artifact does not hold is an error, never the nearest frame. Before rendering, every source
+frame the clip will read is checked against `frames.json`.
+
+**Per layer, in order** (source pixels of the artifact, then the clip's frame):
+
+| Step | Rule |
+| --- | --- |
+| Decontaminate | When `decontaminate`, before any effect or alpha: inside the band (`0 < alpha < max`) the picture's colour becomes `foreground.mkv`'s. Band weight and band-premultiplied colour are cropped and resampled separately: `out = picture + (colour − picture × weight)` |
+| Alpha | stored value / format maximum (255 or 65535) |
+| `edgeShiftPx` | Positive grows, negative shrinks: grey dilation/erosion of the stored integers by the disc `dx² + dy² ≤ r²` (edge pixels replicate) for `floor(|r|)` and `ceil(|r|)`, mixed `a + (b − a) × frac` |
+| `edgeMode` → finesse | `smooth` (default) changes nothing. `sharp` sets clean black 0.25 and clean white 0.75 when `finesse.cleanBlack`/`cleanWhite` are at their defaults (0/1); explicit finesse values win. Levels: `(a − black) / (white − black)` clamped (a threshold at `black` when `white ≤ black`). This compresses the soft band to its middle half around the 50 % edge, keeping the edge where the matte put it (Premiere's Object Mask "Sharp") |
+| `expansionPx`, feathers | All zero: the matte's own soft alpha. Otherwise the 50 % contour (`a ≥ 0.5`) is redrawn with the shape feather formula, `s` = (distance to the nearest pixel centre on the other side − ½, negative inside) − expansion |
+| To the frame | MoviePy's integer crop of the clip's `crop` fractions, then bilinear resample (pixel centres aligned, edges clamped) to the decoded frame size |
+| Layer, mode | invert, opacity, combine mode and the stack's single quantisation, as for every kind |
+
+Other `finesse` controls (denoise, open/close, shrink/grow, blur, in/out ratio) refuse until the
+finesse renderer ships (MK6.2); `gaussian-legacy` on a matte refuses.
+
+**Refusals** (before rendering; the export error shows the remedy exactly; codes are stable):
+
+| Code | Clip state | Shown |
+| --- | --- | --- |
+| `matte_missing` | BROKEN | Background removal data is missing — run Remove background again. |
+| `matte_digest_mismatch` | BROKEN | Background removal data was changed outside FramePilot — run Remove background again. |
+| `matte_unreadable` | BROKEN | Background removal data is damaged — run Remove background again. |
+| `matte_unsupported_pixel_format` | BROKEN | Background removal data uses a format this version cannot read — update FramePilot or run Remove background again. |
+| `matte_size_mismatch` | STALE | Media changed since background removal ran — run Remove background again. |
+| `matte_out_of_coverage` | STALE | Background removal does not cover the clip's whole range — update the background removal for the new range. |
+| `matte_frame_misaligned` | STALE | Background removal frames do not line up with the media — run Remove background again. |
+| `matte_variable_frame_rate` | BROKEN | This footage has a variable frame rate, so the export cannot line the background removal up frame by frame — … |
+| `matte_unsupported_media` | BROKEN | Background removal on rotated or non-square-pixel footage exports once that footage is supported — disable the mask to export now. |
+
+Digests of `matte.mkv`, `frames.json` and (when decontaminating) `foreground.mkv` must equal the
+mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame. Variable frame
+rate is refused because the export's decoder resamples such footage to a constant rate, so no
+matte frame can be proven to belong to the picture drawn.
 
 ## Schema versioning & migration
 

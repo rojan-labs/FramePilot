@@ -17,6 +17,10 @@ Two consumers in ``render/compiler.py``:
 from :mod:`framepilot_engine.render.masks`, so an existing project exports byte-identically;
 a stack that is exactly one enabled legacy alpha mask returns that float alpha untouched.
 
+A ``matte`` layer (BR2.2) is a raster from the Smart Mask pack: its decoded frame is bound per
+clip by the compiler (``render/mattes.py``) and drawn by ``render/matte_edges.py``, then combined
+by the same mode/opacity/invert rules.
+
 What export cannot draw yet is REFUSED before rendering with :class:`MaskStackRefusal`
 (a remedy, no varying numbers): a mask drawn approximately would silently differ from what
 the editor promised.
@@ -27,7 +31,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from itertools import pairwise
 from typing import Any
 
@@ -55,16 +59,27 @@ from framepilot_engine.render.masks import (
     mask_scalar_at,
     rasterize_mask,
 )
+from framepilot_engine.render.matte_edges import (
+    apply_clean_levels,
+    clean_levels,
+    distance_feather,
+    edge_shift,
+    to_frame,
+)
+from framepilot_engine.render.mattes import MatteFrame
 from framepilot_engine.timeline.models import Keyframe
 
 _log = logging.getLogger(__name__)
 
 #: Kinds the export draws today.
 SHAPE_KINDS = frozenset({"rectangle", "ellipse", "path"})
+RASTER_KINDS = frozenset({"matte"})
+
+#: A matte layer's decoded frame at the instant being drawn (bound per clip by the compiler).
+MatteFrameSource = Callable[[Any], MatteFrame]
 
 #: Why each other kind is refused, with the remedy. Keyed by kind; no numbers in the text.
 _KIND_REFUSALS = {
-    "matte": "AI matte masks render once the matte renderer ships",
     "key": "colour key masks render once the key renderer ships",
     "linear": "split masks render once the analytic mask renderer ships",
     "band": "band masks render once the analytic mask renderer ships",
@@ -337,6 +352,31 @@ def _legacy_spec(
     return MaskSpec(shape=mask.kind, x=fx, y=fy, width=fw, height=fh, **common)
 
 
+def matte_alpha(
+    mask: Any, clip: Any, frame: MatteFrame, width: int, height: int, source_time: float
+) -> FloatArray:
+    """One matte layer's alpha (after invert and opacity) on the clip's frame (BR2.2).
+
+    Source-pixel edge rules first (:mod:`framepilot_engine.render.matte_edges`: edge shift,
+    clean levels from finesse or ``edgeMode``, then base expansion/feather on the matte's own
+    contour), then the clip's crop and frame size, then the base invert and opacity.
+    """
+    alpha = edge_shift(frame.alpha, frame.maximum, _scalar(mask, "edgeShiftPx", source_time))
+    alpha = apply_clean_levels(alpha, *clean_levels(mask))
+    alpha = distance_feather(
+        alpha,
+        expansion=_scalar(mask, "expansionPx", source_time),
+        feather_inner=max(_scalar(mask, "featherInnerPx", source_time), 0.0),
+        feather_outer=max(_scalar(mask, "featherOuterPx", source_time), 0.0),
+        falloff=str(mask.falloff.value),
+    )
+    return layer_alpha(
+        to_frame(alpha, clip, width, height),
+        invert=bool(mask.invert),
+        opacity=_scalar(mask, "opacity", source_time),
+    )
+
+
 def mask_alpha(
     mask: Any,
     clip: Any,
@@ -344,8 +384,20 @@ def mask_alpha(
     width: int,
     height: int,
     source_time: float,
+    matte_frame: MatteFrameSource | None = None,
 ) -> FloatArray:
-    """One shape mask's alpha (after invert and opacity) on the clip's frame at a source instant."""
+    """One mask's alpha (after invert and opacity) on the clip's frame at a source instant.
+
+    :param matte_frame: Supplies a matte layer's decoded frame at this instant; required when
+        ``mask`` is a matte.
+    """
+    if mask.kind == "matte":
+        if matte_frame is None:
+            raise MaskStackRefusal(
+                f"Matte mask {mask.id!r} on clip {clip.id!r} has no decoded frames bound. "
+                "Export again; if it repeats, report it."
+            )
+        return matte_alpha(mask, clip, matte_frame(mask), width, height, source_time)
     if _is_legacy(mask):
         spec = _legacy_spec(mask, clip, media_size, source_time)
         return rasterize_mask(spec, width, height)
@@ -379,8 +431,9 @@ def stack_alpha(
     width: int,
     height: int,
     source_time: float,
+    matte_frame: MatteFrameSource | None = None,
 ) -> FloatArray:
-    """The combined alpha of an ordered (top first) stack of enabled shape masks.
+    """The combined alpha of an ordered (top first) stack of enabled masks.
 
     The result is quantised once (``rint(a * 255) / 255``), except a stack that is exactly
     one ``add`` legacy mask, which returns the v21 float alpha unchanged (byte-identical
@@ -390,7 +443,7 @@ def stack_alpha(
         return mask_alpha(masks[0], clip, media_size, width, height, source_time)
     accumulated = np.zeros((height, width), dtype=np.float64)
     for mask in masks:
-        alpha = mask_alpha(mask, clip, media_size, width, height, source_time)
+        alpha = mask_alpha(mask, clip, media_size, width, height, source_time, matte_frame)
         accumulated = combine(accumulated, alpha, str(mask.mode.value))
     return quantize_alpha(accumulated).astype(np.float64) / 255.0
 
@@ -416,10 +469,39 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
             f"Mask {mask.id!r} on clip {clip.id!r} limits an effect that is not on the clip. "
             "Retarget the mask or remove it."
         )
+    if mask.kind == "matte":
+        _assert_matte_drawable(mask, clip.id)
     if _is_legacy(mask):
         _assert_legacy_drawable(mask, clip.id)
     if mask.kind == "path":
         path_keyframe_at(mask, mask.path_keyframes[0].source_time if mask.path_keyframes else 0.0)
+
+
+#: Finesse controls the matte renderer draws; the rest land with the finesse group (MK6.2).
+_DRAWN_FINESSE = frozenset({"clean_black", "clean_white"})
+
+
+def _assert_matte_drawable(mask: Any, clip_id: str) -> None:
+    """A matte draws edge shift, clean levels, expansion and distance feather; nothing else."""
+    finesse = mask.finesse
+    defaults = type(finesse)()
+    undrawn = [
+        name
+        for name in type(finesse).model_fields
+        if name not in _DRAWN_FINESSE and getattr(finesse, name) != getattr(defaults, name)
+    ]
+    if undrawn:
+        raise _refuse(
+            mask,
+            clip_id,
+            "matte finesse other than clean black and clean white renders once the matte "
+            "finesse renderer ships",
+        )
+    if _is_legacy(mask):
+        raise MaskStackRefusal(
+            f"Mask {mask.id!r} on clip {clip_id!r} uses the legacy blur feather, which only "
+            "shapes migrated from older projects have. Switch the mask's feather model to Distance."
+        )
 
 
 def _assert_legacy_drawable(mask: Any, clip_id: str) -> None:
@@ -452,6 +534,8 @@ def _assert_legacy_drawable(mask: Any, clip_id: str) -> None:
 
 
 def _animated(mask: Any) -> bool:
+    if mask.kind == "matte":
+        return True
     return bool(mask.keyframes) or (mask.kind == "path" and len(mask.path_keyframes) > 1)
 
 
@@ -464,6 +548,8 @@ class ClipMaskStacks:
     alpha: tuple[Any, ...]
     by_effect: dict[str, tuple[Any, ...]]
     clock: Callable[[float], float]
+    #: Per matte mask id, its decoded frame at CLIP-RELATIVE ``t`` (bound by the compiler).
+    mattes: dict[str, Callable[[float], MatteFrame]] = field(default_factory=dict)
 
     @property
     def alpha_animated(self) -> bool:
@@ -476,7 +562,15 @@ class ClipMaskStacks:
         """The alpha-target stack at CLIP-RELATIVE ``t``; ``None`` when nothing cuts alpha."""
         if not self.alpha:
             return None
-        return stack_alpha(self.alpha, self.clip, self.media_size, width, height, self.clock(t))
+        return stack_alpha(
+            self.alpha,
+            self.clip,
+            self.media_size,
+            width,
+            height,
+            self.clock(t),
+            self._matte_frames_at(t),
+        )
 
     def effect_alpha_at(
         self, effect_id: str, t: float, width: int, height: int
@@ -485,15 +579,49 @@ class ClipMaskStacks:
         masks = self.by_effect.get(effect_id)
         if not masks:
             return None
-        return stack_alpha(masks, self.clip, self.media_size, width, height, self.clock(t))
+        return stack_alpha(
+            masks,
+            self.clip,
+            self.media_size,
+            width,
+            height,
+            self.clock(t),
+            self._matte_frames_at(t),
+        )
+
+    def matte_masks(self) -> tuple[Any, ...]:
+        """Every enabled matte layer in the clip's stacks, top first."""
+        return tuple(
+            mask
+            for mask in (*self.alpha, *(m for ms in self.by_effect.values() for m in ms))
+            if mask.kind == "matte"
+        )
+
+    def _matte_frames_at(self, t: float) -> MatteFrameSource:
+        def frame_of(mask: Any) -> MatteFrame:
+            source = self.mattes.get(str(mask.id))
+            if source is None:
+                raise MaskStackRefusal(
+                    f"Matte mask {mask.id!r} on clip {self.clip.id!r} has no decoded frames "
+                    "bound. Export again; if it repeats, report it."
+                )
+            return source(t)
+
+        return frame_of
 
 
-def clip_mask_stacks(clip: Any, media_size: tuple[float, float] | None) -> ClipMaskStacks | None:
+def clip_mask_stacks(
+    clip: Any,
+    media_size: tuple[float, float] | None,
+    mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
+) -> ClipMaskStacks | None:
     """A clip's enabled mask stacks, refused up front if export cannot draw one faithfully.
 
     :param clip: The clip (a :class:`~framepilot_engine.timeline.models.Clip`).
     :param media_size: The asset's display-corrected ``(width, height)`` (PAR and rotation
         applied), or ``None`` when unmeasured.
+    :param mattes: Per matte mask id, its decoded frame at clip-relative ``t``. Absent while
+        only checking renderability (before any reader opens).
     :raises MaskStackRefusal: When a mask needs a renderer that has not shipped.
     """
     enabled = [mask for mask in (getattr(clip, "masks", None) or []) if mask.enabled]
@@ -524,6 +652,7 @@ def clip_mask_stacks(clip: Any, media_size: tuple[float, float] | None) -> ClipM
         alpha=alpha,
         by_effect=by_effect,
         clock=clip_source_clock(clip),
+        mattes=dict(mattes or {}),
     )
 
 
