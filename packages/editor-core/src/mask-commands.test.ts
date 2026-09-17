@@ -597,3 +597,46 @@ describe('maskGeometryAt', () => {
     expect(maskGeometryAt({ ...mask, units: 'normalized' }, 2)).toBeNull();
   });
 });
+
+describe('mask presets (schema v23)', () => {
+  it('saves shape masks as a preset, applies it rescaled to another clip, and deletes it', () => {
+    const tl = timeline([rect({ name: 'Face' })]);
+    const saved = applied(tl, {
+      type: 'save_mask_preset',
+      name: 'Face box',
+      maskIds: ['c1__mask'],
+    });
+    expect(saved.maskPresets).toMatchObject([
+      { id: 'preset__face_box', name: 'Face box', width: 3840, height: 2160, sourceStart: 2 },
+    ]);
+    const onOther = applied(saved, {
+      type: 'apply_mask_preset',
+      clipId: 'c2',
+      presetId: 'preset__face_box',
+    });
+    expect(masksOn(onOther, 'c2')[0]).toMatchObject({ cx: 960, cy: 540, width: 400, height: 300 });
+    const removed = applied(saved, { type: 'remove_mask_preset', presetId: 'preset__face_box' });
+    expect(removed.maskPresets).toBeUndefined();
+  });
+
+  it('gives a second preset with the same name a free id and refuses empty or matte-only saves', () => {
+    const tl = timeline([rect()]);
+    const once = applied(tl, { type: 'save_mask_preset', name: 'Box', maskIds: ['c1__mask'] });
+    const twice = applied(once, { type: 'save_mask_preset', name: 'Box', maskIds: ['c1__mask'] });
+    expect(twice.maskPresets?.map((preset) => preset.id)).toEqual(['preset__box', 'preset__box_2']);
+    expect(
+      compile(tl, { type: 'save_mask_preset', name: '  ', maskIds: ['c1__mask'] }),
+    ).toMatchObject({
+      code: 'not_editable',
+    });
+    expect(compile(tl, { type: 'save_mask_preset', name: 'X', maskIds: [] })).toMatchObject({
+      code: 'nothing_to_change',
+    });
+    expect(compile(tl, { type: 'apply_mask_preset', presetId: 'gone' })).toMatchObject({
+      code: 'missing_mask',
+    });
+    expect(compile(tl, { type: 'remove_mask_preset', presetId: 'gone' })).toMatchObject({
+      code: 'missing_mask',
+    });
+  });
+});

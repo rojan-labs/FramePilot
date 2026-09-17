@@ -20,7 +20,7 @@ import { z } from 'zod/v4';
  * Bump on any breaking change to the schema. A migration is required before the
  * schema can change in a way that invalidates existing `project.fp.json` files.
  */
-export const SCHEMA_VERSION = 22 as const;
+export const SCHEMA_VERSION = 23 as const;
 
 // ---------------------------------------------------------------------------
 // Primitives
@@ -651,6 +651,23 @@ export const MaskLayerSchema = z.discriminatedUnion('kind', [
   GradientMaskSchema,
   LayerMaskSchema,
 ]);
+
+/**
+ * A saved mask look, per project (schema v23, MK4.3): one or more masks and the picture size
+ * they were drawn on, so loading the preset onto other media rescales the geometry exactly as
+ * pasting does (`paste_masks`). Stored in the project through `save_mask_preset` /
+ * `remove_mask_preset`, never in a side store, so presets travel with the project and undo.
+ */
+export const MaskPresetSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  /** Display-corrected source size the masks were drawn on, pixels. */
+  width: z.number().positive(),
+  height: z.number().positive(),
+  /** Source in-point the keyframe instants are relative to. */
+  sourceStart: z.number().nonnegative().default(0),
+  masks: z.array(MaskLayerSchema).min(1),
+});
 
 /** Every mask kind, in declaration order. */
 export const MASK_KINDS = [
@@ -1357,6 +1374,11 @@ export const TimelineSchema = z.object({
    * `buildTimelineMap`, which normalises the absence away.
    */
   revision: z.number().int().nonnegative().optional(),
+  /**
+   * Mask presets saved in this project (schema v23, MK4.3). Optional rather than defaulted so
+   * every existing timeline literal stays valid; absent means none.
+   */
+  maskPresets: z.array(MaskPresetSchema).optional(),
 });
 
 // ---------------------------------------------------------------------------
@@ -1743,6 +1765,8 @@ export type BandMask = z.infer<typeof BandMaskSchema>;
 export type GradientMask = z.infer<typeof GradientMaskSchema>;
 export type LayerMask = z.infer<typeof LayerMaskSchema>;
 export type MaskLayer = z.infer<typeof MaskLayerSchema>;
+export type MaskPreset = z.infer<typeof MaskPresetSchema>;
+export type MaskPresetInput = z.input<typeof MaskPresetSchema>;
 export type MaskKind = MaskLayer['kind'];
 /** A mask as an author writes it: every defaulted field may be omitted. */
 export type MaskLayerInput = z.input<typeof MaskLayerSchema>;

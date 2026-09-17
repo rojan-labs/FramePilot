@@ -84,6 +84,9 @@ export function postValidationScope(
     case 'review_mask':
     case 'paste_masks':
     case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
     case 'restore_masks':
     case 'set_track_flags':
     case 'set_track_caption_style':

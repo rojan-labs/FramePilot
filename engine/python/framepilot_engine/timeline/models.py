@@ -47,9 +47,10 @@ from pydantic import BaseModel, Field
 # it, because provenance cannot affect a render, but it must round-trip it rather
 # than silently strip the one record of a crediting obligation (ADR 0138); v21 added
 # optional probed ``AssetMedia`` width/height; v22 replaced the ``mask`` effect type
-# with the ``Clip.masks`` / ``EffectLayer.masks`` mask stack (ADR 0178); the
+# with the ``Clip.masks`` / ``EffectLayer.masks`` mask stack (ADR 0178); v23 added
+# optional ``Timeline.maskPresets`` (saved masks, MK4.3), round-tripped only; the
 # engine rejects any file whose envelope version exceeds this.
-SCHEMA_VERSION = 22
+SCHEMA_VERSION = 23
 
 
 class ProjectFileError(Exception):
@@ -682,6 +683,23 @@ MASK_LAYER_MODELS: tuple[type[MaskLayerBase], ...] = (
 )
 
 
+class MaskPreset(BaseModel):
+    """A saved mask look (schema v23, MK4.3); mirrors the TS ``MaskPresetSchema``.
+
+    The engine never renders presets; the mirror exists so a project the engine reads and
+    writes back keeps them.
+    """
+
+    id: str
+    name: str
+    width: float = Field(gt=0)
+    height: float = Field(gt=0)
+    source_start: float = Field(default=0.0, ge=0, alias="sourceStart")
+    masks: list[MaskLayer] = Field(min_length=1)
+
+    model_config = {"populate_by_name": True}
+
+
 class EffectLayer(BaseModel):
     """One time-ranged effect instance on an ``effect`` track (schema v13, ADR 0088).
 
@@ -1172,6 +1190,13 @@ class Timeline(BaseModel):
             "only: styling or muting does not bump it. Absent means 0."
         ),
     )
+    mask_presets: list[MaskPreset] | None = Field(
+        default=None,
+        alias="maskPresets",
+        description="Mask presets saved in the project (schema v23, MK4.3). Absent means none.",
+    )
+
+    model_config = {"populate_by_name": True}
 
     def active_effect_layers_at(self, time: float) -> list[tuple[Track, EffectLayer]]:
         """Every live effect layer at ``time``, in the exact order to apply them.

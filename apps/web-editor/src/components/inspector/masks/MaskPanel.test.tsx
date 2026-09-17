@@ -312,3 +312,30 @@ describe('properties', () => {
     ).toBe(true);
   });
 });
+
+describe('clipboard and presets (MK4.3)', () => {
+  it('copies, pastes and duplicates masks', () => {
+    render(<Host initial={timeline([rect()])} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Copy mask' }));
+    expect(store.getState().clipboard?.masks).toHaveLength(1);
+    fireEvent.click(screen.getByRole('button', { name: 'Paste masks' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Duplicate mask' }));
+    expect(masks().map((mask) => mask.id)).toEqual(['c1__mask', 'm1', 'm1__paste_1']);
+    expect(history()).toBe(2);
+  });
+
+  it('saves the selected mask as a project preset, applies and deletes it', () => {
+    render(<Host initial={timeline([rect()])} />);
+    fireEvent.change(screen.getByRole('textbox', { name: 'Preset name' }), {
+      target: { value: 'Face box' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Save preset' }));
+    expect(editor.state.timeline.maskPresets?.map((preset) => preset.name)).toEqual(['Face box']);
+    fireEvent.click(screen.getByRole('button', { name: 'Apply preset' }));
+    expect(masks()).toHaveLength(2);
+    fireEvent.click(screen.getByRole('button', { name: 'Delete preset' }));
+    expect(editor.state.timeline.maskPresets).toBeUndefined();
+    act(() => editor.undo());
+    expect(editor.state.timeline.maskPresets).toHaveLength(1);
+  });
+});

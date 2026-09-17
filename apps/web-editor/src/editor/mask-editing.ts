@@ -7,13 +7,22 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 import {
+  assetDisplaySize,
   compileMaskCommand,
   encodeMaskPath,
+  MEASURE_MEDIA_FIRST,
   maskSourceTime,
+  type MaskClipboard,
   type MaskCommand,
   type MaskGeometry,
 } from '@framepilot/editor-core';
-import type { Clip, MaskLayer, Timeline } from '@framepilot/timeline-schema';
+import {
+  masksOf,
+  type Asset,
+  type Clip,
+  type MaskLayer,
+  type Timeline,
+} from '@framepilot/timeline-schema';
 import type { UseEditor } from './useEditor.js';
 
 const log = createLogger('web-editor:mask-editing');
@@ -136,6 +145,15 @@ const INVERSE_STEPS = 48;
  */
 export function clipTimelineTimeForSource(clip: Clip, sourceTime: number): number {
   const duration = Math.max(0, clip.end - clip.start);
+  const clampLocal = (local: number): number => clip.start + Math.min(duration, Math.max(0, local));
+  // Constant speed has an exact inverse; only a ramp needs the search.
+  if (clip.speedRamp === undefined || clip.speedRamp.length === 0) {
+    const speed = clip.speed ?? 1;
+    if (speed === 0) return clip.start;
+    return clampLocal(
+      speed > 0 ? (sourceTime - clip.sourceStart) / speed : (sourceTime - clip.sourceEnd) / speed,
+    );
+  }
   const first = maskSourceTime(clip, 0);
   const last = maskSourceTime(clip, duration);
   const ascending = last >= first;
@@ -157,4 +175,29 @@ export function clipTimelineTimeForSource(clip: Clip, sourceTime: number): numbe
 export function clipSourceTimeAt(clip: Clip, playhead: number): number {
   const local = Math.max(0, Math.min(clip.end - clip.start, playhead - clip.start));
   return maskSourceTime(clip, local);
+}
+
+/**
+ * Copy masks of a clip for `paste_masks`: the masks plus what pasting needs to rescale them to
+ * another picture (the source size and in-point).
+ *
+ * @returns The clipboard, or the refusal text (unmeasured media, nothing selected).
+ */
+export function copyMasks(
+  clip: Clip,
+  assets: readonly Asset[],
+  maskIds: readonly string[],
+): MaskClipboard | string {
+  const size = assetDisplaySize(assets.find((asset) => asset.id === clip.assetId)?.media);
+  if (size === null) return MEASURE_MEDIA_FIRST;
+  const wanted = new Set(maskIds);
+  const masks = masksOf(clip).filter((mask) => wanted.has(mask.id));
+  if (masks.length === 0) return 'Select a mask to copy.';
+  return {
+    assetId: clip.assetId,
+    width: size.width,
+    height: size.height,
+    sourceStart: clip.sourceStart,
+    masks: structuredClone(masks),
+  };
 }

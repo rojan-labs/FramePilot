@@ -293,6 +293,16 @@ export const MIGRATIONS: readonly Migration[] = [
       'size (ADR 0178).',
     migrate: migrateMaskEffectsToStack,
   },
+  {
+    from: 22,
+    to: 23,
+    describe:
+      'The timeline gains optional `maskPresets`: masks an editor saved to reuse on other ' +
+      'clips, with the picture size they were drawn on. Purely additive and nothing to ' +
+      'backfill: no v22 project saved a preset. The step stamps the envelope so an older ' +
+      'app refuses a project whose presets it would otherwise drop on save (MK4.3).',
+    migrate: (raw) => raw,
+  },
 ];
 
 /**

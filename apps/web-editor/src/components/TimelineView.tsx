@@ -1014,7 +1014,7 @@ const TimelineClip = memo(function TimelineClip({
   /** Which of the clip's own controls are actually on screen for this clip. */
   const hasFadeHandles = kind === 'audio' && clipWidthPx >= FADE_HANDLE_MIN_CLIP_PX;
   const hasLanesToggle =
-    onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader;
+    onToggleLanes !== undefined && isAnimated(clip) && density.showHeader;
   // Advertised only where the key does something. A clip that promises D and has
   // no lanes to open teaches the user the shortcut does not work.
   const keyShortcuts = [
@@ -1256,7 +1256,7 @@ const TimelineClip = memo(function TimelineClip({
         wide enough to have shown its header, since below that there is no room for a
         control the user could hit.
       */}
-      {onToggleLanes !== undefined && clip.keyframes.length > 0 && density.showHeader && (
+      {onToggleLanes !== undefined && isAnimated(clip) && density.showHeader && (
         <button
           type="button"
           className="clip-lanes-toggle"

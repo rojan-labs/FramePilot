@@ -50,7 +50,7 @@ const validProject = {
 
 describe('timeline-schema', () => {
   it('exposes a numeric SCHEMA_VERSION', () => {
-    expect(SCHEMA_VERSION).toBe(22);
+    expect(SCHEMA_VERSION).toBe(23);
   });
 
   describe('mask stack (`Clip.masks`, schema v22)', () => {

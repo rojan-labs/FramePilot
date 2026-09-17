@@ -60,6 +60,7 @@ import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/time
 import type { UseEditor } from '../../editor/useEditor.js';
 import {
   clipSourceTimeAt,
+  copyMasks,
   runMaskCommand,
   type MaskCommandInput,
 } from '../../editor/mask-editing.js';
@@ -1224,6 +1225,22 @@ export function MaskCanvasTools({
       if (run({ type: 'remove_mask', clipId: clip.id, maskId: selectedMask.id })) {
         store.selectMask(null);
         setAnnouncement('Mask deleted');
+      }
+      return;
+    }
+    if (modifier && (lower === 'c' || lower === 'v')) {
+      handled();
+      if (lower === 'c') {
+        const copied = copyMasks(clip, assets, selectedMask === null ? [] : [selectedMask.id]);
+        if (typeof copied === 'string') report(copied);
+        else {
+          store.update({ clipboard: copied, message: null });
+          setAnnouncement('Mask copied');
+        }
+      } else if (tools.clipboard !== null) {
+        if (run({ type: 'paste_masks', clipId: clip.id, clipboard: tools.clipboard })) {
+          setAnnouncement('Masks pasted');
+        }
       }
       return;
     }

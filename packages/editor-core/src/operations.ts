@@ -1120,6 +1120,9 @@ function applyOperationInner(
     case 'review_mask':
     case 'paste_masks':
     case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
     case 'restore_masks':
       return applyMaskOperation(timeline, op);
     case 'track_object':
@@ -3119,6 +3122,9 @@ export function invertOperation(
     case 'review_mask':
     case 'paste_masks':
     case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
     case 'restore_masks':
       // Mask stacks invert through their own module: exact same-shape inverses where they
       // exist, a `restore_masks` snapshot where they cannot (ADR 0178).

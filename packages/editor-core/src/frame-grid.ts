@@ -268,6 +268,9 @@ export function normalizeOperationTime(op: AnyOperation, fps: number): AnyOperat
     case 'review_mask':
     case 'paste_masks':
     case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
     case 'restore_masks':
     case 'set_clip_source_range':
     case 'set_clip_media':

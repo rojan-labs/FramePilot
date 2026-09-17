@@ -32,6 +32,7 @@ import {
   MaskKeyframeSchema,
   MaskLayerSchema,
   MaskPathKeyframeSchema,
+  MaskPresetSchema,
   MaskReviewSchema,
   MaskTrackingSchema,
   masksOf,
@@ -44,6 +45,8 @@ import {
   type MaskLayerInput,
   type MaskPathKeyframe,
   type MaskPathKeyframeInput,
+  type MaskPreset,
+  type MaskPresetInput,
   type MaskReviewInput,
   type MaskScalarProperty,
   type MaskSpace,
@@ -239,6 +242,24 @@ export interface AddTextBehindSubjectOp {
   readonly textClipId?: string;
 }
 
+/** Save masks as a project preset (schema v23, MK4.3). Refuses an id already in use. */
+export interface SaveMaskPresetOp {
+  readonly type: 'save_mask_preset';
+  readonly preset: MaskPresetInput;
+}
+
+/** Delete a project mask preset by id. */
+export interface RemoveMaskPresetOp {
+  readonly type: 'remove_mask_preset';
+  readonly presetId: string;
+}
+
+/** Internal inverse primitive: replace the project's presets with a prior snapshot. */
+export interface RestoreMaskPresetsOp {
+  readonly type: 'restore_mask_presets';
+  readonly presets: readonly MaskPreset[];
+}
+
 /**
  * Internal inverse primitive: replace a whole mask stack with a prior snapshot. Produced
  * only by {@link invertMaskOperation}, mirroring `restore_clips`.
@@ -268,6 +289,9 @@ export type MaskOperation =
   | ReviewMaskOp
   | PasteMasksOp
   | AddTextBehindSubjectOp
+  | SaveMaskPresetOp
+  | RemoveMaskPresetOp
+  | RestoreMaskPresetsOp
   | RestoreMasksOp;
 
 export type MaskOperationType = MaskOperation['type'];
@@ -293,6 +317,9 @@ export const MASK_OPERATION_TYPES = [
   'review_mask',
   'paste_masks',
   'add_text_behind_subject',
+  'save_mask_preset',
+  'remove_mask_preset',
+  'restore_mask_presets',
   'restore_masks',
 ] as const satisfies readonly MaskOperationType[];
 
@@ -1382,11 +1409,53 @@ export function applyMaskOperation(timeline: Timeline, op: MaskOperation): Timel
       return applyPaste(timeline, op);
     case 'add_text_behind_subject':
       return applyTextBehindSubject(timeline, op);
+    case 'save_mask_preset':
+      return applySavePreset(timeline, op);
+    case 'remove_mask_preset': {
+      const presets = timeline.maskPresets ?? [];
+      if (!presets.some((preset) => preset.id === op.presetId)) {
+        throw new MaskOperationError(
+          'missing_mask',
+          `Mask preset '${op.presetId}' is not in this project. Read the project's presets for their ids.`,
+        );
+      }
+      return withPresets(
+        timeline,
+        presets.filter((preset) => preset.id !== op.presetId),
+      );
+    }
+    case 'restore_mask_presets':
+      return withPresets(timeline, op.presets.map(clone));
     case 'restore_masks': {
       const owner = locateOwner(timeline, op);
       return owner.replace(op.masks.map(clone));
     }
   }
+}
+
+/** Presets stored with an empty list as an ABSENT key, so undo lands on the prior document. */
+function withPresets(timeline: Timeline, presets: readonly MaskPreset[]): Timeline {
+  if (presets.length > 0) return { ...timeline, maskPresets: [...presets] };
+  const { maskPresets: _removed, ...rest } = timeline;
+  return rest;
+}
+
+function applySavePreset(timeline: Timeline, op: SaveMaskPresetOp): Timeline {
+  const parsed = MaskPresetSchema.safeParse(op.preset);
+  if (!parsed.success) {
+    throw new MaskOperationError(
+      'invalid_mask',
+      `save_mask_preset: field '${issuePath(parsed.error)}' is not a valid preset value. A preset needs a name, a picture size and at least one mask.`,
+    );
+  }
+  const presets = timeline.maskPresets ?? [];
+  if (presets.some((preset) => preset.id === parsed.data.id)) {
+    throw new MaskOperationError(
+      'duplicate_mask',
+      `Mask preset id '${parsed.data.id}' is already used. Choose a new id.`,
+    );
+  }
+  return withPresets(timeline, [...presets, parsed.data]);
 }
 
 // ---------------------------------------------------------------------------
@@ -1520,6 +1589,22 @@ export function invertMaskOperation(
         { type: 'restore_clips', trackId: track.id, clips: track.clips.map(clone) },
       ];
     }
+    case 'save_mask_preset': {
+      const parsed = MaskPresetSchema.safeParse(op.preset);
+      return parsed.success
+        ? [{ type: 'remove_mask_preset', presetId: parsed.data.id }]
+        : [
+            {
+              type: 'restore_mask_presets',
+              presets: (timelineBefore.maskPresets ?? []).map(clone),
+            },
+          ];
+    }
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
+      return [
+        { type: 'restore_mask_presets', presets: (timelineBefore.maskPresets ?? []).map(clone) },
+      ];
     case 'update_mask':
     case 'set_mask_path':
     case 'remove_mask_keyframe':
@@ -1538,6 +1623,9 @@ export function maskOperationClipIds(op: MaskOperation): readonly string[] {
     case 'add_text_behind_subject':
       return [op.clipId];
     case 'add_effect_layer_mask':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
       return [];
     case 'use_track':
       return op.to.clipId === undefined ? [] : [op.to.clipId];
@@ -1554,6 +1642,9 @@ export function maskOperationLayerId(op: MaskOperation): string | undefined {
     case 'add_mask':
     case 'paste_masks':
     case 'add_text_behind_subject':
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
       return undefined;
     case 'use_track':
       return op.to.layerId;

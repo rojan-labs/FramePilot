@@ -99,6 +99,10 @@ function touchedOwners(op: MaskOperation): readonly {
       return [{ clipId: op.clipId }];
     case 'add_effect_layer_mask':
       return [{ layerId: op.layerId }];
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+    case 'restore_mask_presets':
+      return [];
     case 'use_track':
       return [op.to.clipId === undefined ? { layerId: op.to.layerId } : { clipId: op.to.clipId }];
     default:

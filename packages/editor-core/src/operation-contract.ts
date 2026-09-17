@@ -467,8 +467,12 @@ export function assertOperationContract(timeline: Timeline, op: Operation): void
     case 'use_track':
       assertMaskUnlocked(timeline, op.to, op.to.maskId, op.type);
       return;
+    case 'save_mask_preset':
+    case 'remove_mask_preset':
+      return; // project presets belong to no track, so no lock applies
     case 'restore_effect_layer':
     case 'restore_clips':
+    case 'restore_mask_presets':
     case 'restore_masks':
       return; // internal lossless inverse primitives must always be able to restore state
   }

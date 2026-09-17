@@ -13,11 +13,13 @@ import { masksOf, type Clip } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import {
   clipSourceTimeAt,
+  copyMasks,
   runMaskCommand,
   type MaskCommandInput,
 } from '../../../editor/mask-editing.js';
 import { Circle, ICON_SIZE, Pencil, PenTool, Square } from '../../icons.js';
 import { MaskList, maskDisplayName } from './MaskList.js';
+import { MaskPresets } from './MaskPresets.js';
 import { MaskProperties } from './MaskProperties.js';
 import { maskToolStore, useMaskTools, type MaskTool, type MaskToolStore } from './useMaskTools.js';
 
@@ -106,6 +108,58 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
         }
         onReorder={(maskIds) => run({ type: 'reorder_masks', clipId: clip.id, maskIds })}
         onRemove={(maskId) => run({ type: 'remove_mask', clipId: clip.id, maskId })}
+      />
+      <div className="mask-panel-actions" role="group" aria-label="Mask clipboard">
+        <button
+          type="button"
+          className="inspector-text-button"
+          disabled={selected === null}
+          onClick={() => {
+            const copied = copyMasks(
+              clip,
+              editor.state.assets,
+              selected === null ? [] : [selected.id],
+            );
+            if (typeof copied === 'string') store.update({ message: copied });
+            else store.update({ clipboard: copied, message: 'Mask copied.' });
+          }}
+        >
+          Copy mask
+        </button>
+        <button
+          type="button"
+          className="inspector-text-button"
+          disabled={tools.clipboard === null || !measured}
+          onClick={() => {
+            if (tools.clipboard === null) return;
+            run({ type: 'paste_masks', clipId: clip.id, clipboard: tools.clipboard });
+          }}
+        >
+          Paste masks
+        </button>
+        <button
+          type="button"
+          className="inspector-text-button"
+          disabled={selected === null}
+          onClick={() => {
+            if (selected !== null)
+              run({ type: 'duplicate_mask', clipId: clip.id, maskId: selected.id });
+          }}
+        >
+          Duplicate mask
+        </button>
+      </div>
+      <MaskPresets
+        presets={editor.state.timeline.maskPresets ?? []}
+        canSave={selected !== null}
+        canApply={measured}
+        onSave={(name) => {
+          if (selected !== null) {
+            run({ type: 'save_mask_preset', clipId: clip.id, name, maskIds: [selected.id] });
+          }
+        }}
+        onApply={(presetId) => run({ type: 'apply_mask_preset', clipId: clip.id, presetId })}
+        onRemove={(presetId) => run({ type: 'remove_mask_preset', clipId: clip.id, presetId })}
       />
       {tools.message !== null && (
         <p className="inspector-empty inspector-empty-inline mask-panel-message" role="status">

@@ -323,7 +323,28 @@ export interface PasteMasksCommand extends MaskCommandBase {
   readonly clipboard: MaskClipboard;
 }
 
+/** Save the chosen masks of a clip as a project preset (MK4.3). */
+export interface SaveMaskPresetCommand extends MaskCommandBase {
+  readonly type: 'save_mask_preset';
+  readonly name: string;
+  readonly maskIds: readonly string[];
+}
+
+/** Add a preset's masks to a clip, rescaled to its picture. */
+export interface ApplyMaskPresetCommand extends MaskCommandBase {
+  readonly type: 'apply_mask_preset';
+  readonly presetId: string;
+}
+
+export interface RemoveMaskPresetCommand extends MaskCommandBase {
+  readonly type: 'remove_mask_preset';
+  readonly presetId: string;
+}
+
 export type MaskCommand =
+  | SaveMaskPresetCommand
+  | ApplyMaskPresetCommand
+  | RemoveMaskPresetCommand
   | DrawMaskCommand
   | SetMaskGeometryCommand
   | SetMaskPropertiesCommand
@@ -946,7 +967,80 @@ function build(input: CompileMaskCommandInput): Built {
       return buildDuplicate(input, command);
     case 'paste_masks':
       return buildPaste(input, command);
+    case 'save_mask_preset':
+      return buildSavePreset(input, command);
+    case 'apply_mask_preset': {
+      const preset = (input.timeline.maskPresets ?? []).find(
+        (candidate) => candidate.id === command.presetId,
+      );
+      if (preset === undefined)
+        throw new Rejection('missing_mask', 'That preset is no longer in this project.');
+      const built = buildPaste(input, {
+        ...command,
+        type: 'paste_masks',
+        clipboard: {
+          // A preset is not tied to media, so it never carries a matte across (paste refuses it).
+          assetId: '',
+          width: preset.width,
+          height: preset.height,
+          sourceStart: preset.sourceStart,
+          masks: preset.masks,
+        },
+      });
+      return { ...built, reason: `Apply mask preset "${preset.name}"` };
+    }
+    case 'remove_mask_preset': {
+      const preset = (input.timeline.maskPresets ?? []).find(
+        (candidate) => candidate.id === command.presetId,
+      );
+      if (preset === undefined)
+        throw new Rejection('missing_mask', 'That preset is no longer in this project.');
+      return {
+        operations: [{ type: 'remove_mask_preset', presetId: preset.id }],
+        reason: `Delete mask preset "${preset.name}"`,
+      };
+    }
   }
+}
+
+function buildSavePreset(input: CompileMaskCommandInput, command: SaveMaskPresetCommand): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  const size = clipDisplaySize(clip, input.assets);
+  const name = command.name.trim();
+  if (name === '') throw new Rejection('not_editable', 'Name the preset.');
+  const wanted = new Set(command.maskIds);
+  const masks = masksOf(clip).filter((mask) => wanted.has(mask.id) && mask.kind !== 'matte');
+  if (masks.length === 0) {
+    throw new Rejection(
+      'nothing_to_change',
+      'Select a shape mask to save. Background-removal mattes belong to their media and are not saved as presets.',
+    );
+  }
+  const taken = new Set((input.timeline.maskPresets ?? []).map((preset) => preset.id));
+  const base = `preset__${
+    name
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_|_$/g, '') || 'mask'
+  }`;
+  let id = base;
+  for (let attempt = 2; taken.has(id); attempt += 1) id = `${base}_${String(attempt)}`;
+  return {
+    operations: [
+      {
+        type: 'save_mask_preset',
+        preset: {
+          id,
+          name,
+          width: size.width,
+          height: size.height,
+          sourceStart: clip.sourceStart,
+          masks: masks.map((mask) => structuredClone(mask)),
+        },
+      },
+    ],
+    reason: `Save mask preset "${name}"`,
+  };
 }
 
 /**
