@@ -80,7 +80,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ## MK — Professional masking ([`10`](./10-PROFESSIONAL-MASKING.md))
 
-### MK1 — Schema v22 mask stack, migration, operations `[~]` (needs MD-1; all items committed through 80d28e08, awaiting CI green)
+### MK1 — Schema v22 mask stack, migration, operations `[x]` (CI fully green at 2bd1511e, run 35213883104)
 
 - [x] MK1.1 `Clip.masks` (all kinds incl. `matte`, `key`), source-time keyframes, path keyframes, tracking ref; Pydantic twin + parity test
 - [x] MK1.2 Migration v21→v22: first mask → stack, polygon → path, keyframes → source time via speed/ramp mapping, `gaussian-legacy`, extra masks disabled with a note, tracked masks preserved; round-trip tests
@@ -89,7 +89,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] MK1.9 Probe records pixel aspect ratio and rotation metadata on `Asset.media` (optional fields, v22) so display-corrected source space is real for anamorphic and rotated phone footage (P5)
 - [x] MK1.8 Pre-migration backup file; newer-schema refusal in older apps; display-corrected source space (PAR + rotation) conversion helpers; compact path keyframe storage
 - [x] MK1.5 Fix `applySplit`/`truncateClip` for effect keyframes (the latent bug) with tests
-- [~] MK1.6 (`use_track` for text/overlay transforms lands with MK7.6) Re-specify `add_mask` / `track_object` / `apply_tracked_mask` on the new model; migrate `tracking-commands.ts`
+- [x] MK1.6 (`use_track` for text/overlay transforms lands with MK7.6) Re-specify `add_mask` / `track_object` / `apply_tracked_mask` on the new model; migrate `tracking-commands.ts`
 - [x] MK1.7 `pnpm schema:generate` + drift tests; ADR (mask stack replaces mask effects); docs/api
 
 **DoD:** editor-core and timeline-schema tests for the touched files pass; CI green.
@@ -103,12 +103,12 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** engine tests for new modules pass; goldens updated in the same PR.
 
-### MK3 — Preview mask pass `[ ]` (needs PX2)
+### MK3 — Preview mask pass `[x]` (108 rasters byte-equal on Linux/macOS/Windows; every mask oracle row PSNR inf; run 35213883104)
 
-- [ ] MK3.1 `preview/masks/mask-raster.ts` byte-equal to the Python vectors at 3 resolutions
-- [ ] MK3.2 `mask-stack` pass in the compositor; effect passes accept a mask texture; delete `clip-mask.ts`
-- [ ] MK3.3 Debug views: Overlay / Mask only / Checkerboard
-- [ ] MK3.4 All mask rows of the `09` oracle green
+- [x] MK3.1 `preview/masks/mask-raster.ts` byte-equal to the Python vectors at 3 resolutions
+- [x] MK3.2 `mask-stack` pass in the compositor; effect passes accept a mask texture; delete `clip-mask.ts`
+- [x] MK3.3 Debug views: Overlay / Mask only / Checkerboard
+- [x] MK3.4 All mask rows of the `09` oracle green
 
 **DoD:** vectors byte-equal; oracle rows green in CI.
 
@@ -210,7 +210,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** pack registers locally, passes health, and produces a host-verified artifact with a report on a real 1-min 4K clip.
 
-### BR4 — Protocol + desktop host `[~]` (needs MD-3, MD-4; all but BR4.12 through 91076959 with a fake worker; 182 desktop pack tests; windowed resume awaits BR3.14)
+### BR4 — Protocol + desktop host `[x]` (needs MD-3, MD-4; all but BR4.12 through 91076959 with a fake worker; 182 desktop pack tests; windowed resume awaits BR3.14)
 
 - [x] BR4.1 `subject.matte` schemas + protocol tests (additive negotiation)
 - [x] BR4.2 Staging write handle, inputs read handle, host verification (incl. locked-frame bit identity), atomic rename, orphan sweep
@@ -224,7 +224,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR4.13 Lock verification and media frame hashing go through the sidecar (packaged builds bundle only ffprobe; today those checks fail closed in release builds)
 - [x] BR4.14 Desktop relink/replace/re-proxy flow calls `recheckProjectMatteMedia` (and tracks after MK7); STALE shown with remedy; engine export refuses `matte_media_changed`
 - [x] BR4.11 Observability events and opt-in diagnostic bundle
-- [~] BR4.12 (re-review 2026-09-17: approved with deferrals; conditions = ADR/03 wording + CI green on the fuzz harness head; cheap deferrals being fixed — `BR4.12-SECURITY-REVIEW.md`) **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
+- [x] BR4.12 (approved with deferrals; conditions met: ADR/03 wording b8aa5615, CI green incl. fuzz harness at 2bd1511e; runbook docs/runbooks/capability-pack-security.md) **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
 
 **DoD:** desktop capability-pack tests for new files pass; security review recorded in the PR.
 

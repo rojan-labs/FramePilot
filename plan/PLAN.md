@@ -10031,10 +10031,10 @@ masking; AI masking; everything production-grade. **Parity and production audit 
   SigLIP re-ranking (click for out-of-vocabulary targets) + identity. Ask on ambiguity, never invent geometry, same ops and review list.
   Gates: ≥ 99% target accuracy, ≥ 97% asks on ambiguous requests.
 
-- [~] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets (PX0, PX1, PX3, PX4 done; PX2 46/48 oracle rows, last two wait on MK3/BR5; PX5 pending)
-- [~] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
+- [~] PX0–PX5 — inventory, frame plan, pixel oracle, N-layer compositor, delete gates, perf budgets (PX0, PX1, PX3, PX4 done; PX2 51/52 oracle rows, the matte row waits on BR5; PX5 pending)
+- [x] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
 - [x] MK2 — exact rasteriser + engine mask stack + goldens
-- [ ] MK3 — preview mask pass, byte-equal vectors, oracle rows
+- [x] MK3 — preview mask pass, byte-equal vectors, oracle rows
 - [ ] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
 - [ ] MK5 — effect-target masks (face blur, secondary grade)
 - [ ] MK6 — key mask (colour/luma qualifier, despill)
