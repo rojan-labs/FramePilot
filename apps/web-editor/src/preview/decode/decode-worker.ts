@@ -25,6 +25,7 @@
  * demuxed table, so B-frame footage decodes correctly.
  */
 import { copyI420, pictureTransfer, type DecodedPicture } from './decoded-picture.js';
+import { DecoderPool, type PooledDecoderHolder } from './decoder-pool.js';
 import {
   demuxAllVideoSamples,
   demuxSampleTableStreaming,
@@ -200,7 +201,7 @@ function httpRangeReader(url: string, size: number): ByteRangeReader {
   };
 }
 
-class DecoderSession {
+class DecoderSession implements PooledDecoderHolder {
   /** One decoder for the lifetime of this session — reused via reset() +
    * configure() across every seek, never replaced. Creating a fresh
    * VideoDecoder per seek leaked decoder instances and silently exhausted
@@ -214,6 +215,8 @@ class DecoderSession {
   private reader: ByteRangeReader | undefined;
   private readonly chunkCache = new Map<number, EncodedVideoChunk>();
   private reconfigureCount = 0;
+  /** A decode call is running; the pool must not take this session's decoder. */
+  busy = false;
 
   // -- Streaming state (valid while `streamActive`) --------------------------
   /** True while the decoder is mid-stream: configured, fed a contiguous run of
@@ -317,9 +320,20 @@ class DecoderSession {
     toPresentation: number,
     output: 'frame' | 'picture' = 'frame',
   ): Promise<{ decodeDurationMs: number; reconfigured: boolean }> {
-    const run = this.queue.then(() =>
-      this.decodeRangeSerialized(requestId, fromPresentation, toPresentation, output),
-    );
+    const run = this.queue.then(async () => {
+      this.busy = true;
+      if (this.decoder) decoderPool.touch(this);
+      try {
+        return await this.decodeRangeSerialized(
+          requestId,
+          fromPresentation,
+          toPresentation,
+          output,
+        );
+      } finally {
+        this.busy = false;
+      }
+    });
     // Keep the queue alive past a rejection so a failed call doesn't wedge
     // every subsequent one; the failure still propagates to THIS caller.
     this.queue = run.catch(() => undefined);
@@ -386,6 +400,7 @@ class DecoderSession {
       throw new Error(`No decode index for keyframe presentation ${keyframePresentation}.`);
     }
     if (!this.decoder || this.decoder.state === 'closed') {
+      decoderPool.admit(this);
       this.decoder = new VideoDecoder({
         output: (frame) => this.handleOutput(frame),
         error: (err) => {
@@ -527,7 +542,16 @@ class DecoderSession {
     return { reconfigureCount: this.reconfigureCount };
   }
 
+  /** Give the decoder back to the pool; the next request reseeks and creates a new one. */
+  releaseDecoder(): void {
+    this.closeStash();
+    this.streamActive = false;
+    if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
+    this.decoder = undefined;
+  }
+
   dispose(): void {
+    decoderPool.forget(this);
     this.closeStash();
     this.streamActive = false;
     if (this.decoder && this.decoder.state !== 'closed') this.decoder.close();
@@ -631,6 +655,7 @@ class DecoderSession {
 }
 
 const sessions = new Map<string, DecoderSession>();
+const decoderPool = new DecoderPool<DecoderSession>();
 
 function post(message: WorkerResponse, transfer: Transferable[]): void {
   (self as unknown as PostMessageTarget).postMessage(message, transfer);
