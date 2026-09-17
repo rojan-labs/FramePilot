@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Two agents running: finish BR5 (matte oracle rows red at 22f038be) and finish MK4 (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** BR5 done (59/59 oracle). MK4 finishing (E2E smoke red on its own pointer budget spec). Was: finish BR5 and MK4 (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- BR5 (6c56ef91…31ae9ff2): matte in the preview. Cause of the 8 red rows: CI ffmpeg writes FFV1 in a VFW-wrapped Matroska header the preview demuxer rejected. **59/59 oracle cases pass, baseline empty.** Preview decodes lossless FFV1 masters (540p VP9 measured 32.44 dB / 98.34% — below gates). Progressive: unprocessed ranges say "Processing background removal", never a wrong picture
 
 - **CI fully green** at 2bd1511e (run 35213883104): TS, Python, vectors mac/win, oracle, E2E smoke, visual, desktop build, professional ops
 - MK3 (c6f9e4b3…2bd1511e): TS rasteriser byte-equal (108 rasters × 3 platforms), mask-stack compositor pass, clip-mask.ts deleted, mask views, 5 mask oracle rows PSNR inf; engine fix: static expansionPx/edgeShiftPx ignored at export; smoke fix: compositor transport length/paused seek
@@ -74,6 +76,9 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
+- E2E smoke: `specs/mask-tools.spec.ts:167` pointer-to-paint budget fails on all retries (MK4's own spec; MK4 agent fixing)
+- Tip: `gh workflow run CI --ref plan/background-removal-ai` lands in a different concurrency group than PR pushes, so long jobs aren't cancelled by peers' pushes
+
 - Run 35174495193 (3f4c2029): ai-sdk repeated-failure.test.ts v21 mask fixture → fixed 41af6255; Python test_mask_render_golden.py 10 cases block-mean drift 1.2–4.3 on ubuntu (codec, not mask) → fixed b532e432 (numpy lossless source; testsrc2 differs between ffmpeg 7.1/8.1); CI run 35185364341 Python ✓ vectors ✓, TS + oracle pending
 
 - Frequent pushes cancel long CI jobs (concurrency cancel-in-progress); a full green run needs a quiet window. Vector jobs green on 9fcb2496 (macOS + Windows).
@@ -82,6 +87,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- PX4 oracle run 35281873504: **59/59 cases pass**; 7 of 8 matte rows bit-identical, matte-text-behind-subject 53.68 dB; baseline `cases` empty (only colour.bt709-limited webgl, the harness's non-compositor path)
 
 - BR3.15 (scored split, construction-true, CPU, BiRefNet 768²): mean IoU 0.938, 5th pct 0.785, BF@2px 0.780, 71.9% of frames wrong by the 06 rule. Recall on held-out 96.5% ✗ (gate ≥ 99.5%); review load gate ✗. Job peak 4.2–4.5 GB. Weak categories: low_light 0.81, leave_reenter 0.87, crossing 0.89
 - MK4.6 save budget ✓ 172 ms / 13.4 MB (1,000 path keyframes × 200 vertices); pointer-to-paint number pending

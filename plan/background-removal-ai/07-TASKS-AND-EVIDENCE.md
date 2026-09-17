@@ -47,7 +47,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** the harness runs in CI on the PR; the baseline failure list is committed.
 
-### PX2 — N-layer compositor `[~]` (46/48 oracle cases pass at 400c8b52, CI run 35188154157; `alpha/mask-shapes` → MK3, `alpha/matte-text-behind-subject` → BR5)
+### PX2 — N-layer compositor `[x]` (59/59 oracle cases pass at 31ae9ff2, run 35281873504; baseline empty)
 
 - [x] PX2.1 `layer-compositor.ts` (WebGL2, FBO pool, premultiplied alpha) driven by `framePlanAt`
 - [x] PX2.2 Blend-mode shaders mirroring `render/blend.py`; existing effect, transition and mask chains become per-layer passes
@@ -228,11 +228,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** desktop capability-pack tests for new files pass; security review recorded in the PR.
 
-### BR5 — Matte in the preview `[ ]` (needs MK3)
+### BR5 — Matte in the preview `[x]` (8 matte rows pass; 7 bit-identical; run 35281873504)
 
-- [ ] BR5.1 `masks/matte-source.ts` feeding the mask-stack pass (decode matte + foreground proxies by plan pts)
-- [ ] BR5.2 Flagged view added to the mask debug views
-- [ ] BR5.3 Matte and text-behind-subject rows added to the PX4 oracle and passing
+- [x] BR5.1 `masks/matte-source.ts` feeding the mask-stack pass (decode matte + foreground proxies by plan pts)
+- [x] BR5.2 Flagged view added to the mask debug views
+- [x] BR5.3 Matte and text-behind-subject rows added to the PX4 oracle and passing
 
 **DoD:** oracle rows green in CI.
 
