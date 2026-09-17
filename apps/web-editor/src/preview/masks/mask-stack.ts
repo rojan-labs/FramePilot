@@ -32,7 +32,12 @@ import {
   evaluateSortedCurve,
   maskSourceTime,
   segmentProgress,
+  trackFrameIndexAt,
+  trackMatrixAt,
+  trackPointDelta,
+  trackWarpPoint,
   type DisplaySize,
+  type TrackArtifact,
 } from '@framepilot/editor-core';
 import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
@@ -58,6 +63,7 @@ import {
   type BezierPath,
   type MaskCombineMode,
 } from './mask-raster.js';
+import { TRACK_REMEDIES } from './track-source.js';
 import { previewIdentity } from '../semantic-signature.js';
 import { cleanLevels, matteFrameAlpha, type MatteFrameData } from './matte-edges.js';
 
@@ -106,6 +112,11 @@ export interface ClipMaskStack {
   readonly mattes: readonly MatteMask[];
   /** Set when the stack cannot be previewed; `alpha`/`byEffect` are then empty. */
   readonly refusal: MaskPreviewRefusal | null;
+  /**
+   * Per tracked mask id, the transform track that drives it (MK7.1). Absent for a stack built
+   * before tracks are loaded and for owners that cannot be tracked.
+   */
+  readonly tracks?: ReadonlyMap<string, TrackArtifact>;
 }
 
 /** Which stack of a clip to draw. */
@@ -132,6 +143,12 @@ function refusal(
 }
 
 const isLegacy = (mask: MaskLayer): boolean => mask.featherModel === 'gaussian-legacy';
+
+/**
+ * Mask kinds a transform track can move (`_TRACKABLE_KINDS` of the engine): the track warps
+ * CONTROL POINTS, and only these have any. A matte or a key follows its own pixels.
+ */
+const TRACKABLE_KINDS: ReadonlySet<MaskLayer['kind']> = new Set(['rectangle', 'ellipse', 'path']);
 
 /** `_assert_legacy_drawable`: the v21 blur only draws a v21 shape. */
 function legacyDrawable(mask: ShapeMask): boolean {
@@ -166,12 +183,12 @@ function refusalFor(
   const kind = KIND_REFUSALS[mask.kind];
   if (kind !== undefined)
     return refusal(clip, mask, kind.task, `Mask not previewed yet: ${kind.what}.`);
-  if (mask.tracking !== undefined) {
+  if (mask.tracking !== undefined && !TRACKABLE_KINDS.has(mask.kind)) {
     return refusal(
       clip,
       mask,
-      'MK7',
-      'Mask not previewed yet: tracked masks preview once mask tracking ships.',
+      null,
+      'Only shape masks can be tracked. Clear the track or change the mask kind.',
     );
   }
   if (mask.space !== 'source') {
@@ -198,6 +215,14 @@ function refusalFor(
     if (matte !== null) return matte;
   }
   const shape = mask as ShapeMask;
+  if (isLegacy(mask) && mask.tracking !== undefined) {
+    return refusal(
+      clip,
+      mask,
+      null,
+      "A mask with the legacy blur feather cannot be tracked. Switch the mask's feather model to Distance.",
+    );
+  }
   if (isLegacy(mask) && !legacyDrawable(shape)) {
     return refusal(
       clip,
@@ -278,14 +303,28 @@ function pathVertexCountsMatch(mask: PathMask): boolean {
 export function clipMaskStack(
   clip: Clip,
   media: Asset['media'] | null | undefined,
+  tracks: ReadonlyMap<string, TrackArtifact> = new Map(),
 ): ClipMaskStack | null {
   const enabled = masksOf(clip).filter((mask) => mask.enabled);
   if (enabled.length === 0) return null;
   const size = assetDisplaySize(media);
+  const refuse = (refused: MaskPreviewRefusal): ClipMaskStack => ({
+    clip,
+    size,
+    alpha: [],
+    byEffect: new Map(),
+    mattes: [],
+    refusal: refused,
+    tracks,
+  });
   for (const mask of enabled) {
     const refused = refusalFor(clip, mask, size);
-    if (refused !== null) {
-      return { clip, size, alpha: [], byEffect: new Map(), mattes: [], refusal: refused };
+    if (refused !== null) return refuse(refused);
+    // A tracked mask is drawn only once its (small, digest-checked) artifact is in hand: the
+    // export refuses the same mask when its track is missing or changed, and drawing it
+    // untracked in the meantime would put the mask visibly in the wrong place.
+    if (mask.tracking !== undefined && !tracks.has(mask.id)) {
+      return refuse(refusal(clip, mask, 'MK7', TRACK_REMEDIES.track_missing));
     }
   }
   const shapes = enabled as DrawnMask[];
@@ -306,6 +345,7 @@ export function clipMaskStack(
       ...[...byEffect.values()].flat(),
     ].filter((mask): mask is MatteMask => mask.kind === 'matte'),
     refusal: null,
+    tracks,
   };
 }
 
@@ -568,6 +608,32 @@ export function legacySpec(
   return { shape: mask.kind, x: fx, y: fy, width: fw, height: fh, ...common, points: [] };
 }
 
+/**
+ * `warp_path`: move a Bezier path's control points by the track, BEFORE it is flattened.
+ *
+ * Tangents are stored as offsets from their vertex, so each one is warped at its absolute
+ * position and turned back into an offset: a perspective track has to bend the tangents, not
+ * just carry them along, or a tracked curve would flatten out as the plane turns. A
+ * `point-cloud` track moves vertex `i` — and both of its tangent ends — by its own measured
+ * displacement, which is exact for a non-rigid shape.
+ */
+function warpPath(track: TrackArtifact, path: BezierPath, sourceTime: number): BezierPath {
+  const index = trackFrameIndexAt(track, sourceTime);
+  const matrix = trackMatrixAt(track, index);
+  const shape = track.method === 'point-cloud' && track.points !== undefined;
+  const vertices = path.vertices.map((vertex, order) => {
+    if (shape) {
+      const [dx, dy] = trackPointDelta(track, index, order);
+      return { ...vertex, x: vertex.x + dx, y: vertex.y + dy };
+    }
+    const [x, y] = trackWarpPoint(matrix, vertex.x, vertex.y);
+    const [inX, inY] = trackWarpPoint(matrix, vertex.x + vertex.inX, vertex.y + vertex.inY);
+    const [outX, outY] = trackWarpPoint(matrix, vertex.x + vertex.outX, vertex.y + vertex.outY);
+    return { ...vertex, x, y, inX: inX - x, inY: inY - y, outX: outX - x, outY: outY - y };
+  });
+  return { vertices, firstVertex: path.firstVertex };
+}
+
 // --- One mask, the stack ----------------------------------------------------------------------------
 
 /** `mask_alpha`: one mask's float alpha (after invert and opacity) on a `width`×`height` frame. */
@@ -597,8 +663,10 @@ function maskAlpha(
   const offsetX = -((crop?.x ?? 0.0) * sourceW) * scaleX;
   const offsetY = -((crop?.y ?? 0.0) * sourceH) * scaleY;
   const distance = Math.min(scaleX, scaleY);
+  const track = stack.tracks?.get(mask.id);
+  const path = track === undefined ? maskPathAt(mask, s) : warpPath(track, maskPathAt(mask, s), s);
   const polyline = scaleFeathers(
-    toRaster(flattenPath(maskPathAt(mask, s)), scaleX, scaleY, offsetX, offsetY),
+    toRaster(flattenPath(path), scaleX, scaleY, offsetX, offsetY),
     distance,
   );
   const alpha = shapeAlpha(
@@ -666,6 +734,8 @@ function isAnimated(masks: readonly DrawnMask[]): boolean {
   return masks.some(
     (mask) =>
       mask.kind === 'matte' ||
+      // A track gives a mask a new transform on every source frame.
+      mask.tracking !== undefined ||
       mask.keyframes.length > 0 ||
       (mask.kind === 'path' && mask.pathKeyframes.length > 1),
   );

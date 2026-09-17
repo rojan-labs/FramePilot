@@ -33,6 +33,11 @@ function projectFolder(path: string): string | null {
   return cut > 0 ? path.slice(0, cut) : null;
 }
 
+/** The open project's folder, shared with the other project-owned artifact locators (MK7.1). */
+export function activeProjectFolder(): string | null {
+  return projectFolder(activeProjectPath);
+}
+
 /** The locator for this host, or `null` when artifacts cannot be reached here. */
 export function resolveMatteArtifactLocator(): MatteArtifactLocator | null {
   const hook =

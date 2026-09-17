@@ -1,0 +1,800 @@
+{
+ "version": 1,
+ "note": "Transform-track parity (MK7.1). tracks[name] is a track.json document; each case queries it at sourceSeconds, expecting the engine's frame index, its confidence, and the sha256 of the warped probe coordinates as float64 little-endian: the four PROBE_POINTS through the frame transform, then (for a point-cloud track) the per-vertex delta of every vertex and one vertex past the end.",
+ "probePoints": [
+  [
+   0.0,
+   0.0
+  ],
+  [
+   137.25,
+   88.5
+  ],
+  [
+   -40.0,
+   12.0
+  ],
+  [
+   1919.0,
+   1079.0
+  ]
+ ],
+ "tracks": {
+  "position": {
+   "version": 1,
+   "method": "position",
+   "timeBase": [
+    1,
+    30000
+   ],
+   "originPts": 0,
+   "firstFrame": 24,
+   "pts": [
+    24024,
+    25025,
+    26026,
+    27027
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    12.5,
+    0.0,
+    1.0,
+    -7.25,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    25.0,
+    0.0,
+    1.0,
+    -14.5,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    37.5,
+    0.0,
+    1.0,
+    -21.75,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "confidence": [
+    1.0,
+    0.95,
+    0.4,
+    0.05
+   ]
+  },
+  "similarity": {
+   "version": 1,
+   "method": "position-scale-rotation",
+   "timeBase": [
+    1,
+    24
+   ],
+   "originPts": 12,
+   "firstFrame": 0,
+   "pts": [
+    12,
+    13,
+    14
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.1033834404536342,
+    -0.21947661226814427,
+    4.0,
+    0.21947661226814427,
+    1.1033834404536342,
+    -9.0,
+    0.0,
+    0.0,
+    1.0,
+    1.1548494156391085,
+    -0.47835429045636224,
+    8.0,
+    0.47835429045636224,
+    1.1548494156391085,
+    -18.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "confidence": [
+    1.0,
+    0.8,
+    0.6
+   ]
+  },
+  "perspective": {
+   "version": 1,
+   "method": "perspective",
+   "timeBase": [
+    1,
+    1000
+   ],
+   "originPts": 0,
+   "firstFrame": 0,
+   "pts": [
+    0,
+    1000,
+    2000
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.02,
+    0.031,
+    -6.5,
+    -0.017,
+    0.994,
+    3.25,
+    0.00012,
+    -4.5e-05,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    0.0
+   ],
+   "confidence": [
+    1.0,
+    0.7,
+    0.0
+   ]
+  },
+  "shape": {
+   "version": 1,
+   "method": "point-cloud",
+   "timeBase": [
+    1,
+    30
+   ],
+   "originPts": 0,
+   "firstFrame": 5,
+   "pts": [
+    5,
+    6,
+    7
+   ],
+   "transforms": [
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    0.0,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.5,
+    0.0,
+    1.0,
+    0.5,
+    0.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    1.0,
+    0.0,
+    1.0,
+    1.0,
+    0.0,
+    0.0,
+    1.0
+   ],
+   "confidence": [
+    1.0,
+    0.9,
+    0.85
+   ],
+   "points": {
+    "count": 4,
+    "reference": [
+     0.0,
+     0.0,
+     100.0,
+     0.0,
+     100.0,
+     80.0,
+     0.0,
+     80.0
+    ],
+    "frames": [
+     0.0,
+     0.0,
+     100.0,
+     0.0,
+     100.0,
+     80.0,
+     0.0,
+     80.0,
+     0.5,
+     1.5,
+     101.25,
+     -0.75,
+     99.0,
+     81.5,
+     -1.25,
+     79.25,
+     1.0,
+     3.0,
+     102.5,
+     -1.5,
+     98.0,
+     83.0,
+     -2.5,
+     78.5
+    ]
+   }
+  }
+ },
+ "cases": [
+  {
+   "id": "position/q0",
+   "track": "position",
+   "sourceSeconds": 0.8004666666666667,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q1",
+   "track": "position",
+   "sourceSeconds": 0.8008,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q2",
+   "track": "position",
+   "sourceSeconds": 0.8341666666666666,
+   "frameIndex": 1,
+   "confidence": 0.95,
+   "expected": {
+    "sha256": "229a05f0a0e59ed05c4514701d04ccc7b72dba73737ac119dc110398ef19209d",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q3",
+   "track": "position",
+   "sourceSeconds": 0.8675333333333334,
+   "frameIndex": 2,
+   "confidence": 0.4,
+   "expected": {
+    "sha256": "94f72fb66105f4f63eb89624d491dc15caee512e02988d80e31ffc10ceb04ea3",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q4",
+   "track": "position",
+   "sourceSeconds": 0.9009,
+   "frameIndex": 3,
+   "confidence": 0.05,
+   "expected": {
+    "sha256": "61d88691bfaf586cb3633f8b4150a699d8d5f95b1d5cffe7044e70e7d9b14518",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q5",
+   "track": "position",
+   "sourceSeconds": 0.8091416666666666,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q6",
+   "track": "position",
+   "sourceSeconds": 0.8174833333333333,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q7",
+   "track": "position",
+   "sourceSeconds": 0.825825,
+   "frameIndex": 1,
+   "confidence": 0.95,
+   "expected": {
+    "sha256": "229a05f0a0e59ed05c4514701d04ccc7b72dba73737ac119dc110398ef19209d",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q8",
+   "track": "position",
+   "sourceSeconds": 0.8425083333333333,
+   "frameIndex": 1,
+   "confidence": 0.95,
+   "expected": {
+    "sha256": "229a05f0a0e59ed05c4514701d04ccc7b72dba73737ac119dc110398ef19209d",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q9",
+   "track": "position",
+   "sourceSeconds": 0.85085,
+   "frameIndex": 1,
+   "confidence": 0.95,
+   "expected": {
+    "sha256": "229a05f0a0e59ed05c4514701d04ccc7b72dba73737ac119dc110398ef19209d",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q10",
+   "track": "position",
+   "sourceSeconds": 0.8591916666666667,
+   "frameIndex": 2,
+   "confidence": 0.4,
+   "expected": {
+    "sha256": "94f72fb66105f4f63eb89624d491dc15caee512e02988d80e31ffc10ceb04ea3",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q11",
+   "track": "position",
+   "sourceSeconds": 0.875875,
+   "frameIndex": 2,
+   "confidence": 0.4,
+   "expected": {
+    "sha256": "94f72fb66105f4f63eb89624d491dc15caee512e02988d80e31ffc10ceb04ea3",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q12",
+   "track": "position",
+   "sourceSeconds": 0.8842166666666667,
+   "frameIndex": 2,
+   "confidence": 0.4,
+   "expected": {
+    "sha256": "94f72fb66105f4f63eb89624d491dc15caee512e02988d80e31ffc10ceb04ea3",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q13",
+   "track": "position",
+   "sourceSeconds": 0.8925583333333333,
+   "frameIndex": 3,
+   "confidence": 0.05,
+   "expected": {
+    "sha256": "61d88691bfaf586cb3633f8b4150a699d8d5f95b1d5cffe7044e70e7d9b14518",
+    "count": 8
+   }
+  },
+  {
+   "id": "position/q14",
+   "track": "position",
+   "sourceSeconds": 0.9012333333333333,
+   "frameIndex": 3,
+   "confidence": 0.05,
+   "expected": {
+    "sha256": "61d88691bfaf586cb3633f8b4150a699d8d5f95b1d5cffe7044e70e7d9b14518",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q0",
+   "track": "similarity",
+   "sourceSeconds": -0.4166666666666667,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q1",
+   "track": "similarity",
+   "sourceSeconds": 0.0,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q2",
+   "track": "similarity",
+   "sourceSeconds": 0.041666666666666664,
+   "frameIndex": 1,
+   "confidence": 0.8,
+   "expected": {
+    "sha256": "cb3ecff79d8449c7df4ffd77625f485e9e3ef1055d62eb5281ef2281911b954f",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q3",
+   "track": "similarity",
+   "sourceSeconds": 0.08333333333333333,
+   "frameIndex": 2,
+   "confidence": 0.6,
+   "expected": {
+    "sha256": "1742680c9b3e035d8733607c974b989daf39fa74d30ee9e307ab10703e919de1",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q4",
+   "track": "similarity",
+   "sourceSeconds": 0.010416666666666666,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q5",
+   "track": "similarity",
+   "sourceSeconds": 0.020833333333333332,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q6",
+   "track": "similarity",
+   "sourceSeconds": 0.03125,
+   "frameIndex": 1,
+   "confidence": 0.8,
+   "expected": {
+    "sha256": "cb3ecff79d8449c7df4ffd77625f485e9e3ef1055d62eb5281ef2281911b954f",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q7",
+   "track": "similarity",
+   "sourceSeconds": 0.052083333333333336,
+   "frameIndex": 1,
+   "confidence": 0.8,
+   "expected": {
+    "sha256": "cb3ecff79d8449c7df4ffd77625f485e9e3ef1055d62eb5281ef2281911b954f",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q8",
+   "track": "similarity",
+   "sourceSeconds": 0.0625,
+   "frameIndex": 1,
+   "confidence": 0.8,
+   "expected": {
+    "sha256": "cb3ecff79d8449c7df4ffd77625f485e9e3ef1055d62eb5281ef2281911b954f",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q9",
+   "track": "similarity",
+   "sourceSeconds": 0.07291666666666667,
+   "frameIndex": 2,
+   "confidence": 0.6,
+   "expected": {
+    "sha256": "1742680c9b3e035d8733607c974b989daf39fa74d30ee9e307ab10703e919de1",
+    "count": 8
+   }
+  },
+  {
+   "id": "similarity/q10",
+   "track": "similarity",
+   "sourceSeconds": 0.5,
+   "frameIndex": 2,
+   "confidence": 0.6,
+   "expected": {
+    "sha256": "1742680c9b3e035d8733607c974b989daf39fa74d30ee9e307ab10703e919de1",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q0",
+   "track": "perspective",
+   "sourceSeconds": -0.01,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q1",
+   "track": "perspective",
+   "sourceSeconds": 0.0,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q2",
+   "track": "perspective",
+   "sourceSeconds": 1.0,
+   "frameIndex": 1,
+   "confidence": 0.7,
+   "expected": {
+    "sha256": "88d7bd4174aee0e7bbbe83c5c0e11d380845b331b776adeb0f4e5e9a940afa8f",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q3",
+   "track": "perspective",
+   "sourceSeconds": 2.0,
+   "frameIndex": 2,
+   "confidence": 0.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q4",
+   "track": "perspective",
+   "sourceSeconds": 0.25,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q5",
+   "track": "perspective",
+   "sourceSeconds": 0.5,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q6",
+   "track": "perspective",
+   "sourceSeconds": 0.75,
+   "frameIndex": 1,
+   "confidence": 0.7,
+   "expected": {
+    "sha256": "88d7bd4174aee0e7bbbe83c5c0e11d380845b331b776adeb0f4e5e9a940afa8f",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q7",
+   "track": "perspective",
+   "sourceSeconds": 1.25,
+   "frameIndex": 1,
+   "confidence": 0.7,
+   "expected": {
+    "sha256": "88d7bd4174aee0e7bbbe83c5c0e11d380845b331b776adeb0f4e5e9a940afa8f",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q8",
+   "track": "perspective",
+   "sourceSeconds": 1.5,
+   "frameIndex": 1,
+   "confidence": 0.7,
+   "expected": {
+    "sha256": "88d7bd4174aee0e7bbbe83c5c0e11d380845b331b776adeb0f4e5e9a940afa8f",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q9",
+   "track": "perspective",
+   "sourceSeconds": 1.75,
+   "frameIndex": 2,
+   "confidence": 0.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "perspective/q10",
+   "track": "perspective",
+   "sourceSeconds": 2.01,
+   "frameIndex": 2,
+   "confidence": 0.0,
+   "expected": {
+    "sha256": "68af41cf6261580889637b71000f8007d8339e416ae59b989aa791d70a2ecc9b",
+    "count": 8
+   }
+  },
+  {
+   "id": "shape/q0",
+   "track": "shape",
+   "sourceSeconds": -0.16666666666666666,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "29de113648a68deac140a295e0ddfc9206e0e289a0ae77a23a0a42cb528567fe",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q1",
+   "track": "shape",
+   "sourceSeconds": 0.16666666666666666,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "29de113648a68deac140a295e0ddfc9206e0e289a0ae77a23a0a42cb528567fe",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q2",
+   "track": "shape",
+   "sourceSeconds": 0.2,
+   "frameIndex": 1,
+   "confidence": 0.9,
+   "expected": {
+    "sha256": "e34f574522908cd87ba9ab5779b9f305217dd51aa0c402a5a6da8d2d43f0cbbd",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q3",
+   "track": "shape",
+   "sourceSeconds": 0.23333333333333334,
+   "frameIndex": 2,
+   "confidence": 0.85,
+   "expected": {
+    "sha256": "f25b858aa506ea7db1525d0419e7783ea0dfdb3df90b6549a910a6765ce082ed",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q4",
+   "track": "shape",
+   "sourceSeconds": 0.175,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "29de113648a68deac140a295e0ddfc9206e0e289a0ae77a23a0a42cb528567fe",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q5",
+   "track": "shape",
+   "sourceSeconds": 0.18333333333333332,
+   "frameIndex": 0,
+   "confidence": 1.0,
+   "expected": {
+    "sha256": "29de113648a68deac140a295e0ddfc9206e0e289a0ae77a23a0a42cb528567fe",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q6",
+   "track": "shape",
+   "sourceSeconds": 0.19166666666666668,
+   "frameIndex": 1,
+   "confidence": 0.9,
+   "expected": {
+    "sha256": "e34f574522908cd87ba9ab5779b9f305217dd51aa0c402a5a6da8d2d43f0cbbd",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q7",
+   "track": "shape",
+   "sourceSeconds": 0.20833333333333334,
+   "frameIndex": 1,
+   "confidence": 0.9,
+   "expected": {
+    "sha256": "e34f574522908cd87ba9ab5779b9f305217dd51aa0c402a5a6da8d2d43f0cbbd",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q8",
+   "track": "shape",
+   "sourceSeconds": 0.21666666666666667,
+   "frameIndex": 1,
+   "confidence": 0.9,
+   "expected": {
+    "sha256": "e34f574522908cd87ba9ab5779b9f305217dd51aa0c402a5a6da8d2d43f0cbbd",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q9",
+   "track": "shape",
+   "sourceSeconds": 0.225,
+   "frameIndex": 2,
+   "confidence": 0.85,
+   "expected": {
+    "sha256": "f25b858aa506ea7db1525d0419e7783ea0dfdb3df90b6549a910a6765ce082ed",
+    "count": 18
+   }
+  },
+  {
+   "id": "shape/q10",
+   "track": "shape",
+   "sourceSeconds": 0.5666666666666667,
+   "frameIndex": 2,
+   "confidence": 0.85,
+   "expected": {
+    "sha256": "f25b858aa506ea7db1525d0419e7783ea0dfdb3df90b6549a910a6765ce082ed",
+    "count": 18
+   }
+  }
+ ]
+}

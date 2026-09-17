@@ -67,6 +67,7 @@ from framepilot_engine.render.matte_edges import (
     to_frame,
 )
 from framepilot_engine.render.mattes import MatteFrame
+from framepilot_engine.render.tracks import warp_path
 from framepilot_engine.timeline.models import Keyframe
 
 _log = logging.getLogger(__name__)
@@ -392,11 +393,14 @@ def mask_alpha(
     source_time: float,
     matte_frame: MatteFrameSource | None = None,
     decoded_size: tuple[int, int] | None = None,
+    track: Any | None = None,
 ) -> FloatArray:
     """One mask's alpha (after invert and opacity) on the clip's frame at a source instant.
 
     :param matte_frame: Supplies a matte layer's decoded frame at this instant; required when
         ``mask`` is a matte.
+    :param track: The mask's prepared transform track, applied to the path's control points
+        before flattening (MK7.1); ``None`` for an untracked mask.
     """
     if mask.kind == "matte":
         if matte_frame is None:
@@ -410,6 +414,8 @@ def mask_alpha(
         return rasterize_mask(spec, width, height)
     frame = raster_frame(mask, clip, media_size, width, height)
     path = mask_path_at(mask, source_time)
+    if track is not None:
+        path = warp_path(track, path, source_time)
     polyline = to_raster(
         flatten_path(path), frame.scale_x, frame.scale_y, frame.offset_x, frame.offset_y
     )
@@ -440,6 +446,7 @@ def stack_alpha(
     source_time: float,
     matte_frame: MatteFrameSource | None = None,
     decoded_size: tuple[int, int] | None = None,
+    tracks: dict[str, Any] | None = None,
 ) -> FloatArray:
     """The combined alpha of an ordered (top first) stack of enabled masks.
 
@@ -452,13 +459,27 @@ def stack_alpha(
     accumulated = np.zeros((height, width), dtype=np.float64)
     for mask in masks:
         alpha = mask_alpha(
-            mask, clip, media_size, width, height, source_time, matte_frame, decoded_size
+            mask,
+            clip,
+            media_size,
+            width,
+            height,
+            source_time,
+            matte_frame,
+            decoded_size,
+            (tracks or {}).get(str(mask.id)),
         )
         accumulated = combine(accumulated, alpha, str(mask.mode.value))
     return quantize_alpha(accumulated).astype(np.float64) / 255.0
 
 
 # --- Refusals ---------------------------------------------------------------------------
+
+
+#: Mask kinds a transform track can move: the track warps CONTROL POINTS, and only these have
+#: any (MK7.1). A matte or a key follows its own pixels, so a track on one is refused rather
+#: than silently ignored.
+_TRACKABLE_KINDS = frozenset({"rectangle", "ellipse", "path"})
 
 
 def _refuse(mask: Any, clip_id: str, reason: str) -> MaskStackRefusal:
@@ -470,8 +491,10 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
     reason = _KIND_REFUSALS.get(str(mask.kind))
     if reason is not None:
         raise _refuse(mask, clip.id, reason)
-    if mask.tracking is not None:
-        raise _refuse(mask, clip.id, "tracked masks render once mask tracking ships")
+    if mask.tracking is not None and str(mask.kind) not in _TRACKABLE_KINDS:
+        raise _refuse(
+            mask, clip.id, "only shape masks can be tracked — clear the track or change the kind"
+        )
     if str(mask.space.value) != "source":
         raise _refuse(mask, clip.id, "frame-space masks render once frame-space masks ship")
     if mask.target.kind == "effect" and mask.target.effect_id not in effect_ids:
@@ -482,6 +505,13 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
     if mask.kind == "matte":
         _assert_matte_drawable(mask, clip.id)
     if _is_legacy(mask):
+        if mask.tracking is not None:
+            raise _refuse(
+                mask,
+                clip.id,
+                "a mask with the legacy blur feather cannot be tracked — switch its feather "
+                "model to Distance",
+            )
         _assert_legacy_drawable(mask, clip.id)
     if mask.kind == "path":
         path_keyframe_at(mask, mask.path_keyframes[0].source_time if mask.path_keyframes else 0.0)
@@ -562,6 +592,8 @@ class ClipMaskStacks:
     mattes: dict[str, Callable[[float], MatteFrame]] = field(default_factory=dict)
     #: ``(width, height)`` the source was decoded at before its crop (matte resampling, BR2.7).
     decoded_size: tuple[int, int] | None = None
+    #: Per tracked mask id, its prepared transform track (MK7.1); bound by the compiler.
+    tracks: dict[str, Any] = field(default_factory=dict)
 
     @property
     def alpha_animated(self) -> bool:
@@ -583,6 +615,7 @@ class ClipMaskStacks:
             self.clock(t),
             self._matte_frames_at(t),
             self.decoded_size,
+            self.tracks,
         )
 
     def effect_alpha_at(
@@ -601,6 +634,7 @@ class ClipMaskStacks:
             self.clock(t),
             self._matte_frames_at(t),
             self.decoded_size,
+            self.tracks,
         )
 
     def matte_masks(self) -> tuple[Any, ...]:
@@ -629,6 +663,7 @@ def clip_mask_stacks(
     media_size: tuple[float, float] | None,
     mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
     decoded_size: tuple[int, int] | None = None,
+    tracks: dict[str, Any] | None = None,
 ) -> ClipMaskStacks | None:
     """A clip's enabled mask stacks, refused up front if export cannot draw one faithfully.
 
@@ -669,6 +704,7 @@ def clip_mask_stacks(
         clock=clip_source_clock(clip),
         mattes=dict(mattes or {}),
         decoded_size=decoded_size,
+        tracks=dict(tracks or {}),
     )
 
 

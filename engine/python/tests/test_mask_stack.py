@@ -103,13 +103,14 @@ def test_nothing_enabled_means_no_stack() -> None:
         (_rect(space="frame"), "frame-space"),
         (
             _rect(
+                featherModel="gaussian-legacy",
                 tracking={
-                    "artifact": {"key": "k", "sha256": "0" * 64},
+                    "artifact": {"key": "0" * 64, "sha256": "0" * 64},
                     "method": "position",
                     "referenceSourceTime": 3.0,
-                }
+                },
             ),
-            "tracked masks",
+            "cannot be tracked",
         ),
         (_rect(target={"kind": "effect", "effectId": "missing"}), "not on the clip"),
         (_rect(featherModel="gaussian-legacy", rotation=10), "Switch the mask's feather model"),
@@ -122,6 +123,41 @@ def test_masks_export_cannot_draw_yet_are_refused_with_a_remedy(
         clip_mask_stacks(_clip(mask), _SIZE)
     # Guard-key rule: no measured magnitudes in the text (ids are the only variable part).
     assert "0.0" not in str(caught.value)
+
+
+def test_a_tracked_shape_mask_is_renderable(tmp_path: Any) -> None:
+    """MK7.1: a track is no longer a refusal — the transform moves the mask's control points."""
+    tracking = {
+        "artifact": {"key": "0" * 64, "sha256": "0" * 64},
+        "method": "position",
+        "referenceSourceTime": 3.0,
+    }
+    stacks = clip_mask_stacks(_clip(_rect(tracking=tracking)), _SIZE)
+    assert stacks is not None
+    assert len(stacks.alpha) == 1
+
+
+def test_a_track_moves_the_masks_control_points_before_flattening() -> None:
+    from framepilot_engine.render.tracks import parse_track
+
+    document = {
+        "version": 1,
+        "method": "position",
+        "timeBase": [1, 30],
+        "originPts": 0,
+        "firstFrame": 0,
+        "pts": [0, 30],
+        "transforms": [1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 12, 0, 1, 0, 0, 0, 1],
+        "confidence": [1.0, 1.0],
+    }
+    track = parse_track(document)
+    clip = _clip(_rect())
+    untracked = stack_alpha(list(clip.masks), clip, _SIZE, *_SIZE, 0.0)
+    tracked = stack_alpha(
+        list(clip.masks), clip, _SIZE, *_SIZE, 1.0, None, None, {"r": track}
+    )
+    # A 12 px translation at one source second: the same alpha, shifted by 12 columns.
+    assert np.array_equal(untracked[:, :-12], tracked[:, 12:])
 
 
 def test_unmeasured_pixel_masks_ask_for_measurement() -> None:

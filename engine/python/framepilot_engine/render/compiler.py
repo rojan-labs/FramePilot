@@ -164,6 +164,7 @@ from framepilot_engine.render.pts_reader import (
 )
 from framepilot_engine.render.resources import close_clip_tree
 from framepilot_engine.render.text_overlay import rasterize_text_overlay, text_overlay_layout
+from framepilot_engine.render.tracks import TrackArtifact, TrackRefusal, prepare_track
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.timeline.models import (
     Clip,
@@ -610,10 +611,11 @@ def _clip_mask_stacks(
     media_size: tuple[float, float] | None,
     mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
     decoded_size: tuple[int, int] | None = None,
+    tracks: dict[str, Any] | None = None,
 ) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
-        return clip_mask_stacks(clip, media_size, mattes, decoded_size)
+        return clip_mask_stacks(clip, media_size, mattes, decoded_size, tracks)
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
 
@@ -622,6 +624,22 @@ _log = logging.getLogger(__name__)
 
 #: Per clip id, per matte mask id: the artifact that passed its pre-render checks.
 PreparedMattes = dict[str, dict[str, PreparedMatte]]
+
+#: Per clip id, per tracked mask id: the transform track that passed its pre-render checks.
+PreparedTracks = dict[str, dict[str, TrackArtifact]]
+
+
+def _prepare_clip_tracks(clip: Clip, base_dir: Path) -> dict[str, TrackArtifact]:
+    """Check every tracked mask on ``clip`` (file, digest, document, method) (MK7.1)."""
+    prepared: dict[str, TrackArtifact] = {}
+    for mask in clip.masks or []:
+        if not mask.enabled or mask.tracking is None:
+            continue
+        try:
+            prepared[mask.id] = prepare_track(mask, clip, base_dir)
+        except TrackRefusal as exc:
+            raise CompileError(str(exc)) from exc
+    return prepared
 
 
 def _prepare_clip_mattes(project: Project, clip: Clip, base_dir: Path) -> dict[str, PreparedMatte]:
@@ -745,13 +763,17 @@ def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | Non
     return source.transform(cleaned, keep_duration=True)
 
 
-def _refuse_unrenderable_masks(project: Project, base_dir: Path | None = None) -> PreparedMattes:
+def _refuse_unrenderable_masks(
+    project: Project, base_dir: Path | None = None
+) -> tuple[PreparedMattes, PreparedTracks]:
     """Refuse, before any reader opens, a mask stack the export cannot draw faithfully.
 
-    With ``base_dir`` (the project directory) every enabled matte's artifact is checked too, and
-    the artifacts that passed are returned for the compile to open.
+    With ``base_dir`` (the project directory) every enabled matte's artifact and every tracked
+    mask's transform track is checked too, and the artifacts that passed are returned for the
+    compile to open.
     """
     prepared: PreparedMattes = {}
+    tracks: PreparedTracks = {}
     kinds = _asset_kinds_from_project(project)
     for track in project.timeline.tracks:
         for layer in track.effect_layers or []:
@@ -771,7 +793,10 @@ def _refuse_unrenderable_masks(project: Project, base_dir: Path | None = None) -
                     matte = _prepare_clip_mattes(project, clip, base_dir)
                     if matte:
                         prepared[clip.id] = matte
-    return prepared
+                    tracked = _prepare_clip_tracks(clip, base_dir)
+                    if tracked:
+                        tracks[clip.id] = tracked
+    return prepared, tracks
 
 
 def _attach_mask(
@@ -1166,7 +1191,7 @@ def compile_timeline(
     lut_base_dir = Path(asset_index.base_dir)
     total_clips = sum(len(track.clips) for track in project.timeline.tracks)
     prepared = 0
-    prepared_mattes = _refuse_unrenderable_masks(project, lut_base_dir)
+    prepared_mattes, prepared_tracks = _refuse_unrenderable_masks(project, lut_base_dir)
 
     def _prepared_one() -> None:
         nonlocal prepared
@@ -1232,6 +1257,7 @@ def compile_timeline(
                                 clip, prepared_mattes.get(clip.id, {}), reader, fps, opened
                             ),
                             (int(reader.size[0]), int(reader.size[1])),
+                            prepared_tracks.get(clip.id, {}),
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
