@@ -26,6 +26,7 @@ import { readMatteRecord } from './matte-store.js';
 import {
   FOREGROUND_PIXEL_FORMATS,
   MATTE_PIXEL_FORMATS,
+  framesJsonByteBound,
   MatteVerificationError,
   readMatteFrames,
   sha256File,
@@ -149,9 +150,12 @@ async function checkArtifact(
       if ((await cachedSha256(path.join(directory, name), options.signal)) !== pinned.get(name)) return 'matte_digest_mismatch';
     }
   }
+  // Quick mode trusts a host record whose sizes and digests match the pins: that frames.json was
+  // parsed when the artifact was verified, so project open does not parse it again (BR4.12 L4).
+  if (options.mode === 'quick' && record !== undefined && recordMatchesPins(record, wanted, pinned)) return null;
   let frameCount: number;
   try {
-    frameCount = (await readMatteFrames(directory)).pts.length;
+    frameCount = (await readMatteFrames(directory, framesJsonByteBound(maxFramesFor(record, mask)))).pts.length;
   } catch (error) {
     if (error instanceof MatteVerificationError) return 'matte_unreadable';
     throw error;
@@ -208,6 +212,20 @@ export function matteMasksOf(project: unknown): MatteMaskRef[] {
     }
   }
   return out;
+}
+
+function recordMatchesPins(
+  record: { readonly files: readonly { readonly name: string; readonly sha256: string }[] },
+  wanted: readonly string[],
+  pinned: ReadonlyMap<string, string>,
+): boolean {
+  return wanted.every((name) => record.files.some((file) => file.name === name && file.sha256 === pinned.get(name)));
+}
+
+/** Upper bound on frames: the record's coverage at 240 fps, or the frames.json size bound's cap. */
+function maxFramesFor(record: { readonly coverage: { readonly sourceStart: number; readonly sourceEnd: number } } | undefined, _mask: MatteMaskRef): number {
+  if (record === undefined) return Number.POSITIVE_INFINITY;
+  return Math.ceil((record.coverage.sourceEnd - record.coverage.sourceStart) * 240) + 2;
 }
 
 async function cachedSha256(file: string, signal: AbortSignal | undefined): Promise<string> {

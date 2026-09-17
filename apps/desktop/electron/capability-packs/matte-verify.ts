@@ -160,10 +160,19 @@ export function parseMatteFrames(document: unknown): MatteFramesDocument {
   };
 }
 
-export async function readMatteFrames(directory: string): Promise<MatteFramesDocument> {
+/**
+ * The most bytes a `frames.json` for `frameCount` frames can honestly need (BR4.12 L4): each pts
+ * is at most 17 characters plus a comma, and the header is small. A bigger file is refused before
+ * it is read, so a hostile artifact cannot make the main process parse tens of megabytes.
+ */
+export function framesJsonByteBound(frameCount: number): number {
+  return Math.min(FRAMES_MAX_BYTES, Math.ceil(Math.max(1, frameCount)) * 18 + 4_096);
+}
+
+export async function readMatteFrames(directory: string, maxBytes = FRAMES_MAX_BYTES): Promise<MatteFramesDocument> {
   const file = path.join(directory, 'frames.json');
   const stat = await lstat(file);
-  if (!stat.isFile() || stat.size > FRAMES_MAX_BYTES) {
+  if (!stat.isFile() || stat.size > Math.min(maxBytes, FRAMES_MAX_BYTES)) {
     throw new MatteVerificationError('frames_invalid', 'frames.json is not a bounded regular file.');
   }
   let document: unknown;
@@ -229,7 +238,7 @@ export async function verifyMatteStaging(input: MatteVerificationInput): Promise
   }
 
   // 4. frames.json against the source's own decoded pts.
-  const frames = await readMatteFrames(directory);
+  const frames = await readMatteFrames(directory, framesJsonByteBound(result.artifact.frameCount));
   verifyFramesAgainstSource(frames, result, input.source);
 
   // 5. Streams.
