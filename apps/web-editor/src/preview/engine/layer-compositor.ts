@@ -479,9 +479,7 @@ export class LayerCompositor {
     // An integer sampler must always see an integer texture, even when the branch skips it.
     const texture =
       mask === null ? r.plane(1, 1, OPAQUE_COVERAGE) : r.plane(source.width, source.height, mask);
-    gl.activeTexture(gl.TEXTURE1);
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    program.int('u_mask', 1);
+    r.bind(program, 'u_mask', 1, texture);
     r.draw(out, out.width, out.height);
     return out;
   }
@@ -611,6 +609,7 @@ export class LayerCompositor {
       const created = gl.createTexture();
       if (!created) return source;
       texture = created;
+      this.resources.useScratchUnit();
       gl.bindTexture(gl.TEXTURE_3D, texture);
       gl.texStorage3D(gl.TEXTURE_3D, 1, gl.RGB32F, table.size, table.size, table.size);
       gl.texSubImage3D(

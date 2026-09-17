@@ -5,6 +5,9 @@
  */
 import { FULLSCREEN_VERTEX } from './raster-shaders.js';
 
+/** A texture unit no pass samples from: allocations and uploads bind there (see useScratchUnit). */
+const SCRATCH_TEXTURE_UNIT = 15;
+
 export type TargetFormat = 'rgba8' | 'r16i' | 'rgba32f';
 
 /** A texture that can be drawn into. */
@@ -128,6 +131,7 @@ export class GlResources {
     const texture = gl.createTexture();
     const framebuffer = gl.createFramebuffer();
     if (!texture || !framebuffer) throw new Error('WebGL2 could not allocate a render target.');
+    this.useScratchUnit();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     if (format === 'rgba8') {
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGBA8, width, height);
@@ -175,10 +179,12 @@ export class GlResources {
       const created = gl.createTexture();
       if (!created) throw new Error('WebGL2 could not allocate a plane texture.');
       texture = created;
+      this.useScratchUnit();
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
       setNearest(gl);
     } else {
+      this.useScratchUnit();
       gl.bindTexture(gl.TEXTURE_2D, texture);
     }
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.UNSIGNED_BYTE, data);
@@ -191,6 +197,7 @@ export class GlResources {
   imageTarget(source: TexImageSource, width: number, height: number): RenderTarget {
     const gl = this.gl;
     const target = this.target(width, height, 'rgba8');
+    this.useScratchUnit();
     gl.bindTexture(gl.TEXTURE_2D, target.texture);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RGBA, gl.UNSIGNED_BYTE, source);
     return target;
@@ -205,6 +212,7 @@ export class GlResources {
     const gl = this.gl;
     const texture = gl.createTexture();
     if (!texture) throw new Error('WebGL2 could not allocate a data texture.');
+    this.useScratchUnit();
     gl.bindTexture(gl.TEXTURE_2D, texture);
     gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32I, width, height);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.INT, build());
@@ -229,6 +237,17 @@ export class GlResources {
     gl.bindVertexArray(this.vertexArray);
     gl.drawArrays(gl.TRIANGLES, 0, 3);
     gl.bindVertexArray(null);
+  }
+
+  /**
+   * Make the scratch unit active before binding a texture only to allocate or upload it.
+   *
+   * Uploading on whatever unit is active replaced a sampler binding a pass had already made
+   * (a pooled target allocated after `bind` only on a pool miss, so the first frames of a new
+   * size composited another texture: the CI oracle's intermittent garbage reads).
+   */
+  useScratchUnit(): void {
+    this.gl.activeTexture(this.gl.TEXTURE0 + SCRATCH_TEXTURE_UNIT);
   }
 
   /** Bind `texture` to `unit` and point `name` of `program` at it. */
