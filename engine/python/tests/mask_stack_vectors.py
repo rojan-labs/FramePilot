@@ -28,6 +28,7 @@ import json
 import logging
 import math
 import sys
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -537,7 +538,8 @@ def matte_frame_values(maximum: int) -> np.ndarray:
     alpha[:, 44] = 1.0
     alpha[3, :] = 0.5
     dtype = np.uint16 if maximum > 255 else np.uint8
-    return np.rint(alpha * maximum).astype(dtype)
+    values: np.ndarray = np.rint(alpha * maximum).astype(dtype)
+    return values
 
 
 def matte_foreground() -> np.ndarray:
@@ -704,10 +706,12 @@ def _matte_document() -> dict[str, Any]:
             rows, cols = _crop_slices(clip, decoded_w, decoded_h)
             width = len(range(*cols.indices(decoded_w)))
             height = len(range(*rows.indices(decoded_h)))
-            mattes = {
-                str(mask.id): (lambda _t, frame=frame: frame)
-                for mask in clip.masks or []
-                if mask.kind == "matte"
+
+            def same_frame(_t: float, frame: MatteFrame = frame) -> MatteFrame:
+                return frame
+
+            mattes: dict[str, Callable[[float], MatteFrame]] = {
+                str(mask.id): same_frame for mask in clip.masks or [] if mask.kind == "matte"
             }
             stacks = clip_mask_stacks(clip, media, mattes, (decoded_w, decoded_h))
             assert stacks is not None, case["id"]
