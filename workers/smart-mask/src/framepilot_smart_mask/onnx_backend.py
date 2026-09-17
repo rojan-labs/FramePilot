@@ -81,25 +81,18 @@ class GuardedSession:
         family: ModelFamily,
         provider: ProviderName,
         on_fallback: Callable[[dict[str, str]], None],
-        session_options: Callable[[], Any],
-        provider_options: Callable[[ProviderName, Path], list[Any]],
+        factory: Callable[[ProviderName], Any],
     ) -> None:
         self.path = path
         self.family = family
         self.provider: ProviderName = provider
         self._on_fallback = on_fallback
-        self._options = session_options
-        self._provider_options = provider_options
+        self._factory = factory
         self._session = self._create(provider)
 
     def _create(self, provider: ProviderName) -> Any:
-        ort = _ort()
         try:
-            return ort.InferenceSession(
-                str(self.path),
-                self._options(),
-                providers=self._provider_options(provider, self.path),
-            )
+            return self._factory(provider)
         except Exception as error:
             if provider != "cpu":
                 self._record_fallback(provider, f"session build failed: {type(error).__name__}")
@@ -119,22 +112,18 @@ class GuardedSession:
         try:
             return list(self._session.run(None, prepared))
         except Exception as error:
-            text = str(error).lower()
-            if self.provider == "cpu" or not any(marker in text for marker in _OOM_MARKERS):
-                if any(marker in text for marker in _OOM_MARKERS):
-                    raise AcceleratorOutOfMemoryError(
-                        f"{self.path.name} ran out of memory on the CPU EP."
-                    ) from error
+            out_of_memory = any(marker in str(error).lower() for marker in _OOM_MARKERS)
+            if not out_of_memory:
                 raise
+            if self.provider == "cpu":
+                raise AcceleratorOutOfMemoryError(
+                    f"{self.path.name} ran out of memory on the CPU EP."
+                ) from error
             previous = self.provider
             self._session = None
             self._session = self._create("cpu")
             self._record_fallback(previous, "accelerator out of memory")
             return list(self._session.run(None, prepared))
-
-    @property
-    def input_names(self) -> list[str]:
-        return [item.name for item in self._session.get_inputs()]
 
     def close(self) -> None:
         self._session = None
@@ -269,6 +258,9 @@ class OnnxModelProvider:
         self._skipped: dict[str, list[dict[str, str]]] = {}
         self._chosen: dict[str, ProviderName] = {}
         self.prepare_seconds: dict[str, float] = {}
+        from .prepare import CompiledModelCache
+
+        self._prepared = CompiledModelCache(compiled_cache, _ort().__version__)
 
     @property
     def backend_label(self) -> str:
@@ -314,7 +306,7 @@ class OnnxModelProvider:
             options.intra_op_num_threads = self._threads
         return options
 
-    def _provider_options(self, provider: ProviderName, path: Path) -> list[Any]:
+    def _provider_options(self, provider: ProviderName, model_id: str, digest: str) -> list[Any]:
         name = ORT_PROVIDER_NAMES[provider]
         if provider == "coreml":
             options: dict[str, str] = {
@@ -322,11 +314,10 @@ class OnnxModelProvider:
                 "RequireStaticInputShapes": "1",
                 "MLComputeUnits": "ALL",
             }
-            if self._compiled_cache is not None:
-                options["ModelCacheDirectory"] = str(self._compiled_cache / path.stem)
+            directory = self._prepared.coreml_directory(model_id, digest)
+            if directory is not None:
+                options["ModelCacheDirectory"] = str(directory)
             return [(name, options), "CPUExecutionProvider"]
-        if provider == "cpu":
-            return ["CPUExecutionProvider"]
         return [name, "CPUExecutionProvider"]
 
     def _provider_for(self, family: ModelFamily) -> ProviderName:
@@ -342,15 +333,40 @@ class OnnxModelProvider:
     def _session(self, model_id: str, family: ModelFamily) -> GuardedSession:
         import time
 
+        from .models import MODELS_BY_ID
+
         path = self._digests.resolve(model_id, self.directory)
+        digest = MODELS_BY_ID[model_id].sha256
+        ort = _ort()
+
+        def factory(provider: ProviderName) -> Any:
+            if provider == "cpu":
+
+                def build(save_to: Path | None) -> Any:
+                    options = self._session_options()
+                    if save_to is not None:
+                        options.optimized_model_filepath = str(save_to)
+                    return ort.InferenceSession(
+                        str(path), options, providers=["CPUExecutionProvider"]
+                    )
+
+                def load(cached: Path) -> Any:
+                    options = self._session_options()
+                    options.graph_optimization_level = ort.GraphOptimizationLevel.ORT_DISABLE_ALL
+                    return ort.InferenceSession(
+                        str(cached), options, providers=["CPUExecutionProvider"]
+                    )
+
+                return self._prepared.cpu_graph(model_id, digest, path, build, load)
+            return ort.InferenceSession(
+                str(path),
+                self._session_options(),
+                providers=self._provider_options(provider, model_id, digest),
+            )
+
         started = time.monotonic()
         session = GuardedSession(
-            path,
-            family,
-            self._provider_for(family),
-            self._fallbacks.append,
-            self._session_options,
-            self._provider_options,
+            path, family, self._provider_for(family), self._fallbacks.append, factory
         )
         self.prepare_seconds[model_id] = round(time.monotonic() - started, 3)
         return session

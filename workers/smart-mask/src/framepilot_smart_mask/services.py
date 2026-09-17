@@ -90,6 +90,7 @@ class PackServices:
         cache = env.get(ENV_CACHE_DIR, "")
         from pathlib import Path
 
+        self._interactive: Any = None
         self.provider = OnnxModelProvider(
             models_directory(env),
             compiled_cache=Path(cache) if cache else None,
