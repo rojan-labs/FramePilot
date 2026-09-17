@@ -9,9 +9,11 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR2 — engine matte kind (render-debugger agent)
+- BR2.5–BR2.7 — VFR frame-exact decode, rotated/PAR mattes, deterministic matte resample (render-debugger agent)
 
 ## Done
+
+- BR2.1–BR2.4 (38bde7a3…44b990e1): matte reader, stack integration (decontaminate, edge shift, edgeMode sharp = clean 0.25/0.75), typed refusals, alignment 100%, 6 goldens; frames.json format defined for BR3.2
 
 - PX2 in flight: RD2.1 flag (2c6f1e3f); PX2.1 sync paused frames (23cf2f39); PX2.2 frame-effect ports (a30404b2); PX2.3 burned captions in track order (262d0ea4); PX2.5 speed audio (4a171c0c); PX2.6 range-read demux (a41a4631); PX2.8 load shedding (98fbaab6); PX2.9 display-size fit (15f83692)
 - BR0 in flight: ADR 0179 (89b848ef); BR0.3 box-prompt consensus (94b4faa7); BR0.4 verify prototype (344c3377); CoreML memory attention 8.4 GB footprint (0565c15c)

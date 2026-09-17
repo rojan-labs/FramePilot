@@ -175,12 +175,16 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** numbers in the findings doc and every (model, EP) pair either passing parity or disabled. The model set is not re-opened; a missed recall gate is fixed in the verify stage.
 
-### BR2 — Engine: matte kind `[ ]` (needs MK2)
+### BR2 — Engine: matte kind `[~]` (needs MK2; BR2.1–BR2.4 through 44b990e1, 100% alignment, 6 goldens; VFR/rotated/downscale refused → BR2.5–BR2.7)
 
-- [ ] BR2.1 `render/mattes.py` reader (pts lookup, sequential cursor, LRU) for matte + foreground
-- [ ] BR2.2 Matte in `mask_stack.py`: decontamination before targets, edge shift, then base stack rules
-- [ ] BR2.3 Typed pre-render refusals
-- [ ] BR2.4 Fixtures: synthetic mattes, VFR, edit list, speed ramp; render golden for video → text → matted copy
+- [x] BR2.1 `render/mattes.py` reader (pts lookup, sequential cursor, LRU) for matte + foreground
+- [x] BR2.2 Matte in `mask_stack.py`: decontamination before targets, edge shift, then base stack rules
+- [x] BR2.3 Typed pre-render refusals
+- [x] BR2.4 Fixtures: synthetic mattes, VFR, edit list, speed ramp; render golden for video → text → matted copy
+
+- [ ] BR2.5 Frame-exact decode for VFR sources in the export (decode by pts, not MoviePy's constant-rate resample), so VFR mattes render instead of refusing `matte_variable_frame_rate`
+- [ ] BR2.6 Mattes on rotated and non-square-pixel sources (display-corrected space, MK1.9) instead of `matte_unsupported_media`
+- [ ] BR2.7 Reduced-size export decodes resample the matte with the same deterministic filter as the picture; bit-exact edge test
 
 **DoD:** engine tests for new modules pass; golden updated in the same PR.
 
