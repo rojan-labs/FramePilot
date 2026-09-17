@@ -136,6 +136,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Rotated anamorphic footage exports with the right shape.** A phone or camera clip that is
+  both turned (portrait metadata) and anamorphic was stretched along the wrong edge, so it came
+  out squashed. The monitor's layer compositor now also sizes it the same way.
+- **Variable-frame-rate clips show the same frame in the monitor as in the export.** The
+  monitor's layer compositor picks each frame by its timestamp, as the export does, instead of
+  assuming a constant rate.
 - **Splitting or cutting a range out of a speed-ramped clip keeps its timing exact.** The
   pieces could come out a frame or two long or short, and the edit was refused.
 - **Masks and trackers stay where you put them.** Updating a mask or a tracked region moved

@@ -83,6 +83,7 @@ SENTINELS: dict[str, tuple[tuple[int, int, int], tuple[int, int, int]]] = {
     "anam": ((140, 140, 236), (140, 236, 140)),
     "phone": ((236, 140, 140), (140, 140, 140)),
     "vfr": ((140, 236, 236), (236, 236, 140)),
+    "anamrot": ((236, 44, 140), (44, 236, 140)),
 }
 #: Bits of the frame counter. 12 bits index 4096 frames: a 60 s asset at 30 fps is 1800.
 COUNTER_BITS = 12

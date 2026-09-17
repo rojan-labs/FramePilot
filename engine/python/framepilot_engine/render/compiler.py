@@ -1567,7 +1567,11 @@ def _open_moviepy_reader(
     reader = video_file_clip_cls(path)
     width, height = reader.size
     par = pixel_aspect_ratio if pixel_aspect_ratio and pixel_aspect_ratio > 0 else 1.0
-    display = (width * par, height)
+    # The sample aspect ratio stretches STORAGE width. ffmpeg autorotates a quarter-turned
+    # source and MoviePy swaps `size` first, so there the stretched axis is the upright height
+    # (PX2.11: stretching the upright width squashed rotated anamorphic footage).
+    rotation = abs(int(getattr(getattr(reader, "reader", None), "rotation", 0) or 0))
+    display = (width, height * par) if rotation in (90, 270) else (width * par, height)
     anamorphic = par != 1.0
     if fit_target is not None:
         exact = fitted_decode_size(display, fit_target)
@@ -1606,8 +1610,9 @@ def _open_source_reader(
 
     ``pixel_aspect_ratio`` (PX2.9, ``Asset.media.pixelAspectRatio``): MoviePy reads storage
     pixels and ignores the sample aspect ratio, so an anamorphic source is decoded straight
-    to its display-corrected size (width times PAR, even-rounded) and every later stage sees
-    square pixels. Rotation needs nothing here: ffmpeg autorotates and MoviePy swaps the size.
+    to its display-corrected size (storage width times PAR, even-rounded) and every later stage
+    sees square pixels. ffmpeg autorotates and MoviePy swaps the size, so for a quarter-turned
+    source the stretch lands on the upright height (PX2.11).
 
     A variable-frame-rate source (BR2.5) then reads frames by pts
     (:func:`~framepilot_engine.render.pts_reader.use_pts_reader`); a constant-rate source keeps

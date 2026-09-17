@@ -153,15 +153,20 @@ export function decodeCapForClip(clip: Clip, target: PixelSize): number | null {
 
 /**
  * `_open_source_reader`'s decode size for a `source` (storage pixels, already turned upright)
- * with pixel aspect ratio `par`, or `null` when ffmpeg decodes it as stored.
+ * with pixel aspect ratio `par`, or `null` when ffmpeg decodes it as stored. The ratio stretches
+ * storage width, which is the upright height of a quarter-turned source (PX2.11).
  */
 export function readerDecodeSize(
   source: PixelSize,
   cap: number | null,
   fitTarget: PixelSize | null,
   par = 1,
+  rotation = 0,
 ): PixelSize | null {
-  const display = { width: source.width * par, height: source.height };
+  const quarterTurn = Math.abs(rotation) % 180 === 90;
+  const display = quarterTurn
+    ? { width: source.width, height: source.height * par }
+    : { width: source.width * par, height: source.height };
   const anamorphic = par !== 1;
   if (fitTarget !== null) {
     const exact = fittedDecodeSize(display, fitTarget);
@@ -206,14 +211,15 @@ export function decodeStepFor(
   target: PixelSize,
   role: FramePlanLayer['role'],
   par = 1,
+  rotation = 0,
 ): DecodeStep {
   // `_underlay_layer` opens the neighbour with the export's own `max_decode_dimension` (None).
   const size =
     role === 'underlay'
-      ? readerDecodeSize(source, null, null, par)
+      ? readerDecodeSize(source, null, null, par, rotation)
       : isStaticFit(clip)
-        ? readerDecodeSize(source, null, target, par)
-        : readerDecodeSize(source, decodeCapForClip(clip, target), null, par);
+        ? readerDecodeSize(source, null, target, par, rotation)
+        : readerDecodeSize(source, decodeCapForClip(clip, target), null, par, rotation);
   return size === null ? { kind: 'native' } : { kind: 'scaled', ...size };
 }
 
@@ -268,7 +274,14 @@ export function pictureRasterStep(
 
   const isVideo = source.assetKind === 'video';
   const decode: DecodeStep = isVideo
-    ? decodeStepFor(clip, size, target, layer.role, asset.media?.pixelAspectRatio ?? 1)
+    ? decodeStepFor(
+        clip,
+        size,
+        target,
+        layer.role,
+        asset.media?.pixelAspectRatio ?? 1,
+        asset.media?.rotation ?? 0,
+      )
     : { kind: 'native' };
   const decoded = decode.kind === 'scaled' ? decode : size;
   // A still is placed without its crop (the plan's own quirk note), and so is its mask.

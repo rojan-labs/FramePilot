@@ -2667,6 +2667,42 @@ def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
         compile_timeline(project, _index(project, tmp_project_dir), REELS)
 
 
+def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) -> None:
+    """PX2.11 golden: storage 96x72 at PAR 4/3, turned a quarter, displays 72x128.
+
+    The sample aspect ratio stretches storage width, which after ffmpeg's autorotate (and
+    MoviePy's size swap) is the upright HEIGHT. Stretching the upright width decoded it 96x96.
+    The storage top-right secondary quadrant must land as one undistorted 36x64 corner block.
+    """
+    from moviepy import VideoFileClip
+
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+    from framepilot_engine.render.compiler import _open_source_reader
+    from tests.px4_parity_frames import VideoSpec, encode_video
+
+    primary, secondary = (236, 44, 44), (44, 44, 236)
+    spec = VideoSpec(
+        "rot-anam.mp4", 96, 72, 10.0, 0.3, primary, secondary, pixel_aspect_ratio=4 / 3, rotation=90
+    )
+    encode_video(find_ffmpeg(), tmp_path, spec)
+    clip = _open_source_reader(VideoFileClip, str(tmp_path / "rot-anam.mp4"), None, None, 4 / 3)
+    try:
+        assert tuple(clip.size) == (72, 128)
+        frame = np.asarray(clip.get_frame(0.1), dtype=np.int16)
+    finally:
+        clip.close()
+    assert frame.shape == (128, 72, 3)
+    is_secondary = np.abs(frame - np.array(secondary)).max(axis=2) <= 40
+    rows = np.nonzero(is_secondary.sum(axis=1) >= 18)[0]
+    cols = np.nonzero(is_secondary.sum(axis=0) >= 32)[0]
+    assert rows.size > 0 and cols.size > 0
+    # A corner block of half the upright width and half the upright height (chroma bleed aside).
+    assert abs(int(rows.max() - rows.min() + 1) - 64) <= 2
+    assert abs(int(cols.max() - cols.min() + 1) - 36) <= 2
+    assert rows.min() <= 1 or rows.max() >= 126
+    assert cols.min() <= 1 or cols.max() >= 70
+
+
 def test_anamorphic_source_decodes_to_its_display_corrected_size() -> None:
     """PX2.9: MoviePy ignores the sample aspect ratio, so the reader is opened square-pixelled."""
     from framepilot_engine.render.compiler import _open_source_reader

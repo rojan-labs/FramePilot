@@ -1543,6 +1543,179 @@
           "frameEffects": []
         }
       ]
+    },
+    {
+      "id": "rotated-anamorphic",
+      "row": "Geometry: rotated anamorphic source",
+      "description": "Storage 1440x1080 at a 4:3 pixel aspect ratio with a clockwise 90 degree display rotation (displays 1080x1920). The ratio stretches storage width, which is the upright height after the turn (PX2.11). Fitted statically, then scaled by a keyframe (the decode-cap path).",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "anamrot": 30
+        }
+      },
+      "project": {
+        "id": "fp-rotated-anamorphic",
+        "name": "rotated-anamorphic",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "anamrot",
+            "path": "media/anamrot.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1440,
+              "height": 1080,
+              "pixelAspectRatio": 1.3333333333333333,
+              "rotation": 90,
+              "proxyPath": "proxies/anamrot.mp4"
+            },
+            "durationSeconds": 60
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "anamrot",
+                  "trackId": "v1",
+                  "start": 0,
+                  "end": 4,
+                  "sourceStart": 0,
+                  "sourceEnd": 4,
+                  "effects": [],
+                  "keyframes": []
+                },
+                {
+                  "id": "c2",
+                  "assetId": "anamrot",
+                  "trackId": "v1",
+                  "start": 4,
+                  "end": 8,
+                  "sourceStart": 10,
+                  "sourceEnd": 14,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "s0",
+                      "time": 0,
+                      "property": "scale",
+                      "value": 0.6,
+                      "easing": "linear"
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1,
+        5
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "anamrot",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 5.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c2",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "anamrot",
+                "assetKind": "video",
+                "time": 11.0,
+                "frame": 330
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.22499999999999998,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 518.5,
+                "top": 144.00000000000003,
+                "width": 242.99999999999997,
+                "height": 431.99999999999994
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
     }
   ]
 }

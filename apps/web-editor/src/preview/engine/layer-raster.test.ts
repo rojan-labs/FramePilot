@@ -12,6 +12,7 @@ import {
   cropRect,
   fittedDecodeSize,
   pictureRasterStep,
+  readerDecodeSize,
   type PictureRasterStep,
 } from './layer-raster.js';
 
@@ -127,5 +128,26 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
     expect(step?.opacity).toBe(1);
     expect(step?.mask).toMatchObject({ shape: 'ellipse', width: 0.5, height: 0.5 });
     expect(stepFor(host, land)?.mask).toBeNull();
+  });
+
+  it('stretches the upright height of a quarter-turned anamorphic source (PX2.11)', () => {
+    // Upright storage 1080x1440 (stored 1440x1080, turned 90), PAR 4/3: displays 1080x1920.
+    expect(readerDecodeSize({ width: 1080, height: 1440 }, null, null, 4 / 3, 90)).toEqual({
+      width: 1080,
+      height: 1920,
+    });
+    expect(readerDecodeSize({ width: 1440, height: 1080 }, null, null, 4 / 3, 0)).toEqual({
+      width: 1920,
+      height: 1080,
+    });
+    expect(
+      readerDecodeSize(
+        { width: 1080, height: 1440 },
+        null,
+        { width: 1280, height: 720 },
+        4 / 3,
+        90,
+      ),
+    ).toEqual({ width: 404, height: 720 });
   });
 });
