@@ -35,10 +35,25 @@ void main() {
   }
 }`;
 
+/**
+ * Passes whose numpy twin evaluates noise at integer array coordinates (`np.arange` columns and
+ * rows, row 0 at the top) rather than at y-up pixel centres. The shared GLSL evaluates them at
+ * `uv * uResolution`, half a pixel off and vertically mirrored, which re-rolls every noise cell;
+ * here `gl_FragCoord` rows already run top-down, so its integer part is the array index.
+ */
+const ARRAY_INDEX_NOISE_KINDS: ReadonlySet<string> = new Set([
+  'noise-dissolve',
+  'pixel-dissolve',
+  'warp',
+]);
+
 /** The fragment source of one catalog pass for the compositor, or `null` for an unknown kind. */
 export function transitionPassSource(kind: TransitionRenderKind): string | null {
-  const body = GLSL_TRANSITIONS[kind];
-  if (body === undefined) return null;
+  const shared = GLSL_TRANSITIONS[kind];
+  if (shared === undefined) return null;
+  const body = ARRAY_INDEX_NOISE_KINDS.has(kind)
+    ? shared.replaceAll('uv * uResolution', 'floor(gl_FragCoord.xy)')
+    : shared;
   const preamble = TRANSITION_FRAGMENT_PREAMBLE.replace(
     /vec3 tex\(vec2 uv\) \{[^\n]*\}/,
     FLIPPED_SAMPLER,
