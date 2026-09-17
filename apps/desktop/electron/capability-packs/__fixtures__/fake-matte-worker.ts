@@ -7,7 +7,7 @@
  * against real bytes on disk. Scenarios break exactly one rule each.
  */
 import { createHash } from 'node:crypto';
-import { lstat, readFile, rm, symlink, writeFile } from 'node:fs/promises';
+import { appendFile, lstat, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type {
   CapabilityPackWorkerProgress,
@@ -27,7 +27,8 @@ export type FakeMatteScenario =
   | 'misaligned'
   | 'ignore_locks'
   | 'output_unwritable'
-  | 'hang';
+  | 'hang'
+  | 'grow';
 
 export interface FakeMatteWorkerOptions {
   readonly scenario?: FakeMatteScenario;
@@ -43,6 +44,9 @@ interface FakeContainer {
   readonly pixelFormat: string;
   readonly frames: readonly string[];
 }
+
+/** The pid the fake worker reports through `onSpawn`. */
+export const FAKE_WORKER_PID = 424242;
 
 export function syntheticFrameHash(pts: number, salt = 'alpha'): string {
   return createHash('sha256').update(`${salt}:${pts}`).digest('hex');
@@ -63,6 +67,18 @@ export function fakeMatteWorker(options: FakeMatteWorkerOptions) {
       throw new Error(`fake matte worker got ${request.capability}`);
     }
     const scenario = options.scenario ?? 'ok';
+    run.onSpawn?.(FAKE_WORKER_PID);
+    if (scenario === 'grow') {
+      // Keeps writing into staging until the host stops it (ceiling overrun / disk fill).
+      const target = path.join(request.parameters.output.absolutePath, 'matte.mkv');
+      await new Promise<void>((_resolve, reject) => {
+        const timer = setInterval(() => void appendFile(target, Buffer.alloc(64 * 1024)).catch(() => undefined), 5);
+        run.signal?.addEventListener('abort', () => {
+          clearInterval(timer);
+          reject(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
+        });
+      });
+    }
     if (scenario === 'hang') {
       await new Promise<void>((_resolve, reject) => {
         run.signal?.addEventListener('abort', () =>

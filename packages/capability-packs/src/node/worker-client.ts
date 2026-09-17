@@ -53,6 +53,8 @@ export interface CapabilityPackWorkerRunOptions {
    */
   readonly extraEnvironment?: Readonly<Record<string, string>>;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
+  /** The worker's pid (its process-group id on POSIX), for a host watchdog (BR4.12 H2). */
+  readonly onSpawn?: (pid: number) => void;
   readonly launch?: CapabilityPackWorkerLauncher;
 }
 
@@ -227,6 +229,13 @@ export async function runCapabilityPackWorker(
     ['--framepilot-worker-runtime'],
     safeRuntimeEnvironment(options.extraEnvironment),
   );
+  if (child.pid !== undefined) {
+    try {
+      options.onSpawn?.(child.pid);
+    } catch (error) {
+      log.warn('spawnObserverFailed', { error: error instanceof Error ? error.name : 'unknown' });
+    }
+  }
   const timeoutMs = options.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   return await new Promise<CapabilityPackWorkerResult>((resolve, reject) => {
     let settled = false;

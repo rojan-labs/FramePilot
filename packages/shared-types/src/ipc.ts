@@ -1344,6 +1344,8 @@ export type MatteRunResultWire =
       readonly error: string;
       readonly retryable: boolean;
       readonly verificationCode?: string;
+      /** `resource_exhausted`: the host watchdog limit the job crossed. */
+      readonly resourceLimit?: 'memory' | 'stalled' | 'disk';
       /** `insufficient_disk`: bytes needed (estimate + 20% headroom) and bytes free. */
       readonly requiredBytes?: number;
       readonly freeBytes?: number;

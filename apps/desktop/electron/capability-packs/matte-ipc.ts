@@ -300,6 +300,7 @@ export function toWire(outcome: MatteRunOutcome): MatteRunResultWire {
         ...(outcome.verificationCode === undefined ? {} : { verificationCode: outcome.verificationCode }),
         ...(outcome.requiredBytes === undefined ? {} : { requiredBytes: outcome.requiredBytes }),
         ...(outcome.freeBytes === undefined ? {} : { freeBytes: outcome.freeBytes }),
+        ...(outcome.resourceLimit === undefined ? {} : { resourceLimit: outcome.resourceLimit }),
       };
   }
 }

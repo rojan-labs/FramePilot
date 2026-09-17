@@ -15,6 +15,7 @@
  */
 import { createHash } from 'node:crypto';
 import { lstat } from 'node:fs/promises';
+import { totalmem } from 'node:os';
 import path from 'node:path';
 import {
   canonicalJson,
@@ -30,6 +31,7 @@ import {
 } from '@framepilot/capability-packs';
 import {
   CapabilityPackWorkerRuntimeError,
+  killWorkerGroup,
   runCapabilityPackWorker,
   type CapabilityPackLease,
 } from '@framepilot/capability-packs/node';
@@ -37,6 +39,13 @@ import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot
 import type { Project } from '@framepilot/timeline-schema';
 import { MatteInspectorError, type MatteMediaInspector, type MatteVideoTiming } from './matte-media-inspector.js';
 import { estimateMatteBytes, freeDiskBytes } from './matte-disk.js';
+import {
+  processGroupFootprint,
+  stagingBytes,
+  watchdogLimits,
+  WorkerWatchdog,
+  type WatchdogBreach,
+} from './worker-watchdog.js';
 import { grayPixelSha256 } from './matte-png.js';
 import {
   commitMatteStaging,
@@ -128,7 +137,8 @@ export type MatteFailureCode =
   | 'timed_out'
   | 'insufficient_disk'
   | 'correction_invalid'
-  | 'candidate_unresolved';
+  | 'candidate_unresolved'
+  | 'resource_exhausted';
 
 export type MatteRunOutcome =
   | {
@@ -149,6 +159,8 @@ export type MatteRunOutcome =
       readonly retryable: boolean;
       /** Set for `verification_failed`: which host check refused the artifact. */
       readonly verificationCode?: string;
+      /** Set for `resource_exhausted`: which watchdog limit the job crossed. */
+      readonly resourceLimit?: WatchdogBreach;
       /** Set for `insufficient_disk`: the estimate with headroom, and what is free. */
       readonly requiredBytes?: number;
       readonly freeBytes?: number;
@@ -178,6 +190,15 @@ export interface CapabilityPackMatteServiceOptions {
   readonly now?: () => Date;
   /** Free bytes on the project's volume; injected for tests (BR4.10 preflight). */
   readonly freeDiskBytes?: (directory: string) => Promise<number>;
+  /** Watchdog overrides; production uses the platform sampler, `os.totalmem()` and defaults. */
+  readonly watchdog?: {
+    readonly footprintBytes?: (pid: number) => Promise<number | undefined>;
+    readonly totalMemoryBytes?: number;
+    readonly stallMs?: number;
+    readonly intervalMs?: number;
+    readonly now?: () => number;
+    readonly killGroup?: (pid: number | undefined) => void;
+  };
   /** Receives one privacy-safe report per finished job (BR4.11 diagnostics). */
   readonly observer?: (report: MatteJobReport) => void;
 }
@@ -415,7 +436,10 @@ export class CapabilityPackMatteService {
       addPhase(phases, 'stage', Date.now() - tStage);
 
       const tWorker = Date.now();
-      const result = await this.runWorker(pack.record, request, staging, media, intent.requestId, signal, context.onProgress);
+      const result = await this.runWorker(pack.record, request, staging, media, intent.requestId, signal, context.onProgress, {
+        projectDir: context.projectDir,
+        byteCeiling: maxBytes,
+      });
       addPhase(phases, 'worker', Date.now() - tWorker);
       if ('status' in result) return result;
 
@@ -687,27 +711,71 @@ export class CapabilityPackMatteService {
     requestId: string,
     signal: AbortSignal,
     onProgress: MatteRunContext['onProgress'],
+    context: { readonly projectDir: string; readonly byteCeiling: number },
   ): Promise<SubjectMatteResult | Extract<MatteRunOutcome, { status: 'failed' }>> {
     const installRoot = resolveInside(this.options.storageRoot, record.installRelativePath);
     const entrypoint = resolveInside(installRoot, ENTRYPOINT[this.options.platform.os]);
     const lease = await this.options.store.acquireLease(record.identity);
     const startedAt = Date.now();
+    // The watchdog's own controller, so a breach ends the worker without looking like a user cancel.
+    const workerController = new AbortController();
+    const forwardAbort = (): void => workerController.abort();
+    signal.addEventListener('abort', forwardAbort, { once: true });
+    let workerPid: number | undefined;
+    const settings = this.options.watchdog ?? {};
+    const freeAtStart = await (this.options.freeDiskBytes ?? freeDiskBytes)(context.projectDir).catch(() => Number.MAX_SAFE_INTEGER);
+    const watchdog = new WorkerWatchdog(
+      watchdogLimits({
+        packId: record.identity.id,
+        totalMemoryBytes: settings.totalMemoryBytes ?? totalmem(),
+        byteCeiling: context.byteCeiling,
+        freeBytesAtStart: freeAtStart,
+        ...(settings.stallMs === undefined ? {} : { stallMs: settings.stallMs }),
+      }),
+      {
+        footprintBytes: settings.footprintBytes ?? processGroupFootprint(),
+        directoryBytes: stagingBytes,
+        now: settings.now ?? Date.now,
+      },
+      {
+        stagingDirectory: staging.directory,
+        ...(settings.intervalMs === undefined ? {} : { intervalMs: settings.intervalMs }),
+        onBreach: () => {
+          (settings.killGroup ?? killWorkerGroup)(workerPid);
+          workerController.abort();
+        },
+      },
+    );
+    watchdog.start();
     try {
       const result = await (this.options.runWorker ?? runCapabilityPackWorker)({
         entrypoint,
         mediaRoot: path.dirname(media.asset.path),
         outputRoot: staging.stagingRoot,
         request,
-        signal,
+        signal: workerController.signal,
         timeoutMs: Math.min(JOB_TIMEOUT_MAX_MS, JOB_TIMEOUT_BASE_MS + media.frameCount * JOB_TIMEOUT_PER_FRAME_MS),
         extraEnvironment: { FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot },
-        onProgress: (progress) => onProgress?.(withEta(requestId, progress, startedAt)),
+        onSpawn: (pid) => {
+          workerPid = pid;
+          watchdog.attach(pid);
+        },
+        onProgress: (progress) => {
+          watchdog.progress();
+          onProgress?.(withEta(requestId, progress, startedAt));
+        },
       });
+      if (watchdog.breach !== undefined) return resourceExhausted(watchdog.breach);
       if (result.capability !== 'subject.matte') {
         return failed('worker_failed', 'The Smart Mask pack returned an unexpected result.', false);
       }
       return result;
+    } catch (error) {
+      if (watchdog.breach !== undefined) return resourceExhausted(watchdog.breach);
+      throw error;
     } finally {
+      watchdog.stop();
+      signal.removeEventListener('abort', forwardAbort);
       await lease.release();
     }
   }
@@ -1014,6 +1082,16 @@ function classifyFailure(error: unknown, signal: AbortSignal): Extract<MatteRunO
     ...(typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? { code: error.code } : {}),
   });
   return failed('worker_failed', 'Background removal failed unexpectedly. Try again.', true);
+}
+
+const RESOURCE_REMEDIES: Readonly<Record<WatchdogBreach, string>> = {
+  memory: 'Background removal needed more memory than this computer can spare and was stopped. Close other apps or use a shorter range.',
+  stalled: 'The Smart Mask pack stopped responding and was stopped. Try again.',
+  disk: 'Background removal was about to fill the disk and was stopped. Free up space and try again.',
+};
+
+function resourceExhausted(breach: WatchdogBreach): Extract<MatteRunOutcome, { status: 'failed' }> {
+  return { status: 'failed', code: 'resource_exhausted', detail: RESOURCE_REMEDIES[breach], retryable: breach !== 'memory', resourceLimit: breach };
 }
 
 function failed(code: MatteFailureCode, detail: string, retryable: boolean): Extract<MatteRunOutcome, { status: 'failed' }> {

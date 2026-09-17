@@ -9,6 +9,7 @@ import type {
 import type { CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import {
+  FAKE_WORKER_PID,
   constantRateTiming,
   fakeMatteInspector,
   fakeMatteWorker,
@@ -69,6 +70,7 @@ interface HarnessOptions {
   autoPrompt?: MatteAutoPrompt;
   freeDiskBytes?: number;
   observer?: (report: MatteJobReport) => void;
+  watchdog?: ConstructorParameters<typeof CapabilityPackMatteService>[0]['watchdog'];
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -99,6 +101,8 @@ async function harness(options: HarnessOptions = {}) {
     ...(options.autoPrompt === undefined ? {} : { autoPrompt: options.autoPrompt }),
     freeDiskBytes: async () => options.freeDiskBytes ?? Number.MAX_SAFE_INTEGER,
     ...(options.observer === undefined ? {} : { observer: options.observer }),
+    // Tests never sample real processes: a tiny footprint unless a test says otherwise.
+    watchdog: { footprintBytes: async () => 1024, killGroup: () => undefined, ...options.watchdog },
     now: () => new Date('2026-09-17T12:00:00Z'),
   });
   let project = {
@@ -286,6 +290,52 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(outcome.requiredBytes).toBeGreaterThan(1_000);
     expect(h.worker).not.toHaveBeenCalled();
     await expect(readdir(matteStagingRoot(h.projectDir))).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+
+  describe('host watchdog (BR4.12 H2)', () => {
+    const GIB = 1024 ** 3;
+
+    it('stops a worker whose process group grows past 0.6 x RAM and kills the group', async () => {
+      const killGroup = vi.fn();
+      let attached: number | undefined;
+      const h = await harness({
+        scenario: 'hang',
+        watchdog: {
+          totalMemoryBytes: 8 * GIB,
+          intervalMs: 5,
+          footprintBytes: async (pid) => {
+            attached = pid;
+            return 6 * GIB;
+          },
+          killGroup,
+        },
+      });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({
+        status: 'failed',
+        code: 'resource_exhausted',
+        resourceLimit: 'memory',
+        retryable: false,
+      });
+      expect(attached).toBe(FAKE_WORKER_PID);
+      expect(killGroup).toHaveBeenCalledWith(FAKE_WORKER_PID);
+      expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
+    });
+
+    it('stops a silent worker after the stall limit', async () => {
+      const h = await harness({ scenario: 'hang', watchdog: { stallMs: 20, intervalMs: 5 } });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({ code: 'resource_exhausted', resourceLimit: 'stalled' });
+    });
+
+    it('stops a worker writing past free space minus the 1 GB reserve', async () => {
+      const h = await harness({ scenario: 'grow', freeDiskBytes: GIB + 256 * 1024, watchdog: { intervalMs: 5 } });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({ code: 'resource_exhausted', resourceLimit: 'disk' });
+      expect(await readdir(matteStagingRoot(h.projectDir))).toEqual([]);
+    });
+
+    it('leaves a well-behaved job alone', async () => {
+      const h = await harness({ watchdog: { intervalMs: 5, totalMemoryBytes: 16 * GIB } });
+      expect(await h.service.run(h.intent(), h.context())).toMatchObject({ status: 'completed' });
+    });
   });
 
   it('maps output_unwritable to its own retryable code', async () => {
