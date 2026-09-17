@@ -882,6 +882,10 @@ export class LayerPreviewEngine {
     if (this.playing) this.pause();
     const myGeneration = ++this.generation;
     const clamped = Math.min(this.durationSec, Math.max(0, projectTimeSec));
+    // The latest REQUESTED time, recorded before any await: a project reload that re-presents
+    // `pausedAtSec` while this seek is still waiting on media must land here, not on the time
+    // before the seek (which then echoed back and dragged the editor's playhead to it).
+    this.pausedAtSec = clamped;
     try {
       const plan = this.planAt(clamped);
       if (plan) {
