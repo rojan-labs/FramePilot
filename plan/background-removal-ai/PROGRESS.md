@@ -9,9 +9,12 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR4.13/BR4.14 + BR4.9/BR4.11 next on the host track
+- BR4.12 — security review (security-reviewer)
+- BR3 — Smart Mask worker scaffold + pipeline with injected backend (agent)
 
 ## Done
+
+- BR4.9/4.11/4.13/4.14 (999ff604…91076959): sidecar frame hashes + locked-frame compare, relink_asset op + STALE, job scheduler + JobsPanel + resume + quit prompt, job reports + diagnostic bundle
 
 - BR4.1–BR4.7, BR4.10 (f2551123…fee3c439): protocol, staging + host verification, matte job lifecycle, status/installed/matte/correction/storage IPC, auto prompt, storage clean, open-time validation, disk preflight. Fake worker. Fixed MK1 fixture regression in automatic-tracking-executor.test.ts (6a4a390f, 11/11)
 

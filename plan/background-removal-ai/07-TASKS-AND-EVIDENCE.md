@@ -210,7 +210,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** pack registers locally, passes health, and produces a host-verified artifact with a report on a real 1-min 4K clip.
 
-### BR4 — Protocol + desktop host `[~]` (needs MD-3, MD-4; BR4.1–BR4.7, BR4.10 through fee3c439 with a fake worker; 164 desktop pack tests)
+### BR4 — Protocol + desktop host `[~]` (needs MD-3, MD-4; all but BR4.12 through 91076959 with a fake worker; 182 desktop pack tests; windowed resume awaits BR3.14)
 
 - [x] BR4.1 `subject.matte` schemas + protocol tests (additive negotiation)
 - [x] BR4.2 Staging write handle, inputs read handle, host verification (incl. locked-frame bit identity), atomic rename, orphan sweep
@@ -219,11 +219,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR4.5 Auto prompt via `subject.detect`; `needs_prompt` when absent
 - [x] BR4.6 Storage manager: per-project matte bytes, referenced-set protection, "Clean unused mattes"
 - [x] BR4.7 Project media validation for matte files + digests
-- [ ] BR4.9 Job scheduler + `JobsPanel` (priorities, one GPU job, preemption between windows, pause during export, resume after restart, quit prompt)
-- [~] BR4.10 (recheck exists; no relink flow calls it → BR4.14) Disk-space preflight; relink/replace/re-proxy re-check (frame hashes) → STALE; `catalog_unconfigured` and hardware-minimum states in `capabilityPackStatus`
-- [ ] BR4.13 Lock verification and media frame hashing go through the sidecar (packaged builds bundle only ffprobe; today those checks fail closed in release builds)
-- [ ] BR4.14 Desktop relink/replace/re-proxy flow calls `recheckProjectMatteMedia` (and tracks after MK7); STALE shown with remedy; engine export refuses `matte_media_changed`
-- [ ] BR4.11 Observability events and opt-in diagnostic bundle
+- [x] BR4.9 Job scheduler + `JobsPanel` (priorities, one GPU job, preemption between windows, pause during export, resume after restart, quit prompt)
+- [x] BR4.10 Disk-space preflight; relink/replace/re-proxy re-check (frame hashes) → STALE; `catalog_unconfigured` and hardware-minimum states in `capabilityPackStatus`
+- [x] BR4.13 Lock verification and media frame hashing go through the sidecar (packaged builds bundle only ffprobe; today those checks fail closed in release builds)
+- [x] BR4.14 Desktop relink/replace/re-proxy flow calls `recheckProjectMatteMedia` (and tracks after MK7); STALE shown with remedy; engine export refuses `matte_media_changed`
+- [x] BR4.11 Observability events and opt-in diagnostic bundle
 - [ ] BR4.12 **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
 
 **DoD:** desktop capability-pack tests for new files pass; security review recorded in the PR.
