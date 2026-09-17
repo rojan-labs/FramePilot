@@ -15,11 +15,14 @@ import {
   type CapabilityPackWorkerRequest,
   type CapabilityPackWorkerResult,
 } from '../worker-protocol.js';
+import { ensureWorkerGroupGone, killWorkerGroup, workerGroupSpawnOptions } from './process-group.js';
 import { mergeExtraWorkerEnvironment } from './worker-env.js';
 
 const log = createLogger('capability-packs:worker-client');
 const DEFAULT_TIMEOUT_MS = 10 * 60 * 1_000;
 const MAX_STDERR_BYTES = 64 * 1024;
+/** How long after `exit` the client waits for `close` before settling without it. */
+const EXIT_GRACE_MS = 1_000;
 
 export type CapabilityPackWorkerLauncher = (
   entrypoint: string,
@@ -60,7 +63,8 @@ export class CapabilityPackWorkerRuntimeError extends Error {
       | 'timed_out'
       | 'media_escape'
       | 'protocol_error'
-      | 'worker_failed',
+      | 'worker_failed'
+      | 'lingering_process',
     message: string,
     public readonly workerCode?: string,
   ) {
@@ -79,6 +83,8 @@ function defaultLauncher(
     windowsHide: true,
     env: { ...env },
     stdio: ['pipe', 'pipe', 'pipe'],
+    // Own process group, so a timeout, abort or finish can end every descendant (BR4.12 H1).
+    ...workerGroupSpawnOptions(),
   });
 }
 
@@ -240,6 +246,7 @@ export async function runCapabilityPackWorker(
       else if (result !== undefined) resolve(result);
     };
     const terminate = (): void => {
+      killWorkerGroup(child.pid);
       child.kill('SIGKILL');
     };
     const abort = (): void => {
@@ -343,13 +350,21 @@ export async function runCapabilityPackWorker(
       stderr = Buffer.concat([stderr, chunk]).subarray(0, MAX_STDERR_BYTES);
     });
     child.on('error', (error) => finish(protocolError(`Capability Pack worker failed to start: ${error.message}`)));
-    child.on('close', (exitCode) => {
-      if (settled) return;
+    // Settle on `exit` + a grace period, not only `close`: a descendant that inherited stdout
+    // would otherwise keep `close` from ever firing and the job would never settle (BR4.12 H1).
+    let ended = false;
+    let exitGrace: ReturnType<typeof setTimeout> | undefined;
+    const onEnded = (exitCode: number | null): void => {
+      if (settled || ended) return;
+      ended = true;
+      if (exitGrace !== undefined) clearTimeout(exitGrace);
       if (options.signal?.aborted === true) {
+        terminate();
         finish(new CapabilityPackWorkerRuntimeError('cancelled', 'Capability Pack request cancelled.'));
         return;
       }
       if (timedOut) {
+        terminate();
         finish(
           new CapabilityPackWorkerRuntimeError(
             'timed_out',
@@ -361,6 +376,7 @@ export async function runCapabilityPackWorker(
       if (stdout.byteLength > 0) acceptLine(stdout);
       if (settled) return;
       if (exitCode !== 0 || terminal === undefined) {
+        terminate();
         const detail = stderr.toString('utf8').trim().slice(0, 2_000);
         finish(
           protocolError(
@@ -371,13 +387,34 @@ export async function runCapabilityPackWorker(
         );
         return;
       }
-      log.action('workerComplete', {
-        requestId: request.requestId,
-        capability: request.capability,
-        samples: terminalSampleCount(terminal),
+      const result = terminal;
+      // Nothing the worker started may outlive the job: the host verifies the staging
+      // directory next, and a live descendant could still be writing into it.
+      void ensureWorkerGroupGone(child.pid).then((gone) => {
+        child.stdout.destroy();
+        child.stderr.destroy();
+        if (!gone) {
+          finish(
+            new CapabilityPackWorkerRuntimeError(
+              'lingering_process',
+              'A process started by the Capability Pack worker would not stop.',
+            ),
+          );
+          return;
+        }
+        log.action('workerComplete', {
+          requestId: request.requestId,
+          capability: request.capability,
+          samples: terminalSampleCount(result),
+        });
+        finish(undefined, result);
       });
-      finish(undefined, terminal);
+    };
+    child.on('exit', (exitCode) => {
+      if (settled || ended) return;
+      exitGrace = setTimeout(() => onEnded(exitCode), EXIT_GRACE_MS);
     });
+    child.on('close', (exitCode) => onEnded(exitCode));
     // A worker that exits before reading stdin turns the write below into an EPIPE.
     // Without a listener here, that EPIPE is an uncaught 'error' event on the stream
     // and crashes the Electron main process instead of resolving this promise.

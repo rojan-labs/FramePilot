@@ -608,6 +608,15 @@ export class CapabilityPackMatteService {
         if (prompt.kind === 'lock') locks.push({ pts: prompt.pts, pixelSha256: grayPixelSha256(input.image) });
       } catch (error) {
         if (error instanceof MatteStoreError) return failed('correction_invalid', error.message, false);
+  if (error instanceof MatteStagingError && error.code === 'changed_after_verify') {
+    return {
+      status: 'failed',
+      code: 'verification_failed',
+      detail: 'The background removal result failed FramePilot’s checks and was discarded. Try again.',
+      retryable: true,
+      verificationCode: 'changed_after_verify',
+    };
+  }
         throw error;
       }
     }
@@ -738,7 +747,7 @@ export class CapabilityPackMatteService {
       sourceSamples: await this.sampleSource(media, signal),
       createdAt: (this.options.now?.() ?? new Date()).toISOString(),
     };
-    const outcome = await commitMatteStaging(projectDir, staging, key);
+    const outcome = await commitMatteStaging(projectDir, staging, key, files);
     if (outcome === 'already_present' && (await readMatteRecord(projectDir, key)) !== undefined) {
       return (await readMatteRecord(projectDir, key))!;
     }
@@ -988,6 +997,9 @@ function classifyFailure(error: unknown, signal: AbortSignal): Extract<MatteRunO
     if (error.code === 'cancelled') return failed('cancelled', 'Background removal cancelled.', false);
     if (error.code === 'timed_out') return failed('timed_out', 'Background removal took longer than its time limit and was stopped.', true);
     if (error.code === 'media_escape') return failed('media_rejected', 'The media or output folder is outside the project’s allowed folders.', false);
+    if (error.code === 'lingering_process') {
+      return failed('worker_failed', 'The Smart Mask pack left a process running and its result was discarded.', false);
+    }
     const mapped = error.workerCode === undefined ? undefined : WORKER_FAILURES[error.workerCode];
     if (mapped !== undefined) return failed(...mapped);
     return failed('worker_failed', 'The Smart Mask pack stopped unexpectedly. Try again.', true);

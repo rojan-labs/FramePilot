@@ -119,3 +119,40 @@ describe('matte staging (MD-3)', () => {
     expect(await sweepMatteStaging(await project(), { now, activeJobIds: new Set() })).toBe(0);
   });
 });
+
+describe('commit re-check after verification (BR4.12 H1)', () => {
+  const setup = async () => {
+    const dir = await project();
+    const staging = await createMatteStaging(dir, 'job');
+    await writeFile(path.join(staging.directory, 'matte.mkv'), 'alpha');
+    await writeFile(path.join(staging.directory, 'frames.json'), '{}');
+    return { dir, staging, files: [{ name: 'matte.mkv', bytes: 5 }, { name: 'frames.json', bytes: 2 }] };
+  };
+
+  it('commits when the staging directory still holds exactly the verified files', async () => {
+    const { dir, staging, files } = await setup();
+    expect(await commitMatteStaging(dir, staging, KEY, files)).toBe('committed');
+  });
+
+  it('refuses a hard link, an added file, a changed size or a swapped symlink', async () => {
+    const { link, rm: remove, symlink: makeSymlink } = await import('node:fs/promises');
+    const hard = await setup();
+    await link(path.join(hard.staging.directory, 'matte.mkv'), path.join(hard.dir, 'alias.mkv'));
+    await expect(commitMatteStaging(hard.dir, hard.staging, KEY, hard.files)).rejects.toMatchObject({ code: 'changed_after_verify' });
+
+    const added = await setup();
+    await writeFile(path.join(added.staging.directory, 'run.sh'), 'x');
+    await expect(commitMatteStaging(added.dir, added.staging, KEY, added.files)).rejects.toMatchObject({ code: 'changed_after_verify' });
+
+    const grown = await setup();
+    await writeFile(path.join(grown.staging.directory, 'matte.mkv'), 'alpha plus');
+    await expect(commitMatteStaging(grown.dir, grown.staging, KEY, grown.files)).rejects.toMatchObject({ code: 'changed_after_verify' });
+
+    const swapped = await setup();
+    await remove(path.join(swapped.staging.directory, 'frames.json'));
+    await makeSymlink('/etc/hosts', path.join(swapped.staging.directory, 'frames.json'));
+    await expect(commitMatteStaging(swapped.dir, swapped.staging, KEY, swapped.files)).rejects.toMatchObject({ code: 'changed_after_verify' });
+    expect(matteArtifactDirectory(swapped.dir, KEY)).toBeDefined();
+    await expect(stat(matteArtifactDirectory(swapped.dir, KEY)!)).rejects.toMatchObject({ code: 'ENOENT' });
+  });
+});

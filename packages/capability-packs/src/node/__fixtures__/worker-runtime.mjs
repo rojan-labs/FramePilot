@@ -1,4 +1,6 @@
 /* global process */
+import { spawn } from 'node:child_process';
+import { writeFileSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 
 const scenario = process.argv[2] ?? 'success';
@@ -18,6 +20,14 @@ lines.on('line', (line) => {
     process.exit(0);
   }
   if (scenario === 'hang') return;
+  if (scenario === 'lingering') {
+    // A descendant that inherits stdout and outlives the worker: without group handling the
+    // host would never see 'close' and a writer would survive verification.
+    const child = spawn(process.execPath, ['-e', 'setInterval(() => {}, 1000)'], { stdio: ['ignore', 'inherit', 'inherit'] });
+    if (process.env.FRAMEPILOT_FIXTURE_PID_FILE) {
+      writeFileSync(process.env.FRAMEPILOT_FIXTURE_PID_FILE, String(child.pid));
+    }
+  }
   if (scenario === 'malformed') {
     process.stdout.write('not-json\n');
     process.exit(0);

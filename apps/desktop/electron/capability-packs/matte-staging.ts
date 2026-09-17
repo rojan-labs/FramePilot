@@ -41,7 +41,13 @@ const CACHE_KEY_PATTERN = /^[0-9a-f]{64}$/u;
 
 export class MatteStagingError extends Error {
   public constructor(
-    public readonly code: 'invalid_job_id' | 'invalid_key' | 'unsafe_path' | 'staging_exists' | 'invalid_input',
+    public readonly code:
+      | 'invalid_job_id'
+      | 'invalid_key'
+      | 'unsafe_path'
+      | 'staging_exists'
+      | 'invalid_input'
+      | 'changed_after_verify',
     message: string,
   ) {
     super(message);
@@ -190,6 +196,12 @@ export async function commitMatteStaging(
   projectDir: string,
   staging: Pick<MatteStaging, 'directory' | 'inputsDirectory'>,
   key: string,
+  /**
+   * The files verification accepted. Re-checked immediately before the rename: exactly these
+   * names, regular files with one link each (no hard-link alias into the committed store) and the
+   * verified sizes (BR4.12 H1). Omit only in tests of the rename itself.
+   */
+  verifiedFiles?: readonly { readonly name: string; readonly bytes: number }[],
 ): Promise<MatteCommitOutcome> {
   const target = matteArtifactDirectory(projectDir, key);
   if (target === undefined) throw new MatteStagingError('invalid_key', 'Matte cache key is malformed.');
@@ -198,6 +210,7 @@ export async function commitMatteStaging(
     throw new MatteStagingError('unsafe_path', 'Staging directory is not inside this project’s matte store.');
   }
   await rm(staging.inputsDirectory, { recursive: true, force: true });
+  if (verifiedFiles !== undefined) await assertStagingUnchanged(staging.directory, verifiedFiles);
   if (await exists(target)) {
     await removeQuietly(staging.directory, 'duplicate');
     return 'already_present';
@@ -213,6 +226,25 @@ export async function commitMatteStaging(
     throw error;
   }
   return 'committed';
+}
+
+async function assertStagingUnchanged(
+  directory: string,
+  verifiedFiles: readonly { readonly name: string; readonly bytes: number }[],
+): Promise<void> {
+  const changed = (): MatteStagingError =>
+    new MatteStagingError('changed_after_verify', 'The background removal files changed after they were checked.');
+  const self = await lstat(directory);
+  if (!self.isDirectory() || self.isSymbolicLink()) throw changed();
+  const expected = new Map(verifiedFiles.map((file) => [file.name, file.bytes]));
+  const entries = await readdir(directory);
+  if (entries.length !== expected.size) throw changed();
+  for (const name of entries) {
+    const bytes = expected.get(name);
+    if (bytes === undefined) throw changed();
+    const stat = await lstat(path.join(directory, name));
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== bytes) throw changed();
+  }
 }
 
 export interface MatteStagingSweepOptions {

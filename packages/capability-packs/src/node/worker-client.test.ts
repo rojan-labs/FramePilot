@@ -345,3 +345,55 @@ describe('runCapabilityPackWorker write handles (MD-3)', () => {
     expect(started).toBe(true);
   });
 });
+
+describe('runCapabilityPackWorker process group (BR4.12 H1)', () => {
+  it.skipIf(process.platform === 'win32')(
+    'settles when a descendant holds stdout, and kills that descendant before resolving',
+    async () => {
+      const { readFile } = await import('node:fs/promises');
+      const { workerGroupSpawnOptions } = await import('./process-group.js');
+      const { root, media } = await sandbox();
+      const pidFile = path.join(root, 'linger.pid');
+      const groupLauncher: CapabilityPackWorkerLauncher = (_entrypoint, _args, env) =>
+        spawn(process.execPath, [fixture, 'lingering'], {
+          shell: false,
+          env: { ...env },
+          stdio: ['pipe', 'pipe', 'pipe'],
+          ...workerGroupSpawnOptions(),
+        });
+      const started = Date.now();
+      const result = await runCapabilityPackWorker({
+        entrypoint: '/signed/worker',
+        mediaRoot: root,
+        request: request(media),
+        launch: groupLauncher,
+        extraEnvironment: { FRAMEPILOT_FIXTURE_PID_FILE: pidFile },
+        timeoutMs: 20_000,
+      });
+      expect(result.capability).toBe('tracking.region');
+      expect(Date.now() - started).toBeLessThan(10_000);
+      const lingering = Number(await readFile(pidFile, 'utf8'));
+      expect(() => process.kill(lingering, 0)).toThrow();
+    },
+  );
+
+  it('kills and waits for the whole group', async () => {
+    const { ensureWorkerGroupGone, isWorkerGroupAlive, killWorkerGroup } = await import('./process-group.js');
+    const alive = new Set([-42, 42]);
+    const kill = (pid: number, signal: NodeJS.Signals | 0) => {
+      if (!alive.has(pid)) throw Object.assign(new Error('ESRCH'), { code: 'ESRCH' });
+      if (signal === 'SIGKILL') {
+        alive.delete(-42);
+        alive.delete(42);
+      }
+    };
+    expect(isWorkerGroupAlive(42, { kill, platform: 'darwin' })).toBe(true);
+    expect(await ensureWorkerGroupGone(42, 200, { kill, platform: 'darwin' })).toBe(true);
+    expect(killWorkerGroup(undefined)).toBe('none');
+    const trees: number[] = [];
+    expect(killWorkerGroup(7, { platform: 'win32', killTree: (pid) => void trees.push(pid) })).toBe('group');
+    expect(trees).toEqual([7]);
+    const stubborn = (_pid: number, _signal: NodeJS.Signals | 0) => undefined;
+    expect(await ensureWorkerGroupGone(9, 60, { kill: stubborn, platform: 'linux' })).toBe(false);
+  });
+});

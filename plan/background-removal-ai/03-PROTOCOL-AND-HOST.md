@@ -103,8 +103,12 @@ extra read surface:
 - **Write:** the host creates `<project>/.framepilot-derived/mattes/.staging/<requestId>/`, empty,
   and passes an opaque handle. The worker resolves it through `sandbox.py` and refuses anything
   outside it, including symlinks and `..`. It may create only the declared file names. A byte
-  ceiling per request (frames × pixels × an FFV1 bound, ×2 for foreground) is enforced by both
-  worker and host.
+  ceiling per request (frames × pixels × an FFV1 bound, more with foreground) is part of the
+  protocol, polled by the host watchdog while the job runs and checked again by host verification.
+  **None of this is an OS sandbox** (BR4.12): the worker runs as the user, and the guarantees are the
+  protocol, the worker's own process group (killed on timeout, abort and completion, and proven gone
+  before verification), host verification, and a re-`lstat` with `nlink == 1` just before the
+  atomic rename. An OS-level sandbox is an accepted risk in ADR 0114.
 - **Read:** corrections and locked frames are written **by the host** into
   `.../.staging/<requestId>/inputs/` before the job starts, and passed as a read-only handle.
 - **Verification by the host, independent of the worker's claims:** `ffprobe` dimensions, pixel
