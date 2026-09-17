@@ -9,7 +9,7 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 - PX2 — N-layer WebGL compositor until the oracle passes (agent)
-- BR4.12 — security review (security-reviewer)
+- BR4.12 fixes — H1, H2, M1–M3, L1–L6, fuzz corpus (host agent)
 - BR3 — Smart Mask worker scaffold + pipeline with injected backend (agent)
 
 ## Done
