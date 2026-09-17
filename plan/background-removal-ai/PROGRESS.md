@@ -13,6 +13,9 @@ Read this first after a context reset. Updated after every commit.
 
 ## Done
 
+- PX2 in flight: RD2.1 flag (2c6f1e3f); PX2.1 sync paused frames (23cf2f39); PX2.2 frame-effect ports (a30404b2); PX2.3 burned captions in track order (262d0ea4); PX2.5 speed audio (4a171c0c); PX2.6 range-read demux (a41a4631); PX2.8 load shedding (98fbaab6); PX2.9 display-size fit (15f83692)
+- BR0 in flight: ADR 0179 (89b848ef); BR0.3 box-prompt consensus (94b4faa7); BR0.4 verify prototype (344c3377); CoreML memory attention 8.4 GB footprint (0565c15c)
+
 - PX4 (74a464ad…020406db): CI-only oracle, baseline, PX0.3 colour; lint fix 26e954c5
 
 - MK1.9 (46330963…0c5561ee): probe records PAR + rotation; masks measured in display space everywhere. Follow-up PX2.9: clip fit/crop placement still uses coded size
