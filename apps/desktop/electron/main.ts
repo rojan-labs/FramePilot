@@ -186,6 +186,11 @@ import { withVisualPackLease } from './capability-packs/visual-pack-lease.js';
 import { loadCapabilityPackRootKeys } from './capability-packs/config.js';
 import { FileCapabilityPackLocation } from './capability-packs/location.js';
 import { buildTrackingWorkerRequest } from './capability-packs/tracking-request.js';
+import { registerMatteIpc } from './capability-packs/matte-ipc.js';
+import {
+  FfmpegMatteMediaInspector,
+  resolveMatteMediaTools,
+} from './capability-packs/matte-media-inspector.js';
 import type { CapabilityPackWorkerProgress } from '@framepilot/capability-packs';
 import { AiConfigStore } from './ai/ai-config.js';
 import { LicenseStore, type LicenseCrypto } from './license/license-store.js';
@@ -786,6 +791,20 @@ function registerIpcHandlers(): void {
       trustedRootKeys: await capabilityPackRootKeys,
       appVersion: app.getVersion(),
       runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
+      matteMediaInspector: new FfmpegMatteMediaInspector(
+        resolveMatteMediaTools({
+          env: process.env,
+          isPackaged: app.isPackaged,
+          resourcesPath: process.resourcesPath,
+          platform: process.platform,
+          fileExists: existsSync,
+        }),
+      ),
+      onStoreChanged: (event) => {
+        if (mainWindow !== null && !mainWindow.isDestroyed()) {
+          mainWindow.webContents.send(IpcChannels.capabilityPackInstalled, event);
+        }
+      },
       fetch: electronFetch,
       onProgress: (progress) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
@@ -1140,6 +1159,15 @@ function registerIpcHandlers(): void {
   ipcMain.on(IpcChannels.capabilityPackCancelTrack, (_event, requestId: unknown) => {
     if (typeof requestId !== 'string') return;
     trackingRuns.get(requestId)?.abort();
+  });
+  // Background removal + generic pack status (plan/background-removal-ai/03, BR4.4).
+  registerMatteIpc({
+    ipcMain,
+    requireLicense,
+    capabilityStatus: async (capability) => (await capabilityPackService).capabilityStatus(capability),
+    matte: async () => (await capabilityPackService).matte(),
+    activeProjectPath: async () => (await activeProject.current())?.path ?? null,
+    readProject: (projectPath) => readProjectFile(projectPath),
   });
   ipcMain.handle(
     IpcChannels.capabilityPackInstall,

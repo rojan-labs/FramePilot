@@ -1220,6 +1220,132 @@ export interface TrackingProgressWire {
   readonly total: number;
 }
 
+// ---------------------------------------------------------------------------
+// Generic pack status + background removal (plan/background-removal-ai/03, BR4)
+// ---------------------------------------------------------------------------
+
+/**
+ * Whether this machine can use one capability right now. Generic: any capability id.
+ * `missing` carries the signed install proposal (or the typed reason there is none).
+ */
+export type CapabilityPackStatusWire =
+  | {
+      readonly state: 'ready';
+      readonly capability: string;
+      readonly pack: CapabilityPackIdentityWire;
+    }
+  | {
+      readonly state: 'missing';
+      readonly capability: string;
+      readonly proposal: CapabilityPackProposalResultWire;
+    }
+  | {
+      readonly state: 'unhealthy';
+      readonly capability: string;
+      readonly reason: string;
+      readonly proposal?: CapabilityPackProposalResultWire;
+    }
+  | { readonly state: 'unsupported_platform'; readonly capability: string }
+  | { readonly state: 'invalid'; readonly capability: string; readonly error: string };
+
+/** Pushed after an install finished its health check, or a removal completed. */
+export interface CapabilityPackInstalledEventWire {
+  readonly kind: 'installed' | 'removed';
+  readonly identity: CapabilityPackIdentityWire;
+}
+
+/** What the mask records it asked for (mirrors `MattePromptRefSchema`). */
+export type MattePromptRefWire =
+  | {
+      readonly kind: 'points';
+      readonly sourceTime: number;
+      readonly points: readonly { readonly x: number; readonly y: number; readonly label: 'include' | 'exclude' }[];
+    }
+  | {
+      readonly kind: 'box';
+      readonly sourceTime: number;
+      readonly box: { readonly x: number; readonly y: number; readonly width: number; readonly height: number };
+    }
+  | { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string }
+  | { readonly kind: 'candidate'; readonly candidateId: string };
+
+/** Renderer intent for one background-removal job. No path, no pack, no handle. */
+export interface MatteRunIntentWire {
+  /** 1-64 letters, digits, `-` or `_`; also the cancel handle. */
+  readonly requestId: string;
+  readonly assetId: string;
+  /** Coverage in asset source seconds, handles included. */
+  readonly sourceStart: number;
+  readonly sourceEnd: number;
+  /** Empty asks main for the main subject; `needs_prompt` comes back when it cannot. */
+  readonly prompts: readonly MattePromptRefWire[];
+  readonly previousArtifactKey?: string;
+  readonly foreground?: boolean;
+  readonly previewHeight?: number;
+  readonly timelineRevision: number;
+}
+
+/** The digest-pinned artifact an `add_mask { kind: 'matte' }` op references. */
+export interface MatteArtifactWire {
+  readonly key: string;
+  readonly files: readonly { readonly name: string; readonly sha256: string }[];
+  readonly width: number;
+  readonly height: number;
+  readonly coverage: { readonly sourceStart: number; readonly sourceEnd: number };
+  readonly packId: string;
+  readonly packVersion: string;
+  readonly modelDigests: readonly string[];
+}
+
+export type MatteRunResultWire =
+  | {
+      readonly ok: true;
+      readonly artifact: MatteArtifactWire;
+      readonly summary: {
+        readonly verifiedFrames: number;
+        readonly flaggedFrames: number;
+        readonly lockedFrames: number;
+        readonly selfCorrectionRounds: number;
+      };
+      readonly needsReview: readonly { readonly start: number; readonly end: number; readonly reason: string }[];
+      readonly executionProvider: 'coreml' | 'directml' | 'cpu';
+      readonly cacheHit: boolean;
+      readonly projectRevision: number;
+    }
+  | { readonly ok: false; readonly code: 'pack_missing'; readonly proposal: CapabilityPackProposalResultWire }
+  | { readonly ok: false; readonly code: 'needs_prompt' }
+  | {
+      readonly ok: false;
+      readonly code: string;
+      readonly error: string;
+      readonly retryable: boolean;
+      readonly verificationCode?: string;
+    };
+
+export interface MatteProgressWire {
+  readonly requestId: string;
+  readonly phase: string;
+  readonly completed: number;
+  readonly total: number;
+  readonly round?: number;
+  readonly etaSeconds?: number;
+}
+
+/** A brush fix or locked frame drawn on an artifact, as an 8-bit gray PNG at its size. */
+export interface MatteSaveCorrectionWire {
+  readonly artifactKey: string;
+  readonly sourceTime: number;
+  readonly kind: 'brush' | 'lock';
+  readonly png: Uint8Array;
+}
+
+export type MatteSaveCorrectionResultWire =
+  | {
+      readonly ok: true;
+      readonly reference: { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string };
+    }
+  | { readonly ok: false; readonly code: string; readonly error: string };
+
 export interface CapabilityPackEvictionPlanWire {
   readonly planId: string;
   readonly requestedBytes: number;
@@ -1708,6 +1834,17 @@ export interface FramePilotBridge {
   ): Promise<CapabilityPackProposalResultWire>;
   /** Reconcile and report the active project's authoritative dependency state. */
   capabilityPackProjectStatus?(projectId: string): Promise<CapabilityPackProjectResolutionWire>;
+  /** Whether any capability is ready, missing (with its proposal), unhealthy or unsupported. */
+  capabilityPackStatus?(capability: string): Promise<CapabilityPackStatusWire>;
+  /** Fires after any install finishes its health check or any removal completes. */
+  onCapabilityPackInstalled?(handler: (event: CapabilityPackInstalledEventWire) => void): () => void;
+  /** Run background removal on the active project's asset; main resolves media and pack. */
+  capabilityPackMatte?(intent: MatteRunIntentWire): Promise<MatteRunResultWire>;
+  /** Cancel an in-flight background-removal job by request id. */
+  capabilityPackCancelMatte?(requestId: string): void;
+  onCapabilityPackMatteProgress?(handler: (progress: MatteProgressWire) => void): () => void;
+  /** Store a brush fix or locked frame as a project-owned input; returns its reference. */
+  matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
   /** Run one tracking job in an isolated signed pack worker; main resolves the media. */
   capabilityPackTrack?(intent: TrackingRequestIntentWire): Promise<TrackingRunResultWire>;
   /** Cancel an in-flight tracking job by request id. */

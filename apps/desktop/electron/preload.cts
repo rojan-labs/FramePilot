@@ -72,6 +72,13 @@ import type {
   TrackingRunResultWire,
   CapabilityPackRelocationResultWire,
   CapabilityPackProjectResolutionWire,
+  CapabilityPackStatusWire,
+  CapabilityPackInstalledEventWire,
+  MatteRunIntentWire,
+  MatteRunResultWire,
+  MatteProgressWire,
+  MatteSaveCorrectionWire,
+  MatteSaveCorrectionResultWire,
 } from './ipc/contract.js';
 import type {
   MediaImportChunkBridge,
@@ -149,6 +156,12 @@ const Channels = {
   capabilityPackTrack: 'framepilot:capability-pack:track',
   capabilityPackCancelTrack: 'framepilot:capability-pack:cancel-track',
   capabilityPackTrackProgress: 'framepilot:capability-pack:track-progress',
+  capabilityPackStatus: 'framepilot:capability-pack:status',
+  capabilityPackInstalled: 'framepilot:capability-pack:installed',
+  capabilityPackMatte: 'framepilot:capability-pack:matte',
+  capabilityPackCancelMatte: 'framepilot:capability-pack:cancel-matte',
+  capabilityPackMatteProgress: 'framepilot:capability-pack:matte-progress',
+  matteSaveCorrection: 'framepilot:capability-pack:matte-save-correction',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -218,6 +231,26 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.on(Channels.capabilityPackProgress, handler);
     return () => ipcRenderer.removeListener(Channels.capabilityPackProgress, handler);
   },
+  capabilityPackStatus: (capability: string) =>
+    ipcRenderer.invoke(Channels.capabilityPackStatus, capability) as Promise<CapabilityPackStatusWire>,
+  onCapabilityPackInstalled: (listener: (event: CapabilityPackInstalledEventWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: CapabilityPackInstalledEventWire): void =>
+      listener(payload);
+    ipcRenderer.on(Channels.capabilityPackInstalled, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackInstalled, handler);
+  },
+  capabilityPackMatte: (intent: MatteRunIntentWire) =>
+    ipcRenderer.invoke(Channels.capabilityPackMatte, intent) as Promise<MatteRunResultWire>,
+  capabilityPackCancelMatte: (requestId: string) => {
+    ipcRenderer.send(Channels.capabilityPackCancelMatte, requestId);
+  },
+  onCapabilityPackMatteProgress: (listener: (progress: MatteProgressWire) => void) => {
+    const handler = (_event: IpcRendererEvent, payload: MatteProgressWire): void => listener(payload);
+    ipcRenderer.on(Channels.capabilityPackMatteProgress, handler);
+    return () => ipcRenderer.removeListener(Channels.capabilityPackMatteProgress, handler);
+  },
+  matteSaveCorrection: (correction: MatteSaveCorrectionWire) =>
+    ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
   capabilityPackTrack: (intent: TrackingRequestIntentWire) =>
     ipcRenderer.invoke(Channels.capabilityPackTrack, intent) as Promise<TrackingRunResultWire>,
   capabilityPackCancelTrack: (requestId: string) => {

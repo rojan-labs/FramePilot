@@ -39,8 +39,13 @@ import type {
   CapabilityPackProposalResultWire,
   CapabilityPackStorageSnapshotWire,
   CapabilityPackProjectResolutionWire,
+  CapabilityPackInstalledEventWire,
+  CapabilityPackStatusWire,
 } from '@framepilot/shared-types';
 import { createLogger } from '@framepilot/shared-types';
+import { resolveCapabilityPackStatus } from './capability-status.js';
+import { CapabilityPackMatteService, type MatteAutoPrompt } from './matte.js';
+import type { MatteMediaInspector } from './matte-media-inspector.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { CapabilityPackTrackingService } from './tracking.js';
 import {
@@ -89,6 +94,13 @@ export interface CapabilityPackDesktopServiceOptions {
   readonly onInstalled?: (identity: CapabilityPackIdentityWire) => Promise<void>;
   /** Writable app-data directory for caches a pack's runtime produces (never inside a pack). */
   readonly runtimeCacheRoot?: string;
+  /**
+   * Fires after an install passed its health check (and any project pin landed) or a removal
+   * completed, so open panels re-read `capabilityStatus` without a restart.
+   */
+  readonly onStoreChanged?: (event: CapabilityPackInstalledEventWire) => void;
+  /** The app's own ffprobe/ffmpeg for host matte verification (BR4.2). */
+  readonly matteMediaInspector?: MatteMediaInspector;
 }
 
 /** Main-process authority behind the validated Capability Pack IPC surface. */
@@ -112,6 +124,9 @@ export class CapabilityPackDesktopService {
   private readonly installs = new Map<string, AbortController>();
   private relocating = false;
   private trackingService: CapabilityPackTrackingService | undefined;
+  private matteService: CapabilityPackMatteService | undefined;
+  private readonly onStoreChanged: ((event: CapabilityPackInstalledEventWire) => void) | undefined;
+  private readonly matteMediaInspector: MatteMediaInspector | undefined;
 
   constructor(options: CapabilityPackDesktopServiceOptions) {
     this.rootPath = path.resolve(options.rootPath);
@@ -124,6 +139,8 @@ export class CapabilityPackDesktopService {
     this.onProgress = options.onProgress;
     this.onInstalled = options.onInstalled;
     this.runtimeCacheRoot = options.runtimeCacheRoot;
+    this.onStoreChanged = options.onStoreChanged;
+    this.matteMediaInspector = options.matteMediaInspector;
     this.store = new FileCapabilityPackStore(this.rootPath);
     this.storageManager = new CapabilityPackStorageManager(
       this.store,
@@ -282,6 +299,35 @@ export class CapabilityPackDesktopService {
       propose: (capabilityId) => this.propose(capabilityId),
     });
     return this.trackingService;
+  }
+
+  /** Generic readiness of one capability: ready, missing (with proposal), unhealthy, unsupported. */
+  async capabilityStatus(capabilityInput: unknown): Promise<CapabilityPackStatusWire> {
+    return resolveCapabilityPackStatus(capabilityInput, {
+      records: await this.store.list(),
+      platform: this.platform,
+      propose: (capability) => this.propose(capability),
+    });
+  }
+
+  /**
+   * The background-removal authority, bound to this service's store, root and proposals.
+   *
+   * @throws When this build was started without a media inspector for host verification.
+   */
+  matte(autoPrompt?: MatteAutoPrompt): CapabilityPackMatteService {
+    if (this.matteMediaInspector === undefined) {
+      throw new Error('Background removal needs the app’s media tools; none were configured.');
+    }
+    this.matteService ??= new CapabilityPackMatteService({
+      storageRoot: this.rootPath,
+      store: this.store,
+      platform: this.platform,
+      propose: (capabilityId) => this.propose(capabilityId),
+      inspector: this.matteMediaInspector,
+      ...(autoPrompt === undefined ? {} : { autoPrompt }),
+    });
+    return this.matteService;
   }
 
   async propose(capabilityIdInput: unknown): Promise<CapabilityPackProposalResultWire> {
@@ -476,6 +522,7 @@ export class CapabilityPackDesktopService {
               error: errorMessage(error),
             });
           }
+          this.notifyStoreChanged({ kind: 'installed', identity: installed.identity });
         })
         .catch((error: unknown) => {
           const cancelled = controller.signal.aborted || errorCode(error) === 'download_cancelled';
@@ -537,9 +584,20 @@ export class CapabilityPackDesktopService {
       }
       this.evictionPlans.delete(approval.planId);
       await this.storageManager.executeEviction(cached.plan, approval.approvedIdentityKeys);
+      for (const candidate of cached.plan.candidates) {
+        this.notifyStoreChanged({ kind: 'removed', identity: candidate.identity });
+      }
       return { ok: true, storage: await this.storage() };
     } catch (error) {
       return failure(errorCode(error), errorMessage(error));
+    }
+  }
+
+  private notifyStoreChanged(event: CapabilityPackInstalledEventWire): void {
+    try {
+      this.onStoreChanged?.(event);
+    } catch (error) {
+      log.warn('store change observer failed', { error: errorMessage(error) });
     }
   }
 
