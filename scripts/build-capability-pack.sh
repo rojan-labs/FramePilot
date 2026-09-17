@@ -43,7 +43,7 @@
 set -euo pipefail
 
 usage() {
-  echo "usage: $0 <tracking-lite|subject-intelligence|visual-embed|visual-describe> [outdir] [--stage all|payload|finalize]" >&2
+  echo "usage: $0 <tracking-lite|subject-intelligence|visual-embed|visual-describe|smart-mask> [outdir] [--stage all|payload|finalize]" >&2
   exit 2
 }
 
@@ -181,6 +181,13 @@ for archive in lock.get("archive", []):
     for alias in archive.get("links", {}):
         print(alias)' "$MODELS_LOCK")
     chmod 755 "$PAYLOAD/models/"*.dylib "$PAYLOAD/models/llama-mtmd-cli" 2>/dev/null || true
+  fi
+
+  # (6) Packs that decode through a bundled media tool build it from pinned source (Smart
+  # Mask: an LGPL-only ffmpeg/ffprobe with a static libvpx; PyAV wheels bundle GPL x264/x265).
+  if [[ -x "$WORKER_DIR/tools/build_ffmpeg_lgpl.sh" ]]; then
+    echo "Building the LGPL-only ffmpeg..." >&2
+    "$WORKER_DIR/tools/build_ffmpeg_lgpl.sh" "$PAYLOAD/bin" >&2
   fi
 
   assert_standalone

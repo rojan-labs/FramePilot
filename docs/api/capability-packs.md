@@ -602,3 +602,66 @@ flagged frames, flagged ratio, and phase timings (host phases plus each worker p
 transitions). Reports never carry paths, media, prompts or project/asset/clip/job ids. The last 50
 stay in memory for `capabilityPackExportDiagnostics`, which writes a JSON bundle (reports, queue,
 pack identities and health, coarse machine facts) only where the editor chooses. Nothing uploads.
+
+### Smart Mask worker (`workers/smart-mask`, BR3)
+
+Separate uv project (not a workspace member; never imported by the engine). Entrypoint modes:
+`--framepilot-health-check`, `--framepilot-worker-runtime` (one request) and
+`--framepilot-worker-warm` (serves `subject.segment_frame` requests until stdin closes, keeping the
+SAM graphs and a byte-bounded per-frame embedding LRU; a `subject.matte` request is refused there).
+
+**Pipeline per window** (300 frames, 60 overlap; each frame committed by exactly one window at
+mid-overlap seams): decode → SAM 2.1 passes (forward from the first conditioning frame, backward from
+the last, head frames seeded from the backward pass) → BiRefNet_HR-matting refine on the SAM
+subject crop, gated to it → consensus (majority vote; band = ring around the vote's boundary plus
+soft disagreement; BiRefNet alpha only where soft or agreeing) → self-correction (K = 3 re-prompts
+from confident neighbours) → band alpha at source resolution → locks and brush pixels forced →
+band-only stabilisation (DIS flow, ±24 levels) → foreground colour (multi-level estimation, band
+only) → verify → encode. SAM and BiRefNet are never loaded together. The SAM video orchestration is a
+numpy port of the upstream predictor with a bounded memory bank and at most two conditioning frames
+per step (static memory-attention shapes).
+
+**Contract details the host relies on.**
+
+- **Frame identity and colour** follow the engine: packet pts (discarded dropped, sorted), exact
+  seeks, `-fps_mode passthrough`, autorotate, anamorphic scale with bicubic, rgb24. Output is display
+  space. `frames.json` is compact JSON (≤ 18 bytes per frame + 4 KB).
+- **Files.** `matte.mkv` FFV1 gray (intra-only, slice CRCs), `foreground.mkv` FFV1 `bgr0` (FFV1 has
+  no 8-bit `gbrp`), previews VP9 at `previewHeight` (one packet per frame). Muxing is bitexact, so
+  identical frames give identical bytes.
+- **Staging.** Besides declared files the worker uses two private directories while running,
+  `windows/` (finished-window segments and `done.json` checkpoints) and `scratch/` (memory-mapped
+  frames, spilled embeddings), and removes both before the result. A restart against a staging
+  directory that still holds `windows/` checkpoints with the same job fingerprint reuses those
+  windows; the host currently creates a fresh staging directory per job, so resume across app
+  restarts needs the host to keep and reuse it.
+- **Progress.** Adds `prepare` (model loading and first-run preparation; additive in
+  `worker-protocol.ts`). The last progress line is repeated every 20 s for the whole request, so a
+  long model load or window never trips the host's 5-minute silence limit.
+- **Partial re-run.** A prompt affects frames only if the previous matte does not already satisfy it;
+  frames within 60 of an affecting prompt are recomputed, the rest keep the previous alpha bit for
+  bit and are re-checked with image-based checks only (the previous `report.json` is not among the
+  files the host passes, so earlier estimate-based flags are not carried).
+- **Result.** `backend` names onnxruntime, the provider per model and any accelerator → CPU
+  fallback; `executionProvider` is `cpu` if any delivered pixel came from the CPU EP.
+
+**Limits.** `FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB` (default 8192) is enforced on the process's
+physical footprint once a second, chooses the matting tile (768² 3.8 GB, 1024² 6.9 GB, 2048²
+> 12 GB; `FRAMEPILOT_SMART_MASK_MATTING_TILE` overrides) and bounds the embedding cache. A window
+past 600 s + 90 s per frame, or a breach of the ceiling, fails the job `internal_error`.
+`FRAMEPILOT_CAPABILITY_PACK_CACHE`, when the host passes it, stores prepared models keyed by model
+digest + EP + OS version + onnxruntime version + machine.
+
+**Execution providers** are enabled only by parity evidence (`models.py` `PARITY_TABLE`, from
+BR0.2): SAM and BiRefNet run on the CPU EP; CoreML is disabled for both on the measured hardware;
+DirectML and Windows ML are disabled until measured (MO-9).
+
+**Licences.** Decode and encode run through an LGPL-only `bin/ffmpeg` built by
+`tools/build_ffmpeg_lgpl.sh` (pinned FFmpeg 7.1.1 and libvpx 1.15.2 sources); the health check and
+`tools/generate_sbom.py --check` refuse GPL or nonfree builds. PyAV is excluded: its wheels bundle
+libx264/libx265. `LICENSES.md` is hand reviewed and carries the open BiRefNet training-data finding
+(MO-11).
+
+**Development.** `scripts/dev-register-smart-mask.sh` needs `SMART_MASK_FFMPEG_DIR` (an LGPL ffmpeg)
+and the exported graphs (`SMART_MASK_MODELS_FROM`). Real-weight runs (`pytest -m decoded_media`,
+`tools/parity_tracker.py`, `eval/run_eval.py`) go through `spike/watchdog.py`.

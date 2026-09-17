@@ -6,6 +6,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ## [Unreleased]
 
+### Added
+
+- **The background removal engine, ready for testing.** The Smart Mask pack that follows a subject
+  through a clip is built: it cuts the subject out with two AI models, checks its own work frame by
+  frame and lists the moments it is unsure about for you to review, keeps frames you locked exactly
+  as you approved them, redoes only the part of a clip your fix affects, and carries on from where
+  it stopped if the app quits mid-job. It is not downloadable yet: a licence question about one
+  model and the minimum hardware are still being decided.
+
 ### Changed
 
 - **Relink media, and background removal knows when footage changed.** On desktop, the media bin

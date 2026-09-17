@@ -125,7 +125,8 @@ def main(argv: list[str] | None = None) -> int:
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
     parser.add_argument("--destination", type=Path, default=DEFAULT_DESTINATION)
-    mode = parser.add_mutually_exclusive_group(required=True)
+    # No mode = --check: the pack build (scripts/build-capability-pack.sh) verifies exports.
+    mode = parser.add_mutually_exclusive_group()
     mode.add_argument(
         "--check", action="store_true", help="verify the destination without changing it"
     )
@@ -137,11 +138,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     arguments = parser.parse_args(argv)
     lock = load_lock()
-    if arguments.check:
-        return check(arguments.destination, lock)
     if arguments.sources:
         return fetch_sources(lock)
-    return copy_from(arguments.source, arguments.destination, lock)
+    if arguments.source is not None:
+        return copy_from(arguments.source, arguments.destination, lock)
+    return check(arguments.destination, lock)
 
 
 if __name__ == "__main__":
