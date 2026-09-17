@@ -12,14 +12,17 @@ Schema versioning: ``Project.version`` is bumped only alongside a migration
 
 from __future__ import annotations
 
+import base64
+import binascii
 import json
 import os
+import struct
 import tempfile
 from enum import StrEnum
 from pathlib import Path
 from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 # Mirrors the TS ``SCHEMA_VERSION`` (packages/timeline-schema). It is the
 # *envelope* version written at the top of ``project.fp.json`` as
@@ -439,6 +442,28 @@ class EllipseMask(MaskLayerBase):
     rotation: float = 0.0
 
 
+#: Prefix of a number array stored as base64 little-endian float64 bytes
+#: (TS ``FLOAT64_ARRAY_PREFIX``).
+FLOAT64_ARRAY_PREFIX = "f64le:"
+
+
+def decode_float64_array(text: str) -> list[float]:
+    """Decode ``f64le:<base64>`` into floats, bit for bit.
+
+    Raises:
+        ValueError: When the text is not the encoded form (a pydantic validation error follows).
+    """
+    if not text.startswith(FLOAT64_ARRAY_PREFIX):
+        raise ValueError("An encoded number array must start with 'f64le:'.")
+    try:
+        raw = base64.b64decode(text[len(FLOAT64_ARRAY_PREFIX) :], validate=True)
+    except binascii.Error as error:
+        raise ValueError("An encoded number array must be valid base64.") from error
+    if len(raw) % 8 != 0:
+        raise ValueError("An encoded number array must hold whole float64 values.")
+    return list(struct.unpack(f"<{len(raw) // 8}d", raw))
+
+
 class MaskPathKeyframe(BaseModel):
     """A whole-path snapshot: flat ``[x, y, inX, inY, outX, outY, ...]`` + parallel types."""
 
@@ -451,6 +476,14 @@ class MaskPathKeyframe(BaseModel):
     feather_px: list[float] | None = Field(default=None, alias="featherPx")
 
     model_config = {"populate_by_name": True}
+
+    @field_validator("points", "feather_px", mode="before")
+    @classmethod
+    def _decode_binary_arrays(cls, value: object) -> object:
+        """Decode the exact ``f64le:`` file form of a long array (MK4.6, TS codec)."""
+        if isinstance(value, str):
+            return decode_float64_array(value)
+        return value
 
 
 class PathMask(MaskLayerBase):

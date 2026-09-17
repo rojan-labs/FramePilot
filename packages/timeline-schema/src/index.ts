@@ -15,6 +15,7 @@
  * hand-maintaining a parallel JSON Schema.
  */
 import { z } from 'zod/v4';
+import { FLOAT64_ARRAY_PREFIX, decodeFloat64Array } from './float-array-codec.js';
 
 /**
  * Bump on any breaking change to the schema. A migration is required before the
@@ -455,6 +456,28 @@ export const MASK_VERTEX_TYPES = ['corner', 'smooth', 'broken'] as const;
 export type MaskVertexType = (typeof MASK_VERTEX_TYPES)[number];
 
 /**
+ * A number array written in the exact `f64le:` file form (see `float-array-codec.ts`), decoded
+ * on parse and then checked against `decoded`, so memory only ever holds plain arrays.
+ */
+function encodedFloat64Array<T extends z.ZodType<number[], number[]>>(decoded: T) {
+  return z
+    .string()
+    .startsWith(FLOAT64_ARRAY_PREFIX)
+    .transform((text, context) => {
+      const values = decodeFloat64Array(text);
+      if (values === null) {
+        context.addIssue({
+          code: 'custom',
+          message: 'An encoded number array must be whole float64 values in base64.',
+        });
+        return z.NEVER;
+      }
+      return values;
+    })
+    .pipe(decoded);
+}
+
+/**
  * One whole-path snapshot of a closed cubic Bezier path, stored compactly.
  *
  * `points` is flat: six numbers per vertex, `[x, y, inX, inY, outX, outY, …]`,
@@ -469,9 +492,15 @@ export const MaskPathKeyframeSchema = z.object({
   sourceTime: z.number().nonnegative(),
   easing: MaskEasingSchema.default('linear'),
   handles: z.object({ out: BezierHandleSchema, in: BezierHandleSchema }).optional(),
-  points: z.array(z.number()),
+  /** In a file, a long array may be written in the exact `f64le:` binary form (MK4.6). */
+  points: z.union([z.array(z.number()), encodedFloat64Array(z.array(z.number()))]),
   vertexTypes: z.array(z.number().int().min(0).max(2)),
-  featherPx: z.array(z.number().nonnegative()).optional(),
+  featherPx: z
+    .union([
+      z.array(z.number().nonnegative()),
+      encodedFloat64Array(z.array(z.number().nonnegative())),
+    ])
+    .optional(),
 });
 
 /** Closed Bezier path, animated by whole-path keyframes with matching vertex counts. */
@@ -1892,3 +1921,5 @@ export const buildProjectJsonSchema = (): Record<string, unknown> =>
 export * from './migrations.js';
 export { maskLayerFromLegacyMaskEffect } from './mask-migration.js';
 export * from './serialization.js';
+
+export * from './float-array-codec.js';
