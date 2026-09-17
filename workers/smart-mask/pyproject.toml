@@ -71,7 +71,7 @@ extend-exclude = ["spike"]
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "B", "UP", "SIM", "PTH", "RUF"]
-allowed-confusables = ["–", "×"]
+allowed-confusables = ["–", "×", "α", "²", "∩", "∪"]
 
 [tool.ruff.lint.per-file-ignores]
 # Test tables and fixture command lines read better unwrapped.

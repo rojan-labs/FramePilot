@@ -80,7 +80,12 @@ def run(
 
 def test_matte_request_emits_progress_then_one_result() -> None:
     lines = run(line(matte_request()) + "\n", ScriptedServices())
-    assert [item["type"] for item in lines] == ["progress", "progress", "result"]
+    assert [item["type"] for item in lines if item.get("phase") != "prepare"] == [
+        "progress",
+        "progress",
+        "result",
+    ]
+    assert lines[0]["phase"] == "prepare", "the heartbeat speaks before the first stage does"
     assert lines[-1]["capability"] == "subject.matte"
     assert lines[-1]["backend"] == "scripted"
 
@@ -203,10 +208,35 @@ def test_warm_worker_serves_many_frames_and_refuses_mattes() -> None:
     )
     out = io.StringIO()
     assert run_warm_worker(io.StringIO(stdin_text), out, create) == 0
-    lines = [json.loads(item) for item in out.getvalue().splitlines()]
+    lines = [json.loads(item) for item in out.getvalue().splitlines() if '"progress"' not in item]
     assert [(item["type"], item["requestId"]) for item in lines] == [
         ("result", "seg-1"),
         ("failure", "req-1"),
         ("result", "seg-2"),
     ]
     assert builds == [1], "the warm worker keeps one set of loaded models"
+
+
+def test_heartbeat_repeats_progress_during_silent_work_and_stops_before_the_result() -> None:
+    import time
+
+    from framepilot_smart_mask.protocol import parse_input_line
+    from framepilot_smart_mask.runtime import execute_request
+
+    class Slow(ScriptedServices):
+        def run_matte(
+            self, request: MatteRequest, progress: ProgressSink, cancellation: CancellationFlag
+        ) -> MatteOutcome:
+            time.sleep(0.35)  # a model load that says nothing
+            return super().run_matte(request, progress, cancellation)
+
+    written: list[str] = []
+    request = parse_input_line(line(matte_request()))
+    assert isinstance(request, MatteRequest)
+    execute_request(request, Slow(), written.append, CancellationFlag(), heartbeat_seconds=0.05)
+    messages = [json.loads(item) for item in written]
+    assert messages[-1]["type"] == "result"
+    prepare = [m for m in messages if m["type"] == "progress" and m["phase"] == "prepare"]
+    assert len(prepare) >= 4, "the heartbeat speaks while the model load is silent"
+    time.sleep(0.2)
+    assert len(written) == len(messages), "no progress after the terminal line"

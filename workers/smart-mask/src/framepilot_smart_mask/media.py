@@ -256,6 +256,13 @@ def frames_document(info: VideoInfo, first_frame: int, count: int) -> dict[str, 
     }
 
 
+def encode_frames_json(document: dict[str, Any]) -> bytes:
+    """Compact JSON: the host bounds frames.json at 18 bytes per frame + 4 KB (BR4.12)."""
+    return json.dumps(document, separators=(",", ":"), sort_keys=True, allow_nan=False).encode(
+        "utf-8"
+    )
+
+
 def seek_seconds(info: VideoInfo, first_frame: int) -> float | None:
     """Input ``-ss`` that lands exactly on ``first_frame``: halfway after the previous frame.
 
@@ -358,6 +365,7 @@ __all__ = [
     "ToolReport",
     "assess_ffmpeg_build",
     "decode_argv",
+    "encode_frames_json",
     "frames_document",
     "locate_tool",
     "parse_probe",

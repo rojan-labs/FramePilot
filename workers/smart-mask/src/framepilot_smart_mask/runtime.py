@@ -117,13 +117,38 @@ class WorkerServices(Protocol):
     ) -> SegmentFrameOutcome: ...
 
 
-def throttled_progress(
-    request_id: str, write: Callable[[str], None], clock: Callable[[], float] = time.monotonic
-) -> ProgressSink:
-    """A progress sink that never floods the host: phase changes and completions always pass."""
-    state: dict[str, object] = {"phase": None, "at": 0.0}
+#: The host kills a worker after 5 minutes without progress (BR4.12); model loading and a slow
+#: window count. The last progress line is repeated at least this often while a request runs.
+HEARTBEAT_SECONDS: Final = 20.0
 
-    def emit(
+
+class ProgressChannel:
+    """Throttled progress plus a heartbeat that repeats the last line while work is silent.
+
+    Phase changes and completions always pass; repeats of one phase are limited to one per
+    :data:`PROGRESS_MIN_INTERVAL_SECONDS`. :meth:`start_heartbeat` re-sends the most recent
+    line (initially ``prepare 0/1``) every ``interval`` seconds until :meth:`stop`, which must
+    run before the terminal line so no progress ever follows a result.
+    """
+
+    def __init__(
+        self,
+        request_id: str,
+        write: Callable[[str], None],
+        clock: Callable[[], float] = time.monotonic,
+    ) -> None:
+        self._request_id = request_id
+        self._write = write
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._phase: str | None = None
+        self._at = 0.0
+        self._last: dict[str, object] = {"phase": "prepare", "completed": 0, "total": 1}
+        self._stopped = threading.Event()
+        self._thread: threading.Thread | None = None
+
+    def __call__(
+        self,
         phase: ProgressPhase,
         completed: int,
         total: int,
@@ -131,29 +156,91 @@ def throttled_progress(
         round_number: int | None = None,
         detail: str | None = None,
     ) -> None:
-        now = clock()
-        changed = state["phase"] != phase
-        finished = completed >= total
-        last = state["at"]
-        assert isinstance(last, float)
-        if (
-            not changed
-            and not finished
-            and detail is None
-            and now - last < PROGRESS_MIN_INTERVAL_SECONDS
-        ):
-            return
-        state["phase"] = phase
-        state["at"] = now
-        write(
+        with self._lock:
+            if self._stopped.is_set():
+                return
+            now = self._clock()
+            changed = self._phase != phase
+            finished = completed >= total
+            self._last = {
+                "phase": phase,
+                "completed": completed,
+                "total": total,
+                "round_number": round_number,
+            }
+            if (
+                not changed
+                and not finished
+                and detail is None
+                and now - self._at < PROGRESS_MIN_INTERVAL_SECONDS
+            ):
+                return
+            self._phase = phase
+            self._at = now
+            self._emit(phase, completed, total, round_number, detail)
+
+    def _emit(
+        self,
+        phase: ProgressPhase,
+        completed: int,
+        total: int,
+        round_number: int | None,
+        detail: str | None,
+    ) -> None:
+        self._write(
             encode_line(
                 progress_message(
-                    request_id, phase, completed, total, round_number=round_number, detail=detail
+                    self._request_id,
+                    phase,
+                    completed,
+                    total,
+                    round_number=round_number,
+                    detail=detail,
                 )
             )
         )
 
-    return emit
+    def beat(self) -> None:
+        """Repeat the last progress line now (used by the heartbeat thread)."""
+        with self._lock:
+            if self._stopped.is_set():
+                return
+            last = self._last
+            phase = last["phase"]
+            round_number = last.get("round_number")
+            self._emit(
+                phase,  # type: ignore[arg-type]
+                int(last["completed"]),  # type: ignore[call-overload]
+                int(last["total"]),  # type: ignore[call-overload]
+                round_number if phase == "self_correct" else None,  # type: ignore[arg-type]
+                None,
+            )
+            self._at = self._clock()
+
+    def start_heartbeat(self, interval: float = HEARTBEAT_SECONDS) -> None:
+        if self._thread is not None:
+            return
+
+        def loop() -> None:
+            while not self._stopped.wait(interval):
+                self.beat()
+
+        self.beat()
+        self._thread = threading.Thread(target=loop, daemon=True, name="progress-heartbeat")
+        self._thread.start()
+
+    def stop(self) -> None:
+        with self._lock:
+            self._stopped.set()
+        if self._thread is not None:
+            self._thread.join(timeout=5)
+
+
+def throttled_progress(
+    request_id: str, write: Callable[[str], None], clock: Callable[[], float] = time.monotonic
+) -> ProgressChannel:
+    """A progress sink that never floods the host (no heartbeat until started)."""
+    return ProgressChannel(request_id, write, clock)
 
 
 def _translate(error: Exception) -> ProtocolError:
@@ -173,14 +260,19 @@ def execute_request(
     services: WorkerServices,
     write: Callable[[str], None],
     cancellation: CancellationFlag,
+    heartbeat_seconds: float = HEARTBEAT_SECONDS,
 ) -> None:
-    """Run one request and write exactly one terminal line (result or failure)."""
+    """Run one request and write exactly one terminal line (result or failure).
+
+    Progress heartbeats run for the whole request, model loading included, and stop before the
+    terminal line.
+    """
+    progress = ProgressChannel(request.request_id, write)
+    progress.start_heartbeat(heartbeat_seconds)
     try:
         cancellation.raise_if_cancelled()
         if isinstance(request, MatteRequest):
-            outcome = services.run_matte(
-                request, throttled_progress(request.request_id, write), cancellation
-            )
+            outcome = services.run_matte(request, progress, cancellation)
             line = encode_line(
                 matte_result_message(
                     request_id=request.request_id,
@@ -206,6 +298,7 @@ def execute_request(
                 )
             )
     except Exception as error:
+        progress.stop()
         failure = _translate(error)
         if failure.code == "internal_error":
             _log.exception("smart-mask request failed")
@@ -217,6 +310,7 @@ def execute_request(
             )
         )
         return
+    progress.stop()
     write(line)
 
 
@@ -367,7 +461,9 @@ def run_warm_worker(
 
 
 __all__ = [
+    "HEARTBEAT_SECONDS",
     "CancellationFlag",
+    "ProgressChannel",
     "ProgressSink",
     "SegmentFrameOutcome",
     "WorkerServices",

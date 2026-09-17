@@ -301,3 +301,16 @@ def test_anamorphic_and_rotated_sources_decode_in_display_space(tmp_path: Path) 
     assert probed.rotation in (90, 270)
     assert probed.display_size == (36, 64)
     assert next(iter(tools.frames(str(rotated), probed, 0, 1))).shape == (64, 36, 3)
+
+
+def test_frames_json_is_compact_within_the_host_bound() -> None:
+    from framepilot_smart_mask.media import encode_frames_json
+
+    # 240 fps for 75 minutes with pts near the protocol's 2^52 bound: the worst case the host sees.
+    frames = 240 * 60 * 75
+    start = 2**52 - frames * 1_000
+    clip = info(time_base=(1, 240_000), pts=tuple(range(start, start + frames * 1_000, 1_000)))
+    encoded = encode_frames_json(frames_document(clip, 0, frames))
+    assert len(encoded) <= 18 * frames + 4 * 1024
+    assert b" " not in encoded
+    assert json.loads(encoded)["pts"][-1] == clip.pts[-1]
