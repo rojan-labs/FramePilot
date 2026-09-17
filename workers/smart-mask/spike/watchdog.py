@@ -97,14 +97,15 @@ def other_spike_jobs(own_pids: set[int]) -> list[str]:
     return busy
 
 
-def run_job(job: str, max_fp: int, max_growth: int, start_free: int, min_free: int, log) -> dict:
+def run_job(job: str, max_fp: int, max_growth: int, start_free: int, min_free: int, start_max_swap: int, log) -> dict:
     argv = [sys.executable, "-u", *job.split()]
     while True:
         busy = other_spike_jobs({os.getpid()})
         free = free_memory_pct()
-        if not busy and free >= start_free:
+        swap = swap_used_bytes()
+        if not busy and free >= start_free and swap <= start_max_swap:
             break
-        log.write(f"waiting: busy={busy} freeMemoryPct={free}\n")
+        log.write(f"waiting: busy={busy} freeMemoryPct={free} swapUsedGiB={swap / 2**30:.2f}\n")
         time.sleep(30)
     t0 = time.time()
     base_swap = swap_used_bytes()
@@ -149,6 +150,8 @@ def main() -> None:
     ap.add_argument("--max-swap-growth-gib", type=float, default=1.0)
     ap.add_argument("--start-free-pct", type=int, default=50)
     ap.add_argument("--min-free-pct", type=int, default=15)
+    ap.add_argument("--start-max-swap-gib", type=float, default=6.0,
+                    help="coordinator rule: no new heavy job while system swap used is above this")
     ap.add_argument("--jobs-file", help="one job per line (blank lines and # comments ignored)")
     ap.add_argument("jobs", nargs="*")
     a = ap.parse_args()
@@ -160,7 +163,7 @@ def main() -> None:
         for job in a.jobs:
             log.write(f"== START {job} {time.strftime('%H:%M:%S')}\n")
             rec = run_job(job, int(a.max_footprint_gib * 2**30), int(a.max_swap_growth_gib * 2**30),
-                          a.start_free_pct, a.min_free_pct, log)
+                          a.start_free_pct, a.min_free_pct, int(a.start_max_swap_gib * 2**30), log)
             log.write(f"== END {json.dumps(rec)}\n")
 
 

@@ -44,6 +44,18 @@ ATTEMPTS: dict[int, dict] = {
         "d_area_logratio": 0.15, "d_centroid_frac": 0.25,
         "e_fwd_bwd_iou": 0.95, "e_sam_birefnet_iou": 0.90, "e_band_frac": None, "f_object_score": True,
     },
+    2: {  # after attempt 1 missed 36/256 (walk_pan, fast_motion, leave_reenter): add c2 unexplained
+          # image edges next to the matte (errors every estimate shares), unchanged otherwise
+        "a_rewarp_mismatch": 0.05, "b_components": True, "c_edge_corr": 0.20, "c2_unexplained": 0.5,
+        "d_area_logratio": 0.15, "d_centroid_frac": 0.25,
+        "e_fwd_bwd_iou": 0.95, "e_sam_birefnet_iou": 0.90, "e_band_frac": None, "f_object_score": True,
+    },
+    3: {  # attempt 2 + model-disagreement tightened to the IoU gate itself (0.98) and a band-size
+          # check: a frame whose unknown band exceeds 40% of the foreground is not "verified"
+        "a_rewarp_mismatch": 0.05, "b_components": True, "c_edge_corr": 0.20, "c2_unexplained": 0.5,
+        "d_area_logratio": 0.15, "d_centroid_frac": 0.25,
+        "e_fwd_bwd_iou": 0.98, "e_sam_birefnet_iou": 0.98, "e_band_frac": 0.40, "f_object_score": True,
+    },
 }
 
 
@@ -223,13 +235,14 @@ def score(clips: list[str], cfg: dict) -> dict:
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--attempt", type=int, required=True)
+    ap.add_argument("--tag", default="", help="suffix for the result file (e.g. the clip subset)")
     a = ap.parse_args()
     cfg = ATTEMPTS[a.attempt]
     clips = sorted(p.parent.name for p in pp.PROTO_DIR.glob("*/final.npz"))
     res = {"attempt": a.attempt, "config": cfg, "clips": clips, "all": score(clips, cfg),
            "splitA": score(clips[0::2], cfg), "splitB": score(clips[1::2], cfg),
            "gate": {"recall": 0.995, "reviewLoad": 0.10}}
-    common.write_result(f"verify_attempt_{a.attempt}", res)
+    common.write_result(f"verify_attempt_{a.attempt}{a.tag}", res)
     s = res["all"]
     print(json.dumps({k: s[k] for k in ("frames", "wrongFrames", "caught", "flagged", "recall", "recallWilson95Lower",
                                         "reviewLoad")}))
