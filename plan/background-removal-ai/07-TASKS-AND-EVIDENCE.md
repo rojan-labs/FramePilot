@@ -224,7 +224,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] BR4.13 Lock verification and media frame hashing go through the sidecar (packaged builds bundle only ffprobe; today those checks fail closed in release builds)
 - [x] BR4.14 Desktop relink/replace/re-proxy flow calls `recheckProjectMatteMedia` (and tracks after MK7); STALE shown with remedy; engine export refuses `matte_media_changed`
 - [x] BR4.11 Observability events and opt-in diagnostic bundle
-- [~] BR4.12 (review done, not approved: H1, H2, M1–M3 + fuzz corpus open — `BR4.12-SECURITY-REVIEW.md`) **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
+- [~] BR4.12 (re-review 2026-09-17: approved with deferrals; conditions = ADR/03 wording + CI green on the fuzz harness head; cheap deferrals being fixed — `BR4.12-SECURITY-REVIEW.md`) **security-reviewer** pass on the sandbox broadening, fuzzed-media corpus and per-job limits
 
 **DoD:** desktop capability-pack tests for new files pass; security review recorded in the PR.
 
