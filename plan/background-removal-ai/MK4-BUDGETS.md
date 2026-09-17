@@ -105,7 +105,13 @@ Run 35281873504, with the split in place:
 | 2       | 12.1 ms          | 8.8 ms     | 18.3 ms      | 19.7 ms         |
 | 3       | 14.1 ms          | 8.7 ms     | 21.2 ms      | 18.9 ms         |
 
-**The monitor's work is 8.7 ms p95 — inside the 16 ms budget.** The rest is `inputDelay`: 12–14 ms
+and the run the suite finally went green on, 35283603075 (98/98 e2e):
+
+| `inputDelay` p95 | `work` p95 | `commit` p95 | `pointerToPaint` p95 | `composite` p95 |
+| ---------------- | ---------- | ------------ | -------------------- | --------------- |
+| 15.1 ms          | 6.3 ms     | 20.2 ms      | 20.4 ms              | 16.5 ms         |
+
+**The monitor's work is 6.3–8.8 ms p95 — inside the 16 ms budget.** The rest is `inputDelay`: 12–14 ms
 before the monitor sees the event at all. That is where the miss always was, and it is why two
 plausible-sounding fixes changed nothing.
 
