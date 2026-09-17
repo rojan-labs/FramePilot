@@ -254,6 +254,8 @@ class FrameRecord:
     refine: str = ""
     band_passes: int = 0
     stabilised_pixels: int = 0
+    #: Threshold-free verify measurements, so thresholds can be calibrated offline (BR3.15).
+    signals: dict[str, Any] = field(default_factory=dict)
 
     def as_json(self) -> dict[str, Any]:
         return {
@@ -268,6 +270,7 @@ class FrameRecord:
             "refine": self.refine,
             "bandPasses": self.band_passes,
             "stabilisedPixels": self.stabilised_pixels,
+            "signals": self.signals,
         }
 
     def restore(self, saved: dict[str, Any]) -> None:
@@ -278,6 +281,7 @@ class FrameRecord:
         self.refine = saved["refine"]
         self.band_passes = saved["bandPasses"]
         self.stabilised_pixels = saved["stabilisedPixels"]
+        self.signals = saved.get("signals", {})
 
 
 @dataclass
@@ -558,6 +562,7 @@ class MatteJob:
             ):
                 ctx.records[start + local].checks = checks
                 ctx.records[start + local].reused = True
+                ctx.records[start + local].signals = signals[local]
             foregrounds = (
                 [foreground_frame(store[i], alphas[i]) for i in range(count)]
                 if self._wants_foreground()
@@ -663,7 +668,9 @@ class MatteJob:
             ctx, window, segmentation, birefnet, refine_records, flows, parts
         )
         stabilised = self._stabilise(window, alphas, bands, fixed, flows)
-        flags = self._verify(window, segmentation, alphas, bands, grays, flows, parts, locked)
+        flags, signals = self._verify(
+            window, segmentation, alphas, bands, grays, flows, parts, locked
+        )
 
         ctx.carried.clear()
         for i in range(count):
@@ -677,6 +684,7 @@ class MatteJob:
             record.rounds = report.accepted.get(i, 0)
             record.refine = refine_records[i].mode
             record.stabilised_pixels = stabilised[i]
+            record.signals = signals[i]
         self._encode_window(ctx, window, alphas)
         self.rounds_used = max(self.rounds_used, report.rounds)
         _write_checkpoint(
@@ -878,7 +886,7 @@ class MatteJob:
         flows: FlowCache,
         parts: list[dict[str, float]],
         locked: set[int],
-    ) -> list[list[str]]:
+    ) -> tuple[list[list[str]], list[dict[str, Any]]]:
         started = time.monotonic()
         count = window.count
         alpha_list = [alphas[i] for i in range(count)]
@@ -893,7 +901,7 @@ class MatteJob:
             self.progress("verify", i + 1, count)
         flags = flag_frames(signals, self.config.thresholds, locked)
         self._timed("verify", started)
-        return flags
+        return flags, signals
 
     def _encode_window(self, ctx: JobContext, window: WindowState, alphas: Any) -> None:
         committed = window.committed

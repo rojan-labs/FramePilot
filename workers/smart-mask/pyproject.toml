@@ -78,6 +78,7 @@ allowed-confusables = ["–", "×", "α", "²", "∩", "∪"]
 "tests/*" = ["E501"]
 # Build-time scripts: long command lines and tables read better unwrapped.
 "tools/*" = ["E501"]
+"eval/*" = ["E501"]
 
 [tool.mypy]
 python_version = "3.12"
