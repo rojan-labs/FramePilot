@@ -480,6 +480,135 @@ def collect_media(
     return sorted(videos.values(), key=lambda spec: spec.rel_path), others
 
 
+#: Matte frames synthesised either side of the source range the clips read.
+MATTE_FRAME_MARGIN = 3
+
+
+def _matte_frame(width: int, height: int) -> Any:
+    """The synthetic matte: an opaque subject over the left 40%, a 64 px soft edge, then clear."""
+    import numpy as np
+
+    columns = np.arange(width, dtype=np.float64)
+    edge = width * 0.4
+    ramp = np.clip((edge + 32 - columns) / 64.0, 0.0, 1.0)
+    return np.broadcast_to(np.round(ramp * 255).astype(np.uint8), (height, width)).copy()
+
+
+def _encode_ffv1_frames(
+    path: Path, frame: Any, count: int, pixel_format: str, stored_format: str
+) -> None:
+    """Stream ``count`` copies of ``frame`` into an FFV1 Matroska file (never all in memory)."""
+    from framepilot_engine.media.ffmpeg import find_ffmpeg
+
+    height, width = frame.shape[:2]
+    argv = [
+        find_ffmpeg(), "-nostdin", "-v", "error", "-y",
+        "-f", "rawvideo", "-pix_fmt", pixel_format, "-s", f"{width}x{height}", "-r", "30",
+        "-i", "-", "-c:v", "ffv1", "-level", "3", "-pix_fmt", stored_format, str(path),
+    ]  # fmt: skip
+    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+    assert process.stdin is not None
+    payload = frame.tobytes()
+    try:
+        for _ in range(count):
+            process.stdin.write(payload)
+    finally:
+        process.stdin.close()
+    _, stderr = process.communicate(timeout=600)
+    if process.returncode != 0:
+        raise RuntimeError(f"ffv1 encode failed: {stderr.decode(errors='replace')[:400]}")
+
+
+def write_case_mattes(out_dir: Path, cases: list[tuple[str, dict[str, Any]]]) -> None:
+    """Synthesise every matte artifact a case pins, and pin the real digests in the case.
+
+    The frame-plan fixtures name an artifact key with placeholder digests: no pack runs in CI.
+    The export refuses a matte it cannot verify, so the generator writes one to the artifact
+    contract (``render/mattes.py``: FFV1 ``matte.mkv`` + ``foreground.mkv`` at the source's
+    display size, ``frames.json`` with the source's own pts) over the source frames the clips
+    read, and rewrites the artifact JSON the ENGINE project carries. The preview's copy of the
+    project is untouched: the monitor does not read matte files yet (BR5).
+    """
+    import numpy as np
+
+    from framepilot_engine.render.mattes import (
+        FOREGROUND_FILE,
+        FRAMES_FILE,
+        MATTE_FILE,
+        MATTES_DIR,
+        file_sha256,
+        matte_display_size,
+    )  # fmt: skip
+    from framepilot_engine.render.pts_reader import video_timing
+    from framepilot_engine.timeline.models import AssetMedia
+
+    written: dict[str, dict[str, Any]] = {}
+    for _area, case in cases:
+        assets = {asset["id"]: asset for asset in case["project"]["assets"]}
+        mattes = [
+            (clip, mask)
+            for track in case["project"]["timeline"]["tracks"]
+            for clip in track.get("clips", [])
+            for mask in clip.get("masks", []) or []
+            if mask.get("kind") == "matte"
+        ]
+        by_key: dict[str, list[tuple[dict[str, Any], dict[str, Any]]]] = {}
+        for clip, mask in mattes:
+            by_key.setdefault(str(mask["artifact"]["key"]), []).append((clip, mask))
+        for key, users in by_key.items():
+            asset = assets[users[0][0]["assetId"]]
+            source = out_dir / engine_asset_path(asset)
+            timing = video_timing(source)
+            seconds = timing.relative_seconds()
+            fps = float(case["probe"]["fps"][asset["id"]])
+            first = max(
+                0, min(int(float(c["sourceStart"]) * fps) for c, _ in users) - MATTE_FRAME_MARGIN
+            )
+            last = min(
+                timing.count - 1,
+                max(math.ceil(float(c["sourceEnd"]) * fps) for c, _ in users) + MATTE_FRAME_MARGIN,
+            )
+            size = matte_display_size(AssetMedia.model_validate(asset["media"]))
+            assert size is not None, f"matte asset {asset['id']} has no measured size"
+            width, height = size
+            directory = out_dir / MATTES_DIR / key
+            directory.mkdir(parents=True, exist_ok=True)
+            count = last - first + 1
+            matte = _matte_frame(width, height)
+            _encode_ffv1_frames(directory / MATTE_FILE, matte, count, "gray", "gray")
+            foreground = np.broadcast_to(
+                np.asarray(SENTINELS[asset["id"]][0], dtype=np.uint8), (height, width, 3)
+            ).copy()
+            _encode_ffv1_frames(directory / FOREGROUND_FILE, foreground, count, "rgb24", "bgr0")
+            pts = list(timing.pts[first : last + 1])
+            (directory / FRAMES_FILE).write_text(
+                json.dumps(
+                    {
+                        "version": 1,
+                        "timeBase": [timing.time_base.numerator, timing.time_base.denominator],
+                        "originPts": timing.pts[0],
+                        "firstFrame": first,
+                        "pts": pts,
+                    }
+                ),
+                encoding="utf-8",
+            )
+            step = seconds[1] - seconds[0] if len(seconds) > 1 else 1.0 / fps
+            artifact = {
+                "files": [
+                    {"name": name, "sha256": file_sha256(directory / name)}
+                    for name in (MATTE_FILE, FOREGROUND_FILE, FRAMES_FILE)
+                ],
+                "width": width,
+                "height": height,
+                "coverage": {"sourceStart": seconds[first], "sourceEnd": seconds[last] + step},
+            }
+            written[key] = artifact
+            for _clip, mask in users:
+                mask["artifact"].update(copy.deepcopy(artifact))
+            _log.info("synthesised matte %s: %d frames at %dx%d", key[:12], count, width, height)
+
+
 def engine_project(case: dict[str, Any]) -> dict[str, Any]:
     """The case's project with every asset pointed at the file the preview also reads."""
     project: dict[str, Any] = copy.deepcopy(case["project"])
@@ -898,6 +1027,7 @@ def generate(
                 lambda enc: encode_colour_clip(ffmpeg, pattern, out_dir, enc), COLOUR_ENCODINGS
             )
         )
+    write_case_mattes(out_dir, cases)
     for rel, facts in others.items():
         if facts[0] == "image":
             write_png_asset(out_dir, rel, facts[1], facts[2])
