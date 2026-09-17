@@ -115,6 +115,7 @@ from framepilot_engine.render.color import (
     parse_cube_lut,
 )
 from framepilot_engine.render.frame_effects import apply_effect_layers
+from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.frame_plan import (
     back_to_front,
     caption_tracks,
@@ -777,12 +778,12 @@ def _refuse_unrenderable_masks(
     kinds = _asset_kinds_from_project(project)
     for track in project.timeline.tracks:
         for layer in track.effect_layers or []:
-            enabled = [mask for mask in (layer.masks or []) if mask.enabled]
-            if enabled:
-                raise CompileError(
-                    f"Mask {enabled[0].id!r} on effect layer {layer.id!r}: masks on adjustment "
-                    "layers render once frame-space masks ship. Disable the mask to export now."
-                )
+            # MK5.2: an adjustment lane's stack is in frame pixels on the layer's own clock;
+            # `apply_effect_layers` mixes it. What it cannot draw refuses here, before a frame.
+            try:
+                layer_mask_stack(layer)
+            except MaskStackRefusal as exc:
+                raise CompileError(str(exc)) from exc
         if track.type != TrackType.VIDEO or track.hidden:
             continue
         for clip in track.clips:
