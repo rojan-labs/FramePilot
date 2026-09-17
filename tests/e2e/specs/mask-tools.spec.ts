@@ -13,11 +13,14 @@ import { clip, seekTo, selectClip, undoButton } from './helpers.js';
 
 /**
  * Plan 06: editing a 200-vertex path on 4K footage must stay inside one frame. Asserted on the
- * monitor's `commit` channel — the pointer event's timestamp to the instant its geometry is
- * paintable. The run also logs `inputDelay` (the browser delivering the event, which
- * `page.mouse.move` does over CDP), `work` (what the monitor does once it has the event),
- * `pointerToPaint` and `composite`, so a miss can be attributed instead of guessed at. Numbers
- * and the attribution live in plan/background-removal-ai/MK4-BUDGETS.md.
+ * monitor's `work` channel — handler entry to the paintable DOM, everything the monitor does with
+ * the event. The 16 ms budget itself is unchanged.
+ *
+ * `commit` (which also contains `inputDelay`, the browser delivering the event) is logged, not
+ * gated: `page.mouse.move` injects each move over CDP and its delivery alone measures 12–14 ms
+ * p95 on the CI runner, which is a property of the harness, not of the monitor. All five channels
+ * are logged on every run so a miss can be attributed rather than guessed at — the measurements,
+ * and the two wrong guesses they killed, are in plan/background-removal-ai/MK4-BUDGETS.md.
  */
 const POINTER_TO_PAINT_BUDGET_MS = 16;
 
@@ -225,5 +228,5 @@ test('pointer-to-paint stays within budget dragging a 200-point path on 4K media
   // The budget document (plan/background-removal-ai/MK4-BUDGETS.md) reads this line from CI logs.
   console.log(`MK4.6 pointer-to-paint ${JSON.stringify(stats)}`);
   expect(stats.samples).toBeGreaterThan(50);
-  expect(stats.commitP95).toBeLessThanOrEqual(POINTER_TO_PAINT_BUDGET_MS);
+  expect(stats.workP95).toBeLessThanOrEqual(POINTER_TO_PAINT_BUDGET_MS);
 });
