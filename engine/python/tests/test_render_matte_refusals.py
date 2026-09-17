@@ -162,9 +162,10 @@ def test_size_and_media_changes_are_stale(tmp_path: Path) -> None:
         _refusal({**artifact, "width": fx.WIDTH + 2}, tmp_path).code
         is MatteRefusalCode.SIZE_MISMATCH
     )
+    # Display space (BR2.6): a quarter turn swaps the size the artifact must have.
     assert (
         _refusal(artifact, tmp_path, media=_media(rotation=90)).code
-        is MatteRefusalCode.UNSUPPORTED_MEDIA
+        is MatteRefusalCode.SIZE_MISMATCH
     )
 
 

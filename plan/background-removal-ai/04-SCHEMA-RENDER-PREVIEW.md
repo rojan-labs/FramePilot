@@ -14,7 +14,7 @@ MaskLayerBase & {
   artifact: {
     key: /^[0-9a-f]{64}$/,                          // → .framepilot-derived/mattes/<key>/
     files: [{ name: MatteFileName, sha256 }],
-    width, height,                                   // source pixels; must equal the asset's probed size
+    width, height,                                   // DISPLAY pixels (PAR applied, rotation turned, floor(x + 0.5)); BR2.6
     coverage: { sourceStart, sourceEnd },            // source seconds
     packId, packVersion, modelDigests: Sha256[],
   },

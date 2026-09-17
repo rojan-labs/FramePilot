@@ -24,7 +24,7 @@ import {
   type Track,
 } from '@framepilot/timeline-schema';
 import { MEASURE_MEDIA_FIRST } from './mask-builders.js';
-import { MASK_PATH_STRIDE } from './mask-geometry.js';
+import { MASK_PATH_STRIDE, assetDisplaySize } from './mask-geometry.js';
 import {
   MASK_ANIMATABLE_PROPERTIES,
   MIN_MASK_PATH_VERTICES,
@@ -309,10 +309,14 @@ function mediaIssues(
         ),
       );
     }
+    // A matte artifact is written in DISPLAY space (PAR applied, rotation turned), each side
+    // the nearest integer with halves rounding up, the same rule as the engine (BR2.6).
+    const display = measured ? assetDisplaySize(media) : null;
     if (
       mask.kind === 'matte' &&
-      measured &&
-      (mask.artifact.width !== media.width || mask.artifact.height !== media.height)
+      display !== null &&
+      (mask.artifact.width !== Math.floor(display.width + 0.5) ||
+        mask.artifact.height !== Math.floor(display.height + 0.5))
     ) {
       issues.push(
         error(

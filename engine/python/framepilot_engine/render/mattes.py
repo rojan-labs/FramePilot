@@ -34,6 +34,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
+import math
 import re
 import subprocess
 from collections import OrderedDict
@@ -94,7 +95,6 @@ class MatteRefusalCode(StrEnum):
     SIZE_MISMATCH = "matte_size_mismatch"
     OUT_OF_COVERAGE = "matte_out_of_coverage"
     FRAME_MISALIGNED = "matte_frame_misaligned"
-    UNSUPPORTED_MEDIA = "matte_unsupported_media"
 
 
 #: The one sentence the editor reads for each code: what happened and what to do.
@@ -128,11 +128,6 @@ MATTE_REMEDIES: dict[MatteRefusalCode, tuple[MatteStatus, str]] = {
     MatteRefusalCode.FRAME_MISALIGNED: (
         MatteStatus.STALE,
         "Background removal frames do not line up with the media — run Remove background again.",
-    ),
-    MatteRefusalCode.UNSUPPORTED_MEDIA: (
-        MatteStatus.BROKEN,
-        "Background removal on rotated or non-square-pixel footage exports once that "
-        "footage is supported — disable the mask to export now.",
     ),
 }
 
@@ -331,6 +326,19 @@ class PreparedMatte:
     has_foreground: bool
 
 
+def matte_display_size(media: Any) -> tuple[int, int] | None:
+    """The size a matte artifact for ``media`` is written at: its DISPLAY size (BR2.6).
+
+    Pixel aspect ratio applied and a quarter-turn rotation turned (``AssetMedia.display_size``,
+    MK1.9), each side the nearest integer with halves rounding up (``floor(x + 0.5)``, the same
+    rule as ``editor-core``). ``None`` for media that was never measured.
+    """
+    display = media.display_size() if media is not None else None
+    if display is None:
+        return None
+    return (math.floor(display[0] + 0.5), math.floor(display[1] + 0.5))
+
+
 def artifact_directory(base_dir: Path, key: str) -> Path | None:
     """The artifact's directory inside the project, or ``None`` for a malformed or escaping key."""
     if not _KEY.fullmatch(key):
@@ -365,10 +373,6 @@ def prepare_matte(
         return MatteRefusal(code, str(mask.id), str(clip.id))
 
     artifact = mask.artifact
-    if media is not None and (
-        (media.pixel_aspect_ratio not in (None, 1.0)) or (media.rotation not in (None, 0))
-    ):
-        raise refuse(MatteRefusalCode.UNSUPPORTED_MEDIA)
     directory = artifact_directory(base_dir, str(artifact.key))
     if directory is None or not directory.is_dir():
         raise refuse(MatteRefusalCode.MISSING)
@@ -403,12 +407,8 @@ def prepare_matte(
             raise refuse(MatteRefusalCode.FRAME_MISALIGNED)
         if (stream.width, stream.height) != (artifact.width, artifact.height):
             raise refuse(MatteRefusalCode.SIZE_MISMATCH)
-    if (
-        media is not None
-        and media.width is not None
-        and media.height is not None
-        and (media.width, media.height) != (artifact.width, artifact.height)
-    ):
+    display = matte_display_size(media)
+    if display is not None and display != (artifact.width, artifact.height):
         raise refuse(MatteRefusalCode.SIZE_MISMATCH)
     tolerance = 0.5 / project_fps if project_fps > 0 else 1e-3
     source_start = float(clip.source_start)

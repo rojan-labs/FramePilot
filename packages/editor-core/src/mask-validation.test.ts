@@ -233,6 +233,41 @@ describe('mask validator rules', () => {
     expect(codes(wrongSize)).toEqual(['error:invalid_mask']);
   });
 
+  it('sizes a matte in display space: rotation turns it, pixel aspect ratio stretches it (BR2.6)', () => {
+    const turned: Asset[] = [
+      {
+        id: 'a1',
+        path: 'a.mp4',
+        kind: 'video',
+        media: { width: 1920, height: 1080, rotation: 90 },
+      },
+      measured[1]!,
+    ];
+    const add = (width: number, height: number, assets: Asset[]) =>
+      codes(
+        validate(
+          timeline(),
+          [{ type: 'add_mask', clipId: 'c1', mask: matte('s', { width, height }) }],
+          {
+            assets,
+          },
+        ),
+      );
+    expect(add(1080, 1920, turned)).toEqual([]);
+    expect(add(1920, 1080, turned)).toEqual(['error:invalid_mask']);
+    const anamorphic: Asset[] = [
+      {
+        id: 'a1',
+        path: 'a.mp4',
+        kind: 'video',
+        media: { width: 1440, height: 1080, pixelAspectRatio: 4 / 3 },
+      },
+      measured[1]!,
+    ];
+    expect(add(1920, 1080, anamorphic)).toEqual([]);
+    expect(add(1440, 1080, anamorphic)).toEqual(['error:invalid_mask']);
+  });
+
   it('re-checks the invariants on a restored stack a hand-built patch could break', () => {
     const base = timeline([rect('m')]);
     const restore = (masks: unknown[]) =>

@@ -358,6 +358,13 @@ RGB: `gbrp`, `bgr0`, `rgb24`, `bgra`, `rgba`, `0rgb`; colour only inside the sof
 matte frame 0; `pts[i]` is the source pts of matte frame `i`, strictly increasing. Matte frame
 `i` is the `i`-th decoded frame of each `.mkv`.
 
+**Display space (BR2.6).** Mattes and foregrounds are written in the picture's DISPLAY space, the
+space mask pixels use (MK1.9): pixel aspect ratio applied and a quarter-turn rotation turned, so
+the matte is upright and square-pixelled like the picture the export decodes. `artifact.width` /
+`height` are the display size with each side rounded to the nearest integer, halves up
+(`floor(x + 0.5)`): 1440×1080 at PAR 4:3 is 1920×1080, and a 1920×1080 clip rotated 90° is
+1080×1920. The engine (`matte_display_size`) and `editor-core`'s validator use the same rule.
+
 **Frame identity.** The export reads the matte frame for the SOURCE FRAME NUMBER its picture
 decodes (the frame plan's `source.frame`, also on the plan's matte layer as `matte.sourceFrame`),
 through speed, reverse, freeze and ramps. A caller with a real pts looks up by pts exactly. A frame
@@ -400,7 +407,6 @@ finesse renderer ships (MK6.2); `gaussian-legacy` on a matte refuses.
 | `matte_size_mismatch` | STALE | Media changed since background removal ran — run Remove background again. |
 | `matte_out_of_coverage` | STALE | Background removal does not cover the clip's whole range — update the background removal for the new range. |
 | `matte_frame_misaligned` | STALE | Background removal frames do not line up with the media — run Remove background again. |
-| `matte_unsupported_media` | BROKEN | Background removal on rotated or non-square-pixel footage exports once that footage is supported — disable the mask to export now. |
 
 Digests of `matte.mkv`, `frames.json` and (when decontaminating) `foreground.mkv` must equal the
 mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project frame.

@@ -17,7 +17,8 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   matte's files against the fingerprints saved in the project, and stops with one clear
   instruction instead of drawing a wrong cut-out: "Background removal data is missing — run
   Remove background again", a changed or damaged file, a clip trimmed beyond the removed range
-  ("update the background removal for the new range"), or media that changed size.
+  ("update the background removal for the new range"), or media that changed size. Rotated
+  phone clips and anamorphic footage are supported: the matte lies on the picture as you see it.
 
 - **Variable-frame-rate footage exports the right frames.** Phone and screen recordings with a
   variable frame rate used to export a neighbouring frame now and then, because the decoder
