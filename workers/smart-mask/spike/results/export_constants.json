@@ -1,0 +1,16 @@
+{
+  "recordedAt": "2026-09-17T11:57:14",
+  "host": {
+    "platform": "darwin",
+    "machine": "arm64",
+    "python": "3.12.13",
+    "onnxruntime": "1.30.0",
+    "torch": "2.14.0",
+    "cpu": "Apple M1 Pro"
+  },
+  "part": "constants",
+  "file": "sam21l_constants.npz",
+  "bytes": 71510,
+  "sha256": "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6",
+  "seconds": 2.6
+}

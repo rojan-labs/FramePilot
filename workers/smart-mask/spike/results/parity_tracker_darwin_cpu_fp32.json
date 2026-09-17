@@ -1,0 +1,83 @@
+{
+  "gate": 0.999,
+  "memoryStorage": "bfloat16",
+  "clips": {
+    "sintel_000240": {
+      "frames": 24,
+      "minIoU": 1.0,
+      "meanIoU": 1.0,
+      "framesBelowGate": 0,
+      "perFrameIoU": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0
+      ],
+      "seconds": 174.9
+    },
+    "sintel_000705": {
+      "frames": 20,
+      "minIoU": 0.999536,
+      "meanIoU": 0.999957,
+      "framesBelowGate": 0,
+      "perFrameIoU": [
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.999536,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        1.0,
+        0.999603,
+        1.0,
+        1.0
+      ],
+      "seconds": 145.3
+    }
+  },
+  "pass": true,
+  "providers": {
+    "chosen": {
+      "sam": "cpu"
+    },
+    "skipped": {
+      "sam": [
+        {
+          "provider": "coreml",
+          "reason": "disabled by parity rule: BR0.2: decoder does not build; memory attention 8.4 GB footprint; slower than CPU"
+        }
+      ]
+    },
+    "fallbacks": []
+  }
+}

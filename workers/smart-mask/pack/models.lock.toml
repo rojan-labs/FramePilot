@@ -70,8 +70,8 @@ id = "sam_decoder_points"
 file = "sam21l_decoder_points.fp32.onnx"
 source = "sam2"
 precision = "fp32"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "290b4746cfb966bd224b2bebdd7244083a21d9d25469ff39b7eda97f52ab1136"
+bytes = 17894692
 license = "Apache-2.0"
 
 [[model]]
@@ -79,8 +79,8 @@ id = "sam_decoder_mask"
 file = "sam21l_decoder_mask.fp32.onnx"
 source = "sam2"
 precision = "fp32"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "aa2f74b50555f9109b20b3063c6d7273360ff865e4353474ad250a7735552d8e"
+bytes = 17769499
 license = "Apache-2.0"
 
 [[model]]
@@ -106,8 +106,8 @@ id = "sam_constants"
 file = "sam21l_constants.npz"
 source = "sam2"
 precision = "fp32"
-sha256 = "0000000000000000000000000000000000000000000000000000000000000000"
-bytes = 0
+sha256 = "60f9f947605a1c054034a8933ed2aa6568c2a56b6024e558db5960bb2a2722b6"
+bytes = 71510
 license = "Apache-2.0"
 
 [[model]]

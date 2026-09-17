@@ -17,6 +17,11 @@ deliberate, recorded differences:
    result is identical to upstream; with more, the farthest recent memories and pointers are the
    ones dropped to fit.
 
+The video builder's post-processing overrides are followed: conditioning frames encode a binarised
+mask (``binarize_mask_from_pts_for_mem_enc``); small-hole filling (``fill_hole_area=8``) is not
+applied, because upstream skips it without its CUDA kernel, which is how the CPU reference ran.
+The decoder's dynamic multimask-by-stability is inside the exported graph.
+
 Memory features are stored in fp32 by default (upstream stores bfloat16). ``bfloat16`` storage
 is emulated exactly for the parity harness, which compares against the upstream reference.
 """
@@ -341,7 +346,7 @@ class SamTracker:
             iou=1.0,
             is_cond=True,
         )
-        output.maskmem_features = self._encode_memory(feats, for_memory, score)
+        output.maskmem_features = self._encode_memory(feats, for_memory, score, binarize=True)
         return output
 
     # propagation ------------------------------------------------------------------------------
@@ -422,13 +427,19 @@ class SamTracker:
             is_cond=is_cond,
         )
         high_res = np.asarray(out.high_res_masks, np.float32).reshape(IMAGE_SIZE, IMAGE_SIZE)
-        output.maskmem_features = self._encode_memory(feats, high_res, score)
+        # Conditioning frames go through upstream's preflight with is_mask_from_pts=True.
+        output.maskmem_features = self._encode_memory(feats, high_res, score, binarize=is_cond)
         return output
 
-    def _encode_memory(self, feats: ImageFeatures, high_res_logits: Float, score: float) -> Float:
-        mask_for_mem = (
-            sigmoid(high_res_logits) * SIGMOID_SCALE_FOR_MEM_ENC + SIGMOID_BIAS_FOR_MEM_ENC
+    def _encode_memory(
+        self, feats: ImageFeatures, high_res_logits: Float, score: float, *, binarize: bool
+    ) -> Float:
+        # build_sam2_video_predictor sets binarize_mask_from_pts_for_mem_enc=true: a conditioning
+        # frame is remembered exactly as the editor sees it (logits > 0), not as a probability.
+        probability = (
+            (high_res_logits > 0).astype(np.float32) if binarize else sigmoid(high_res_logits)
         )
+        mask_for_mem = probability * SIGMOID_SCALE_FOR_MEM_ENC + SIGMOID_BIAS_FOR_MEM_ENC
         features, pos = self.modules.encode_memory(
             feats.fpn2, mask_for_mem.reshape(1, 1, IMAGE_SIZE, IMAGE_SIZE)
         )
