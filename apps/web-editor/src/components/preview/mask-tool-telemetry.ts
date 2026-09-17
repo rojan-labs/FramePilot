@@ -2,20 +2,19 @@
  * Pointer-to-paint telemetry for the monitor mask tools (MK4.6, budget in plan 06: ≤ 16 ms p95
  * while editing a 200-vertex path on 4K footage).
  *
- * **What is measured.** Three channels, all in milliseconds:
+ * **What is measured.** Five channels, all in milliseconds:
  *
+ * - `inputDelay` — the pointer event's own timestamp to the moment the monitor's handler is
+ *   entered. Nothing in the monitor happens in this window: it is the browser delivering the
+ *   event. Real input is delivered promptly; a `page.mouse.move` injected over CDP is not, so
+ *   this channel is what tells the two apart in a measurement.
+ * - `work` — handler entry to the paintable DOM: everything the monitor actually does.
  * - `commit` — the pointer event's own timestamp to the instant the overlay's DOM commit is done
- *   and the moved geometry is *paintable*. This is the monitor's own work (input delay, the
- *   gesture math, the store update and React's commit of the 200-point outline) and it is the
- *   quantity the 16 ms budget is about: it is what has to fit inside a frame for the handle to
- *   keep up with the hand.
+ *   and the moved geometry is *paintable* — `inputDelay` + `work`. This is the quantity the
+ *   16 ms budget is asserted on.
  * - `pointerToPaint` — the same start, but ending at the animation frame that follows that
- *   commit. It therefore also contains the wait for the next vsync, which the monitor cannot
- *   shorten: a commit finished 1 ms after a vsync still paints ~16 ms later on a 60 Hz display.
- *   Real pointer moves are dispatched frame-aligned by the browser so that wait is small, but
- *   CDP-injected moves (`page.mouse.move` in Playwright) land at arbitrary points in the frame
- *   and add up to a whole frame interval of pure waiting. Recorded and reported, never gated —
- *   see `plan/background-removal-ai/MK4-BUDGETS.md`.
+ *   commit. Measured on CI it runs 0.1–0.4 ms above `commit`, so the frame wait is not where
+ *   this gesture's latency lives. Reported, not gated.
  * - `composite` — the mask raster, which runs asynchronously and latest-wins, so a slow raster
  *   never holds the handle back.
  *
@@ -26,7 +25,8 @@
 /** Samples kept per channel; old ones are dropped. */
 const RING_SIZE = 512;
 
-export type MaskTelemetryChannel = 'commit' | 'pointerToPaint' | 'composite';
+export type MaskTelemetryChannel =
+  'inputDelay' | 'work' | 'commit' | 'pointerToPaint' | 'composite';
 
 /** A percentile of recorded samples, milliseconds. */
 export function percentile(samples: readonly number[], fraction: number): number {
@@ -38,6 +38,8 @@ export function percentile(samples: readonly number[], fraction: number): number
 
 export class MaskToolTelemetry {
   private readonly channels: Record<MaskTelemetryChannel, number[]> = {
+    inputDelay: [],
+    work: [],
     commit: [],
     pointerToPaint: [],
     composite: [],
@@ -61,6 +63,8 @@ export class MaskToolTelemetry {
   }
 
   public clear(): void {
+    this.channels.inputDelay = [];
+    this.channels.work = [];
     this.channels.commit = [];
     this.channels.pointerToPaint = [];
     this.channels.composite = [];

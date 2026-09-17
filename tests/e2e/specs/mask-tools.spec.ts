@@ -12,12 +12,12 @@ import { expect, test, type Locator, type Page } from '@playwright/test';
 import { clip, seekTo, selectClip, undoButton } from './helpers.js';
 
 /**
- * Plan 06: editing a 200-vertex path on 4K footage must stay inside one frame. It is asserted on
- * the monitor's `commit` channel — the pointer event's timestamp to the instant its geometry is
- * paintable — which is the work the monitor controls. The `pointerToPaint` channel adds the wait
- * for the next vsync; `page.mouse.move` injects moves through CDP unaligned to the frame clock,
- * so that wait is up to a whole frame of pure idling and says nothing about the monitor. It is
- * reported, not gated (plan/background-removal-ai/MK4-BUDGETS.md).
+ * Plan 06: editing a 200-vertex path on 4K footage must stay inside one frame. Asserted on the
+ * monitor's `commit` channel — the pointer event's timestamp to the instant its geometry is
+ * paintable. The run also logs `inputDelay` (the browser delivering the event, which
+ * `page.mouse.move` does over CDP), `work` (what the monitor does once it has the event),
+ * `pointerToPaint` and `composite`, so a miss can be attributed instead of guessed at. Numbers
+ * and the attribution live in plan/background-removal-ai/MK4-BUDGETS.md.
  */
 const POINTER_TO_PAINT_BUDGET_MS = 16;
 
@@ -211,6 +211,8 @@ test('pointer-to-paint stays within budget dragging a 200-point path on 4K media
     ).__fpMaskToolTelemetry;
     return {
       samples: telemetry.samples('commit').length,
+      inputDelayP95: telemetry.p95('inputDelay'),
+      workP95: telemetry.p95('work'),
       commitP95: telemetry.p95('commit'),
       pointerToPaintP95: telemetry.p95('pointerToPaint'),
       compositeSamples: telemetry.samples('composite').length,

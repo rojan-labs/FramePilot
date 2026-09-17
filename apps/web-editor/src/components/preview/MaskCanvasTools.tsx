@@ -257,6 +257,8 @@ export function MaskCanvasTools({
   const svgRef = useRef<SVGSVGElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const pendingPointerTs = useRef<number | null>(null);
+  /** When the pointer handler was entered, so input delay and the monitor's work stay separable. */
+  const pendingHandlerTs = useRef<number | null>(null);
   const [draft, setDraft] = useState<Draft>({});
   const [penPoints, setPenPoints] = useState<MaskPathVertex[]>([]);
   const [cursor, setCursor] = useState<PixelPoint | null>(null);
@@ -316,8 +318,12 @@ export function MaskCanvasTools({
   useLayoutEffect(() => {
     const started = pendingPointerTs.current;
     if (started === null) return;
+    const handlerEntered = pendingHandlerTs.current ?? started;
     pendingPointerTs.current = null;
-    maskToolTelemetry.record('commit', performance.now() - started);
+    pendingHandlerTs.current = null;
+    const paintable = performance.now();
+    maskToolTelemetry.record('work', paintable - handlerEntered);
+    maskToolTelemetry.record('commit', paintable - started);
     requestAnimationFrame(() =>
       maskToolTelemetry.record('pointerToPaint', performance.now() - started),
     );
@@ -719,6 +725,11 @@ export function MaskCanvasTools({
     const now = performance.now();
     pendingPointerTs.current =
       event.timeStamp > 0 && event.timeStamp <= now ? event.timeStamp : now;
+    pendingHandlerTs.current = now;
+    // How long the browser took to deliver this event. Nothing the monitor can influence, but
+    // without it a slow transport (Playwright's CDP-injected moves) is indistinguishable from
+    // slow code — see plan/background-removal-ai/MK4-BUDGETS.md.
+    maskToolTelemetry.record('inputDelay', now - pendingPointerTs.current);
     if (active.kind === 'pan') {
       store.update({
         pan: {
