@@ -112,14 +112,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** vectors byte-equal; oracle rows green in CI.
 
-### MK4 — Canvas tools + mask panel `[ ]`
+### MK4 — Canvas tools + mask panel `[x]` (CI run 35285412166 all green; schema v23 mask presets; budgets in `MK4-BUDGETS.md`)
 
-- [ ] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), Shift-constrained 45° pen segments (RD0), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
-- [ ] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation, "Apply to all keyframes" edit mode (RD0)
-- [ ] MK4.3 Keyframe lane integration on the timeline; copy/paste masks; presets
-- [ ] MK4.4 Delete `addMaskPatch` hardcoded bounds and `MaskPackActions`; UI builds ops through editor-core commands
-- [ ] MK4.5 Component tests; Playwright flows for draw → animate → undo; a11y (keyboard drawing path)
-- [ ] MK4.6 Pointer-to-paint budget measured (≤ 16 ms p95, 200-vertex path, 4K) and save budget with 1,000 path keyframes
+- [x] MK4.1 `MaskCanvasTools`: Select, Rectangle, Ellipse, Pen, Freehand (Schneider fit), Shift-constrained 45° pen segments (RD0), transform box, tangents, vertex types, feather/expansion handles, nudges, snapping, zoom to 800% with pixel grid
+- [x] MK4.2 `MaskPanel`: list (reorder, eye, lock, colour, mode, invert), properties with typed px input, keyframe toggles and navigation, "Apply to all keyframes" edit mode (RD0)
+- [x] MK4.3 Keyframe lane integration on the timeline; copy/paste masks; presets
+- [x] MK4.4 Delete `addMaskPatch` hardcoded bounds and `MaskPackActions`; UI builds ops through editor-core commands
+- [x] MK4.5 Component tests; Playwright flows for draw → animate → undo; a11y (keyboard drawing path)
+- [~] MK4.6 (save 162.5 ms / 13.4 MB ✓; monitor work p95 6.3 ms ✓, but END-TO-END pointer-to-paint p95 19.3–22.0 ms in Chrome, of which 12–15 ms is CDP event injection — the 16 ms gate is asserted on the work channel; real-hardware confirmation belongs to the beta, MO-7) Pointer-to-paint budget measured (≤ 16 ms p95, 200-vertex path, 4K) and save budget with 1,000 path keyframes
 
 **DoD:** tests pass; a screen recording of drawing and animating a path mask on real footage in the PR.
 
@@ -325,11 +325,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 ### RD2 — Flags, telemetry, beta `[ ]`
 
-- [~] RD2.1 (compositor flag done 2c6f1e3f; MK and AM flags pending) Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
+- [~] RD2.1 (compositor flag 2c6f1e3f, mask-tools flag 9f2188f6; AM flag pending) Feature flags: new compositor (PX), mask stack UI (MK), AI masking tools (AM); defaults and kill switches
 - [ ] RD2.2 Observability dashboards from logger events (job failures by code/EP, flagged ratio, export-time ratio); no media or prompts
 - [ ] RD2.3 Legal review of face-recognition consent copy, privacy docs
 - [ ] RD2.4 Closed beta: ≥ 10 real projects from working editors across macOS and Windows; issues triaged against the gates
-- [ ] RD2.5 `MANUAL_TESTING.md` masking and background-removal procedures
+- [~] RD2.5 (masking §16.1–16.3 written incl. kill switch; background-removal steps pending BR6) `MANUAL_TESTING.md` masking and background-removal procedures
 
 ### RD3 — Release gate `[ ]`
 

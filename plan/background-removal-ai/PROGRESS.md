@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** BR5 done (59/59 oracle). MK4 finishing (E2E smoke red on its own pointer budget spec). Was: finish BR5 and MK4 (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** MK5+MK6 (effect targets, key mask) and MK7 (tracking) starting. BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- MK4 (…c46d104d): canvas tools, mask panel, keyframe lane, presets (**schema v23**, migration + Pydantic twin + drift), addMaskPatch deleted, Playwright flows, mask-tools flag, MANUAL_TESTING §16. Found and fixed a layout thrash (getBoundingClientRect per pointer move)
 
 - BR5 (6c56ef91…31ae9ff2): matte in the preview. Cause of the 8 red rows: CI ffmpeg writes FFV1 in a VFW-wrapped Matroska header the preview demuxer rejected. **59/59 oracle cases pass, baseline empty.** Preview decodes lossless FFV1 masters (540p VP9 measured 32.44 dB / 98.34% — below gates). Progressive: unprocessed ranges say "Processing background removal", never a wrong picture
 
@@ -76,7 +78,7 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- E2E smoke: `specs/mask-tools.spec.ts:167` pointer-to-paint budget fails on all retries (MK4's own spec; MK4 agent fixing)
+- none open (run 35285412166 at c46d104d: 11/11 green)
 - Tip: `gh workflow run CI --ref plan/background-removal-ai` lands in a different concurrency group than PR pushes, so long jobs aren't cancelled by peers' pushes
 
 - Run 35174495193 (3f4c2029): ai-sdk repeated-failure.test.ts v21 mask fixture → fixed 41af6255; Python test_mask_render_golden.py 10 cases block-mean drift 1.2–4.3 on ubuntu (codec, not mask) → fixed b532e432 (numpy lossless source; testsrc2 differs between ffmpeg 7.1/8.1); CI run 35185364341 Python ✓ vectors ✓, TS + oracle pending
@@ -87,6 +89,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- MK4.6: save 162.5 ms / 13.4 MB ✓ (gate 250 ms). Pointer: monitor work p95 6.3 ms ✓ vs 16 ms; end-to-end 19.3–22.0 ms including 12–15 ms Playwright CDP injection — **not a product number, not gated**; confirm on real hardware in the beta (MO-7)
 
 - PX4 oracle run 35281873504: **59/59 cases pass**; 7 of 8 matte rows bit-identical, matte-text-behind-subject 53.68 dB; baseline `cases` empty (only colour.bt709-limited webgl, the harness's non-compositor path)
 

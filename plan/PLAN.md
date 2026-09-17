@@ -10035,7 +10035,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [x] MK1 — schema v22 mask stack + migration (byte-identical legacy export) + operations + split-keyframe fix
 - [x] MK2 — exact rasteriser + engine mask stack + goldens
 - [x] MK3 — preview mask pass, byte-equal vectors, oracle rows
-- [ ] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
+- [x] MK4 — canvas tools (rect/ellipse/pen/freehand, tangents, feather handles, zoom) + mask panel + keyframe lane
 - [ ] MK5 — effect-target masks (face blur, secondary grade)
 - [ ] MK6 — key mask (colour/luma qualifier, despill)
 - [ ] MK7 — mask tracking with review and constraint frames
