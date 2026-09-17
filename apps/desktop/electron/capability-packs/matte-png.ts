@@ -21,7 +21,10 @@ const MAX_SIDE = 8192;
 export const BRUSH_VALUES = new Set([0, 128, 255]);
 
 export class MattePngError extends Error {
-  public constructor(message: string) {
+  public constructor(
+    message: string,
+    public readonly code: 'invalid_png' | 'wrong_size' = 'invalid_png',
+  ) {
     super(message);
     this.name = 'MattePngError';
   }
@@ -34,8 +37,20 @@ export interface GrayPng {
   readonly pixels: Buffer;
 }
 
-/** Decode an 8-bit, non-interlaced grayscale PNG, refusing every other shape. */
-export function decodeGrayPng(bytes: Uint8Array): GrayPng {
+export interface DecodeGrayPngOptions {
+  /** Refuse at the header, before any pixel data is inflated, unless the size matches (BR4.12 L2). */
+  readonly expectedWidth?: number;
+  readonly expectedHeight?: number;
+}
+
+/**
+ * Decode an 8-bit, non-interlaced grayscale PNG, refusing every other shape.
+ *
+ * Strict on purpose (BR4.12 L2): every chunk's CRC must match, only IHDR, IDAT and IEND may appear
+ * (no ancillary chunks), nothing may follow IEND, and an expected size is checked at IHDR so an
+ * oversized image is refused before it is inflated.
+ */
+export function decodeGrayPng(bytes: Uint8Array, options: DecodeGrayPngOptions = {}): GrayPng {
   const data = Buffer.from(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   if (data.byteLength > MATTE_INPUT_PNG_MAX_BYTES) throw new MattePngError('PNG is too large.');
   if (data.byteLength < 8 || !data.subarray(0, 8).equals(SIGNATURE)) {
@@ -52,6 +67,9 @@ export function decodeGrayPng(bytes: Uint8Array): GrayPng {
     const end = start + length;
     if (end + 4 > data.byteLength) throw new MattePngError('PNG chunk is truncated.');
     const body = data.subarray(start, end);
+    if (crc32(data.subarray(offset + 4, end)) !== data.readUInt32BE(end)) {
+      throw new MattePngError('PNG chunk checksum does not match.');
+    }
     if (type === 'IHDR') {
       if (header !== undefined || length !== 13) throw new MattePngError('PNG header is invalid.');
       const width = body.readUInt32BE(0);
@@ -63,19 +81,28 @@ export function decodeGrayPng(bytes: Uint8Array): GrayPng {
       if (bitDepth !== 8 || colourType !== 0 || compression !== 0 || filter !== 0 || interlace !== 0) {
         throw new MattePngError('PNG must be 8-bit grayscale without interlace.');
       }
+      if (
+        (options.expectedWidth !== undefined && width !== options.expectedWidth) ||
+        (options.expectedHeight !== undefined && height !== options.expectedHeight)
+      ) {
+        throw new MattePngError('PNG is not the size of the matte it belongs to.', 'wrong_size');
+      }
       header = { width, height };
     } else if (type === 'IDAT') {
       if (header === undefined) throw new MattePngError('PNG data precedes its header.');
       idat.push(body);
     } else if (type === 'IEND') {
       ended = true;
+      offset = end + 4;
       break;
-    } else if ((type.charCodeAt(0) & 0x20) === 0) {
-      // An unknown CRITICAL chunk (uppercase first letter) changes meaning; refuse it.
-      throw new MattePngError('PNG carries an unsupported critical chunk.');
+    } else {
+      // Ancillary or unknown chunks are not part of a correction mask; the host stores a
+      // canonical re-encode, so refusing them loses nothing.
+      throw new MattePngError('PNG carries a chunk a correction mask does not use.');
     }
     offset = end + 4;
   }
+  if (ended && offset !== data.byteLength) throw new MattePngError('PNG has data after its end.');
   if (header === undefined || !ended || idat.length === 0) {
     throw new MattePngError('PNG is incomplete.');
   }
@@ -116,13 +143,14 @@ export function encodeGrayPng(width: number, height: number, pixels: Uint8Array)
   header[8] = 8;
   return Buffer.concat([
     SIGNATURE,
-    chunk('IHDR', header),
-    chunk('IDAT', deflateSync(raw)),
-    chunk('IEND', Buffer.alloc(0)),
+    pngChunk('IHDR', header),
+    pngChunk('IDAT', deflateSync(raw)),
+    pngChunk('IEND', Buffer.alloc(0)),
   ]);
 }
 
-function chunk(type: string, body: Buffer): Buffer {
+/** One PNG chunk with its length and CRC (exported for building test inputs). */
+export function pngChunk(type: string, body: Buffer): Buffer {
   const length = Buffer.alloc(4);
   length.writeUInt32BE(body.byteLength, 0);
   const typed = Buffer.concat([Buffer.from(type, 'latin1'), body]);

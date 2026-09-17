@@ -16,7 +16,7 @@ import {
   type MatteArtifactRecord,
 } from '@framepilot/capability-packs';
 import type { MatteVideoTiming } from './matte-media-inspector.js';
-import { BRUSH_VALUES, decodeGrayPng, MattePngError, type GrayPng } from './matte-png.js';
+import { BRUSH_VALUES, decodeGrayPng, encodeGrayPng, MattePngError, type GrayPng } from './matte-png.js';
 import {
   ensureRealDirectory,
   existingRealDirectory,
@@ -54,23 +54,23 @@ export async function saveMatteInput(
   png: Uint8Array,
   expected: { readonly width: number; readonly height: number; readonly kind: 'brush' | 'lock' },
 ): Promise<SavedMatteInput> {
-  const image = decodeInput(png);
-  if (image.width !== expected.width || image.height !== expected.height) {
-    throw new MatteStoreError('wrong_size', 'The correction is not the size of the matte it corrects.');
-  }
+  const image = decodeInput(png, expected);
   if (expected.kind === 'brush' && image.pixels.some((value) => !BRUSH_VALUES.has(value))) {
     throw new MatteStoreError('invalid_brush', 'A brush correction may only mark keep, remove or untouched.');
   }
-  const sha256 = createHash('sha256').update(png).digest('hex');
+  // Store the canonical re-encode, never the renderer's bytes: exactly the decoded pixels, no
+  // other chunks, one filter mode. The digest names what is stored (BR4.12 L2).
+  const canonical = encodeGrayPng(image.width, image.height, image.pixels);
+  const sha256 = createHash('sha256').update(canonical).digest('hex');
   const store = await ensureRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_INPUTS_STORE_DIR]);
   const target = path.join(store, `${sha256}.png`);
   try {
-    await writeFile(target, png, { flag: 'wx', mode: 0o600 });
+    await writeFile(target, canonical, { flag: 'wx', mode: 0o600 });
   } catch (error) {
     // Same digest, same bytes: saving an identical correction twice is a no-op.
     if (!(typeof error === 'object' && error !== null && 'code' in error && error.code === 'EEXIST')) throw error;
   }
-  return { sha256, bytes: png.byteLength };
+  return { sha256, bytes: canonical.byteLength };
 }
 
 /** Read a stored input back, proving its bytes still match its name. */
@@ -159,11 +159,16 @@ export async function sourceContentFingerprint(file: string, timing: MatteVideoT
   }
 }
 
-function decodeInput(bytes: Uint8Array): GrayPng {
+function decodeInput(bytes: Uint8Array, expected?: { readonly width: number; readonly height: number }): GrayPng {
   try {
-    return decodeGrayPng(bytes);
+    return decodeGrayPng(bytes, expected === undefined ? {} : { expectedWidth: expected.width, expectedHeight: expected.height });
   } catch (error) {
-    if (error instanceof MattePngError) throw new MatteStoreError('invalid_png', error.message);
+    if (error instanceof MattePngError) {
+      if (error.code === 'wrong_size') {
+        throw new MatteStoreError('wrong_size', 'The correction is not the size of the matte it corrects.');
+      }
+      throw new MatteStoreError('invalid_png', error.message);
+    }
     throw error;
   }
 }
