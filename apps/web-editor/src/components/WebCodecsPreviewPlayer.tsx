@@ -408,9 +408,17 @@ export function WebCodecsPreviewPlayer({
   // Project time is authoritative even while media is still loading or when a
   // source fails and is represented as a gap. Basing transport duration on the
   // decoder made an unavailable source collapse every seek back to zero.
+  // The layer compositor builds no EDL, so its transport length is the timeline's own end (the
+  // engine's `durationSeconds`): an EDL-derived 0 clamped every transport step to the start.
   const durationSec = useMemo(
-    () => edl.reduce((duration, segment) => Math.max(duration, segment.projectEnd), 0),
-    [edl],
+    () =>
+      layered
+        ? editor.state.timeline.tracks.reduce(
+            (end, track) => track.clips.reduce((clipEnd, clip) => Math.max(clipEnd, clip.end), end),
+            0,
+          )
+        : edl.reduce((duration, segment) => Math.max(duration, segment.projectEnd), 0),
+    [layered, edl, editor.state.timeline],
   );
   durationRef.current = durationSec;
   const [error, setError] = useState<string | null>(null);

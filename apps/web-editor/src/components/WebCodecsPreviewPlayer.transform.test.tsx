@@ -88,6 +88,7 @@ function Host({
         {JSON.stringify(editor.state.timeline.tracks[0]!.clips[0]!.keyframes)}
       </span>
       <span data-testid="selection">{editor.state.selection ?? 'none'}</span>
+      <span data-testid="playhead">{editor.getPlayhead()}</span>
       <WebCodecsPreviewPlayer editor={editor} assets={assets} fps={30} resolution={RESOLUTION} />
     </SettingsProvider>
   );
@@ -314,5 +315,15 @@ describe('program monitor — mask view switch (MK3.3)', () => {
     );
     fireEvent.click(screen.getByRole('button', { name: 'deselect' }));
     expect(toggle()).toBeNull();
+  });
+});
+
+describe('program monitor — transport on the layer compositor', () => {
+  it('steps a frame forward from the start (the transport length is the timeline end)', () => {
+    render(<Host />);
+    fireEvent.click(screen.getByRole('button', { name: 'step forward one frame' }));
+    // Re-render the host so its playhead readout reflects the committed seek.
+    fireEvent.click(screen.getByRole('button', { name: 'select c1' }));
+    expect(Number(screen.getByTestId('playhead').textContent)).toBeCloseTo(1 / 30, 6);
   });
 });
