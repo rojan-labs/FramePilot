@@ -78,6 +78,15 @@ async function openMaskTab(page: Page, injected: unknown): Promise<Locator> {
   await selectClip(page, 'clip_a');
   await page.getByRole('tab', { name: 'Inspector' }).click();
   await page.getByRole('tab', { name: 'Mask', exact: true }).click();
+  // The Mask section is `defaultOpen: false` in the inspector registry, so the tab shows it
+  // collapsed until someone expands it (the state then persists in EditorSettings). The monitor
+  // tools are driven by the tab, not by the disclosure, so the canvas is already live — but the
+  // mask list, properties and keyframes live inside the `<details>` and are not in the DOM yet.
+  const panel = page.getByLabel('mask', { exact: true }).first();
+  if (!(await panel.evaluate((node: HTMLDetailsElement) => node.open))) {
+    await panel.locator('summary').click();
+  }
+  await expect(panel).toHaveJSProperty('open', true);
   const canvas = page.getByRole('application', { name: 'Mask canvas', exact: true });
   await expect(canvas).toBeVisible();
   return canvas;
