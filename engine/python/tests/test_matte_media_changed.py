@@ -136,11 +136,21 @@ def test_unsampled_or_missing_media_cannot_vouch_for_the_matte(tmp_path: Path) -
         assert_media_unchanged(prepared, tmp_path / "gone.mkv")
 
 
-def test_a_matte_without_a_host_record_is_not_rechecked(tmp_path: Path) -> None:
+def test_a_store_without_records_is_not_rechecked(tmp_path: Path) -> None:
     source = _video(tmp_path / "shot.mkv", "testsrc2")
     prepared = _prepared(tmp_path)
     assert_media_unchanged(prepared, source)
+
+
+def test_a_missing_or_mismatched_record_in_a_managed_store_is_stale(tmp_path: Path) -> None:
+    source = _video(tmp_path / "shot.mkv", "testsrc2")
+    prepared = _prepared(tmp_path)
     results = prepared.directory.parent / ".results"
     results.mkdir()
+    (results / f"{'e' * 64}.json").write_text("{}", encoding="utf-8")
+    with pytest.raises(MatteRefusal) as missing:
+        assert_media_unchanged(prepared, source)
+    assert missing.value.code is MatteRefusalCode.MEDIA_CHANGED
     (results / f"{KEY}.json").write_text(json.dumps({"key": "c" * 64}), encoding="utf-8")
-    assert_media_unchanged(prepared, source)
+    with pytest.raises(MatteRefusal):
+        assert_media_unchanged(prepared, source)

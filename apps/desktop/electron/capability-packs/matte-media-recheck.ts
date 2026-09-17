@@ -68,16 +68,23 @@ export async function recheckProjectMatteMedia(
   const verdicts = new Map<string, MatteMediaVerdict | 'skip'>();
   const issues: MatteValidationIssue[] = [];
   for (const mask of matteMasksOf(project)) {
-    if (!verdicts.has(mask.key)) {
-      const record = await readMatteRecord(projectDir, mask.key);
-      const asset = project.assets?.find((candidate) => candidate.id === record?.assetId);
-      if (record === undefined || asset === undefined || (only !== undefined && !only.has(asset.id))) {
-        verdicts.set(mask.key, 'skip');
+    // Verdicts are per artifact AND asset: one matte can sit on clips of different assets.
+    const verdictKey = `${mask.key}|${mask.assetId ?? ''}`;
+    if (!verdicts.has(verdictKey)) {
+      const record = await readMatteRecord(projectDir, mask.key).catch(() => undefined);
+      const assetId = record?.assetId ?? mask.assetId;
+      const asset = project.assets?.find((candidate) => candidate.id === assetId);
+      if (asset === undefined || (only !== undefined && !only.has(asset.id))) {
+        verdicts.set(verdictKey, 'skip');
+      } else if (record === undefined) {
+        // No record means nothing to prove the relinked media against: a matte that cannot be
+        // shown to match is STALE, never silently kept (BR4.12 re-review).
+        verdicts.set(verdictKey, 'changed');
       } else {
-        verdicts.set(mask.key, await recheckMatteSource(record, asset.path, inspector, options.signal));
+        verdicts.set(verdictKey, await recheckMatteSource(record, asset.path, inspector, options.signal));
       }
     }
-    if (verdicts.get(mask.key) !== 'changed') continue;
+    if (verdicts.get(verdictKey) !== 'changed') continue;
     issues.push({
       clipId: mask.clipId,
       maskId: mask.maskId,

@@ -88,6 +88,8 @@ export interface MatteValidationOptions {
 
 interface MatteMaskRef {
   readonly clipId: string;
+  /** The clip's asset, when the owner is a clip (effect layers have none). */
+  readonly assetId?: string;
   readonly maskId: string;
   readonly key: string;
   readonly files: readonly { readonly name: string; readonly sha256: string }[];
@@ -192,12 +194,14 @@ export function matteMasksOf(project: unknown): MatteMaskRef[] {
     ];
     for (const owner of owners) {
       const clipId = String((owner as { id?: unknown }).id ?? '');
+      const ownerAsset = (owner as { assetId?: unknown }).assetId;
       for (const mask of arrayOf((owner as { masks?: unknown }).masks)) {
         const record = mask as Record<string, unknown>;
         if (record.kind !== 'matte' || typeof record.artifact !== 'object' || record.artifact === null) continue;
         const artifact = record.artifact as Record<string, unknown>;
         out.push({
           clipId,
+          ...(typeof ownerAsset === 'string' ? { assetId: ownerAsset } : {}),
           maskId: String(record.id ?? ''),
           key: String(artifact.key ?? ''),
           files: arrayOf(artifact.files).map((file) => ({

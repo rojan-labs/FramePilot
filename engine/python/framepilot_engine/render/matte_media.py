@@ -11,8 +11,10 @@ module re-measures them, exactly as the desktop's ``matte-media-recheck.ts`` doe
 * otherwise every recorded frame must decode to the same hash at the same pts, or the export
   refuses with ``matte_media_changed`` and the same sentence the Inspector shows.
 
-A matte with no host record (made before records existed, or copied in by hand) is not
-re-checked here; its digests and frame alignment are still verified by :mod:`mattes`.
+A matte whose record is missing or unreadable in a store that keeps records (a ``.results``
+folder exists) is refused as changed: nothing can prove its media still matches. A store with no
+records at all (made before records existed) is not re-checked here; its digests and frame
+alignment are still verified by :mod:`mattes`.
 """
 
 from __future__ import annotations
@@ -76,10 +78,16 @@ def assert_media_unchanged(prepared: PreparedMatte, source_path: str | Path) -> 
 
     :raises MatteRefusal: ``matte_media_changed``.
     """
+    refusal = MatteRefusal(MatteRefusalCode.MEDIA_CHANGED, prepared.mask_id, prepared.clip_id)
     record = read_record(prepared)
     if record is None:
+        # A host-managed store (it has a `.results` folder) writes a record for every matte it
+        # commits, so a missing or unreadable one means nothing can prove the media still matches:
+        # STALE, not a silent pass (BR4.12 re-review). A store with no records at all predates them.
+        results = prepared.directory.parent / RESULTS_DIR
+        if results.is_dir() and not results.is_symlink():
+            raise refusal
         return
-    refusal = MatteRefusal(MatteRefusalCode.MEDIA_CHANGED, prepared.mask_id, prepared.clip_id)
     path = Path(source_path)
     try:
         timing = video_timing(path)
