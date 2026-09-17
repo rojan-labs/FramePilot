@@ -176,6 +176,7 @@ const Channels = {
   capabilityPackJobs: 'framepilot:capability-pack:jobs',
   capabilityPackJobsChanged: 'framepilot:capability-pack:jobs-changed',
   capabilityPackJobAction: 'framepilot:capability-pack:job-action',
+  capabilityPackExportDiagnostics: 'framepilot:capability-pack:export-diagnostics',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',
@@ -267,6 +268,10 @@ const bridge: FramePilotBridge & ProjectSnapshotBridge & MediaImportChunkBridge 
     ipcRenderer.invoke(Channels.matteSaveCorrection, correction) as Promise<MatteSaveCorrectionResultWire>,
   matteStorage: (request?: { readonly protectedKeys?: readonly string[] }) =>
     ipcRenderer.invoke(Channels.matteStorage, request ?? {}) as Promise<MatteStorageResultWire>,
+  capabilityPackExportDiagnostics: () =>
+    ipcRenderer.invoke(Channels.capabilityPackExportDiagnostics) as Promise<
+      { readonly ok: true } | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+    >,
   capabilityPackJobs: () =>
     ipcRenderer.invoke(Channels.capabilityPackJobs) as Promise<readonly CapabilityPackJobWire[]>,
   onCapabilityPackJobsChanged: (listener: (jobs: readonly CapabilityPackJobWire[]) => void) => {

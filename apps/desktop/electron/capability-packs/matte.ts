@@ -178,6 +178,55 @@ export interface CapabilityPackMatteServiceOptions {
   readonly now?: () => Date;
   /** Free bytes on the project's volume; injected for tests (BR4.10 preflight). */
   readonly freeDiskBytes?: (directory: string) => Promise<number>;
+  /** Receives one privacy-safe report per finished job (BR4.11 diagnostics). */
+  readonly observer?: (report: MatteJobReport) => void;
+}
+
+/**
+ * One job's observability record (BR4.11). An allow-list of outcome facts: status and codes,
+ * execution provider, cache hit, flagged ratio, pack version, phase timings. Never paths,
+ * media, frames, prompts or project/asset/clip ids.
+ */
+export interface MatteJobReport {
+  readonly at: string;
+  readonly status: MatteRunOutcome['status'];
+  readonly code?: MatteFailureCode;
+  readonly verificationCode?: string;
+  readonly cacheHit?: boolean;
+  readonly executionProvider?: 'coreml' | 'directml' | 'cpu';
+  readonly packVersion?: string;
+  readonly verifiedFrames?: number;
+  readonly flaggedFrames?: number;
+  readonly flaggedRatio?: number;
+  readonly phasesMs: Readonly<Record<string, number>>;
+  readonly totalMs: number;
+}
+
+export function matteJobReport(
+  outcome: MatteRunOutcome,
+  phases: Readonly<Record<string, number>>,
+  totalMs: number,
+  at: string,
+): MatteJobReport {
+  const base = { at, status: outcome.status, phasesMs: { ...phases }, totalMs };
+  if (outcome.status === 'failed') {
+    return { ...base, code: outcome.code, ...(outcome.verificationCode === undefined ? {} : { verificationCode: outcome.verificationCode }) };
+  }
+  if (outcome.status !== 'completed') return base;
+  const { verifiedFrames, flaggedFrames } = outcome.summary;
+  return {
+    ...base,
+    cacheHit: outcome.cacheHit,
+    executionProvider: outcome.executionProvider,
+    packVersion: outcome.artifact.packVersion,
+    verifiedFrames,
+    flaggedFrames,
+    flaggedRatio: ratio(flaggedFrames, verifiedFrames + flaggedFrames),
+  };
+}
+
+function addPhase(phases: Record<string, number>, name: string, elapsedMs: number): void {
+  phases[name] = (phases[name] ?? 0) + Math.max(0, elapsedMs);
 }
 
 export interface MatteRunContext {
@@ -236,20 +285,30 @@ export class CapabilityPackMatteService {
     if (intent.previousArtifactKey !== undefined) this.previousKeys.set(intent.requestId, intent.previousArtifactKey);
     const started = Date.now();
     log.action('matteJobStart', { prompts: intent.prompts.length, rerun: intent.previousArtifactKey !== undefined });
+    // Phase timings: host phases are marked in runJob; worker phases from progress transitions.
+    const phases: Record<string, number> = {};
+    let workerPhase: { name: string; at: number } | undefined;
+    const trackedContext: MatteRunContext = {
+      ...context,
+      onProgress: (progress) => {
+        const now = Date.now();
+        if (workerPhase?.name !== progress.phase) {
+          if (workerPhase !== undefined) addPhase(phases, `worker.${workerPhase.name}`, now - workerPhase.at);
+          workerPhase = { name: progress.phase, at: now };
+        }
+        context.onProgress?.(progress);
+      },
+    };
     try {
-      const outcome = await this.runJob(intent, context, controller.signal);
-      log.action('matteJobEnd', {
-        status: outcome.status,
-        ...(outcome.status === 'failed' ? { code: outcome.code, verificationCode: outcome.verificationCode } : {}),
-        ...(outcome.status === 'completed'
-          ? {
-              cacheHit: outcome.cacheHit,
-              executionProvider: outcome.executionProvider,
-              flaggedRatio: ratio(outcome.summary.flaggedFrames, outcome.summary.verifiedFrames + outcome.summary.flaggedFrames),
-            }
-          : {}),
-        elapsedMs: Date.now() - started,
-      });
+      const outcome = await this.runJob(intent, trackedContext, controller.signal, phases);
+      if (workerPhase !== undefined) addPhase(phases, `worker.${workerPhase.name}`, Date.now() - workerPhase.at);
+      const report = matteJobReport(outcome, phases, Date.now() - started, (this.options.now?.() ?? new Date()).toISOString());
+      log.action('matteJobEnd', report);
+      try {
+        this.options.observer?.(report);
+      } catch (error) {
+        log.warn('matteObserverFailed', { error: error instanceof Error ? error.name : 'unknown' });
+      }
       return outcome;
     } finally {
       this.jobs.delete(intent.requestId);
@@ -257,14 +316,21 @@ export class CapabilityPackMatteService {
     }
   }
 
-  private async runJob(intent: MatteRunIntent, context: MatteRunContext, signal: AbortSignal): Promise<MatteRunOutcome> {
+  private async runJob(
+    intent: MatteRunIntent,
+    context: MatteRunContext,
+    signal: AbortSignal,
+    phases: Record<string, number>,
+  ): Promise<MatteRunOutcome> {
     if (intent.timelineRevision !== context.projectRevision) {
       return failed('stale_revision', 'The project changed before background removal started. Try again.', true);
     }
     if (intent.prompts.some((prompt) => prompt.kind === 'candidate')) {
       return failed('candidate_unresolved', 'Pick the subject on the monitor; AI candidates are not available yet.', false);
     }
+    const tMedia = Date.now();
     const media = await this.resolveMedia(intent, context, signal);
+    addPhase(phases, 'media', Date.now() - tMedia);
     if ('status' in media) return media;
 
     const pack = await this.resolvePack();
@@ -292,6 +358,7 @@ export class CapabilityPackMatteService {
         mediaRoot: path.dirname(media.asset.path),
         signal,
       });
+      addPhase(phases, 'autoPrompt', Date.now() - tAuto);
       log.action('matteAutoPrompt', { found: auto !== undefined && auto.length > 0, elapsedMs: Date.now() - tAuto });
       if (signal.aborted) return failed('cancelled', 'Background removal cancelled.', false);
       if (auto === undefined || auto.length === 0) return { status: 'needs_prompt' };
@@ -309,7 +376,9 @@ export class CapabilityPackMatteService {
       foreground: intent.foreground,
       previewHeight: intent.previewHeight,
     });
+    const tCache = Date.now();
     const hit = await this.cacheHit(context.projectDir, key, signal);
+    addPhase(phases, 'cache', Date.now() - tCache);
     if (hit !== undefined) {
       log.action('matteCacheHit', {});
       return completed(hit, true, context.projectRevision);
@@ -343,12 +412,12 @@ export class CapabilityPackMatteService {
       const maxBytes = matteByteCeiling(size.width, size.height, media.frameCount, intent.foreground);
       const request = this.buildRequest(intent, context, media, prompts, staging, inputs.files, allowedFiles, maxBytes);
       if ('status' in request) return request;
-      log.debug('matteStaged', { elapsedMs: Date.now() - tStage });
+      addPhase(phases, 'stage', Date.now() - tStage);
 
       const tWorker = Date.now();
       const result = await this.runWorker(pack.record, request, staging, media, intent.requestId, signal, context.onProgress);
+      addPhase(phases, 'worker', Date.now() - tWorker);
       if ('status' in result) return result;
-      log.action('matteWorkerDone', { elapsedMs: Date.now() - tWorker, executionProvider: result.executionProvider });
 
       const tVerify = Date.now();
       context.onProgress?.({ requestId: intent.requestId, phase: 'verify', completed: 0, total: 1 });
@@ -365,7 +434,7 @@ export class CapabilityPackMatteService {
         signal,
       });
       context.onProgress?.({ requestId: intent.requestId, phase: 'verify', completed: 1, total: 1 });
-      log.action('matteVerified', { elapsedMs: Date.now() - tVerify, bytes: verified.matteBytes });
+      addPhase(phases, 'verify', Date.now() - tVerify);
 
       // The project moved while the job ran. The verified artifact is content-addressed and
       // stays valid for this media, so it is kept when the asset still exists (the retry is a
@@ -378,8 +447,10 @@ export class CapabilityPackMatteService {
         }
         return failed('stale_revision', 'The project changed while background removal ran. Run it again to apply it.', true);
       }
+      const tCommit = Date.now();
       const record = await this.commit(context.projectDir, staging, key, intent, media, pack.record, result, prompts, verified.files, signal);
       committed = true;
+      addPhase(phases, 'commit', Date.now() - tCommit);
       return completed(record, false, context.projectRevision);
     } catch (error) {
       return classifyFailure(error, signal);
@@ -925,7 +996,11 @@ function classifyFailure(error: unknown, signal: AbortSignal): Extract<MatteRunO
   if (isNodeCode(error, 'ENOSPC') || isNodeCode(error, 'EACCES') || isNodeCode(error, 'EROFS')) {
     return failed('output_unwritable', 'Disk full or folder not writable. Free up space and try again.', true);
   }
-  log.error('matteJobUnexpected', { error: errorMessage(error) });
+  // The error NAME and code only: messages from fs and child processes carry paths.
+  log.error('matteJobUnexpected', {
+    error: error instanceof Error ? error.name : 'unknown',
+    ...(typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string' ? { code: error.code } : {}),
+  });
   return failed('worker_failed', 'Background removal failed unexpectedly. Try again.', true);
 }
 

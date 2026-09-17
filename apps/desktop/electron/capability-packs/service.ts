@@ -45,7 +45,7 @@ import type {
 } from '@framepilot/shared-types';
 import { createLogger } from '@framepilot/shared-types';
 import { resolveCapabilityPackStatus } from './capability-status.js';
-import { CapabilityPackMatteService, type MatteAutoPrompt } from './matte.js';
+import { CapabilityPackMatteService, type MatteAutoPrompt, type MatteJobReport } from './matte.js';
 import type { MatteMediaInspector } from './matte-media-inspector.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { CapabilityPackTrackingService, SUBJECT_PACK_ID } from './tracking.js';
@@ -103,6 +103,8 @@ export interface CapabilityPackDesktopServiceOptions {
   readonly onStoreChanged?: (event: CapabilityPackInstalledEventWire) => void;
   /** The app's own ffprobe/ffmpeg for host matte verification (BR4.2). */
   readonly matteMediaInspector?: MatteMediaInspector;
+  /** Receives one privacy-safe report per matte job (BR4.11). */
+  readonly matteObserver?: (report: MatteJobReport) => void;
 }
 
 /** Main-process authority behind the validated Capability Pack IPC surface. */
@@ -129,6 +131,7 @@ export class CapabilityPackDesktopService {
   private matteService: CapabilityPackMatteService | undefined;
   private readonly onStoreChanged: ((event: CapabilityPackInstalledEventWire) => void) | undefined;
   private readonly matteMediaInspector: MatteMediaInspector | undefined;
+  private readonly matteObserver: ((report: MatteJobReport) => void) | undefined;
 
   constructor(options: CapabilityPackDesktopServiceOptions) {
     this.rootPath = path.resolve(options.rootPath);
@@ -143,6 +146,7 @@ export class CapabilityPackDesktopService {
     this.runtimeCacheRoot = options.runtimeCacheRoot;
     this.onStoreChanged = options.onStoreChanged;
     this.matteMediaInspector = options.matteMediaInspector;
+    this.matteObserver = options.matteObserver;
     this.store = new FileCapabilityPackStore(this.rootPath);
     this.storageManager = new CapabilityPackStorageManager(
       this.store,
@@ -328,6 +332,7 @@ export class CapabilityPackDesktopService {
       platform: this.platform,
       propose: (capabilityId) => this.propose(capabilityId),
       inspector: this.matteMediaInspector,
+      ...(this.matteObserver === undefined ? {} : { observer: this.matteObserver }),
       autoPrompt:
         autoPrompt ??
         createSubjectDetectAutoPrompt({

@@ -1957,6 +1957,13 @@ export interface FramePilotBridge {
   matteSaveCorrection?(correction: MatteSaveCorrectionWire): Promise<MatteSaveCorrectionResultWire>;
   /** Bytes the open project's mattes and corrections use, and which are unreferenced. */
   matteStorage?(request?: { readonly protectedKeys?: readonly string[] }): Promise<MatteStorageResultWire>;
+  /**
+   * Write an opt-in diagnostic bundle (recent job outcomes and timings, queue, pack health) to a
+   * file the editor chooses. Contains no paths, media, prompts or project ids; nothing uploads.
+   */
+  capabilityPackExportDiagnostics?(): Promise<
+    { readonly ok: true } | { readonly ok: false; readonly code: 'cancelled' | 'write_failed'; readonly error: string }
+  >;
   /** Every running, queued, paused and recently finished pack job. */
   capabilityPackJobs?(): Promise<readonly CapabilityPackJobWire[]>;
   onCapabilityPackJobsChanged?(handler: (jobs: readonly CapabilityPackJobWire[]) => void): () => void;

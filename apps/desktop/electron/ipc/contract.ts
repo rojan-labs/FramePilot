@@ -76,6 +76,7 @@ export const IpcChannels = {
   capabilityPackJobs: 'framepilot:capability-pack:jobs',
   capabilityPackJobsChanged: 'framepilot:capability-pack:jobs-changed',
   capabilityPackJobAction: 'framepilot:capability-pack:job-action',
+  capabilityPackExportDiagnostics: 'framepilot:capability-pack:export-diagnostics',
   musicSearch: 'framepilot:music:search',
   musicPreview: 'framepilot:music:preview',
   musicDownload: 'framepilot:music:download',

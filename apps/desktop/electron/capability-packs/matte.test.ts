@@ -21,6 +21,7 @@ import {
   sampleSourcePts,
   SMART_MASK_PACK_ID,
   type MatteAutoPrompt,
+  type MatteJobReport,
   type MatteProgress,
   type MatteRunContext,
 } from './matte.js';
@@ -67,6 +68,7 @@ interface HarnessOptions {
   timing?: MatteVideoTiming;
   autoPrompt?: MatteAutoPrompt;
   freeDiskBytes?: number;
+  observer?: (report: MatteJobReport) => void;
 }
 
 async function harness(options: HarnessOptions = {}) {
@@ -96,6 +98,7 @@ async function harness(options: HarnessOptions = {}) {
     isFile: async () => options.isFile ?? true,
     ...(options.autoPrompt === undefined ? {} : { autoPrompt: options.autoPrompt }),
     freeDiskBytes: async () => options.freeDiskBytes ?? Number.MAX_SAFE_INTEGER,
+    ...(options.observer === undefined ? {} : { observer: options.observer }),
     now: () => new Date('2026-09-17T12:00:00Z'),
   });
   let project = {
@@ -162,6 +165,25 @@ describe('CapabilityPackMatteService lifecycle', () => {
     expect(h.worker.mock.calls[0]![0].outputRoot).toBe(matteStagingRoot(h.projectDir));
     expect(h.leases).toEqual({ acquired: 1, released: 1 });
     expect(h.progress.map((event) => event.phase)).toEqual(['decode', 'matte', 'verify', 'verify']);
+  });
+
+  it('reports phase timings, provider, flagged ratio and failure codes, never paths or prompts', async () => {
+    const reports: MatteJobReport[] = [];
+    const h = await harness({ observer: (report) => reports.push(report) });
+    await h.service.run(h.intent(), h.context());
+    await h.service.run(h.intent({ requestId: 'again' }), h.context());
+    await h.service.run(h.intent({ requestId: 'stale', timelineRevision: 1 }), h.context());
+    expect(reports.map((report) => [report.status, report.code, report.cacheHit])).toEqual([
+      ['completed', undefined, false],
+      ['completed', undefined, true],
+      ['failed', 'stale_revision', undefined],
+    ]);
+    expect(reports[0]).toMatchObject({ executionProvider: 'cpu', packVersion: '1.0.0', verifiedFrames: 29, flaggedFrames: 1, flaggedRatio: 0.033 });
+    expect(Object.keys(reports[0]!.phasesMs).sort()).toEqual(['cache', 'commit', 'media', 'stage', 'verify', 'worker', 'worker.decode', 'worker.matte', 'worker.verify'].sort());
+    const text = JSON.stringify(reports);
+    for (const forbidden of [h.projectDir, h.mediaPath, 'shot.mp4', 'asset-1', 'job1', '0.4', 'box']) {
+      expect(text).not.toContain(forbidden);
+    }
   });
 
   it('returns a cache hit for the same media, range, prompts and pack without running the worker', async () => {

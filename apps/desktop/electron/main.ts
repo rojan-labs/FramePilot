@@ -28,7 +28,7 @@ import { randomUUID } from 'node:crypto';
 import { spawn } from 'node:child_process';
 import { copyFile, mkdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { Readable } from 'node:stream';
-import { hostname } from 'node:os';
+import { cpus, hostname, totalmem } from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import {
@@ -42,6 +42,7 @@ import {
   session,
   shell,
   type OpenDialogOptions,
+  type SaveDialogOptions,
 } from 'electron';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { Patch } from '@framepilot/editor-core';
@@ -201,6 +202,11 @@ import {
 } from './capability-packs/job-scheduler.js';
 import { validateProjectMattes } from './capability-packs/matte-validation.js';
 import { registerRelinkIpc } from './capability-packs/matte-relink-ipc.js';
+import {
+  buildDiagnosticBundle,
+  MatteReportLog,
+  writeDiagnosticBundle,
+} from './capability-packs/pack-diagnostics.js';
 import {
   DesktopMatteMediaInspector,
   resolveMatteFfprobe,
@@ -807,6 +813,8 @@ function registerIpcHandlers(): void {
     sidecarBaseUrl: engineBaseUrl,
     fetch: electronFetch,
   });
+  /** Recent matte job reports for the opt-in diagnostic bundle (BR4.11); memory only. */
+  const matteReportLog = new MatteReportLog();
   const createCapabilityPackService = async (
     rootPath: string,
   ): Promise<CapabilityPackDesktopService> =>
@@ -819,6 +827,7 @@ function registerIpcHandlers(): void {
       appVersion: app.getVersion(),
       runtimeCacheRoot: path.join(app.getPath('userData'), 'capability-pack-cache'),
       matteMediaInspector,
+      matteObserver: (report) => matteReportLog.record(report),
       onStoreChanged: (event) => {
         if (mainWindow !== null && !mainWindow.isDestroyed()) {
           mainWindow.webContents.send(IpcChannels.capabilityPackInstalled, event);
@@ -939,7 +948,8 @@ function registerIpcHandlers(): void {
     try {
       return await validateProjectMattes(path.dirname(projectPath), project, { mode: 'quick' });
     } catch (error) {
-      aiLog.error('matte validation failed', { error: errorMessage(error) });
+      // Name only: fs messages carry project paths (BR4.11).
+      aiLog.error('matte validation failed', { error: error instanceof Error ? error.name : 'unknown' });
       return [];
     }
   };
@@ -1238,6 +1248,36 @@ function registerIpcHandlers(): void {
   };
   registerMatteIpc(matteIpcDependencies);
   registerMatteStorageIpc(matteIpcDependencies);
+  // Opt-in diagnostic bundle: written only where the editor chooses, never uploaded.
+  ipcMain.handle(IpcChannels.capabilityPackExportDiagnostics, async () => {
+    const options: SaveDialogOptions = {
+      title: 'Export diagnostic bundle',
+      defaultPath: `framepilot-pack-diagnostics-${new Date().toISOString().slice(0, 10)}.json`,
+      filters: [{ name: 'JSON', extensions: ['json'] }],
+    };
+    const picked =
+      mainWindow === null ? await dialog.showSaveDialog(options) : await dialog.showSaveDialog(mainWindow, options);
+    if (picked.canceled || picked.filePath === undefined) {
+      return { ok: false as const, code: 'cancelled' as const, error: 'Export cancelled.' };
+    }
+    try {
+      const storage = await (await capabilityPackService).storage().catch(() => undefined);
+      const bundle = buildDiagnosticBundle({
+        generatedAt: new Date().toISOString(),
+        appVersion: app.getVersion(),
+        platform: { os: process.platform, arch: process.arch, totalMemoryBytes: totalmem(), cpuCount: cpus().length },
+        ...(storage === undefined ? {} : { storage }),
+        jobs: packJobScheduler.snapshot(),
+        reports: matteReportLog.list(),
+      });
+      await writeDiagnosticBundle(picked.filePath, bundle);
+      aiLog.action('pack diagnostics exported', { reports: matteReportLog.list().length });
+      return { ok: true as const };
+    } catch (error) {
+      aiLog.error('pack diagnostics export failed', { error: error instanceof Error ? error.name : 'unknown' });
+      return { ok: false as const, code: 'write_failed' as const, error: 'The diagnostic bundle could not be written there.' };
+    }
+  });
   registerJobIpc({
     ipcMain,
     scheduler: packJobScheduler,
