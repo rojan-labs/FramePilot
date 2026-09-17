@@ -163,6 +163,11 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **The desktop monitor shows titles and captions exactly as they export.** With the layer
+  compositor, text is drawn by the render engine itself, so letter shapes and edges match the
+  export. When the engine is not running the monitor still shows text and says "Preview text
+  approximate". In the browser build, a timeline the browser cannot play now says "Preview
+  unavailable for this timeline in the browser" instead of showing a technical error.
 - **Rotated anamorphic footage exports with the right shape.** A phone or camera clip that is
   both turned (portrait metadata) and anamorphic was stretched along the wrong edge, so it came
   out squashed. The monitor's layer compositor now also sizes it the same way.

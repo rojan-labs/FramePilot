@@ -1,6 +1,7 @@
 # ADR 0170 — Coverage is a relation between the layers, not a property of one
 
-- **Status:** Accepted
+- **Status:** Accepted; its gating role for the program monitor is superseded by ADR 0180 (the
+  layer compositor composites every timeline). The geometry facts stand
 - **Date:** 2026-09-03
 - **Schema:** unchanged. `Asset.media.width`/`height` already exist and are already nullish
   (schema v21, "honestly absent rather than guessed at"). No operation shape changed, no

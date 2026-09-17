@@ -45,6 +45,8 @@ import {
 } from '../preview/engine/webcodecs-preview-engine.js';
 import { LayerPreviewEngine } from '../preview/engine/layer-preview-engine.js';
 import { layerCompositorEnabled } from '../preview/compositor-flag.js';
+import { previewFailureMessage } from '../preview/preview-availability.js';
+import { isDesktop } from '../editor/bridge-base.js';
 import { CaptionOverlay } from './CaptionOverlay.js';
 import { MonitorHeaderPortal } from './MonitorHeaderPortal.js';
 import { PreviewAudioMixer } from './PreviewAudioMixer.js';
@@ -420,7 +422,9 @@ export function WebCodecsPreviewPlayer({
     const canvas = canvasRef.current;
     if (!canvas || !hasSegments) return;
     if (!webCodecsRuntimeAvailable()) {
-      setError('WebCodecs preview is unavailable in this browser.');
+      setError(
+        previewFailureMessage('WebCodecs preview is unavailable in this browser.', isDesktop()),
+      );
       editorRef.current.setPlaying(false);
       return;
     }
@@ -461,7 +465,7 @@ export function WebCodecsPreviewPlayer({
         onTextApproximateChange: setTextApproximate,
         onError: (message) => {
           log.error('webcodecs preview engine error', { message });
-          setError(message);
+          setError(previewFailureMessage(message, isDesktop()));
           // A fatal decoder error is shown in place. Switching to a renderer
           // with different effects semantics would make the monitor misleading.
           editorRef.current.setPlaying(false);
@@ -473,7 +477,7 @@ export function WebCodecsPreviewPlayer({
     } catch (cause) {
       const message = cause instanceof Error ? cause.message : 'WebCodecs preview failed to start.';
       log.error('webcodecs preview failed to start', { message });
-      setError(message);
+      setError(previewFailureMessage(message, isDesktop()));
       editorRef.current.setPlaying(false);
       return;
     }
