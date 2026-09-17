@@ -73,7 +73,7 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
 - **Frame identity.** The matte frame is the one whose source frame is the picture's decoded
   source frame (`frames.json` `firstFrame` + index), exactly as `render/mattes.py` binds it; a
   speed ramp, reverse or VFR source changes the picture's frame and the matte follows. A frame
-  outside the artifact is *unprocessed*: the layer is left out (as if disabled), the monitor says
+  outside the artifact is _unprocessed_: the layer is left out (as if disabled), the monitor says
   "Processing background removal", and no neighbouring frame is ever used. A frame whose pts does
   not belong to the picture's timestamp is refused as misaligned.
 - **Math.** `masks/matte-edges.ts` ports `render/matte_edges.py` operation for operation: disc
