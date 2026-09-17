@@ -306,7 +306,7 @@ export async function runCapabilityPackWorker(
         try {
           options.onProgress?.(parsed.data);
         } catch (error) {
-          log.warn('progressObserverFailed', { error: String(error) });
+          log.warn('progressObserverFailed', { error: error instanceof Error ? error.name : 'unknown' });
         }
         return;
       }

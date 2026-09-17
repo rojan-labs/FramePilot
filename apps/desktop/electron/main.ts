@@ -1302,7 +1302,10 @@ function registerIpcHandlers(): void {
         };
       }),
     )
-    .catch((error: unknown) => aiLog.error('pack job restore failed', { error: errorMessage(error) }));
+    .catch((error: unknown) =>
+      // Error name only: restore reads project files, and their messages carry paths (BR4.12 L1).
+      aiLog.error('pack job restore failed', { error: error instanceof Error ? error.name : 'unknown' }),
+    );
   // Relink or replace an asset's file, then re-check its mattes (BR4.14).
   registerRelinkIpc({
     ipcMain,

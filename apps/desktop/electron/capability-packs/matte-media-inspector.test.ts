@@ -115,3 +115,17 @@ describe('desktop matte media inspector', () => {
     expect((await inspector.videoTiming(matte)).pts).toHaveLength(6);
   });
 });
+
+describe('inspector errors carry base names only (BR4.12 L1)', () => {
+  it('names the file, never its folder', async () => {
+    const inspector = new DesktopMatteMediaInspector({
+      ffprobe: 'ffprobe',
+      sidecarBaseUrl: 'http://127.0.0.1:1',
+      fetch,
+      run: async () => ({ exitCode: 1, stdout: '' }),
+    });
+    const error = await inspector.probeVideo('/Users/editor/Client Secret Film/shot.mov').catch((caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'probe_failed' });
+    expect(String((error as Error).message)).toBe('Could not read shot.mov.');
+  });
+});
