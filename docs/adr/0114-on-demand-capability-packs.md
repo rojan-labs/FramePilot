@@ -65,3 +65,34 @@ consent. Core editing, reopen, and rendering remain local and offline-capable.
   reopen guarantees.
 - **Import optional ML libraries into the frozen engine:** couples pack ABI to the render process and
   turns a tracker crash or dependency conflict into an editor/render failure.
+
+## Amendment 2026-09-17: no OS-level sandbox for pack workers (accepted risk)
+
+Recorded after the BR4.12 security review of the background-removal host
+(`plan/background-removal-ai/BR4.12-SECURITY-REVIEW.md`).
+
+**Fact.** Pack workers run as the signed-in user with no OS sandbox: no macOS seatbelt or App
+Sandbox profile, no Windows AppContainer or restricted token. "Isolated worker" above means a
+separate process behind the protocol, not an operating-system boundary. A malicious or
+compromised signed pack could read or write anything the user can.
+
+**What bounds a worker today.** Signed release and executable-trust verification before install;
+a scrubbed environment with network disabled by protocol; read-only media handles and, for
+`subject.matte`, one host-created staging directory (MD-3); its own process group (POSIX) or process
+tree (Windows `taskkill /T`), killed on timeout, abort and completion and proven gone before the host
+verifies anything; a host watchdog for memory footprint, stalled progress and staging size; host
+verification of every file it wrote (names, sizes, digests, frame identity) and a re-`lstat` with
+`nlink == 1` immediately before the atomic rename; hardened ffmpeg on every host-side decode of its
+output or of untrusted media.
+
+**Known gaps accepted with it.**
+- Windows has no Job Object kill-on-close or memory limit (native code; the app adds no native
+  dependency for it): a descendant that leaves the process tree before the kill is not reached,
+  and memory is sampled from the worker's working set only.
+- The protocol's file-name and byte-ceiling rules are enforced by the worker's own code and
+  re-checked by the host afterwards and by polling, not prevented by the OS.
+
+**Decision.** Accepted until a dedicated hardening task adds an OS-level sandbox for pack workers
+(seatbelt profile on macOS, AppContainer or a restricted token plus Job Object on Windows) that
+allows only the pack's install root (read), the approved media (read), the job's staging directory
+(write) and no network. No task is scheduled for it yet; this amendment is where it is tracked.
