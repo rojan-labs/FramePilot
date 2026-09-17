@@ -8,7 +8,7 @@
  */
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import type { Timeline } from '@framepilot/timeline-schema';
+import { MaskLayerSchema, masksOf, type Asset, type Timeline } from '@framepilot/timeline-schema';
 import type { TrackingRunResultWire } from '@framepilot/shared-types';
 import { useEditor } from '../../editor/useEditor.js';
 import { MaskPackActions } from './MaskPackActions.js';
@@ -43,13 +43,17 @@ const timeline: Timeline = {
           end: 4,
           sourceStart: 0,
           sourceEnd: 4,
-          effects: [
-            {
+          effects: [],
+          // Schema v22 mask stack: the v21 bounds {0.2, 0.2, 0.4, 0.4} in 1920x1080 source pixels.
+          masks: [
+            MaskLayerSchema.parse({
               id: 'c1__mask',
-              type: 'mask',
-              params: { shape: 'rectangle', bounds: { x: 0.2, y: 0.2, width: 0.4, height: 0.4 } },
-              keyframes: [],
-            },
+              kind: 'rectangle',
+              cx: 768,
+              cy: 432,
+              width: 768,
+              height: 432,
+            }),
           ],
           keyframes: [],
         },
@@ -58,10 +62,21 @@ const timeline: Timeline = {
   ],
 };
 
+// A mask is stored in source pixels, so the pack actions need the probed picture size.
+const assets: Asset[] = [
+  {
+    id: 'a',
+    path: '/media/a.mp4',
+    kind: 'video',
+    durationSeconds: 4,
+    media: { width: 1920, height: 1080 },
+  },
+];
+
 function Host(): JSX.Element {
-  const editor = useEditor(timeline, ['a']);
+  const editor = useEditor(timeline, { assets });
   const clip = editor.state.timeline.tracks[0]!.clips[0]!;
-  const mask = clip.effects.find((effect) => effect.id === 'c1__mask');
+  const mask = masksOf(clip).find((layer) => layer.id === 'c1__mask');
   return (
     <>
       <span data-testid="mask-keyframes">{mask?.keyframes.length ?? 0}</span>
@@ -126,7 +141,9 @@ describe('MaskPackActions', () => {
       firstFrame: 0,
       fps: 30,
     });
-    await waitFor(() => expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBeGreaterThan(0),
+    );
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
@@ -136,7 +153,9 @@ describe('MaskPackActions', () => {
 
     await followSilhouette();
 
-    await waitFor(() => expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBe(8 * 4));
+    await waitFor(() =>
+      expect(Number(screen.getByTestId('mask-keyframes').textContent)).toBe(8 * 4),
+    );
     expect(screen.queryByRole('alert')).toBeNull();
   });
 
