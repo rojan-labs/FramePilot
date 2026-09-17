@@ -524,6 +524,11 @@ export class CapabilityPackMatteService {
       return failed('unsupported_asset', 'Background removal works on video and image clips.', false);
     }
     if (!path.isAbsolute(asset.path)) return failed('missing_asset', 'The media file could not be located.', false);
+    // Without the probed display size (PAR and rotation applied) the host cannot check that the
+    // matte matches the picture, so it refuses rather than skip the check (BR4.12 L3).
+    if (displaySizeOf(asset) === undefined) {
+      return failed('media_unreadable', 'This media has not been measured yet. Wait for the import to finish, or re-import it.', true);
+    }
     let timing: MatteVideoTiming;
     let fingerprint: string;
     try {

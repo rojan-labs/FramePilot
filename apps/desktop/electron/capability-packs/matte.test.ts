@@ -448,3 +448,16 @@ describe('matte frame ranges', () => {
     expect(sampleSourcePts(TIMING, 15, 30, 16)).toHaveLength(18);
   });
 });
+
+describe('unmeasured media (BR4.12 L3)', () => {
+  it('refuses media_unreadable instead of skipping the display-size check', async () => {
+    const h = await harness();
+    const context = h.context();
+    const unmeasured = {
+      ...context,
+      project: { ...context.project, assets: [{ id: 'asset-1', path: h.mediaPath, kind: 'video' }] } as unknown as Project,
+    };
+    expect(await h.service.run(h.intent(), unmeasured)).toMatchObject({ status: 'failed', code: 'media_unreadable', retryable: true });
+    expect(h.worker).not.toHaveBeenCalled();
+  });
+});
