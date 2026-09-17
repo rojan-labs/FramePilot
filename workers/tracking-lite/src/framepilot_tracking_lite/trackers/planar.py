@@ -12,8 +12,11 @@ Fewer than :data:`MIN_CORRESPONDENCES` survivors, or a failed fit, yields no
 measurement — a plane cannot be honestly reported from an under-determined
 system.
 
-Protocol v1 carries axis-aligned boxes only, so the projected quad is reported as
-its bounding box. Full corner transport is a v2 protocol change, tracked in C4.
+The projected quad is reported as its bounding box, which is all protocol v1's ``box``
+can carry, **and** as the normalized homography itself in the sample's additive
+``transform`` field (MK7.2). The transform is what mask tracking actually needs: a
+bounding box cannot express rotation or perspective, and the host constrains the
+homography to the motion model the editor asked for.
 """
 
 from __future__ import annotations
@@ -21,7 +24,14 @@ from __future__ import annotations
 from typing import Final
 
 from ..backend import Frame, TrackingBackend
-from ..geometry import Point, apply_homography, bounding_box, clamp, to_pixels
+from ..geometry import (
+    Point,
+    apply_homography,
+    bounding_box,
+    clamp,
+    normalized_homography,
+    to_pixels,
+)
 from ..policy import Measurement, Tracker
 from ..protocol import NormalizedPoint
 
@@ -64,7 +74,10 @@ class PlanarTracker(Tracker):
         self._reference = list(features)
         self._current = list(features)
         return Measurement(
-            box=bounding_box(self._corners, self._width, self._height), confidence=1.0
+            box=bounding_box(self._corners, self._width, self._height),
+            confidence=1.0,
+            # The reference frame is the identity by definition: the plane is where it is.
+            transform=(1.0, 0.0, 0.0, 0.0, 1.0, 0.0, 0.0, 0.0, 1.0),
         )
 
     def update(self, frame: Frame) -> Measurement:
@@ -106,4 +119,5 @@ class PlanarTracker(Tracker):
                 [corner for corner in projected if corner is not None], self._width, self._height
             ),
             confidence=inlier_ratio * error_confidence,
+            transform=normalized_homography(estimate.matrix, self._width, self._height),
         )

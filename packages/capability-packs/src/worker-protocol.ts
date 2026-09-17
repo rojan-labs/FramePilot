@@ -74,7 +74,11 @@ export const MATTE_REQUIRED_FILES = ['matte.mkv', 'frames.json'] as const;
 
 const Sha256HexSchema = z.string().regex(/^[0-9a-f]{64}$/);
 /** Source-stream ticks. Integers, and may be negative (edit-list pre-roll). */
-const PtsSchema = z.number().int().min(-(2 ** 52)).max(2 ** 52);
+const PtsSchema = z
+  .number()
+  .int()
+  .min(-(2 ** 52))
+  .max(2 ** 52);
 const AbsoluteDirectorySchema = z
   .string()
   .min(1)
@@ -129,7 +133,10 @@ export const MatteInputHandleSchema = z
   .object({
     handleId: RequestIdSchema,
     absolutePath: AbsoluteDirectorySchema,
-    files: z.array(MatteHandleInputFileSchema).min(1).max(CAPABILITY_PACK_MATTE_MAX_PROMPTS + 3),
+    files: z
+      .array(MatteHandleInputFileSchema)
+      .min(1)
+      .max(CAPABILITY_PACK_MATTE_MAX_PROMPTS + 3),
   })
   .strict()
   .refine((handle) => new Set(handle.files).size === handle.files.length, {
@@ -348,6 +355,20 @@ const DescribedQualitySchema = z.enum([
   'flat',
 ]);
 
+/**
+ * Most extra points one `tracking.point` request may follow — the vertex budget of a shape
+ * track, matching the worker's `MAX_EXTRA_POINTS` and the host's `TRACK_MAX_POINTS`.
+ */
+export const CAPABILITY_PACK_WORKER_MAX_TRACK_POINTS = 512;
+
+/**
+ * Decode the approved range from its END towards its start.
+ *
+ * A backward track's features are detected on the frame the mask was drawn on, which is the
+ * range's LAST frame, so the worker has to see that frame first (MK7.2 "Directions").
+ */
+const TrackReverseSchema = z.boolean().optional();
+
 const RequestBaseSchema = z.object({
   type: z.literal('request'),
   protocolVersion: z.literal(CAPABILITY_PACK_WORKER_PROTOCOL_VERSION),
@@ -359,11 +380,24 @@ const RequestBaseSchema = z.object({
 export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capability', [
   RequestBaseSchema.extend({
     capability: z.literal('tracking.point'),
-    parameters: z.object({ point: NormalizedPointSchema }).strict(),
+    parameters: z
+      .object({
+        point: NormalizedPointSchema,
+        /**
+         * Extra points followed in the SAME flow pass — a path's vertices for a shape track.
+         * One decode for the whole shape instead of one per vertex.
+         */
+        points: z
+          .array(NormalizedPointSchema)
+          .max(CAPABILITY_PACK_WORKER_MAX_TRACK_POINTS)
+          .optional(),
+        reverse: TrackReverseSchema,
+      })
+      .strict(),
   }).strict(),
   RequestBaseSchema.extend({
     capability: z.literal('tracking.region'),
-    parameters: z.object({ region: NormalizedBoxSchema }).strict(),
+    parameters: z.object({ region: NormalizedBoxSchema, reverse: TrackReverseSchema }).strict(),
   }).strict(),
   RequestBaseSchema.extend({
     capability: z.literal('tracking.planar'),
@@ -375,6 +409,7 @@ export const CapabilityPackWorkerRequestSchema = z.discriminatedUnion('capabilit
           NormalizedPointSchema,
           NormalizedPointSchema,
         ]),
+        reverse: TrackReverseSchema,
       })
       .strict(),
   }).strict(),
@@ -522,6 +557,17 @@ const TrackingSampleSchema = z
     box: NormalizedBoxSchema,
     confidence: z.number().finite().min(0).max(1),
     occluded: z.boolean(),
+    /**
+     * The measured plane as a row-major 3x3 in NORMALIZED frame coordinates, reference frame →
+     * this frame.
+     *
+     * Additive under protocol v1 (plan 03): a pack built before mask tracking omits it, and a
+     * host that needs a transform says so rather than reading rotation out of a box, which
+     * cannot carry one. Only `tracking.planar` measures a plane.
+     */
+    transform: z.array(z.number().finite()).length(9).optional(),
+    /** Where the request's extra points landed, in request order (shape tracking). */
+    points: z.array(NormalizedPointSchema).max(CAPABILITY_PACK_WORKER_MAX_TRACK_POINTS).optional(),
   })
   .strict();
 const DetectionSchema = z
@@ -613,8 +659,16 @@ const MatteArtifactFileSchema = z
   .strict();
 
 const RationalSchema = z.tuple([
-  z.number().int().positive().max(2 ** 31),
-  z.number().int().positive().max(2 ** 31),
+  z
+    .number()
+    .int()
+    .positive()
+    .max(2 ** 31),
+  z
+    .number()
+    .int()
+    .positive()
+    .max(2 ** 31),
 ]);
 
 export const MatteReviewReasonSchema = z.enum([
@@ -638,9 +692,12 @@ const MatteArtifactDescriptorSchema = z
     timeBase: RationalSchema,
   })
   .strict()
-  .refine((artifact) => new Set(artifact.files.map((file) => file.name)).size === artifact.files.length, {
-    message: 'artifact files must be distinct',
-  })
+  .refine(
+    (artifact) => new Set(artifact.files.map((file) => file.name)).size === artifact.files.length,
+    {
+      message: 'artifact files must be distinct',
+    },
+  )
   .refine(
     (artifact) =>
       MATTE_REQUIRED_FILES.every((name) => artifact.files.some((file) => file.name === name)),

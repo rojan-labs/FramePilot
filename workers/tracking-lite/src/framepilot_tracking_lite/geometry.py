@@ -94,3 +94,26 @@ def apply_homography(matrix: Matrix3x3, point: Point) -> Point | None:
     if any(value != value or abs(value) > 1e9 for value in (projected_x, projected_y)):
         return None
     return (projected_x, projected_y)
+
+
+def normalized_homography(matrix: Matrix3x3, width: int, height: int) -> tuple[float, ...]:
+    """A pixel-space homography as a NORMALIZED one, row-major, nine numbers.
+
+    ``H_normalized = S⁻¹ · H_pixels · S`` with ``S = diag(width, height, 1)``. The host works in
+    display-corrected source pixels, which are not the decoded frame's pixels on anamorphic or
+    rotated media, so the plane crosses the protocol in the one space both sides agree on: the
+    unit frame.
+    """
+    sx, sy = float(width), float(height)
+    (a, b, c), (d, e, f), (g, h, i) = matrix
+    return (
+        a,
+        b * sy / sx,
+        c / sx,
+        d * sx / sy,
+        e,
+        f / sy,
+        g * sx,
+        h * sy,
+        i,
+    )

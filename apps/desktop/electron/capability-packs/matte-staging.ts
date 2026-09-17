@@ -31,6 +31,11 @@ import {
 const log = createLogger('desktop:capability-packs:matte-staging');
 
 export const MATTES_RELATIVE_DIR = ['.framepilot-derived', 'mattes'] as const;
+/**
+ * Transform tracks (MK7.1) are project-owned artifacts under the same root, produced by the same
+ * staging → verify → atomic-rename mechanism. There is one derived-artifact store, not two.
+ */
+export const TRACKS_RELATIVE_DIR = ['.framepilot-derived', 'tracks'] as const;
 export const MATTE_STAGING_DIR = '.staging';
 export const MATTE_INPUTS_STORE_DIR = '.inputs';
 /** A staging directory untouched this long with no live job is an orphan (plan 03). */
@@ -69,7 +74,10 @@ export function isMatteCacheKey(value: unknown): value is string {
  * @returns The absolute directory.
  * @throws MatteStagingError `unsafe_path` when any segment exists as a symlink or a file.
  */
-export async function ensureRealDirectory(base: string, segments: readonly string[]): Promise<string> {
+export async function ensureRealDirectory(
+  base: string,
+  segments: readonly string[],
+): Promise<string> {
   let current = path.resolve(base);
   const baseStat = await lstat(current);
   if (!baseStat.isDirectory()) {
@@ -87,7 +95,10 @@ export async function ensureRealDirectory(base: string, segments: readonly strin
     }
     const stat = await lstat(current);
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new MatteStagingError('unsafe_path', 'The project matte store contains a link or a file where a folder belongs.');
+      throw new MatteStagingError(
+        'unsafe_path',
+        'The project matte store contains a link or a file where a folder belongs.',
+      );
     }
   }
   await assertRealpathMatches(base, segments, current);
@@ -105,7 +116,10 @@ export async function ensureRealDirectory(base: string, segments: readonly strin
  *
  * @throws MatteStagingError `unsafe_path`.
  */
-export async function existingRealDirectory(projectDir: string, segments: readonly string[]): Promise<string | undefined> {
+export async function existingRealDirectory(
+  projectDir: string,
+  segments: readonly string[],
+): Promise<string | undefined> {
   let current = path.resolve(projectDir);
   for (const segment of segments) {
     if (segment === '' || segment === '.' || segment === '..' || /[\\/]/u.test(segment)) {
@@ -120,17 +134,27 @@ export async function existingRealDirectory(projectDir: string, segments: readon
       throw error;
     }
     if (stat.isSymbolicLink() || !stat.isDirectory()) {
-      throw new MatteStagingError('unsafe_path', 'The project matte store contains a link or a file where a folder belongs.');
+      throw new MatteStagingError(
+        'unsafe_path',
+        'The project matte store contains a link or a file where a folder belongs.',
+      );
     }
   }
   await assertRealpathMatches(projectDir, segments, current);
   return current;
 }
 
-async function assertRealpathMatches(base: string, segments: readonly string[], current: string): Promise<void> {
+async function assertRealpathMatches(
+  base: string,
+  segments: readonly string[],
+  current: string,
+): Promise<void> {
   const [baseReal, currentReal] = await Promise.all([realpath(base), realpath(current)]);
   if (currentReal !== path.join(baseReal, ...segments)) {
-    throw new MatteStagingError('unsafe_path', 'The project matte store resolves outside the project folder.');
+    throw new MatteStagingError(
+      'unsafe_path',
+      'The project matte store resolves outside the project folder.',
+    );
   }
 }
 
@@ -158,7 +182,10 @@ export interface MatteStaging {
    *
    * @returns The input names the worker may read (`previous/...`).
    */
-  clonePrevious(previousDirectory: string, names: readonly ('matte.mkv' | 'foreground.mkv' | 'frames.json')[]): Promise<string[]>;
+  clonePrevious(
+    previousDirectory: string,
+    names: readonly ('matte.mkv' | 'foreground.mkv' | 'frames.json')[],
+  ): Promise<string[]>;
   outputHandle(allowedFiles: readonly MatteArtifactFileName[], maxBytes: number): MatteOutputHandle;
   inputHandle(files: readonly string[]): MatteInputHandle | undefined;
   /** Remove the whole staging directory (failure, cancel, stale result). Never throws. */
@@ -166,11 +193,19 @@ export interface MatteStaging {
 }
 
 /** Create `<project>/.framepilot-derived/mattes/.staging/<jobId>/` empty, plus its inputs folders. */
-export async function createMatteStaging(projectDir: string, jobId: string): Promise<MatteStaging> {
+export async function createMatteStaging(
+  projectDir: string,
+  jobId: string,
+  /** Which derived-artifact store to stage in; tracks use the same mechanism (MK7.1). */
+  relativeDir: readonly string[] = MATTES_RELATIVE_DIR,
+): Promise<MatteStaging> {
   if (!isMatteJobId(jobId)) {
-    throw new MatteStagingError('invalid_job_id', 'Matte job id must be 1-64 letters, digits, "-" or "_".');
+    throw new MatteStagingError(
+      'invalid_job_id',
+      'Matte job id must be 1-64 letters, digits, "-" or "_".',
+    );
   }
-  const stagingRoot = await ensureRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_STAGING_DIR]);
+  const stagingRoot = await ensureRealDirectory(projectDir, [...relativeDir, MATTE_STAGING_DIR]);
   const directory = path.join(stagingRoot, jobId);
   try {
     // Not recursive: an existing directory for this id is refused, never reused.
@@ -191,7 +226,10 @@ export async function createMatteStaging(projectDir: string, jobId: string): Pro
     inputsDirectory,
     async writeInput(file, bytes) {
       if (!MatteInputFileSchema.safeParse(file).success) {
-        throw new MatteStagingError('invalid_input', 'Matte input names are corrections/<pts>.png or locked/<pts>.png.');
+        throw new MatteStagingError(
+          'invalid_input',
+          'Matte input names are corrections/<pts>.png or locked/<pts>.png.',
+        );
       }
       const [folder, name] = file.split('/') as [string, string];
       await writeFile(path.join(inputsDirectory, folder, name), bytes, { flag: 'wx', mode: 0o400 });
@@ -204,15 +242,27 @@ export async function createMatteStaging(projectDir: string, jobId: string): Pro
         const source = path.join(previousDirectory, name);
         const stat = await lstat(source);
         if (!stat.isFile()) {
-          throw new MatteStagingError('unsafe_path', 'The previous matte holds a link or folder where a file belongs.');
+          throw new MatteStagingError(
+            'unsafe_path',
+            'The previous matte holds a link or folder where a file belongs.',
+          );
         }
-        await copyFile(source, path.join(target, name), fsConstants.COPYFILE_EXCL | fsConstants.COPYFILE_FICLONE);
+        await copyFile(
+          source,
+          path.join(target, name),
+          fsConstants.COPYFILE_EXCL | fsConstants.COPYFILE_FICLONE,
+        );
         cloned.push(`previous/${name}`);
       }
       return cloned;
     },
     outputHandle(allowedFiles, maxBytes) {
-      return { handleId: `matte-out:${jobId}`, absolutePath: directory, allowedFiles: [...allowedFiles], maxBytes };
+      return {
+        handleId: `matte-out:${jobId}`,
+        absolutePath: directory,
+        allowedFiles: [...allowedFiles],
+        maxBytes,
+      };
     },
     inputHandle(files) {
       if (files.length === 0) return undefined;
@@ -242,13 +292,24 @@ export async function commitMatteStaging(
    * names, regular files with one link each (no hard-link alias into the committed store) and the
    * verified sizes (BR4.12 H1). Omit only in tests of the rename itself.
    */
-  verifiedFiles?: readonly { readonly name: string; readonly bytes: number; readonly ino?: number; readonly mtimeMs?: number }[],
+  verifiedFiles?: readonly {
+    readonly name: string;
+    readonly bytes: number;
+    readonly ino?: number;
+    readonly mtimeMs?: number;
+  }[],
+  /** Which derived-artifact store to commit into; tracks use the same mechanism (MK7.1). */
+  relativeDir: readonly string[] = MATTES_RELATIVE_DIR,
 ): Promise<MatteCommitOutcome> {
-  const target = matteArtifactDirectory(projectDir, key);
-  if (target === undefined) throw new MatteStagingError('invalid_key', 'Matte cache key is malformed.');
-  const mattesRoot = await ensureRealDirectory(projectDir, [...MATTES_RELATIVE_DIR]);
+  if (!isMatteCacheKey(key))
+    throw new MatteStagingError('invalid_key', 'Matte cache key is malformed.');
+  const target = path.join(path.resolve(projectDir), ...relativeDir, key);
+  const mattesRoot = await ensureRealDirectory(projectDir, [...relativeDir]);
   if (path.dirname(path.dirname(staging.directory)) !== mattesRoot) {
-    throw new MatteStagingError('unsafe_path', 'Staging directory is not inside this project’s matte store.');
+    throw new MatteStagingError(
+      'unsafe_path',
+      'Staging directory is not inside this project’s matte store.',
+    );
   }
   await rm(staging.inputsDirectory, { recursive: true, force: true });
   if (verifiedFiles !== undefined) await assertStagingUnchanged(staging.directory, verifiedFiles);
@@ -271,10 +332,18 @@ export async function commitMatteStaging(
 
 async function assertStagingUnchanged(
   directory: string,
-  verifiedFiles: readonly { readonly name: string; readonly bytes: number; readonly ino?: number; readonly mtimeMs?: number }[],
+  verifiedFiles: readonly {
+    readonly name: string;
+    readonly bytes: number;
+    readonly ino?: number;
+    readonly mtimeMs?: number;
+  }[],
 ): Promise<void> {
   const changed = (): MatteStagingError =>
-    new MatteStagingError('changed_after_verify', 'The background removal files changed after they were checked.');
+    new MatteStagingError(
+      'changed_after_verify',
+      'The background removal files changed after they were checked.',
+    );
   const self = await lstat(directory);
   if (!self.isDirectory() || self.isSymbolicLink()) throw changed();
   const expected = new Map(verifiedFiles.map((file) => [file.name, file]));
@@ -286,7 +355,10 @@ async function assertStagingUnchanged(
     const stat = await lstat(path.join(directory, name));
     if (!stat.isFile() || stat.nlink !== 1 || stat.size !== file.bytes) throw changed();
     // Same inode and mtime as when verified: a same-size rewrite or replacement is refused too.
-    if ((file.ino !== undefined && stat.ino !== file.ino) || (file.mtimeMs !== undefined && stat.mtimeMs !== file.mtimeMs)) {
+    if (
+      (file.ino !== undefined && stat.ino !== file.ino) ||
+      (file.mtimeMs !== undefined && stat.mtimeMs !== file.mtimeMs)
+    ) {
       throw changed();
     }
   }
@@ -304,7 +376,10 @@ export interface MatteStagingSweepOptions {
  * Links and stray files in `.staging` are removed without being followed. Returns how many
  * entries went.
  */
-export async function sweepMatteStaging(projectDir: string, options: MatteStagingSweepOptions): Promise<number> {
+export async function sweepMatteStaging(
+  projectDir: string,
+  options: MatteStagingSweepOptions,
+): Promise<number> {
   let root: string | undefined;
   try {
     root = await existingRealDirectory(projectDir, [...MATTES_RELATIVE_DIR, MATTE_STAGING_DIR]);
@@ -358,7 +433,10 @@ function isCode(error: unknown, code: string): boolean {
 }
 
 function errorCode(error: unknown): string | undefined {
-  return typeof error === 'object' && error !== null && 'code' in error && typeof error.code === 'string'
+  return typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    typeof error.code === 'string'
     ? error.code
     : undefined;
 }
