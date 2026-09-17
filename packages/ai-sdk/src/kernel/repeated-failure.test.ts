@@ -1042,7 +1042,15 @@ const maskedProject = (): Project =>
     version: 1,
     fps: 24,
     resolution: { width: 1920, height: 1080 },
-    assets: [{ id: 'asset', path: 'shot.mp4', kind: 'video', durationSeconds: 900 }],
+    assets: [
+      {
+        id: 'asset',
+        path: 'shot.mp4',
+        kind: 'video',
+        durationSeconds: 900,
+        media: { width: 1920, height: 1080 },
+      },
+    ],
     timeline: {
       revision: 7,
       tracks: [
@@ -1058,16 +1066,10 @@ const maskedProject = (): Project =>
               end: 4,
               sourceStart: 0,
               sourceEnd: 4,
-              effects: [
-                {
-                  id: 'shot__mask',
-                  type: 'mask',
-                  params: {
-                    shape: 'rectangle',
-                    bounds: { x: 0.2, y: 0.1, width: 0.25, height: 0.4 },
-                  },
-                  keyframes: [],
-                },
+              effects: [],
+              // Schema v22 mask stack: the v21 bounds {0.2, 0.1, 0.25, 0.4} in source pixels.
+              masks: [
+                { id: 'shot__mask', kind: 'rectangle', cx: 624, cy: 324, width: 480, height: 432 },
               ],
               keyframes: [],
             },
