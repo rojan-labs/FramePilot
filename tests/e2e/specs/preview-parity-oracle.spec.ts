@@ -65,7 +65,7 @@ const OUT_DIR = join(REPO, 'tests', 'e2e', '.tmp-px4-parity');
 const RESULTS_DIR = join(OUT_DIR, 'results');
 const BASELINE_PATH = join(HERE, '..', 'fixtures', 'preview-parity-baseline.json');
 /** Must equal `MANIFEST_VERSION` in `engine/python/tests/px4_parity_frames.py`. */
-const MANIFEST_VERSION = 2;
+const MANIFEST_VERSION = 3;
 const MEDIA_PREFIX = '/__px4-media/';
 /**
  * The engine sidecar the desktop monitor would reach through its bridge for text rasters
@@ -148,6 +148,7 @@ interface Manifest {
   inputHash: string;
   sentinels: Record<string, { primary: Rgb; secondary: Rgb }>;
   cases: { area: string; id: string; samples: ManifestSample[] }[];
+  mattes?: Record<string, ManifestMatte>;
   colour: {
     time: number;
     patches: { name: string; authored: Rgb; box: [number, number, number, number] }[];
@@ -156,6 +157,12 @@ interface Manifest {
       { matrix: string; range: string; tag: string; project: MatrixCase['project']; engine: Rgb[] }
     >;
   };
+}
+/** A matte artifact the preview reads (BR5): where it is served and what the mask pins. */
+interface ManifestMatte {
+  root: string;
+  artifact: Record<string, unknown>;
+  processedSourceFrames?: [number, number];
 }
 interface Baseline {
   cases: Record<string, Check[]>;
@@ -276,6 +283,8 @@ const CONTENT_TYPES: Record<string, string> = {
   '.png': 'image/png',
   '.wav': 'audio/wav',
   '.cube': 'text/plain',
+  '.json': 'application/json',
+  '.mkv': 'video/x-matroska',
 };
 
 /** Blank same-origin document the page parks on between cases (see {@link openInEditor}). */
@@ -304,6 +313,27 @@ async function oraclePage(browser: Browser): Promise<Page> {
       headers: { 'content-type': CONTENT_TYPES[extname(file)] ?? 'application/octet-stream' },
     });
   });
+  // The desktop monitor reads matte artifacts from the project folder over fp-media (BR5); here
+  // they are served from the generated output. The directory per key comes from the manifest
+  // (a progressive job's preview copy lives apart from the export's whole artifact).
+  await page.addInitScript((prefix: string) => {
+    const host = window as unknown as {
+      __fpMatteArtifactUrl: (key: string, name: string) => string | null;
+    };
+    host.__fpMatteArtifactUrl = (key, name) => {
+      let roots: Record<string, string> = {};
+      try {
+        roots = JSON.parse(localStorage.getItem('px4:matte-roots') ?? '{}') as Record<
+          string,
+          string
+        >;
+      } catch {
+        roots = {};
+      }
+      const root = roots[key];
+      return root === undefined ? null : `${location.origin}${prefix}${root}/${key}/${name}`;
+    };
+  }, MEDIA_PREFIX);
   if (SIDECAR_URL) {
     // Node-side forwarding: the page never talks to the sidecar directly, as on the desktop.
     await page.exposeFunction('__fpSidecarTextRaster', async (req: Record<string, unknown>) => {
@@ -360,9 +390,27 @@ async function openInEditor(
   page: Page,
   project: MatrixCase['project'],
   burnCaptions = false,
+  mattes: Record<string, ManifestMatte> = {},
 ): Promise<string> {
   const origin = new URL(test.info().project.use.baseURL ?? 'http://127.0.0.1:5173').origin;
   const doc = JSON.parse(JSON.stringify(project)) as MatrixCase['project'];
+  // Pin the artifacts the generator actually wrote (real digests, coverage), as a real job does.
+  const matteRoots: Record<string, string> = {};
+  const docTimeline = (
+    doc as { timeline?: { tracks?: { clips?: { masks?: Record<string, unknown>[] }[] }[] } }
+  ).timeline;
+  for (const track of docTimeline?.tracks ?? []) {
+    for (const clip of track.clips ?? []) {
+      for (const mask of clip.masks ?? []) {
+        if (mask.kind !== 'matte') continue;
+        const artifact = mask.artifact as Record<string, unknown>;
+        const served = mattes[String(artifact.key)];
+        if (served === undefined) continue;
+        Object.assign(artifact, served.artifact);
+        matteRoots[String(artifact.key)] = served.root;
+      }
+    }
+  }
   for (const asset of doc.assets) {
     const url = `${origin}${MEDIA_PREFIX}${mediaPathOf(asset)}`;
     if (asset.media?.proxyPath) asset.media.proxyPath = url;
@@ -387,14 +435,15 @@ async function openInEditor(
   }
   await page.goto(`${origin}${BLANK_PAGE}`);
   await page.evaluate(
-    ({ p, burn }) => {
+    ({ p, burn, roots }) => {
       localStorage.clear();
       localStorage.setItem(`framepilot:project:${(p as { id: string }).id}`, JSON.stringify(p));
       localStorage.setItem('framepilot:last-project-id', (p as { id: string }).id);
+      localStorage.setItem('px4:matte-roots', JSON.stringify(roots));
       // The monitor burns captions in exactly when the case's export does.
       localStorage.setItem('framepilot.settings', JSON.stringify({ previewBurnCaptions: burn }));
     },
-    { p: doc, burn: burnCaptions },
+    { p: doc, burn: burnCaptions, roots: matteRoots },
   );
   await page.goto(`${origin}/`);
   await expect(page.getByLabel('project name')).toHaveText(project.name, { timeout: 30_000 });
@@ -739,7 +788,7 @@ async function measureCase(
   const page = await oraclePage(browser);
   let attachedSamples = 0;
   try {
-    const origin = await openInEditor(page, kase.project, kase.burnCaptions);
+    const origin = await openInEditor(page, kase.project, kase.burnCaptions, m.mattes ?? {});
     const { renderer, detail } = await waitForRenderer(page);
     result.renderer = renderer;
     result.rendererDetail = detail;

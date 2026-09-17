@@ -64,7 +64,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 FIXTURE_DIR = REPO_ROOT / "tests" / "fixtures" / "frame-plan"
 DEFAULT_OUT_DIR = REPO_ROOT / "tests" / "e2e" / ".tmp-px4-parity"
 #: Bumped when the output layout changes in a way the input hash cannot see.
-MANIFEST_VERSION = 2
+MANIFEST_VERSION = 3
 #: The program monitor's canvas long edge (`CANVAS_MAX_EDGE` in `WebCodecsPreviewPlayer.tsx`).
 #: The preview may be lower resolution than the project; the oracle compares at the preview's
 #: size by having the export's compositor run at that size, never by rescaling either image.
@@ -482,72 +482,156 @@ def collect_media(
 
 #: Matte frames synthesised either side of the source range the clips read.
 MATTE_FRAME_MARGIN = 3
+#: Where a progressive (partially processed) artifact's PREVIEW copy lives in the output.
+PREVIEW_MATTES_DIR = "preview-mattes"
+#: The foreground estimate a ``disc`` matte carries: no sentinel, so decontamination shows.
+DISC_FOREGROUND = (96, 200, 160)
 
 
-def _matte_frame(width: int, height: int) -> Any:
-    """The synthetic matte: an opaque subject over the left 40%, a 64 px soft edge, then clear."""
+def _matte_frame(width: int, height: int, shape: str, index: int) -> Any:
+    """One synthetic matte frame.
+
+    ``ramp`` (the text-behind-subject case): an opaque subject over the left 40%, a 64 px soft
+    edge, then clear, the same every frame. ``disc``: an anti-aliased hard-edged disc that moves
+    two pixels per frame, a band of one-pixel strands and a soft 12 px ramp, so edge modes,
+    edge shift, feathers and frame identity all change pixels.
+    """
     import numpy as np
 
-    columns = np.arange(width, dtype=np.float64)
-    edge = width * 0.4
-    ramp = np.clip((edge + 32 - columns) / 64.0, 0.0, 1.0)
-    return np.broadcast_to(np.round(ramp * 255).astype(np.uint8), (height, width)).copy()
+    if shape == "ramp":
+        columns = np.arange(width, dtype=np.float64)
+        edge = width * 0.4
+        ramp = np.clip((edge + 32 - columns) / 64.0, 0.0, 1.0)
+        return np.broadcast_to(np.round(ramp * 255).astype(np.uint8), (height, width)).copy()
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    unit = min(width, height)
+    cx = width * 0.35 + 2.0 * index
+    cy = height * 0.5
+    disc = np.clip(0.5 - (np.hypot(x - cx, y - cy) - unit * 0.28), 0.0, 1.0)
+    ramp = np.clip((x - width * 0.7) / 12.0, 0.0, 1.0) * (y < height * 0.4)
+    alpha = np.maximum(disc, ramp)
+    strands = (y > height * 0.65) & (y < height * 0.85) & ((x.astype(np.int64) % 9) == 0)
+    alpha[strands & (x > width * 0.55)] = 1.0
+    return np.round(alpha * 255).astype(np.uint8)
 
 
-def _encode_ffv1_frames(
-    path: Path, frame: Any, count: int, pixel_format: str, stored_format: str
-) -> None:
-    """Stream ``count`` copies of ``frame`` into an FFV1 Matroska file (never all in memory)."""
+def _encode_ffv1_frames(path: Path, frames: Any, pixel_format: str, stored_format: str) -> None:
+    """Stream ``frames`` (an iterable of arrays) into intra-only FFV1 Matroska, as the pack does.
+
+    ``-g 1 -slicecrc 1``: one key frame per packet with slice CRCs (``encode.py`` of the pack).
+    """
     from framepilot_engine.media.ffmpeg import find_ffmpeg
 
-    height, width = frame.shape[:2]
-    argv = [
-        find_ffmpeg(), "-nostdin", "-v", "error", "-y",
-        "-f", "rawvideo", "-pix_fmt", pixel_format, "-s", f"{width}x{height}", "-r", "30",
-        "-i", "-", "-c:v", "ffv1", "-level", "3", "-pix_fmt", stored_format, str(path),
-    ]  # fmt: skip
-    process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
-    assert process.stdin is not None
-    payload = frame.tobytes()
+    process: subprocess.Popen[bytes] | None = None
     try:
-        for _ in range(count):
-            process.stdin.write(payload)
+        for frame in frames:
+            if process is None:
+                height, width = frame.shape[:2]
+                argv = [
+                    find_ffmpeg(), "-nostdin", "-v", "error", "-y",
+                    "-f", "rawvideo", "-pix_fmt", pixel_format, "-s", f"{width}x{height}",
+                    "-r", "30", "-i", "-", "-c:v", "ffv1", "-level", "3", "-g", "1",
+                    "-slicecrc", "1", "-pix_fmt", stored_format, str(path),
+                ]  # fmt: skip
+                process = subprocess.Popen(argv, stdin=subprocess.PIPE, stderr=subprocess.PIPE)
+            assert process.stdin is not None
+            process.stdin.write(frame.tobytes())
     finally:
-        process.stdin.close()
+        if process is not None and process.stdin is not None:
+            process.stdin.close()
+    assert process is not None and process.stderr is not None
     # Not `communicate()`: it flushes stdin, which is closed above (Python 3.11 raises on that).
-    assert process.stderr is not None
     stderr = process.stderr.read()
     process.wait(timeout=600)
     if process.returncode != 0:
         raise RuntimeError(f"ffv1 encode failed: {stderr.decode(errors='replace')[:400]}")
 
 
-def write_case_mattes(out_dir: Path, cases: list[tuple[str, dict[str, Any]]]) -> None:
-    """Synthesise every matte artifact a case pins, and pin the real digests in the case.
-
-    The frame-plan fixtures name an artifact key with placeholder digests: no pack runs in CI.
-    The export refuses a matte it cannot verify, so the generator writes one to the artifact
-    contract (``render/mattes.py``: FFV1 ``matte.mkv`` + ``foreground.mkv`` at the source's
-    display size, ``frames.json`` with the source's own pts) over the source frames the clips
-    read, and rewrites the artifact JSON the ENGINE project carries. The preview's copy of the
-    project is untouched: the monitor does not read matte files yet (BR5).
-    """
+def _write_artifact(
+    directory: Path,
+    width: int,
+    height: int,
+    shape: str,
+    foreground_rgb: tuple[int, int, int],
+    timing: Any,
+    first: int,
+    last: int,
+    fps: float,
+) -> dict[str, Any]:
+    """Write one artifact over source frames ``[first, last]``; return its pinned fields."""
     import numpy as np
 
     from framepilot_engine.render.mattes import (
         FOREGROUND_FILE,
         FRAMES_FILE,
         MATTE_FILE,
-        MATTES_DIR,
         file_sha256,
-        matte_display_size,
-    )  # fmt: skip
+    )
+
+    directory.mkdir(parents=True, exist_ok=True)
+    indices = range(first, last + 1)
+    _encode_ffv1_frames(
+        directory / MATTE_FILE,
+        (_matte_frame(width, height, shape, i) for i in indices),
+        "gray",
+        "gray",
+    )
+    foreground = np.broadcast_to(
+        np.asarray(foreground_rgb, dtype=np.uint8), (height, width, 3)
+    ).copy()
+    _encode_ffv1_frames(directory / FOREGROUND_FILE, (foreground for _ in indices), "rgb24", "bgr0")
+    (directory / FRAMES_FILE).write_text(
+        json.dumps(
+            {
+                "version": 1,
+                "timeBase": [timing.time_base.numerator, timing.time_base.denominator],
+                "originPts": timing.pts[0],
+                "firstFrame": first,
+                "pts": list(timing.pts[first : last + 1]),
+            }
+        ),
+        encoding="utf-8",
+    )
+    seconds = timing.relative_seconds()
+    step = seconds[1] - seconds[0] if len(seconds) > 1 else 1.0 / fps
+    return {
+        "files": [
+            {"name": name, "sha256": file_sha256(directory / name)}
+            for name in (MATTE_FILE, FOREGROUND_FILE, FRAMES_FILE)
+        ],
+        "width": width,
+        "height": height,
+        "coverage": {"sourceStart": seconds[first], "sourceEnd": seconds[last] + step},
+    }
+
+
+def write_case_mattes(out_dir: Path, cases: list[tuple[str, dict[str, Any]]]) -> dict[str, Any]:
+    """Synthesise every matte artifact a case pins, and pin the real digests in the case.
+
+    The frame-plan fixtures name an artifact key with placeholder digests: no pack runs in CI.
+    The export refuses a matte it cannot verify, so the generator writes one to the artifact
+    contract (``render/mattes.py``: FFV1 ``matte.mkv`` + ``foreground.mkv`` at the source's
+    display size, ``frames.json`` with the source's own pts) over the source frames the clips
+    read, and rewrites the artifact JSON the ENGINE project carries.
+
+    A case's ``matteArtifacts`` names each key's ``shape`` (``ramp`` by default, ``disc``) and
+    optionally ``processedFrames``: a progressive job. The export always has the whole artifact
+    (it never renders an unfinished one); the PREVIEW reads a copy holding only the first
+    ``processedFrames`` frames, under :data:`PREVIEW_MATTES_DIR`. Samples past that range are
+    rendered by the export with the matte disabled (the original picture), which is what the
+    monitor shows for a range still processing.
+
+    :returns: Per key, the artifact the PREVIEW project pins and the directory it is served
+        from (the manifest's ``mattes``).
+    """
+    from framepilot_engine.render.mattes import MATTES_DIR, matte_display_size
     from framepilot_engine.render.pts_reader import video_timing
     from framepilot_engine.timeline.models import AssetMedia
 
-    written: dict[str, dict[str, Any]] = {}
+    served: dict[str, Any] = {}
     for _area, case in cases:
         assets = {asset["id"]: asset for asset in case["project"]["assets"]}
+        synthesis = case.get("matteArtifacts") or {}
         mattes = [
             (clip, mask)
             for track in case["project"]["timeline"]["tracks"]
@@ -559,10 +643,15 @@ def write_case_mattes(out_dir: Path, cases: list[tuple[str, dict[str, Any]]]) ->
         for clip, mask in mattes:
             by_key.setdefault(str(mask["artifact"]["key"]), []).append((clip, mask))
         for key, users in by_key.items():
+            if key in served:
+                raise ValueError(
+                    f"Matte artifact {key[:12]} is pinned by two cases; give each its own key"
+                )
+            spec = synthesis.get(key, {})
+            shape = str(spec.get("shape", "ramp"))
             asset = assets[users[0][0]["assetId"]]
             source = out_dir / engine_asset_path(asset)
             timing = video_timing(source)
-            seconds = timing.relative_seconds()
             fps = float(case["probe"]["fps"][asset["id"]])
             first = max(
                 0, min(int(float(c["sourceStart"]) * fps) for c, _ in users) - MATTE_FRAME_MARGIN
@@ -574,42 +663,76 @@ def write_case_mattes(out_dir: Path, cases: list[tuple[str, dict[str, Any]]]) ->
             size = matte_display_size(AssetMedia.model_validate(asset["media"]))
             assert size is not None, f"matte asset {asset['id']} has no measured size"
             width, height = size
-            directory = out_dir / MATTES_DIR / key
-            directory.mkdir(parents=True, exist_ok=True)
-            count = last - first + 1
-            matte = _matte_frame(width, height)
-            _encode_ffv1_frames(directory / MATTE_FILE, matte, count, "gray", "gray")
-            foreground = np.broadcast_to(
-                np.asarray(SENTINELS[asset["id"]][0], dtype=np.uint8), (height, width, 3)
-            ).copy()
-            _encode_ffv1_frames(directory / FOREGROUND_FILE, foreground, count, "rgb24", "bgr0")
-            pts = list(timing.pts[first : last + 1])
-            (directory / FRAMES_FILE).write_text(
-                json.dumps(
-                    {
-                        "version": 1,
-                        "timeBase": [timing.time_base.numerator, timing.time_base.denominator],
-                        "originPts": timing.pts[0],
-                        "firstFrame": first,
-                        "pts": pts,
-                    }
-                ),
-                encoding="utf-8",
+            foreground = DISC_FOREGROUND if shape == "disc" else SENTINELS[asset["id"]][0]
+            artifact = _write_artifact(
+                out_dir / MATTES_DIR / key,
+                width,
+                height,
+                shape,
+                foreground,
+                timing,
+                first,
+                last,
+                fps,
             )
-            step = seconds[1] - seconds[0] if len(seconds) > 1 else 1.0 / fps
-            artifact = {
-                "files": [
-                    {"name": name, "sha256": file_sha256(directory / name)}
-                    for name in (MATTE_FILE, FOREGROUND_FILE, FRAMES_FILE)
-                ],
-                "width": width,
-                "height": height,
-                "coverage": {"sourceStart": seconds[first], "sourceEnd": seconds[last] + step},
-            }
-            written[key] = artifact
             for _clip, mask in users:
                 mask["artifact"].update(copy.deepcopy(artifact))
-            _log.info("synthesised matte %s: %d frames at %dx%d", key[:12], count, width, height)
+            entry: dict[str, Any] = {"root": MATTES_DIR, "artifact": artifact}
+            processed = spec.get("processedFrames")
+            if processed is not None:
+                processed_last = min(last, first + int(processed) - 1)
+                entry = {
+                    "root": PREVIEW_MATTES_DIR,
+                    "artifact": _write_artifact(
+                        out_dir / PREVIEW_MATTES_DIR / key,
+                        width,
+                        height,
+                        shape,
+                        foreground,
+                        timing,
+                        first,
+                        processed_last,
+                        fps,
+                    ),
+                    "processedSourceFrames": [first, processed_last],
+                }
+            served[key] = entry
+            case.setdefault("_processed", {})[key] = entry.get("processedSourceFrames")
+            _log.info(
+                "synthesised matte %s: %d frames at %dx%d",
+                key[:12],
+                last - first + 1,
+                width,
+                height,
+            )
+    return served
+
+
+def _unprocessed_matte_keys(case: dict[str, Any], plan: dict[str, Any]) -> set[str]:
+    """Matte keys whose frame at this sample is outside the preview's processed range."""
+    ranges = {key: value for key, value in (case.get("_processed") or {}).items() if value}
+    keys: set[str] = set()
+    for layer in plan.get("layers", []):
+        for masked in (layer.get("mask") or {}).get("layers", []):
+            matte = masked.get("matte")
+            if not matte or matte["artifactKey"] not in ranges:
+                continue
+            first, last = ranges[matte["artifactKey"]]
+            frame = matte.get("sourceFrame")
+            if frame is None or frame < first or frame > last:
+                keys.add(matte["artifactKey"])
+    return keys
+
+
+def _without_mattes(case: dict[str, Any], keys: set[str]) -> dict[str, Any]:
+    """The case with every matte mask of ``keys`` disabled (a range still processing)."""
+    changed = copy.deepcopy(case)
+    for track in changed["project"]["timeline"]["tracks"]:
+        for clip in track.get("clips", []):
+            for mask in clip.get("masks", []) or []:
+                if mask.get("kind") == "matte" and mask["artifact"]["key"] in keys:
+                    mask["enabled"] = False
+    return changed
 
 
 def engine_project(case: dict[str, Any]) -> dict[str, Any]:
@@ -699,6 +822,30 @@ def _grab_case(args: tuple[str, str, dict[str, Any], bool]) -> list[dict[str, An
                 target = out_dir / rel
                 _write_background_png(target, canvas)
                 entry.update(frame=rel, renderedTime=float(sample), size=list(canvas), pastEnd=True)
+                continue
+            unprocessed = _unprocessed_matte_keys(case, case["expected"][index])
+            if unprocessed:
+                # The monitor leaves a still-processing matte out: the export's frame is the
+                # same timeline with that matte disabled.
+                frame = grab_frame(
+                    Project.model_validate(engine_project(_without_mattes(case, unprocessed))),
+                    out_dir,
+                    float(sample),
+                    image_format="png",
+                    burn_captions=burn,
+                    lossless=True,
+                    lossless_size=canvas,
+                )
+                target = out_dir / rel
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(frame.data)
+                entry.update(
+                    frame=rel,
+                    renderedTime=frame.time_seconds,
+                    size=[frame.width, frame.height],
+                    matteProcessing=sorted(unprocessed),
+                )
+                del frame
                 continue
             reduced = Project.model_validate(sample_project(case, float(sample)))
             reduced_plan = frame_plan_at(
@@ -1030,7 +1177,7 @@ def generate(
                 lambda enc: encode_colour_clip(ffmpeg, pattern, out_dir, enc), COLOUR_ENCODINGS
             )
         )
-    write_case_mattes(out_dir, cases)
+    mattes = write_case_mattes(out_dir, cases)
     for rel, facts in others.items():
         if facts[0] == "image":
             write_png_asset(out_dir, rel, facts[1], facts[2])
@@ -1073,6 +1220,7 @@ def generate(
             for (area, case), samples in zip(cases, rendered, strict=True)
         ],
         "colour": colour,
+        "mattes": mattes,
     }
     (out_dir / "manifest.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8")
     return manifest
