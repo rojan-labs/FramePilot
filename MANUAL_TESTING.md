@@ -817,6 +817,15 @@ effect (ADR 0113).
   - Expect: no visible hitch on autosave; the saved file reloads identically.
   - Result: __/__/____ · PASS / FAIL · notes:
 
+- [ ] **16.1e The mask tools kill switch** — `UI` · desktop+browser
+  - Do: build the editor with `VITE_FRAMEPILOT_MASK_TOOLS=off` (RD2.1; the same mechanism as the
+    compositor flag) and reopen a project that already has masks.
+  - Expect: no monitor mask toolbar and no Inspector **Mask** tab, and the masked clip still
+    previews and exports exactly as before. The flag gates editing chrome, never a frame of
+    output. Unset, a dev build is `on` and a packaged release is `off` until RD3.
+  - Fail if: a mask stops cutting the picture, or the toolbar survives with the flag off.
+  - Result: __/__/____ · PASS / FAIL · notes:
+
 - [ ] **16.2 Track an existing mask** — `AI`
   - Setup: 16.1 produced a rectangle or ellipse mask over a moving subject.
   - Do: select the clip → *"Track this mask across the shot."*

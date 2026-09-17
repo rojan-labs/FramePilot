@@ -429,6 +429,11 @@ mask's `artifact.files[].sha256`. Coverage uses the validator's ±½ project fra
 `<project>.v21.backup.fp.json` beside the project before the first migration and never overwrites
 it. A project from a newer FramePilot is refused with "Update FramePilot to open this project."
 
+**v22 → v23** (MK4.3) adds optional `Timeline.maskPresets`. The step itself is additive and has
+nothing to backfill — no v22 project ever saved a preset — but it still bumps the envelope, so a
+FramePilot that predates presets refuses a file whose presets it would otherwise silently drop on
+the next save. See [Mask presets and binary path arrays](#mask-presets-and-binary-path-arrays-schema-v23-mk4).
+
 - `Project.version` is the schema version. It is **bumped only with a migration**.
 - **No breaking schema change without a migration** (CI/agent rule; see
   [../runbooks/ci-cd.md](../runbooks/ci-cd.md) and `.codex/AGENTS.md`).

@@ -13,7 +13,7 @@ import { mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { parseProject } from './index.js';
+import { SCHEMA_VERSION, parseProject } from './index.js';
 import { writeProjectFile } from './project-file.js';
 import { deserializeProject, serializeProject } from './serialization.js';
 
@@ -146,7 +146,7 @@ describe('save budget with 1,000 path keyframes × 200 vertices (MK4.6)', () => 
       timeline: { tracks: [] },
     });
     expect(serializeProject(project)).toBe(
-      JSON.stringify({ schemaVersion: 23, ...project }, null, 2),
+      JSON.stringify({ schemaVersion: SCHEMA_VERSION, ...project }, null, 2),
     );
   });
 });
