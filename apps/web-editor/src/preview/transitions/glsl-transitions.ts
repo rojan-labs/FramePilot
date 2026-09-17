@@ -90,8 +90,11 @@ vec4 transition(vec2 uv, float p) {
   mosaic: `
 vec4 transition(vec2 uv, float p) {
   float b = max(1.0, uParams[0] * rem());
-  vec2 q = (floor(uv * uResolution / b) + 0.5) * b / uResolution;
-  return vec4(tex(q), clamp(p * 4.0, 0.0, 1.0));
+  // Cells are counted from the picture's TOP edge (y-down), as the numpy pass counts them:
+  // anchoring at the bottom shifts every cell whenever the height is not a multiple of b.
+  float qu = (floor(uv.x * uResolution.x / b) + 0.5) * b / uResolution.x;
+  float qv = (floor((1.0 - uv.y) * uResolution.y / b) + 0.5) * b / uResolution.y;
+  return vec4(tex(vec2(qu, 1.0 - qv)), clamp(p * 4.0, 0.0, 1.0));
 }`,
 
   // ---------------------------------------------------------------------
@@ -107,7 +110,7 @@ vec4 transition(vec2 uv, float p) {
   vec2 d = rotate2(dirUv(), radians(uParams[0]));
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
   // Normalise the projection so 0..1 spans the frame however the edge is tilted.
-  float half = 0.5 * (abs(d.x) + abs(d.y));
+  float halfSpan = 0.5 * (abs(d.x) + abs(d.y));
   float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   return vec4(tex(uv), reveal(f, p));
 }`,
@@ -356,7 +359,7 @@ vec4 transition(vec2 uv, float p) {
 vec4 transition(vec2 uv, float p) {
   vec2 d = rotate2(dirUv(), radians(uParams[2]));
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
-  float half = 0.5 * (abs(d.x) + abs(d.y));
+  float halfSpan = 0.5 * (abs(d.x) + abs(d.y));
   float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   float head = p * 1.7 - 0.35;
   // The band fades out as well as travelling: a leak whose glow is still on the
@@ -491,7 +494,7 @@ vec4 transition(vec2 uv, float p) {
 vec4 transition(vec2 uv, float p) {
   vec2 d = rotate2(dirUv(), radians(uParams[1]));
   if (dot(d, d) < 1e-6) d = vec2(1.0, 0.0);
-  float half = 0.5 * (abs(d.x) + abs(d.y));
+  float halfSpan = 0.5 * (abs(d.x) + abs(d.y));
   float f = (dot(uv - 0.5, d) + halfSpan) / max(1e-3, 2.0 * halfSpan);
   float radius = max(0.02, uParams[0] * 0.35);
   // The edge overshoots by three feathers rather than one, so the curl's lens bend
