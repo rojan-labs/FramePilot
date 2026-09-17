@@ -340,6 +340,7 @@ class MatteJob:
         progress: ProgressSink,
         cancellation: CancellationFlag,
         memory_probe: Callable[[], dict[str, Any]] | None = None,
+        on_window: Callable[[int | None], None] | None = None,
     ) -> None:
         self.request = request
         self.provider = provider
@@ -349,6 +350,8 @@ class MatteJob:
         self.progress = progress
         self.cancellation = cancellation
         self.memory_probe = memory_probe
+        #: Called with a window's frame count when it starts and None when it ends (watchdog).
+        self.on_window = on_window or (lambda _frames: None)
         self.output = OutputDirectory(request.output)
         self.inputs = InputDirectory(request.inputs) if request.inputs is not None else None
         self.windows_dir = self.output.private_directory(WINDOWS_DIRECTORY)
@@ -594,9 +597,11 @@ class MatteJob:
                 scratch=Scratch(self.scratch_dir),
             )
             started = time.monotonic()
+            self.on_window(count)
             try:
                 self._window(ctx, window)
             finally:
+                self.on_window(None)
                 window.store.close()
                 window.scratch.close()
             self._timed("windows", started)

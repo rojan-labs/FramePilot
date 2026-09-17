@@ -108,19 +108,30 @@ class PackServices:
     def run_matte(
         self, request: MatteRequest, progress: ProgressSink, cancellation: CancellationFlag
     ) -> MatteOutcome:
+        from .memory import MemoryGovernor
         from .pipeline import MatteJob, ToolPaths
 
         report = asdict(self.tools.report)
-        job = MatteJob(
-            request,
-            provider=self.provider,
-            media=self.tools,
-            tools=ToolPaths(str(self.tools.ffmpeg), str(self.tools.ffprobe), report),
-            config=self.config,
-            progress=progress,
-            cancellation=cancellation,
-        )
-        return job.run()
+        with MemoryGovernor(self.config.memory_ceiling_bytes, cancellation) as governor:
+
+            def on_window(frames: int | None) -> None:
+                if frames is None:
+                    governor.window_finished()
+                else:
+                    governor.window_started(frames)
+
+            job = MatteJob(
+                request,
+                provider=self.provider,
+                media=self.tools,
+                tools=ToolPaths(str(self.tools.ffmpeg), str(self.tools.ffprobe), report),
+                config=self.config,
+                progress=progress,
+                cancellation=cancellation,
+                memory_probe=governor.report,
+                on_window=on_window,
+            )
+            return job.run()
 
     def segment_frame(
         self, request: SegmentFrameRequest, cancellation: CancellationFlag
