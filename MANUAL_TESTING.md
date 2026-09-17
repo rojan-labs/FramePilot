@@ -773,19 +773,52 @@ effect (ADR 0113).
 > registered as `available: false` on purpose (`domain-tools/tracking-mask.ts`) — the orchestrator
 > refuses them rather than fabricating a result. See §20.
 
-- [ ] **16.1 Add a mask** — `UI`
-  - Do: add a mask to a clip from the Inspector.
-  - Expect: a mask appears in the preview.
-  - **Known limitation, verify it is still true:** `addMaskPatch`
-    (`patch-builders-base.ts:1241`) **hardcodes** `bounds` to the centre 60%
-    (`{x:0.2, y:0.2, width:0.6, height:0.6}`). There are no handles or numeric fields to place
-    it. So the engine can mask, but a user **cannot author mask geometry**.
-  - Record: can you move or resize the mask at all? If not, this row is **FAIL (not user-
-    operable)** and everything downstream of it in §16 inherits that.
+- [ ] **16.1 Draw and edit masks on the monitor** — `UI` · desktop
+  - Setup: a project with a real camera clip (4K if you have one). Select it, open Inspector → Mask.
+  - Do: with the monitor toolbar, draw a Rectangle (drag), an Ellipse (Shift+Alt drag), a Pen path
+    (clicks, one drag for a smooth point, Shift for a 45° segment, click the first point to close)
+    and a Freehand stroke.
+  - Expect: each shape appears in the Mask list with its own colour, the monitor cuts the picture
+    live while dragging, and each shape is exactly one Undo.
+  - Do: with Selection, move a mask, drag a point, Alt-drag a tangent, Cmd-click a point, click an
+    edge to add a point, marquee two points and press Delete, drag the corner and rotation handles,
+    drag the three knobs right of the shape, nudge with arrows and Shift+arrows, toggle snapping and
+    drag near the frame centre, zoom to 400% and 800%.
+  - Expect: handles stay on the picture's edge at every zoom; the pixel grid appears from 400%;
+    typed values in the Inspector match (sub-pixel kept); Undo reverts each gesture once.
+  - Result: __/__/____ · PASS / FAIL · notes:
+
+- [ ] **16.1a Animate and retime a mask** — `UI` · desktop
+  - Do: at 0 s click the keyframe diamond of Centre X; move the playhead to 2 s and drag the mask;
+    play. Open the clip's keyframe lanes on the timeline and drag the mask lane marker; toggle
+    **Apply to all keyframes** and change Outer feather.
+  - Expect: the mask moves between the two positions in preview and export; the lane drag retimes
+    every keyframe at that instant; with Apply to all keyframes on, one Undo reverts the feather on
+    every keyframe.
+  - Result: __/__/____ · PASS / FAIL · notes:
+
+- [ ] **16.1b Keyboard-only drawing (a11y)** — `UI`
+  - Do: Tab to the monitor canvas, press P, Space, Shift+Right ×20, Space, Shift+Down ×20, Space,
+    Enter. Then `]` to select a point, arrows to nudge, Delete.
+  - Expect: a three-point path mask; a screen reader announces each point and the result.
+  - Result: __/__/____ · PASS / FAIL · notes:
+
+- [ ] **16.1c Copy, paste and presets** — `UI`
+  - Do: Copy mask on one clip, Paste masks on a clip with different resolution media; Save preset
+    "Face box", Apply preset on a third clip; save, close and reopen the project.
+  - Expect: pasted and applied masks sit at the same relative place in the new picture; the preset
+    survives reopen; Delete preset undoes.
+  - Result: __/__/____ · PASS / FAIL · notes:
+
+- [ ] **16.1d Save time with a long rotoscope** — `UI` · desktop
+  - Do: open a project whose path mask has hundreds of keyframes (or run
+    `pnpm --filter @framepilot/timeline-schema exec vitest run src/save-budget.perf.test.ts`), edit,
+    and watch autosave.
+  - Expect: no visible hitch on autosave; the saved file reloads identically.
   - Result: __/__/____ · PASS / FAIL · notes:
 
 - [ ] **16.2 Track an existing mask** — `AI`
-  - Setup: 16.1 produced a mask, and it happens to sit over a moving subject.
+  - Setup: 16.1 produced a rectangle or ellipse mask over a moving subject.
   - Do: select the clip → *"Track this mask across the shot."*
   - Expect: a **Track mask** card; per-frame positions written; the mask follows the subject in
     preview.

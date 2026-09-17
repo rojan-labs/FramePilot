@@ -92,6 +92,30 @@ Two facts this measured:
   row at exactly `.5` fills a different pixel on the two, in the export itself. The preview follows
   the host (client hints), and the stored legacy vectors avoid such crossings.
 
+## Amendment (2026-09-17, MK4): editing commands, presets (schema v23), binary path arrays
+
+- **One command layer for hand and agent edits.** `editor-core/mask-commands.ts` compiles an
+  intent (draw, reshape at an instant, change properties, toggle a keyframe, paste, presets) into
+  the operations above and validates and inverts it. The UI never builds a raw mask operation;
+  the agent's `add_mask` compiles `draw_mask`. An animated property is keyed at the playhead's
+  source instant; `update_mask.keyframeOffsets` lets "Apply to all keyframes" shift a property on
+  every keyframe in one operation (Premiere 26.0 clip edit mode).
+- **Presets are project data.** Schema v23 adds optional `Timeline.maskPresets` (masks plus the
+  picture size they were drawn on), changed only through `save_mask_preset` /
+  `remove_mask_preset` (inverse `restore_mask_presets`), so presets undo and travel with the
+  project. The v22 → v23 migration is additive; the bump makes an older app refuse a file whose
+  presets it would drop.
+- **Long path arrays are stored as exact binary in the file.** Measured against the 250 ms save
+  budget with 1,000 path keyframes × 200 vertices, decimal JSON took ~120 ms to format the
+  numbers alone and 55 MB pretty-printed. `serializeProject` now writes number arrays of 16 or
+  more on one line and path `points`/`featherPx` of 384 or more (64 vertices) as
+  `f64le:<base64 of little-endian float64>`: bit-exact, ~3 ms, 13.4 MB. The Zod and Pydantic
+  schemas decode the string on parse, so memory, operations, renderers and the agent only ever
+  see number arrays. Short paths stay readable decimals and ordinary projects serialise with the
+  same layout as before. The recovery snapshot reuses the serialised text of the save it follows.
+  Rejected: a new in-memory representation (every reader would change) and rounding coordinates
+  (loses the sub-pixel positions the tools promise).
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports

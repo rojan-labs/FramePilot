@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Draw and animate masks by hand.** Open a clip's Mask tab and draw rectangles, ellipses, pen
+  paths (Shift for 45° lines) and freehand shapes right on the monitor. Move, reshape, rotate,
+  add and delete points, bend tangents, set feather and expansion with on-canvas handles, zoom in
+  to 800% with a pixel grid, snap to edges and other masks, or do all of it from the keyboard. The
+  Inspector lists every mask (reorder, hide, lock, colour, blend mode, invert) with exact pixel
+  values and keyframes, including an "Apply to all keyframes" mode. Mask keyframes show on the
+  timeline and can be dragged. Copy masks between clips and save them as presets in the project.
+  Every edit is one undo.
+
 - **Background removal shows on the preview exactly as it exports.** A clip with a removed
   background now previews cut out, with the same edge, edge shift, feather and clean-edge colour
   the export uses, including sped-up, reversed, rotated and variable-frame-rate clips. While

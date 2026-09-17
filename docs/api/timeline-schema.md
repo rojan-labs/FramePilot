@@ -284,6 +284,18 @@ finesse`), `key` (`model, ranges, samples3d, softness, despill, shadowRetention,
 `editor-core` `encodeMaskPath`/`decodeMaskPath` convert paths; `maskLayerFromFrameShape` builds a
 mask from frame fractions. Operations are listed in `patch-format.md`.
 
+### Mask presets and binary path arrays (schema v23, MK4)
+
+`Timeline.maskPresets?: MaskPreset[]` holds masks saved for reuse: `{ id, name, width, height,
+sourceStart, masks }`, where `width`/`height` are the display-corrected size the masks were drawn
+on, so applying a preset rescales like `paste_masks`. Change it only through `save_mask_preset` /
+`remove_mask_preset` ([mask commands](./mask-commands.md)).
+
+In `project.fp.json`, a path keyframe's `points` or `featherPx` with 384 or more numbers is written
+as `"f64le:<base64>"`: the little-endian IEEE-754 bytes, exact to the bit. Both schemas accept
+either form and decode to a number array on parse (`decodeFloat64Array` in TS,
+`decode_float64_array` in Python). Readers of a parsed project never see the string.
+
 ### Display-corrected source pixels (`Asset.media`, schema v22)
 
 Source-space mask pixels are measured against the picture as players show it. `Asset.media`
