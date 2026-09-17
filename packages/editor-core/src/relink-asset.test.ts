@@ -55,8 +55,11 @@ describe('relink_asset', () => {
 
   it('refuses an unknown asset and an empty or padded path, in apply and in validation', () => {
     expect(() => applyProjectOperation(project(), { type: 'relink_asset', assetId: 'nope', path: '/x.mov' })).toThrow(ProjectOperationError);
-    for (const bad of ['', ' /x.mov', '/x\0.mov']) {
-      expect(() => applyProjectOperation(project(), { type: 'relink_asset', assetId: 'a1', path: bad })).toThrow(/non-empty file path/);
+    for (const bad of ['', ' /x.mov', '/x\0.mov', 'media/x.mov', '../x.mov', '/media/../../etc/x.mov', 'C:relative.mov']) {
+      expect(() => applyProjectOperation(project(), { type: 'relink_asset', assetId: 'a1', path: bad })).toThrow(/absolute file path/);
+    }
+    for (const good of ['/Volumes/Card/A001.mov', 'C:\\Footage\\A001.mov', 'D:/Footage/A001.mov']) {
+      expect(applyProjectOperation(project(), { type: 'relink_asset', assetId: 'a1', path: good }).assets[0]?.path).toBe(good);
     }
     const issues = validatePatch(
       project().timeline,

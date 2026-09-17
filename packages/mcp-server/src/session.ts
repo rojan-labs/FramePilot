@@ -408,26 +408,27 @@ export class EditorSession {
   }
 
   /**
-   * Reject any `add_asset` operation whose media path escapes the projects
-   * sandbox. The path is the only untrusted, filesystem-bound field an agent can
-   * inject through a mutating tool, so it is contained here before it reaches the
-   * project file. Resolution mirrors the open/save path checks.
+   * Reject any operation that carries a media path escaping the projects sandbox. Paths are the
+   * only untrusted, filesystem-bound fields an agent can inject through a mutating tool, so every
+   * path-carrying operation is checked here before it reaches the project file (BR4.12 L5):
+   * `add_asset`, `restore_assets` and `relink_asset` (see {@link operationMediaPaths}).
    *
    * @throws {SessionError} `unsafe_path` when a path resolves outside the sandbox.
    */
   private assertAssetPathsSandboxed(operations: readonly AnyOperation[]): void {
     for (const op of operations) {
-      if (op.type !== 'add_asset') continue;
-      try {
-        resolveWithin(this.projectsRoot, op.asset.path);
-      } catch (cause) {
-        // resolveWithin only throws PathTraversalError, so any failure here is a
-        // containment violation — surface it as a typed, agent-readable error.
-        throw new SessionError(
-          'unsafe_path',
-          `add_asset path escapes the projects sandbox: ${op.asset.path}`,
-          { cause },
-        );
+      for (const mediaPath of operationMediaPaths(op)) {
+        try {
+          resolveWithin(this.projectsRoot, mediaPath);
+        } catch (cause) {
+          // resolveWithin only throws PathTraversalError, so any failure here is a
+          // containment violation — surface it as a typed, agent-readable error.
+          throw new SessionError(
+            'unsafe_path',
+            `${op.type} path escapes the projects sandbox: ${mediaPath}`,
+            { cause },
+          );
+        }
       }
     }
   }
@@ -497,3 +498,20 @@ export const sessionFromEnv = (env: NodeJS.ProcessEnv = process.env): EditorSess
   const root = resolveProjectsRoot(env, path.join(os.homedir(), 'Documents'));
   return new EditorSession(root);
 };
+
+/**
+ * Every media path an operation would write into the project file. A new path-carrying
+ * operation must be added here, or the MCP sandbox check would let it through unchecked.
+ */
+export function operationMediaPaths(op: AnyOperation): readonly string[] {
+  switch (op.type) {
+    case 'add_asset':
+      return [op.asset.path];
+    case 'restore_assets':
+      return op.assets.map((asset) => asset.path);
+    case 'relink_asset':
+      return [op.path];
+    default:
+      return [];
+  }
+}

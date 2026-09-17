@@ -193,9 +193,19 @@ export class ProjectOperationError extends Error {
 
 const clone = <T>(value: T): T => structuredClone(value);
 
-/** A relink target: a non-empty path with no NUL byte and no surrounding whitespace. */
+/**
+ * A relink target: an ABSOLUTE path (POSIX `/...` or Windows `C:\...`), with no `..` segment,
+ * no NUL byte and no surrounding whitespace (BR4.12 L5). A relink comes from a native file
+ * dialog, which always yields an absolute path; anything else is not a file the editor chose.
+ */
 export const isValidAssetPath = (path: string): boolean =>
-  typeof path === 'string' && path.length > 0 && path.length <= 4096 && path.trim() === path && !path.includes('\0');
+  typeof path === 'string' &&
+  path.length > 0 &&
+  path.length <= 4096 &&
+  path.trim() === path &&
+  !path.includes('\0') &&
+  (path.startsWith('/') || /^[A-Za-z]:[\\/]/u.test(path)) &&
+  !path.split(/[\\/]/u).includes('..');
 
 const findAsset = (project: Project, assetId: string): Asset => {
   const asset = project.assets.find((a) => a.id === assetId);
@@ -333,7 +343,7 @@ export function applyProjectOperation(project: Project, op: ProjectOperation): P
     case 'relink_asset': {
       findAsset(project, op.assetId);
       if (!isValidAssetPath(op.path)) {
-        throw new ProjectOperationError('invalid_asset_path', 'relink_asset needs a non-empty file path.');
+        throw new ProjectOperationError('invalid_asset_path', 'relink_asset needs an absolute file path.');
       }
       return withAssets(
         project,

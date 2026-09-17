@@ -600,7 +600,7 @@ function projectChecks(
     case 'relink_asset':
       if (!assetExists(op.assetId)) issue('missing_asset', `Unknown asset '${op.assetId}'.`);
       if (!isValidAssetPath(op.path)) {
-        issue('invalid_asset_path', 'relink_asset needs a non-empty file path. Choose the file again.');
+        issue('invalid_asset_path', 'relink_asset needs an absolute file path. Choose the file again.');
       }
       break;
     case 'move_asset':
