@@ -110,7 +110,9 @@ def test_real_weights_tiny_clip(tmp_path: Path) -> None:
     for index in range(FRAMES):
         expected = (
             cv2.resize(
-                reference[index].astype(np.uint8), (matte.shape[2], matte.shape[1]), interpolation=cv2.INTER_NEAREST
+                reference[index].astype(np.uint8),
+                (matte.shape[2], matte.shape[1]),
+                interpolation=cv2.INTER_NEAREST,
             )
             > 0
         )

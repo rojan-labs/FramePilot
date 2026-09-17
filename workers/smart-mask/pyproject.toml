@@ -79,6 +79,8 @@ allowed-confusables = ["–", "×", "α", "²", "∩", "∪"]
 # Build-time scripts: long command lines and tables read better unwrapped.
 "tools/*" = ["E501"]
 "eval/*" = ["E501"]
+# One-off parity debugging scripts kept for the next parity investigation.
+"tools/debug_*.py" = ["E402", "E701", "E702"]
 
 [tool.mypy]
 python_version = "3.12"
