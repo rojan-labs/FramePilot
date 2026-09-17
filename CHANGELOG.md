@@ -8,6 +8,19 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Relink media, and background removal knows when footage changed.** On desktop, the media bin
+  can point a clip's media at another file (undoable). FramePilot then compares the frames of the new
+  file with the ones a background removal was made from; if they differ, the removal is marked out
+  of date with "Media changed since background removal ran — run Remove background again", and an
+  export refuses it with the same sentence instead of drawing a wrong cut-out. Locked frames and
+  relinked media are now checked by the FramePilot engine, so these checks also work in the
+  installed app.
+- **Background jobs queue instead of competing.** Background removal jobs run one at a time, a
+  quick request goes ahead of a long job at its next step, jobs pause while an export runs, and
+  unfinished jobs pick up again after you restart. Quitting while one runs asks first. A jobs list
+  (pause, resume, cancel, show clip) is ready for the editor, and a diagnostic file with job
+  outcomes and timings (no file names, media or project details) can be exported when you need help.
+
 - **The desktop app can now run background removal jobs behind the scenes (no button yet).**
   When the Smart Mask pack is installed, the app runs a job on your computer, checks every file
   the pack writes (only the expected files, their fingerprints, and that each matte frame lines

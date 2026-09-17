@@ -524,11 +524,15 @@ pixels bit-identical to their inputs and to the previous artifact. A check the h
 (no ffmpeg) fails closed as `verification_unavailable`. Failures return `verification_failed` with
 `verificationCode`.
 
-**Media inspector (`matte-media-inspector.ts`).** The app's own ffprobe/ffmpeg (existing
-`FRAMEPILOT_FFPROBE`/`FRAMEPILOT_FFMPEG`, then the bundled engine folder, then PATH in development).
-Paths are only ever separate argv elements, never filter-graph text. Decoded frame hashes use
-`-f framehash -hash sha256`: artifact frames by index (`select` built from integers), source frames
-by exact pts (`-copyts -ss (pts-0.5 tick)`, pts checked on the way back).
+**Media inspector (`matte-media-inspector.ts`).** Stream facts and decoded timestamps come from the
+app's own ffprobe (`FRAMEPILOT_FFPROBE`, then the bundled engine folder, then PATH). Decoded pixels
+come from the Python sidecar, because packaged builds ship no desktop ffmpeg (BR4.13):
+`POST /mattes/frame-hashes` (sha256 of the decoded frame at each exact pts, `null` when that pts does
+not decode; at most 256 per call) and `POST /mattes/locked-frames` (matte frames by index as 8-bit
+gray, compared with expected pixel hashes and with a previous `matte.mkv`, whose hashes never leave
+the engine). Both routes resolve every path inside the engine's projects-root sandbox and refuse any
+file but `matte.mkv` for comparisons. A stopped sidecar, a 5xx or a refusal is a typed error, and
+every check that needs pixels fails closed.
 
 **Auto prompt (`matte-auto-prompt.ts`).** With no prompts, and only if a healthy Subject
 Intelligence pack is in the local index, `subject.detect` runs on the first in-range frame and the
@@ -565,6 +569,36 @@ recorded at commit; a differing, undecodable or unsampled source is STALE `matte
 | `matteSaveCorrection` | invoke | store a brush fix or locked frame (8-bit gray PNG at the artifact's size, inside its coverage) |
 | `matteStorage` | invoke | per-project storage summary |
 | `matteCleanUnused` | invoke | remove exactly the confirmed unused keys |
+| `projectChooseRelinkFile` | invoke | main's native dialog picks the file to relink one asset to (regular files only) |
+| `matteRecheckMedia` | invoke | re-check mattes on relinked assets → STALE `matte_media_changed` |
+| `capabilityPackJobs` / `capabilityPackJobsChanged` | invoke / push | the job queue for the jobs panel |
+| `capabilityPackJobAction` | invoke | pause, resume or cancel one job |
+| `capabilityPackExportDiagnostics` | invoke | write the opt-in diagnostic bundle to a file the editor picks |
 
 Smart Mask's published hardware minimum (Apple Silicon or Windows x64, 16 GB) is provisional until
 the maintainer decides the floor from BR0-FINDINGS.
+
+**Relink and changed media (BR4.14).** `relink_asset { assetId, path }` is a typed, undoable
+editor-core operation (path only; invert restores the previous path). The media bin's Relink action
+asks main for a file (`projectChooseRelinkFile`), commits the patch and calls `matteRecheckMedia`,
+which compares every matte on the asset with the fingerprint and decoded frames recorded at commit.
+The engine repeats the same check before an export draws a matte (`render/matte_media.py`) and
+refuses `matte_media_changed` with the size-change sentence ("Media changed since background
+removal ran — run Remove background again."). Mattes without a host record are not re-checked.
+
+**Job scheduler (`job-scheduler.ts`, BR4.9).** One GPU inference job at a time; interactive >
+focused clip > background, FIFO within. Pre-emption, user pauses and export pauses act only at a
+checkpoint between windows; ExportHub reports running exports so inference pauses while exporting.
+Unfinished jobs are journaled in app data (`capability-pack-jobs.json`: kind, label, clip, project
+path, intent, finished windows) and restored after a restart when the project and asset still exist.
+Matte jobs are one window today (the worker protocol has no windows), so a restart re-runs the job
+and a job whose matte already committed completes as a cache hit. Quitting with a live job asks
+"Background removal is running". `JobsPanel` (web-editor) renders the queue with Pause, Resume,
+Cancel and Show clip; it is not placed in the editor layout yet (BR6).
+
+**Observability (BR4.11).** Each matte job ends with one allow-listed report (`matteJobEnd`):
+status, failure or verification code, execution provider, cache hit, pack version, verified and
+flagged frames, flagged ratio, and phase timings (host phases plus each worker phase from progress
+transitions). Reports never carry paths, media, prompts or project/asset/clip/job ids. The last 50
+stay in memory for `capabilityPackExportDiagnostics`, which writes a JSON bundle (reports, queue,
+pack identities and health, coarse machine facts) only where the editor chooses. Nothing uploads.
