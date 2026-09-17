@@ -4,12 +4,12 @@ import { MaskViewToggle } from './MaskViewToggle.js';
 import { layersForMaskView, maskColorRgb } from '../preview/masks/mask-view.js';
 
 describe('MaskViewToggle', () => {
-  it('offers the four views as one pressed-button group', () => {
+  it('offers the five views as one pressed-button group', () => {
     render(<MaskViewToggle value="off" onChange={() => {}} />);
     const group = screen.getByRole('group', { name: 'Mask view' });
     expect(group).toBeTruthy();
     const names = screen.getAllByRole('button').map((button) => button.textContent);
-    expect(names).toEqual(['Off', 'Overlay', 'Mask only', 'Checkerboard']);
+    expect(names).toEqual(['Off', 'Overlay', 'Mask only', 'Checkerboard', 'Flagged']);
     expect(screen.getByRole('button', { name: 'Off' }).getAttribute('aria-pressed')).toBe('true');
     expect(screen.getByRole('button', { name: 'Overlay' }).getAttribute('aria-pressed')).toBe(
       'false',
