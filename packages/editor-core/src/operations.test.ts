@@ -3039,7 +3039,11 @@ describe('set_clip_speed_ramp', () => {
     });
     expect(result.issues.map((i) => i.code)).not.toContain('speed_duration_mismatch');
     expect(result.valid).toBe(true);
-  });
+    // The joint solve and the bisection that inverts the eased curve are the most arithmetic in
+    // this file: ~0.6 s uninstrumented, but ~5.2 s under coverage on CI's 2-vCPU runner, which
+    // straddles vitest's 5 s default and made this the branch's flakiest red. The generous ceiling
+    // is about the instrumented runner, not about what the product is allowed to cost.
+  }, 30_000);
 
   it('L5 review finding: split_clip/delete_range can ALSO reach a same-segment double cut, via a boundary artifact — and still conserve area', () => {
     // `jointSyntheticPoints` exists for `trim_clip` (previous test). `split_clip`
