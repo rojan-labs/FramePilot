@@ -48,7 +48,7 @@ describe('matte PNG inputs', () => {
 
     it('refuses a bad chunk checksum', () => {
       const bytes = valid();
-      bytes[bytes.byteLength - 1] ^= 0xff;
+      bytes[bytes.byteLength - 1] = (bytes[bytes.byteLength - 1] ?? 0) ^ 0xff;
       expect(() => decodeGrayPng(bytes)).toThrow(/checksum/);
     });
 
