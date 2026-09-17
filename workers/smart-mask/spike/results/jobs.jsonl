@@ -55,3 +55,4 @@
 {"job": "pipeline_proto.py --clip low_light --stage sam", "exitCode": 0, "seconds": 467.8, "peakFootprintGiB": 6.06, "startSwapUsedGiB": 6.9, "peakSwapUsedGiB": 6.9, "minFreeMemoryPct": 67, "aborted": false, "at": "2026-09-17T04:51:29"}
 {"job": "pipeline_proto.py --clip low_light --stage refine --birefnet-size 1024", "exitCode": 0, "seconds": 256.5, "peakFootprintGiB": 6.87, "startSwapUsedGiB": 6.89, "peakSwapUsedGiB": 6.89, "minFreeMemoryPct": 41, "aborted": false, "at": "2026-09-17T04:55:45"}
 {"job": "pipeline_proto.py --clip low_light --stage consensus", "exitCode": 0, "seconds": 5.2, "peakFootprintGiB": 1.04, "startSwapUsedGiB": 6.89, "peakSwapUsedGiB": 6.89, "minFreeMemoryPct": 68, "aborted": false, "at": "2026-09-17T04:55:50"}
+{"job": "throughput.py", "exitCode": 0, "seconds": 8.8, "peakFootprintGiB": 1.92, "startSwapUsedGiB": 6.83, "peakSwapUsedGiB": 6.83, "minFreeMemoryPct": 73, "aborted": false, "at": "2026-09-17T06:01:17"}

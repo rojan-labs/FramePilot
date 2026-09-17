@@ -195,7 +195,7 @@ safetensors (Apache-2.0), pillow (MIT-CMU), numpy (BSD-3), psutil (BSD-3), pytes
 | SAM video path, one direction, whole process | ≈ 7.2 | 6.1 GB |
 | BiRefNet 768² / 1024² | 4.1 / 7.8 | 3.8 / 6.2–6.9 GB |
 | BiRefNet 2048² | not runnable | > 12 GB (aborted) |
-| Consensus (flow + band) | ≈ 0.16 (5.2 s job for 32 frames incl. decode) | 1.0 GB |
+| Consensus flow+warp / band+consensus / verify checks | 0.053 / 0.009 / 0.093 at 1080p; 0.208 / 0.042 / 0.267 at 4K (`throughput.py`) | 1.0–1.9 GB |
 
 **First-run preparation:** CPU EP session creation 0.1–1.7 s. CoreML EP cold / warm: memory
 encoder 2.3 / 0.4 s; decoder 7.2 / 1.3 s; memory attention 12.7 / 2.6 s; **image encoder 422 / 84 s**;
@@ -206,20 +206,30 @@ per frame = SAM fwd+bwd with the image embedding shared (5.2 + 2 × 2.0) + BiRef
 
 | Resolution | BiRefNet as measured (1024², 1 pass) | BiRefNet at trained 2048² (extrapolated ≈ 4 × 7.8 s = 31 s/tile) |
 | --- | --- | --- |
-| 1080p30 | (9.3 + 7.8 + ~0.3) × 30 ≈ **520 s per footage s** | (9.3 + 31 + ~0.3) × 30 ≈ **1,220 s per footage s** (≈ 20 h per footage minute) |
-| 4K30 | subject crop up to 2160 px → 2×2 tiles: (9.3 + 31 + ~1) × 30 ≈ 1,240 | (9.3 + 4 × 31 + ~1) × 30 ≈ **4,030 s per footage s** |
+| 1080p30 | (9.3 + 7.8 + 0.16) × 30 ≈ **520 s per footage s** | (9.3 + 31 + 0.16) × 30 ≈ **1,210 s per footage s** (≈ 20 h per footage minute) |
+| 4K30 | subject crop up to 2160 px → 2×2 tiles of 1024²: (9.3 + 4 × 7.8 + 0.52) × 30 ≈ 1,230 | 2×2 tiles of 2048²: (9.3 + 4 × 31 + 0.52) × 30 ≈ **4,020 s per footage s** |
 
 The spike's backward pass re-encoded every frame (≈ 14.4 s/frame for both directions); sharing the
 image embedding (as 02's interactive cache implies) is assumed above. 4K SAM uses the same 1024²
-input, so SAM cost does not grow with resolution; 4K CPU stages (flow at 4× pixels) are estimated.
+input, so SAM cost does not grow with resolution; 4K CPU stages were measured on upscaled frames.
 
 **Peak memory → minimum hardware:** a single job at 1080p needs ≈ 6–7 GB at 1024² matting and
 > 12 GB at 2048² on the CPU EP. On a 16 GB Mac with a normal workload the 2048² path does not fit;
 the published floor needs either ≥ 32 GB or a maintainer decision on matting input size (which
 changes the quality claim). Windows rows: MO-9.
 
-**Storage per minute (FFV1):** _see `results/throughput_cpu_stages_storage.json`;_
-_if absent, not measured — the job waited on the "no heavy job while swap > 6 GB" rule._
+**Storage per minute (FFV1 level 3, 30 fps), measured on the walk_pan pilot output:**
+
+| Resolution | `matte.mkv` (gray) | `foreground.mkv` (rgb24, fractional-alpha pixels only) | Total |
+| --- | --- | --- | --- |
+| 1080p30 | 23.2 MiB/min | 81.4 MiB/min | ≈ 105 MiB/min |
+| 4K30 | 61.2 MiB/min | 218.6 MiB/min | ≈ 280 MiB/min |
+
+The subject covers ~5% of the frame and fractional-alpha pixels ~1.1%; storage scales with those
+areas, so a close-up with hair can be several times larger. 4K is the 1080p output upscaled
+(smoother than real 4K, so a lower bound). This light job (1.9 GB peak, no model) ran with a 2 GB
+footprint cap while swap sat at 6.8 GB with 73% memory free; the 6 GB swap start rule is kept
+for model jobs.
 
 ## Memory incidents (they set the floor above)
 
