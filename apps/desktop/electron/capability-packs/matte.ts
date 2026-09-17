@@ -71,6 +71,7 @@ import {
   type MatteFramesDocument,
   type MatteLockCheck,
   type SubjectMatteResult,
+  type VerifiedMatteFile,
 } from './matte-verify.js';
 import { compareSemver, resolveInside } from './pack-paths.js';
 
@@ -789,14 +790,14 @@ export class CapabilityPackMatteService {
     pack: InstalledCapabilityPack,
     result: SubjectMatteResult,
     requestPrompts: readonly MattePrompt[],
-    files: readonly MatteArtifactRecord['files'][number][],
+    files: readonly VerifiedMatteFile[],
     signal: AbortSignal,
   ): Promise<MatteArtifactRecord> {
     const record: MatteArtifactRecord = {
       version: 1,
       key,
       assetId: intent.assetId,
-      files: [...files],
+      files: files.map((file) => ({ name: file.name, bytes: file.bytes, sha256: file.sha256 })),
       width: result.artifact.width,
       height: result.artifact.height,
       coverage: { sourceStart: intent.sourceStart, sourceEnd: intent.sourceEnd },

@@ -242,7 +242,7 @@ export async function commitMatteStaging(
    * names, regular files with one link each (no hard-link alias into the committed store) and the
    * verified sizes (BR4.12 H1). Omit only in tests of the rename itself.
    */
-  verifiedFiles?: readonly { readonly name: string; readonly bytes: number }[],
+  verifiedFiles?: readonly { readonly name: string; readonly bytes: number; readonly ino?: number; readonly mtimeMs?: number }[],
 ): Promise<MatteCommitOutcome> {
   const target = matteArtifactDirectory(projectDir, key);
   if (target === undefined) throw new MatteStagingError('invalid_key', 'Matte cache key is malformed.');
@@ -271,20 +271,24 @@ export async function commitMatteStaging(
 
 async function assertStagingUnchanged(
   directory: string,
-  verifiedFiles: readonly { readonly name: string; readonly bytes: number }[],
+  verifiedFiles: readonly { readonly name: string; readonly bytes: number; readonly ino?: number; readonly mtimeMs?: number }[],
 ): Promise<void> {
   const changed = (): MatteStagingError =>
     new MatteStagingError('changed_after_verify', 'The background removal files changed after they were checked.');
   const self = await lstat(directory);
   if (!self.isDirectory() || self.isSymbolicLink()) throw changed();
-  const expected = new Map(verifiedFiles.map((file) => [file.name, file.bytes]));
+  const expected = new Map(verifiedFiles.map((file) => [file.name, file]));
   const entries = await readdir(directory);
   if (entries.length !== expected.size) throw changed();
   for (const name of entries) {
-    const bytes = expected.get(name);
-    if (bytes === undefined) throw changed();
+    const file = expected.get(name);
+    if (file === undefined) throw changed();
     const stat = await lstat(path.join(directory, name));
-    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== bytes) throw changed();
+    if (!stat.isFile() || stat.nlink !== 1 || stat.size !== file.bytes) throw changed();
+    // Same inode and mtime as when verified: a same-size rewrite or replacement is refused too.
+    if ((file.ino !== undefined && stat.ino !== file.ino) || (file.mtimeMs !== undefined && stat.mtimeMs !== file.mtimeMs)) {
+      throw changed();
+    }
   }
 }
 

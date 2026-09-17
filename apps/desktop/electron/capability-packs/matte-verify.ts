@@ -72,6 +72,9 @@ export interface VerifiedMatteFile {
   readonly name: MatteArtifactFileName;
   readonly bytes: number;
   readonly sha256: string;
+  /** Identity at verification: the pre-rename re-check requires the same inode and mtime (BR4.12). */
+  readonly ino: number;
+  readonly mtimeMs: number;
 }
 
 export interface VerifiedMatteArtifact {
@@ -217,13 +220,15 @@ export async function verifyMatteStaging(input: MatteVerificationInput): Promise
     throw new MatteVerificationError('missing_required_file', 'matte.mkv and frames.json are required.');
   }
 
-  // 2. Sizes and the ceiling, from lstat rather than the claim.
+  // 2. Sizes and the ceiling, from lstat rather than the claim; identity kept for the re-checks.
   let total = 0;
+  const identity = new Map<string, { ino: number; mtimeMs: number }>();
   for (const file of claimed.values()) {
     const stat = await lstat(path.join(directory, file.name));
     if (!stat.isFile() || stat.size !== file.bytes) {
       throw new MatteVerificationError('size_mismatch', 'A matte file’s size differs from what the worker declared.');
     }
+    identity.set(file.name, { ino: stat.ino, mtimeMs: stat.mtimeMs });
     total += stat.size;
   }
   if (total > input.maxBytes) {
@@ -272,10 +277,20 @@ export async function verifyMatteStaging(input: MatteVerificationInput): Promise
   // 6. Locked frames.
   await verifyLockedFrames(input, frames);
 
+  // A file replaced or rewritten while it was being hashed and probed is not the file verified.
+  for (const file of claimed.values()) {
+    const stat = await lstat(path.join(directory, file.name));
+    const seen = identity.get(file.name)!;
+    if (!stat.isFile() || stat.size !== file.bytes || stat.ino !== seen.ino || stat.mtimeMs !== seen.mtimeMs) {
+      throw new MatteVerificationError('size_mismatch', 'A matte file changed while it was being checked.');
+    }
+  }
   const files: VerifiedMatteFile[] = [...claimed.values()].map((file) => ({
     name: file.name,
     bytes: file.bytes,
     sha256: file.sha256,
+    ino: identity.get(file.name)!.ino,
+    mtimeMs: identity.get(file.name)!.mtimeMs,
   }));
   return { files, frames, width, height, matteBytes: total };
 }
