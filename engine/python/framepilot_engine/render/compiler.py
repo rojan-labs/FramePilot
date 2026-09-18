@@ -139,6 +139,7 @@ from framepilot_engine.render.frame_plan import (
 from framepilot_engine.render.frame_plan import (
     transition_underlay_window as transition_underlay_window,
 )
+from framepilot_engine.render.key_mask import despill
 from framepilot_engine.render.mask_stack import (
     ClipMaskStacks,
     MaskStackRefusal,
@@ -764,6 +765,29 @@ def _apply_matte_decontamination(source: VideoClip, stacks: ClipMaskStacks | Non
     return source.transform(cleaned, keep_duration=True)
 
 
+def _apply_key_despill(source: VideoClip, stacks: ClipMaskStacks | None) -> VideoClip:
+    """Pull the backing colour out of the picture for every key asking for despill (MK6.1).
+
+    Applied AFTER the stack has been attached, deliberately: the qualifier has to read the
+    colour the camera recorded, and a limiter that ran first would have already taken the green
+    it is looking for. This is the same order a hardware keyer uses — extract, then suppress —
+    and it is why despill is a stage of its own rather than a step inside the qualifier.
+    """
+    if stacks is None:
+        return source
+    despilling = stacks.despilling_keys()
+    if not despilling:
+        return source
+
+    def cleaned(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
+        picture = get_frame(t)
+        for mask in reversed(despilling):
+            picture = despill(picture, str(mask.despill))
+        return picture
+
+    return source.transform(cleaned, keep_duration=True)
+
+
 def _refuse_unrenderable_masks(
     project: Project, base_dir: Path | None = None
 ) -> tuple[PreparedMattes, PreparedTracks]:
@@ -841,9 +865,16 @@ def _attach_mask(
             fracs = 1.0 - fracs
         sweep_fracs = fracs.reshape((1, extent)) if wipe_axis == "x" else fracs.reshape((extent, 1))
 
+    # MK6.1: a key mask reads the clip's own picture at the instant it is drawn, so the mask
+    # clip must ask the source for that frame — and can never be drawn once and reused.
+    keyed = alpha_stack is not None and alpha_stack.alpha_needs_picture
+
     def alpha_at(t: float) -> Any:
         opacity = opacity_at(t)
-        stacked = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height)
+        picture = (lambda: source.get_frame(t)) if keyed else None
+        stacked = (
+            None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
+        )
         if stacked is None:
             alpha = np.full((height, width), opacity, dtype=np.float64)
         else:
@@ -857,7 +888,9 @@ def _attach_mask(
             alpha = alpha * wipe_band
         return alpha
 
-    time_varying = geometry_animated or opacity_animated or fade_transition or wipe_transition
+    time_varying = (
+        geometry_animated or opacity_animated or fade_transition or wipe_transition or keyed
+    )
     if time_varying:
         from moviepy import VideoClip as _VideoClip
 
@@ -990,10 +1023,12 @@ def _masked_effect(
 
     def masked(get_frame: Callable[[float], np.ndarray], t: float) -> np.ndarray:
         frame = get_frame(t)
+        # A key limiting this effect qualifies the effect's INPUT, not its output: the editor
+        # picked the colour off the picture as it was before the effect ran.
         alpha = (
             static_alpha
             if static_alpha is not None
-            else stacks.effect_alpha_at(effect_id, t, width, height)
+            else stacks.effect_alpha_at(effect_id, t, width, height, lambda: frame)
         )
         effected = apply(frame)
         if alpha is None:
@@ -1268,6 +1303,7 @@ def compile_timeline(
                         source = _attach_mask(
                             source, clip, transition, _asset_media_size(project, clip), stacks
                         )
+                        source = _apply_key_despill(source, stacks)
                         source = _apply_catalog_transition(source, clip, use_legacy)
                         placed = _place_video_clip(source, clip, target, transition)
                         # UNDER-LAYERS FIRST: a transition reveals the shot on the other side

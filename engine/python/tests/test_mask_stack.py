@@ -84,7 +84,6 @@ def test_nothing_enabled_means_no_stack() -> None:
 @pytest.mark.parametrize(
     ("mask", "reason"),
     [
-        ({"kind": "key", "id": "k", "model": "luma"}, "colour key masks"),
         ({"kind": "linear", "id": "l", "originX": 1, "originY": 1, "angle": 0}, "split masks"),
         ({"kind": "band", "id": "b", "originX": 1, "originY": 1, "angle": 0, "widthPx": 4}, "band"),
         (

@@ -38,6 +38,7 @@ from typing import Any
 import numpy as np
 
 from framepilot_engine.effects.keyframes import segment_progress
+from framepilot_engine.render.key_mask import key_alpha
 from framepilot_engine.render.mask_raster import (
     BezierPath,
     FloatArray,
@@ -75,13 +76,18 @@ _log = logging.getLogger(__name__)
 #: Kinds the export draws today.
 SHAPE_KINDS = frozenset({"rectangle", "ellipse", "path"})
 RASTER_KINDS = frozenset({"matte"})
+#: Kinds whose alpha is read from the PICTURE rather than from geometry (MK6.1).
+PICTURE_KINDS = frozenset({"key"})
 
 #: A matte layer's decoded frame at the instant being drawn (bound per clip by the compiler).
 MatteFrameSource = Callable[[Any], MatteFrame]
 
+#: The picture a ``key`` mask reads: the clip's own RGB frame at the instant being drawn, at the
+#: raster's size. Supplied by the compiler; a key mask without one is a caller bug.
+PictureSource = Callable[[], Any]
+
 #: Why each other kind is refused, with the remedy. Keyed by kind; no numbers in the text.
 _KIND_REFUSALS = {
-    "key": "colour key masks render once the key renderer ships",
     "linear": "split masks render once the analytic mask renderer ships",
     "band": "band masks render once the analytic mask renderer ships",
     "gradient": "gradient masks render once the analytic mask renderer ships",
@@ -384,6 +390,22 @@ def matte_alpha(
     )
 
 
+def key_mask_alpha(mask: Any, picture: Any, source_time: float) -> FloatArray:
+    """One ``key`` layer's alpha (after clean levels, invert and opacity) on ``picture`` (MK6.1).
+
+    The qualifier reads the picture the clip composites at this instant, so the key follows the
+    footage without a keyframe; the mask's own scalars (opacity, and the clean levels of its
+    finesse group) are read on the source clock like every other kind.
+    """
+    matched = key_alpha(mask, picture)
+    matched = apply_clean_levels(
+        matched, float(mask.finesse.clean_black), float(mask.finesse.clean_white)
+    )
+    return layer_alpha(
+        matched, invert=bool(mask.invert), opacity=_scalar(mask, "opacity", source_time)
+    )
+
+
 def mask_alpha(
     mask: Any,
     clip: Any,
@@ -394,6 +416,7 @@ def mask_alpha(
     matte_frame: MatteFrameSource | None = None,
     decoded_size: tuple[int, int] | None = None,
     track: Any | None = None,
+    picture: PictureSource | None = None,
 ) -> FloatArray:
     """One mask's alpha (after invert and opacity) on the clip's frame at a source instant.
 
@@ -401,7 +424,15 @@ def mask_alpha(
         ``mask`` is a matte.
     :param track: The mask's prepared transform track, applied to the path's control points
         before flattening (MK7.1); ``None`` for an untracked mask.
+    :param picture: Supplies the clip's RGB frame at this instant; required for a ``key`` mask.
     """
+    if mask.kind == "key":
+        if picture is None:
+            raise MaskStackRefusal(
+                f"Key mask {mask.id!r} on clip {clip.id!r} has no picture bound. "
+                "Export again; if it repeats, report it."
+            )
+        return key_mask_alpha(mask, picture(), source_time)
     if mask.kind == "matte":
         if matte_frame is None:
             raise MaskStackRefusal(
@@ -447,6 +478,7 @@ def stack_alpha(
     matte_frame: MatteFrameSource | None = None,
     decoded_size: tuple[int, int] | None = None,
     tracks: dict[str, Any] | None = None,
+    picture: PictureSource | None = None,
 ) -> FloatArray:
     """The combined alpha of an ordered (top first) stack of enabled masks.
 
@@ -468,6 +500,7 @@ def stack_alpha(
             matte_frame,
             decoded_size,
             (tracks or {}).get(str(mask.id)),
+            picture,
         )
         accumulated = combine(accumulated, alpha, str(mask.mode.value))
     return quantize_alpha(accumulated).astype(np.float64) / 255.0
@@ -504,6 +537,8 @@ def assert_renderable(mask: Any, clip: Any, effect_ids: frozenset[str]) -> None:
         )
     if mask.kind == "matte":
         _assert_matte_drawable(mask, clip.id)
+    if mask.kind == "key":
+        _assert_key_drawable(mask, clip.id)
     if _is_legacy(mask):
         if mask.tracking is not None:
             raise _refuse(
@@ -544,6 +579,29 @@ def _assert_matte_drawable(mask: Any, clip_id: str) -> None:
         )
 
 
+def _assert_key_drawable(mask: Any, clip_id: str) -> None:
+    """A key draws its qualifier, despill and clean levels; the rest of finesse lands in MK6.2."""
+    finesse = mask.finesse
+    defaults = type(finesse)()
+    undrawn = [
+        name
+        for name in type(finesse).model_fields
+        if name not in _DRAWN_FINESSE and getattr(finesse, name) != getattr(defaults, name)
+    ]
+    if undrawn:
+        raise _refuse(
+            mask,
+            clip_id,
+            "key finesse other than clean black and clean white renders once the matte finesse "
+            "renderer ships",
+        )
+    if _is_legacy(mask):
+        raise MaskStackRefusal(
+            f"Mask {mask.id!r} on clip {clip_id!r} uses the legacy blur feather, which only "
+            "shapes migrated from older projects have. Switch the mask's feather model to Distance."
+        )
+
+
 def _assert_legacy_drawable(mask: Any, clip_id: str) -> None:
     """``gaussian-legacy`` is the v21 blur of a v21 shape; anything more needs ``distance``."""
     legacy_only = (
@@ -574,7 +632,9 @@ def _assert_legacy_drawable(mask: Any, clip_id: str) -> None:
 
 
 def _animated(mask: Any) -> bool:
-    if mask.kind == "matte":
+    # A matte reads a new artifact frame per instant; a key reads the picture itself. Neither
+    # can be drawn once and reused, whatever its keyframes say.
+    if mask.kind in ("matte", "key"):
         return True
     return bool(mask.keyframes) or (mask.kind == "path" and len(mask.path_keyframes) > 1)
 
@@ -602,8 +662,13 @@ class ClipMaskStacks:
     def effect_animated(self, effect_id: str) -> bool:
         return any(_animated(mask) for mask in self.by_effect.get(effect_id, ()))
 
-    def alpha_at(self, t: float, width: int, height: int) -> FloatArray | None:
-        """The alpha-target stack at CLIP-RELATIVE ``t``; ``None`` when nothing cuts alpha."""
+    def alpha_at(
+        self, t: float, width: int, height: int, picture: PictureSource | None = None
+    ) -> FloatArray | None:
+        """The alpha-target stack at CLIP-RELATIVE ``t``; ``None`` when nothing cuts alpha.
+
+        :param picture: The clip's RGB frame at ``t``, needed only when the stack has a key.
+        """
         if not self.alpha:
             return None
         return stack_alpha(
@@ -616,10 +681,16 @@ class ClipMaskStacks:
             self._matte_frames_at(t),
             self.decoded_size,
             self.tracks,
+            picture,
         )
 
     def effect_alpha_at(
-        self, effect_id: str, t: float, width: int, height: int
+        self,
+        effect_id: str,
+        t: float,
+        width: int,
+        height: int,
+        picture: PictureSource | None = None,
     ) -> FloatArray | None:
         """The stack limiting ``effect_id`` at clip-relative ``t``; ``None`` when unmasked."""
         masks = self.by_effect.get(effect_id)
@@ -635,6 +706,24 @@ class ClipMaskStacks:
             self._matte_frames_at(t),
             self.decoded_size,
             self.tracks,
+            picture,
+        )
+
+    @property
+    def alpha_needs_picture(self) -> bool:
+        """Whether the alpha-target stack reads the picture (it holds a ``key``)."""
+        return any(mask.kind == "key" for mask in self.alpha)
+
+    def effect_needs_picture(self, effect_id: str) -> bool:
+        """Whether the stack limiting ``effect_id`` reads the picture."""
+        return any(mask.kind == "key" for mask in self.by_effect.get(effect_id, ()))
+
+    def despilling_keys(self) -> tuple[Any, ...]:
+        """Every enabled key layer asking for despill, top first (MK6.1)."""
+        return tuple(
+            mask
+            for mask in (*self.alpha, *(m for ms in self.by_effect.values() for m in ms))
+            if mask.kind == "key" and str(mask.despill) != "none"
         )
 
     def matte_masks(self) -> tuple[Any, ...]:

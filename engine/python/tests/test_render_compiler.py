@@ -2655,7 +2655,7 @@ def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
     clip = _clip("c1", "v", 0, 1, asset="a1")
     clip["masks"] = [
         {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
-        {"kind": "key", "id": "k", "model": "luma"},
+        {"kind": "linear", "id": "l", "originX": 10.0, "originY": 10.0, "angle": 30.0},
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
@@ -2665,6 +2665,42 @@ def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
     )
     with pytest.raises(CompileError, match="Disable the mask to export now"):
         compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_key_mask_cuts_the_backing_out_of_the_picture(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK6.1: a green frame keyed on hue and inverted composites as an empty frame.
+
+    The whole clip is the backing colour, so inverting the key leaves nothing of it: what lands
+    is the composition's background. That is the end-to-end proof that the qualifier reached the
+    alpha the compositor attached, not just that it compiled.
+    """
+    src = media_factory("g.mp4", seconds=1.0, with_audio=False, color="green", size="320x240")
+    (tmp_project_dir / "g.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {
+            "kind": "key",
+            "id": "k",
+            "model": "hsl",
+            "invert": True,
+            "ranges": [
+                {"channel": "hue", "low": 0.2, "high": 0.5, "softness": 0.1},
+                {"channel": "saturation", "low": 0.2, "high": 1.0, "softness": 0.1},
+            ],
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "g.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = composition.get_frame(0.5)
+    assert int(frame.max()) < 24, "the keyed backing should not reach the composite"
 
 
 def test_rotated_anamorphic_source_stretches_its_upright_height(tmp_path: Path) -> None:
