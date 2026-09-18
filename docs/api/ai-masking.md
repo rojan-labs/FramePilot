@@ -90,20 +90,40 @@ hubcap"), the target is unknown and the request asks for a click.
 may be larger than what was seen, so "blur all the faces" asks instead. Before AM5.3 the list
 was cut at twelve, so a crowd of 20 got 12 masks and 8 unblurred faces.
 
-### Two limits of the shipped packs, and what the resolver does about them
+### Object classes (AM2.5)
 
-- **Objects have no class.** Subject Intelligence reports every non-person COCO class as the one
-  label `object` (`opencv_backend.py`). So "the red car" with one `object` on screen is still
-  unverified — it may be a dog — and resolves to `ambiguous_target` with that one thumbnail.
+Subject Intelligence 1.1.0 names each person/object detection's COCO class when asked
+(`subject.detect` `classes: true`; see `docs/api/capability-packs.md` for the negotiation). The
+executor always asks; the tracking service drops the flag for an older pack.
+
+The request's head noun maps to COCO classes through `OBJECT_CLASS_SYNONYMS`
+(`masking/target-vocabulary.ts`: 134 nouns, plurals derived, plus the generic "object", "thing",
+"item" meaning any class). The mapping is **only a candidate filter**:
+
+- An object whose detected class the noun cannot mean is not a candidate ("the truck" never offers
+  the car; "the product" never offers a person). None left is `no_candidates`.
+- The table is deliberately wide where COCO's boundaries are soft ("car" admits `car`, `truck`,
+  `bus`, because the detector calls many SUVs trucks). Wider can only mean more asks, never a
+  wrong pick.
+- A thing the detector called a matching class on some frames but another class on most is
+  plausibly meant and not clearly meant: `ambiguous_target`.
+- Two plausible candidates still ask ("the pet" with a cat and a dog), unless a selector or the
+  colour re-ranker separates them decisively.
+- A noun outside the table and the person/face words is `needs_click`.
+- A pack that reports no classes (1.0) leaves every object in and marks the class unverified, so
+  a described object asks exactly as before. A re-ranker never vouches for a class.
+
+A colour word before a noun is an adjective ("the orange car" is a car, not the fruit). Candidates
+carry `objectClass` when it was measured.
+
+### What the shipped packs still limit
+
 - **SigLIP cannot score a crop.** `visual.embed` embeds a whole keyframe per shot; the worker
   protocol has no crop parameter, so the re-ranking MD-6 names has nothing to call. The executor
   takes a `rerank` evidence source and the resolver uses its margin when one is supplied (tested
   with a fake); the desktop supplies none, and the result says `reranker: "none"`.
-
-Together these mean a described OBJECT always asks today. Faces and people resolve normally. The
-unnecessary-asks gate (≤ 3% inside the vocabulary) will therefore fail for objects until the
-packs change: either class names on detections, or a crop parameter on `visual.embed`. Both are
-signed-pack releases and are not part of this work.
+- **Installed packs are 1.0.** Classes reach users only with a new signed Subject Intelligence
+  release (maintainer action, MO-1..MO-5). Until then described objects ask.
 
 ### Candidate ids
 

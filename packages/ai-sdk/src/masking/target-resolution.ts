@@ -14,6 +14,7 @@
  * decides on its own. A decision needs a margin, a geometric selector that one candidate wins
  * clearly, or a single candidate of a class the detector can actually vouch for.
  */
+import type { CocoClassName } from '@framepilot/capability-packs';
 import { candidateIdFor, requirePick, type MaskCandidateLabel } from './candidate-id.js';
 import {
   MAX_CHOSEN_CANDIDATES,
@@ -24,14 +25,18 @@ import {
 import type { NormalizedBox } from './shape-fit.js';
 import {
   ALL_WORDS,
+  COLOUR_ALIASES,
+  COLOUR_WORDS,
   EXCEPTION_PHRASES,
   FACE_WORDS,
-  OBJECT_WORDS,
+  GENERIC_OBJECT_WORDS,
   OUT_OF_VOCABULARY_WORDS,
   PERSON_WORDS,
   ROLE_WORDS,
   SELECTOR_WORDS,
   STOP_WORDS,
+  objectClassesFor,
+  singularObjectWord,
 } from './target-vocabulary.js';
 
 /** One detector hit, as the worker protocol reports it. */
@@ -40,6 +45,10 @@ export interface TargetDetection {
   readonly label: MaskCandidateLabel;
   readonly box: NormalizedBox;
   readonly confidence: number;
+  /** The detector's COCO class (Subject Intelligence >= 1.1.0); absent from older packs. */
+  readonly objectClass?: CocoClassName;
+  /** The detector's conditional probability for `objectClass`. */
+  readonly classScore?: number;
 }
 
 export type TargetClass = MaskCandidateLabel | 'out_of_vocabulary' | 'unknown';
@@ -55,6 +64,13 @@ export interface TargetRequest {
   readonly identity: boolean;
   /** Descriptive words the geometry cannot check ("red", "tall") — appearance needs a re-ranker. */
   readonly appearance: readonly string[];
+  /**
+   * The COCO classes an object request can mean (AM2.5), from the head noun through
+   * `OBJECT_CLASS_SYNONYMS`. Present only for object requests; a candidate FILTER, never a source.
+   */
+  readonly objectClasses?: ReadonlySet<CocoClassName>;
+  /** The head noun as written ("car"), for the re-ranker's prompts. */
+  readonly noun?: string;
 }
 
 /** Boxes on neighbouring frames belong to one thing when they overlap at least this much. */
@@ -117,9 +133,35 @@ const PHRASE_BOUNDARIES: ReadonlySet<string> = new Set([
 function classOf(word: string): TargetClass | undefined {
   if (FACE_WORDS.has(word)) return 'face';
   if (PERSON_WORDS.has(word) || ROLE_WORDS.has(word)) return 'person';
-  if (OBJECT_WORDS.has(word)) return 'object';
+  if (objectClassesFor(word) !== undefined) return 'object';
   if (OUT_OF_VOCABULARY_WORDS.has(word)) return 'out_of_vocabulary';
   return undefined;
+}
+
+/** A colour word in its canonical spelling, or `undefined`. */
+export function colourOf(word: string): string | undefined {
+  const canonical = COLOUR_ALIASES[word] ?? word;
+  return COLOUR_WORDS.includes(canonical) ? canonical : undefined;
+}
+
+/**
+ * Whether the word at `index` only describes the next word: "the orange car" is a car, and
+ * "orange" is its colour, not the fruit.
+ */
+function isColourAdjective(tokens: readonly Token[], index: number): boolean {
+  const next = tokens[index + 1];
+  return (
+    colourOf(tokens[index]!.word) !== undefined &&
+    next !== undefined &&
+    classOf(next.word) !== undefined
+  );
+}
+
+/** A plural object noun ("cars", "buses", "things") asks for every match. */
+function isPluralObjectWord(word: string): boolean {
+  if (GENERIC_OBJECT_WORDS.has(word)) return word.endsWith('s');
+  const singular = singularObjectWord(word);
+  return singular !== undefined && singular !== word;
 }
 
 /** Plural nouns ask for every match: "faces", "cars", "people". */
@@ -164,7 +206,9 @@ function isModifier(
  */
 export function parseTargetRequest(description: string): TargetRequest {
   const tokens = tokenize(description);
-  const classed = tokens.map((token) => classOf(token.word));
+  const classed = tokens.map((token, index) =>
+    isColourAdjective(tokens, index) ? undefined : classOf(token.word),
+  );
   const heads = classed.map((value, index) =>
     value === undefined || isModifier(tokens, index, classed) ? undefined : value,
   );
@@ -177,7 +221,7 @@ export function parseTargetRequest(description: string): TargetRequest {
   const all =
     tokens.some(({ word }) => ALL_WORDS.has(word)) ||
     PLURAL_ALL.has(head) ||
-    (targetClass === 'object' && head.endsWith('s') && OBJECT_WORDS.has(head.slice(0, -1)));
+    (targetClass === 'object' && isPluralObjectWord(head));
   const selector = tokens
     .map(({ word }) => SELECTOR_WORDS[word])
     .find((value) => value !== undefined);
@@ -186,21 +230,23 @@ export function parseTargetRequest(description: string): TargetRequest {
     EXCEPTION_PHRASES.some((phrase) => phrase.test(lowered)) ||
     tokens.some(({ word }) => ROLE_WORDS.has(word));
   const appearance = tokens
-    .map(({ word }) => word)
     .filter(
-      (word) =>
-        classOf(word) === undefined &&
+      ({ word }, index) =>
+        classed[index] === undefined &&
         !STOP_WORDS.has(word) &&
         !ALL_WORDS.has(word) &&
         SELECTOR_WORDS[word] === undefined &&
         !EXCEPTION_PHRASES.some((phrase) => phrase.test(word)),
-    );
+    )
+    .map(({ word }) => word);
+  const objectClasses = targetClass === 'object' ? objectClassesFor(head) : undefined;
   return {
     targetClass,
     all,
     ...(selector === undefined ? {} : { selector }),
     identity,
     appearance,
+    ...(objectClasses === undefined ? {} : { objectClasses: new Set(objectClasses), noun: head }),
   };
 }
 
@@ -247,7 +293,12 @@ function sightings(detections: readonly TargetDetection[]): Sighting[] {
 
 /** Optional evidence the host gathered. Every field is optional: absent means "not measured". */
 export interface MaskTargetEvidence {
-  /** SigLIP text-image similarity in 0..1 per candidate id, when `visual-embed` could score crops. */
+  /**
+   * SigLIP appearance score in 0..1 per candidate id, when `visual-embed` could score crops
+   * (AM2.5: the share of a colour-classification the named colour gets). It RE-RANKS among
+   * candidates the detector has already classed; it never vouches for a class or adds a
+   * candidate, so an unclassed object still asks however high it scores.
+   */
   readonly rerank?: ReadonlyMap<string, number>;
   /** The shot ledger's subject kind for the clip ("person", "product", …), when indexed. */
   readonly ledgerSubjectKind?: string;
@@ -292,6 +343,25 @@ function agreement(label: MaskCandidateLabel, ledgerSubjectKind: string | undefi
 
 interface Ranked extends MaskCandidate {
   readonly grounding: number;
+  /** Every class the detector gave this thing across its sightings; empty from an older pack. */
+  readonly observedClasses: ReadonlySet<CocoClassName>;
+}
+
+/**
+ * The class a track is: the one with the most class evidence (summed `classScore`) across its
+ * sightings, ties broken by name so the answer is deterministic. `undefined` when no hit had one.
+ */
+function dominantClass(hits: readonly TargetDetection[]): CocoClassName | undefined {
+  const evidence = new Map<CocoClassName, number>();
+  for (const hit of hits) {
+    if (hit.objectClass === undefined) continue;
+    evidence.set(hit.objectClass, (evidence.get(hit.objectClass) ?? 0) + (hit.classScore ?? 0));
+  }
+  let best: CocoClassName | undefined;
+  for (const [name, total] of [...evidence].sort(([a], [b]) => a.localeCompare(b))) {
+    if (best === undefined || total > evidence.get(best)!) best = name;
+  }
+  return best;
 }
 
 /** Every persistent thing on the sampled frames, as a candidate, best score first. */
@@ -313,6 +383,10 @@ export function rankCandidates(input: ResolveTargetsInput): Ranked[] {
     const confidence = track.hits.reduce((sum, hit) => sum + hit.confidence, 0) / track.hits.length;
     const grounding = input.evidence?.rerank?.get(candidateId) ?? confidence;
     const identity = input.evidence?.identities?.get(candidateId);
+    const objectClass = dominantClass(track.hits);
+    const observedClasses = new Set(
+      track.hits.flatMap((hit) => (hit.objectClass === undefined ? [] : [hit.objectClass])),
+    );
     ranked.push({
       candidateId,
       label: track.label,
@@ -327,7 +401,9 @@ export function rankCandidates(input: ResolveTargetsInput): Ranked[] {
       sourceTime: best.frame / input.fps,
       persistence,
       ...(identity === undefined ? {} : { identity }),
+      ...(objectClass === undefined ? {} : { objectClass }),
       grounding,
+      observedClasses,
     });
   }
   return ranked.sort((a, b) => b.score - a.score || a.candidateId.localeCompare(b.candidateId));
@@ -352,6 +428,7 @@ export function candidatesOnFrame(
       box: detection.box,
       sourceTime: frame / input.fps,
       persistence: 1,
+      ...(detection.objectClass === undefined ? {} : { objectClass: detection.objectClass }),
     }));
 }
 
@@ -397,6 +474,43 @@ interface Decision {
   readonly chosen: readonly Ranked[];
 }
 
+type ClassFilter =
+  | {
+      readonly status: 'resolved';
+      readonly eligible: readonly Ranked[];
+      /** True when the pack named no classes: the label alone cannot say it is a car. */
+      readonly classUnverified: boolean;
+    }
+  | { readonly status: 'ambiguous_target' | 'no_candidates'; readonly shown: readonly Ranked[] };
+
+/**
+ * Keep only the objects whose detected class the request's noun can mean (AM2.5).
+ *
+ * A FILTER, never a source: it can only remove candidates. A pack that reports no classes
+ * (Subject Intelligence 1.0) leaves every object in and marks the class unverified, which is the
+ * pre-AM2.5 behaviour — ask. A thing the detector called a matching class on some frames and
+ * something else on most is plausibly meant and not clearly meant, so the editor picks.
+ */
+function byObjectClass(request: TargetRequest, labelled: readonly Ranked[]): ClassFilter {
+  const wanted = request.objectClasses;
+  if (request.targetClass !== 'object' || wanted === undefined) {
+    return { status: 'resolved', eligible: labelled, classUnverified: false };
+  }
+  if (labelled.some((candidate) => candidate.observedClasses.size === 0)) {
+    return { status: 'resolved', eligible: labelled, classUnverified: true };
+  }
+  const plausible = labelled.filter((candidate) =>
+    [...candidate.observedClasses].some((name) => wanted.has(name)),
+  );
+  if (plausible.length === 0) return { status: 'no_candidates', shown: [] };
+  const confident = plausible.filter(
+    (candidate) => candidate.objectClass !== undefined && wanted.has(candidate.objectClass),
+  );
+  if (confident.length !== plausible.length)
+    return { status: 'ambiguous_target', shown: plausible };
+  return { status: 'resolved', eligible: confident, classUnverified: false };
+}
+
 function decide(request: TargetRequest, ranked: readonly Ranked[], hasReranker: boolean): Decision {
   const ask = (status: MaskTargetStatus, shown: readonly Ranked[]): Decision => ({
     status,
@@ -405,20 +519,20 @@ function decide(request: TargetRequest, ranked: readonly Ranked[], hasReranker: 
   });
   if (request.targetClass === 'out_of_vocabulary' || request.targetClass === 'unknown')
     return ask('needs_click', []);
-  const eligible = ranked.filter((candidate) => candidate.label === request.targetClass);
+  const labelled = ranked.filter((candidate) => candidate.label === request.targetClass);
   // WHO is a question only the editor (or, with consent, identity clusters they have named) can
   // answer. v1 always shows the faces; consent changes what the picker can remember, not who
   // picks. Asked BEFORE the class check: "everyone except the host" names people, and a
   // close-up where the detector boxed only faces is still a question about those faces.
   if (request.identity) {
     const faces = ranked.filter((candidate) => candidate.label === 'face');
-    const people = faces.length > 0 ? faces : eligible;
+    const people = faces.length > 0 ? faces : labelled;
     return people.length === 0 ? ask('no_candidates', []) : ask('needs_face_selection', people);
   }
-  if (eligible.length === 0) return ask('no_candidates', []);
-  // The detector reports every non-person class as `object`, so the class of an object is
-  // unverified unless a re-ranker scored the crop against the editor's words.
-  const classUnverified = request.targetClass === 'object' && !hasReranker;
+  if (labelled.length === 0) return ask('no_candidates', []);
+  const filtered = byObjectClass(request, labelled);
+  if (filtered.status !== 'resolved') return ask(filtered.status, filtered.shown);
+  const { eligible, classUnverified } = filtered;
   const grounded = (candidate: Ranked): boolean =>
     !hasReranker || candidate.grounding >= RERANK_MIN_GROUNDING;
   if (request.all) {
@@ -456,7 +570,7 @@ function decide(request: TargetRequest, ranked: readonly Ranked[], hasReranker: 
 }
 
 const strip = (candidate: Ranked): MaskCandidate => {
-  const { grounding: _grounding, ...rest } = candidate;
+  const { grounding: _grounding, observedClasses: _observed, ...rest } = candidate;
   return rest;
 };
 

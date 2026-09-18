@@ -237,6 +237,51 @@ describe('find_mask_targets', () => {
     expect(MaskTargetsResultSchema.parse(outcome.data).reranker).toBe('siglip');
   });
 
+  it('asks the pack for classes and filters objects by them (AM2.5)', async () => {
+    const { project, projectPath } = await openProject();
+    const sent: unknown[] = [];
+    const objects = [
+      { box: { x: 0.35, y: 0.45, width: 0.3, height: 0.3 }, class: 'car' },
+      { box: { x: 0.7, y: 0.5, width: 0.2, height: 0.2 }, class: 'dog' },
+    ];
+    const run: Run = async (request) => {
+      sent.push(request.parameters);
+      const frames = Array.from(
+        { length: request.media.lastFrameExclusive - request.media.firstFrame },
+        (_, index) => request.media.firstFrame + index,
+      );
+      return {
+        status: 'completed',
+        identity: { ...IDENTITY, version: '1.1.0' },
+        result: {
+          backend: 'opencv',
+          modelDigests: [],
+          detections: frames.flatMap((frame) =>
+            objects.map((thing) => ({
+              frame,
+              label: 'object',
+              box: thing.box,
+              confidence: 0.9,
+              class: thing.class,
+              classScore: 0.95,
+            })),
+          ),
+        },
+      } as never;
+    };
+    const outcome = await executor(projectPath, {
+      tracking: async () => ({ run }) as unknown as CapabilityPackTrackingService,
+    }).run(
+      { name: 'find_mask_targets', arguments: { clipId: 'shot', description: 'the car' } },
+      ctxOf(project),
+    );
+    expect(sent[0]).toMatchObject({ classes: true });
+    const result = MaskTargetsResultSchema.parse(outcome.data);
+    expect(result.status).toBe('resolved');
+    const chosen = result.candidates.find((c) => c.candidateId === result.chosenCandidateIds[0]);
+    expect(chosen).toMatchObject({ label: 'object', objectClass: 'car' });
+  });
+
   it('samples a long clip in windows rather than detecting on every frame', () => {
     expect(detectionWindows(0, 100)).toEqual([[0, 100]]);
     const windows = detectionWindows(0, 2400);

@@ -7,6 +7,7 @@
  * schemas are that seam. Everything the op builder needs must be here, because the orchestrator
  * refuses to guess: no candidate ⇒ no geometry, no artifact pin ⇒ no matte.
  */
+import { COCO_CLASS_NAMES } from '@framepilot/capability-packs';
 import { z } from 'zod/v4';
 
 /** Registry names; also the executor routing keys on the desktop host. */
@@ -64,6 +65,11 @@ export const MaskCandidateSchema = z
     thumbnailRef: z.string().min(1).max(256).optional(),
     /** Identity cluster, present only with face-recognition consent. */
     identity: z.string().min(1).max(128).optional(),
+    /**
+     * The detector's COCO class for a person/object candidate, when the pack reports classes
+     * (Subject Intelligence >= 1.1.0; AM2.5). Absent means "not measured", never "no class".
+     */
+    objectClass: z.enum(COCO_CLASS_NAMES).optional(),
   })
   .strict();
 export type MaskCandidate = z.infer<typeof MaskCandidateSchema>;

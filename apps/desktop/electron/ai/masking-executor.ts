@@ -103,6 +103,19 @@ export interface MaskingExecutorOptions {
 
 type ExecutorCall = { name: string; arguments?: unknown };
 
+/** One `subject.detect` detection as the protocol carries it (`class` is a wire keyword). */
+type WireDetection = Omit<TargetDetection, 'objectClass'> & {
+  readonly class?: TargetDetection['objectClass'];
+};
+
+/** The resolver's view of a wire detection: `class` becomes `objectClass`, absent stays absent. */
+function targetDetection(detection: WireDetection): TargetDetection {
+  const { class: objectClass, classScore, ...rest } = detection;
+  return objectClass === undefined || classScore === undefined
+    ? rest
+    : { ...rest, objectClass, classScore };
+}
+
 /** Frames one detection window covers, and how many windows a long range is sampled with. */
 const TARGET_WINDOW_FRAMES = 48;
 const TARGET_WINDOWS = 3;
@@ -252,10 +265,16 @@ class MaskingRun {
     const job = await this.packJob(resolved, 'subject.detect', firstFrame, lastFrameExclusive, {
       labels: ['face', 'person', 'object'],
       maxDetections: TARGET_MAX_DETECTIONS,
+      // AM2.5: name each object's COCO class. The tracking service drops the flag for a pack
+      // older than 1.1.0, whose detections then carry the label alone (and objects ask).
+      classes: true,
     });
     if (!Array.isArray(job.result.detections))
       this.fail('worker_failed', 'The worker returned no detection set.');
-    return { detections: job.result.detections as TargetDetection[], engine: job.engine };
+    return {
+      detections: (job.result.detections as readonly WireDetection[]).map(targetDetection),
+      engine: job.engine,
+    };
   }
 
   public async findTargets(rawArgs: unknown): Promise<HostToolOutcome> {
@@ -283,7 +302,9 @@ class MaskingRun {
     // Rank once without optional evidence to know WHICH candidates exist, then let each source
     // score them. A source that declines leaves its field absent — "not measured", never a guess.
     // The sources see plain ids: the result's pick ids cannot be turned back into them.
-    const plain = rankCandidates(base).map(({ grounding: _grounding, ...candidate }) => candidate);
+    const plain = rankCandidates(base).map(
+      ({ grounding: _grounding, observedClasses: _observed, ...candidate }) => candidate,
+    );
     const evidence = await this.gatherEvidence(resolved, args.description, plain);
     const result = resolveMaskTargets(
       Object.keys(evidence).length === 0 ? base : { ...base, evidence },

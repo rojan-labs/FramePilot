@@ -7,6 +7,7 @@
  * something the editor has to click, rather than falling through to "no such object" — and so
  * the `needs_click` rate the eval reports separately (plan 06) is a designed outcome, not a miss.
  */
+import { COCO_CLASS_NAMES, type CocoClassName } from '@framepilot/capability-packs';
 
 /** A face: YuNet boxes. */
 export const FACE_WORDS: ReadonlySet<string> = new Set(['face', 'faces', 'head', 'heads']);
@@ -120,138 +121,279 @@ export const ROLE_WORDS: ReadonlySet<string> = new Set([
   'instructor',
 ]);
 
-/** Things the object detector was trained on (COCO), with the words editors use for them. */
-export const OBJECT_WORDS: ReadonlySet<string> = new Set([
-  'object',
-  'objects',
-  'thing',
-  'item',
-  'product',
-  'products',
+const CAR_LIKE: readonly CocoClassName[] = ['car', 'truck', 'bus'];
+const VEHICLES: readonly CocoClassName[] = [
   'car',
-  'cars',
-  'vehicle',
-  'vehicles',
   'truck',
-  'trucks',
   'bus',
-  'buses',
-  'van',
-  'taxi',
-  'bicycle',
-  'bicycles',
-  'bike',
-  'bikes',
   'motorcycle',
-  'motorcycles',
-  'motorbike',
-  'scooter',
+  'bicycle',
   'train',
-  'trains',
   'boat',
-  'boats',
-  'ship',
   'airplane',
-  'plane',
-  'planes',
-  'aeroplane',
-  'dog',
-  'dogs',
-  'puppy',
-  'cat',
-  'cats',
-  'kitten',
+];
+const ANIMALS: readonly CocoClassName[] = [
   'bird',
-  'birds',
+  'cat',
+  'dog',
   'horse',
-  'horses',
   'sheep',
   'cow',
-  'cows',
   'elephant',
   'bear',
   'zebra',
   'giraffe',
-  'pet',
-  'pets',
-  'animal',
-  'animals',
-  'phone',
-  'phones',
-  'cellphone',
-  'smartphone',
+];
+/** What an editor calls "the product" in a product shot: things held up, worn or shown. */
+const PRODUCTS: readonly CocoClassName[] = [
+  'bottle',
+  'wine glass',
+  'cup',
+  'bowl',
+  'cell phone',
   'laptop',
-  'laptops',
-  'computer',
+  'tv',
   'keyboard',
   'mouse',
   'remote',
-  'tv',
-  'television',
-  'monitor',
-  'screen',
-  'screens',
-  'bottle',
-  'bottles',
-  'cup',
-  'cups',
-  'mug',
-  'glass',
-  'fork',
-  'knife',
-  'spoon',
-  'bowl',
-  'chair',
-  'chairs',
-  'couch',
-  'sofa',
-  'bed',
-  'table',
-  'desk',
-  'bench',
-  'toilet',
-  'sink',
-  'refrigerator',
-  'fridge',
-  'oven',
-  'microwave',
-  'toaster',
-  'vase',
-  'clock',
   'book',
-  'books',
-  'backpack',
-  'bag',
-  'bags',
+  'clock',
+  'vase',
   'handbag',
+  'backpack',
   'suitcase',
   'umbrella',
   'tie',
-  'ball',
-  'football',
-  'frisbee',
-  'kite',
-  'skateboard',
-  'surfboard',
-  'snowboard',
-  'skis',
-  'racket',
-  'banana',
-  'apple',
-  'orange',
-  'sandwich',
-  'pizza',
-  'cake',
-  'donut',
-  'carrot',
-  'broccoli',
-  'plant',
-  'plants',
+  'teddy bear',
   'scissors',
   'toothbrush',
-  'hydrant',
-  'teddy',
+  'hair drier',
+  'sports ball',
+];
+const FOOD: readonly CocoClassName[] = [
+  'banana',
+  'apple',
+  'sandwich',
+  'orange',
+  'broccoli',
+  'carrot',
+  'hot dog',
+  'pizza',
+  'donut',
+  'cake',
+];
+
+/**
+ * An editor's noun → the detector's COCO classes it can mean (AM2.5).
+ *
+ * Used ONLY as a candidate filter: a detection whose class is not listed for the noun is not a
+ * candidate for it. The mapping is deliberately wide where COCO's own boundaries are soft — the
+ * detector calls many SUVs and pickups `truck`, so "the car" also admits trucks and buses — because
+ * a wider filter can only produce more asks, never a wrong pick. A noun that is not here and not
+ * a person/face word is outside the vocabulary: the editor clicks it (`needs_click`).
+ *
+ * Plurals are derived (`objectClassesFor`), so only singular forms are listed.
+ */
+export const OBJECT_CLASS_SYNONYMS: Readonly<Record<string, readonly CocoClassName[]>> = {
+  // Vehicles.
+  car: CAR_LIKE,
+  sedan: CAR_LIKE,
+  hatchback: CAR_LIKE,
+  suv: CAR_LIKE,
+  jeep: CAR_LIKE,
+  taxi: CAR_LIKE,
+  cab: CAR_LIKE,
+  vehicle: VEHICLES,
+  truck: ['truck'],
+  lorry: ['truck'],
+  pickup: ['truck', 'car'],
+  van: ['car', 'truck'],
+  minivan: ['car', 'truck'],
+  bus: ['bus'],
+  motorcycle: ['motorcycle'],
+  motorbike: ['motorcycle'],
+  scooter: ['motorcycle'],
+  moped: ['motorcycle'],
+  bicycle: ['bicycle'],
+  bike: ['bicycle', 'motorcycle'],
+  train: ['train'],
+  tram: ['train'],
+  boat: ['boat'],
+  ship: ['boat'],
+  yacht: ['boat'],
+  ferry: ['boat'],
+  canoe: ['boat'],
+  kayak: ['boat'],
+  airplane: ['airplane'],
+  aeroplane: ['airplane'],
+  plane: ['airplane'],
+  aircraft: ['airplane'],
+  jet: ['airplane'],
+  // Animals.
+  animal: ANIMALS,
+  pet: ['dog', 'cat', 'bird'],
+  dog: ['dog'],
+  puppy: ['dog'],
+  pup: ['dog'],
+  cat: ['cat'],
+  kitten: ['cat'],
+  kitty: ['cat'],
+  bird: ['bird'],
+  horse: ['horse'],
+  pony: ['horse'],
+  sheep: ['sheep'],
+  lamb: ['sheep'],
+  cow: ['cow'],
+  cattle: ['cow'],
+  calf: ['cow'],
+  elephant: ['elephant'],
+  bear: ['bear'],
+  zebra: ['zebra'],
+  giraffe: ['giraffe'],
+  // Products and things held up.
+  product: PRODUCTS,
+  bottle: ['bottle'],
+  cup: ['cup'],
+  mug: ['cup'],
+  glass: ['wine glass', 'cup'],
+  wineglass: ['wine glass'],
+  bowl: ['bowl'],
+  phone: ['cell phone'],
+  cellphone: ['cell phone'],
+  smartphone: ['cell phone'],
+  iphone: ['cell phone'],
+  mobile: ['cell phone'],
+  laptop: ['laptop'],
+  computer: ['laptop', 'tv'],
+  tv: ['tv'],
+  television: ['tv'],
+  monitor: ['tv'],
+  screen: ['tv', 'laptop'],
+  keyboard: ['keyboard'],
+  mouse: ['mouse'],
+  remote: ['remote'],
+  book: ['book'],
+  clock: ['clock'],
+  vase: ['vase'],
+  bag: ['handbag', 'backpack', 'suitcase'],
+  handbag: ['handbag'],
+  purse: ['handbag'],
+  backpack: ['backpack'],
+  rucksack: ['backpack'],
+  suitcase: ['suitcase'],
+  luggage: ['suitcase'],
+  umbrella: ['umbrella'],
+  tie: ['tie'],
+  teddy: ['teddy bear'],
+  scissors: ['scissors'],
+  toothbrush: ['toothbrush'],
+  hairdryer: ['hair drier'],
+  // Sport.
+  ball: ['sports ball'],
+  football: ['sports ball'],
+  basketball: ['sports ball'],
+  frisbee: ['frisbee'],
+  kite: ['kite'],
+  skateboard: ['skateboard'],
+  surfboard: ['surfboard'],
+  snowboard: ['snowboard'],
+  ski: ['skis'],
+  skis: ['skis'],
+  racket: ['tennis racket'],
+  racquet: ['tennis racket'],
+  // Furniture and the kitchen.
+  chair: ['chair'],
+  couch: ['couch'],
+  sofa: ['couch'],
+  bed: ['bed'],
+  table: ['dining table'],
+  desk: ['dining table'],
+  bench: ['bench'],
+  toilet: ['toilet'],
+  sink: ['sink'],
+  refrigerator: ['refrigerator'],
+  fridge: ['refrigerator'],
+  oven: ['oven'],
+  microwave: ['microwave'],
+  toaster: ['toaster'],
+  plant: ['potted plant'],
+  houseplant: ['potted plant'],
+  fork: ['fork'],
+  knife: ['knife'],
+  spoon: ['spoon'],
+  hydrant: ['fire hydrant'],
+  // Food.
+  food: FOOD,
+  banana: ['banana'],
+  apple: ['apple'],
+  orange: ['orange'],
+  sandwich: ['sandwich'],
+  pizza: ['pizza'],
+  cake: ['cake'],
+  donut: ['donut'],
+  doughnut: ['donut'],
+  carrot: ['carrot'],
+  broccoli: ['broccoli'],
+  hotdog: ['hot dog'],
+};
+
+/** Object words that name no class: any detected object may be meant ("the thing"). */
+export const GENERIC_OBJECT_WORDS: ReadonlySet<string> = new Set([
+  'object',
+  'objects',
+  'thing',
+  'things',
+  'item',
+  'items',
 ]);
+
+/**
+ * The COCO classes an object word can mean, or `undefined` when it is not an object word.
+ * Generic words return every class but `person`; plurals resolve through their singular.
+ */
+export function objectClassesFor(word: string): readonly CocoClassName[] | undefined {
+  if (OUT_OF_VOCABULARY_WORDS.has(word)) return undefined;
+  if (GENERIC_OBJECT_WORDS.has(word)) return ANY_OBJECT_CLASS;
+  const singular = singularObjectWord(word);
+  return singular === undefined ? undefined : OBJECT_CLASS_SYNONYMS[singular];
+}
+
+/** The listed singular an object word is written from ("buses" → "bus"), if any. */
+export function singularObjectWord(word: string): string | undefined {
+  if (Object.hasOwn(OBJECT_CLASS_SYNONYMS, word)) return word;
+  for (const suffix of ['es', 's']) {
+    if (!word.endsWith(suffix)) continue;
+    const stem = word.slice(0, -suffix.length);
+    if (Object.hasOwn(OBJECT_CLASS_SYNONYMS, stem)) return stem;
+  }
+  return undefined;
+}
+
+const ANY_OBJECT_CLASS: readonly CocoClassName[] = COCO_CLASS_NAMES.filter(
+  (name) => name !== 'person',
+);
+
+/**
+ * Colour words the SigLIP re-ranker can score (AM2.5): each crop is classified against the same
+ * noun in every one of these colours, and only the named colour's share counts. A colour word
+ * before a noun is an adjective ("the orange car"), never the fruit.
+ */
+export const COLOUR_WORDS: readonly string[] = [
+  'red',
+  'orange',
+  'yellow',
+  'green',
+  'blue',
+  'purple',
+  'pink',
+  'brown',
+  'black',
+  'white',
+  'grey',
+  'silver',
+];
+/** Spellings that mean one of {@link COLOUR_WORDS}. */
+export const COLOUR_ALIASES: Readonly<Record<string, string>> = { gray: 'grey' };
 
 /** Named, and not something the detector boxes: the editor clicks it once (`needs_click`). */
 export const OUT_OF_VOCABULARY_WORDS: ReadonlySet<string> = new Set([
@@ -308,6 +450,8 @@ export const OUT_OF_VOCABULARY_WORDS: ReadonlySet<string> = new Set([
   'hand',
   'hands',
   'eyes',
+  'glasses',
+  'sunglasses',
   'shirt',
   'jacket',
   'dress',

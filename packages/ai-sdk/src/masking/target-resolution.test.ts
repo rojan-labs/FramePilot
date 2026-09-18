@@ -29,6 +29,13 @@ function steady(
   }));
 }
 
+/** The same thing, as a Subject Intelligence >= 1.1 pack reports it: with its COCO class. */
+const as = (
+  objectClass: NonNullable<TargetDetection['objectClass']>,
+  detections: TargetDetection[],
+  classScore = 0.9,
+): TargetDetection[] => detections.map((hit) => ({ ...hit, objectClass, classScore }));
+
 const inputOf = (
   description: string,
   detections: TargetDetection[],
@@ -141,8 +148,11 @@ describe('unambiguous requests resolve to the target', () => {
     expect(result.status).toBe('resolved');
   });
 
-  it('uses a re-ranker margin to pick the described object', () => {
-    const cars = [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)];
+  it('uses a re-ranker margin to pick the described object among the ones of its class', () => {
+    const cars = [
+      ...as('car', steady('object', 0.1, 0.5, 0.2)),
+      ...as('car', steady('object', 0.6, 0.5, 0.2)),
+    ];
     const ids = plainIds(cars);
     const rerank = new Map([
       [ids[0]!, 0.9],
@@ -193,17 +203,32 @@ describe('ambiguous requests ask, never guess', () => {
     ).toBe('ambiguous_target');
   });
 
-  it('asks about an object’s class when no re-ranker can vouch for it — even a lone one', () => {
-    // The detector reports every non-person class as `object`: one box is not proof it is a car.
+  it('asks about an object’s class when the pack reports none — even a lone one', () => {
+    // A Subject Intelligence 1.0 pack reports every non-person class as `object`: one box is not
+    // proof it is a car, and a re-ranker cannot vouch for the class either (AM2.5) — it only
+    // re-ranks among candidates the detector has already classed.
     expect(asks('the red car', steady('object', 0.4, 0.5, 0.2)).status).toBe('ambiguous_target');
     expect(
       asks('all the cars', [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)])
         .status,
     ).toBe('ambiguous_target');
+    const unclassed = [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)];
+    const ids = plainIds(unclassed);
+    expect(
+      asks('the red car', unclassed, {
+        rerank: new Map([
+          [ids[0]!, 0.95],
+          [ids[1]!, 0.05],
+        ]),
+      }).status,
+    ).toBe('ambiguous_target');
   });
 
   it('asks when the re-ranker’s margin is thin or its best match is poor', () => {
-    const cars = [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)];
+    const cars = [
+      ...as('car', steady('object', 0.1, 0.5, 0.2)),
+      ...as('car', steady('object', 0.6, 0.5, 0.2)),
+    ];
     const ids = plainIds(cars);
     expect(
       asks('the red car', cars, {
@@ -350,5 +375,93 @@ describe('what the AM5 eval found', () => {
     expect(result.status).toBe('ambiguous_target');
     expect(result.chosenCandidateIds).toEqual([]);
     expect(result.candidates.length).toBeLessThanOrEqual(12);
+  });
+});
+
+describe('AM2.5: object classes filter the candidates', () => {
+  const car = as('car', steady('object', 0.35, 0.45, 0.3));
+  const dog = as('dog', steady('object', 0.7, 0.5, 0.2));
+  const person = as('person', steady('person', 0.05, 0.1, 0.3));
+
+  it('maps nouns to COCO classes through the synonym table, plurals included', () => {
+    expect([...parseTargetRequest('the sedan').objectClasses!]).toEqual(['car', 'truck', 'bus']);
+    expect([...parseTargetRequest('the puppy').objectClasses!]).toEqual(['dog']);
+    expect([...parseTargetRequest('the mug').objectClasses!]).toEqual(['cup']);
+    expect(parseTargetRequest('all the buses')).toMatchObject({ targetClass: 'object', all: true });
+    expect([...parseTargetRequest('all the buses').objectClasses!]).toEqual(['bus']);
+    expect(parseTargetRequest('the pets')).toMatchObject({ all: true, noun: 'pets' });
+    // Eyewear is not a wine glass.
+    expect(parseTargetRequest('her glasses').targetClass).toBe('out_of_vocabulary');
+    // A person or face request carries no object classes.
+    expect(parseTargetRequest('the man').objectClasses).toBeUndefined();
+  });
+
+  it('reads a colour before a noun as the noun’s colour, not as the fruit', () => {
+    expect(parseTargetRequest('the orange car')).toMatchObject({
+      targetClass: 'object',
+      noun: 'car',
+      appearance: ['orange'],
+    });
+    expect([...parseTargetRequest('the orange').objectClasses!]).toEqual(['orange']);
+  });
+
+  it('picks the one thing of the named class, whatever else is on screen', () => {
+    const result = resolve('the car', [...car, ...dog, ...person]);
+    expect(result.status).toBe('resolved');
+    const chosen = result.candidates.find((c) => c.candidateId === result.chosenCandidateIds[0]);
+    expect(chosen).toMatchObject({ label: 'object', objectClass: 'car' });
+    expect(MaskTargetsResultSchema.safeParse(result).success).toBe(true);
+    expect(resolve('the puppy', [...car, ...dog]).status).toBe('resolved');
+  });
+
+  it('keeps a car out of "the truck", and lets "vehicle" admit both', () => {
+    const truck = as('truck', steady('object', 0.05, 0.3, 0.5));
+    const small = as('car', steady('object', 0.65, 0.5, 0.2));
+    const result = resolve('the truck', [...truck, ...small]);
+    expect(result.status).toBe('resolved');
+    expect(
+      result.candidates.find((c) => c.candidateId === result.chosenCandidateIds[0]),
+    ).toMatchObject({ objectClass: 'truck' });
+    // "vehicle" admits both, and size then decides only because it clearly can.
+    expect(resolve('the biggest vehicle', [...truck, ...small]).status).toBe('resolved');
+  });
+
+  it('a class word that could mean several things on screen still asks', () => {
+    const cat = as('cat', steady('object', 0.1, 0.5, 0.2));
+    expect(resolve('the pet', [...cat, ...dog]).status).toBe('ambiguous_target');
+    expect(resolve('the animal', [...cat, ...dog]).status).toBe('ambiguous_target');
+    const bottle = as('bottle', steady('object', 0.2, 0.4, 0.1));
+    const mug = as('cup', steady('object', 0.45, 0.55, 0.1));
+    expect(resolve('the product', [...bottle, ...mug]).status).toBe('ambiguous_target');
+    // …and a person is never a product.
+    expect(resolve('the product', [...bottle, ...person]).status).toBe('resolved');
+  });
+
+  it('says there is none of that class rather than offering another', () => {
+    const result = resolve('the dog', [...car, ...person]);
+    expect(result.status).toBe('no_candidates');
+    expect(result.candidates).toEqual([]);
+  });
+
+  it('asks when the detector itself could not settle the class of a thing', () => {
+    // Called a dog on five frames and a cat on three: plausibly the cat, not clearly.
+    const flicker = steady('object', 0.3, 0.4, 0.3).map((hit, index) => ({
+      ...hit,
+      objectClass: index < 5 ? ('dog' as const) : ('cat' as const),
+      classScore: 0.8,
+    }));
+    expect(resolve('the cat', flicker).status).toBe('ambiguous_target');
+    expect(resolve('the dog', flicker).status).toBe('resolved');
+  });
+
+  it('a noun outside the table and the person words asks for a click', () => {
+    expect(resolve('the wheelbarrow', [...car, ...dog]).status).toBe('needs_click');
+  });
+
+  it('"all the cars" chooses every car, and only cars', () => {
+    const other = as('car', steady('object', 0.02, 0.1, 0.15));
+    const result = resolve('all the cars', [...car, ...other, ...dog]);
+    expect(result.status).toBe('resolved');
+    expect(result.chosenCandidateIds).toHaveLength(2);
   });
 });
