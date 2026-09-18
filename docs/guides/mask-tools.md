@@ -59,3 +59,20 @@ separate `composite` channel. Save time and file size are asserted by
 
 Long path keyframe arrays (64+ vertices) are written to `project.fp.json` as `f64le:<base64>` (the
 exact float64 bytes) instead of decimals; see ADR 0178's MK4 amendment.
+
+## Keying a colour (MK6.1)
+
+A `key` mask has no shape to draw, so its tools live in the Inspector's Mask tab instead of on the
+monitor toolbar: a model (hue/saturation/luma, RGB channels, luma, or sampled colours), a range
+per channel with its own softness, despill, and shadow retention.
+
+**Eyedropper.** Pressing it arms the monitor; the next click on the picture samples that pixel and
+turns it into a key. What the sample becomes depends on the model — a `3d` key collects the colour
+itself, a range model gets ranges centred on it, wide enough to be a starting point. **Shift-click
+adds** a colour rather than replacing: a backing with a hot spot and a shadow is keyable in three
+clicks, and adding widens the existing range rather than stacking a second one on the same channel
+(two ranges on one channel would intersect, which is the opposite of "also include this").
+
+The alpha is **how much the pixel matches**, like every other kind's alpha is "inside the shape".
+To cut a subject out of a green screen, select the green and switch the mask's Invert on — the same
+control a shape mask uses.

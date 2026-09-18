@@ -816,3 +816,68 @@ describe('tracking commands', () => {
     });
   });
 });
+
+/**
+ * MK6.1: a key's structured fields (`ranges`, `samples3d`, `finesse`) travel through
+ * `set_mask_properties` whole, and a malformed one is refused by the schema, not stored.
+ */
+describe('key mask properties', () => {
+  const keyMask = (over: Partial<MaskLayerInput> = {}): MaskLayerInput =>
+    ({
+      kind: 'key',
+      id: 'c1__mask',
+      model: 'hsl',
+      ranges: [{ channel: 'hue', low: 0.2, high: 0.4, softness: 0.05 }],
+      ...over,
+    }) as MaskLayerInput;
+
+  const keyOn = (tl: Timeline) => masksOn(tl)[0] as Extract<MaskLayer, { kind: 'key' }> | undefined;
+
+  it('writes ranges, samples and finesse as one reversible edit', () => {
+    const tl = timeline([keyMask()]);
+    const after = applied(tl, {
+      type: 'set_mask_properties',
+      maskId: 'c1__mask',
+      sourceTime: 0,
+      changes: {
+        model: '3d',
+        ranges: [],
+        samples3d: [[0, 0.7, 0.25]],
+        softness: 0.2,
+        finesse: { blurPx: 2, cleanBlack: 0.1 },
+      },
+    });
+    const mask = keyOn(after)!;
+    expect(mask.model).toBe('3d');
+    expect(mask.samples3d).toEqual([[0, 0.7, 0.25]]);
+    expect(mask.finesse.blurPx).toBe(2);
+    expect(mask.finesse.cleanBlack).toBe(0.1);
+    // Untouched finesse fields keep their defaults rather than disappearing.
+    expect(mask.finesse.cleanWhite).toBe(1);
+  });
+
+  it('refuses a range outside the schema instead of storing it', () => {
+    const tl = timeline([keyMask()]);
+    const rejected = compile(tl, {
+      type: 'set_mask_properties',
+      maskId: 'c1__mask',
+      sourceTime: 0,
+      changes: { ranges: [{ channel: 'chroma', low: 0, high: 1 }] },
+    });
+    expect(rejected.status).toBe('rejected');
+    expect(keyOn(tl)!.ranges).toHaveLength(1);
+  });
+
+  it('keeps opacity animatable while the structured fields stay static', () => {
+    const tl = timeline([keyMask()]);
+    const after = applied(tl, {
+      type: 'set_mask_properties',
+      maskId: 'c1__mask',
+      sourceTime: 1.5,
+      changes: { opacity: 0.5, despill: 'green' },
+    });
+    const mask = keyOn(after)!;
+    expect(mask.despill).toBe('green');
+    expect(mask.opacity).toBe(0.5);
+  });
+});
