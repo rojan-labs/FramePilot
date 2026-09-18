@@ -71,10 +71,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** no code path chooses a different renderer by timeline content on desktop; PX4 still green.
 
-### PX5 — Performance evidence `[ ]`
+### PX5 — Performance evidence `[~]` (instrumented, measured and guarded; the matte rows MISS — see `PX5-BUDGETS.md`; PX5.3 fixes them)
 
-- [ ] PX5.1 Budgets (performance-monitor) on the Scale row: ≤ 1% dropped frames, seek-to-present ≤ 100 ms, bounded memory
-- [ ] PX5.2 Before/after measurements committed; non-flaky regression guard
+- [x] PX5.1 Budgets (performance-monitor) on the Scale row: ≤ 1% dropped frames, seek-to-present ≤ 100 ms, bounded memory
+- [x] PX5.2 Before/after measurements committed; non-flaky regression guard
+
+- [ ] PX5.3 Matte playback within budget: a GPU matte pass (alpha, decontamination, edge shift, finesse in shaders) and a lossless monitor-resolution matte tier resampled with the engine's own deterministic filter, so the PX4 oracle still passes 59/59 at unchanged gates. Today: 600/601 frames dropped and 617 ms seek with a 4K matte (float64 CPU matte maths 452 ms per composite + TypeScript FFV1 decode 101 ms per frame)
+- [ ] PX5.4 Export with masks + 4K matte ≤ 1.5×: 1.49× locally, 1.56× on CI after the decontaminate fix (was 1.98×) — close the remaining gap and measure the full 3-minute row, not a 4–6 s window
+- [ ] PX5.5 Playback time snapped to the project frame grid so a 60 Hz display does not composite every project frame twice (needs a decision on how a 60 fps source looks in a 30 fps project — check what the export does and match it)
 
 **DoD:** budgets hold on an M-series Mac with the 3-min 4K, 4-layer + text + matte timeline.
 

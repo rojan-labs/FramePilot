@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** AM1–AM3 (AI masking, ai-tooling-engineer) and PX5 (perf, performance-monitor) running — both restarted 2026-09-18 after a usage-limit stop with nothing committed. BR6 done. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** AM1–AM3 (AI masking) running. PX5.3 (GPU matte pass + monitor-resolution matte tier) starting. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- PX5.1/PX5.2 (8a87dac9…837fe985): compositor telemetry, generated 4K Scale fixture, `preview-perf` CI job (invariants only; ~15 min per run), export optimisation (`decontaminate` inside the edge-band box: 227 → 65 ms per 4K frame, byte-identical, 38 equality cases)
 
 - BR6 (3a45148d…2dde0422): background-removal row with every pack state and its copy, AI Object + AI Brush, progress with phases/ETA/cancel, review panel shared with tracking, text behind subject, export notice, processing bands. **CI green, run 35304699655.** Found a real product bug: the sticky inspector statusbar covered the bottom of its own scroll port, so controls scrolled flush to it were unclickable for anyone
 
@@ -96,6 +98,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- PX5 (M1 Pro, Chrome/Metal, 20 s runs, monitor on 540p proxies): playback 4 layers + text 0.17% dropped ✓; + animated 200-vertex path ✓; + key with full finesse ✓; seek 36–56 ms ✓; decoders ≤ 6 ✓. **With a 4K matte: 600/601 frames dropped ✗, seek 617 ms p95 ✗** (CPU float64 matte maths 452 ms/composite + TS FFV1 decode 101 ms/frame). Export with masks + 4K matte 1.49× local / 1.56× CI vs gate 1.5× ✗ narrowly (was 1.98×), measured on a 4–6 s window only. Picture cache peaks 401–676 MB vs nominal 384 MB (pinned decode-ahead frames). Not measured: other hardware, packaged Electron + fp-media://, camera footage, cold storage, full 3-min export
 
 - MK6 key parity (run 35300279316, real GPU): ≤ 1/255 on 1296 values, all four encodings ✓; CPU twin exact 0/255
 - MK5 oracle (run 35295665259): 249/249 checks; effect-kinds-masked min PSNR 68.52 dB, max channel error 2/255, 100% within tolerance
