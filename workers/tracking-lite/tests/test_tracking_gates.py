@@ -339,8 +339,11 @@ def test_low_confidence_detection_recall_meets_the_gate(tmp_path: Path) -> None:
     while the tracker still believes it has a measurement.
     """
     count = 90
-    burst = range(40, 56)
-    steps = [26.0 if index in burst else 1.0 for index in range(count)]
+    # Tuned so the tracker keeps MEASURING: past roughly 20 px per frame this plate the flow
+    # loses its correspondences outright and the worker reports `target_lost`, which is the
+    # right behaviour but proves nothing about the confidence number.
+    burst = range(40, 52)
+    steps = [9.0 if index in burst else 1.0 for index in range(count)]
     positions = np.cumsum([0.0, *steps[:-1]])
     matrices = [
         homography(dx=float(positions[index]), dy=0.0, scale=1.0, degrees=0.0, perspective=0.0)
@@ -349,7 +352,7 @@ def test_low_confidence_detection_recall_meets_the_gate(tmp_path: Path) -> None:
     frames = sequence(tmp_path, matrices)
     for index in burst:
         # Motion blur along the direction of travel, as a real fast pan would carry.
-        blurred = cv2.blur(frames[index].gray, (17, 1))
+        blurred = cv2.blur(frames[index].gray, (11, 1))
         frames[index] = DecodedFrame(
             color=cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR), gray=blurred
         )
