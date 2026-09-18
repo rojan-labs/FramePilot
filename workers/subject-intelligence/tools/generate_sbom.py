@@ -356,6 +356,24 @@ def build_licenses_markdown(components: list[Component], models: list[ModelRecor
     lines.extend(f"- **{model.name}** — {model.copyright}" for model in models)
     lines += [
         "",
+        "## Class names",
+        "",
+        "`subject.detect` names each person/object detection's class when the host asks (AM2.5).",
+        "The 80 names and their 0..79 order are the pinned YOLOX-S model's output layout, carried",
+        "in `src/framepilot_subject_intelligence/coco_classes.py`:",
+        "",
+        "| Item | Source | License |",
+        "| --- | --- | --- |",
+        "| Names and index order | YOLOX `yolox/data/datasets/coco_classes.py` (Megvii), "
+        "identical to the `classes` tuple of OpenCV Zoo `object_detection_yolox/demo.py` "
+        "| Apache-2.0 |",
+        "| The category names themselves | COCO 2017 detection annotations, cocodataset.org "
+        "| CC BY 4.0 (annotations) |",
+        "",
+        "Only the 80 short category names are carried — no images, annotations or boxes from the",
+        "dataset. They are attributed here because the pack ships them and reports them to the "
+        "host.",
+        "",
         "## Python distributions",
         "",
         "| Component | Version | License |",

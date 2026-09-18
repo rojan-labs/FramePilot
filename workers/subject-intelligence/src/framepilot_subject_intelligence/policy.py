@@ -62,8 +62,15 @@ def select_detections(
     *,
     labels: tuple[str, ...],
     max_detections: int,
+    include_classes: bool = False,
 ) -> list[Detection]:
-    """Filter, bound and normalize one frame's detections."""
+    """Filter, bound and normalize one frame's detections.
+
+    ``include_classes`` passes each detection's COCO class through (AM2.5). Off, the
+    output is exactly what a 1.0 pack emitted, which is what a host that predates the
+    field can parse. A detection whose backend named no class stays unclassed: the
+    class is the model's, never filled in here.
+    """
     wanted = [
         item
         for item in raw
@@ -78,12 +85,19 @@ def select_detections(
         if box.width <= 0.0 or box.height <= 0.0:
             # Entirely outside the frame after clipping: not a detection at all.
             continue
+        object_class: str | None = None
+        class_score: float | None = None
+        if include_classes and item.object_class is not None and item.class_score is not None:
+            object_class = item.object_class
+            class_score = min(max(item.class_score, 0.0), 1.0)
         kept.append(
             Detection(
                 frame=frame,
                 label=item.label,
                 box=box,
                 confidence=min(max(item.confidence, 0.0), 1.0),
+                object_class=object_class,
+                class_score=class_score,
             )
         )
     return kept
@@ -118,6 +132,7 @@ def run_detection(
             source.height,
             labels=request.labels,
             max_detections=request.max_detections,
+            include_classes=request.include_classes,
         )
         frame_number += 1
 

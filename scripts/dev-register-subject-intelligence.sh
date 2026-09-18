@@ -54,7 +54,7 @@ trap 'rm -rf "$STAGE" "$INPUT_JSON" "$RESULT_JSON"' EXIT
 cat > "$INPUT_JSON" <<JSON
 {
   "packId": "framepilot.subject-intelligence",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "payloadRoot": "$STAGE",
   "entrypoint": "bin/framepilot-subject-intelligence",
   "capabilities": ["subject.detect", "subject.segment"],

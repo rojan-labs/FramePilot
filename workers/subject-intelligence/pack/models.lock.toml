@@ -72,7 +72,7 @@ bytes = 35858002
 license = "Apache-2.0"
 licensePath = "object_detection_yolox/LICENSE"
 copyright = "Megvii, Inc. and contributors; OpenCV Zoo"
-notes = "COCO-80. Class 0 is reported as `person`; every other class as `object`."
+notes = "COCO-80. Class 0 is reported as `person`; every other class as `object`, naming its COCO class (coco_classes.py) when the host asks."
 
 [[model]]
 id = "segment"
