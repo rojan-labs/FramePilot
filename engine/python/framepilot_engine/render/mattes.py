@@ -48,7 +48,7 @@ from typing import IO, Any
 import numpy as np
 import numpy.typing as npt
 
-from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffprobe
 from framepilot_engine.render.pts_reader import VideoTiming
 from framepilot_engine.safety import PathTraversalError, resolve_within
 from framepilot_engine.subprocess_safety import validate_safe_argv
@@ -541,7 +541,7 @@ class _RawCursor:
         start: int,
         seek_seconds: float | None,
     ) -> None:
-        argv = [find_ffmpeg(), "-nostdin", "-v", "error"]
+        argv = [find_export_ffmpeg(), "-nostdin", "-v", "error"]  # the export's binary (BR2.8)
         if seek_seconds is not None:
             argv += ["-ss", repr(seek_seconds)]
         argv += [

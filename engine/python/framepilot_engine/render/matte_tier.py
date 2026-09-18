@@ -62,7 +62,7 @@ from typing import Any
 import numpy as np
 import numpy.typing as npt
 
-from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffmpeg, find_ffprobe
 from framepilot_engine.media.untrusted import FORMAT_WHITELIST
 from framepilot_engine.render.mask_raster import FloatArray
 from framepilot_engine.render.masks import mask_scalar_at
@@ -189,7 +189,8 @@ class _MasterFrames:
     def __init__(self, path: Path, pixel_format: str, shape: tuple[int, ...], dtype: Any) -> None:
         argv = validate_safe_argv(
             [
-                find_ffmpeg(),
+                # The export's binary: the tier must hold what the export makes of the masters.
+                find_export_ffmpeg(),
                 "-nostdin",
                 "-v",
                 "error",

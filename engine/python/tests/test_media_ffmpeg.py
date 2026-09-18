@@ -2,7 +2,9 @@
 
 from __future__ import annotations
 
+import subprocess
 import sys
+from pathlib import Path
 
 import pytest
 
@@ -83,3 +85,43 @@ def test_run_logs_returns_stderr() -> None:
 def test_run_logs_nonzero_exit_raises() -> None:
     with pytest.raises(ffmpeg.FFmpegError):
         ffmpeg.run_logs([sys.executable, "-c", "import sys; sys.exit(2)"])
+
+
+def test_export_ffmpeg_is_moviepys_binary_whatever_path_and_override_say(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """BR2.8: every decode the export does outside MoviePy must run MoviePy's own ffmpeg."""
+    from moviepy.video.io import ffmpeg_reader, ffmpeg_writer
+
+    from framepilot_engine.render import encoders
+
+    monkeypatch.setenv("FRAMEPILOT_FFMPEG", "/decoy/override/ffmpeg")
+    monkeypatch.setattr(
+        "framepilot_engine.media.ffmpeg.shutil.which", lambda _: "/decoy/path/ffmpeg"
+    )
+    export = ffmpeg.find_export_ffmpeg()
+    assert export == ffmpeg_reader.FFMPEG_BINARY == ffmpeg_writer.FFMPEG_BINARY
+    assert encoders._moviepy_ffmpeg_binary() == export
+    assert ffmpeg.find_ffmpeg() == "/decoy/override/ffmpeg"  # non-export callers keep the order
+
+
+def test_matte_decodes_run_the_export_ffmpeg(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from moviepy.video.io import ffmpeg_reader
+
+    from framepilot_engine.render import matte_tier, mattes
+
+    launched: list[list[str]] = []
+
+    class _Pipe:
+        stdout = None
+
+        def __init__(self, argv: list[str], **_: object) -> None:
+            launched.append(list(argv))
+
+    monkeypatch.setenv("FRAMEPILOT_FFMPEG", "/decoy/override/ffmpeg")
+    monkeypatch.setattr(subprocess, "Popen", _Pipe)
+    mattes._RawCursor(Path("matte.mkv"), "gray", 4, 0, None)
+    matte_tier._MasterFrames(Path("matte.mkv"), "gray", (2, 2), "uint8")
+    assert [argv[0] for argv in launched] == [ffmpeg_reader.FFMPEG_BINARY] * 2

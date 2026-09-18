@@ -18,7 +18,8 @@ This module fixes that for VFR sources only:
   ``-fps_mode passthrough`` (every decoded frame once, none invented), and the frame at source
   second ``t`` is the last frame whose pts is at or before ``t`` (measured from the first frame,
   MoviePy's clock zero). Seeks land on an exact frame by seeking halfway between it and the
-  previous one. Scaling and pixel format are MoviePy's own (``scale`` + ``bicubic``, rgb24).
+  previous one. Scaling and pixel format are MoviePy's own (``scale`` + ``bicubic``, rgb24),
+  and so is the ffmpeg binary (:func:`~framepilot_engine.media.ffmpeg.find_export_ffmpeg`, BR2.8).
 """
 
 from __future__ import annotations
@@ -34,7 +35,7 @@ from typing import IO, Any
 import numpy as np
 import numpy.typing as npt
 
-from framepilot_engine.media.ffmpeg import find_ffmpeg, find_ffprobe
+from framepilot_engine.media.ffmpeg import find_export_ffmpeg, find_ffprobe
 from framepilot_engine.media.untrusted import untrusted_input_options
 from framepilot_engine.subprocess_safety import validate_safe_argv
 
@@ -206,11 +207,14 @@ class PtsVideoReader:
 
     def _open(self, index: int) -> None:
         self.close()
-        argv = [find_ffmpeg(), "-nostdin"]
+        # MoviePy's own binary, not find_ffmpeg(): a VFR clip must go through the same colour
+        # converter as every CFR clip in the export (BR2.8).
+        argv = [find_export_ffmpeg(), "-nostdin"]
         seek = self._seek_seconds(index)
         if seek is not None:
             argv += ["-ss", f"{seek:.9f}"]
         argv += [
+            *untrusted_input_options(),
             "-i",
             self.filename,
             "-loglevel",

@@ -2,11 +2,15 @@
 
 from __future__ import annotations
 
+import os
+import subprocess
 from pathlib import Path
+from typing import Any
 
 import numpy as np
 import pytest
 from moviepy import VideoFileClip
+from moviepy.video.io import ffmpeg_reader
 from moviepy.video.io.ffmpeg_reader import FFMPEG_VideoReader
 
 from framepilot_engine.render.pts_reader import (
@@ -75,3 +79,38 @@ def test_variable_rate_frames_are_picked_by_pts(tmp_path: Path) -> None:
     finally:
         clip.close()
     assert clip.reader is None
+
+
+def test_variable_rate_decode_runs_moviepys_ffmpeg_not_path_or_override(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """BR2.8: a VFR clip must decode through the binary MoviePy decodes CFR clips with.
+
+    Another ffmpeg on PATH and in FRAMEPILOT_FFMPEG is a broken decoy: if the pts reader ran
+    either, the frame read would fail. Different builds convert YUV to RGB differently, so one
+    export must never draw its clips with two of them.
+    """
+    path = tmp_path / "vfr.mkv"
+    fx.write_vfr_source(path, _numbered(len(PTS)), PTS)
+    decoy = tmp_path / "bin" / "ffmpeg"
+    decoy.parent.mkdir()
+    decoy.write_text("#!/bin/sh\nexit 1\n")
+    decoy.chmod(0o755)
+    monkeypatch.setenv("PATH", f"{decoy.parent}{os.pathsep}{os.environ.get('PATH', '')}")
+    monkeypatch.setenv("FRAMEPILOT_FFMPEG", str(decoy))
+    launched: list[str] = []
+    real_popen = subprocess.Popen
+
+    def recording_popen(argv: Any, **kwargs: Any) -> Any:
+        if "image2pipe" in argv:  # a decode (MoviePy's or the pts reader's), not a probe
+            launched.append(str(argv[0]))
+        return real_popen(argv, **kwargs)
+
+    monkeypatch.setattr(subprocess, "Popen", recording_popen)
+    clip = use_pts_reader(VideoFileClip(str(path)), str(path))
+    try:
+        assert isinstance(clip.reader, PtsVideoReader)
+        assert _number(clip.get_frame(0.3)) == 7
+    finally:
+        clip.close()
+    assert launched and set(launched) == {ffmpeg_reader.FFMPEG_BINARY}

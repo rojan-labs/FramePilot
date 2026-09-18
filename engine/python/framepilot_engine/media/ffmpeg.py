@@ -15,6 +15,9 @@ Binary discovery order (both binaries):
    of MoviePy), so a render machine always has *an* ffmpeg even without a system
    install. ffprobe is **not** bundled by imageio-ffmpeg, so it must be on PATH
    or set via the override.
+
+The EXPORT is the exception: every pixel it decodes goes through
+:func:`find_export_ffmpeg`, the binary MoviePy itself runs, never this order (BR2.8).
 """
 
 from __future__ import annotations
@@ -102,6 +105,24 @@ def find_ffmpeg() -> str:
         raise FFmpegNotFoundError(
             f"ffmpeg not found on PATH, via {_FFMPEG_ENV}, or via imageio-ffmpeg."
         ) from exc
+
+
+def find_export_ffmpeg() -> str:
+    """The ffmpeg the export decodes and encodes with: exactly the binary MoviePy runs.
+
+    WHY not :func:`find_ffmpeg`: MoviePy never consults ``FRAMEPILOT_FFMPEG`` or ``PATH``; it
+    runs ``moviepy.config.FFMPEG_BINARY`` (imageio-ffmpeg's bundled build unless MoviePy's own
+    ``FFMPEG_BINARY`` / imageio's ``IMAGEIO_FFMPEG_EXE`` say otherwise). Different ffmpeg builds
+    convert YUV to RGB differently (on Apple Silicon the bundled 7.1 uses libswscale's C tables,
+    Homebrew's 8.1 does not; up to several levels apart), so a decode the export does outside
+    MoviePy - the variable-frame-rate pts reader, the matte masters - must use this binary or
+    one export draws two clips from the same camera with two colour converters (BR2.8).
+
+    :returns: The path or command name MoviePy's readers and writer invoke.
+    """
+    from moviepy.config import FFMPEG_BINARY
+
+    return str(FFMPEG_BINARY)
 
 
 def _run_checked(argv: Sequence[str], timeout: float | None) -> subprocess.CompletedProcess[bytes]:
