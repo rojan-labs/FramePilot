@@ -30,6 +30,7 @@ from typing import Any
 from framepilot_engine.render.mask_raster import FloatArray
 from framepilot_engine.render.mask_stack import (
     ANALYTIC_KINDS,
+    FrameOwner,
     MaskStackRefusal,
     assert_analytic_drawable,
     path_keyframe_at,
@@ -84,18 +85,6 @@ def assert_frame_renderable(mask: Any, layer_id: str) -> None:
     if mask.kind == "path":
         # Raises when the path keyframes disagree about how many vertices they have.
         path_keyframe_at(mask, mask.path_keyframes[0].source_time if mask.path_keyframes else 0.0)
-
-
-@dataclass(frozen=True)
-class FrameOwner:
-    """The owner :func:`mask_stack.stack_alpha` needs, for a mask that is in frame pixels.
-
-    An effect layer has no crop, so the source → raster mapping is the identity once the "media
-    size" is stated as the frame itself.
-    """
-
-    id: str
-    crop: None = None
 
 
 @dataclass(frozen=True)

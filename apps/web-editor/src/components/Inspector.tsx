@@ -14,6 +14,7 @@ import {
   setEffectLayerParamsPatch,
 } from '../editor/patch-builders.js';
 import { EffectInspector } from './EffectInspector.js';
+import { EffectLayerMaskPanel } from './inspector/masks/EffectLayerMaskPanel.js';
 import { MaskPanel } from './inspector/masks/MaskPanel.js';
 import { maskToolStore, useMaskToolValue } from './inspector/masks/useMaskTools.js';
 import { MaskTracking } from './inspector/masks/MaskTracking.js';
@@ -198,6 +199,8 @@ export function Inspector({
     coerceInspectorTab,
   );
   const [copied, setCopied] = useState<ClipProperties | null>(null);
+  // MK9.1: an adjustment lane's Effect / Mask tabs (the mask limits where the adjustment lands).
+  const [laneTab, setLaneTab] = useState<'effect' | 'mask'>('effect');
 
   // Hooks run before any early return: the Mask tab opens for the clip the export dialog named.
   useEffect(() => {
@@ -217,14 +220,32 @@ export function Inspector({
             <span title={layer.id}>{layer.id}</span>
           </div>
         </header>
-        <nav className="inspector-tabs" aria-label="effect inspector categories">
-          <span className="inspector-tab is-active">Effect</span>
+        <nav className="inspector-tabs" role="tablist" aria-label="effect inspector categories">
+          {(['effect', 'mask'] as const)
+            .filter((tab) => maskToolsOn || tab === 'effect')
+            .map((tab) => (
+              <button
+                key={tab}
+                type="button"
+                role="tab"
+                className={`inspector-tab${laneTab === tab ? ' is-active' : ''}`}
+                aria-selected={laneTab === tab}
+                onClick={() => setLaneTab(tab)}
+              >
+                {tab === 'effect' ? 'Effect' : 'Mask'}
+              </button>
+            ))}
         </nav>
         {selection.effectLayerIds.length > 1 && (
           <p className="inspector-multi">
             {selection.effectLayerIds.length} effects selected. Editing the first.
           </p>
         )}
+        {maskToolsOn && laneTab === 'mask' ? (
+          <div className="inspector-tab-page" role="tabpanel" aria-label="Mask controls">
+            <EffectLayerMaskPanel key={`${layer.id}-masks`} editor={editor} layer={layer} />
+          </div>
+        ) : (
         <div className="inspector-tab-page inspector-effect-page">
           <EffectInspector
             layer={layer}
@@ -246,6 +267,7 @@ export function Inspector({
             }}
           />
         </div>
+        )}
       </section>
     );
   }

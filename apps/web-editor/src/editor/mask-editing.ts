@@ -70,6 +70,7 @@ export function runMaskCommand(editor: UseEditor, input: MaskCommandInput): Mask
 
 /** A drag or slider in progress that the monitor should composite before it commits. */
 export interface LiveMaskPreview {
+  /** The stack's owner: a clip, or an adjustment lane's id (MK9.1). */
   readonly clipId: string;
   readonly maskId: string;
   readonly geometry?: MaskGeometry;
@@ -113,25 +114,34 @@ export function timelineWithLiveMask(timeline: Timeline, live: LiveMaskPreview):
     }
     return next;
   };
+  const replaceIn = (masks: readonly MaskLayer[]): MaskLayer[] =>
+    masks.map((mask) => (mask.id === live.maskId ? replaceMask(mask) : mask));
   return {
     ...timeline,
-    tracks: timeline.tracks.map((track) =>
-      track.clips.some((clip) => clip.id === live.clipId)
-        ? {
-            ...track,
-            clips: track.clips.map((clip) =>
-              clip.id === live.clipId && clip.masks !== undefined
-                ? {
-                    ...clip,
-                    masks: clip.masks.map((mask) =>
-                      mask.id === live.maskId ? replaceMask(mask) : mask,
-                    ),
-                  }
-                : clip,
-            ),
-          }
-        : track,
-    ),
+    tracks: timeline.tracks.map((track) => {
+      if (track.clips.some((clip) => clip.id === live.clipId)) {
+        return {
+          ...track,
+          clips: track.clips.map((clip) =>
+            clip.id === live.clipId && clip.masks !== undefined
+              ? { ...clip, masks: replaceIn(clip.masks) }
+              : clip,
+          ),
+        };
+      }
+      // MK9.1: an adjustment lane's mask being drawn previews live exactly like a clip's.
+      if (track.effectLayers?.some((layer) => layer.id === live.clipId)) {
+        return {
+          ...track,
+          effectLayers: track.effectLayers.map((layer) =>
+            layer.id === live.clipId && layer.masks !== undefined
+              ? { ...layer, masks: replaceIn(layer.masks) }
+              : layer,
+          ),
+        };
+      }
+      return track;
+    }),
   };
 }
 

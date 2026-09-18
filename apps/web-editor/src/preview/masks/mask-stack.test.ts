@@ -111,6 +111,80 @@ describe('mask stack vectors (float64-exact vs the export)', () => {
   });
 });
 
+interface FrameClipCase {
+  id: string;
+  clip: unknown;
+  media: { width: number; height: number } | null;
+  frame: [number, number];
+  placement: [number, number, number, number, number];
+  expected: { width: number; height: number; time: number; alpha: string | null }[];
+}
+
+const frameClips = JSON.parse(
+  readFileSync(path.join(REPO, 'tests', 'fixtures', 'mask-raster', 'frame-clips.json'), 'utf8'),
+) as { cases: FrameClipCase[] };
+
+describe('frame-space clip masks (MK9.1, float64-exact vs the export)', () => {
+  it('reproduces every placement, size and time of frame-clips.json', () => {
+    const mismatches: string[] = [];
+    let checked = 0;
+    for (const vectorCase of frameClips.cases) {
+      const stack = clipMaskStack(parseClip(vectorCase.clip), vectorCase.media)!;
+      expect(stack.refusal, vectorCase.id).toBeNull();
+      const [resizedW, resizedH, rotation, x, y] = vectorCase.placement;
+      for (const expected of vectorCase.expected) {
+        const placement = {
+          placement: {
+            localWidth: expected.width,
+            localHeight: expected.height,
+            width: resizedW,
+            height: resizedH,
+            rotation,
+            x,
+            y,
+          },
+          frameWidth: vectorCase.frame[0],
+          frameHeight: vectorCase.frame[1],
+        };
+        const actual = digest(
+          stackAlphaAt(
+            stack,
+            { kind: 'alpha' },
+            expected.width,
+            expected.height,
+            expected.time,
+            null,
+            placement,
+          ),
+        );
+        if (actual !== expected.alpha) {
+          mismatches.push(
+            `${vectorCase.id} @${expected.width}x${expected.height} t=${expected.time}`,
+          );
+        }
+        checked += 1;
+      }
+    }
+    expect(mismatches.join('\n')).toBe('');
+    expect(checked).toBeGreaterThanOrEqual(8);
+  });
+
+  it('keys the cached raster by where the picture lands, and skips it with no placement', () => {
+    const vectorCase = frameClips.cases.find((c) => c.id === 'frame-clip/rect-fills-frame')!;
+    const stack = clipMaskStack(parseClip(vectorCase.clip), vectorCase.media)!;
+    const cache = new MaskStackRasterCache();
+    const at = (x: number) => ({
+      placement: { localWidth: 64, localHeight: 36, width: 64, height: 36, rotation: 0, x, y: 0 },
+      frameWidth: 64,
+      frameHeight: 36,
+    });
+    const first = cache.raster(stack, { kind: 'alpha' }, 64, 36, 0, null, at(0));
+    expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0.5, null, at(0))).toBe(first);
+    expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0, null, at(8))).not.toBe(first);
+    expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0)).toBeNull();
+  });
+});
+
 describe('mask stack refusals', () => {
   const base = {
     id: 'c',
@@ -128,17 +202,41 @@ describe('mask stack refusals', () => {
     clipMaskStack(parseClip({ ...base, ...extra, masks: [mask] }), media)?.refusal ?? null;
 
   it.each([
-    [{ id: 'r', kind: 'rectangle', cx: 10, cy: 10, width: 5, height: 5, space: 'frame' }, 'MK9'],
-  ])('names the task that ships %j', (mask, task) => {
-    let refused;
-    try {
-      refused = refusalOf(mask);
-    } catch {
-      // A kind whose schema needs more fields than this test supplies is covered by its own suite.
-      return;
-    }
-    expect(refused?.task).toBe(task);
-    expect(refused?.message).toMatch(/^Mask not previewed yet/);
+    [{ id: 'k', kind: 'key', model: 'hsl', space: 'frame' }, /only shapes, splits, bands/],
+    [
+      {
+        id: 'r',
+        kind: 'rectangle',
+        cx: 10,
+        cy: 10,
+        width: 5,
+        height: 5,
+        space: 'frame',
+        tracking: {
+          artifact: { key: '0'.repeat(64), sha256: '0'.repeat(64) },
+          method: 'position',
+          referenceSourceTime: 0,
+        },
+      },
+      /a track follows the picture/,
+    ],
+  ])('refuses a frame-space mask that follows the picture (MK9.1) %j', (mask, message) => {
+    const refused = refusalOf(mask);
+    expect(refused?.task ?? null).toBeNull();
+    expect(refused?.message).toMatch(message);
+  });
+
+  it('draws a frame-space shape without a measured media size', () => {
+    const stack = clipMaskStack(
+      parseClip({
+        ...base,
+        masks: [
+          { id: 'r', kind: 'rectangle', cx: 10, cy: 10, width: 5, height: 5, space: 'frame' },
+        ],
+      }),
+      null,
+    );
+    expect(stack?.refusal ?? null).toBeNull();
   });
 
   it('draws split, band and gradient masks (MK8.1), and refuses a gradient with edge controls', () => {

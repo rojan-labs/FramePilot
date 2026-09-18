@@ -138,6 +138,12 @@ export interface MaskPropertiesProps {
   readonly name: string;
   readonly sourceTime: number;
   readonly store?: MaskToolStore;
+  /**
+   * Whose stack this mask is in (MK9.1). On an adjustment lane (`effect_layer`), `clip` is the
+   * lane's stand-in, the mask always limits the whole adjustment, and every edit compiles onto
+   * the lane.
+   */
+  readonly owner?: 'clip' | 'effect_layer';
 }
 
 /** A mask property's keyframes in the clip-keyframe shape the keyframe control reads. */
@@ -172,13 +178,17 @@ export function MaskProperties({
   name,
   sourceTime,
   store = maskToolStore,
+  owner = 'clip',
 }: MaskPropertiesProps): JSX.Element {
   const tools = useMaskTools(store);
   const locked = mask.locked;
   const animatable: readonly string[] = MASK_ANIMATABLE_PROPERTIES[mask.kind];
+  const onLane = owner === 'effect_layer';
 
   const run = (command: MaskCommandInput): void => {
-    store.update({ message: runMaskCommand(editor, command) });
+    store.update({
+      message: runMaskCommand(editor, onLane ? { ...command, owner } : command),
+    });
   };
 
   const keyframeControl = (property: MaskScalarProperty | 'path', label: string): JSX.Element => {
@@ -284,6 +294,11 @@ export function MaskProperties({
           Locked. Unlock the mask to change it.
         </p>
       )}
+      {onLane ? (
+        <InspectorRow label="Limits" name={`${name} target`}>
+          <span className="inspector-row-value">The whole adjustment, fixed to the frame</span>
+        </InspectorRow>
+      ) : (
       <LabeledSelect
         caption="Limits"
         label={`${name} target`}
@@ -299,6 +314,7 @@ export function MaskProperties({
           })
         }
       />
+      )}
       {(mask.kind === 'gradient' || mask.kind === 'layer' ? GRADIENT_EDGE_ROWS : EDGE_ROWS).map(
         numberRow,
       )}

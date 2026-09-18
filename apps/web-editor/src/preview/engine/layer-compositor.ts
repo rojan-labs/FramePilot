@@ -37,6 +37,7 @@ import {
   maskScalar,
   singleMaskAlpha,
   stackReadsPicture,
+  type FramePlacement,
   type MatteMask,
   type StackMask,
   type MatteStackInputs,
@@ -215,6 +216,11 @@ export class LayerCompositor {
   } | null = null;
   /** How deep track mattes are nested (a matte whose source has its own track matte). */
   private matteDepth = 0;
+  /**
+   * The picture layer being rastered, whatever its masks: a frame-space clip mask (MK9.1) is read
+   * back through where this picture lands, like a track matte.
+   */
+  private pictureStep: PictureRasterStep | null = null;
 
   /** Where this compositor reports mask raster, key stack and pool numbers (PX5.1). */
   setTelemetry(telemetry: PreviewTelemetry | null): void {
@@ -384,11 +390,14 @@ export class LayerCompositor {
     layerMattes: ReadonlyMap<string, readonly CompositeLayer[]> | null = null,
   ): { target: RenderTarget; x: number; y: number } | null {
     const outer = this.layerContext;
+    const outerStep = this.pictureStep;
     this.layerContext = layerMattes === null ? null : { sources: layerMattes, step };
+    this.pictureStep = step;
     try {
       return this.rasterPictureSteps(step, source, decodedMemo, view, mattes, flagged);
     } finally {
       this.layerContext = outer;
+      this.pictureStep = outerStep;
     }
   }
 
@@ -849,7 +858,15 @@ export class LayerCompositor {
     if (!readsPicture && !readsLayers && !matteOnGpu) {
       const drawsBefore = this.maskRasters.drawCount;
       const started = performance.now();
-      const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
+      const raster = this.maskRasters.raster(
+        stack,
+        target,
+        width,
+        height,
+        clipTime,
+        mattes,
+        this.framePlacement(width, height),
+      );
       if (this.maskRasters.drawCount !== drawsBefore) {
         this.telemetry?.record('maskRaster', performance.now() - started);
       } else if (raster !== null) {
@@ -871,6 +888,30 @@ export class LayerCompositor {
     // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
     this.telemetry?.record(readsPicture ? 'keyStack' : 'matteStack', performance.now() - started);
     return { texture, scale: 1 };
+  }
+
+  /**
+   * Where the picture being rastered lands on the frame, for a `width`×`height` raster of it
+   * (`picture_placement_at`): the step's resize, PIL rotation and integer paste, the same
+   * numbers a track matte reads through. `null` outside a picture layer.
+   */
+  private framePlacement(width: number, height: number): FramePlacement | null {
+    const step = this.pictureStep;
+    if (step === null) return null;
+    const placement: PicturePlacement = {
+      localWidth: width,
+      localHeight: height,
+      width: step.resize?.width ?? width,
+      height: step.resize?.height ?? height,
+      rotation: step.rotation,
+      x: step.x,
+      y: step.y,
+    };
+    return {
+      placement,
+      frameWidth: this.frameSize.width,
+      frameHeight: this.frameSize.height,
+    };
   }
 
   /**
@@ -964,7 +1005,17 @@ export class LayerCompositor {
               r.floatPlane(
                 width,
                 height,
-                Float32Array.from(singleMaskAlpha(mask, stack, width, height, s, mattes)),
+                Float32Array.from(
+                  singleMaskAlpha(
+                    mask,
+                    stack,
+                    width,
+                    height,
+                    s,
+                    mattes,
+                    this.framePlacement(width, height),
+                  ),
+                ),
               ));
       const out = r.target(width, height, 'rgba32f');
       const program = r.program('mask-combine', MASK_COMBINE_FRAGMENT);

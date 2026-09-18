@@ -16,7 +16,7 @@ import {
   type PathMask,
   type Timeline,
 } from '@framepilot/timeline-schema';
-import { encodeMaskPath, maskPathVerticesAt } from '@framepilot/editor-core';
+import { effectLayerMaskOwner, encodeMaskPath, maskPathVerticesAt } from '@framepilot/editor-core';
 import { useEditor, type UseEditor } from '../../editor/useEditor.js';
 import { MaskToolStore } from '../inspector/masks/useMaskTools.js';
 import { MaskCanvasTools } from './MaskCanvasTools.js';
@@ -648,5 +648,74 @@ describe('shape presets (MK8.3)', () => {
       ['path', 'subtract'],
     ]);
     expect(historyLength()).toBe(1);
+  });
+});
+
+describe('adjustment lane (MK9.1)', () => {
+  function laneTimeline(): Timeline {
+    return {
+      revision: 0,
+      tracks: [
+        {
+          id: 'fx',
+          type: 'effect',
+          clips: [],
+          effectLayers: [
+            {
+              id: 'lane',
+              effectId: 'soft-veil',
+              kind: 'blur-gaussian',
+              start: 2,
+              end: 6,
+              params: { radius: 8 },
+              keyframes: [],
+            },
+          ],
+        },
+      ],
+    } as unknown as Timeline;
+  }
+
+  function LaneHost(): JSX.Element {
+    editor = useEditor(laneTimeline(), { assets: [] });
+    const layer = editor.state.timeline.tracks[0]!.effectLayers![0]!;
+    return (
+      <MaskCanvasTools
+        editor={editor}
+        clip={effectLayerMaskOwner(layer)}
+        assets={editor.state.assets}
+        resolution={RESOLUTION}
+        frameWidth={1920}
+        store={store}
+        owner="effect_layer"
+      />
+    );
+  }
+
+  const laneMasks = (): readonly MaskLayer[] =>
+    masksOf(editor.state.timeline.tracks[0]!.effectLayers![0]!);
+
+  it('draws in output-frame pixels onto the lane, one undoable patch', () => {
+    render(<LaneHost />);
+    fireEvent.click(screen.getByRole('button', { name: 'Rectangle tool' }));
+    drag([100, 100], [300.5, 200]);
+    expect(historyLength()).toBe(1);
+    expect(laneMasks()[0]).toMatchObject({
+      kind: 'rectangle',
+      space: 'frame',
+      cx: 200.25,
+      cy: 150,
+      width: 200.5,
+      height: 100,
+    });
+    act(() => editor.undo());
+    expect(laneMasks()).toHaveLength(0);
+  });
+
+  it('leaves the picture tools (AI subject, tracking hints) out of the toolbar', () => {
+    render(<LaneHost />);
+    expect(screen.queryByRole('button', { name: 'AI Object tool' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Feature point tool' })).toBeNull();
+    expect(screen.getByRole('button', { name: 'Split tool' })).toBeTruthy();
   });
 });

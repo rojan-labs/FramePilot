@@ -1182,3 +1182,111 @@ describe('text_behind_subject', () => {
     expect(rejected.status).toBe('rejected');
   });
 });
+
+describe('adjustment-lane stacks (MK9.1, owner: effect_layer)', () => {
+  const withLane = (masks: MaskLayerInput[] = []): Timeline => {
+    const base = timeline();
+    return {
+      ...base,
+      tracks: [
+        {
+          id: 'fx',
+          type: 'effect',
+          clips: [],
+          effectLayers: [
+            {
+              id: 'lane',
+              effectId: 'soft-veil',
+              kind: 'blur-gaussian',
+              start: 1,
+              end: 3,
+              params: { radius: 8 },
+              keyframes: [],
+              ...(masks.length > 0
+                ? { masks: masks.map((mask) => MaskLayerSchema.parse({ ...mask, space: 'frame' })) }
+                : {}),
+            },
+          ],
+        },
+        ...base.tracks,
+      ],
+    } as unknown as Timeline;
+  };
+  const laneMasks = (tl: Timeline): readonly MaskLayer[] =>
+    masksOf(tl.tracks[0]!.effectLayers![0]!);
+
+  it('draws a frame-space mask on the lane with the clip command, one undo step', () => {
+    const tl = withLane();
+    const after = applied(tl, {
+      type: 'draw_mask',
+      clipId: 'lane',
+      owner: 'effect_layer',
+      sourceTime: 0.5,
+      geometry: {
+        kind: 'rectangle',
+        cx: 540,
+        cy: 400,
+        width: 300,
+        height: 200,
+        rotation: 0,
+        roundness: 0,
+      },
+    });
+    const [mask] = laneMasks(after);
+    expect(mask).toMatchObject({ id: 'lane__mask', kind: 'rectangle', space: 'frame', cx: 540 });
+    // The clips' stacks are untouched.
+    expect(masksOn({ ...after, tracks: after.tracks.slice(1) })).toEqual([]);
+  });
+
+  it('draws with no measured media (a lane has none) and keys an instant on the lane clock', () => {
+    const tl = withLane([
+      rect({ id: 'lane__mask', cx: 540, cy: 400, width: 300, height: 200 }) as MaskLayerInput,
+    ]);
+    const keyed = applied(tl, {
+      type: 'toggle_mask_keyframe',
+      clipId: 'lane',
+      owner: 'effect_layer',
+      maskId: 'lane__mask',
+      property: 'cx',
+      sourceTime: 0.25,
+    });
+    expect(laneMasks(keyed)[0]!.keyframes).toMatchObject([{ property: 'cx', sourceTime: 0.25 }]);
+    const moved = applied(tl, {
+      type: 'set_mask_properties',
+      clipId: 'lane',
+      owner: 'effect_layer',
+      maskId: 'lane__mask',
+      sourceTime: 0,
+      changes: { featherOuterPx: 12, invert: true },
+    });
+    expect(laneMasks(moved)[0]).toMatchObject({ featherOuterPx: 12, invert: true, space: 'frame' });
+  });
+
+  it('refuses what only a clip picture can have, and a lane that does not exist', () => {
+    const tl = withLane([rect({ id: 'lane__mask' }) as MaskLayerInput]);
+    const matte = compile(tl, {
+      type: 'add_track_matte',
+      clipId: 'lane',
+      owner: 'effect_layer',
+      source: { kind: 'clip', clipId: 'c2' },
+    });
+    expect(matte.status).toBe('rejected');
+    if (matte.status === 'rejected') expect(matte.code).toBe('not_editable');
+    const missing = compile(tl, {
+      type: 'remove_mask',
+      clipId: 'nope',
+      owner: 'effect_layer',
+      maskId: 'lane__mask',
+    });
+    expect(missing.status === 'rejected' && missing.code).toBe('missing_clip');
+    const effectTarget = compile(tl, {
+      type: 'draw_mask',
+      clipId: 'lane',
+      owner: 'effect_layer',
+      sourceTime: 0,
+      target: { kind: 'effect', effectId: 'g1' },
+      geometry: { kind: 'ellipse', cx: 10, cy: 10, rx: 5, ry: 5, rotation: 0 },
+    });
+    expect(effectTarget.status).toBe('rejected');
+  });
+});

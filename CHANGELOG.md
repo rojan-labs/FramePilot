@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Masks on adjustment layers, and masks fixed to the frame.** Select an adjustment layer and
+  open its new **Mask** tab to draw a rectangle, ellipse, pen or freehand path, split, mirror band
+  or gradient on the monitor: the effect then applies only inside it (blur a face, grade the sky),
+  with the same feathers, modes, keyframes and undo as a clip's masks. The mask stays put on the
+  frame. A clip's shape masks can be fixed to the frame too, so a moving or zooming shot slides
+  under a window that does not move; the export draws both exactly as the monitor shows them.
 - **The assistant can make split screens, gradients, shape masks and track mattes.** Ask for "a
   split screen", "darken the top of the frame", "a heart around her face" or "put this video inside
   the title" and it uses the same Split, Mirror, Gradient, Shapes and Track matte tools as the Mask

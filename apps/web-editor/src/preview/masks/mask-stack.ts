@@ -69,7 +69,13 @@ import { TRACK_REMEDIES } from './track-source.js';
 import { previewIdentity } from '../semantic-signature.js';
 import { cleanLevels, matteFrameAlpha, type MatteFrameData } from './matte-edges.js';
 import { keyExceedsPass, keyMorphExceedsPass } from './key-mask.js';
-import { layerMatteRefusal, stackReadsLayers, type LayerMask } from './layer-mattes.js';
+import {
+  layerMatteRefusal,
+  layerSamplePosition,
+  stackReadsLayers,
+  type LayerMask,
+  type PicturePlacement,
+} from './layer-mattes.js';
 
 const log = createLogger('web-editor:preview:mask-stack');
 
@@ -178,6 +184,42 @@ export interface ClipMaskStack {
    * before tracks are loaded and for owners that cannot be tracked.
    */
   readonly tracks?: ReadonlyMap<string, TrackArtifact>;
+  /**
+   * Set on the stand-in owner of masks already in OUTPUT-FRAME pixels (an adjustment lane, or a
+   * clip's frame-space mask while it is drawn on the frame): its masks are drawn directly, never
+   * re-placed (`FrameOwner`).
+   */
+  readonly frameOwner?: true;
+}
+
+/**
+ * Where the clip's raster lands on the output frame, and the frame's size: what a frame-space
+ * clip mask (`space: 'frame'`, MK9.1) needs to be read back onto the clip (`FramePlacementSource`).
+ */
+export interface FramePlacement {
+  readonly placement: PicturePlacement;
+  readonly frameWidth: number;
+  readonly frameHeight: number;
+}
+
+/**
+ * Kinds a frame-space CLIP mask may be (`FRAME_SPACE_KINDS`): the ones drawn from geometry. A
+ * matte and a key read the clip's own picture, and a track matte is already a frame picture.
+ */
+const FRAME_SPACE_KINDS: ReadonlySet<MaskLayer['kind']> = new Set([
+  'rectangle',
+  'ellipse',
+  'path',
+  'linear',
+  'band',
+  'gradient',
+]);
+
+const isFrameSpace = (mask: MaskLayer): boolean => mask.space === 'frame';
+
+/** Whether a stack holds a frame-space mask, so drawing it needs the clip's placement. */
+export function stackReadsPlacement(masks: readonly MaskLayer[]): boolean {
+  return masks.some(isFrameSpace);
 }
 
 /** Which stack of a clip to draw. */
@@ -246,13 +288,32 @@ function refusalFor(
       'Only shape masks can be tracked. Clear the track or change the mask kind.',
     );
   }
-  if (mask.space !== 'source') {
-    return refusal(
-      clip,
-      mask,
-      'MK9',
-      'Mask not previewed yet: frame-space masks preview once they ship.',
-    );
+  if (isFrameSpace(mask)) {
+    // `_assert_frame_space_drawable`, sentence for sentence.
+    if (!FRAME_SPACE_KINDS.has(mask.kind)) {
+      return refusal(
+        clip,
+        mask,
+        null,
+        'A mask is fixed to the frame, and only shapes, splits, bands and gradients can be. Set its space to Source.',
+      );
+    }
+    if (mask.tracking !== undefined) {
+      return refusal(
+        clip,
+        mask,
+        null,
+        'A mask is fixed to the frame and tracked, and a track follows the picture. Set its space to Source or clear the track.',
+      );
+    }
+    if (mask.units === 'normalized' || isLegacy(mask)) {
+      return refusal(
+        clip,
+        mask,
+        null,
+        'A mask is fixed to the frame but was migrated from an older project. Set its space to Source, or redraw it.',
+      );
+    }
   }
   if (mask.target.kind === 'effect') {
     const effectId = mask.target.effectId;
@@ -305,7 +366,8 @@ function refusalFor(
       'A path mask has keyframes with different vertex counts. Insert or remove the vertex on every keyframe.',
     );
   }
-  if (mask.units !== 'normalized' && size === null) {
+  // A frame-space mask is in frame pixels: it needs no measured media size.
+  if (mask.units !== 'normalized' && size === null && !isFrameSpace(mask)) {
     return refusal(
       clip,
       mask,
@@ -737,7 +799,11 @@ export function singleMaskAlpha(
   height: number,
   s: number,
   mattes: MatteStackInputs | null,
+  placement: FramePlacement | null = null,
 ): Float64Array {
+  if (isFrameSpace(drawn) && stack.frameOwner !== true) {
+    return frameSpaceAlpha(drawn, stack, width, height, s, placement);
+  }
   if (drawn.kind === 'key') {
     // A key is qualified from the picture by the compositor's GPU pass; reaching the CPU
     // rasteriser with one means a caller skipped `stackReadsPicture`.
@@ -801,6 +867,82 @@ export function singleMaskAlpha(
   return applyLayerAlpha(alpha, mask.invert, maskScalar(mask, 'opacity', s));
 }
 
+/**
+ * The stand-in owner a frame-space mask is drawn for: no crop, a "media size" equal to the frame,
+ * so the mapping is the identity (`FrameOwner`).
+ */
+export function frameOwnerStack(
+  id: string,
+  width: number,
+  height: number,
+  alpha: readonly StackMask[] = [],
+): ClipMaskStack {
+  const clip = {
+    id,
+    assetId: '',
+    trackId: '',
+    start: 0,
+    end: 0,
+    sourceStart: 0,
+    sourceEnd: 0,
+    effects: [],
+    keyframes: [],
+  };
+  // Cast rather than spell the whole clip out: the owner is a shim, and naming every field would
+  // make it break whenever the clip schema grows one.
+  return {
+    clip,
+    size: { width, height },
+    alpha,
+    byEffect: new Map(),
+    mattes: [],
+    refusal: null,
+    frameOwner: true,
+  } as unknown as ClipMaskStack;
+}
+
+/**
+ * `frame_space_alpha` (MK9.1): a frame-space clip mask drawn on the OUTPUT FRAME in frame pixels
+ * (invert and opacity included), then read back onto the clip's `width`×`height` raster at the
+ * frame pixel each of its pixel centres lands on — the track matte's mapping, so a clip pixel
+ * that lands off the frame reads 0. Float64-exact with the engine (`frame-clips.json`).
+ *
+ * @throws MaskRasterError when no placement is supplied (a caller bug: the compositor always has
+ *   one; the non-GL monitors skip stacks that need it).
+ */
+function frameSpaceAlpha(
+  mask: StackMask,
+  stack: ClipMaskStack,
+  width: number,
+  height: number,
+  s: number,
+  placement: FramePlacement | null,
+): Float64Array {
+  if (placement === null) {
+    throw new MaskRasterError('A frame-space mask was drawn without the clip placement.');
+  }
+  const { frameWidth, frameHeight } = placement;
+  const drawn = singleMaskAlpha(
+    mask,
+    frameOwnerStack(stack.clip.id, frameWidth, frameHeight),
+    frameWidth,
+    frameHeight,
+    s,
+    null,
+  );
+  const out = new Float64Array(width * height);
+  const local = { ...placement.placement, localWidth: width, localHeight: height };
+  for (let row = 0; row < height; row += 1) {
+    for (let col = 0; col < width; col += 1) {
+      const [x, y] = layerSamplePosition(local, col, row);
+      if (x >= 0 && y >= 0 && x < frameWidth && y < frameHeight) {
+        out[row * width + col] = drawn[y * frameWidth + x]!;
+      }
+    }
+  }
+  return out;
+}
+
 /** Whether a single `add` legacy mask keeps its v21 float alpha (no quantisation). */
 function isLegacyPassthrough(masks: readonly StackMask[]): masks is readonly [ShapeMask] {
   return masks.length === 1 && isLegacy(masks[0]!) && masks[0]!.mode === 'add';
@@ -817,6 +959,7 @@ export function stackAlphaAt(
   height: number,
   clipTime: number,
   mattes: MatteStackInputs | null = null,
+  placement: FramePlacement | null = null,
 ): Float64Array | null {
   if (stack.refusal !== null) return null;
   const masks = drawnMasks(stack, target, mattes);
@@ -827,7 +970,7 @@ export function stackAlphaAt(
   for (const mask of masks) {
     combineInto(
       accumulated,
-      singleMaskAlpha(mask, stack, width, height, s, mattes),
+      singleMaskAlpha(mask, stack, width, height, s, mattes, placement),
       mask.mode as MaskCombineMode,
     );
   }
@@ -861,6 +1004,14 @@ function isAnimated(masks: readonly StackMask[]): boolean {
   );
 }
 
+/** Where the picture lands, for a stack with frame-space masks (their raster moves with it). */
+function placementKey(masks: readonly StackMask[], placement: FramePlacement | null): string {
+  if (!stackReadsPlacement(masks)) return '';
+  if (placement === null) return 'unplaced';
+  const p = placement.placement;
+  return `placed:${placement.frameWidth}x${placement.frameHeight}|${p.width}x${p.height}|${p.rotation}|${p.x},${p.y}`;
+}
+
 /** Which matte frames and decode geometry a raster depends on. */
 function matteKey(masks: readonly StackMask[], mattes: MatteStackInputs | null): string {
   if (mattes === null || !masks.some((mask) => mask.kind === 'matte')) return '';
@@ -891,6 +1042,8 @@ export class MaskStackRasterCache {
    * @param height - Frame height.
    * @param clipTime - Seconds from the clip's start.
    * @param mattes - Decoded matte frames and decode size, when the stack has matte layers.
+   * @param placement - Where the picture lands on the frame, when the stack has frame-space masks.
+   *   Without it (the non-GL monitors) such a stack is not drawn and the clip shows uncut.
    */
   raster(
     stack: ClipMaskStack,
@@ -899,6 +1052,7 @@ export class MaskStackRasterCache {
     height: number,
     clipTime: number,
     mattes: MatteStackInputs | null = null,
+    placement: FramePlacement | null = null,
   ): MaskStackRaster | null {
     if (stack.refusal !== null || width <= 0 || height <= 0) return null;
     const masks = drawnMasks(stack, target, mattes);
@@ -909,6 +1063,12 @@ export class MaskStackRasterCache {
     // path a key mask is designed for. A track matte (MK8.2) is the same: its source is another
     // layer's composited picture, which only the compositor draws.
     if (stackNeedsCompositor(masks)) return null;
+    if (placement === null && stackReadsPlacement(masks)) {
+      log.debug('frame-space mask skipped: this monitor does not know where the picture lands', {
+        clipId: stack.clip.id,
+      });
+      return null;
+    }
     const s = maskSourceTime(stack.clip, clipTime);
     const key = [
       previewIdentity(stack.clip),
@@ -917,6 +1077,7 @@ export class MaskStackRasterCache {
       stack.size === null ? 'unsized' : `${stack.size.width}x${stack.size.height}`,
       isAnimated(masks) ? String(s) : 'static',
       matteKey(masks, mattes),
+      placementKey(masks, placement),
     ].join('|');
     const cached = this.entries.get(key);
     if (cached !== undefined) {
@@ -926,7 +1087,7 @@ export class MaskStackRasterCache {
       return cached;
     }
     this.draws++;
-    const raster = this.draw(stack, masks, width, height, s, mattes);
+    const raster = this.draw(stack, masks, width, height, s, mattes, placement);
     if (this.entries.size >= this.capacity) this.entries.delete(this.entries.keys().next().value!);
     this.entries.set(key, raster);
     return raster;
@@ -939,6 +1100,7 @@ export class MaskStackRasterCache {
     height: number,
     s: number,
     mattes: MatteStackInputs | null,
+    placement: FramePlacement | null,
   ): MaskStackRaster {
     const started = performance.now();
     let raster: MaskStackRaster;
@@ -954,7 +1116,7 @@ export class MaskStackRasterCache {
       for (const mask of masks) {
         combineInto(
           accumulated,
-          singleMaskAlpha(mask, stack, width, height, s, mattes),
+          singleMaskAlpha(mask, stack, width, height, s, mattes, placement),
           mask.mode as MaskCombineMode,
         );
       }

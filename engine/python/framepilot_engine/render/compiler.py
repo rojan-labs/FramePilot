@@ -624,10 +624,13 @@ def _clip_mask_stacks(
     tracks: dict[str, Any] | None = None,
     layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
     | None = None,
+    placements: Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]] | None = None,
 ) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
-        return clip_mask_stacks(clip, media_size, mattes, decoded_size, tracks, layer_mattes)
+        return clip_mask_stacks(
+            clip, media_size, mattes, decoded_size, tracks, layer_mattes, placements
+        )
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
 
@@ -677,6 +680,23 @@ def picture_placement_at(
     return PicturePlacement(
         clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(x), int(y)
     )
+
+
+def _frame_placement_binding(
+    clip: Clip,
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> Callable[[float, int, int], tuple[PicturePlacement, tuple[int, int]]]:
+    """Where a clip's raster lands on the frame at clip-local ``t``, and the frame's size (MK9.1).
+
+    A frame-space clip mask is drawn on the output frame and read back through this placement,
+    the same one a track matte uses, so it stays fixed on the frame as the picture moves.
+    """
+
+    def placement_at(t: float, width: int, height: int) -> tuple[PicturePlacement, tuple[int, int]]:
+        return picture_placement_at(clip, t, (width, height), target, transition), target
+
+    return placement_at
 
 
 def _layer_matte_binding(
@@ -1381,6 +1401,7 @@ def compile_timeline(
                             _layer_matte_binding(
                                 layer_mattes, clip, target, legacy_transition(clip)
                             ),
+                            _frame_placement_binding(clip, target, legacy_transition(clip)),
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)

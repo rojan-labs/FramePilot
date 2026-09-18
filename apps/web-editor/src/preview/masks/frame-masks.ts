@@ -19,11 +19,11 @@ import { masksOf } from '@framepilot/timeline-schema';
 import {
   ANALYTIC_KINDS,
   analyticRefusal,
+  frameOwnerStack,
   stackAlphaAt,
   type DrawnMask,
   type MaskPreviewRefusal,
   type MaskStackRaster,
-  type ClipMaskStack,
 } from './mask-stack.js';
 
 /** Kinds an adjustment lane's mask cannot be yet, with the remedy (`_KIND_REFUSALS`). */
@@ -140,35 +140,6 @@ export function effectLayerMaskStack(layer: EffectLayer): FrameMaskStack | null 
   };
 }
 
-/**
- * The stand-in owner the shared evaluator needs: no crop, and a "media size" equal to the frame,
- * which makes the source → raster mapping the identity; `sourceStart: 0` with no speed makes the
- * mask clock the layer-local one (`FrameOwner`).
- */
-function frameOwner(stack: FrameMaskStack, width: number, height: number): ClipMaskStack {
-  const clip = {
-    id: stack.layerId,
-    assetId: '',
-    trackId: '',
-    start: 0,
-    end: 0,
-    sourceStart: 0,
-    sourceEnd: 0,
-    effects: [],
-    keyframes: [],
-  };
-  // Cast rather than spell the whole stack out: this owner is a shim, and naming every field
-  // would make it break whenever the clip-side stack grows one.
-  return {
-    clip,
-    size: { width, height },
-    alpha: stack.masks,
-    byEffect: new Map(),
-    mattes: [],
-    refusal: null,
-  } as unknown as ClipMaskStack;
-}
-
 /** `FrameMaskStack.alpha_at`: the stack's exact float64 alpha on a `width`×`height` frame. */
 export function frameStackAlphaAt(
   stack: FrameMaskStack,
@@ -178,7 +149,7 @@ export function frameStackAlphaAt(
 ): Float64Array | null {
   if (stack.refusal !== null || stack.masks.length === 0 || width <= 0 || height <= 0) return null;
   return stackAlphaAt(
-    frameOwner(stack, width, height),
+    frameOwnerStack(stack.layerId, width, height, stack.masks),
     { kind: 'alpha' },
     width,
     height,

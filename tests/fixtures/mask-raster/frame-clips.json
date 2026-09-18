@@ -1,0 +1,322 @@
+{
+ "area": "frame-clips",
+ "spec": "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py frame_space_alpha. placement = [width, height, rotation, x, y] of the resized picture on the frame",
+ "cases": [
+  {
+   "id": "frame-clip/rect-fills-frame",
+   "frame": [
+    64,
+    36
+   ],
+   "placement": [
+    64,
+    36,
+    0.0,
+    0,
+    0
+   ],
+   "media": null,
+   "clip": {
+    "id": "fc1",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "r",
+      "kind": "rectangle",
+      "space": "frame",
+      "cx": 30.25,
+      "cy": 17.5,
+      "width": 31.0,
+      "height": 17.25,
+      "rotation": 12.0,
+      "featherOuterPx": 3.0
+     }
+    ]
+   },
+   "sizes": [
+    [
+     64,
+     36
+    ],
+    [
+     32,
+     18
+    ]
+   ],
+   "times": [
+    0.0,
+    1.0
+   ],
+   "expected": [
+    {
+     "width": 64,
+     "height": 36,
+     "time": 0.0,
+     "alpha": "189b25f27b705b1594a21b8f5219791499f6f789f2529419606cdc15d866d91a"
+    },
+    {
+     "width": 64,
+     "height": 36,
+     "time": 1.0,
+     "alpha": "189b25f27b705b1594a21b8f5219791499f6f789f2529419606cdc15d866d91a"
+    },
+    {
+     "width": 32,
+     "height": 18,
+     "time": 0.0,
+     "alpha": "f2dd2a0d0b7c31fec77922f60d664e682d43a09dc4b290063737c760124763da"
+    },
+    {
+     "width": 32,
+     "height": 18,
+     "time": 1.0,
+     "alpha": "f2dd2a0d0b7c31fec77922f60d664e682d43a09dc4b290063737c760124763da"
+    }
+   ]
+  },
+  {
+   "id": "frame-clip/scaled-offset-subtract",
+   "frame": [
+    64,
+    36
+   ],
+   "placement": [
+    32,
+    18,
+    0.0,
+    20,
+    9
+   ],
+   "media": null,
+   "clip": {
+    "id": "fc2",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "e",
+      "kind": "ellipse",
+      "space": "frame",
+      "cx": 36.0,
+      "cy": 18.0,
+      "rx": 14.0,
+      "ry": 9.5,
+      "featherInnerPx": 1.5,
+      "featherOuterPx": 2.0
+     },
+     {
+      "id": "hole",
+      "kind": "rectangle",
+      "space": "frame",
+      "mode": "subtract",
+      "cx": 36.0,
+      "cy": 18.0,
+      "width": 6.0,
+      "height": 4.0
+     }
+    ]
+   },
+   "sizes": [
+    [
+     48,
+     27
+    ],
+    [
+     32,
+     18
+    ]
+   ],
+   "times": [
+    0.0
+   ],
+   "expected": [
+    {
+     "width": 48,
+     "height": 27,
+     "time": 0.0,
+     "alpha": "a80968b2aaa3f3b1addbb38c862054ac1bce3a514e2aaacb01ea34b764effbdb"
+    },
+    {
+     "width": 32,
+     "height": 18,
+     "time": 0.0,
+     "alpha": "a9f745a0dd315267c967a54859a540a6cc09c8217792dc69686232bcf2ab1500"
+    }
+   ]
+  },
+  {
+   "id": "frame-clip/rotated-band-keyed",
+   "frame": [
+    64,
+    36
+   ],
+   "placement": [
+    40,
+    24,
+    30.0,
+    12,
+    6
+   ],
+   "media": null,
+   "clip": {
+    "id": "fc3",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "b",
+      "kind": "band",
+      "space": "frame",
+      "originX": 32.0,
+      "originY": 18.0,
+      "angle": 20.0,
+      "widthPx": 10.0,
+      "softnessPx": 2.0,
+      "invert": true,
+      "keyframes": [
+       {
+        "id": "o0",
+        "sourceTime": 2.0,
+        "property": "opacity",
+        "value": 1.0
+       },
+       {
+        "id": "o1",
+        "sourceTime": 4.0,
+        "property": "opacity",
+        "value": 0.25
+       }
+      ]
+     }
+    ]
+   },
+   "sizes": [
+    [
+     40,
+     24
+    ]
+   ],
+   "times": [
+    0.0,
+    0.5,
+    1.5
+   ],
+   "expected": [
+    {
+     "width": 40,
+     "height": 24,
+     "time": 0.0,
+     "alpha": "880137d8c62a321698be4aa37905a984cc5ff0e09ef1bf5a434beeeef7d8426f"
+    },
+    {
+     "width": 40,
+     "height": 24,
+     "time": 0.5,
+     "alpha": "91b2f4edbf4bc43614c317ed41652326618dd4e2d6c6daa9059e8d2c7a943d55"
+    },
+    {
+     "width": 40,
+     "height": 24,
+     "time": 1.5,
+     "alpha": "b4a2f0042dfbe49e824d08b3141722b20ad6e0fa86fdaa630206400d17c870a3"
+    }
+   ]
+  },
+  {
+   "id": "frame-clip/mixed-with-source-mask",
+   "frame": [
+    64,
+    36
+   ],
+   "placement": [
+    36,
+    64,
+    0.0,
+    14,
+    -14
+   ],
+   "media": {
+    "width": 1080,
+    "height": 1920
+   },
+   "clip": {
+    "id": "fc4",
+    "assetId": "port",
+    "trackId": "v1",
+    "start": 0.0,
+    "end": 2.0,
+    "sourceStart": 2.0,
+    "sourceEnd": 4.0,
+    "effects": [],
+    "keyframes": [],
+    "masks": [
+     {
+      "id": "src",
+      "kind": "ellipse",
+      "cx": 540.0,
+      "cy": 960.0,
+      "rx": 420.0,
+      "ry": 700.0,
+      "featherOuterPx": 40.0
+     },
+     {
+      "id": "split",
+      "kind": "linear",
+      "space": "frame",
+      "mode": "intersect",
+      "originX": 32.0,
+      "originY": 20.0,
+      "angle": 0.0,
+      "softnessPx": 3.0
+     }
+    ]
+   },
+   "sizes": [
+    [
+     36,
+     64
+    ],
+    [
+     27,
+     48
+    ]
+   ],
+   "times": [
+    0.0
+   ],
+   "expected": [
+    {
+     "width": 36,
+     "height": 64,
+     "time": 0.0,
+     "alpha": "a282624c61b7b2010269ebc8a6783d809aa5e30f29e45db05604d565eacbe401"
+    },
+    {
+     "width": 27,
+     "height": 48,
+     "time": 0.0,
+     "alpha": "8796284bf3485bc9677b3cf85317e9fa2e025103a1f7bd6f964cafa8e4fbb168"
+    }
+   ]
+  }
+ ]
+}

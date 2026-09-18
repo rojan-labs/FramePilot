@@ -124,17 +124,26 @@ def sample_positions(
     return xi, yi, valid
 
 
+def sample_plane(values: FloatArray, placement: PicturePlacement) -> FloatArray:
+    """A frame-sized plane read onto the clip's local raster (0 where a pixel lands off-frame).
+
+    Shared by track mattes and by frame-space clip masks (MK9.1): both are frame pictures a clip
+    is cut by, read at the frame pixel each of the clip's pixel centres lands on.
+    """
+    frame_h, frame_w = values.shape
+    xi, yi, valid = sample_positions(placement, frame_w, frame_h)
+    local = np.where(valid, values[np.clip(yi, 0, frame_h - 1), np.clip(xi, 0, frame_w - 1)], 0.0)
+    return np.asarray(local, dtype=np.float64)
+
+
 def sampled_channel(
     frame: LayerMatteFrame, channel: str, placement: PicturePlacement
 ) -> FloatArray:
     """The channel on the clip's local raster: sampled, then inverted when the channel asks."""
-    values = matte_channel(frame, channel)
-    frame_h, frame_w = values.shape
-    xi, yi, valid = sample_positions(placement, frame_w, frame_h)
-    local = np.where(valid, values[np.clip(yi, 0, frame_h - 1), np.clip(xi, 0, frame_w - 1)], 0.0)
+    local = sample_plane(matte_channel(frame, channel), placement)
     if channel.startswith("inverted-"):
         local = 1.0 - local
-    return np.asarray(local, dtype=np.float64)
+    return local
 
 
 @dataclass
@@ -276,6 +285,7 @@ __all__ = [
     "assert_layer_sources",
     "empty_matte_frame",
     "matte_channel",
+    "sample_plane",
     "sample_positions",
     "sampled_channel",
 ]

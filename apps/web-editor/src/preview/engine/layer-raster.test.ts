@@ -137,19 +137,17 @@ describe('layer raster steps mirror compile_timeline pixel decisions', () => {
       ...clip('c', 'land'),
       effects: [{ id: 'g1', type: 'color_grade', params: { exposure: 0.5 } }],
     } as unknown as Clip;
+    // A key cannot be fixed to the frame: it reads the clip's own picture (MK9.1).
     const frameSpace = MaskLayerSchema.parse({
       id: 'k',
-      kind: 'rectangle',
-      cx: 960,
-      cy: 540,
-      width: 400,
-      height: 300,
+      kind: 'key',
+      model: 'hsl',
       space: 'frame',
     });
     const step = stepFor({ ...host, masks: [frameSpace] }, land);
     expect(step?.mask).toBeNull();
-    expect(step?.maskRefusal?.task).toBe('MK9');
-    expect(step?.maskRefusal?.message).toMatch(/^Mask not previewed yet/);
+    expect(step?.maskRefusal?.task).toBeNull();
+    expect(step?.maskRefusal?.message).toMatch(/Set its space to Source/);
     expect(stepFor(host, land)?.effectIds).toEqual(['g1']);
   });
 

@@ -116,7 +116,18 @@ def test_nothing_enabled_means_no_stack() -> None:
             },
             "takes its edge from its source",
         ),
-        (_rect(space="frame"), "frame-space"),
+        ({"kind": "key", "id": "k", "model": "hsl", "space": "frame"}, "fixed to the frame"),
+        (
+            _rect(
+                space="frame",
+                tracking={
+                    "artifact": {"key": "0" * 64, "sha256": "0" * 64},
+                    "method": "position",
+                    "referenceSourceTime": 3.0,
+                },
+            ),
+            "a track follows the picture",
+        ),
         (
             _rect(
                 featherModel="gaussian-legacy",

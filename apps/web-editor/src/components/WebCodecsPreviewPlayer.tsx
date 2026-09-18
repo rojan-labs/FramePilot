@@ -13,7 +13,7 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { Asset, CaptionStyle, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
-import { framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
+import { effectLayerMaskOwner, framePlanAt, resolveCaptionCue } from '@framepilot/editor-core';
 import { useFramePlayhead, type UseEditor } from '../editor/useEditor.js';
 import { previewMediaSrc } from '../editor/media.js';
 import {
@@ -205,8 +205,20 @@ export function WebCodecsPreviewPlayer({
   // monitor edits its masks instead of its transform.
   const [maskToolsOn] = useState(maskToolsEnabled);
   const maskTools = useMaskTools();
-  const maskEditing =
+  const clipMaskEditing =
     maskToolsOn && selectedPicture !== null && maskTools.panelClipId === selectedPicture.id;
+  // MK9.1: an adjustment lane's Mask tab puts the monitor tools in FRAME space for the lane. The
+  // lane is handed over as its clip-shaped stand-in, so the same tools draw it.
+  const laneOwner = useMemo(() => {
+    const laneId = maskTools.panelClipId;
+    if (!maskToolsOn || clipMaskEditing || laneId === null) return null;
+    for (const track of editor.state.timeline.tracks) {
+      const layer = track.effectLayers?.find((candidate) => candidate.id === laneId);
+      if (layer !== undefined) return effectLayerMaskOwner(layer);
+    }
+    return null;
+  }, [maskToolsOn, clipMaskEditing, maskTools.panelClipId, editor.state.timeline]);
+  const maskEditing = clipMaskEditing || laneOwner !== null;
   const [stageHost, setStageHost] = useState<HTMLDivElement | null>(null);
   const frameRef = useRef<HTMLDivElement>(null);
   // The frame's layout width, for the mask tools' zoom. Measured when mask editing starts and on
@@ -924,7 +936,19 @@ export function WebCodecsPreviewPlayer({
               onClick={() => editor.select(shownPicture.id)}
             />
           )}
-          {maskEditing && selectedPicture && (
+          {laneOwner !== null && (
+            <MaskCanvasTools
+              key={`mask-tools-lane-${laneOwner.id}`}
+              editor={editor}
+              clip={laneOwner}
+              assets={assets}
+              resolution={resolution}
+              chromeHost={stageHost}
+              owner="effect_layer"
+              {...(frameWidth !== null ? { frameWidth } : {})}
+            />
+          )}
+          {clipMaskEditing && selectedPicture && (
             <MaskCanvasTools
               key={`mask-tools-${selectedPicture.id}`}
               editor={editor}

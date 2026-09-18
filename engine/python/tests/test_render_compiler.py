@@ -2646,19 +2646,21 @@ def test_fitted_decode_size_is_always_even() -> None:
 
 
 @pytest.mark.usefixtures("require_ffprobe")
-def test_compile_refuses_a_mask_export_cannot_draw_yet(
+def test_compile_refuses_a_frame_space_mask_that_follows_the_picture(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
-    """A mask whose renderer has not shipped stops the export with a remedy, not a guess.
+    """A mask the export cannot draw stops the export with a remedy, not a guess.
 
-    Every mask KIND renders since MK8; a frame-space mask on a clip (MK9) is what is left.
+    Every mask kind renders since MK8 and frame-space clip masks since MK9.1; what is left is a
+    frame-space mask of a kind that reads the clip's own picture (a key), which has no frame
+    variant.
     """
     src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
     (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
     clip = _clip("c1", "v", 0, 1, asset="a1")
     clip["masks"] = [
         {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
-        {"kind": "linear", "id": "l", "originX": 10.0, "originY": 10.0, "space": "frame"},
+        {"kind": "key", "id": "k", "model": "hsl", "space": "frame"},
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],
@@ -2666,8 +2668,45 @@ def test_compile_refuses_a_mask_export_cannot_draw_yet(
             {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
         ],
     )
-    with pytest.raises(CompileError, match="Disable the mask to export now"):
+    with pytest.raises(CompileError, match="Set its space to Source"):
         compile_timeline(project, _index(project, tmp_project_dir), REELS)
+
+
+@pytest.mark.usefixtures("require_ffprobe")
+def test_a_frame_space_clip_mask_stays_fixed_on_the_frame(
+    tmp_project_dir: Path, media_factory: Callable[..., Path]
+) -> None:
+    """MK9.1: a clip mask in frame space cuts by OUTPUT-frame pixels, wherever the picture lands.
+
+    The 320x240 picture is fitted to the 1080-wide frame (810 tall, centred). The frame-space
+    rectangle is the left half of the FRAME, so the left half of the picture shows and the right
+    half is cut, even though the rectangle's numbers would be far outside the source picture.
+    """
+    src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
+    (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
+    clip = _clip("c1", "v", 0, 1, asset="a1")
+    clip["masks"] = [
+        {
+            "kind": "rectangle",
+            "id": "left",
+            "space": "frame",
+            "cx": 270.0,
+            "cy": 960.0,
+            "width": 540.0,
+            "height": 1920.0,
+        }
+    ]
+    project = _project(
+        [{"id": "v", "type": "video", "clips": [clip]}],
+        assets=[
+            {"id": "a1", "path": "r.mp4", "kind": "video", "media": {"width": 320, "height": 240}}
+        ],
+    )
+    composition = compile_timeline(project, _index(project, tmp_project_dir), REELS)
+    frame = np.asarray(composition.get_frame(0.5), dtype=np.int16)
+    assert frame[960, 200, 0] > 200, "the frame's left half keeps the picture"
+    assert frame[960, 880].max() < 24, "the frame's right half is cut"
+    assert frame[300, 200].max() < 24, "above the fitted picture there is nothing to keep"
 
 
 @pytest.mark.usefixtures("require_ffprobe")

@@ -128,3 +128,25 @@ export function monitorPictureSpace(
     sourceHeight,
   };
 }
+
+/**
+ * The identity map for masks already in project-frame pixels: an adjustment lane's frame-space
+ * stack (MK9.1). The "source" is the frame itself, uncropped, so the monitor tools draw and
+ * hit-test directly in output pixels.
+ *
+ * @param resolution - The project frame the monitor shows.
+ */
+export function frameMonitorSpace(resolution: {
+  readonly width: number;
+  readonly height: number;
+}): MonitorPictureSpace {
+  const identity: Affine = { a: 1, b: 0, c: 0, d: 1, e: 0, f: 0 };
+  return {
+    toFrame: identity,
+    toSource: identity,
+    scale: 1,
+    crop: { x: 0, y: 0, width: resolution.width, height: resolution.height },
+    sourceWidth: resolution.width,
+    sourceHeight: resolution.height,
+  };
+}

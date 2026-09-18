@@ -18,6 +18,7 @@ import {
   masksOf,
   type Asset,
   type Clip,
+  type EffectLayer,
   type MaskKeyframeInput,
   type MaskLayer,
   type MaskLayerInput,
@@ -27,6 +28,7 @@ import {
   type MaskTarget,
   type PathMask,
   type Timeline,
+  type Track,
 } from '@framepilot/timeline-schema';
 import { segmentProgress } from './keyframes.js';
 import { MEASURE_MEDIA_FIRST, maskScalarAt, nextMaskId } from './mask-builders.js';
@@ -278,7 +280,15 @@ export function maskKeyframeTimes(
 interface MaskCommandBase {
   /** The timeline revision the command was built against (refused when stale). */
   readonly timelineRevision: number;
+  /** The owner of the mask stack: a clip, or an effect layer when `owner` says so. */
   readonly clipId: string;
+  /**
+   * Whose stack `clipId` names (MK9.1). Absent = a clip. `effect_layer` edits an adjustment
+   * lane's frame-space stack with the SAME commands the clip panel and monitor use, so drawing,
+   * reshaping and keyframing a lane's mask is not a second implementation. Keyframe instants are
+   * then seconds from the layer's start and geometry is in output-frame pixels.
+   */
+  readonly owner?: 'clip' | 'effect_layer';
   /** Who is editing; the patch records it. Defaults to `user`. */
   readonly createdBy?: PatchAuthor;
 }
@@ -673,6 +683,8 @@ function assertTarget(clip: Clip, target: MaskTarget): MaskTarget {
 }
 
 function clipDisplaySize(clip: Clip, assets: readonly Pick<Asset, 'id' | 'media'>[]): DisplaySize {
+  // An adjustment lane has no media: its masks are in frame pixels and need no measurement.
+  if (clip.assetId === FRAME_OWNER_ASSET_ID) return { width: 0, height: 0 };
   const media = assets.find((asset) => asset.id === clip.assetId)?.media;
   const size = assetDisplaySize(media);
   if (size === null) throw new Rejection('needs_media_dimensions', MEASURE_MEDIA_FIRST);
@@ -1584,6 +1596,112 @@ function buildSavePreset(input: CompileMaskCommandInput, command: SaveMaskPreset
   };
 }
 
+// ---------------------------------------------------------------------------
+// Adjustment-lane (effect layer) stacks (MK9.1)
+// ---------------------------------------------------------------------------
+
+/** The asset id of an effect layer's stand-in clip; never a real asset. */
+export const FRAME_OWNER_ASSET_ID = '__framepilot_frame__';
+
+/**
+ * The commands an adjustment lane's stack takes: drawing and editing geometry-based masks.
+ * Everything tied to a clip's picture (mattes, keys, track mattes, tracking, clipboard and
+ * presets rescaled to a source, text behind a subject) has no meaning on a lane.
+ */
+const EFFECT_LAYER_COMMANDS: ReadonlySet<MaskCommand['type']> = new Set<MaskCommand['type']>([
+  'draw_mask',
+  'draw_shape_preset',
+  'set_mask_geometry',
+  'set_mask_properties',
+  'toggle_mask_keyframe',
+  'insert_mask_vertex',
+  'remove_mask_vertices',
+  'move_mask_keyframes',
+  'remove_mask',
+  'reorder_masks',
+  'duplicate_mask',
+]);
+
+/**
+ * An effect layer seen as a mask owner (MK9.1): a clip-shaped stand-in whose clock is seconds
+ * from the layer's start (`sourceStart` 0, no speed) and whose picture is the frame. The UI hands
+ * it to the same mask panel and monitor tools a clip gets; commands then carry
+ * `owner: 'effect_layer'` so they compile onto the lane.
+ *
+ * @param layer - The adjustment lane.
+ * @returns A clip-shaped view of the lane's stack; never saved or applied.
+ */
+export function effectLayerMaskOwner(layer: EffectLayer): Clip {
+  const owner = {
+    id: layer.id,
+    assetId: FRAME_OWNER_ASSET_ID,
+    trackId: '',
+    start: layer.start,
+    end: layer.end,
+    sourceStart: 0,
+    sourceEnd: Math.max(0, layer.end - layer.start),
+    effects: [],
+    keyframes: [],
+    ...(layer.masks === undefined ? {} : { masks: layer.masks }),
+  };
+  // A view, not a clip the project holds: casting avoids spelling out every optional clip field.
+  return owner as unknown as Clip;
+}
+
+function findEffectLayer(timeline: Timeline, layerId: string): EffectLayer {
+  for (const track of timeline.tracks) {
+    const layer = track.effectLayers?.find((candidate) => candidate.id === layerId);
+    if (layer !== undefined) return layer;
+  }
+  throw new Rejection('missing_clip', `Effect layer "${layerId}" does not exist.`);
+}
+
+/** An operation the clip builders addressed to the stand-in, readdressed to the lane. */
+function toLayerOperation(op: MaskOperation, layerId: string): MaskOperation {
+  if (!('clipId' in op) || op.clipId !== layerId) return op;
+  if (op.type === 'add_mask') {
+    return {
+      type: 'add_effect_layer_mask',
+      layerId,
+      mask: { ...op.mask, space: 'frame' },
+      ...(op.index === undefined ? {} : { index: op.index }),
+    };
+  }
+  const { clipId: _owner, ...rest } = op as MaskOperation & { clipId: string };
+  return { ...rest, layerId } as MaskOperation;
+}
+
+/**
+ * Build an adjustment lane's command by running the CLIP builder on the lane's stand-in and
+ * readdressing its operations, so a lane's mask edit is exactly the clip edit of the same intent
+ * (the same ids, keyframe rules and refusals) and cannot drift from it.
+ */
+function buildForEffectLayer(input: CompileMaskCommandInput): Built {
+  const { command } = input;
+  const layer = findEffectLayer(input.timeline, command.clipId);
+  if (!EFFECT_LAYER_COMMANDS.has(command.type)) {
+    throw new Rejection(
+      'not_editable',
+      "An effect layer's masks are shapes, splits, bands and gradients drawn on the frame. Use this on a clip's masks.",
+    );
+  }
+  const owner = effectLayerMaskOwner(layer);
+  const standIn = {
+    id: '__framepilot_frame_owner__',
+    type: 'video',
+    clips: [owner],
+  } as unknown as Track;
+  const built = build({
+    ...input,
+    timeline: { ...input.timeline, tracks: [standIn, ...input.timeline.tracks] },
+    command: { ...command, owner: 'clip' } as MaskCommand,
+  });
+  return {
+    operations: built.operations.map((op) => toLayerOperation(op, layer.id)),
+    reason: built.reason,
+  };
+}
+
 /**
  * Compile a mask command into one validated, reversible patch.
  *
@@ -1603,7 +1721,7 @@ export function compileMaskCommand(input: CompileMaskCommandInput): MaskCommandC
   }
   let built: Built;
   try {
-    built = build(input);
+    built = command.owner === 'effect_layer' ? buildForEffectLayer(input) : build(input);
   } catch (error) {
     if (error instanceof Rejection) {
       return { status: 'rejected', command, code: error.code, detail: error.message };

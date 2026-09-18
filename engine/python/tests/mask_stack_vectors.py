@@ -1092,6 +1092,183 @@ def _frame_layer_document() -> dict[str, Any]:
     }
 
 
+# --- Frame-space clip masks (MK9.1) -------------------------------------------------------
+
+#: A frame-space clip mask is drawn on the output frame and read back through where the clip's
+#: raster lands (``render/mask_stack.py`` ``frame_space_alpha``). ``placement`` is
+#: ``[width, height, rotation, x, y]`` of the resized picture on the frame; the local raster is
+#: each case size.
+FRAME_CLIP_CASES: list[dict[str, Any]] = [
+    {
+        "id": "frame-clip/rect-fills-frame",
+        "frame": [64, 36],
+        "placement": [64, 36, 0.0, 0, 0],
+        "media": None,
+        "clip": _clip(
+            "fc1",
+            [
+                _mask(
+                    id="r",
+                    kind="rectangle",
+                    space="frame",
+                    cx=30.25,
+                    cy=17.5,
+                    width=31.0,
+                    height=17.25,
+                    rotation=12.0,
+                    featherOuterPx=3.0,
+                )
+            ],
+        ),
+        "sizes": [[64, 36], [32, 18]],
+        "times": [0.0, 1.0],
+    },
+    {
+        "id": "frame-clip/scaled-offset-subtract",
+        "frame": [64, 36],
+        "placement": [32, 18, 0.0, 20, 9],
+        "media": None,
+        "clip": _clip(
+            "fc2",
+            [
+                _mask(
+                    id="e",
+                    kind="ellipse",
+                    space="frame",
+                    cx=36.0,
+                    cy=18.0,
+                    rx=14.0,
+                    ry=9.5,
+                    featherInnerPx=1.5,
+                    featherOuterPx=2.0,
+                ),
+                _mask(
+                    id="hole",
+                    kind="rectangle",
+                    space="frame",
+                    mode="subtract",
+                    cx=36.0,
+                    cy=18.0,
+                    width=6.0,
+                    height=4.0,
+                ),
+            ],
+        ),
+        "sizes": [[48, 27], [32, 18]],
+        "times": [0.0],
+    },
+    {
+        "id": "frame-clip/rotated-band-keyed",
+        "frame": [64, 36],
+        "placement": [40, 24, 30.0, 12, 6],
+        "media": None,
+        "clip": _clip(
+            "fc3",
+            [
+                _mask(
+                    id="b",
+                    kind="band",
+                    space="frame",
+                    originX=32.0,
+                    originY=18.0,
+                    angle=20.0,
+                    widthPx=10.0,
+                    softnessPx=2.0,
+                    invert=True,
+                    keyframes=[
+                        {"id": "o0", "sourceTime": 2.0, "property": "opacity", "value": 1.0},
+                        {"id": "o1", "sourceTime": 4.0, "property": "opacity", "value": 0.25},
+                    ],
+                )
+            ],
+        ),
+        "sizes": [[40, 24]],
+        "times": [0.0, 0.5, 1.5],
+    },
+    {
+        "id": "frame-clip/mixed-with-source-mask",
+        "frame": [64, 36],
+        "placement": [36, 64, 0.0, 14, -14],
+        "media": _PORT,
+        "clip": _clip(
+            "fc4",
+            [
+                _mask(
+                    id="src",
+                    kind="ellipse",
+                    cx=540.0,
+                    cy=960.0,
+                    rx=420.0,
+                    ry=700.0,
+                    featherOuterPx=40.0,
+                ),
+                _mask(
+                    id="split",
+                    kind="linear",
+                    space="frame",
+                    mode="intersect",
+                    originX=32.0,
+                    originY=20.0,
+                    angle=0.0,
+                    softnessPx=3.0,
+                ),
+            ],
+        ),
+        "sizes": [[36, 64], [27, 48]],
+        "times": [0.0],
+    },
+]
+
+
+def _frame_clip_document() -> dict[str, Any]:
+    from framepilot_engine.render.layer_mattes import PicturePlacement
+
+    cases = []
+    for case in FRAME_CLIP_CASES:
+        clip = Clip.model_validate(case["clip"])
+        media = case["media"]
+        size = None if media is None else (float(media["width"]), float(media["height"]))
+        frame_w, frame_h = case["frame"]
+        resized_w, resized_h, rotation, x, y = case["placement"]
+
+        def placements(
+            _t: float,
+            width: int,
+            height: int,
+            *,
+            rw: int = resized_w,
+            rh: int = resized_h,
+            rot: float = rotation,
+            px: int = x,
+            py: int = y,
+            fw: int = frame_w,
+            fh: int = frame_h,
+        ) -> tuple[PicturePlacement, tuple[int, int]]:
+            return PicturePlacement(width, height, rw, rh, rot, px, py), (fw, fh)
+
+        stacks = clip_mask_stacks(clip, size, placements=placements)
+        assert stacks is not None, case["id"]
+        expected = [
+            {
+                "width": width,
+                "height": height,
+                "time": t,
+                "alpha": _digest(stacks.alpha_at(t, width, height)),
+            }
+            for width, height in case["sizes"]
+            for t in case["times"]
+        ]
+        cases.append({**case, "expected": expected})
+    return {
+        "area": "frame-clips",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/mask_stack.py frame_space_alpha. "
+            "placement = [width, height, rotation, x, y] of the resized picture on the frame"
+        ),
+        "cases": cases,
+    }
+
+
 def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
@@ -1175,6 +1352,7 @@ DOCUMENTS = {
     "stack-clips": _clip_document,
     "matte-clips": _matte_document,
     "frame-layers": _frame_layer_document,
+    "frame-clips": _frame_clip_document,
     "finesse": _finesse_document,
 }
 

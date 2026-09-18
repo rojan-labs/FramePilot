@@ -29,6 +29,33 @@ the clip, on both sides — which is what limits any of the 40 catalog render ki
 `tests/fixtures/mask-raster/frame-layers.json` pins the two implementations float64-byte-exact,
 and the `effects/effect-kinds-masked` oracle case exercises every kind with a mask in CI.
 
+**Editing a lane's mask (MK9.1).** Select the adjustment lane, open its **Mask** tab, and draw on
+the monitor. The lane is handed to the clip panel's own list, properties and monitor tools as a
+clip-shaped stand-in (`effectLayerMaskOwner` in `editor-core`: clock = seconds from `start`,
+picture = the frame, identity monitor map `frameMonitorSpace`), and every command carries
+`owner: 'effect_layer'`, so `compileMaskCommand` runs the CLIP builder and readdresses its
+operations to the lane (`add_mask` becomes `add_effect_layer_mask`, the rest take `layerId`).
+One implementation, so a lane edit and a clip edit of the same intent cannot drift. What only a
+clip picture can have (mattes, keys, track mattes, tracking, clipboard and presets) is refused on
+a lane with a remedy, and the monitor leaves the AI and tracking tools out of the lane toolbar.
+
+## Frame-space masks on a clip (MK9.1)
+
+A clip mask with `space: 'frame'` is fixed to the OUTPUT frame instead of the picture: the
+picture can move, scale or rotate under it (a window the shot slides through). It is drawn on the
+frame in frame pixels by the same rasteriser (invert and opacity included), then read back onto
+the clip's raster at the frame pixel each of its pixel centres lands on: the track matte's
+mapping (`sample_plane` / `layerSamplePosition`), through the placement the export computes
+(`picture_placement_at`; the compositor's step resize, rotation and paste). A clip pixel that
+lands off the frame reads 0. It combines with the clip's source-space masks in stack order.
+
+Shapes, splits, bands and gradients can be frame-space. A key or a matte reads the clip's own
+picture and a track matte is already a frame picture, so a frame-space one is refused, as is a
+tracked frame-space mask (a track follows the picture) and one migrated from v21. The CPU twin
+is float64-exact with the engine (`frame-clips.json`); the compositor caches the raster by the
+placement, so a still clip under a static frame mask is drawn once. The legacy canvas and DOM
+monitors do not know where the picture lands and draw such a stack uncut.
+
 ## Split, mirror band and gradient (MK8.1)
 
 The analytic kinds are a distance to a line or a centre, so they need no path, no flattening and
@@ -162,6 +189,7 @@ at engine start). Both modes are tested.
 | `tests/fixtures/mask-raster/legacy.json`                                 | `legacy-mask.test.ts`                  |
 | `tests/fixtures/mask-raster/stack-clips.json` (SHA-256 of float64 alpha) | `mask-stack.test.ts`                   |
 | `tests/fixtures/mask-raster/layer.json` (track matte mapping, MK8.2)     | `layer-mattes.test.ts`                 |
+| `tests/fixtures/mask-raster/frame-clips.json` (frame-space clip, MK9.1)  | `mask-stack.test.ts`                   |
 
 Regenerate after a deliberate engine change with `pnpm mask-raster:vectors`; the engine's
 `test_mask_raster_vectors.py` and `test_mask_stack_vectors.py` fail when the stored files drift.
@@ -177,7 +205,7 @@ export's own remedy sentence as the tooltip.
 
 Kinds and settings the export refuses before rendering are refused on the monitor too, never
 drawn approximately and never silently skipped: a gradient or a track matte with expansion or
-feather set, tracked masks (MK7), frame-space masks (MK9), plus project problems the
+feather set, a frame-space key, matte, track matte or tracked mask (MK9.1), plus project problems the
 export also rejects (media never measured, an effect target that is not on the clip). The clip is
 drawn unmasked and the monitor shows "Mask not previewed yet" with the reason as its tooltip.
 
