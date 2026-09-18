@@ -136,9 +136,36 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   morphology for edge shift, clean levels (`edgeMode: 'sharp'` = 0.25/0.75), the distance feather
   on the matte's own 50 % contour, swscale's bicubic (B = 0, C = 0.6) to the size the picture was
   decoded at, the integer crop, then invert/opacity/mode. Decontamination runs after the crop and
-  before effects, on a CPU read-back of the cropped picture (float64 `rint`, like the export).
+  before effects (`rint` to bytes, like the export).
   `tests/fixtures/mask-raster/matte-clips.json` pins every float64 digest; `matte-edges.test.ts`
   asserts them.
+- **Where it runs (PX5.3).** The monitor draws a matte with GPU passes
+  (`preview/engine/gl/matte-pass.ts`, `matte-shaders.ts`), not that float64 twin: at 4K the twin
+  cost 452 ms of main thread per composite and the monitor presented one frame in 20 seconds.
+  The passes run the export's chain in the export's order - the decoded samples uploaded as the
+  integers they are, edge shift, the finesse group (the SAME passes a key runs,
+  `gl/alpha-passes.ts`), the distance feather, the bicubic with the engine's own float64-
+  normalised taps, the crop, invert and opacity - into the stack's float accumulator, quantised
+  once. A chain that reads no neighbour (clean levels and in/out ratio only: `edgeMode: 'sharp'`
+  and the defaults) is applied per tap inside the horizontal resample, so no 4K float plane
+  exists. float32 cannot be byte-equal to float64, so the PX4 oracle judges the result at its
+  unchanged gates. A radius past a shader loop's bound, a plane past the GPU's texture limit or a
+  GPU without float targets draws that layer with the float64 twin instead, so nothing is refused
+  or clipped; the telemetry says which ran (`matteStack` vs `maskRaster`).
+- **Monitor tier (PX5.3).** Decontamination needs only the band weight and the band-premultiplied
+  foreground resampled to the picture's decoded size - and those depend on nothing the user can
+  change on the mask. `render/matte_tier.py` makes them once, with the engine's own resample,
+  into `.framepilot-derived/matte-tiers/<key>/` (beside the artifact, never in it: the artifact
+  holds exactly what the host verified). `tier.json` names the masters' digests; the monitor uses
+  a tier only when they equal the digests its mask pins and only where the picture was decoded at
+  the tier's size, and decodes the foreground master everywhere else. Values are the float64
+  resample rounded to 16 bits (at most half a step: 1/131070 of the weight, 1/514 of a colour
+  level; no byte moves more than one level), stored as byte planes in one intra-only FFV1 frame.
+  At 960x540 it decodes in 14.5 ms against 38.5 ms for the 4K foreground it replaces, and uploads
+  4 MB instead of 25 MB. **Who makes it:** the PX5 Scale fixture and the PX4 oracle generator
+  call `write_monitor_tier`; the desktop app does not yet (it needs a sidecar route and a host
+  call after an artifact commits, which changes the sidecar contract and waits for the
+  maintainer - see ADR 0181). Without a tier the monitor decodes the masters, correctly, slower.
 - **Decoding: lossless masters, not the VP9 previews.** The pack also writes `preview.webm` and
   `foreground.preview.webm` (VP9, 540p by default, CRF 34). Measured against the export's
   composite on a hard-edged 1080p matte with one-pixel strands, the 540p VP9 matte gives 32.44 dB
@@ -153,11 +180,17 @@ read over `fp-media` on the desktop) in the same pass as every other kind:
   `BITMAPINFOHEADER`) — which one is the muxer's choice, and FFmpeg only gained the native CodecID
   recently, so the same `ffv1` encode differs between ffmpeg versions. The export's reader is
   ffmpeg, which takes both, so the demuxer takes both; the checked-in fixtures are native, so only
-  the oracle (whose artifacts CI's own ffmpeg writes) caught it. They
-  run in the shared decode worker under the picture decoder pool, and decoded frames share the
-  engine's byte-bounded picture cache. Cost: about 7 ms for a 1080p matte frame and 160 ms for a
-  1080p RGB foreground frame on an M-series CPU (node); playback holds the previous picture when a
-  matte frame is late, as it does for pictures.
+  the oracle (whose artifacts CI's own ffmpeg writes) caught it. They decode on their own workers
+  (PX5.3, `decode/matte-decode-pool.ts`: half the cores, one to four), never in the picture
+  decoders' worker. An intra-only file (the pack's) is decoded frame-parallel and opened on every
+  worker when it loads; each worker is given one frame at a time, the nearest one wanted
+  (`MatteSource.want`), and a frame the playhead has passed is dropped while it waits (never counted
+  as a failure). With Cues on every frame the index reads only the Cues; a frame's block header is
+  parsed when the frame is read. Decoded frames share the engine's byte-bounded picture cache. Cost
+  on an M1 Pro (node, the Scale row's 4K masters): a matte frame 17 ms and a flat-colour RGB
+  foreground 37 ms since PX5.3 copies FFV1 runs and rows in blocks (32 and 72 ms before; camera
+  footage costs more, FFV1 cost follows entropy); playback holds the previous picture when a matte
+  frame is late, as it does for pictures.
 - **Digests.** `frames.json` and `report.json` are hashed before parsing. The masters are not
   re-hashed by the monitor (a 4K foreground is gigabytes); desktop project-media validation and the
   export check them, and the monitor still checks their size, pixel format and frame count.

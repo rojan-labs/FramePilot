@@ -14,9 +14,9 @@ does); the matte is always the 4K artifact.
 | Budget                                                         | Measured (M1 Pro, real GPU)                                                              | Verdict                                               |
 | -------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | ----------------------------------------------------- |
 | Playback ≤ 1% dropped frames, Scale row **without** the matte  | 1 / 600 (0.17%); 0–0.17% with an animated 200-vertex path or a key + finesse on top      | **holds**                                             |
-| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%): one frame in 20 s, the monitor freezes                                | **misses**                                            |
+| Playback ≤ 1% dropped frames, Scale row **with** the 4K matte  | 600 / 601 (99.8%) before PX5.3; **1 / 601 (0.17%)** after, with the matte's monitor tier | **holds** since PX5.3 (tier needed; see "PX5.3")      |
 | Seek-to-present ≤ 100 ms p95, without the matte                | 35.7 ms (56.3 ms with the path, 50.2 ms with key + finesse)                              | **holds**                                             |
-| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms)                                                                      | **misses**                                            |
+| Seek-to-present ≤ 100 ms p95, with the 4K matte                | 617 ms (p50 592 ms) before PX5.3; **49.9–52.5 ms** (p50 37 ms) after                     | **holds** since PX5.3                                 |
 | Memory bounded by the decoder pool                             | live decoders peak 6 of 6; picture cache peak 401–407 MB (676 MB with the matte)         | **bounded**, above the nominal 384 MB (below)         |
 | Export with masks + 4K matte ≤ 1.5× without (P13)              | 1.98× before; after the optimisation below **1.49×** here and **1.56×** on the CI runner | **misses narrowly** (at the line here, over it on CI) |
 | Desktop path **without proxies** (4K originals in the monitor) | 603 / 604 dropped; seek p95 161 ms                                                       | misses; the desktop app does not take this path       |
@@ -262,11 +262,13 @@ disk's sequential read of the whole file, because ffprobe reads every packet's p
 
 The budget assertion is deliberately **not** run on CI: a SwiftShader runner would fail it for
 reasons that say nothing about the product, and a guard that is red for the wrong reason gets
-turned off. `scale/proxy` fails it on real hardware today, which is the truth.
+turned off. `scale/proxy` failed it on real hardware before PX5.3 and passes it since (with the
+matte's monitor tier present; without it, it still fails on dropped frames).
 
 ## Handed to the optimiser (precise targets)
 
-1. **Matte in the monitor** — 452 ms per composite on the main thread (`matteFrameAlpha` 170 ms,
+1. **Matte in the monitor** — DONE in PX5.3 (below), except the desktop app's tier trigger.
+   Was: 452 ms per composite on the main thread (`matteFrameAlpha` 170 ms,
    `decontaminate` 324 ms in Node at 4K → 960×540) plus 101 ms of single-threaded FFV1 decode per
    frame. Target: a composite with a 4K matte ≤ 25 ms (the load-shed threshold) and ≤ 33 ms of
    decode per frame. Judge with the PX4 oracle; the guard is `scale/proxy` with `PX5_ASSERT=budgets`.
@@ -279,3 +281,89 @@ turned off. `scale/proxy` fails it on real hardware today, which is the truth.
    of the frame, its box 22%), and
    `apply_clean_levels` is dense at 4K (28 ms/frame); the same exact-box
    argument applies outside the band, where alpha is exactly 0 or 1.
+
+## PX5.3 — a 4K matte plays
+
+M1 Pro, Chrome, ANGLE/Metal, `scale/proxy` (the desktop path), measured 2026-09-18 on the same
+shared machine as above, one 20-second run per line, `px5-local-run.py` under the watchdog. No
+budget was lowered, no tolerance widened, no dependency added. Each line adds one group of
+commits to the one before, so its difference is that group's.
+
+| After                                                               | Dropped           | Seek p50 / p95 | Playback composite p50 / p95 | One full-res composite | Matte decode p50 / p95 | Picture decode p50 | Footprint |
+| ------------------------------------------------------------------- | ----------------- | -------------- | ---------------------------- | ---------------------- | ---------------------- | ------------------ | --------- |
+| Before PX5.3 (above)                                                | 600/601 (99.8%)   | 592 / 617      | 478 (one drew)               | 452                    | 101 per frame, serial  | 1,566              | 3.78 GiB  |
+| GPU matte pass; matte decode pool (`f0addf60`, `2d0d5227`)          | 535/603 (88.7%)   | 129 / 147      | 13.5 / 26.0                  | 28.7                   | 1,356 / 7,605 (queued) | 62                 | 6.11 GiB  |
+| GL program-order fix, texture recycling, ranked queue               | 293/607 (48.3%)   | 125 / 135      | 14.4 / 27.5                  | 27.1                   | 406 / 497              | 105                | 5.11 GiB  |
+| Monitor tier, FFV1 block copies                                     | 68/602 (11.3%)    | 102 / 157      | 0.7 / 2.4                    | 14.3                   | 22.9 / 225             | 95                 | 4.56 GiB  |
+| Seek overlap, workers pre-open, pointwise chain fused into resample | 2/602 (0.33%)     | 42 / 108       | 0.7 / 2.0                    | 11.5                   | 21.1 / 36.6            | 73                 | 4.44 GiB  |
+| **Cues-only index, artifacts opened at project load (final)**       | **1/601 (0.17%)** | **37 / 49.9**  | **0.7 / 2.1**                | **11.0**               | **21.8 / 34.3**        | 85                 | 3.71 GiB  |
+
+The final code, again: 1/601 and seek p95 52.5 ms, then three runs with `--budgets` (both
+budgets asserted) that passed. Composite times in playback are submission (GPU sync off); the
+one full-resolution composite is read back, so it includes the GPU. Gauges at the final line:
+picture cache peak 440 MB (676 before: a tier frame is 4 MB where a 4K foreground was 25 MB),
+GL pools 191 MB (55 before: two matte frames' textures and their recycled spares, the 960x2160
+across target, the stack's float accumulators), picture decoders 4 (mattes no longer share
+their pool).
+
+**What each piece is, and what it cost the main thread** (details in the guides and commits):
+
+- **GPU matte pass** (`gl/matte-pass.ts`, `matte-shaders.ts`, `alpha-passes.ts`): the export's
+  chain as float passes into the stack's float accumulator, quantised once; decontamination
+  folded into the horizontal resample. No per-pixel float64 on the main thread in playback: the
+  float64 twin runs only for a radius past a shader bound or a GPU without float targets
+  (`maskRaster` stays at 0 samples on the row).
+- **The monitor tier** (`render/matte_tier.py`, ADR 0181): the export's decontamination planes at
+  the decoded size, made once with the engine's resample (`resample_limited`: value for value,
+  884 → 84 ms per 4K frame), 16-bit, stored as byte planes in intra-only FFV1. Decodes in
+  14.5 ms at 960x540 where the 4K foreground takes 38.5 ms. **Made where:** by the host, beside
+  the artifact — not by the pack (schema-enumerated file names, no engine resample in the pack,
+  no knowledge of the monitor's size; see the ADR). The Scale fixture and the PX4 generator make
+  it; the desktop app does not yet (needs a sidecar route: maintainer decision).
+- **Decode** (`decode/matte-decode-pool.ts`): mattes on their own workers (half the cores, 1–4),
+  frame-parallel for intra-only files, one frame per worker at a time, nearest-wanted first, a
+  frame the playhead passed dropped while it waits. FFV1 runs and rows copied in blocks
+  (byte-exact): 4K matte 32.0 → 17.4 ms, 4K foreground 72.1 → 37.1 ms (`matte-decode.perf.test.ts`).
+  A Cues-indexed file opens from its Cues alone: 149 MB in 571 reads → 0.6 MB in 3 reads, 5 ms.
+  WASM was not needed.
+- **A bug found on the way:** `LayerCompositor.alpha()` set half its uniforms, then built the
+  mask stack (which on the GPU binds its own programs), then drew with the last of them. Every
+  alpha-target stack built on the GPU was drawn wrong — a key's since MK6.1, unseen because no
+  PX4 row carries a key. The spec now fails on any WebGL error.
+
+**Attribution: the tier is needed for the dropped-frame budget on this machine.** The final code
+with the tier withheld (`PX5_TIER=0`, masters only): 51/609 (8.4%) dropped, seek 75.2 / 90.6 ms,
+composite 13.6 / 27.5 ms, matte decode 49.3 / 96.9 ms, picture decode 232 ms p50, footprint
+4.88 GiB. Seek holds without it; playback does not.
+
+**No regression elsewhere** (final code): `scale-key` 1/607, seek 35.6 / 49.2 ms, composite 13.7
+/ 14.6 ms, GL pools 199 MB (before: 1/608, 34.6 / 50.2, 13.8 / 14.8, 190 MB); `scale-plain`
+0/601, seek 26.1 / 40.7 ms (before 1/600, 25.5 / 35.7).
+
+**PX4 oracle, unchanged gates.** CI run 35324781183 (`4ab6f52f`: GPU pass, pool, program-order
+fix): 59/59 rows pass; the eight matte rows as before — seven bit-identical (PSNR ∞, 100% within
+8/255), text-behind-subject 53.68 dB / 100% (its burned text). They judged the GPU pass: CI's
+SwiftShader has float targets (the same run's PX5 job recorded `matteStack` samples and no
+`maskRaster`). The tier path: see "Oracle on the tier" below.
+
+**Honest limits.**
+
+- One machine (M1 Pro, 16 GB, shared: load average 4–13 during runs), one run per line. The
+  "holds" verdicts are for this machine; a slower CPU decodes the 4K alpha (17–19 ms a frame
+  here) slower, and the alpha is still decoded at source size (see "not done").
+- The fixture's matte is a flat-colour disc: FFV1's best case. Camera mattes and foregrounds
+  decode slower; the tier's planes cost follows the band's length, not the frame's.
+- One run of ten at the final code hung (a `page.evaluate` past the 260 s test timeout, normal
+  memory). The same kind of hang happened before PX5.3 on `scale-path` (a variant with no matte,
+  12:38, 623.7 s). Not diagnosed; the next three runs passed.
+- The desktop app makes no tier yet, so on the desktop a matte runs the masters path: seek within
+  budget, playback not (8.4% dropped here).
+
+**Not done, and what it would take.**
+
+- The desktop tier trigger: a sidecar route shaped like `/mattes/frame-hashes` and a host call
+  after an artifact commits (ADR 0181). Needs the maintainer (sidecar contract).
+- An alpha tier for a matte whose edge chain is the identity (the default soft matte): the
+  resampled alpha is then exactly what the monitor needs, and the 4K alpha decode (17–19 ms a
+  frame) would go. Not for `sharp` or any edge control, which act at source resolution.
+- PX5.5 (two composites per project frame at 60 Hz) and PX5.4 (export ratio) are untouched.

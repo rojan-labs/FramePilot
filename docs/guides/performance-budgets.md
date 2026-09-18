@@ -296,13 +296,13 @@ timeline, the **Scale row**: 3 minutes, 4K, 4 picture layers + text + a 4K matte
 `pnpm px5:fixture` (never committed). Full numbers, method and the honest limits:
 [`plan/background-removal-ai/PX5-BUDGETS.md`](../../plan/background-removal-ai/PX5-BUDGETS.md).
 
-| Budget                                                               | Covers                                                                                                                         | Measured (M1 Pro, Chrome, Metal)                                                             | Status                 |
-| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | -------------------------------------------------------------------------------------------- | ---------------------- |
-| Playback **≤ 1% dropped frames** at the monitor's default resolution | 4 layers + text on 540p proxies (the desktop path); also with an animated 200-vertex path, and with a key + full finesse chain | 0–0.17% (0–1 of ~600 frames)                                                                 | holds                  |
-| same, **with a 4K matte**                                            | the whole row                                                                                                                  | 99.8% dropped: one frame in 20 s                                                             | **misses** (see below) |
-| **Seek-to-present ≤ 100 ms p95**                                     | 24 fixed seeks across the timeline                                                                                             | 36–56 ms without the matte; **617 ms** with it                                               | holds / **misses**     |
-| **Memory bounded by the decoder pool**                               | live decoders, picture cache, GL pools                                                                                         | decoders ≤ 6; cache 401–407 MB (676 MB with the matte); GL pools 51–190 MB, flat when steady | bounded                |
-| **Export with masks + 4K matte ≤ 1.5× without** (P13)                | `export_video` at 4K, 120–180-frame window                                                                                     | 1.98× → **1.49×** (M1 Pro) / **1.56×** (CI runner) after `decontaminate` was boxed           | **misses narrowly**    |
+| Budget                                                               | Covers                                                                                                                         | Measured (M1 Pro, Chrome, Metal)                                                           | Status              |
+| -------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------------------------------------------ | ------------------- |
+| Playback **≤ 1% dropped frames** at the monitor's default resolution | 4 layers + text on 540p proxies (the desktop path); also with an animated 200-vertex path, and with a key + full finesse chain | 0–0.17% (0–1 of ~600 frames)                                                               | holds               |
+| same, **with a 4K matte**                                            | the whole row, the matte's monitor tier present (PX5.3)                                                                        | 99.8% dropped before PX5.3; **0.17%** (1 of 601) after, in each of 5 runs                  | holds (PX5.3)       |
+| **Seek-to-present ≤ 100 ms p95**                                     | 24 fixed seeks across the timeline                                                                                             | 36–56 ms without the matte; with it 617 ms before PX5.3, **50–53 ms** after                | holds               |
+| **Memory bounded by the decoder pool**                               | live decoders, picture cache, GL pools                                                                                         | decoders ≤ 6; cache 401–407 MB (676 → 434–440 MB with the matte); GL pools 51–199 MB, flat | bounded             |
+| **Export with masks + 4K matte ≤ 1.5× without** (P13)                | `export_video` at 4K, 120–180-frame window                                                                                     | 1.98× → **1.49×** (M1 Pro) / **1.56×** (CI runner) after `decontaminate` was boxed         | **misses narrowly** |
 
 **How it is measured.** The engine records its own numbers (`preview-telemetry.ts`, read through
 `LayerPreviewEngine.debugTelemetry()`): frame interval, composite, seek-to-present, mask raster,
@@ -323,13 +323,38 @@ real transport and reads only that.
 - Real hardware: `python3 tests/e2e/scripts/px5-local-run.py scale-plain/proxy --budgets` asserts
   the 1% and 100 ms budgets, one variant at a time under a memory watchdog.
 
-**Known miss: a 4K matte does not play in the monitor.** Its alpha and edge decontamination are
-exact float64 CPU work on the main thread (452 ms per composite) and its FFV1 frames decode
-single-threaded in TypeScript (101 ms per frame). No budget was lowered; the fix (a GPU matte
-pass judged by the PX4 oracle, or a monitor-resolution matte tier) is a maintainer decision
-recorded in `PX5-BUDGETS.md`. An animated 200-vertex path costs 16 ms p95 of main-thread time
-per frame on the desktop path and drops no frames; on an unproxied 1280×720 raster it would cost
-38 ms and would.
+**PX5.3: a 4K matte plays.** It did not: its alpha and decontamination were float64 CPU work on
+the main thread (452 ms per composite) and its FFV1 frames decoded single-threaded in TypeScript
+in the picture decoders' own worker (101 ms per frame). No budget was lowered and no gate
+widened; what changed, each step measured on the row:
+
+- the matte chain runs as GPU passes into the stack's float accumulator, quantised once (composite
+  452 → 11 ms for one full-resolution frame; 0.7 ms p50 submission during playback);
+- mattes decode on their own worker pool, frame-parallel, one frame per worker at a time, nearest
+  wanted first, frames the playhead passed dropped while waiting (picture decode stops waiting
+  behind mattes);
+- FFV1 runs and rows are copied in blocks (4K matte 32 → 17 ms, 4K foreground 72 → 37 ms, byte-exact);
+- a Cues-indexed file is opened from its Cues alone (5 ms and 0.6 MB instead of the whole file);
+- the matte's **monitor tier** (`render/matte_tier.py`: the export's decontamination planes at the
+  decoded size, 16-bit, lossless container) replaces the 4K foreground wherever it fits.
+
+Without the tier (masters only) the row holds the seek budget (90.6 ms p95) but drops 8.4% of
+frames, so the dropped-frame verdict depends on the tier, which only the fixture and the oracle
+generator make today: the desktop app's trigger waits for a maintainer decision (ADR 0181).
+Numbers, per-step attribution and limits: `PX5-BUDGETS.md`, "PX5.3".
+
+An animated 200-vertex path costs 16 ms p95 of main-thread time per frame on the desktop path and
+drops no frames; on an unproxied 1280×720 raster it would cost 38 ms and would.
+
+**PX5.3 guards.** The Scale-row spec fails on any WebGL error the driver reports (a pass that sets
+uniforms on the wrong program still "presents"; the key's alpha stack drew that way from MK6.1
+until PX5.3); the PX4 oracle's matte rows judge the GPU pass and, since the generator writes
+tiers at the export's decode size, the tier path (`sample.mattes` records which one each sample
+drew); unit tests pin the pass order and tap tables (`matte-pass.test.ts`), the pool's scheduling
+(`matte-decode-pool.test.ts`), the tier's validation and fall-back (`matte-source.test.ts`), the
+CPU twin of the tier path against the masters (`matte-edges.test.ts`), texture recycling
+(`gl-resources.test.ts`), and the tier's resample value-for-value against the engine's
+(`test_matte_tier.py`).
 
 ## How they're measured
 

@@ -133,12 +133,22 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   frames, seek-to-picture time and memory, so performance claims come from the app rather than
   from a stopwatch. On a 3-minute 4K timeline with four layers and a title, playback on an M1 Pro
   drops fewer than 1 frame in 500 and a seek shows its picture in about 35 ms.
-- **Known limit:** a clip with a 4K background-removal matte does not play smoothly in the monitor
-  yet (it can be scrubbed, at roughly half a second a frame). The export is unaffected. The
-  numbers and what it would take are in `plan/background-removal-ai/PX5-BUDGETS.md`.
+- **A clip with a 4K background-removal matte now plays in the monitor.** It used to show one frame
+  in twenty seconds and take over half a second to show a seek: the cut-out's edge work ran on the
+  main thread and its matte files decoded one frame at a time next to the video decoding. The
+  cut-out is now drawn on the GPU, matte files decode on their own background threads (several
+  frames at once, the ones about to be shown first), and the monitor reads a small copy of the
+  edge-colour data made at its own size instead of the full-resolution one. On a 3-minute 4K
+  timeline with four layers, a title and a 4K matte, an M1 Pro now drops 1 frame in 600 and shows
+  a seek in about 50 ms. The picture is the same: it still matches the export within the same
+  checks as before. The desktop app does not make that small copy yet, so there a matte plays
+  noticeably better than before but still drops some frames; seeks are fast either way.
 
 ### Fixed
 
+- **A colour-key mask draws correctly in the monitor.** A key limiting a clip's picture (not one
+  limiting an effect) was drawn with the wrong GPU program, so the monitor could show the clip
+  wrongly cut or not cut at all. The export was never affected.
 - **A mask's expansion now exports.** Growing or shrinking a mask by a fixed amount showed in the
   editor but was ignored when exporting (only animated expansion worked); the same applied to a
   cut-out's fixed edge shift.
