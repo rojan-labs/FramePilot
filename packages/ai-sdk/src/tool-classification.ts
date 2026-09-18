@@ -119,6 +119,7 @@ export const TOOL_CLASSIFICATION: Readonly<Record<string, ToolClassification>> =
   // MK8: host-measured like create_mask (a preset on a subject re-resolves its candidate).
   create_shape_mask: { role: 'sourcing', scope: 'timeline_dependent' },
   mask_with_layer: { role: 'mutation', scope: 'timeline_dependent' },
+  style_cutout_edge: { role: 'mutation', scope: 'timeline_dependent' },
   get_masks: { role: 'inspection', scope: 'timeline_dependent' },
   professional_audio: { role: 'mutation', scope: 'timeline_dependent' },
   measure_color: { role: 'analysis', scope: 'timeline_dependent' },

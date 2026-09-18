@@ -1,7 +1,7 @@
 ---
 name: masking-and-compositing
 description: Masks and cut-outs on request — remove a background, hide or isolate a subject, grade only part of the picture, split screen, gradients, heart/star shapes, video inside text, a title behind someone, tracking. The editor picks unclear targets; report flagged moments, never call a mask verified.
-tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, put_text_behind_subject, follow_subject, get_masks, delete_mask]
+tools: [find_mask_targets, create_mask, remove_background, track_mask, refine_mask, create_shape_mask, mask_with_layer, style_cutout_edge, put_text_behind_subject, follow_subject, get_masks, delete_mask]
 ---
 
 # Masking and compositing
@@ -64,6 +64,9 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - `mask_with_layer` (clipId, sourceClipId or sourceTrackId, channel): another clip or a whole
   track becomes this clip's mask — a title for video inside text. `alpha` uses its shape, `luma`
   its brightness, `inverted-*` the reverse. The source stops being drawn on its own.
+- `style_cutout_edge` (clipId, style `outline`/`glow`/`shadow`, preset, color): a line, glow or
+  drop shadow around what the clip's masks keep. The clip needs its cut-out first; `color` only
+  when the editor named one; `remove: true` takes that style off.
 - `put_text_behind_subject` needs the background removed on that clip first.
 - `follow_subject` makes one mask reuse another mask's measured track. The source must be tracked.
 - `get_masks` lists a clip's masks with ids; `delete_mask` removes one.
@@ -89,6 +92,9 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
   `side: "top"`, `purpose: "effect"`, `effect: "darken"`.
 - **A heart or star around someone:** `find_mask_targets` → `create_shape_mask` with the preset
   and the candidateId.
+- **Sticker outline or shadow on a cut-out person:** background removed first, then
+  `style_cutout_edge` with `style: "outline"` (`preset: "sticker-outline"` for a thick border) or
+  `style: "shadow"`.
 - **Video inside text:** put the title above the clip (titles tools), then `mask_with_layer` on the
   clip with `sourceClipId` = the title and `channel: "alpha"`.
 - **Everyone except the host:** `find_mask_targets` returns `needs_face_selection`; the editor

@@ -848,3 +848,52 @@ describe('mask_with_layer (MK8.2)', () => {
     expect(() => build({ clipId: 'shot', sourceTrackId: 'v1' }, ctxOf(p))).toThrow(/lead back/);
   });
 });
+
+describe('style_cutout_edge (MK9.2)', () => {
+  const cut = [{ id: 'm', kind: 'ellipse', cx: 960, cy: 540, rx: 300, ry: 400 }];
+
+  it('outlines a cut-out with the catalog look, through the Mask tab’s own operation', () => {
+    const p = project(cut);
+    const ops = tool('style_cutout_edge').buildOps!(
+      { clipId: 'shot', style: 'outline', preset: 'sticker-outline', color: '#ff0080' },
+      ctxOf(p),
+    );
+    expect(ops).toEqual([
+      {
+        type: 'set_clip_edge_style',
+        clipId: 'shot',
+        kind: 'stroke',
+        params: { widthPx: 20, red: 255, green: 0, blue: 128, opacity: 1 },
+      },
+    ]);
+    const shot = land(p, ops).timeline.tracks[0]!.clips[0]!;
+    expect(shot.effects.find((effect) => effect.type === 'edge_style')?.params).toMatchObject({
+      kind: 'stroke',
+      widthPx: 20,
+    });
+  });
+
+  it('defaults to the first look of the style and removes one that is there', () => {
+    const p = project(cut);
+    const build = tool('style_cutout_edge').buildOps!;
+    const [shadow] = build({ clipId: 'shot', style: 'shadow' }, ctxOf(p));
+    expect(shadow).toMatchObject({ kind: 'shadow', params: { offsetXPx: 12, softnessPx: 16 } });
+    const styled = land(p, [shadow!]);
+    expect(build({ clipId: 'shot', style: 'shadow', remove: true }, ctxOf(styled))).toEqual([
+      { type: 'set_clip_edge_style', clipId: 'shot', kind: 'shadow', params: null },
+    ]);
+  });
+
+  it('refuses a clip with nothing cut out, a preset of another style, and a missing style', () => {
+    const build = tool('style_cutout_edge').buildOps!;
+    expect(() => build({ clipId: 'shot', style: 'glow' }, ctxOf(project()))).toThrow(
+      /no cut-out to style/,
+    );
+    expect(() =>
+      build({ clipId: 'shot', style: 'glow', preset: 'drop-shadow' }, ctxOf(project(cut))),
+    ).toThrow(/is not a glow/);
+    expect(() =>
+      build({ clipId: 'shot', style: 'glow', remove: true }, ctxOf(project(cut))),
+    ).toThrow(/no glow to remove/);
+  });
+});

@@ -14,7 +14,14 @@
  * desktop executor routes on them, exactly as it does for `track_subject_automatically`.
  */
 import { z } from 'zod/v4';
-import { masksOf, type MaskLayer } from '@framepilot/timeline-schema';
+import {
+  EDGE_STYLE_CATALOG,
+  EDGE_STYLE_EFFECT_TYPE,
+  masksOf,
+  resolveEdgeStyleParams,
+  type EdgeStyleKind,
+  type MaskLayer,
+} from '@framepilot/timeline-schema';
 import type { Operation } from '@framepilot/editor-core';
 import type { ToolContext } from '../tool-context.js';
 import type { ToolSpec } from '../tool-registry.js';
@@ -702,6 +709,67 @@ function maskWithLayerOps(
   return chain.operations;
 }
 
+/** The editor's words for the three edge style kinds (MK9.2). */
+const EDGE_STYLE_WORDS = { outline: 'stroke', glow: 'glow', shadow: 'shadow' } as const;
+
+export const StyleCutoutEdgeArgsSchema = z
+  .object({
+    clipId: z.string().min(1),
+    style: z.enum(['outline', 'glow', 'shadow']),
+    /** A catalog look of that style; absent = its first (White Outline, Neon Glow, Drop Shadow). */
+    preset: z.enum(EDGE_STYLE_CATALOG.map((entry) => entry.id) as [string, ...string[]]).optional(),
+    /** Only a colour the editor named, as #rrggbb. */
+    color: z
+      .string()
+      .regex(/^#[0-9a-fA-F]{6}$/u)
+      .optional(),
+    remove: boolean().optional(),
+  })
+  .strict();
+
+/**
+ * `style_cutout_edge` (MK9.2): the outline, glow or shadow around what a clip's mask stack keeps,
+ * as ONE `set_clip_edge_style`, the operation the Mask tab's Edge style section commits. The
+ * model picks the look by name; the numbers come from the catalog.
+ */
+function styleCutoutEdgeOps(
+  args: z.infer<typeof StyleCutoutEdgeArgsSchema>,
+  ctx: ToolContext,
+): Operation[] {
+  const { clip } = clipWithSize(ctx.project, args.clipId);
+  const kind: EdgeStyleKind = EDGE_STYLE_WORDS[args.style];
+  if (args.remove === true) {
+    const has = clip.effects.some(
+      (effect) => effect.type === EDGE_STYLE_EFFECT_TYPE && effect.params.kind === kind,
+    );
+    if (!has) {
+      throw new ToolRefusalError(`Clip "${clip.id}" has no ${args.style} to remove.`);
+    }
+    return [{ type: 'set_clip_edge_style', clipId: clip.id, kind, params: null }];
+  }
+  if (!masksOf(clip).some((mask) => mask.enabled && mask.target.kind === 'alpha')) {
+    throw new ToolRefusalError(
+      `Clip "${clip.id}" has no cut-out to style. Remove its background or mask it first.`,
+    );
+  }
+  const entry =
+    args.preset === undefined
+      ? EDGE_STYLE_CATALOG.find((candidate) => candidate.kind === kind)!
+      : EDGE_STYLE_CATALOG.find((candidate) => candidate.id === args.preset)!;
+  if (entry.kind !== kind) {
+    throw new ToolRefusalError(
+      `Preset "${entry.id}" is not a ${args.style}. Pick a ${args.style} preset or leave it out.`,
+    );
+  }
+  const params = resolveEdgeStyleParams(entry);
+  if (args.color !== undefined) {
+    params.red = Number.parseInt(args.color.slice(1, 3), 16);
+    params.green = Number.parseInt(args.color.slice(3, 5), 16);
+    params.blue = Number.parseInt(args.color.slice(5, 7), 16);
+  }
+  return [{ type: 'set_clip_edge_style', clipId: clip.id, kind, params }];
+}
+
 export const MASKING_TOOLS: readonly ToolSpec[] = [
   hostMeasured(
     FIND_MASK_TARGETS_TOOL_NAME,
@@ -853,5 +921,18 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
     },
     MaskWithLayerArgsSchema,
     maskWithLayerOps,
+  ),
+  mutateTool(
+    {
+      name: 'style_cutout_edge',
+      description:
+        'Outline, glow or drop shadow around a clip’s cut-out (a removed background or a mask ' +
+        'that keeps part of the clip). preset picks the look; color only if the editor named ' +
+        'one; remove:true takes that style off. One of each style per clip.',
+      capabilities: ['masking'],
+      hostUiOnly: true,
+    },
+    StyleCutoutEdgeArgsSchema,
+    styleCutoutEdgeOps,
   ),
 ];

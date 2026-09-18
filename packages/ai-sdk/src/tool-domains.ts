@@ -231,6 +231,8 @@ const DOMAIN_MEMBERS: Readonly<Record<Exclude<ToolDomain, 'core'>, readonly stri
     // MK8: split, mirror, gradient, shape presets, and track mattes / text as a mask.
     'create_shape_mask',
     'mask_with_layer',
+    // MK9.2: the outline, glow and shadow around a cut-out.
+    'style_cutout_edge',
     // Folded in from `tracking` (AM1.2): both steer a MASK, so they arrive with the tools
     // that make one. They are the editor-drawn-mask path the Inspector still has — a mask the
     // editor drew and selected — beside `track_mask`, which takes any mask by id.

@@ -147,6 +147,7 @@ const TOOL_META: Record<string, ToolMeta> = {
   follow_subject: { label: 'Follow subject', Icon: Scan },
   create_shape_mask: { label: 'Create shape mask', Icon: Square },
   mask_with_layer: { label: 'Mask with a layer', Icon: Square },
+  style_cutout_edge: { label: 'Style the cut-out edge', Icon: Scan },
 
   // Timeline edits
   trim_clip: { label: 'Trim clip', Icon: Scissors },

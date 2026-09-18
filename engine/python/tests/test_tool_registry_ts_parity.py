@@ -146,6 +146,8 @@ def test_host_ui_only_tools_are_detected_and_excluded() -> None:
         # `create_shape_mask` is pack-measured (a preset placed on a subject re-resolves the
         # candidate), so it is named by constant on the TS side like `create_mask`.
         "mask_with_layer",
+        # MK9.2: the cut-out edge styles compile to editor-core's `set_clip_edge_style`.
+        "style_cutout_edge",
     }
     assert "trim_clip" not in host_ui_only
 

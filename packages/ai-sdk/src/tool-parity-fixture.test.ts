@@ -86,6 +86,7 @@ describe('tool-parity fixture', () => {
         'follow_subject',
         'create_shape_mask',
         'mask_with_layer',
+        'style_cutout_edge',
         // Not UI-dependent — flagged so the Python sidecar does not mirror it.
         // Where a caption cue breaks must have exactly one authority
         // (`segmentCaptions`, ADR 0071), and a second segmenter in Python would

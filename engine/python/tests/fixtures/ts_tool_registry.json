@@ -1,7 +1,7 @@
 {
   "normalizationVersion": 2,
   "source": "packages/ai-sdk/src/tool-registry.ts",
-  "toolCount": 108,
+  "toolCount": 109,
   "tools": {
     "add_asset": {
       "kind": "mutate",
@@ -5313,6 +5313,63 @@
           "clipId": {
             "type": [
               "string"
+            ]
+          }
+        }
+      }
+    },
+    "style_cutout_edge": {
+      "kind": "mutate",
+      "mutates": true,
+      "available": true,
+      "hostUiOnly": true,
+      "schema": {
+        "type": [
+          "object"
+        ],
+        "additionalProperties": false,
+        "required": [
+          "clipId",
+          "style"
+        ],
+        "properties": {
+          "clipId": {
+            "type": [
+              "string"
+            ]
+          },
+          "color": {
+            "type": [
+              "string"
+            ]
+          },
+          "preset": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "black-outline",
+              "drop-shadow",
+              "hard-shadow",
+              "neon-glow",
+              "soft-halo",
+              "sticker-outline",
+              "white-outline"
+            ]
+          },
+          "remove": {
+            "type": [
+              "boolean"
+            ]
+          },
+          "style": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "glow",
+              "outline",
+              "shadow"
             ]
           }
         }
