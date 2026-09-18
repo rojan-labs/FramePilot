@@ -158,12 +158,12 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** tracking gates pass on both platforms; tracked-mask oracle rows green.
 
-### MK8 — Analytic kinds, track matte, presets `[ ]`
+### MK8 — Analytic kinds, track matte, presets `[x]` (CI fully green at 6b77de0e, run 35351484628)
 
-- [ ] MK8.1 `linear` (split), `band` (mirror), `gradient` (linear/radial) kinds: engine, preview, vectors, canvas handles
-- [ ] MK8.2 `layer` kind (track matte / text as mask): alpha, luma and inverted channels from the frame plan; cycle refusal
-- [ ] MK8.3 Shape presets (heart, star, n-gon, speech bubble, arrow, rounded frame) as path generators
-- [ ] MK8.4 Oracle rows green; goldens
+- [x] MK8.1 `linear` (split), `band` (mirror), `gradient` (linear/radial) kinds: engine, preview, vectors, canvas handles
+- [x] MK8.2 `layer` kind (track matte / text as mask): alpha, luma and inverted channels from the frame plan; cycle refusal
+- [x] MK8.3 Shape presets (heart, star, n-gon, speech bubble, arrow, rounded frame) as path generators
+- [x] MK8.4 Oracle rows green; goldens
 
 ### MK9 — Adjustment-lane masks, edge styles `[ ]`
 
@@ -287,7 +287,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
 - [x] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
 - [x] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
-- [~] AM2.4 (mask half of follow_subject done; text half blocked on MO-14; create_shape_mask/mask_with_layer unavailable until MK8 renders them) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
+- [~] AM2.4 (create_shape_mask + mask_with_layer live since MK8; follow_subject mask half done; text half blocked on MO-14) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
 - [x] AM2.5 (eb1e3d9d…c4bcd41a; Subject Intelligence 1.1.0 + Visual Embed 1.1.0, negotiated per installed release) Object classes on Subject Intelligence detections (the pinned YOLOX already computes COCO classes and discards them) and colour-aware SigLIP re-ranking of candidate crops, so object requests resolve instead of asking; installed users get it with the next signed pack release (MO-1..MO-5)
 - [ ] AM2.6 Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)

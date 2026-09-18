@@ -10042,7 +10042,7 @@ masking; AI masking; everything production-grade. **Parity and production audit 
 - [~] BR0 — verification build (findings committed: SAM fp32 CPU passes, CoreML disabled, pack ≈ 1.47 GB, recall not yet demonstrated, licence MO-11, hardware MO-12/13): ONNX exports + per-EP parity, verify-stage recall, throughput, pack sizes (models already decided)
 - [~] BR2–BR7 — (BR2, BR3 bar accuracy, BR4, BR5, BR6 done) matte engine, Smart Mask pack, protocol + host, preview matte, UI + review, matte gates
 - [~] AM1–AM5 — (AM1, AM3, AM4, AM5 done — all five AI masking gates pass; AM2.4 text half + AM2.6 real-weights colour open) masking tools, target resolution, verification, surfaces/skill, eval gates
-- [ ] MK8–MK9 — split/mirror/gradient/track matte/presets; adjustment-lane masks; edge styles
+- [~] MK8–MK9 — (MK8 done) split/mirror/gradient/track matte/presets; adjustment-lane masks; edge styles
 - [x] RD0 — re-verify competitor parity table (2026-09-16, `12` §E: no new blocker; three small additions folded into MK1/MK4/BR6)
 - [ ] RD1 — release infrastructure: signing identities, catalog keys, CDN, CI pack builds, staged rollout (start now)
 - [ ] RD2 — feature flags, telemetry, consent legal review, closed beta

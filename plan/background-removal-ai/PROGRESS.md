@@ -8,16 +8,12 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. PX5.3–PX5.9 done (MO-17 route built). MK8 committed; CI green except the mask-panel visual baseline (test window made taller, new baseline pending from CI). Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
-On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
-
-1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
-2. MK4 (canvas tools + mask panel) was mid-task: MK4.1–MK4.6 commits landed (e19901d0 deleted addMaskPatch; 8670a499 Playwright flows; 547d065d save budget 172 ms / 13.4 MB ✓; 1c6a3a65 parse 29 ms). The agent was "fixing the migration test expectations and making the budget run uninstrumented in CI". Its docs commit 03007ebf mentions **schema v23**. Verify whether MK4 bumped the schema (migration + Pydantic twin + drift tests), check the CI result, and finish MK4 (pointer-to-paint budget number into MK4-BUDGETS.md, the MK feature flag). Then tick MK4.
-3. BR5 (matte in the preview) was **stopped by the maintainer** mid-run. Commits: BR5.1 (933ffcac, a3785556), BR5.2 Flagged view (e7bcb01d). Read the CI oracle result for its head before continuing; the matte row must pass the unchanged gates; record the proxy decision (VP9 vs lossless).
-4. BR3.15 done (c1140aee): the numbers are in BR0-FINDINGS.md and under Gate numbers below. The calibration split misses `similar_colour` and `twin_distractor` (watchdog aborts), so re-run those two when memory allows (start rule: `memory_pressure -Q` free ≥ 40%).
-
-Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (UI + review) → AM1–AM5; PX5 perf; MK8/MK9; RD2 remainder; E2E + DOC.1.
-Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
+**CI fully green at 6b77de0e (run 35351484628, 12/12 jobs).** Three fresh agents closing out the rest (maintainer, 2026-09-18: "close out others end to end"; don't resume old agents):
+- MK9 — adjustment-lane masks in frame space, edge styles (outline, glow, drop shadow)
+- BR6.10–6.12 + BR7 — Edge brush, object hover highlight via `subject.segment_frame`, mount JobsPanel, BR7 eval harness + report, another pass at recall/review load
+- PX5.4/5.5/5.10 — full 3-minute export ratio, preview clock on the project frame grid, regenerated oracle baseline
+Then: E2E.1–E2E.8 + DOC.1, RD2.2 dashboards, AM2.6 real-weights colour, MK7.5 real clips. RD3 and everything in MAINTAINER_ONLY_ACTIONS.md stay with the maintainer.
+Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
 
@@ -93,7 +89,7 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- E2E visual: mask-panel.png (panel outgrew the 800 px window) — test window made taller (229f4988); new baseline to commit from CI's macOS render after inspection
+- none open (run 35351484628 at 6b77de0e: 12/12 green)
 
 - save-budget.perf.test.ts failed once at 252.7 ms vs 250 ms (dispatch run 35332745167); passed on the same commit in the PR run — watch for a flake
 
