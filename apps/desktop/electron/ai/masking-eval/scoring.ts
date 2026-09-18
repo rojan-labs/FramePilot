@@ -184,6 +184,8 @@ export interface EvalSummary {
   readonly adversarialHeld: Rate;
   /** Target items missed, grouped by what the target needs beyond the shipped detector. */
   readonly targetMissesByRequirement: Readonly<Record<string, number>>;
+  /** Target accuracy per requirement; `none` is what the shipped detector can name. */
+  readonly targetAccuracyByRequirement: Readonly<Record<string, Rate>>;
   readonly gates: {
     readonly targetAccuracy: Gate;
     readonly ambiguousAskRate: Gate;
@@ -230,6 +232,12 @@ export function summarise(verdicts: readonly ItemVerdict[]): EvalSummary {
     targetMissesByRequirement: countBy(
       targets.filter((item) => !item.correct),
       (item) => item.requires ?? 'none',
+    ),
+    targetAccuracyByRequirement: Object.fromEntries(
+      Object.keys(countBy(targets, (item) => item.requires ?? 'none')).map((requirement) => {
+        const group = targets.filter((item) => (item.requires ?? 'none') === requirement);
+        return [requirement, rate(passed(group), group.length)];
+      }),
     ),
     gates: {
       targetAccuracy: {

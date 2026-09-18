@@ -78,6 +78,18 @@ match is plausible (≥ 0.5) and 1.25× the runner-up.
 decision written down, including the out-of-vocabulary list that makes "the sky" a designed
 `needs_click` rather than a miss.
 
+**The head of the phrase.** A face word wins wherever it appears ("the man's face"). Otherwise
+the head is the first class word that is not a possessive. So "the car's plate" and "the man's
+shirt" are the plate and the shirt, and "her hair" is the hair; a pronoun counts as a possessive
+only when a noun follows it before "and", "on", "behind" and similar words. Before AM5.3, "her
+hair" resolved to the whole presenter. If every class word is a possessive ("the car's
+hubcap"), the target is unknown and the request asks for a click.
+
+**"All" is complete or it asks.** A resolution chooses AND lists every candidate it chose, up to
+`MAX_CHOSEN_CANDIDATES` (40, the desktop's per-frame detection cap). A crowd that reaches the cap
+may be larger than what was seen, so "blur all the faces" asks instead. Before AM5.3 the list
+was cut at twelve, so a crowd of 20 got 12 masks and 8 unblurred faces.
+
 ### Two limits of the shipped packs, and what the resolver does about them
 
 - **Objects have no class.** Subject Intelligence reports every non-person COCO class as the one
@@ -109,6 +121,14 @@ that was NOT chosen — every candidate of an ask, and the runners-up of a resol
 in the **editor's own messages** (`ToolContext.userPickedCandidateIds`, read from every user
 message of the conversation). The check runs before the host is asked, so a guessed id costs no
 pack job.
+
+A pick id keeps the plain id's label and frame but has **its own hash** (`requirePick` salts it),
+so removing the marker does not give back a usable id (AM5.3). Before that change a pick id was
+the plain id with a prefix, and the AM5 eval's adversarial model masked the candidate the editor
+had been asked to choose by stripping `pick.`. That was four confident wrong picks. The host caches
+candidates under the id exactly as a result listed it, and after a restart it resolves a pick id
+by recomputing `requirePick` for each re-detected candidate on the id's frame
+(`candidateIdMatches`). A stripped id matches nothing, so the host refuses it.
 
 The sidebar's `MaskTargetPicker` renders on the `find_mask_targets` result itself: thumbnails
 cropped in the renderer from the clip's own media (no new IPC, no thumbnail files), the label and
@@ -364,6 +384,36 @@ After a deliberate change, regenerate it with
 `pnpm --filter @framepilot/desktop exec vitest run electron/ai/masking-eval/masking-eval.test.ts -u`
 and review the diff like a golden. The model's own phrasing is not measured, and there is no
 real-model run. Such a run would need provider configuration, and it is not run on this machine.
+The test also asserts the gates that must hold: zero confident wrong picks, zero invented
+geometry, every adversarial item held, the ambiguous-ask gate, and every target the shipped
+detector can name. A dedicated CI step prints the summary on the run page.
+
+**Results (AM5.3), plan 06 gates, never lowered:**
+
+| Gate                                           | First run (AM5.2) | Now   | Pass |
+| ---------------------------------------------- | ----------------- | ----- | ---- |
+| Target accuracy, unambiguous (≥ 99%)           | 22/37             | 25/37 | no   |
+| Asks on ambiguous requests (≥ 97%)             | 18/21             | 21/21 | yes  |
+| Unnecessary asks (≤ 3%)                        | 13/37             | 12/37 | no   |
+| Confident wrong picks (0)                      | 5                 | 0     | yes  |
+| Invented geometry (0)                          | 0                 | 0     | yes  |
+| `needs_click` on out-of-vocabulary (by design) | 18/22             | 22/22 | —    |
+| Face picker on identity requests (by design)   | 6/7               | 7/7   | —    |
+
+The eval found four defects, now fixed: pick ids could be forged by stripping the marker, "her
+hair" masked the whole presenter, "all the faces" stopped at twelve, and "the pedestrian" was
+not a person. The vocabulary now also covers people named by what they do: cyclists, runners,
+shoppers, owners and the like.
+
+Every remaining miss is an object. Faces and people score 25/25. The 12 misses are 11
+`object_class` targets (vehicles, products, pets) and one `appearance` target ("the red car").
+Each of them asks. None is picked wrongly. They are the pack limits described under
+[Two limits of the shipped packs](#two-limits-of-the-shipped-packs-and-what-the-resolver-does-about-them).
+Two changes would move them, and both are signed-pack releases for the maintainer:
+
+- Subject Intelligence reporting the COCO class on each detection would resolve the 11
+  `object_class` items. That is a worker-protocol field plus a pack release.
+- A crop parameter on `visual.embed` would feed the re-ranker and resolve "the red car".
 
 ## Failures
 

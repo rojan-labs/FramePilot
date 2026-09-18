@@ -15,7 +15,12 @@
  * clearly, or a single candidate of a class the detector can actually vouch for.
  */
 import { candidateIdFor, requirePick, type MaskCandidateLabel } from './candidate-id.js';
-import type { MaskCandidate, MaskTargetStatus, MaskTargetsResult } from './contracts.js';
+import {
+  MAX_CHOSEN_CANDIDATES,
+  type MaskCandidate,
+  type MaskTargetStatus,
+  type MaskTargetsResult,
+} from './contracts.js';
 import type { NormalizedBox } from './shape-fit.js';
 import {
   ALL_WORDS,
@@ -58,7 +63,7 @@ const TRACK_IOU = 0.3;
 const MIN_PERSISTENCE = 0.15;
 /** …unless only a handful of frames were sampled, where one sighting is all there can be. */
 const FLICKER_FILTER_MIN_FRAMES = 6;
-/** Most candidates one result lists; the picker shows thumbnails, not a wall of them. */
+/** Most candidates an ask lists; the picker shows thumbnails, not a wall of them. */
 const MAX_CANDIDATES = 12;
 /** A positional selector wins when the winner's centre leads by this share of the frame. */
 const POSITION_MARGIN = 0.1;
@@ -71,12 +76,43 @@ const RERANK_MIN_GROUNDING = 0.5;
 /** Ledger disagreement demotes a candidate without removing it: tier-1 labels are themselves estimates. */
 const LEDGER_DISAGREEMENT = 0.85;
 
-const words = (text: string): string[] =>
-  text
+interface Token {
+  readonly word: string;
+  /** Written as a possessive ("the car's", "the players'"): it modifies the noun that follows. */
+  readonly possessive: boolean;
+}
+
+function tokenize(text: string): Token[] {
+  return text
     .toLowerCase()
-    .replace(/[’']s\b/gu, '')
-    .split(/[^a-z]+/u)
-    .filter((word) => word.length > 0);
+    .split(/[^a-z'’]+/u)
+    .map((raw) => ({
+      word: raw.replace(/[’']s$/u, '').replace(/[’']/gu, ''),
+      possessive: /(?:[’']s|s[’'])$/u.test(raw),
+    }))
+    .filter((token) => token.word.length > 0);
+}
+
+/** Pronouns that, before another noun, say whose it is ("her hair") rather than who. */
+const POSSESSIVE_PRONOUNS: ReadonlySet<string> = new Set(['her', 'his', 'their', 'its']);
+/** Words that end a pronoun's phrase: "her and the dog", "her on the left" are about her. */
+const PHRASE_BOUNDARIES: ReadonlySet<string> = new Set([
+  'and',
+  'or',
+  'with',
+  'on',
+  'in',
+  'at',
+  'to',
+  'from',
+  'by',
+  'near',
+  'next',
+  'beside',
+  'behind',
+  'except',
+  'but',
+]);
 
 function classOf(word: string): TargetClass | undefined {
   if (FACE_WORDS.has(word)) return 'face';
@@ -99,37 +135,66 @@ const PLURAL_ALL: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * A class word that only says WHOSE the target is: "the car's plate", "her hair". The noun it
+ * modifies is the target, so a possessive can never be the head — "her hair" masking all of her
+ * was a confident wrong pick in the AM5 eval.
+ */
+function isModifier(
+  tokens: readonly Token[],
+  index: number,
+  classed: readonly (TargetClass | undefined)[],
+): boolean {
+  const token = tokens[index]!;
+  if (token.possessive) return true;
+  if (!POSSESSIVE_PRONOUNS.has(token.word)) return false;
+  for (let next = index + 1; next < tokens.length; next += 1) {
+    if (PHRASE_BOUNDARIES.has(tokens[next]!.word)) return false;
+    if (classed[next] !== undefined) return true;
+  }
+  return false;
+}
+
+/**
  * Read a request into a class, a quantifier, a selector and whether identity is needed.
  *
  * A face wins wherever it appears ("her face", "the man's face"): it is always the head of the
- * phrase. Otherwise the FIRST class word is the head ("the man holding the phone" is a man).
+ * phrase. Otherwise the FIRST class word that is not a possessive is the head ("the man holding
+ * the phone" is a man; "the car's plate" is a plate). A request whose only class words are
+ * possessives names something the vocabulary does not know, so it asks for a click.
  */
 export function parseTargetRequest(description: string): TargetRequest {
-  const tokens = words(description);
-  const classed = tokens.map(classOf);
+  const tokens = tokenize(description);
+  const classed = tokens.map((token) => classOf(token.word));
+  const heads = classed.map((value, index) =>
+    value === undefined || isModifier(tokens, index, classed) ? undefined : value,
+  );
   const targetClass: TargetClass =
     classed.find((value) => value === 'face') ??
-    classed.find((value) => value !== undefined) ??
+    heads.find((value) => value !== undefined) ??
     'unknown';
-  const headIndex = classed.findIndex((value) => value === targetClass);
-  const head = tokens[headIndex] ?? '';
+  const headIndex = heads.findIndex((value) => value === targetClass);
+  const head = tokens[headIndex]?.word ?? '';
   const all =
-    tokens.some((word) => ALL_WORDS.has(word)) ||
+    tokens.some(({ word }) => ALL_WORDS.has(word)) ||
     PLURAL_ALL.has(head) ||
     (targetClass === 'object' && head.endsWith('s') && OBJECT_WORDS.has(head.slice(0, -1)));
-  const selector = tokens.map((word) => SELECTOR_WORDS[word]).find((value) => value !== undefined);
+  const selector = tokens
+    .map(({ word }) => SELECTOR_WORDS[word])
+    .find((value) => value !== undefined);
   const lowered = description.toLowerCase();
   const identity =
     EXCEPTION_PHRASES.some((phrase) => phrase.test(lowered)) ||
-    tokens.some((word) => ROLE_WORDS.has(word));
-  const appearance = tokens.filter(
-    (word) =>
-      classOf(word) === undefined &&
-      !STOP_WORDS.has(word) &&
-      !ALL_WORDS.has(word) &&
-      SELECTOR_WORDS[word] === undefined &&
-      !EXCEPTION_PHRASES.some((phrase) => phrase.test(word)),
-  );
+    tokens.some(({ word }) => ROLE_WORDS.has(word));
+  const appearance = tokens
+    .map(({ word }) => word)
+    .filter(
+      (word) =>
+        classOf(word) === undefined &&
+        !STOP_WORDS.has(word) &&
+        !ALL_WORDS.has(word) &&
+        SELECTOR_WORDS[word] === undefined &&
+        !EXCEPTION_PHRASES.some((phrase) => phrase.test(word)),
+    );
   return {
     targetClass,
     all,
@@ -359,9 +424,11 @@ function decide(request: TargetRequest, ranked: readonly Ranked[], hasReranker: 
   if (request.all) {
     if (classUnverified || request.appearance.length > 0) return ask('ambiguous_target', eligible);
     const every = eligible.filter(grounded);
-    return every.length === 0
-      ? ask('no_candidates', [])
-      : { status: 'resolved', shown: eligible, chosen: every };
+    if (every.length === 0) return ask('no_candidates', []);
+    // "All" is a promise. At the detector's per-frame cap the crowd may be bigger than what was
+    // seen, and some faces would silently stay unmasked, so the editor decides.
+    if (every.length >= MAX_CHOSEN_CANDIDATES) return ask('ambiguous_target', eligible);
+    return { status: 'resolved', shown: eligible, chosen: every };
   }
   if (classUnverified) return ask('ambiguous_target', eligible);
   if (request.selector !== undefined) {
@@ -404,7 +471,11 @@ export function resolveMaskTargets(input: ResolveTargetsInput): MaskTargetsResul
   const hasReranker = input.evidence?.rerank !== undefined;
   const decision = decide(request, rankCandidates(input), hasReranker);
   const asking = decision.status !== 'resolved';
-  const shown = decision.shown.slice(0, MAX_CANDIDATES).map(strip);
+  // A resolution lists everything it chose, so the host has every box it will be asked for —
+  // "blur all the faces" in a crowd of 20 used to choose only the first 12 (AM5 eval).
+  const shown = decision.shown
+    .slice(0, Math.max(MAX_CANDIDATES, decision.chosen.length))
+    .map(strip);
   const chosenIds = new Set(decision.chosen.map((candidate) => candidate.candidateId));
   return {
     kind: 'mask_targets',
@@ -419,9 +490,7 @@ export function resolveMaskTargets(input: ResolveTargetsInput): MaskTargetsResul
         ? candidate
         : { ...candidate, candidateId: requirePick(candidate.candidateId) },
     ),
-    chosenCandidateIds: decision.chosen
-      .slice(0, MAX_CANDIDATES)
-      .map((candidate) => candidate.candidateId),
+    chosenCandidateIds: decision.chosen.map((candidate) => candidate.candidateId),
     reranker: hasReranker ? 'siglip' : 'none',
     engine: input.engine,
   };

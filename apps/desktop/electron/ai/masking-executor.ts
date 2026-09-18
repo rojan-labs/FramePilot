@@ -29,14 +29,17 @@ import {
   FIND_MASK_TARGETS_TOOL_NAME,
   FindMaskTargetsArgsSchema,
   MASKING_HOST_TOOL_NAMES,
+  MAX_CHOSEN_CANDIDATES,
   REMOVE_BACKGROUND_TOOL_NAME,
   TRACK_MASK_TOOL_NAME,
   TrackMaskArgsSchema,
   ToolRefusalError,
   buildShapeMaskOps,
+  candidateIdMatches,
   candidatesOnFrame,
   createMaskRequest,
   parseCandidateId,
+  rankCandidates,
   removeBackgroundRequest,
   resolveMaskTargets,
   type CreateMaskIntent,
@@ -103,8 +106,8 @@ type ExecutorCall = { name: string; arguments?: unknown };
 /** Frames one detection window covers, and how many windows a long range is sampled with. */
 const TARGET_WINDOW_FRAMES = 48;
 const TARGET_WINDOWS = 3;
-/** Detections asked for per frame: a crowded scene still lists every face. */
-const TARGET_MAX_DETECTIONS = 40;
+/** Detections asked for per frame: a crowded scene still lists every face. The resolver's cap. */
+const TARGET_MAX_DETECTIONS = MAX_CHOSEN_CANDIDATES;
 
 /** The tool names this executor owns; everything else must not reach it. */
 export const MASKING_EXECUTOR_TOOLS: ReadonlySet<string> = new Set(MASKING_HOST_TOOL_NAMES);
@@ -279,15 +282,15 @@ class MaskingRun {
     };
     // Rank once without optional evidence to know WHICH candidates exist, then let each source
     // score them. A source that declines leaves its field absent — "not measured", never a guess.
-    const first = resolveMaskTargets(base);
-    const evidence = await this.gatherEvidence(resolved, args.description, first.candidates);
-    const result =
-      Object.keys(evidence).length === 0 ? first : resolveMaskTargets({ ...base, evidence });
-    for (const candidate of result.candidates) {
-      const parsed = parseCandidateId(candidate.candidateId);
-      if (parsed !== null)
-        this.measured.set(parsed.measuredId, { ...candidate, candidateId: parsed.measuredId });
-    }
+    // The sources see plain ids: the result's pick ids cannot be turned back into them.
+    const plain = rankCandidates(base).map(({ grounding: _grounding, ...candidate }) => candidate);
+    const evidence = await this.gatherEvidence(resolved, args.description, plain);
+    const result = resolveMaskTargets(
+      Object.keys(evidence).length === 0 ? base : { ...base, evidence },
+    );
+    // Keyed by the id exactly as listed, marker included: a pick id with its marker stripped is
+    // not a key here, and re-detection refuses it too (AM5.3).
+    for (const candidate of result.candidates) this.measured.set(candidate.candidateId, candidate);
     log.action('maskTargetsResolved', {
       status: result.status,
       candidates: result.candidates.length,
@@ -306,10 +309,7 @@ class MaskingRun {
     candidates: readonly MaskCandidate[],
   ): Promise<MaskTargetEvidence> {
     const sources = this.options.evidence;
-    const plain = candidates.map((candidate) => ({
-      ...candidate,
-      candidateId: parseCandidateId(candidate.candidateId)?.measuredId ?? candidate.candidateId,
-    }));
+    const plain = candidates;
     if (sources === undefined || plain.length === 0) return ledgerEvidence(this.ctx, resolved);
     const rerank = await sources.rerank?.({
       project: this.project,
@@ -346,21 +346,22 @@ class MaskingRun {
     if (parsed === null) {
       this.fail('unknown_candidate', 'That candidateId did not come from find_mask_targets.');
     }
-    const cached = this.measured.get(parsed.measuredId);
-    if (cached !== undefined) return { ...cached, candidateId };
+    const cached = this.measured.get(candidateId);
+    if (cached !== undefined) return cached;
     const { detections } = await this.detect(resolved, parsed.frame, parsed.frame + 1);
     const again = candidatesOnFrame(
       { assetId: resolved.assetId, fps: resolved.fps, detections },
       parsed.frame,
-    ).find((candidate) => candidate.candidateId === parsed.measuredId);
+    ).find((candidate) => candidateIdMatches(candidateId, candidate.candidateId));
     if (again === undefined) {
       this.fail(
         'unknown_candidate',
         'That candidate is no longer found on its frame of this clip.',
       );
     }
-    this.measured.set(parsed.measuredId, again);
-    return { ...again, candidateId };
+    const listed = { ...again, candidateId };
+    this.measured.set(candidateId, listed);
+    return listed;
   }
 
   public async createMask(intent: CreateMaskIntent): Promise<HostToolOutcome> {

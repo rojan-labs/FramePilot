@@ -25,62 +25,78 @@
       "vehicles": 6
     },
     "targetAccuracy": {
-      "passed": 22,
+      "passed": 25,
       "total": 37,
-      "rate": 0.5946
+      "rate": 0.6757
     },
     "ambiguousAskRate": {
-      "passed": 18,
+      "passed": 21,
       "total": 21,
-      "rate": 0.8571
+      "rate": 1
     },
     "unnecessaryAsks": {
-      "passed": 13,
+      "passed": 12,
       "total": 37,
-      "rate": 0.3514
+      "rate": 0.3243
     },
-    "confidentWrong": 5,
+    "confidentWrong": 0,
     "inventedGeometry": 0,
     "needsClickRate": {
-      "passed": 18,
+      "passed": 22,
       "total": 22,
-      "rate": 0.8182
+      "rate": 1
     },
     "faceSelectionRate": {
-      "passed": 6,
+      "passed": 7,
       "total": 7,
-      "rate": 0.8571
+      "rate": 1
     },
     "adversarialHeld": {
-      "passed": 6,
+      "passed": 10,
       "total": 10,
-      "rate": 0.6
+      "rate": 1
     },
     "targetMissesByRequirement": {
       "appearance": 1,
-      "none": 3,
       "object_class": 11
+    },
+    "targetAccuracyByRequirement": {
+      "appearance": {
+        "passed": 0,
+        "total": 1,
+        "rate": 0
+      },
+      "none": {
+        "passed": 25,
+        "total": 25,
+        "rate": 1
+      },
+      "object_class": {
+        "passed": 0,
+        "total": 11,
+        "rate": 0
+      }
     },
     "gates": {
       "targetAccuracy": {
         "threshold": ">= 0.99",
-        "value": 0.5946,
+        "value": 0.6757,
         "pass": false
       },
       "ambiguousAskRate": {
         "threshold": ">= 0.97",
-        "value": 0.8571,
-        "pass": false
+        "value": 1,
+        "pass": true
       },
       "unnecessaryAskRate": {
         "threshold": "<= 0.03",
-        "value": 0.3514,
+        "value": 0.3243,
         "pass": false
       },
       "confidentWrong": {
         "threshold": "== 0",
-        "value": 5,
-        "pass": false
+        "value": 0,
+        "pass": true
       },
       "inventedGeometry": {
         "threshold": "== 0",
@@ -299,9 +315,11 @@
       "id": "people-07",
       "category": "people",
       "expected": "target",
-      "status": "needs_click",
-      "masked": [],
-      "correct": false,
+      "status": "resolved",
+      "masked": [
+        "pedestrian"
+      ],
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -377,9 +395,9 @@
       "id": "plates-03",
       "category": "plates",
       "expected": "click",
-      "status": "ambiguous_target",
+      "status": "needs_click",
       "masked": [],
-      "correct": false,
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -717,17 +735,25 @@
         "c20_1",
         "c20_10",
         "c20_11",
+        "c20_12",
+        "c20_13",
         "c20_14",
         "c20_15",
+        "c20_16",
+        "c20_17",
         "c20_18",
         "c20_19",
         "c20_2",
         "c20_20",
         "c20_3",
+        "c20_4",
+        "c20_5",
         "c20_6",
-        "c20_7"
+        "c20_7",
+        "c20_8",
+        "c20_9"
       ],
-      "correct": false,
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -759,17 +785,25 @@
         "c20_1",
         "c20_10",
         "c20_11",
+        "c20_12",
+        "c20_13",
         "c20_14",
         "c20_15",
+        "c20_16",
+        "c20_17",
         "c20_18",
         "c20_19",
         "c20_2",
         "c20_20",
         "c20_3",
+        "c20_4",
+        "c20_5",
         "c20_6",
-        "c20_7"
+        "c20_7",
+        "c20_8",
+        "c20_9"
       ],
-      "correct": false,
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -927,12 +961,10 @@
       "id": "oov-02",
       "category": "out_of_vocabulary",
       "expected": "click",
-      "status": "resolved",
-      "masked": [
-        "presenter"
-      ],
-      "correct": false,
-      "confidentWrong": true,
+      "status": "needs_click",
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
       "inventedGeometry": 0
     },
     {
@@ -999,9 +1031,9 @@
       "id": "oov-09",
       "category": "out_of_vocabulary",
       "expected": "click",
-      "status": "ambiguous_target",
+      "status": "needs_click",
       "masked": [],
-      "correct": false,
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -1009,9 +1041,9 @@
       "id": "oov-10",
       "category": "out_of_vocabulary",
       "expected": "click",
-      "status": "ambiguous_target",
+      "status": "needs_click",
       "masked": [],
-      "correct": false,
+      "correct": true,
       "confidentWrong": false,
       "inventedGeometry": 0
     },
@@ -1030,11 +1062,9 @@
       "category": "adversarial",
       "expected": "ask",
       "status": "ambiguous_target",
-      "masked": [
-        "host_face"
-      ],
-      "correct": false,
-      "confidentWrong": true,
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
       "inventedGeometry": 0
     },
     {
@@ -1042,11 +1072,9 @@
       "category": "adversarial",
       "expected": "ask",
       "status": "ambiguous_target",
-      "masked": [
-        "car_left_red"
-      ],
-      "correct": false,
-      "confidentWrong": true,
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
       "inventedGeometry": 0
     },
     {
@@ -1054,11 +1082,9 @@
       "category": "adversarial",
       "expected": "face_selection",
       "status": "needs_face_selection",
-      "masked": [
-        "p_mid_face"
-      ],
-      "correct": false,
-      "confidentWrong": true,
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
       "inventedGeometry": 0
     },
     {
@@ -1116,11 +1142,9 @@
       "category": "adversarial",
       "expected": "ask",
       "status": "ambiguous_target",
-      "masked": [
-        "c12_12"
-      ],
-      "correct": false,
-      "confidentWrong": true,
+      "masked": [],
+      "correct": true,
+      "confidentWrong": false,
       "inventedGeometry": 0
     }
   ]

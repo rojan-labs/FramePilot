@@ -87,6 +87,10 @@ describe('the gate summary', () => {
     expect(summary.ambiguousAskRate).toEqual({ passed: 1, total: 2, rate: 0.5 });
     expect(summary.confidentWrong).toBe(1);
     expect(summary.targetMissesByRequirement).toEqual({ object_class: 1 });
+    expect(summary.targetAccuracyByRequirement).toEqual({
+      none: { passed: 1, total: 1, rate: 1 },
+      object_class: { passed: 0, total: 1, rate: 0 },
+    });
     expect(summary.gates.targetAccuracy.pass).toBe(false);
     expect(summary.gates.inventedGeometry.pass).toBe(true);
     expect(summary.gates.confidentWrong.pass).toBe(false);

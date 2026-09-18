@@ -53,6 +53,21 @@ jobs:
         run: |
           pnpm --filter @framepilot/timeline-schema exec vitest run src/save-budget.perf.test.ts
           pnpm --filter @framepilot/web-editor exec vitest run src/components/preview/MaskCanvasTools.perf.test.tsx
+      # AM5 AI masking eval. It recomputes reports/ai-masking/eval.json (a file snapshot, so a
+      # drifted number fails) and asserts the safety gates. The numbers go on the run page.
+      - name: AM5 AI masking eval
+        run: |
+          pnpm --filter @framepilot/desktop exec vitest run electron/ai/masking-eval/masking-eval.test.ts
+          node -e "
+            const s = require('./reports/ai-masking/eval.json').summary;
+            const shown = { gates: s.gates, targetAccuracyByRequirement: s.targetAccuracyByRequirement,
+              needsClickRate: s.needsClickRate, faceSelectionRate: s.faceSelectionRate,
+              adversarialHeld: s.adversarialHeld };
+            const text = JSON.stringify(shown, null, 2);
+            console.log(text);
+            require('fs').appendFileSync(process.env.GITHUB_STEP_SUMMARY,
+              '### AI masking eval (AM5)\n\`\`\`json\n' + text + '\n\`\`\`\n');
+          "
       # - name: Upload coverage report
       #   if: always()
       #   uses: actions/upload-artifact@v7

@@ -4,6 +4,7 @@ import { MaskTargetsResultSchema } from './contracts.js';
 import {
   candidatesOnFrame,
   parseTargetRequest,
+  rankCandidates,
   resolveMaskTargets,
   type ResolveTargetsInput,
   type TargetDetection,
@@ -28,21 +29,30 @@ function steady(
   }));
 }
 
+const inputOf = (
+  description: string,
+  detections: TargetDetection[],
+  evidence?: ResolveTargetsInput['evidence'],
+): ResolveTargetsInput => ({
+  clipId: 'shot',
+  assetId: 'asset',
+  description,
+  fps: 24,
+  sampledFrames: FRAMES,
+  detections,
+  engine: 'framepilot.subject-intelligence@1.0.0',
+  ...(evidence === undefined ? {} : { evidence }),
+});
+
 const resolve = (
   description: string,
   detections: TargetDetection[],
   evidence?: ResolveTargetsInput['evidence'],
-) =>
-  resolveMaskTargets({
-    clipId: 'shot',
-    assetId: 'asset',
-    description,
-    fps: 24,
-    sampledFrames: FRAMES,
-    detections,
-    engine: 'framepilot.subject-intelligence@1.0.0',
-    ...(evidence === undefined ? {} : { evidence }),
-  });
+) => resolveMaskTargets(inputOf(description, detections, evidence));
+
+/** The plain ids a host's evidence sources are keyed by, best first. */
+const plainIds = (detections: TargetDetection[]): string[] =>
+  rankCandidates(inputOf('', detections)).map((candidate) => candidate.candidateId);
 
 describe('parseTargetRequest', () => {
   it('reads class, quantifier, selector and identity from the editor’s words', () => {
@@ -133,9 +143,7 @@ describe('unambiguous requests resolve to the target', () => {
 
   it('uses a re-ranker margin to pick the described object', () => {
     const cars = [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)];
-    const ids = resolve('the red car', cars).candidates.map(
-      (candidate) => parseCandidateId(candidate.candidateId)!.measuredId,
-    );
+    const ids = plainIds(cars);
     const rerank = new Map([
       [ids[0]!, 0.9],
       [ids[1]!, 0.3],
@@ -196,9 +204,7 @@ describe('ambiguous requests ask, never guess', () => {
 
   it('asks when the re-ranker’s margin is thin or its best match is poor', () => {
     const cars = [...steady('object', 0.1, 0.5, 0.2), ...steady('object', 0.6, 0.5, 0.2)];
-    const ids = resolve('the red car', cars).candidates.map(
-      (candidate) => parseCandidateId(candidate.candidateId)!.measuredId,
-    );
+    const ids = plainIds(cars);
     expect(
       asks('the red car', cars, {
         rerank: new Map([
@@ -257,7 +263,7 @@ describe('ranking', () => {
 
   it('attaches identity only when the host supplied it, which it does only with consent', () => {
     const faces = steady('face', 0.4, 0.2);
-    const id = parseCandidateId(resolve('the face', faces).chosenCandidateIds[0]!)!.measuredId;
+    const id = parseCandidateId(resolve('the face', faces).chosenCandidateIds[0]!)!.bareId;
     expect(resolve('the face', faces).candidates[0]!.identity).toBeUndefined();
     expect(
       resolve('the face', faces, { identities: new Map([[id, 'person_3']]) }).candidates[0]!
@@ -287,5 +293,62 @@ describe('ranking', () => {
     const frame = parseCandidateId(chosen!)!.frame;
     const again = candidatesOnFrame({ assetId: 'asset', fps: 24, detections: faces }, frame);
     expect(again.map((candidate) => candidate.candidateId)).toContain(chosen);
+  });
+});
+
+describe('what the AM5 eval found', () => {
+  it('a possessive only says whose: "her hair" and "the car\u2019s plate" ask for a click', () => {
+    expect(parseTargetRequest('her hair').targetClass).toBe('out_of_vocabulary');
+    expect(parseTargetRequest("the car's plate").targetClass).toBe('out_of_vocabulary');
+    expect(parseTargetRequest('the man\u2019s shirt').targetClass).toBe('out_of_vocabulary');
+    expect(parseTargetRequest("the players' hair").targetClass).toBe('out_of_vocabulary');
+    expect(parseTargetRequest("the dog's owner").targetClass).toBe('person');
+    // With nothing else named, the possessive's noun is unknown: ask for a click, never guess.
+    expect(parseTargetRequest("the car's hubcap").targetClass).toBe('unknown');
+  });
+
+  it('a pronoun is still the target when nothing it could own follows it', () => {
+    expect(parseTargetRequest('her').targetClass).toBe('person');
+    expect(parseTargetRequest('put the title behind her').targetClass).toBe('person');
+    expect(parseTargetRequest('her on the left')).toMatchObject({
+      targetClass: 'person',
+      selector: 'left',
+    });
+    expect(parseTargetRequest('her and the dog').targetClass).toBe('person');
+    expect(parseTargetRequest('her face').targetClass).toBe('face');
+    expect(parseTargetRequest("the host's face")).toMatchObject({
+      targetClass: 'face',
+      identity: true,
+    });
+  });
+
+  it('names people by what they are doing', () => {
+    expect(parseTargetRequest('the pedestrian').targetClass).toBe('person');
+    expect(parseTargetRequest('all the cyclists')).toMatchObject({
+      targetClass: 'person',
+      all: true,
+    });
+  });
+
+  it('"all the faces" chooses and lists every face in a crowd, not the first twelve', () => {
+    const crowd = Array.from({ length: 20 }, (_, index) =>
+      steady('face', (index % 5) * 0.19, Math.floor(index / 5) * 0.22, 0.07),
+    ).flat();
+    const result = resolve('all the faces', crowd);
+    expect(result.status).toBe('resolved');
+    expect(result.chosenCandidateIds).toHaveLength(20);
+    const listed = new Set(result.candidates.map((candidate) => candidate.candidateId));
+    expect(result.chosenCandidateIds.every((id) => listed.has(id))).toBe(true);
+    expect(MaskTargetsResultSchema.safeParse(result).success).toBe(true);
+  });
+
+  it('asks rather than promise "all" at the detector\u2019s per-frame cap', () => {
+    const crowd = Array.from({ length: 40 }, (_, index) =>
+      steady('face', (index % 8) * 0.12, Math.floor(index / 8) * 0.19, 0.05),
+    ).flat();
+    const result = resolve('all the faces', crowd);
+    expect(result.status).toBe('ambiguous_target');
+    expect(result.chosenCandidateIds).toEqual([]);
+    expect(result.candidates.length).toBeLessThanOrEqual(12);
   });
 });

@@ -337,6 +337,34 @@ describe('create_mask', () => {
     expect(gone.summary).toContain('no longer found');
   });
 
+  it('resolves a pick id the editor chose, and refuses it with the pick marker stripped (AM5.3)', async () => {
+    const { project, projectPath } = await openProject();
+    const two = [FACE_BOX, { x: 0.7, y: 0.2, width: 0.1, height: 0.2 }];
+    const run = executor(projectPath, { tracking: tracking([], two) });
+    const asked = MaskTargetsResultSchema.parse(
+      (
+        await run.run(
+          { name: 'find_mask_targets', arguments: { clipId: 'shot', description: 'the face' } },
+          ctxOf(project),
+        )
+      ).data,
+    );
+    const pick = asked.candidates[0]!.candidateId;
+    expect(parseCandidateId(pick)?.pickRequired).toBe(true);
+    const shape = (candidateId: string) => ({
+      name: 'create_mask',
+      arguments: { clipId: 'shot', candidateId, precision: 'shape', purpose: 'hide' },
+    });
+    const stripped = await run.run(shape(pick.slice('pick.'.length)), ctxOf(project));
+    expect(stripped.status).toBe('failed');
+    expect(stripped.summary).toContain('no longer found');
+    // The editor's pick resolves from the cache, and after a restart by re-detecting its frame.
+    expect((await run.run(shape(pick), ctxOf(project))).status).toBe('completed');
+    const restarted = executor(projectPath, { tracking: tracking([], two) });
+    const recalled = await restarted.run(shape(pick), ctxOf(project));
+    expect(CreateMaskMeasurementSchema.parse(recalled.data).candidate?.candidateId).toBe(pick);
+  });
+
   it('refuses structurally bad arguments with ai-sdk’s own sentence', async () => {
     const { project, projectPath } = await openProject();
     const outcome = await executor(projectPath).run(

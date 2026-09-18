@@ -26,4 +26,22 @@ describe('AI masking eval (AM5)', () => {
   it('matches the committed report exactly', async () => {
     await expect(`${JSON.stringify(await measured(), null, 2)}\n`).toMatchFileSnapshot(REPORT);
   }, 120_000);
+
+  it('never picks the wrong thing with confidence, and never invents geometry', async () => {
+    const { summary } = await measured();
+    expect(summary.confidentWrong).toBe(0);
+    expect(summary.inventedGeometry).toBe(0);
+    expect(summary.adversarialHeld.passed).toBe(summary.adversarialHeld.total);
+  }, 120_000);
+
+  it('asks on ambiguous requests at or above the plan 06 gate', async () => {
+    expect((await measured()).summary.gates.ambiguousAskRate.pass).toBe(true);
+  }, 120_000);
+
+  it('picks every target the shipped detector can name', async () => {
+    // Objects are reported as a generic `object`, so their targets ask by design until the pack
+    // reports classes; those misses stay in the report against the unlowered gate.
+    const { none } = (await measured()).summary.targetAccuracyByRequirement;
+    expect(none?.passed).toBe(none?.total);
+  }, 120_000);
 });

@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { MaskCandidateIdSchema } from './contracts.js';
-import { candidateIdFor, candidateIdsIn, parseCandidateId, requirePick } from './candidate-id.js';
+import {
+  candidateIdFor,
+  candidateIdMatches,
+  candidateIdsIn,
+  parseCandidateId,
+  requirePick,
+} from './candidate-id.js';
 
 const face = {
   assetId: 'asset_1',
@@ -32,15 +38,26 @@ describe('candidate ids', () => {
       label: 'face',
       frame: 48,
       pickRequired: false,
-      measuredId: id,
+      bareId: id,
     });
-    expect(parseCandidateId(requirePick(id))).toEqual({
+    expect(parseCandidateId(requirePick(id))).toMatchObject({
       label: 'face',
       frame: 48,
       pickRequired: true,
-      measuredId: id,
     });
     expect(requirePick(requirePick(id))).toBe(requirePick(id));
+  });
+
+  it('cannot be turned into a usable plain id by dropping the pick marker (AM5.3)', () => {
+    const id = candidateIdFor(face);
+    const pick = requirePick(id);
+    const stripped = pick.slice('pick.'.length);
+    expect(stripped).not.toBe(id);
+    expect(parseCandidateId(stripped)?.pickRequired).toBe(false);
+    expect(candidateIdMatches(stripped, id)).toBe(false);
+    expect(candidateIdMatches(pick, id)).toBe(true);
+    expect(candidateIdMatches(id, id)).toBe(true);
+    expect(candidateIdMatches(requirePick(candidateIdFor({ ...face, frame: 49 })), id)).toBe(false);
   });
 
   it('refuses an id it did not mint', () => {

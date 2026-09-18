@@ -78,6 +78,13 @@ export const MASK_TARGET_STATUSES = [
 ] as const;
 export type MaskTargetStatus = (typeof MASK_TARGET_STATUSES)[number];
 
+/**
+ * Most candidates one resolution may choose — "blur all the faces" — and so list. The desktop asks
+ * the detector for at most this many per frame, so a larger crowd cannot be known to be complete,
+ * and the resolver asks instead of masking some of it.
+ */
+export const MAX_CHOSEN_CANDIDATES = 40;
+
 export const MaskTargetsResultSchema = z
   .object({
     kind: z.literal('mask_targets'),
@@ -85,9 +92,9 @@ export const MaskTargetsResultSchema = z
     description: z.string(),
     status: z.enum(MASK_TARGET_STATUSES),
     /** Ranked, best first. */
-    candidates: z.array(MaskCandidateSchema).max(24),
+    candidates: z.array(MaskCandidateSchema).max(MAX_CHOSEN_CANDIDATES),
     /** Set only for `resolved`: every candidate the request names (one, or all of a class). */
-    chosenCandidateIds: z.array(MaskCandidateIdSchema).max(24).default([]),
+    chosenCandidateIds: z.array(MaskCandidateIdSchema).max(MAX_CHOSEN_CANDIDATES).default([]),
     reranker: z.enum(['siglip', 'none']),
     engine: z.string().min(1).max(256),
   })
