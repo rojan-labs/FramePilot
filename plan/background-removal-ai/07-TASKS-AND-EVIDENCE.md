@@ -77,13 +77,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] PX5.2 Before/after measurements committed; non-flaky regression guard
 
 - [x] PX5.3 (desktop path now complete via PX5.9; f0addf60…791a8422, ADR 0181: GPU matte pass + host-derived monitor tier; with the tier 1/601 dropped and 50–53 ms seek p95 on an M1 Pro, oracle 59/59; the desktop trigger's sidecar route was approved by the maintainer 2026-09-18 (MO-17) and is being built; without it 8.4% dropped) Matte playback within budget: a GPU matte pass (alpha, decontamination, edge shift, finesse in shaders) and a lossless monitor-resolution matte tier resampled with the engine's own deterministic filter, so the PX4 oracle still passes 59/59 at unchanged gates. Today: 600/601 frames dropped and 617 ms seek with a 4K matte (float64 CPU matte maths 452 ms per composite + TypeScript FFV1 decode 101 ms per frame)
-- [ ] PX5.4 Export with masks + 4K matte ≤ 1.5×: 1.49× locally, 1.56× on CI after the decontaminate fix (was 1.98×) — close the remaining gap and measure the full 3-minute row, not a 4–6 s window
+- [~] PX5.4 (a676977c, fb1df9c5: byte-identical cuts; CI 4 s windows 1.32–1.45× vs 1.5× ✓ (was 1.56×); the full 3-minute row not measured — local runs aborted by the memory watchdog → PX5.11) Export with masks + 4K matte ≤ 1.5×: 1.49× locally, 1.56× on CI after the decontaminate fix (was 1.98×) — close the remaining gap and measure the full 3-minute row, not a 4–6 s window
 - [x] PX5.6 (b0de2027; run 35337431818: key-alone 112.55/73.66 dB, key-shape-stack ∞, key-finesse ∞) An oracle row carrying a `key` mask on the GPU path (PX5.3 found the key had been drawn with the wrong program in the monitor since MK6.1 and no oracle row caught it)
 - [x] PX5.7 (74b08b77: cause was the Playwright dev server hot-reloading the editor when another agent saved a file mid-run; runner now uses its own server with no watcher; StageTracker names any wait > 10 s) Diagnose the intermittent hang in watched perf runs (1 in 10; seen before PX5.3 on `scale-path`, which has no matte)
 - [x] PX5.8 (09f7eb3d: alpha decode 19.6–20.1 → 3.6 ms/frame for soft mattes; oracle 65/65, run 35341329629) Alpha monitor tier for default soft mattes (removes the remaining 17–19 ms/frame of 4K alpha decode; not for `sharp` or edge controls, which need full resolution)
 - [x] PX5.9 Sidecar route `POST /mattes/monitor-tier` (maintainer-approved MO-17) and the host call after commit (235ab7c6, f6d9abda, 6056250c): 5,400 4K frames in 638 s; at load 6–7 both budgets hold in 4/4 runs; at load 12–18 dropped frames miss 1% in 3/4 runs, seek < 100 ms in 8/8
-- [ ] PX5.10 Regenerate the committed parity baseline so the PX0 inventory shows the key rows measured, not "not measured"
-- [ ] PX5.5 Playback time snapped to the project frame grid so a 60 Hz display does not composite every project frame twice (needs a decision on how a 60 fps source looks in a 30 fps project — check what the export does and match it)
+- [ ] PX5.11 Measure the full 3-minute Scale export ratio in a dispatch-only CI workflow with a long enough timeout (the PR perf job is capped at 60 min; a local run needs a quiet machine)
+- [x] PX5.10 (650efe54, 539ca199: baseline + PX0 pixel column from run 35366379149, 72/72) Regenerate the committed parity baseline so the PX0 inventory shows the key rows measured, not "not measured"
+- [x] PX5.5 (5a0c795a: playback planned on the export's frame grid; composites per presented frame 1.50–1.70 → 1.00; guarded in the perf spec) Playback time snapped to the project frame grid so a 60 Hz display does not composite every project frame twice (needs a decision on how a 60 fps source looks in a 30 fps project — check what the export does and match it)
 
 **DoD:** budgets hold on an M-series Mac with the 3-min 4K, 4-layer + text + matte timeline.
 
@@ -262,11 +263,14 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** component tests pass; screenshots of every state in the PR.
 
-### BR7 — Precision eval + end to end `[ ]`
+### BR7 — Precision eval + end to end `[~]` (harness + first report done; gates missing — BR7.4)
 
 - [ ] BR7.1 Fixture set + human-labelled alpha keyframes every 0.5 s (marked human-verified)
-- [~] BR7.2 (harness committed 59826ccc; darwin-arm64 report being finished) `eval/run_eval.py` against the installed entrypoint incl. scripted correction convergence; reports committed for darwin-arm64 and win32-x64
-- [ ] BR7.3 **Every matte gate in `06` passes**, or the numbers go to the maintainer
+- [x] BR7.2 (59826ccc; report reports/smart-mask/2026-09-18-darwin-arm64.json, b361595d) `eval/run_eval.py` against the installed entrypoint incl. scripted correction convergence; reports committed for darwin-arm64 and win32-x64
+- [~] BR7.3 (b361595d: most matte gates FAIL on the construction-true pilot — mean IoU 8/10 categories below 0.98, BF 9/10 below 0.95, leak 50%, recall 99.1%, review load 87%; one-click and correction runs not measured locally) **Every matte gate in `06` passes**, or the numbers go to the maintainer
+
+- [ ] BR7.4 Run the matte eval and the accuracy iteration in a dispatch-only CI workflow (ubuntu runner, 16 GB, nothing else competing): BiRefNet at its trained 2048² tile, the one-click and correction-convergence runs, the band/stabilisation ablations; iterate on consensus, self-correction and verify until the 06 gates move — models unchanged
+- [x] PX5.5 cross-ref: preview playback now composites once per project frame (was 1.5–1.7×)
 
 **DoD:** matte eval reports committed for both platforms.
 

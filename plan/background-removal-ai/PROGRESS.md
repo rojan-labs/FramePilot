@@ -9,8 +9,9 @@ Read this first after a context reset. Updated after every commit.
 ## Current
 
 **CI fully green at 6b77de0e (run 35351484628, 12/12 jobs).** Three fresh agents closing out the rest (maintainer, 2026-09-18: "close out others end to end"; don't resume old agents):
-- BR6.10–6.12 + BR7 — Edge brush, object hover highlight via `subject.segment_frame`, mount JobsPanel, BR7 eval harness + report, another pass at recall/review load
-- PX5.4/5.5/5.10 — full 3-minute export ratio, preview clock on the project frame grid, regenerated oracle baseline
+- BR7.4 — matte eval + accuracy iteration moved to a dispatch-only CI workflow (local memory can't hold BiRefNet at 2048²)
+- E2E.1–E2E.8 + DOC.1
+- MK9.4, PX5.11 (full-row export ratio in CI), RD2.2 dashboards
 Then: E2E.1–E2E.8 + DOC.1, RD2.2 dashboards, AM2.6 real-weights colour, MK7.5 real clips. RD3 and everything in MAINTAINER_ONLY_ACTIONS.md stay with the maintainer.
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
@@ -108,6 +109,11 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- BR7.3 (construction-true pilot, CPU, BiRefNet 1024²): mean IoU 8/10 categories below 0.98 (worst low_light 0.811) ✗; BF@2px 9/10 below 0.95 ✗; leak rate 50% ✗ (≤ 0.5%); error-detection recall 99.1% held out ✗ (≥ 99.5%); review load 87.2% ✗; locked frames bit-identical ✓ (1 sample); frame alignment 320/320 ✓; one-click, correction convergence, band/stabilisation ablations, foreground ΔE: not measured (local memory)
+- PX5.4: export ratio 1.32–1.45× on CI 4 s windows ✓ (was 1.56×); full row not measured
+- PX5.5: composites per presented frame 1.00 (was 1.50–1.70)
+- Oracle 72/72 (run 35366379149)
 
 - Oracle 65/65 at unchanged gates (run 35344378923): incl. key rows (worst 73.66 dB with despill) and MK8 rows
 - PX5.9 desktop matte path: load 6–7 → 1–2/601 dropped, both budgets ✓ in 4/4; load 12–18 → dropped > 1% in 3/4 ✗, seek < 100 ms in 8/8 ✓
