@@ -278,6 +278,7 @@ def test_ci_graph_record_and_repin_only_touch_differing_files(tmp_path: Path) ->
     recorded = ci_graphs.record(tmp_path)
     assert recorded["files"][first.file]["identical"] is False
     assert recorded["allPresentIdentical"] is False and second.file in recorded["missing"]
+    assert recorded["files"][second.file]["identical"] is None, "a missing file is not 'different'"
     text, changed = ci_graphs.repin(ci_graphs.MODELS_SOURCE.read_text(), tmp_path)
     assert changed == [first.file]
     assert first.sha256 not in text and ci_graphs.sha256(tmp_path / first.file) in text

@@ -51,7 +51,7 @@ def record(graphs: Path) -> dict[str, Any]:
         files[model.file] = {
             "pinned": model.sha256,
             "runner": runner,
-            "identical": runner == model.sha256,
+            "identical": None if runner is None else runner == model.sha256,
         }
     present = [entry for entry in files.values() if entry["runner"] is not None]
     return {

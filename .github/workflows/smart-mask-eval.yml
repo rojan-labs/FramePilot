@@ -45,9 +45,15 @@ on:
         description: 'Scored categories for the correction-convergence replays'
         required: false
         default: 'talking_head crossing low_light hair_busy'
+      rescore_run_id:
+        description: 'Re-score the model outputs of an earlier run of this workflow (no model runs); blank = run the models'
+        required: false
+        default: ''
 
 permissions:
   contents: read
+  # Re-scoring downloads another run's artifacts.
+  actions: read
 
 concurrency:
   group: smart-mask-eval-${{ github.ref }}-${{ inputs.label }}
@@ -68,7 +74,7 @@ defaults:
 jobs:
   prepare:
     name: Graphs, LGPL ffmpeg, pilot backgrounds, plan
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.rescore_run_id == ''
     runs-on: ubuntu-latest
     timeout-minutes: 180
     outputs:
@@ -170,7 +176,7 @@ jobs:
   eval:
     name: ${{ matrix.variant }} ${{ matrix.clip }}
     needs: prepare
-    if: github.event_name == 'workflow_dispatch'
+    if: github.event_name == 'workflow_dispatch' && inputs.rescore_run_id == ''
     runs-on: ubuntu-latest
     # GitHub stops a hosted job at 360 minutes; one clip per job keeps each well inside it.
     timeout-minutes: 350
@@ -291,7 +297,7 @@ jobs:
   replay:
     name: replay ${{ matrix.clip }}
     needs: [prepare, eval]
-    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.prepare.outputs.replay != '[]' }}
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && inputs.rescore_run_id == '' && needs.prepare.outputs.replay != '[]' }}
     runs-on: ubuntu-latest
     timeout-minutes: 350
     strategy:
@@ -365,26 +371,37 @@ jobs:
         with:
           name: sm-inputs
           path: workers/smart-mask/.cache
+          run-id: ${{ inputs.rescore_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v7
         with:
           pattern: run-*
           merge-multiple: true
           path: workers/smart-mask/.cache
+          run-id: ${{ inputs.rescore_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - uses: actions/download-artifact@v7
         with:
           pattern: replay-*
           merge-multiple: true
           path: workers/smart-mask/.cache
+          run-id: ${{ inputs.rescore_run_id || github.run_id }}
+          github-token: ${{ github.token }}
       - name: Install the worker from the exact lock
         run: |
           chmod +x .cache/ffmpeg-lgpl/bin/*
           uv sync --extra cv --extra dev --locked --python "$PYTHON_VERSION"
       - name: Record the run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          SOURCE_RUN: ${{ inputs.rescore_run_id || github.run_id }}
         run: |
-          jq -s --arg run "${{ github.run_id }}" --arg sha "${{ github.sha }}" --arg label "${{ inputs.label }}" \
+          models_sha="$(gh api "repos/${{ github.repository }}/actions/runs/$SOURCE_RUN" --jq .head_sha)"
+          jq -s --arg run "$SOURCE_RUN" --arg scored "${{ github.run_id }}" --arg sha "$models_sha" \
+            --arg scoring "${{ github.sha }}" --arg label "${{ inputs.label }}" \
             --arg tile "${{ inputs.tile }}" --arg nproc "$(nproc)" --arg mem "$(free -g | awk '/Mem:/{print $2}')" \
             --arg cpu "$(lscpu | sed -n 's/^Model name: *//p')" \
-            '{workflowRunId: $run, commit: $sha, label: $label, tileRequested: ($tile|tonumber),
+            '{workflowRunId: $run, scoredInRun: $scored, commit: $sha, scoringCommit: $scoring, label: $label, tileRequested: ($tile|tonumber),
               runner: {image: "ubuntu-latest", vcpus: ($nproc|tonumber), memGiB: ($mem|tonumber), cpu: $cpu},
               windowSecondsPerFrame: env.FRAMEPILOT_SMART_MASK_WINDOW_SECONDS_PER_FRAME,
               memoryCeilingMiB: env.FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB, jobs: .}' \
