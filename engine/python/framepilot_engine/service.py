@@ -635,6 +635,36 @@ class BrainJobsResponse(BaseModel):
     jobs: list[JobRow] = Field(default_factory=list)
 
 
+class IdentityRequest(BaseModel):
+    """Body of the two face-recognition writes (``/brain/identity/consent``, ``…/delete``)."""
+
+    project_id: str = Field(alias="projectId", min_length=1)
+    consent: bool | None = Field(
+        default=None, description="The editor's choice. Required by the consent route only."
+    )
+
+    model_config = ConfigDict(extra="forbid", populate_by_name=True)
+
+
+class IdentityResponse(BaseModel):
+    """A project's face-recognition state (plan/background-removal-ai/12 P15, MD-7).
+
+    ``people`` is how many identities are stored, so the editor can see what "Delete"
+    would remove. ``deleted*`` are set only by the delete route. Honest-unavailable like
+    every brain surface: ``available=False`` with a reason is "could not read", which a
+    host must treat as NO consent — never as consent it failed to disprove.
+    """
+
+    available: bool
+    reason: str | None = None
+    consent: bool = False
+    people: int = 0
+    deleted_people: int | None = Field(default=None, alias="deletedPeople")
+    deleted_shots: int | None = Field(default=None, alias="deletedShots")
+
+    model_config = ConfigDict(populate_by_name=True)
+
+
 class BrainMemoryRequest(BaseModel):
     """Request body for ``POST /brain/memory`` (plan B6.1/B6.2).
 
@@ -7173,6 +7203,61 @@ def create_app(
         portable install never writes the real home directory.
         """
         return settings.soul_root if settings.soul_root is not None else soul_root()
+
+    def _identity(
+        project_id: str, act: Callable[[BrainStore], IdentityResponse]
+    ) -> IdentityResponse:
+        """Open the project brain for one identity call, honest-unavailable on any failure."""
+        root = settings.projects_root
+        if root is None:
+            return IdentityResponse(
+                available=False,
+                reason="Face recognition lives in the project brain, which requires a "
+                "configured sandbox root (set FRAMEPILOT_PROJECTS_ROOT).",
+            )
+        try:
+            with open_brain(root.resolve(), project_id) as store:
+                return act(store)
+        except (BrainError, BrainSchemaError, PathTraversalError, OSError) as exc:
+            return IdentityResponse(available=False, reason=str(exc))
+
+    def _identity_state(store: BrainStore) -> IdentityResponse:
+        return IdentityResponse(
+            available=True,
+            consent=store.face_recognition_consent(),
+            people=len(store.list_entities(kind="person")),
+        )
+
+    @app.get("/brain/identity", response_model=IdentityResponse)
+    def brain_identity_route(projectId: str) -> IdentityResponse:
+        """Whether this project opted in to face recognition, and how many people it knows."""
+        return _identity(projectId, _identity_state)
+
+    @app.post("/brain/identity/consent", response_model=IdentityResponse)
+    def brain_identity_consent_route(req: IdentityRequest) -> IdentityResponse:
+        """Record the editor's opt-in or opt-out. Off by default; per project; local only."""
+        if req.consent is None:
+            raise HTTPException(status_code=422, detail="consent is required.")
+        consent = req.consent
+
+        def act(store: BrainStore) -> IdentityResponse:
+            store.set_face_recognition_consent(consent, actor="editor")
+            return _identity_state(store)
+
+        return _identity(req.project_id, act)
+
+    @app.post("/brain/identity/delete", response_model=IdentityResponse)
+    def brain_identity_delete_route(req: IdentityRequest) -> IdentityResponse:
+        """Delete every stored identity in one action, and withdraw consent with it."""
+
+        def act(store: BrainStore) -> IdentityResponse:
+            removed = store.delete_identity_data(actor="editor")
+            state = _identity_state(store)
+            return state.model_copy(
+                update={"deleted_people": removed.people, "deleted_shots": removed.shots}
+            )
+
+        return _identity(req.project_id, act)
 
     @app.post("/brain/memory", response_model=BrainMemoryResponse)
     def brain_memory_route(req: BrainMemoryRequest) -> BrainMemoryResponse:

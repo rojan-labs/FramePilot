@@ -10,6 +10,7 @@
 import { useState } from 'react';
 import type { Project } from '@framepilot/timeline-schema';
 import { Button } from '@framepilot/ui';
+import { FaceRecognitionConsent } from './FaceRecognitionConsent.js';
 import { useCandidateThumbnail, type CandidateCrop } from './useCandidateThumbnail.js';
 
 export interface PickerCandidate {
@@ -200,6 +201,7 @@ export function MaskTargetPicker({
           </li>
         ))}
       </ul>
+      {multiple && project !== undefined && <FaceRecognitionConsent projectId={project.id} />}
       <span className="ai-pack-install__actions">
         {multiple && (
           <Button

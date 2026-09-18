@@ -123,6 +123,36 @@ agent log clears payloads after two turns. The evidence store keeps ids, labels 
 `recall_evidence` and drops the boxes (`maskTargetsForRecall`): the model never handles
 coordinates.
 
+### Identity ("everyone except the host")
+
+WHO someone is cannot be read off a detection, so an identity request always resolves to
+`needs_face_selection` and the editor picks the faces (several, then **Use selected**).
+
+Recognising the same person across shots is biometric processing (plan 12 P15, MD-7), so:
+
+- **Opt-in, per project, off by default.** The face picker shows the consent line where the
+  question arises, not buried in settings. The state is a human-provenance field in the project
+  brain (`fields`: `project.face_recognition_consent`); no model write can set it.
+- **Local only.** Nothing about identity leaves the machine.
+- **Deletable in one action.** "Delete identity data" removes every `person` row of the brain's
+  `entities` table (the only face-derived vectors it keeps), the `person` refs on every shot, and
+  `people` in every asset digest — in one transaction — and withdraws consent with them. Face
+  counts and every other fact stay: "two faces" says nothing about who.
+- **Unreadable is no consent.** `IdentityClient` returns `consent: false` for a timeout, a down
+  engine or a malformed body; the executor reads it on every resolution and treats a rejected
+  read as no consent.
+
+Engine routes: `GET /brain/identity?projectId=`, `POST /brain/identity/consent`
+`{projectId, consent}`, `POST /brain/identity/delete` `{projectId}`.
+
+Two honest limits. The desktop supplies no identity source for the resolver, because no shipped
+capability embeds a DETECTION crop (tier-1 face vectors are per shot and carry no boxes), so
+consent does not yet save the editor a pick. And the shot ledger's own tier-1 clustering
+(VU5.3, `_cluster_local_entities`) still runs at index time whatever the consent says — it
+predates this work and belongs to another subsystem; whether it must also wait for consent is a
+maintainer decision. Until then, deletion removes those clusters and a later index pass can
+recreate them.
+
 ## Intent, not numbers
 
 `masking/intent-tables.ts` maps what the model says to numbers, scaled by the picture's smaller

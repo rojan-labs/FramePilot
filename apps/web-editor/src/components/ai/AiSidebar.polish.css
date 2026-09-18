@@ -953,3 +953,14 @@
   border-color: var(--fp-accent, #2f6fed);
   box-shadow: inset 0 0 0 1px var(--fp-accent, #2f6fed);
 }
+
+.ai-face-consent {
+  display: grid;
+  gap: 6px;
+  padding-top: 8px;
+  border-top: 1px solid var(--fp-border, rgba(128, 128, 128, 0.35));
+}
+
+.ai-face-consent p {
+  margin: 0;
+}

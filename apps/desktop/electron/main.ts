@@ -253,6 +253,7 @@ import { StockService, isStockKind } from './media/stock-service.js';
 
 import { StockQuotaStore } from './media/stock-quota.js';
 import {
+  IdentityClient,
   LedgerClient,
   hostedTranscriptionUnavailable,
   silhouetteMasksToTrackSamples,
@@ -2873,11 +2874,20 @@ function registerIpcHandlers(): void {
   });
   // The masking domain's measured tools (plan/background-removal-ai/11): the same matte
   // service, scheduler and mask-track job the Inspector runs, against the run's working project.
+  const identityClient = new IdentityClient({ baseUrl: engineBaseUrl, fetchFn: electronFetch });
   const maskingExecutor = createMaskingExecutor({
     tracking: async () => (await capabilityPackService).tracking(),
     matte: async () => (await capabilityPackService).matte(),
     scheduler: packJobScheduler,
     activeProjectPath: async () => (await activeProject.current())?.path ?? null,
+    evidence: {
+      // Per-project opt-in, read from the project brain on every resolution (P15, MD-7): an
+      // editor who withdraws consent mid-session is honoured on the very next call. No
+      // `identities` or `rerank` source is supplied, because the shipped packs cannot produce
+      // either for a detection crop (docs/api/ai-masking.md) — so identity questions go to
+      // the face picker with or without consent, and consent gates nothing it should not.
+      faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
+    },
   });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {

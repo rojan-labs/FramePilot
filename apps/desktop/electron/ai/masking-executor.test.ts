@@ -213,11 +213,11 @@ describe('find_mask_targets', () => {
       arguments: { clipId: 'shot', description: 'everyone except the host' },
     };
     await executor(projectPath, {
-      evidence: { identities, faceRecognitionConsent: () => false },
+      evidence: { identities, faceRecognitionConsent: async () => false },
     }).run(call, ctxOf(project));
     expect(asked).toBe(0);
     await executor(projectPath, {
-      evidence: { identities, faceRecognitionConsent: () => true },
+      evidence: { identities, faceRecognitionConsent: async () => true },
     }).run(call, ctxOf(project));
     expect(asked).toBe(1);
   });

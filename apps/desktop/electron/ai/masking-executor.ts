@@ -82,8 +82,11 @@ export interface MaskTargetEvidenceSources {
     readonly assetId: string;
     readonly candidates: readonly MaskCandidate[];
   }) => Promise<ReadonlyMap<string, string> | undefined>;
-  /** Whether this project has opted in to local face recognition (MD-7). */
-  readonly faceRecognitionConsent?: (project: Project) => boolean;
+  /**
+   * Whether this project has opted in to local face recognition (MD-7). Anything but a clear
+   * `true` — a rejection, an unreachable engine — is no consent.
+   */
+  readonly faceRecognitionConsent?: (project: Project) => Promise<boolean>;
 }
 
 export interface MaskingExecutorOptions {
@@ -316,14 +319,17 @@ class MaskingRun {
       ...(this.signal === undefined ? {} : { signal: this.signal }),
     });
     // Identity is biometric: not even computed without the project's opt-in (MD-7, plan 12 P15).
-    const consented = sources.faceRecognitionConsent?.(this.project) === true;
-    const identities = consented
-      ? await sources.identities?.({
-          project: this.project,
-          assetId: resolved.assetId,
-          candidates: plain.filter((candidate) => candidate.label === 'face'),
-        })
-      : undefined;
+    const consented = await (
+      sources.faceRecognitionConsent?.(this.project) ?? Promise.resolve(false)
+    ).catch(() => false);
+    const identities =
+      consented === true
+        ? await sources.identities?.({
+            project: this.project,
+            assetId: resolved.assetId,
+            candidates: plain.filter((candidate) => candidate.label === 'face'),
+          })
+        : undefined;
     return {
       ...ledgerEvidence(this.ctx, resolved),
       ...(rerank === undefined ? {} : { rerank }),
