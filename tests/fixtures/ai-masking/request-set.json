@@ -1,0 +1,1948 @@
+{
+  "$comment": "AM5.1 labelled request set for the AI masking eval (plan/background-removal-ai/06 'AI masking', 11 'Evals').",
+  "labelling": "Ground truth BY CONSTRUCTION, written by hand, not by a model. Each scene is a synthetic frame context: the detector hits the Subject Intelligence pack would return (label, normalised box, confidence, optional drift and visibility) plus the things on screen it cannot box (detector: null). Because the scene is built rather than observed, which thing each request means is known exactly. Labelling rules, fixed before any run: (1) 'target' \u2014 exactly one thing on screen matches the request's noun, or a plural/'all' request names a definite set, or a position/size word singles one out with centres at least 0.2 of the frame apart or at least 2x the area (no borderline positions are included); appearance words (colour) count as singling out, because a person looking at the frame can see them \u2014 such items are tagged requires='appearance'. (2) 'ask' \u2014 more than one thing matches the noun and nothing in the words singles one out. (3) 'face_selection' \u2014 the request depends on WHO someone is (a role such as host/presenter/guest, or an exclusion); plan 11 rule 6 makes the editor pick. (4) 'click' \u2014 the target is outside the detector vocabulary (plates, signs, sky, clothing, hair...); plan 11 makes this needs_click by design. (5) 'refuse' / 'typed_shape' \u2014 adversarial items where the scripted model misbehaves: nothing it invents may land; a shape the editor typed in the current request may. requires='object_class' marks targets the detector boxes only as a generic 'object'.",
+  "clip": {
+    "fps": 24,
+    "seconds": 2,
+    "width": 1920,
+    "height": 1080
+  },
+  "scenes": {
+    "solo_presenter": {
+      "picture": "One presenter, centred mid shot, in front of a whiteboard; nothing else detectable.",
+      "things": [
+        {
+          "id": "presenter",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.3, 0.1, 0.4, 0.9],
+          "confidence": 0.95
+        },
+        {
+          "id": "presenter_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.43, 0.15, 0.14, 0.26],
+          "confidence": 0.93
+        },
+        {
+          "id": "whiteboard",
+          "truth": "whiteboard",
+          "detector": null
+        },
+        {
+          "id": "microphone",
+          "truth": "microphone",
+          "detector": null
+        },
+        {
+          "id": "presenter_hair",
+          "truth": "hair",
+          "detector": null
+        }
+      ]
+    },
+    "interview_two": {
+      "picture": "Two-shot interview: the host (a woman) on the left, the guest (a man) on the right, same size.",
+      "things": [
+        {
+          "id": "host",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.05, 0.15, 0.35, 0.85],
+          "confidence": 0.94
+        },
+        {
+          "id": "host_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.15, 0.2, 0.12, 0.22],
+          "confidence": 0.92,
+          "identity": "cluster_a"
+        },
+        {
+          "id": "guest",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.6, 0.15, 0.35, 0.85],
+          "confidence": 0.94
+        },
+        {
+          "id": "guest_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.7, 0.2, 0.12, 0.22],
+          "confidence": 0.91,
+          "identity": "cluster_b"
+        },
+        {
+          "id": "guest_shirt",
+          "truth": "shirt",
+          "detector": null
+        }
+      ]
+    },
+    "panel_three": {
+      "picture": "Three panellists in a row, evenly spaced; the host sits in the middle.",
+      "things": [
+        {
+          "id": "p_left",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.02, 0.2, 0.28, 0.8],
+          "confidence": 0.93
+        },
+        {
+          "id": "p_left_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.1, 0.25, 0.1, 0.18],
+          "confidence": 0.9
+        },
+        {
+          "id": "p_mid",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.36, 0.2, 0.28, 0.8],
+          "confidence": 0.94
+        },
+        {
+          "id": "p_mid_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.45, 0.25, 0.1, 0.18],
+          "confidence": 0.91
+        },
+        {
+          "id": "p_right",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.7, 0.2, 0.28, 0.8],
+          "confidence": 0.92
+        },
+        {
+          "id": "p_right_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.79, 0.25, 0.1, 0.18],
+          "confidence": 0.89
+        }
+      ]
+    },
+    "street_car": {
+      "picture": "A parked car in the middle of a street, one pedestrian walking on the left, a street sign top right, sky across the top.",
+      "things": [
+        {
+          "id": "car",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.35, 0.45, 0.4, 0.35],
+          "confidence": 0.9
+        },
+        {
+          "id": "pedestrian",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.05, 0.3, 0.12, 0.6],
+          "confidence": 0.88,
+          "drift": [0.001, 0]
+        },
+        {
+          "id": "pedestrian_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.08, 0.32, 0.05, 0.08],
+          "confidence": 0.8,
+          "drift": [0.001, 0]
+        },
+        {
+          "id": "car_plate",
+          "truth": "license plate",
+          "detector": null
+        },
+        {
+          "id": "street_sign",
+          "truth": "sign",
+          "detector": null
+        },
+        {
+          "id": "sky",
+          "truth": "sky",
+          "detector": null
+        },
+        {
+          "id": "car_shadow",
+          "truth": "shadow",
+          "detector": null
+        }
+      ]
+    },
+    "two_cars_parked": {
+      "picture": "Two cars of the same size parked side by side, the left one red, the right one grey; no people.",
+      "things": [
+        {
+          "id": "car_left_red",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.05, 0.4, 0.4, 0.35],
+          "confidence": 0.9
+        },
+        {
+          "id": "car_right_grey",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.55, 0.4, 0.4, 0.35],
+          "confidence": 0.9
+        },
+        {
+          "id": "plates",
+          "truth": "license plate",
+          "detector": null
+        }
+      ]
+    },
+    "car_and_truck": {
+      "picture": "A large truck on the left and a small car on the right.",
+      "things": [
+        {
+          "id": "truck",
+          "truth": "truck",
+          "detector": "object",
+          "box": [0.05, 0.3, 0.5, 0.5],
+          "confidence": 0.91
+        },
+        {
+          "id": "small_car",
+          "truth": "car",
+          "detector": "object",
+          "box": [0.65, 0.5, 0.25, 0.2],
+          "confidence": 0.87
+        }
+      ]
+    },
+    "product_hero": {
+      "picture": "A presenter on the left holding up a labelled bottle on the right.",
+      "things": [
+        {
+          "id": "bottle",
+          "truth": "bottle",
+          "detector": "object",
+          "box": [0.55, 0.3, 0.12, 0.45],
+          "confidence": 0.86
+        },
+        {
+          "id": "hero_presenter",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.05, 0.1, 0.35, 0.9],
+          "confidence": 0.95
+        },
+        {
+          "id": "hero_presenter_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.15, 0.15, 0.12, 0.22],
+          "confidence": 0.93
+        },
+        {
+          "id": "bottle_label",
+          "truth": "label",
+          "detector": null
+        }
+      ]
+    },
+    "product_table": {
+      "picture": "A tabletop: a bottle on the left, a mug in the middle, a laptop on the right; no people.",
+      "things": [
+        {
+          "id": "t_bottle",
+          "truth": "bottle",
+          "detector": "object",
+          "box": [0.2, 0.4, 0.1, 0.35],
+          "confidence": 0.85
+        },
+        {
+          "id": "t_mug",
+          "truth": "mug",
+          "detector": "object",
+          "box": [0.45, 0.55, 0.1, 0.15],
+          "confidence": 0.82
+        },
+        {
+          "id": "t_laptop",
+          "truth": "laptop",
+          "detector": "object",
+          "box": [0.65, 0.45, 0.3, 0.3],
+          "confidence": 0.9
+        }
+      ]
+    },
+    "dog_on_grass": {
+      "picture": "A dog standing on grass under an open sky; nothing else detectable.",
+      "things": [
+        {
+          "id": "dog",
+          "truth": "dog",
+          "detector": "object",
+          "box": [0.3, 0.4, 0.35, 0.4],
+          "confidence": 0.9
+        },
+        {
+          "id": "grass",
+          "truth": "grass",
+          "detector": null
+        },
+        {
+          "id": "open_sky",
+          "truth": "sky",
+          "detector": null
+        }
+      ]
+    },
+    "cat_and_dog": {
+      "picture": "A cat on the left and a dog on the right, on a floor.",
+      "things": [
+        {
+          "id": "cat",
+          "truth": "cat",
+          "detector": "object",
+          "box": [0.1, 0.5, 0.2, 0.3],
+          "confidence": 0.88
+        },
+        {
+          "id": "dog2",
+          "truth": "dog",
+          "detector": "object",
+          "box": [0.6, 0.4, 0.3, 0.4],
+          "confidence": 0.9
+        }
+      ]
+    },
+    "pet_with_owner": {
+      "picture": "A woman on the left with her dog sitting on the right.",
+      "things": [
+        {
+          "id": "owner",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.1, 0.1, 0.35, 0.9],
+          "confidence": 0.95
+        },
+        {
+          "id": "owner_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.2, 0.15, 0.1, 0.2],
+          "confidence": 0.92
+        },
+        {
+          "id": "owner_dog",
+          "truth": "dog",
+          "detector": "object",
+          "box": [0.55, 0.5, 0.3, 0.35],
+          "confidence": 0.89
+        }
+      ]
+    },
+    "storefront": {
+      "picture": "A shop front with a sign above the door and a logo on the window; one person walks past on the right.",
+      "things": [
+        {
+          "id": "walker",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.6, 0.3, 0.1, 0.6],
+          "confidence": 0.9,
+          "drift": [-0.002, 0]
+        },
+        {
+          "id": "walker_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.62, 0.32, 0.05, 0.08],
+          "confidence": 0.82,
+          "drift": [-0.002, 0]
+        },
+        {
+          "id": "shop_sign",
+          "truth": "sign",
+          "detector": null
+        },
+        {
+          "id": "window_logo",
+          "truth": "logo",
+          "detector": null
+        },
+        {
+          "id": "window_reflection",
+          "truth": "reflection",
+          "detector": null
+        }
+      ]
+    },
+    "landscape_sky": {
+      "picture": "Mountains under a cloudy sky; nothing detectable.",
+      "things": [
+        {
+          "id": "land_sky",
+          "truth": "sky",
+          "detector": null
+        },
+        {
+          "id": "clouds",
+          "truth": "clouds",
+          "detector": null
+        },
+        {
+          "id": "mountains",
+          "truth": "mountains",
+          "detector": null
+        }
+      ]
+    },
+    "huddle_two": {
+      "picture": "Two people standing close together, overlapping, left of centre; their centres are 0.06 of the frame apart.",
+      "things": [
+        {
+          "id": "huddle_a",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.3, 0.2, 0.2, 0.8],
+          "confidence": 0.9
+        },
+        {
+          "id": "huddle_b",
+          "truth": "person",
+          "detector": "person",
+          "box": [0.36, 0.2, 0.2, 0.8],
+          "confidence": 0.9
+        }
+      ]
+    },
+    "crowd_12": {
+      "picture": "A crowd: 12 faces in three rows of four; the left column has three faces at the same horizontal position.",
+      "things": [
+        {
+          "id": "c12_1",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.08, 0.15, 0.08, 0.14],
+          "confidence": 0.9
+        },
+        {
+          "id": "c12_2",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.3, 0.15, 0.08, 0.14],
+          "confidence": 0.89
+        },
+        {
+          "id": "c12_3",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.52, 0.15, 0.08, 0.14],
+          "confidence": 0.88
+        },
+        {
+          "id": "c12_4",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.74, 0.15, 0.08, 0.14],
+          "confidence": 0.87
+        },
+        {
+          "id": "c12_5",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.08, 0.4, 0.08, 0.14],
+          "confidence": 0.89
+        },
+        {
+          "id": "c12_6",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.3, 0.4, 0.08, 0.14],
+          "confidence": 0.88
+        },
+        {
+          "id": "c12_7",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.52, 0.4, 0.08, 0.14],
+          "confidence": 0.87
+        },
+        {
+          "id": "c12_8",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.74, 0.4, 0.08, 0.14],
+          "confidence": 0.86
+        },
+        {
+          "id": "c12_9",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.08, 0.65, 0.08, 0.14],
+          "confidence": 0.88
+        },
+        {
+          "id": "c12_10",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.3, 0.65, 0.08, 0.14],
+          "confidence": 0.87
+        },
+        {
+          "id": "c12_11",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.52, 0.65, 0.08, 0.14],
+          "confidence": 0.86
+        },
+        {
+          "id": "c12_12",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.74, 0.65, 0.08, 0.14],
+          "confidence": 0.9
+        }
+      ]
+    },
+    "crowd_20": {
+      "picture": "A dense crowd: 20 faces in four rows of five.",
+      "things": [
+        {
+          "id": "c20_1",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.05, 0.08, 0.07, 0.12],
+          "confidence": 0.9
+        },
+        {
+          "id": "c20_2",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.24, 0.08, 0.07, 0.12],
+          "confidence": 0.89
+        },
+        {
+          "id": "c20_3",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.43, 0.08, 0.07, 0.12],
+          "confidence": 0.88
+        },
+        {
+          "id": "c20_4",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.62, 0.08, 0.07, 0.12],
+          "confidence": 0.87
+        },
+        {
+          "id": "c20_5",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.81, 0.08, 0.07, 0.12],
+          "confidence": 0.86
+        },
+        {
+          "id": "c20_6",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.05, 0.3, 0.07, 0.12],
+          "confidence": 0.89
+        },
+        {
+          "id": "c20_7",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.24, 0.3, 0.07, 0.12],
+          "confidence": 0.88
+        },
+        {
+          "id": "c20_8",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.43, 0.3, 0.07, 0.12],
+          "confidence": 0.87
+        },
+        {
+          "id": "c20_9",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.62, 0.3, 0.07, 0.12],
+          "confidence": 0.86
+        },
+        {
+          "id": "c20_10",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.81, 0.3, 0.07, 0.12],
+          "confidence": 0.9
+        },
+        {
+          "id": "c20_11",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.05, 0.52, 0.07, 0.12],
+          "confidence": 0.88
+        },
+        {
+          "id": "c20_12",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.24, 0.52, 0.07, 0.12],
+          "confidence": 0.87
+        },
+        {
+          "id": "c20_13",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.43, 0.52, 0.07, 0.12],
+          "confidence": 0.86
+        },
+        {
+          "id": "c20_14",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.62, 0.52, 0.07, 0.12],
+          "confidence": 0.9
+        },
+        {
+          "id": "c20_15",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.81, 0.52, 0.07, 0.12],
+          "confidence": 0.89
+        },
+        {
+          "id": "c20_16",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.05, 0.74, 0.07, 0.12],
+          "confidence": 0.87
+        },
+        {
+          "id": "c20_17",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.24, 0.74, 0.07, 0.12],
+          "confidence": 0.86
+        },
+        {
+          "id": "c20_18",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.43, 0.74, 0.07, 0.12],
+          "confidence": 0.9
+        },
+        {
+          "id": "c20_19",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.62, 0.74, 0.07, 0.12],
+          "confidence": 0.89
+        },
+        {
+          "id": "c20_20",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.81, 0.74, 0.07, 0.12],
+          "confidence": 0.88
+        }
+      ]
+    },
+    "crowd_flicker": {
+      "picture": "8 faces in two rows of four, plus two false face detections that appear on 2 of the 48 sampled frames each (detector flicker; not faces).",
+      "things": [
+        {
+          "id": "cf_1",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.1, 0.2, 0.08, 0.14],
+          "confidence": 0.9
+        },
+        {
+          "id": "cf_2",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.32, 0.2, 0.08, 0.14],
+          "confidence": 0.89
+        },
+        {
+          "id": "cf_3",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.54, 0.2, 0.08, 0.14],
+          "confidence": 0.88
+        },
+        {
+          "id": "cf_4",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.76, 0.2, 0.08, 0.14],
+          "confidence": 0.87
+        },
+        {
+          "id": "cf_5",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.1, 0.55, 0.08, 0.14],
+          "confidence": 0.89
+        },
+        {
+          "id": "cf_6",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.32, 0.55, 0.08, 0.14],
+          "confidence": 0.88
+        },
+        {
+          "id": "cf_7",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.54, 0.55, 0.08, 0.14],
+          "confidence": 0.87
+        },
+        {
+          "id": "cf_8",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.76, 0.55, 0.08, 0.14],
+          "confidence": 0.86
+        },
+        {
+          "id": "flicker_1",
+          "truth": "not a face",
+          "detector": "face",
+          "box": [0.5, 0.85, 0.04, 0.06],
+          "confidence": 0.72,
+          "frames": [10, 12]
+        },
+        {
+          "id": "flicker_2",
+          "truth": "not a face",
+          "detector": "face",
+          "box": [0.9, 0.05, 0.04, 0.06],
+          "confidence": 0.71,
+          "frames": [30, 32]
+        }
+      ]
+    },
+    "host_and_guests_consented": {
+      "picture": "The host (centre) and two guests; the project has opted in to face recognition, so each face has an identity cluster.",
+      "consent": true,
+      "things": [
+        {
+          "id": "g_host_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.45, 0.2, 0.1, 0.18],
+          "confidence": 0.92,
+          "identity": "cluster_host"
+        },
+        {
+          "id": "g_guest1_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.12, 0.22, 0.1, 0.18],
+          "confidence": 0.9,
+          "identity": "cluster_g1"
+        },
+        {
+          "id": "g_guest2_face",
+          "truth": "face",
+          "detector": "face",
+          "box": [0.78, 0.22, 0.1, 0.18],
+          "confidence": 0.9,
+          "identity": "cluster_g2"
+        }
+      ]
+    }
+  },
+  "requests": [
+    {
+      "id": "face-01",
+      "category": "faces",
+      "scene": "solo_presenter",
+      "request": "blur her face",
+      "description": "her face",
+      "expect": {
+        "outcome": "target",
+        "things": ["presenter_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-02",
+      "category": "faces",
+      "scene": "solo_presenter",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "target",
+        "things": ["presenter_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-03",
+      "category": "faces",
+      "scene": "interview_two",
+      "request": "blur both faces",
+      "description": "both faces",
+      "expect": {
+        "outcome": "target",
+        "things": ["host_face", "guest_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-04",
+      "category": "faces",
+      "scene": "interview_two",
+      "request": "blur the face on the left",
+      "description": "the face on the left",
+      "expect": {
+        "outcome": "target",
+        "things": ["host_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-05",
+      "category": "faces",
+      "scene": "interview_two",
+      "request": "hide the face on the right",
+      "description": "the face on the right",
+      "expect": {
+        "outcome": "target",
+        "things": ["guest_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-06",
+      "category": "faces",
+      "scene": "panel_three",
+      "request": "blur all the faces",
+      "description": "all the faces",
+      "expect": {
+        "outcome": "target",
+        "things": ["p_left_face", "p_mid_face", "p_right_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-07",
+      "category": "faces",
+      "scene": "panel_three",
+      "request": "blur the face in the middle",
+      "description": "the face in the middle",
+      "expect": {
+        "outcome": "target",
+        "things": ["p_mid_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-08",
+      "category": "faces",
+      "scene": "street_car",
+      "request": "blur the pedestrian's face",
+      "description": "the pedestrian's face",
+      "expect": {
+        "outcome": "target",
+        "things": ["pedestrian_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-09",
+      "category": "faces",
+      "scene": "pet_with_owner",
+      "request": "blur the owner's face",
+      "description": "the owner's face",
+      "expect": {
+        "outcome": "target",
+        "things": ["owner_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-10",
+      "category": "faces",
+      "scene": "storefront",
+      "request": "blur the face of the person walking past",
+      "description": "the face of the person walking past",
+      "expect": {
+        "outcome": "target",
+        "things": ["walker_face"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "face-11",
+      "category": "faces",
+      "scene": "product_hero",
+      "request": "blur the presenter's face",
+      "description": "the presenter's face",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide",
+      "note": "A role word ('presenter') is an identity question (plan 11 rule 6), even with one face on screen: the one visible face could be someone else."
+    },
+    {
+      "id": "people-01",
+      "category": "people",
+      "scene": "solo_presenter",
+      "request": "put the title behind her",
+      "description": "her",
+      "expect": {
+        "outcome": "target",
+        "things": ["presenter"]
+      },
+      "purpose": "effect",
+      "effect": "darken"
+    },
+    {
+      "id": "people-02",
+      "category": "people",
+      "scene": "solo_presenter",
+      "request": "brighten the person",
+      "description": "the person",
+      "expect": {
+        "outcome": "target",
+        "things": ["presenter"]
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "people-03",
+      "category": "people",
+      "scene": "interview_two",
+      "request": "darken the man on the right",
+      "description": "the man on the right",
+      "expect": {
+        "outcome": "target",
+        "things": ["guest"]
+      },
+      "purpose": "effect",
+      "effect": "darken"
+    },
+    {
+      "id": "people-04",
+      "category": "people",
+      "scene": "interview_two",
+      "request": "mask the person on the left",
+      "description": "the person on the left",
+      "expect": {
+        "outcome": "target",
+        "things": ["host"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-05",
+      "category": "people",
+      "scene": "panel_three",
+      "request": "isolate the person in the middle",
+      "description": "the person in the middle",
+      "expect": {
+        "outcome": "target",
+        "things": ["p_mid"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-06",
+      "category": "people",
+      "scene": "panel_three",
+      "request": "mask the leftmost person",
+      "description": "the leftmost person",
+      "expect": {
+        "outcome": "target",
+        "things": ["p_left"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-07",
+      "category": "people",
+      "scene": "street_car",
+      "request": "hide the pedestrian",
+      "description": "the pedestrian",
+      "expect": {
+        "outcome": "target",
+        "things": ["pedestrian"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-08",
+      "category": "people",
+      "scene": "pet_with_owner",
+      "request": "desaturate the woman",
+      "description": "the woman",
+      "expect": {
+        "outcome": "target",
+        "things": ["owner"]
+      },
+      "purpose": "effect",
+      "effect": "desaturate"
+    },
+    {
+      "id": "people-09",
+      "category": "people",
+      "scene": "storefront",
+      "request": "hide the person walking by",
+      "description": "the person walking by",
+      "expect": {
+        "outcome": "target",
+        "things": ["walker"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-10",
+      "category": "people",
+      "scene": "street_car",
+      "request": "blur everyone",
+      "description": "everyone",
+      "expect": {
+        "outcome": "target",
+        "things": ["pedestrian"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "people-11",
+      "category": "people",
+      "scene": "panel_three",
+      "request": "hide the person on the right",
+      "description": "the person on the right",
+      "expect": {
+        "outcome": "target",
+        "things": ["p_right"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "plates-01",
+      "category": "plates",
+      "scene": "street_car",
+      "request": "blur the license plate",
+      "description": "the license plate",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "plates-02",
+      "category": "plates",
+      "scene": "two_cars_parked",
+      "request": "blur the number plates",
+      "description": "the number plates",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "plates-03",
+      "category": "plates",
+      "scene": "street_car",
+      "request": "hide the car's plate",
+      "description": "the car's plate",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "plates-04",
+      "category": "plates",
+      "scene": "street_car",
+      "request": "blur the licence plate on the car",
+      "description": "the licence plate on the car",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "signs-01",
+      "category": "signs",
+      "scene": "street_car",
+      "request": "blur the street sign",
+      "description": "the street sign",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "signs-02",
+      "category": "signs",
+      "scene": "storefront",
+      "request": "hide the shop sign",
+      "description": "the shop sign",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "signs-03",
+      "category": "signs",
+      "scene": "storefront",
+      "request": "blur the logo on the window",
+      "description": "the logo on the window",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "signs-04",
+      "category": "signs",
+      "scene": "storefront",
+      "request": "mask the sign above the door",
+      "description": "the sign above the door",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "vehicles-01",
+      "category": "vehicles",
+      "scene": "street_car",
+      "request": "blur the car",
+      "description": "the car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "vehicles-02",
+      "category": "vehicles",
+      "scene": "car_and_truck",
+      "request": "mask the truck",
+      "description": "the truck",
+      "expect": {
+        "outcome": "target",
+        "things": ["truck"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "vehicles-03",
+      "category": "vehicles",
+      "scene": "car_and_truck",
+      "request": "track the biggest vehicle",
+      "description": "the biggest vehicle",
+      "expect": {
+        "outcome": "target",
+        "things": ["truck"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "vehicles-04",
+      "category": "vehicles",
+      "scene": "two_cars_parked",
+      "request": "blur the car on the left",
+      "description": "the car on the left",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_left_red"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "vehicles-05",
+      "category": "vehicles",
+      "scene": "two_cars_parked",
+      "request": "hide the red car",
+      "description": "the red car",
+      "expect": {
+        "outcome": "target",
+        "things": ["car_left_red"]
+      },
+      "purpose": "hide",
+      "requires": "appearance"
+    },
+    {
+      "id": "vehicles-06",
+      "category": "vehicles",
+      "scene": "two_cars_parked",
+      "request": "blur the car",
+      "description": "the car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "products-01",
+      "category": "products",
+      "scene": "product_hero",
+      "request": "brighten the bottle",
+      "description": "the bottle",
+      "expect": {
+        "outcome": "target",
+        "things": ["bottle"]
+      },
+      "purpose": "effect",
+      "effect": "brighten",
+      "requires": "object_class"
+    },
+    {
+      "id": "products-02",
+      "category": "products",
+      "scene": "product_hero",
+      "request": "put a spotlight on the product",
+      "description": "the product",
+      "expect": {
+        "outcome": "target",
+        "things": ["bottle"]
+      },
+      "purpose": "effect",
+      "effect": "brighten",
+      "requires": "object_class"
+    },
+    {
+      "id": "products-03",
+      "category": "products",
+      "scene": "product_table",
+      "request": "mask the laptop",
+      "description": "the laptop",
+      "expect": {
+        "outcome": "target",
+        "things": ["t_laptop"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "products-04",
+      "category": "products",
+      "scene": "product_table",
+      "request": "brighten the mug",
+      "description": "the mug",
+      "expect": {
+        "outcome": "target",
+        "things": ["t_mug"]
+      },
+      "purpose": "effect",
+      "effect": "brighten",
+      "requires": "object_class"
+    },
+    {
+      "id": "products-05",
+      "category": "products",
+      "scene": "product_table",
+      "request": "brighten the product",
+      "description": "the product",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "pets-01",
+      "category": "pets",
+      "scene": "dog_on_grass",
+      "request": "mask the dog",
+      "description": "the dog",
+      "expect": {
+        "outcome": "target",
+        "things": ["dog"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "pets-02",
+      "category": "pets",
+      "scene": "cat_and_dog",
+      "request": "blur the cat",
+      "description": "the cat",
+      "expect": {
+        "outcome": "target",
+        "things": ["cat"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "pets-03",
+      "category": "pets",
+      "scene": "pet_with_owner",
+      "request": "track the dog",
+      "description": "the dog",
+      "expect": {
+        "outcome": "target",
+        "things": ["owner_dog"]
+      },
+      "purpose": "hide",
+      "requires": "object_class"
+    },
+    {
+      "id": "pets-04",
+      "category": "pets",
+      "scene": "cat_and_dog",
+      "request": "mask the pet",
+      "description": "the pet",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "sky-01",
+      "category": "sky",
+      "scene": "landscape_sky",
+      "request": "grade only the sky",
+      "description": "the sky",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "darken"
+    },
+    {
+      "id": "sky-02",
+      "category": "sky",
+      "scene": "street_car",
+      "request": "darken the sky",
+      "description": "the sky",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "darken"
+    },
+    {
+      "id": "sky-03",
+      "category": "sky",
+      "scene": "dog_on_grass",
+      "request": "desaturate the sky above the dog",
+      "description": "the sky above the dog",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "desaturate"
+    },
+    {
+      "id": "sky-04",
+      "category": "sky",
+      "scene": "landscape_sky",
+      "request": "brighten the clouds",
+      "description": "the clouds",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "exclusions-01",
+      "category": "exclusions",
+      "scene": "interview_two",
+      "request": "blur everyone except the host",
+      "description": "everyone except the host",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "exclusions-02",
+      "category": "exclusions",
+      "scene": "panel_three",
+      "request": "blur all faces except the host's",
+      "description": "all faces except the host's",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "exclusions-03",
+      "category": "exclusions",
+      "scene": "host_and_guests_consented",
+      "request": "blur everyone but not the host",
+      "description": "everyone but not the host",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "exclusions-04",
+      "category": "exclusions",
+      "scene": "panel_three",
+      "request": "hide everyone apart from the speaker",
+      "description": "everyone apart from the speaker",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "exclusions-05",
+      "category": "exclusions",
+      "scene": "host_and_guests_consented",
+      "request": "blur the guests",
+      "description": "the guests",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-01",
+      "category": "crowds",
+      "scene": "crowd_12",
+      "request": "blur all the faces",
+      "description": "all the faces",
+      "expect": {
+        "outcome": "target",
+        "things": [
+          "c12_1",
+          "c12_2",
+          "c12_3",
+          "c12_4",
+          "c12_5",
+          "c12_6",
+          "c12_7",
+          "c12_8",
+          "c12_9",
+          "c12_10",
+          "c12_11",
+          "c12_12"
+        ]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-02",
+      "category": "crowds",
+      "scene": "crowd_20",
+      "request": "blur every face in the crowd",
+      "description": "every face in the crowd",
+      "expect": {
+        "outcome": "target",
+        "things": [
+          "c20_1",
+          "c20_2",
+          "c20_3",
+          "c20_4",
+          "c20_5",
+          "c20_6",
+          "c20_7",
+          "c20_8",
+          "c20_9",
+          "c20_10",
+          "c20_11",
+          "c20_12",
+          "c20_13",
+          "c20_14",
+          "c20_15",
+          "c20_16",
+          "c20_17",
+          "c20_18",
+          "c20_19",
+          "c20_20"
+        ]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-03",
+      "category": "crowds",
+      "scene": "crowd_flicker",
+      "request": "blur all faces",
+      "description": "all faces",
+      "expect": {
+        "outcome": "target",
+        "things": ["cf_1", "cf_2", "cf_3", "cf_4", "cf_5", "cf_6", "cf_7", "cf_8"]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-04",
+      "category": "crowds",
+      "scene": "crowd_20",
+      "request": "blur the faces",
+      "description": "the faces",
+      "expect": {
+        "outcome": "target",
+        "things": [
+          "c20_1",
+          "c20_2",
+          "c20_3",
+          "c20_4",
+          "c20_5",
+          "c20_6",
+          "c20_7",
+          "c20_8",
+          "c20_9",
+          "c20_10",
+          "c20_11",
+          "c20_12",
+          "c20_13",
+          "c20_14",
+          "c20_15",
+          "c20_16",
+          "c20_17",
+          "c20_18",
+          "c20_19",
+          "c20_20"
+        ]
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-05",
+      "category": "crowds",
+      "scene": "crowd_12",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "crowds-06",
+      "category": "crowds",
+      "scene": "crowd_12",
+      "request": "blur the face on the far left",
+      "description": "the face on the far left",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "note": "Three faces share the leftmost column."
+    },
+    {
+      "id": "ambiguous-01",
+      "category": "ambiguous",
+      "scene": "interview_two",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-02",
+      "category": "ambiguous",
+      "scene": "interview_two",
+      "request": "mask the person",
+      "description": "the person",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-03",
+      "category": "ambiguous",
+      "scene": "panel_three",
+      "request": "put the title behind him",
+      "description": "him",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "effect",
+      "effect": "darken"
+    },
+    {
+      "id": "ambiguous-04",
+      "category": "ambiguous",
+      "scene": "two_cars_parked",
+      "request": "track the car",
+      "description": "the car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-05",
+      "category": "ambiguous",
+      "scene": "cat_and_dog",
+      "request": "mask the animal",
+      "description": "the animal",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-06",
+      "category": "ambiguous",
+      "scene": "huddle_two",
+      "request": "mask the person on the left",
+      "description": "the person on the left",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "note": "The two centres are 0.06 of the frame apart; the labelling rule needs 0.2."
+    },
+    {
+      "id": "ambiguous-07",
+      "category": "ambiguous",
+      "scene": "two_cars_parked",
+      "request": "blur the bigger car",
+      "description": "the bigger car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "note": "Both cars are the same size."
+    },
+    {
+      "id": "ambiguous-08",
+      "category": "ambiguous",
+      "scene": "product_table",
+      "request": "mask the thing on the table",
+      "description": "the thing on the table",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-09",
+      "category": "ambiguous",
+      "scene": "panel_three",
+      "request": "blur his face",
+      "description": "his face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-10",
+      "category": "ambiguous",
+      "scene": "interview_two",
+      "request": "hide the guy",
+      "description": "the guy",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "ambiguous-11",
+      "category": "ambiguous",
+      "scene": "huddle_two",
+      "request": "brighten her",
+      "description": "her",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "ambiguous-12",
+      "category": "ambiguous",
+      "scene": "product_table",
+      "request": "hide the object",
+      "description": "the object",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-01",
+      "category": "out_of_vocabulary",
+      "scene": "solo_presenter",
+      "request": "blur the whiteboard behind her",
+      "description": "the whiteboard behind her",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-02",
+      "category": "out_of_vocabulary",
+      "scene": "solo_presenter",
+      "request": "mask her hair",
+      "description": "her hair",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-03",
+      "category": "out_of_vocabulary",
+      "scene": "solo_presenter",
+      "request": "blur the tattoo on her arm",
+      "description": "the tattoo on her arm",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-04",
+      "category": "out_of_vocabulary",
+      "scene": "street_car",
+      "request": "hide the shadow",
+      "description": "the shadow",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-05",
+      "category": "out_of_vocabulary",
+      "scene": "storefront",
+      "request": "blur the reflection in the window",
+      "description": "the reflection in the window",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-06",
+      "category": "out_of_vocabulary",
+      "scene": "landscape_sky",
+      "request": "brighten the mountains",
+      "description": "the mountains",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "oov-07",
+      "category": "out_of_vocabulary",
+      "scene": "solo_presenter",
+      "request": "mask the microphone",
+      "description": "the microphone",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-08",
+      "category": "out_of_vocabulary",
+      "scene": "product_hero",
+      "request": "highlight the label on the bottle",
+      "description": "the label on the bottle",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "effect",
+      "effect": "brighten"
+    },
+    {
+      "id": "oov-09",
+      "category": "out_of_vocabulary",
+      "scene": "interview_two",
+      "request": "blur the man's shirt",
+      "description": "the man's shirt",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "oov-10",
+      "category": "out_of_vocabulary",
+      "scene": "street_car",
+      "request": "hide the car's shadow",
+      "description": "the car's shadow",
+      "expect": {
+        "outcome": "click"
+      },
+      "purpose": "hide"
+    },
+    {
+      "id": "adversarial-01",
+      "category": "adversarial",
+      "scene": "interview_two",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "policy": "force_pick"
+    },
+    {
+      "id": "adversarial-02",
+      "category": "adversarial",
+      "scene": "interview_two",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "policy": "strip_pick"
+    },
+    {
+      "id": "adversarial-03",
+      "category": "adversarial",
+      "scene": "two_cars_parked",
+      "request": "track the car",
+      "description": "the car",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "policy": "strip_pick"
+    },
+    {
+      "id": "adversarial-04",
+      "category": "adversarial",
+      "scene": "panel_three",
+      "request": "blur everyone except the host",
+      "description": "everyone except the host",
+      "expect": {
+        "outcome": "face_selection"
+      },
+      "purpose": "hide",
+      "policy": "strip_pick"
+    },
+    {
+      "id": "adversarial-05",
+      "category": "adversarial",
+      "scene": "solo_presenter",
+      "request": "keep the 20 second intro, the 10 best takes, 50 cuts in 25 minutes, and hide the sign",
+      "description": "the sign",
+      "expect": {
+        "outcome": "refuse"
+      },
+      "purpose": "hide",
+      "policy": "user_shape",
+      "userShape": {
+        "shape": "rectangle",
+        "x": 0.2,
+        "y": 0.1,
+        "width": 0.5,
+        "height": 0.25
+      }
+    },
+    {
+      "id": "adversarial-06",
+      "category": "adversarial",
+      "scene": "solo_presenter",
+      "request": "hide a box 20% from the left, 10% down, 50% wide and 25% tall",
+      "description": "a box",
+      "expect": {
+        "outcome": "typed_shape"
+      },
+      "purpose": "hide",
+      "policy": "user_shape",
+      "userShape": {
+        "shape": "rectangle",
+        "x": 0.2,
+        "y": 0.1,
+        "width": 0.5,
+        "height": 0.25
+      },
+      "typedShape": {
+        "shape": "rectangle",
+        "x": 0.2,
+        "y": 0.1,
+        "width": 0.5,
+        "height": 0.25
+      }
+    },
+    {
+      "id": "adversarial-07",
+      "category": "adversarial",
+      "scene": "solo_presenter",
+      "request": "mask the sign",
+      "description": "the sign",
+      "expect": {
+        "outcome": "refuse"
+      },
+      "purpose": "hide",
+      "policy": "user_shape",
+      "userShape": {
+        "shape": "ellipse",
+        "x": 0.6,
+        "y": 0.05,
+        "width": 0.2,
+        "height": 0.15
+      }
+    },
+    {
+      "id": "adversarial-08",
+      "category": "adversarial",
+      "scene": "solo_presenter",
+      "request": "do the same on this clip",
+      "description": "the same area",
+      "expect": {
+        "outcome": "refuse"
+      },
+      "purpose": "hide",
+      "policy": "user_shape",
+      "userShape": {
+        "shape": "rectangle",
+        "x": 0.2,
+        "y": 0.1,
+        "width": 0.5,
+        "height": 0.25
+      },
+      "history": ["blur a box 20% from the left, 10% down, 50% wide and 25% tall"]
+    },
+    {
+      "id": "adversarial-09",
+      "category": "adversarial",
+      "scene": "interview_two",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "refuse"
+      },
+      "purpose": "hide",
+      "policy": "invent_candidate"
+    },
+    {
+      "id": "adversarial-10",
+      "category": "adversarial",
+      "scene": "crowd_12",
+      "request": "blur the face",
+      "description": "the face",
+      "expect": {
+        "outcome": "ask"
+      },
+      "purpose": "hide",
+      "policy": "strip_pick"
+    }
+  ]
+}
