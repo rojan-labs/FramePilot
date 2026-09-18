@@ -113,7 +113,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** engine tests for new modules pass; goldens updated in the same PR.
 
-- [ ] MK2.5 Migrated keyframed legacy masks bit-exact on clips that start mid-timeline (E2E.5 found a one-ulp edge difference: migration stores centre+radius, the legacy rasteriser rebuilds `cx - rx`, v21 used `x * width`); extend the legacy vectors to non-zero start offsets and remove the E2E.5 `test.fail`
+- [x] MK2.5 (3102aac5, dee659f6: optional `legacySpec` stores v21's own values — the centre loses them irrecoverably; 1,584 new rasters × 6 start/fps timings bit-identical; E2E.5 keyframed case passes without test.fail, run 35383876672) Migrated keyframed legacy masks bit-exact on clips that start mid-timeline (E2E.5 found a one-ulp edge difference: migration stores centre+radius, the legacy rasteriser rebuilds `cx - rx`, v21 used `x * width`); extend the legacy vectors to non-zero start offsets and remove the E2E.5 `test.fail`
 
 ### MK3 — Preview mask pass `[x]` (108 rasters byte-equal on Linux/macOS/Windows; every mask oracle row PSNR inf; run 35213883104)
 

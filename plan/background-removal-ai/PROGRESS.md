@@ -92,7 +92,7 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- "Masking end to end" green in run 35381220944 (80cc9bf6) after fixes: E2E.5 was a spec bug (playhead off the clip); E2E.2 found two product bugs — relative media paths resolved against the app cwd so every reopened matte read STALE (971fb714), and a deleted matte showed no BROKEN until export refused (80cc9bf6). E2E.5's keyframed case is `test.fail` on a real one-ulp legacy-migration miss → MK2.5 agent fixing
+- "Masking end to end" green in run 35381220944 (80cc9bf6) after fixes: E2E.5 was a spec bug (playhead off the clip); E2E.2 found two product bugs — relative media paths resolved against the app cwd so every reopened matte read STALE (971fb714), and a deleted matte showed no BROKEN until export refused (80cc9bf6). E2E.5's keyframed case was a real one-ulp legacy-migration miss → fixed by MK2.5 (legacySpec; MO-19 asks the maintainer to confirm the field)
 
 - none open (run 35351484628 at 6b77de0e: 12/12 green)
 
