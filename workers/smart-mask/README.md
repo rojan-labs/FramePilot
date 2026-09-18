@@ -51,3 +51,23 @@ uv run pytest tests/test_protocol.py        # one file at a time on a shared mac
 Real-weight runs are opt-in and **must** run under `spike/watchdog.py` (8 GB physical
 footprint cap, swap-growth abort, one heavy job at a time): the 16 GB development Mac shut
 down twice during BR0.
+
+## Matte eval in CI (BR7.4)
+
+The full 06 matte eval (BiRefNet at its trained 2048² tile, one-click runs, the band-alpha /
+stabilisation / fp32 ablations, correction replays) does not fit the 16 GB development Mac, so it
+runs in `.github/workflows/smart-mask-eval.yml`, **dispatch only**:
+
+```bash
+gh workflow run smart-mask-eval.yml --ref <branch> -f label=it0            # everything
+gh workflow run smart-mask-eval.yml --ref <branch> -f label=smoke -f categories=hair_busy -f splits=scored
+```
+
+The runner exports the graphs from the pinned checkpoints (`eval/ci_export_graphs.sh`, cached),
+records whether they are byte-identical to the pins (`eval/ci_graphs.py`, in the report's
+`provenance`), and runs one job per (variant, clip). Eval-only worker settings, never set by the
+host: `FRAMEPILOT_SMART_MASK_ABLATE` (`band_alpha`, `stabilise`),
+`FRAMEPILOT_SMART_MASK_WINDOW_SECONDS_PER_FRAME` (the window watchdog's budget) and
+`FRAMEPILOT_SMART_MASK_EVAL_DUMP` (per-window estimates for the report's error attribution).
+linux-x64 numbers are evidence of pipeline accuracy, not the release gate (06: darwin-arm64 and
+win32-x64).

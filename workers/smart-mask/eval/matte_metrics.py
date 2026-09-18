@@ -104,6 +104,87 @@ def dtssd(pred: Sequence[U8], gt: Sequence[U8]) -> float | None:
     return float(np.mean(values))
 
 
+def srgb_to_lab(rgb: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """sRGB in [0, 1] (…, 3) to CIE L*a*b* (D65), L in [0, 100]."""
+    unit = np.clip(np.asarray(rgb, np.float32), 0.0, 1.0)
+    flat = unit.reshape(-1, 1, 3)
+    lab: npt.NDArray[Any] = cv2.cvtColor(flat, cv2.COLOR_RGB2Lab).reshape(unit.shape)
+    return lab.astype(np.float64)
+
+
+def delta_e2000(lab1: npt.NDArray[Any], lab2: npt.NDArray[Any]) -> npt.NDArray[Any]:
+    """CIEDE2000 colour difference (Sharma, Wu, Dalal 2005), element-wise over (…, 3) Lab."""
+    l1, a1, b1 = (np.asarray(lab1, np.float64)[..., k] for k in range(3))
+    l2, a2, b2 = (np.asarray(lab2, np.float64)[..., k] for k in range(3))
+    c_bar = (np.hypot(a1, b1) + np.hypot(a2, b2)) / 2
+    g = 0.5 * (1 - np.sqrt(c_bar**7 / (c_bar**7 + 25.0**7)))
+    a1p, a2p = (1 + g) * a1, (1 + g) * a2
+    c1p, c2p = np.hypot(a1p, b1), np.hypot(a2p, b2)
+    h1p = np.degrees(np.arctan2(b1, a1p)) % 360
+    h2p = np.degrees(np.arctan2(b2, a2p)) % 360
+    zero = (c1p * c2p) == 0
+    dh = h2p - h1p
+    dh = np.where(dh > 180, dh - 360, np.where(dh < -180, dh + 360, dh))
+    dh = np.where(zero, 0.0, dh)
+    d_l, d_c = l2 - l1, c2p - c1p
+    d_h = 2 * np.sqrt(c1p * c2p) * np.sin(np.radians(dh) / 2)
+    l_bar, cp_bar = (l1 + l2) / 2, (c1p + c2p) / 2
+    h_sum = h1p + h2p
+    h_bar = np.where(
+        zero,
+        h_sum,
+        np.where(
+            np.abs(h1p - h2p) <= 180,
+            h_sum / 2,
+            np.where(h_sum < 360, (h_sum + 360) / 2, (h_sum - 360) / 2),
+        ),
+    )
+    t = (
+        1
+        - 0.17 * np.cos(np.radians(h_bar - 30))
+        + 0.24 * np.cos(np.radians(2 * h_bar))
+        + 0.32 * np.cos(np.radians(3 * h_bar + 6))
+        - 0.20 * np.cos(np.radians(4 * h_bar - 63))
+    )
+    d_theta = 30 * np.exp(-(((h_bar - 275) / 25) ** 2))
+    r_c = 2 * np.sqrt(cp_bar**7 / (cp_bar**7 + 25.0**7))
+    s_l = 1 + 0.015 * (l_bar - 50) ** 2 / np.sqrt(20 + (l_bar - 50) ** 2)
+    s_c = 1 + 0.045 * cp_bar
+    s_h = 1 + 0.015 * cp_bar * t
+    r_t = -np.sin(np.radians(2 * d_theta)) * r_c
+    out: npt.NDArray[Any] = np.sqrt(
+        (d_l / s_l) ** 2 + (d_c / s_c) ** 2 + (d_h / s_h) ** 2 + r_t * (d_c / s_c) * (d_h / s_h)
+    )
+    return out
+
+
+#: 06 "a new background": saturated magenta, where halos and colour fringe show most (as on the
+#: contact sheet and in the 09 oracle's matte rows).
+NEW_BACKGROUND_RGB = (1.0, 0.0, 1.0)
+
+
+def composite(
+    foreground: U8, alpha: U8, background: tuple[float, float, float]
+) -> npt.NDArray[Any]:
+    """``α·F + (1-α)·B`` in [0, 1] for uint8 foreground colour (H, W, 3) and alpha (H, W)."""
+    unit = alpha.astype(np.float32)[..., None] / 255.0
+    back = np.asarray(background, np.float32)[None, None, :]
+    out: npt.NDArray[Any] = unit * (foreground.astype(np.float32) / 255.0) + (1 - unit) * back
+    return out
+
+
+def foreground_delta_e(
+    pred_fg: U8, pred_alpha: U8, gt_fg: U8, gt_alpha: U8, region: Bool
+) -> tuple[float, int]:
+    """06 foreground colour error: (sum of ΔE2000, pixels) of the two composites in ``region``."""
+    if not region.any():
+        return 0.0, 0
+    pred = composite(pred_fg, pred_alpha, NEW_BACKGROUND_RGB)[region]
+    truth = composite(gt_fg, gt_alpha, NEW_BACKGROUND_RGB)[region]
+    values = delta_e2000(srgb_to_lab(pred), srgb_to_lab(truth))
+    return float(values.sum()), int(values.size)
+
+
 def frames_aligned(matte_pts: Sequence[int], source_pts: Sequence[int]) -> tuple[int, int]:
     """(frames whose matte pts equals the source frame's pts, frames compared)."""
     matched = sum(1 for a, b in zip(matte_pts, source_pts, strict=False) if a == b)
@@ -117,10 +198,14 @@ __all__ = [
     "binarise",
     "boundary",
     "boundary_f",
+    "composite",
+    "delta_e2000",
     "dtssd",
+    "foreground_delta_e",
     "frames_aligned",
     "iou",
     "is_leak",
     "largest_wrong_region",
+    "srgb_to_lab",
     "unknown_band",
 ]

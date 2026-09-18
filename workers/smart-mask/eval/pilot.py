@@ -23,11 +23,20 @@ split ``scored`` (reported numbers come only from here).
 
 Licences: subjects are generated here; backgrounds are Sintel stills (© Blender Foundation |
 durian.blender.org, CC-BY 3.0).
+
+**BR7.4 (CI).** The stills are fetched from the Sintel release when missing and their decoded
+pixels checked against the digests BR7.3 rendered from (``pilot-provenance.json`` records the
+result), so a CI runner builds the same pilot as the laptop. Each clip also stores its
+ground-truth foreground colour (``gt_foreground.npz``: the subject's own unpremultiplied colour,
+after the low-light gain, and ``valid`` = pixels no other layer covers), which the 06 foreground
+colour gate needs. ``product_table``'s two splits now differ (BR3.15 noted they rendered
+identically: its seed only picked a colour, with the same parity in both splits).
 """
 
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import math
 import subprocess
@@ -48,6 +57,16 @@ FRAMES = 32
 SS = 4
 LICENCE_BG = "Sintel still frames, (c) Blender Foundation | durian.blender.org, CC-BY 3.0"
 SPLITS = {"calibration": 0, "scored": 1000}
+SINTEL_URL = "https://download.blender.org/durian/movies/Sintel.2010.1080p.mkv"
+#: Still → (timestamp in the film, sha256 of the decoded BGR pixels BR3.15/BR7.3 rendered from).
+BACKGROUNDS = {
+    "bg_000110": ("00:01:10", "67eac37b1c9f0108b5fcc8c24d6f847c068cd6d57dec934da088141d33091d80"),
+    "bg_000330": ("00:03:30", "4d5cec6ebf459eae1149121b57df5e4d77c2494ab1a17292b57acbfb293878f0"),
+    "bg_000440": ("00:04:40", "5ae76476a90af4001e36e692f57796f22b0da8f2c34687b4766730b5e180b55d"),
+    "bg_000550": ("00:05:50", "133943c99d6d03bb479be5d8cb6a79582e186c66da4df8316c2df60458550879"),
+    "bg_000920": ("00:09:20", "59031632b99691156345c871b5c9212ac9b03957eacb91c4fc1d854dd492dde2"),
+    "bg_001130": ("00:11:30", "12df8b696488be00ed0c758b2b1ac8930ab4572c7f3e6359be2f8ffb2b8420c3"),
+}
 
 Path2 = Callable[[float], tuple[float, float, float, float]]
 
@@ -64,6 +83,26 @@ class Figure:
     head_scale: float = 1.0
     crop_close: bool = False
     texture: Any = None
+
+
+def ensure_backgrounds() -> dict[str, dict[str, Any]]:
+    """Fetch missing Sintel stills; report whether each one's pixels match BR7.3's."""
+    BG_DIR.mkdir(parents=True, exist_ok=True)
+    record: dict[str, dict[str, Any]] = {}
+    for name, (timestamp, expected) in BACKGROUNDS.items():
+        path = BG_DIR / f"{name}.png"
+        fetched = not path.is_file()
+        if fetched:
+            subprocess.run(
+                ["ffmpeg", "-nostdin", "-v", "error", "-ss", timestamp, "-i", SINTEL_URL, "-frames:v", "1",
+                 "-y", str(path)],
+                check=True,
+            )  # fmt: skip
+        image = cv2.imread(str(path))
+        digest = hashlib.sha256(image.tobytes()).hexdigest() if image is not None else None
+        record[name] = {"timestamp": timestamp, "fetched": fetched, "pixelsSha256": digest,
+                        "matchesBR73": digest == expected}  # fmt: skip
+    return record
 
 
 def load_bg(name: str, scale: float) -> np.ndarray:
@@ -276,14 +315,17 @@ def render_product(t: float, seed: int) -> tuple[np.ndarray, np.ndarray]:
     canvas_w, canvas_h = W * 2, H * 2
     rgb = np.zeros((canvas_h, canvas_w, 3), np.float32)
     alpha = np.zeros((canvas_h, canvas_w), np.float32)
-    cx = canvas_w // 2 + int(60 * math.sin(t / 8))
+    # The seed sets colour, swing and phase, so the calibration and scored splits differ.
+    rng = np.random.default_rng(seed)
+    colour = rng.uniform(0.15, 0.75, 3).astype(np.float32)
+    swing, phase = float(rng.uniform(40, 80)), float(rng.uniform(0, 2 * math.pi))
+    cx = canvas_w // 2 + int(swing * math.sin(t / 8 + phase))
     body = np.zeros((canvas_h, canvas_w), np.uint8)
     cv2.rectangle(body, (cx - 200, 460), (cx + 200, 1060), 255, -1)
     cv2.ellipse(body, (cx, 1060), (200, 60), 0, 0, 180, 255, -1)
     cv2.ellipse(body, (cx + 200, 760), (120, 170), 0, -90, 90, 255, 46)
     ys, xs = np.nonzero(body)
     shade = np.clip(0.95 - 0.35 * np.abs(xs - (cx - 60)) / 260.0, 0.45, 1.0)
-    colour = np.array([0.72, 0.18, 0.16] if seed % 2 == 0 else [0.16, 0.42, 0.7], np.float32)
     rgb[ys, xs] = colour * shade[:, None]
     alpha[ys, xs] = 1.0
     prem = cv2.resize(rgb * alpha[..., None], (W, H), interpolation=cv2.INTER_AREA)
@@ -443,6 +485,8 @@ def render_clip(category: str, split: str) -> Path:
     bg = load_bg(spec["bg"], 1.3)
     frames: list[np.ndarray] = []
     truth = np.zeros((FRAMES, H, W), np.uint8)
+    foreground = np.zeros((FRAMES, H, W, 3), np.uint8)
+    valid = np.zeros((FRAMES, H, W), np.bool_)
     for t in range(FRAMES):
         frame = bg_frame(bg, *spec["bg_path"](t))
         if "behind" in spec:
@@ -456,19 +500,27 @@ def render_clip(category: str, split: str) -> Path:
             sp, sa = blurred(lambda s, f=figure, q=path: render_figure(f, *q(s)), t, spec["blur"])
         frame = sp + (1 - sa[..., None]) * frame
         visible = sa
+        # The subject's own colour: premultiplied / alpha (exact for the blurred composite too).
+        colour = np.where(sa[..., None] > 0, sp / np.maximum(sa[..., None], 1e-6), 0.0)
+        uncovered = np.ones((H, W), np.bool_)
         if "occluder" in spec:
             figure, path = spec["occluder"]
             op, oa = blurred(lambda s, f=figure, q=path: render_figure(f, *q(s)), t, spec["blur"])
             frame = op + (1 - oa[..., None]) * frame
             visible = sa * (1 - oa)
+            uncovered = oa <= 0
         if "gain" in spec:
             luma_noise = rng.normal(0, spec["noise"], (H, W, 1)).astype(np.float32)
             chroma_noise = rng.normal(0, spec["noise"] * 0.5, (H, W, 3)).astype(np.float32)
             frame = frame * spec["gain"] + luma_noise + chroma_noise
+            colour = colour * spec["gain"]
         truth[t] = np.clip(np.round(visible * 255), 0, 255).astype(np.uint8)
+        foreground[t] = np.clip(np.round(colour * 255), 0, 255).astype(np.uint8)
+        valid[t] = (truth[t] > 0) & uncovered
         frames.append((np.clip(frame, 0, 1) * 255 + 0.5).astype(np.uint8))
     encode(out / "frames.mkv", frames)
     np.savez_compressed(out / "gt_alpha.npz", alpha=truth)
+    np.savez_compressed(out / "gt_foreground.npz", foreground=foreground, valid=valid)
     first = truth[0] >= 128
     ys, xs = np.nonzero(first)
     box = None
@@ -489,9 +541,19 @@ def main() -> None:
     )
     parser.add_argument("categories", nargs="*")
     parser.add_argument("--split", choices=[*SPLITS, "both"], default="both")
+    parser.add_argument("--backgrounds-only", action="store_true",
+                        help="fetch and check the Sintel stills, write the provenance, render nothing")  # fmt: skip
     arguments = parser.parse_args()
     categories = arguments.categories or sorted(specs(0))
     splits = list(SPLITS) if arguments.split == "both" else [arguments.split]
+    PILOT_DIR.mkdir(parents=True, exist_ok=True)
+    backgrounds = ensure_backgrounds()
+    (PILOT_DIR / "pilot-provenance.json").write_text(json.dumps({
+        "generator": "workers/smart-mask/eval/pilot.py", "backgrounds": backgrounds,
+        "allBackgroundsMatchBR73": all(entry["matchesBR73"] for entry in backgrounds.values()),
+    }, indent=2))  # fmt: skip
+    if arguments.backgrounds_only:
+        return
     for split in splits:
         for category in categories:
             out = render_clip(category, split)

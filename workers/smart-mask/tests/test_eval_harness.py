@@ -175,3 +175,130 @@ def test_contact_sheet_is_a_small_jpeg(tmp_path: Path) -> None:
     image = cv2.imread(str(path))
     assert image is not None and image.shape[1] == contact_sheet.TILE_W * 6
     assert path.stat().st_size < 200_000
+
+
+def test_ciede2000_matches_sharma_reference_pairs() -> None:
+    """Sharma, Wu, Dalal (2005), Table 1 rows 1, 2, 3, 7 and 17."""
+    pairs = np.array([
+        [[50.0, 2.6772, -79.7751], [50.0, 0.0, -82.7485]],
+        [[50.0, 3.1571, -77.2803], [50.0, 0.0, -82.7485]],
+        [[50.0, 2.8361, -74.0200], [50.0, 0.0, -82.7485]],
+        [[50.0, 0.0, 0.0], [50.0, -1.0, 2.0]],
+        [[50.0, 2.5, 0.0], [73.0, 25.0, -18.0]],
+    ])  # fmt: skip
+    expected = [2.0425, 2.8615, 3.4412, 2.3669, 27.1492]
+    values = matte_metrics.delta_e2000(pairs[:, 0], pairs[:, 1])
+    assert np.allclose(values, expected, atol=1e-4)
+    assert matte_metrics.delta_e2000(pairs[:, 1], pairs[:, 0]) == pytest.approx(values)
+
+
+def test_foreground_error_is_zero_for_the_truth_and_grows_with_a_fringe() -> None:
+    alpha = np.zeros((20, 20), np.uint8)
+    alpha[5:15, 5:15] = 255
+    alpha[5:15, 4] = 128
+    colour = np.full((20, 20, 3), (200, 150, 100), np.uint8)
+    band = matte_metrics.unknown_band(alpha)
+    total, pixels = matte_metrics.foreground_delta_e(colour, alpha, colour, alpha, band)
+    assert pixels == int(band.sum()) and total == 0.0
+    fringe = colour.copy()
+    fringe[:, 4] = (0, 255, 0)
+    total, pixels = matte_metrics.foreground_delta_e(fringe, alpha, colour, alpha, band)
+    assert total > 10 * 20, "each of the 10 fringe pixels is a large colour error"
+
+
+def _variant_run(name: str, category: str, **values: float) -> dict:
+    return {
+        "name": name,
+        "category": category,
+        "split": "scored",
+        "groundTruth": "construction",
+        **values,
+    }
+
+
+def test_ablation_gates_compare_the_same_clip_and_keep_the_blind_review_open() -> None:
+    hair = _variant_run("hair_busy__scored", "hair_busy", bandSAD=1.0, bandGrad=0.5, dtSSD=2.0)
+    walk = _variant_run("walk__scored", "walk", dtSSD=3.0)
+    variants = {
+        "band_off": [_variant_run("hair_busy__scored", "hair_busy", bandSAD=2.0, bandGrad=0.8)],
+        "fp32": [_variant_run("hair_busy__scored", "hair_busy", bandSAD=1.01, bandGrad=0.5)],
+        "stab_off": [_variant_run("hair_busy__scored", "hair_busy", dtSSD=4.0),
+                     _variant_run("walk__scored", "walk", dtSSD=3.5)],
+    }  # fmt: skip
+    band = run_eval.band_gate([hair], variants)
+    assert band["status"] == "pass" and band["value"]["reduction"] == {
+        "bandSAD": 0.5,
+        "bandGrad": 0.375,
+    }
+    assert (
+        run_eval.band_gate([hair], {"band_off": variants["band_off"]})["status"] == "not_measured"
+    )
+    worse = {
+        **variants,
+        "band_off": [_variant_run("hair_busy__scored", "hair_busy", bandSAD=1.1, bandGrad=0.8)],
+    }
+    assert run_eval.band_gate([hair], worse)["status"] == "fail"
+    dt = run_eval.dtssd_gate([hair, walk], variants)
+    assert dt["status"] == "fail" and dt["failingCategories"] == ["walk"]
+    only_hair = run_eval.dtssd_gate([hair], variants)
+    assert only_hair["numericStatus"] == "pass" and only_hair["status"] == "not_measured"
+
+
+def test_foreground_gate_pools_band_pixels_across_clips() -> None:
+    runs = [
+        _variant_run("a__scored", "a")
+        | {"foregroundDeltaE": {"sum": 30.0, "pixels": 10, "mean": 3.0}},
+        _variant_run("b__scored", "b")
+        | {"foregroundDeltaE": {"sum": 10.0, "pixels": 30, "mean": 0.333}},
+    ]
+    gate = run_eval.foreground_gate(runs)
+    assert gate["value"] == 1.0 and gate["status"] == "pass" and gate["pixels"] == 40
+    assert run_eval.foreground_gate([])["status"] == "not_measured"
+
+
+def test_attribution_summary_reports_each_estimate_per_category() -> None:
+    frame = {name: {"iou": 0.9, "bf": 0.8, "leak": False} for name in run_eval.ESTIMATES}
+    frame["bwd"] = None
+    runs = [
+        {"category": "walk", "attribution": [frame, frame]},
+        {"category": "hair", "attribution": None},
+    ]
+    table = run_eval.attribution_summary(runs)
+    assert list(table) == ["walk"] and table["walk"]["frames"] == 2
+    assert table["walk"]["bwd"] is None and table["walk"]["fwd"]["meanIoU"] == 0.9
+
+
+def test_ci_graph_record_and_repin_only_touch_differing_files(tmp_path: Path) -> None:
+    import ci_graphs
+
+    from framepilot_smart_mask.models import PINNED_MODELS
+
+    first, second = PINNED_MODELS[0], PINNED_MODELS[1]
+    (tmp_path / first.file).write_bytes(b"runner export")
+    recorded = ci_graphs.record(tmp_path)
+    assert recorded["files"][first.file]["identical"] is False
+    assert recorded["allPresentIdentical"] is False and second.file in recorded["missing"]
+    text, changed = ci_graphs.repin(ci_graphs.MODELS_SOURCE.read_text(), tmp_path)
+    assert changed == [first.file]
+    assert first.sha256 not in text and ci_graphs.sha256(tmp_path / first.file) in text
+    assert second.sha256 in text, "files absent on the runner keep their pins"
+    with pytest.raises(SystemExit, match="only on a CI runner"):
+        ci_graphs.main(["repin", "--graphs", str(tmp_path)])
+
+
+def test_ci_plan_builds_one_job_per_variant_and_clip() -> None:
+    import ci_plan
+
+    full = ci_plan.plan("", "", "", "talking_head crossing")
+    variants = [run["variant"] for run in full["eval"]]
+    assert variants.count("auto") == 20 and variants.count("click") == 10
+    assert (
+        variants.count("stab_off") == 10
+        and variants.count("band_off") == variants.count("fp32") == 1
+    )
+    assert [r["clip"] for r in full["replay"]] == ["crossing__scored", "talking_head__scored"]
+    smoke = ci_plan.plan("auto", "walk_pan", "scored", "")
+    assert smoke == {"eval": [{"variant": "auto", "clip": "walk_pan__scored", "category": "walk_pan",
+                               "split": "scored"}], "replay": []}  # fmt: skip
+    with pytest.raises(SystemExit, match="unknown categories"):
+        ci_plan.plan("auto", "walkpan", "", "")

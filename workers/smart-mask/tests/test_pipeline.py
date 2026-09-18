@@ -263,3 +263,35 @@ def test_resume_reuses_finished_windows(tmp_path: Path, clip: Path) -> None:
         "identical to an uninterrupted run"
     )
     del clean
+
+
+def test_eval_ablations_give_a_binary_edge_and_dump_the_estimates(
+    tmp_path: Path, clip: Path
+) -> None:
+    """BR7.4: the 06 ablation runs (band alpha off, stabilisation off) and the attribution dump."""
+    from framepilot_smart_mask.pipeline import PipelineConfig
+
+    staging = staging_dir(tmp_path)
+    dump = tmp_path / "dump"
+    config = PipelineConfig(
+        window_frames=16, window_overlap=6, embedding_ram_bytes=64 * 2**20, matting_tile=64,
+        band_alpha=False, stabilise=False, eval_dump=dump,
+    )  # fmt: skip
+    outcome = run_job(
+        request_for(clip, staging, COUNT, [{"kind": "box", "pts": 0, "box": BOX}]), config=config
+    )
+    matte = host_verify(staging, outcome, clip, 0, COUNT)
+    assert set(np.unique(matte).tolist()) <= {0, 255}, "no fractional alpha without band alpha"
+    job = json.loads((staging / "report.json").read_text())["job"]
+    assert job["ablations"] == ["band_alpha", "stabilise"]
+    frames = json.loads((staging / "report.json").read_text())["frames"]
+    assert all(frame["stabilisedPixels"] == 0 for frame in frames)
+    windows = sorted(dump.glob("window-*.npz"))
+    assert len(windows) == 3
+    with np.load(windows[0]) as data:
+        assert set(data.files) == {
+            "start", "fwd", "bwd", "hasFwd", "hasBwd", "birefnet", "prestab", "band",
+        }  # fmt: skip
+        assert data["fwd"].shape == (16, 90, 160) and data["fwd"].dtype == np.bool_
+        assert int(data["start"]) == 0 and data["hasFwd"].all()
+        assert np.array_equal(data["prestab"][:5], matte[:5])

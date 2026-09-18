@@ -50,6 +50,7 @@ from .foreground import foreground_frame
 from .frames import FrameStore, decode_into
 from .matting import band_alpha
 from .media import encode_frames_json, frames_document
+from .memory import WINDOW_SECONDS_PER_FRAME
 from .models import result_provider
 from .prompts import (
     FramePrompts,
@@ -122,6 +123,14 @@ class PipelineConfig:
     embedding_spill_bytes: int = 8 * GIB
     self_correction_rounds: int = 3
     affect_radius: int = AFFECT_RADIUS
+    #: Eval ablations (06 gates compare against them): False gives the binary refined edge
+    #: (no BiRefNet alpha in the band) or skips band-only stabilisation. Always True in a pack.
+    band_alpha: bool = True
+    stabilise: bool = True
+    #: Window watchdog budget per frame (memory.py). Raised only for eval runs on slow CPUs.
+    window_seconds_per_frame: float = WINDOW_SECONDS_PER_FRAME
+    #: Eval only: write each window's independent estimates here for error attribution.
+    eval_dump: Path | None = None
 
 
 @dataclass
@@ -686,6 +695,8 @@ class MatteJob:
         alphas, bands, fixed = self._final_matte(
             ctx, window, segmentation, birefnet, refine_records, flows, parts
         )
+        if self.config.eval_dump is not None:
+            _dump_estimates(self.config.eval_dump, window, segmentation, birefnet, alphas, bands)
         stabilised = self._stabilise(window, alphas, bands, fixed, flows)
         flags, signals = self._verify(
             window, segmentation, alphas, bands, grays, flows, parts, locked
@@ -856,7 +867,9 @@ class MatteJob:
         bands = window.scratch.array("band", (count, ctx.height, ctx.width), np.bool_)
         fixed: list[Bool] = []
         matting = (
-            self._use_matting() if any(record.downscaled for record in refine_records) else None
+            self._use_matting()
+            if self.config.band_alpha and any(record.downscaled for record in refine_records)
+            else None
         )
         for i in range(count):
             self._check()
@@ -871,7 +884,9 @@ class MatteJob:
                 extra_band=edge_band(frame_prompt),
             )
             alpha = result.alpha
-            if matting is not None and refine_records[i].downscaled:
+            if not self.config.band_alpha:
+                alpha = np.where(result.majority, 255, 0).astype(np.uint8)
+            elif matting is not None and refine_records[i].downscaled:
                 alpha, passes = band_alpha(
                     matting, window.store[i], alpha, result.band, refine_records[i]
                 )
@@ -890,6 +905,8 @@ class MatteJob:
     ) -> list[int]:
         started = time.monotonic()
         count = window.count
+        if not self.config.stabilise:
+            return [0] * count
         self.progress("stabilise", 0, count)
         smoothed, changed = stabilise(
             [alphas[i] for i in range(count)], [bands[i] for i in range(count)], fixed, flows
@@ -1056,6 +1073,15 @@ class MatteJob:
             "memoryCeilingBytes": self.config.memory_ceiling_bytes,
             "windows": {"frames": self.config.window_frames, "overlap": self.config.window_overlap},
             "thresholds": self.config.thresholds.as_json(),
+            "ablations": [
+                name
+                for name, enabled in (
+                    ("band_alpha", self.config.band_alpha),
+                    ("stabilise", self.config.stabilise),
+                )
+                if not enabled
+            ],
+            "windowSecondsPerFrame": self.config.window_seconds_per_frame,
             "selfCorrectionRounds": self.rounds_used,
             "timingsSeconds": self.timings,
             "tools": self.tools.report,
@@ -1071,6 +1097,43 @@ class MatteJob:
         if report.get("fallbacks") or "cpu" in chosen:
             return "cpu"
         return result_provider(sorted(chosen)[0])
+
+
+def _dump_estimates(
+    directory: Path,
+    window: WindowState,
+    segmentation: Segmentation,
+    birefnet: Any,
+    alphas: Any,
+    bands: Any,
+) -> None:
+    """Eval only: one window's independent estimates before stabilisation, for attribution.
+
+    ``fwd``/``bwd`` are SAM's binary masks at source size (``hasFwd``/``hasBwd`` say whether the
+    pass reached the frame), ``birefnet`` its gated alpha, ``prestab`` the consensus alpha with
+    band alpha and constraints applied, ``band`` the unknown band. Frame ``i`` of the arrays is
+    job frame ``start + i``.
+    """
+    directory.mkdir(parents=True, exist_ok=True)
+    count, height, width = window.count, segmentation.height, segmentation.width
+    fwd = np.zeros((count, height, width), np.bool_)
+    bwd = np.zeros((count, height, width), np.bool_)
+    for i in range(count):
+        if segmentation.has_fwd[i]:
+            fwd[i] = segmentation.logits("fwd", i) > 0
+        if segmentation.has_bwd[i]:
+            bwd[i] = segmentation.logits("bwd", i) > 0
+    np.savez_compressed(
+        directory / f"window-{window.start:06d}.npz",
+        start=np.int64(window.start),
+        fwd=fwd,
+        bwd=bwd,
+        hasFwd=np.array(segmentation.has_fwd),
+        hasBwd=np.array(segmentation.has_bwd),
+        birefnet=np.array(birefnet),
+        prestab=np.array(alphas),
+        band=np.array(bands),
+    )
 
 
 class _CorrectionBinder:

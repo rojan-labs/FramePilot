@@ -8,6 +8,8 @@ memory released at exit)::
         "../.venv/bin/python ../eval/run_eval.py run walk_pan__scored"
     # the same clip prompted with ONE click (06's one-click gates)
     "... run_eval.py run --prompt click walk_pan__scored"
+    # 06 ablations of the same pipeline: band alpha off, stabilisation off, fp32 matting graph
+    "... run_eval.py run --variant band_off hair_busy__scored"
     # correction convergence: up to 3 corrective actions on the clip's worst frame
     "... run_eval.py replay talking_head__scored"
 
@@ -37,6 +39,7 @@ import dataclasses
 import json
 import math
 import platform
+import shutil
 import sys
 import time
 from pathlib import Path
@@ -65,6 +68,7 @@ from matte_metrics import (  # noqa: E402
     binarise,
     boundary_f,
     dtssd,
+    foreground_delta_e,
     frames_aligned,
     iou,
     is_leak,
@@ -80,6 +84,30 @@ HUMAN_DIR = REPO / "tests" / "fixtures" / "background-removal"
 RUNS_DIR = PACK / ".cache" / "eval-br3"
 CLICK_RUNS_DIR = PACK / ".cache" / "eval-br7-click"
 REPLAY_DIR = PACK / ".cache" / "eval-br7-replay"
+#: Every kind of run, and where it lives. ``band_off``/``stab_off``/``fp32`` are 06's ablations of
+#: the same pipeline (auto prompt): band alpha disabled (binary refined edge), stabilisation
+#: disabled, and the fp32 matting graph in place of the shipped fp16-stored one (the workflow
+#: installs it; the harness only records where the run went).
+VARIANT_DIRS: dict[str, Path] = {
+    "auto": RUNS_DIR,
+    "click": CLICK_RUNS_DIR,
+    "band_off": PACK / ".cache" / "eval-br7-band-off",
+    "stab_off": PACK / ".cache" / "eval-br7-stab-off",
+    "fp32": PACK / ".cache" / "eval-br7-fp32",
+}
+VARIANT_ENV: dict[str, dict[str, str]] = {
+    "band_off": {"FRAMEPILOT_SMART_MASK_ABLATE": "band_alpha"},
+    "stab_off": {"FRAMEPILOT_SMART_MASK_ABLATE": "stabilise"},
+}
+ABLATIONS = ("band_off", "stab_off", "fp32")
+#: 06: band SAD/Grad >= 25% below band alpha off; within 2% of the fp32 reference.
+BAND_GAIN_GATE = 0.25
+FP32_TOLERANCE = 0.02
+#: 06: dtSSD >= 30% below stabilisation off.
+DTSSD_GAIN_GATE = 0.30
+DELTA_E_GATE = 2.0
+#: The release platforms 06 names; any other platform's numbers are pipeline evidence only.
+RELEASE_PLATFORMS = ("darwin-arm64", "win32-x64")
 REPORTS_DIR = REPO / "reports" / "smart-mask"
 WRONG_IOU = 0.98
 WRONG_BF = 0.95
@@ -116,7 +144,9 @@ def click_point(truth: np.ndarray) -> dict[str, Any]:
     return {"x": round((x + 0.5) / width, 6), "y": round((y + 0.5) / height, 6), "label": "include"}
 
 
-def request_for(fixture: Fixture, staging: Path, prompt: str = "auto") -> dict[str, Any]:
+def request_for(
+    fixture: Fixture, staging: Path, prompt: str = "auto", foreground: bool = False
+) -> dict[str, Any]:
     first_pts = source_pts(fixture.clip)[0]
     if prompt == "click":
         first = fixture.scored_frames()[0]
@@ -134,23 +164,32 @@ def request_for(fixture: Fixture, staging: Path, prompt: str = "auto") -> dict[s
         "capability": "subject.matte",
         "parameters": {
             "output": {"handleId": "out", "absolutePath": str(staging),
-                       "allowedFiles": ["matte.mkv", "frames.json", "report.json"], "maxBytes": 4 * 1024**3},
+                       "allowedFiles": ["matte.mkv", "frames.json", "report.json",
+                                        *(["foreground.mkv"] if foreground else [])],
+                       "maxBytes": 4 * 1024**3},
             "prompts": prompts,
             "previewHeight": 180,
         },
     }  # fmt: skip
 
 
-def runs_dir(prompt: str) -> Path:
-    return RUNS_DIR if prompt == "auto" else CLICK_RUNS_DIR
+def runs_dir(variant: str) -> Path:
+    return VARIANT_DIRS[variant]
 
 
-def run_clip(name: str, prompt: str = "auto", extra: list[Path] | None = None) -> int:
+def run_clip(name: str, variant: str = "auto", extra: list[Path] | None = None) -> int:
+    """One clip through the entrypoint as ``variant``; the worker also dumps its estimates."""
     fixture = find_fixture(name, extra)
-    out = runs_dir(prompt) / name
+    out = runs_dir(variant) / name
     out.mkdir(parents=True, exist_ok=True)
     staging = fresh_staging(out)
-    result = run_request(request_for(fixture, staging, prompt), out)
+    dump = out / "dump"
+    if dump.exists():
+        shutil.rmtree(dump)
+    prompt = "click" if variant == "click" else "auto"
+    env = {**VARIANT_ENV.get(variant, {}), "FRAMEPILOT_SMART_MASK_EVAL_DUMP": str(dump)}
+    request = request_for(fixture, staging, prompt, foreground=variant == "auto")
+    result = run_request(request, out, env)
     return 0 if result["terminal"].get("type") == "result" else 1
 
 
@@ -226,9 +265,100 @@ def load_run(
         run["bandGrad"] = float(
             np.mean([band_grad(matte[i], truths[i], bands[i]) for i in range(count)])
         )
+    fg_path = staging / "foreground.mkv"
+    if fg_path.is_file() and fixture.foreground_truth(0) is not None:
+        run["foregroundDeltaE"] = _foreground_error(fixture, fg_path, matte)
     if with_arrays:
         run["_matte"] = matte
     return run
+
+
+def _foreground_error(fixture: Fixture, path: Path, matte: np.ndarray) -> dict[str, Any]:
+    """06 foreground colour error over the ground truth's unknown band (valid pixels only).
+
+    The delivered colour is what the engine composites: ``foreground.mkv`` where alpha is
+    fractional, the source pixel where alpha is 255.
+    """
+    count, height, width = fixture.frames, fixture.height, fixture.width
+    predicted = decode_rgb(path, count, height, width)
+    source = decode_rgb(fixture.clip, count, height, width)
+    total, pixels = 0.0, 0
+    for index in range(count):
+        known = fixture.foreground_truth(index)
+        if known is None:
+            continue
+        gt_fg, valid = known
+        truth = fixture.truth(index)
+        fractional = (matte[index] > 0) & (matte[index] < 255)
+        colour = np.where(fractional[..., None], predicted[index], source[index])
+        region = unknown_band(truth) & valid
+        frame_sum, frame_pixels = foreground_delta_e(colour, matte[index], gt_fg, truth, region)
+        total += frame_sum
+        pixels += frame_pixels
+    return {"sum": total, "pixels": pixels, "mean": total / pixels if pixels else None}
+
+
+# --- attribution (which estimate carries the error) ---------------------------------------------
+
+ESTIMATES = ("fwd", "bwd", "birefnet", "prestab", "final")
+
+
+def attribution(
+    fixture: Fixture, directory: Path, matte: np.ndarray
+) -> list[dict[str, Any]] | None:
+    """Per frame, IoU / BF@2px / leak of every independent estimate the worker dumped.
+
+    ``fwd``/``bwd`` = SAM passes, ``birefnet`` = its gated alpha, ``prestab`` = the consensus with
+    band alpha, ``final`` = the delivered matte. Says where an error enters the pipeline.
+    """
+    dump = directory / fixture.name / "dump"
+    windows = sorted(dump.glob("window-*.npz")) if dump.is_dir() else []
+    if not windows:
+        return None
+    rows: dict[int, dict[str, Any]] = {}
+    for path in windows:
+        with np.load(path) as data:
+            start = int(data["start"])
+            for local in range(data["fwd"].shape[0]):
+                index = start + local
+                if index in rows or index >= fixture.frames:
+                    continue
+                truth = binarise(fixture.truth(index))
+                masks = {
+                    "fwd": data["fwd"][local] if data["hasFwd"][local] else None,
+                    "bwd": data["bwd"][local] if data["hasBwd"][local] else None,
+                    "birefnet": binarise(data["birefnet"][local]),
+                    "prestab": binarise(data["prestab"][local]),
+                    "final": binarise(matte[index]),
+                }
+                rows[index] = {
+                    name: None if mask is None else {
+                        "iou": round(iou(mask, truth), 5), "bf": round(boundary_f(mask, truth), 5),
+                        "leak": is_leak(mask, truth),
+                    }
+                    for name, mask in masks.items()
+                }  # fmt: skip
+    return [rows[index] for index in sorted(rows)]
+
+
+def attribution_summary(runs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Mean IoU / BF / leak rate per estimate and category, over runs that carry attribution."""
+    table: dict[str, Any] = {}
+    for category in sorted({run["category"] for run in runs if run.get("attribution")}):
+        frames = [
+            f for run in runs if run["category"] == category for f in run.get("attribution") or []
+        ]
+        row: dict[str, Any] = {"frames": len(frames)}
+        for name in ESTIMATES:
+            values = [f[name] for f in frames if f.get(name) is not None]
+            row[name] = None if not values else {
+                "meanIoU": round(float(np.mean([v["iou"] for v in values])), 4),
+                "meanBF": round(float(np.mean([v["bf"] for v in values])), 4),
+                "leakRate": round(float(np.mean([v["leak"] for v in values])), 4),
+                "frames": len(values),
+            }  # fmt: skip
+        table[category] = row
+    return table
 
 
 def _frames_with_truth(run: dict[str, Any]) -> list[dict[str, Any]]:
@@ -462,9 +592,114 @@ def accuracy_by_category(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]
     return table
 
 
+def _by_name(runs: list[dict[str, Any]]) -> dict[str, dict[str, Any]]:
+    return {run["name"]: run for run in runs}
+
+
+def band_gate(
+    scored: list[dict[str, Any]], variants: dict[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    """06: hair band SAD and Grad >= 25% below band-alpha-off, and within 2% of the fp32 graph."""
+    gate_id, name = "band_sad_grad_hair", "Band SAD / Grad, hair category"
+    threshold = ">= 25% lower than band alpha disabled; within 2% of the fp32 reference"
+    hair = [run for run in scored if run["category"] == "hair_busy" and "bandSAD" in run]
+    if not hair:
+        return _gate(gate_id, name, threshold, "not_measured", note="No scored hair_busy run.")
+    run = hair[0]
+    value: dict[str, Any] = {
+        "bandSAD": round(run["bandSAD"], 3),
+        "bandGrad": round(run["bandGrad"], 3),
+    }
+    verdicts: list[bool] = []
+    notes: list[str] = []
+    off = _by_name(variants.get("band_off", [])).get(run["name"])
+    if off is not None:
+        value["bandAlphaOff"] = {
+            "bandSAD": round(off["bandSAD"], 3),
+            "bandGrad": round(off["bandGrad"], 3),
+        }
+        value["reduction"] = {
+            k: round(1 - run[k] / off[k], 4) if off[k] else None for k in ("bandSAD", "bandGrad")
+        }
+        verdicts.append(
+            all(r is not None and r >= BAND_GAIN_GATE for r in value["reduction"].values())
+        )
+    else:
+        notes.append("no band-alpha-off run")
+    fp32 = _by_name(variants.get("fp32", [])).get(run["name"])
+    if fp32 is not None:
+        value["fp32Reference"] = {
+            "bandSAD": round(fp32["bandSAD"], 3),
+            "bandGrad": round(fp32["bandGrad"], 3),
+        }
+        value["fromFp32"] = {
+            k: round(abs(run[k] - fp32[k]) / fp32[k], 4) if fp32[k] else None
+            for k in ("bandSAD", "bandGrad")
+        }
+        verdicts.append(
+            all(d is not None and d <= FP32_TOLERANCE for d in value["fromFp32"].values())
+        )
+        notes.append(
+            "fp32 reference = the fp32 ONNX export of the same pinned checkpoint (BR0.2 parity to "
+            "PyTorch fp32), run through the same pipeline"
+        )
+    else:
+        notes.append("no fp32 reference run")
+    status = "fail" if not all(verdicts) else "pass" if len(verdicts) == 2 else "not_measured"
+    return _gate(gate_id, name, threshold, status, value, note="; ".join(notes) or None)
+
+
+def dtssd_gate(
+    scored: list[dict[str, Any]], variants: dict[str, list[dict[str, Any]]]
+) -> dict[str, Any]:
+    """06: dtSSD >= 30% below stabilisation-off (numeric part); the blind review is a person's."""
+    gate_id, name = "dtssd", "dtSSD"
+    threshold = ">= 30% lower than stabilisation disabled; no visible crawl (blind review)"
+    dt = {run["category"]: round(run["dtSSD"], 3) for run in scored if run.get("dtSSD") is not None}
+    off = _by_name(variants.get("stab_off", []))
+    rows = {run["category"]: {"dtSSD": round(run["dtSSD"], 3), "stabilisationOff": round(off[run["name"]]["dtSSD"], 3),
+                              "reduction": round(1 - run["dtSSD"] / off[run["name"]]["dtSSD"], 4) if off[run["name"]]["dtSSD"] else None}
+            for run in scored if run.get("dtSSD") is not None and run["name"] in off}  # fmt: skip
+    if not rows:
+        return _gate(gate_id, name, threshold, "not_measured", dt or None,
+                     note="Needs a stabilisation-disabled ablation run and a blind side-by-side review; "
+                          "absolute dtSSD per category is recorded.")  # fmt: skip
+    failing = [
+        c
+        for c, row in rows.items()
+        if row["reduction"] is None or row["reduction"] < DTSSD_GAIN_GATE
+    ]
+    numeric = "fail" if failing else "pass"
+    return _gate(gate_id, name, threshold, "fail" if failing else "not_measured", rows, numericStatus=numeric,
+                 failingCategories=failing, categoriesCompared=len(rows),
+                 note="The numeric part is judged here; 'no visible crawl' needs a person's blind side-by-side "
+                      "review, so a numeric pass is still not a gate pass.")  # fmt: skip
+
+
+def foreground_gate(scored: list[dict[str, Any]]) -> dict[str, Any]:
+    """06: mean ΔE2000 of the composite over a new background <= 2.0 in the band."""
+    gate_id, name, threshold = (
+        "foreground_delta_e",
+        "Foreground colour error",
+        "mean ΔE2000 <= 2.0 in the band",
+    )
+    measured = [run for run in scored if run.get("foregroundDeltaE", {}).get("pixels")]
+    if not measured:
+        return _gate(gate_id, name, threshold, "not_measured",
+                     note="No run wrote foreground.mkv against a fixture with a ground-truth foreground plate.")  # fmt: skip
+    total = sum(run["foregroundDeltaE"]["sum"] for run in measured)
+    pixels = sum(run["foregroundDeltaE"]["pixels"] for run in measured)
+    per = {run["category"]: round(run["foregroundDeltaE"]["mean"], 3) for run in measured}
+    mean = total / pixels
+    return _gate(gate_id, name, threshold, "pass" if mean <= DELTA_E_GATE else "fail", round(mean, 3),
+                 byCategory=per, pixels=pixels, background="magenta (1, 0, 1)", **_judged(measured))  # fmt: skip
+
+
 def gates(scored: list[dict[str, Any]], click: list[dict[str, Any]], calibrated: dict[str, Any],
-          replays: list[dict[str, Any]]) -> list[dict[str, Any]]:  # fmt: skip
+          replays: list[dict[str, Any]],
+          variants: dict[str, list[dict[str, Any]]] | None = None) -> list[dict[str, Any]]:  # fmt: skip
     """Every matte gate in 06, from the scored split only. Never a gate this run could not judge."""
+    variants = variants or {}
     out: list[dict[str, Any]] = []
     auto = accuracy_by_category(scored) if scored else {}
     judged = _judged(scored) if scored else {}
@@ -494,20 +729,9 @@ def gates(scored: list[dict[str, Any]], click: list[dict[str, Any]], calibrated:
         out.append(_gate("bf_every_category", "BF@2px, every category", ">= 0.95",
                          "pass" if not failing else "fail", worst[1]["meanBF"], worstCategory=worst[0],
                          failingCategories=failing, **judged))  # fmt: skip
-    hair = [run for run in scored if run["category"] == "hair_busy" and "bandSAD" in run]
-    out.append(_gate("band_sad_grad_hair", "Band SAD / Grad, hair category",
-                     ">= 25% lower than band alpha disabled; within 2% of the fp32 PyTorch reference", "not_measured",
-                     {"bandSAD": round(hair[0]["bandSAD"], 3), "bandGrad": round(hair[0]["bandGrad"], 3)} if hair else None,
-                     note="Needs two ablation runs (band alpha disabled; fp32 PyTorch reference of the same pipeline). "
-                          "The absolute band errors of this run are recorded for the next comparison."))  # fmt: skip
-    out.append(_gate("foreground_delta_e", "Foreground colour error", "mean ΔE2000 <= 2.0 in the band", "not_measured",
-                     note="The pilot stores no ground-truth foreground colour, and eval runs do not write "
-                          "foreground.mkv; needs a fixture with a known foreground plate."))  # fmt: skip
-    dt = {run["category"]: round(run["dtSSD"], 3) for run in scored if run.get("dtSSD") is not None}
-    out.append(_gate("dtssd", "dtSSD", ">= 30% lower than stabilisation disabled; no visible crawl (blind review)",
-                     "not_measured", dt or None,
-                     note="Needs a stabilisation-disabled ablation run and a blind side-by-side review; "
-                          "absolute dtSSD per category is recorded."))  # fmt: skip
+    out.append(band_gate(scored, variants))
+    out.append(foreground_gate(scored))
+    out.append(dtssd_gate(scored, variants))
     leak_frames = [f["leak"] for run in scored for f in _frames_with_truth(run)]
     if leak_frames:
         rate = sum(leak_frames) / len(leak_frames)
@@ -515,7 +739,7 @@ def gates(scored: list[dict[str, Any]], click: list[dict[str, Any]], calibrated:
                          "pass" if rate <= 0.005 else "fail", round(rate, 4),
                          leakFrames=sum(leak_frames), frames=len(leak_frames), **judged))  # fmt: skip
     result = calibrated["scored"]
-    if result["recall"] is not None:
+    if result.get("recall") is not None:
         out.append(_gate("error_detection_recall", "Error-detection recall", ">= 99.5%",
                          "pass" if result["recall"] >= RECALL_GATE else "fail", round(result["recall"], 4),
                          wilson95Lower=round(result["recallWilson95Lower"], 4), wrongFrames=result["wrongFrames"],
@@ -595,12 +819,26 @@ def _sheet_rows(
     return rows
 
 
+def _platform() -> str:
+    machine = {"x86_64": "x64", "amd64": "x64", "arm64": "arm64", "aarch64": "arm64"}.get(
+        platform.machine().lower(), platform.machine().lower()
+    )
+    return f"{sys.platform}-{machine}"
+
+
 def report(
     date: str, extra: list[Path] | None = None, sheet: bool = True
 ) -> tuple[dict[str, Any], list[SheetRow]]:
     fixtures, refused = discover(fixture_roots(extra))
     by_name = {fixture.name: fixture for fixture in fixtures}
-    loaded = [(fixture, load_run(fixture, with_arrays=sheet)) for fixture in fixtures]
+    loaded = []
+    for fixture in fixtures:
+        run = load_run(fixture, with_arrays=True)
+        if run is not None and "failed" not in run:
+            run["attribution"] = attribution(fixture, RUNS_DIR, run["_matte"])
+            if not sheet:
+                run.pop("_matte")
+        loaded.append((fixture, run))
     runs = [run for _, run in loaded if run is not None and "failed" not in run]
     failures = [run for _, run in loaded if run is not None and "failed" in run]
     not_run = [fixture.name for fixture, run in loaded if run is None]
@@ -609,6 +847,18 @@ def report(
         for fixture in fixtures
         if (run := load_run(fixture, CLICK_RUNS_DIR)) is not None and "failed" not in run
     ]
+    variant_runs = {
+        variant: [
+            run for fixture in fixtures
+            if (run := load_run(fixture, VARIANT_DIRS[variant])) is not None and "failed" not in run
+        ]
+        for variant in ABLATIONS
+    }  # fmt: skip
+    variant_failures = {
+        variant: [fixture.name for fixture in fixtures
+                  if (run := load_run(fixture, VARIANT_DIRS[variant])) is not None and "failed" in run]
+        for variant in (*ABLATIONS, "click")
+    }  # fmt: skip
     calibration = [run for run in runs if run["split"] == "calibration"]
     scored = [run for run in runs if run["split"] == "scored"]
     shipped = Thresholds()
@@ -627,9 +877,15 @@ def report(
         for split, group in (("calibration", calibration), ("scored", scored))
     }  # fmt: skip
     kinds = sorted({run["groundTruth"] for run in runs})
+    host = _platform()
     result = {
         "date": date,
-        "platform": f"{sys.platform}-{platform.machine()}",
+        "platform": host,
+        "releaseGatePlatform": host in RELEASE_PLATFORMS,
+        "platformNote": None if host in RELEASE_PLATFORMS else (
+            f"06's matte gates are specified for {' and '.join(RELEASE_PLATFORMS)} (release platforms; MO-9, "
+            f"MO-13 are maintainer hardware). {host} numbers are evidence of the pipeline's accuracy, not the "
+            "release gate."),
         "harness": "workers/smart-mask/eval/run_eval.py (installed entrypoint, BR7.2)",
         "groundTruth": {
             "kinds": kinds,
@@ -640,14 +896,24 @@ def report(
                     "clips only." if kinds == ["construction"] else "Mixed: see judgedOn per gate.",
         },
         "fixtures": {"run": [run["name"] for run in runs], "failed": [{"name": f["name"], "terminal": f["failed"]} for f in failures],
-                     "notRun": not_run, "refused": refused, "oneClickRuns": [run["name"] for run in clicks]},
+                     "notRun": not_run, "refused": refused, "oneClickRuns": [run["name"] for run in clicks],
+                     "ablationRuns": {v: [r["name"] for r in rs] for v, rs in variant_runs.items()},
+                     "variantFailures": {v: names for v, names in variant_failures.items() if names}},
         "definitions": {"wrongFrame": {"iou": WRONG_IOU, "bf": WRONG_BF}, "recallGate": RECALL_GATE, "reviewLoadGate": REVIEW_GATE},
-        "gates": gates(scored, [r for r in clicks if r["split"] == "scored"], calibrated, replays),
+        "gates": gates(scored, [r for r in clicks if r["split"] == "scored"], calibrated, replays,
+                       {v: [r for r in rs if r["split"] == "scored"] for v, rs in variant_runs.items()}),
+        "attribution": {"estimates": list(ESTIMATES),
+                        "note": "Per estimate vs ground truth: SAM forward/backward, BiRefNet (gated, a >= 0.5), the "
+                                "consensus before stabilisation, and the delivered matte.",
+                        "scored": attribution_summary(scored), "calibration": attribution_summary(calibration)},
+        "oneClickAccuracy": accuracy_by_category([r for r in clicks if r["split"] == "scored"]) if clicks else {},
         "accuracy": accuracy,
         "shippedThresholds": {"thresholds": shipped.as_json(), "calibration": score(calibration, shipped), "scored": score(scored, shipped)},
         "calibratedThresholds": calibrated,
         "correctionReplays": replays,
         "secondsPerClip": {run["name"]: run["seconds"] for run in runs},
+        "perFrame": {run["name"]: [{"iou": f["iou"], "bf": f["bf"], "leak": f["leak"], "checks": f["checks"]}
+                                   for f in run["frames"]] for run in scored},
         "job": runs[0]["job"] if runs else None,
     }  # fmt: skip
     rows = _sheet_rows(by_name, scored, fitted) if sheet else []
@@ -664,20 +930,32 @@ def main() -> int:
     commands = parser.add_subparsers(dest="command", required=True)
     run = commands.add_parser("run")
     run.add_argument("--prompt", choices=PROMPTS, default="auto")
+    run.add_argument("--variant", choices=tuple(VARIANT_DIRS), default=None,
+                     help="auto, click, or a 06 ablation (default: from --prompt)")  # fmt: skip
     run.add_argument("clips", nargs="+")
     replay = commands.add_parser("replay")
     replay.add_argument("clips", nargs="+")
     scoring = commands.add_parser("score")
     scoring.add_argument("--no-sheet", action="store_true")
+    scoring.add_argument("--stem", help="report file stem (default: <date>-<platform>)")
+    scoring.add_argument("--provenance", type=Path, action="append", default=[],
+                         help="JSON files recorded under report['provenance'] (CI: graphs, runner, run id)")  # fmt: skip
     arguments = parser.parse_args()
     if arguments.command == "run":
-        return max(run_clip(name, arguments.prompt, arguments.fixtures) for name in arguments.clips)
+        variant = arguments.variant or arguments.prompt
+        return max(run_clip(name, variant, arguments.fixtures) for name in arguments.clips)
     if arguments.command == "replay":
         return max(run_replay(name, arguments.fixtures) for name in arguments.clips)
     date = time.strftime("%Y-%m-%d")
     result, rows = report(date, arguments.fixtures, sheet=not arguments.no_sheet)
+    if arguments.provenance:
+        result["provenance"] = {
+            path.stem: json.loads(path.read_text())
+            for path in arguments.provenance
+            if path.is_file()
+        }
     REPORTS_DIR.mkdir(parents=True, exist_ok=True)
-    stem = f"{date}-{result['platform']}"
+    stem = arguments.stem or f"{date}-{result['platform']}"
     if rows:
         write_sheet(rows, REPORTS_DIR / f"{stem}-contact-sheet.jpg",
                     f"Smart Mask eval {stem}: scored split, worst frame per clip "

@@ -21,6 +21,13 @@ from .runtime import CancellationFlag, ProgressSink, SegmentFrameOutcome, Worker
 ENV_MEMORY_CEILING_MIB: Final = "FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB"
 ENV_MATTING_TILE: Final = "FRAMEPILOT_SMART_MASK_MATTING_TILE"
 ENV_THREADS: Final = "FRAMEPILOT_SMART_MASK_THREADS"
+#: Eval only (BR7.4, never set by the host): comma-separated stages to switch off for the 06
+#: ablation gates (``band_alpha``, ``stabilise``), a longer window watchdog for slow CI CPUs, and
+#: a directory for the per-window estimates the error-attribution report reads.
+ENV_ABLATE: Final = "FRAMEPILOT_SMART_MASK_ABLATE"
+ENV_WINDOW_SECONDS_PER_FRAME: Final = "FRAMEPILOT_SMART_MASK_WINDOW_SECONDS_PER_FRAME"
+ENV_EVAL_DUMP: Final = "FRAMEPILOT_SMART_MASK_EVAL_DUMP"
+ABLATIONS: Final = ("band_alpha", "stabilise")
 ENV_CACHE_DIR: Final = "FRAMEPILOT_CAPABILITY_PACK_CACHE"
 DEFAULT_MEMORY_CEILING_MIB: Final = 8192
 
@@ -64,15 +71,38 @@ def _int(environment: Mapping[str, str], name: str) -> int | None:
         return None
 
 
+def _ablations(environment: Mapping[str, str]) -> set[str]:
+    """Stages switched off for an eval ablation run.
+
+    :raises ValueError: An unknown stage name (a typo must not silently run the full pipeline).
+    """
+    names = {name.strip() for name in environment.get(ENV_ABLATE, "").split(",") if name.strip()}
+    unknown = names - set(ABLATIONS)
+    if unknown:
+        raise ValueError(f"{ENV_ABLATE}: unknown stage(s) {sorted(unknown)}; use {ABLATIONS}.")
+    return names
+
+
 def pipeline_config(environment: Mapping[str, str] | None = None) -> Any:
+    from pathlib import Path
+
+    from .memory import WINDOW_SECONDS_PER_FRAME
     from .pipeline import GIB, PipelineConfig
 
     env = os.environ if environment is None else environment
     ceiling_mib = _int(env, ENV_MEMORY_CEILING_MIB) or DEFAULT_MEMORY_CEILING_MIB
+    ablated = _ablations(env)
+    dump = env.get(ENV_EVAL_DUMP, "")
     return PipelineConfig(
         memory_ceiling_bytes=ceiling_mib * 1024 * 1024,
         matting_tile=_int(env, ENV_MATTING_TILE),
         embedding_ram_bytes=min(ceiling_mib * 1024 * 1024 // 16, GIB),
+        band_alpha="band_alpha" not in ablated,
+        stabilise="stabilise" not in ablated,
+        window_seconds_per_frame=float(
+            _int(env, ENV_WINDOW_SECONDS_PER_FRAME) or WINDOW_SECONDS_PER_FRAME
+        ),
+        eval_dump=Path(dump) if dump else None,
     )
 
 
@@ -112,7 +142,11 @@ class PackServices:
         from .pipeline import MatteJob, ToolPaths
 
         report = asdict(self.tools.report)
-        with MemoryGovernor(self.config.memory_ceiling_bytes, cancellation) as governor:
+        with MemoryGovernor(
+            self.config.memory_ceiling_bytes,
+            cancellation,
+            seconds_per_frame=self.config.window_seconds_per_frame,
+        ) as governor:
 
             def on_window(frames: int | None) -> None:
                 if frames is None:

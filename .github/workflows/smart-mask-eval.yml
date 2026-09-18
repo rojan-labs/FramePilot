@@ -1,0 +1,417 @@
+name: Smart Mask — matte eval (BR7.4)
+
+# The 06 matte gates (plan/background-removal-ai/06-PRECISION-AND-EVAL.md) measured with real
+# weights on a GitHub runner instead of the 16 GB development Mac, which cannot hold BiRefNet at
+# its trained 2048² tile (> 12 GB on the CPU EP) and shut down twice under earlier local runs.
+#
+# DISPATCH ONLY: each run exports ~2.6 GB of graphs from the pinned checkpoints (cached, keyed on
+# the pins and the export scripts), then runs one job per (variant, clip) for hours. It never
+# runs on a push or a pull request; the `pull_request` trigger exists only so GitHub registers
+# this file while it lives on a branch, and every job's `if:` skips it.
+#
+# What it measures (eval/ci_plan.py): auto-prompt runs on every category and both splits, the
+# one-click runs, the band-alpha-off / stabilisation-off / fp32 ablations and the scripted
+# correction replays, all through the installed entrypoint (eval/run_eval.py). The score job
+# writes reports/smart-mask/<date>-linux-x64-ci-<label>.json plus a contact sheet and uploads
+# them; they are committed by hand. linux-x64 CPU numbers are evidence of the pipeline's
+# accuracy, not the release gate (06 names darwin-arm64 and win32-x64; MO-9, MO-13).
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/smart-mask-eval.yml'
+  workflow_dispatch:
+    inputs:
+      label:
+        description: 'Iteration label, used in the report name (e.g. it0)'
+        required: true
+        default: 'it0'
+      tile:
+        description: 'BiRefNet tile (2048 = trained size; a job that is OOM-killed retries at 1024 and says so)'
+        required: false
+        default: '2048'
+      suites:
+        description: 'Any of: auto click ablations replay'
+        required: false
+        default: 'auto click ablations replay'
+      categories:
+        description: 'Pilot categories (blank = all 10)'
+        required: false
+        default: ''
+      splits:
+        description: 'calibration and/or scored (blank = both)'
+        required: false
+        default: ''
+      replay_categories:
+        description: 'Scored categories for the correction-convergence replays'
+        required: false
+        default: 'talking_head crossing low_light hair_busy'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: smart-mask-eval-${{ github.ref }}-${{ inputs.label }}
+  cancel-in-progress: false
+
+env:
+  PYTHON_VERSION: '3.13'
+  # Eval-only worker settings (services.py). The window watchdog's 90 s/frame budget is sized for
+  # 1080p on a desktop CPU; 2048² tiles on a 4-vCPU runner need more, and a timeout would lose
+  # the clip. The memory ceiling is lifted because the runner has swap and nothing else to save.
+  FRAMEPILOT_SMART_MASK_WINDOW_SECONDS_PER_FRAME: '600'
+  FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB: '61440'
+
+defaults:
+  run:
+    working-directory: workers/smart-mask
+
+jobs:
+  prepare:
+    name: Graphs, LGPL ffmpeg, pilot backgrounds, plan
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 180
+    outputs:
+      eval: ${{ steps.plan.outputs.eval }}
+      replay: ${{ steps.plan.outputs.replay }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Plan the jobs
+        id: plan
+        run: >-
+          uv run --no-project --python "$PYTHON_VERSION" python eval/ci_plan.py
+          --suites "${{ inputs.suites }}" --categories "${{ inputs.categories }}"
+          --splits "${{ inputs.splits }}" --replay-categories "${{ inputs.replay_categories }}"
+          | tee -a "$GITHUB_OUTPUT"
+      - name: Graphs cache
+        id: graphs
+        uses: actions/cache/restore@v4
+        with:
+          path: workers/smart-mask/.cache/graphs
+          key: smart-mask-graphs-linux-x64-v1-${{ hashFiles('workers/smart-mask/pack/models.lock.toml', 'workers/smart-mask/spike/uv.lock', 'workers/smart-mask/spike/export_*.py', 'workers/smart-mask/spike/sam_modules.py', 'workers/smart-mask/spike/fp16_store.py', 'workers/smart-mask/spike/common.py', 'workers/smart-mask/tools/export_onnx.py', 'workers/smart-mask/tools/fetch_models.py', 'workers/smart-mask/eval/ci_export_graphs.sh') }}
+      - name: Free disk for the export environment
+        if: steps.graphs.outputs.cache-hit != 'true'
+        working-directory: .
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Export the graphs from the pinned checkpoints
+        if: steps.graphs.outputs.cache-hit != 'true'
+        run: eval/ci_export_graphs.sh .cache/graphs 2048 1024
+      - name: Save the graphs cache
+        if: steps.graphs.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: workers/smart-mask/.cache/graphs
+          key: ${{ steps.graphs.outputs.cache-primary-key }}
+      - name: Record whether the runner's graphs are the pinned bytes
+        run: |
+          mkdir -p .cache/ci
+          uv run --no-project --python "$PYTHON_VERSION" python eval/ci_graphs.py record \
+            --graphs .cache/graphs --out .cache/ci/graphs.json \
+            --note "exported on ubuntu-latest (linux-x64) by eval/ci_export_graphs.sh from the pinned checkpoints"
+          cat .cache/ci/graphs.json
+      - name: LGPL ffmpeg cache
+        id: ffmpeg
+        uses: actions/cache@v4
+        with:
+          path: workers/smart-mask/.cache/ffmpeg-lgpl/bin
+          key: smart-mask-ffmpeg-lgpl-linux-x64-${{ hashFiles('workers/smart-mask/tools/build_ffmpeg_lgpl.sh') }}
+      - name: Build the pack's LGPL-only ffmpeg (what the worker decodes with)
+        if: steps.ffmpeg.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends nasm zlib1g-dev
+          tools/build_ffmpeg_lgpl.sh .cache/ffmpeg-lgpl/bin
+      - name: Fetch the pilot's Sintel backgrounds and check their pixels
+        run: |
+          sudo apt-get update && sudo apt-get install -y --no-install-recommends ffmpeg
+          uv sync --extra cv --locked --python "$PYTHON_VERSION"
+          uv run --no-sync python eval/pilot.py --backgrounds-only
+          cat .cache/pilot-br3/pilot-provenance.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sm-inputs
+          retention-days: 3
+          path: |
+            workers/smart-mask/.cache/ffmpeg-lgpl/bin/ffmpeg
+            workers/smart-mask/.cache/ffmpeg-lgpl/bin/ffprobe
+            workers/smart-mask/.cache/media/bg/*.png
+            workers/smart-mask/.cache/ci/graphs.json
+            workers/smart-mask/.cache/pilot-br3/pilot-provenance.json
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sm-graphs-sam
+          retention-days: 3
+          compression-level: 0
+          path: |
+            workers/smart-mask/.cache/graphs/sam21l_*
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sm-graphs-birefnet-2048
+          retention-days: 3
+          compression-level: 0
+          path: workers/smart-mask/.cache/graphs/birefnet_hr_matting_2048.fp16s.onnx
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sm-graphs-birefnet-1024
+          retention-days: 3
+          compression-level: 0
+          path: workers/smart-mask/.cache/graphs/birefnet_hr_matting_1024.fp16s.onnx
+      - uses: actions/upload-artifact@v7
+        with:
+          name: sm-graphs-birefnet-2048-fp32
+          retention-days: 3
+          compression-level: 0
+          path: workers/smart-mask/.cache/graphs/birefnet_hr_matting_2048.fp32.onnx
+
+  eval:
+    name: ${{ matrix.variant }} ${{ matrix.clip }}
+    needs: prepare
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    # GitHub stops a hosted job at 360 minutes; one clip per job keeps each well inside it.
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.eval) }}
+    env:
+      VARIANT: ${{ matrix.variant }}
+      CLIP: ${{ matrix.clip }}
+      CATEGORY: ${{ matrix.category }}
+      SPLIT: ${{ matrix.split }}
+      TILE: ${{ inputs.tile }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Swap, so a 2048² session that overshoots RAM slows down instead of being killed
+        working-directory: .
+        run: |
+          free -g; df -h / /mnt
+          [[ -x /usr/bin/time ]] || (sudo apt-get update && sudo apt-get install -y --no-install-recommends time)
+          sudo swapoff -a || true
+          sudo fallocate -l 24G /mnt/sm-swap && sudo chmod 600 /mnt/sm-swap
+          sudo mkswap /mnt/sm-swap >/dev/null && sudo swapon /mnt/sm-swap
+          free -g
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-inputs
+          path: workers/smart-mask/.cache
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-graphs-sam
+          path: workers/smart-mask/.cache/onnx
+      - uses: actions/download-artifact@v7
+        if: matrix.variant != 'fp32'
+        with:
+          name: sm-graphs-birefnet-${{ inputs.tile }}
+          path: workers/smart-mask/.cache/onnx
+      - uses: actions/download-artifact@v7
+        if: matrix.variant == 'fp32'
+        with:
+          name: sm-graphs-birefnet-2048-fp32
+          path: workers/smart-mask/.cache/onnx
+      - name: Install the worker from the exact lock
+        run: |
+          chmod +x .cache/ffmpeg-lgpl/bin/*
+          echo "$PWD/.cache/ffmpeg-lgpl/bin" >> "$GITHUB_PATH"
+          uv sync --extra cv --extra dev --locked --python "$PYTHON_VERSION"
+      - name: The fp32 reference graph stands in for the shipped fp16-stored one
+        if: matrix.variant == 'fp32'
+        run: mv .cache/onnx/birefnet_hr_matting_2048.fp32.onnx .cache/onnx/birefnet_hr_matting_2048.fp16s.onnx
+      - name: Pin the runner's graphs for this job (models.py is not committed from here)
+        run: uv run --no-sync python eval/ci_graphs.py repin --graphs .cache/onnx --ci
+      - name: Render the clip (deterministic construction-true pilot)
+        run: uv run --no-sync python eval/pilot.py "$CATEGORY" --split "$SPLIT"
+      - name: Run the clip through the installed entrypoint
+        id: run
+        run: |
+          RUN_DIR="$(uv run --no-sync python -c "import sys; sys.path.insert(0, 'eval'); import run_eval; print(run_eval.VARIANT_DIRS['$VARIANT'])")"
+          echo "run_dir=$RUN_DIR" >> "$GITHUB_OUTPUT"
+          mkdir -p .cache/ci-meta
+          attempt() {
+            FRAMEPILOT_SMART_MASK_MATTING_TILE="$1" /usr/bin/time -v -o ".cache/ci-meta/time-$1.txt" \
+              uv run --no-sync python eval/run_eval.py run --variant "$VARIANT" "$CLIP"
+          }
+          set +e
+          attempt "$TILE"; status=$?
+          used="$TILE"; fallback=""
+          exit_code="$(jq -r '.exitCode' "$RUN_DIR/$CLIP/result.json" 2>/dev/null || echo none)"
+          if [[ $status -ne 0 && "$TILE" == "2048" && "$VARIANT" != "fp32" && "$exit_code" =~ ^-(9|15)$ ]]; then
+            echo "::warning::$CLIP at 2048² was killed (exit $exit_code); retrying at 1024² and recording it"
+            cp "$RUN_DIR/$CLIP/result.json" ".cache/ci-meta/failed-2048.json"
+            fallback="killed at 2048 (worker exit $exit_code)"
+            echo "fallback=1024" >> "$GITHUB_OUTPUT"
+          fi
+          echo "status=$status" >> "$GITHUB_OUTPUT"
+          jq -n --arg variant "$VARIANT" --arg clip "$CLIP" --arg tile "$used" --arg fallback "$fallback" \
+            --arg status "$status" --arg exit "$exit_code" \
+            --arg peak "$(grep 'Maximum resident' ".cache/ci-meta/time-$TILE.txt" | awk '{print $NF}')" \
+            '{variant: $variant, clip: $clip, tileRequested: ($tile|tonumber), tileUsed: ($tile|tonumber), fallback: $fallback,
+              status: ($status|tonumber), workerExit: $exit, maxRssKiB: $peak}' > ".cache/ci-meta/${VARIANT}__${CLIP}.json"
+          cat ".cache/ci-meta/${VARIANT}__${CLIP}.json"
+          exit 0
+      - uses: actions/download-artifact@v7
+        if: steps.run.outputs.fallback == '1024'
+        with:
+          name: sm-graphs-birefnet-1024
+          path: workers/smart-mask/.cache/onnx
+      - name: Retry at 1024² (the largest other tile), stated in the report
+        if: steps.run.outputs.fallback == '1024'
+        run: |
+          uv run --no-sync python eval/ci_graphs.py repin --graphs .cache/onnx --ci
+          set +e
+          FRAMEPILOT_SMART_MASK_MATTING_TILE=1024 /usr/bin/time -v -o .cache/ci-meta/time-1024.txt \
+            uv run --no-sync python eval/run_eval.py run --variant "$VARIANT" "$CLIP"; status=$?
+          meta=".cache/ci-meta/${VARIANT}__${CLIP}.json"
+          jq --arg status "$status" --arg peak "$(grep 'Maximum resident' .cache/ci-meta/time-1024.txt | awk '{print $NF}')" \
+            '.tileUsed = 1024 | .status = ($status|tonumber) | .maxRssKiB1024 = $peak' "$meta" > "$meta.tmp" && mv "$meta.tmp" "$meta"
+          cat "$meta"
+      - name: Outcome
+        run: |
+          RESULT="${{ steps.run.outputs.run_dir }}/$CLIP/result.json"
+          jq '{terminal: .terminal.type, code: .terminal.code, seconds, exitCode}' "$RESULT" || true
+          tail -n 30 "${{ steps.run.outputs.run_dir }}/$CLIP/stderr.log" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: run-${{ matrix.variant }}-${{ matrix.clip }}
+          retention-days: 7
+          path: |
+            ${{ steps.run.outputs.run_dir }}/${{ matrix.clip }}
+            !${{ steps.run.outputs.run_dir }}/${{ matrix.clip }}/staging/inputs
+            workers/smart-mask/.cache/pilot-br3/${{ matrix.clip }}
+            workers/smart-mask/.cache/ci-meta/${{ matrix.variant }}__${{ matrix.clip }}.json
+
+  replay:
+    name: replay ${{ matrix.clip }}
+    needs: [prepare, eval]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' && needs.prepare.outputs.replay != '[]' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.prepare.outputs.replay) }}
+    env:
+      CLIP: ${{ matrix.clip }}
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - name: Swap
+        working-directory: .
+        run: |
+          sudo swapoff -a || true
+          sudo fallocate -l 24G /mnt/sm-swap && sudo chmod 600 /mnt/sm-swap
+          sudo mkswap /mnt/sm-swap >/dev/null && sudo swapon /mnt/sm-swap
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-inputs
+          path: workers/smart-mask/.cache
+      - uses: actions/download-artifact@v7
+        with:
+          name: run-auto-${{ matrix.clip }}
+          path: workers/smart-mask/.cache
+      - name: Which tile did the auto run use
+        id: tile
+        run: echo "tile=$(jq -r '.tileUsed' ".cache/ci-meta/auto__${CLIP}.json")" >> "$GITHUB_OUTPUT"
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-graphs-sam
+          path: workers/smart-mask/.cache/onnx
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-graphs-birefnet-${{ steps.tile.outputs.tile }}
+          path: workers/smart-mask/.cache/onnx
+      - name: Install the worker from the exact lock
+        run: |
+          chmod +x .cache/ffmpeg-lgpl/bin/*
+          echo "$PWD/.cache/ffmpeg-lgpl/bin" >> "$GITHUB_PATH"
+          uv sync --extra cv --extra dev --locked --python "$PYTHON_VERSION"
+          uv run --no-sync python eval/ci_graphs.py repin --graphs .cache/onnx --ci
+      - name: Scripted corrections through the entrypoint (up to 3 actions)
+        env:
+          FRAMEPILOT_SMART_MASK_MATTING_TILE: ${{ steps.tile.outputs.tile }}
+        run: uv run --no-sync python eval/run_eval.py replay "$CLIP" || true
+      - uses: actions/upload-artifact@v7
+        if: always()
+        with:
+          name: replay-${{ matrix.clip }}
+          retention-days: 7
+          path: |
+            workers/smart-mask/.cache/eval-br7-replay/${{ matrix.clip }}
+            !workers/smart-mask/.cache/eval-br7-replay/${{ matrix.clip }}/**/inputs
+            workers/smart-mask/.cache/ci-meta/auto__${{ matrix.clip }}.json
+
+  score:
+    name: Score every 06 gate and write the report
+    needs: [prepare, eval, replay]
+    if: ${{ !cancelled() && github.event_name == 'workflow_dispatch' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+      - uses: astral-sh/setup-uv@v7
+      - uses: actions/download-artifact@v7
+        with:
+          name: sm-inputs
+          path: workers/smart-mask/.cache
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: run-*
+          merge-multiple: true
+          path: workers/smart-mask/.cache
+      - uses: actions/download-artifact@v7
+        with:
+          pattern: replay-*
+          merge-multiple: true
+          path: workers/smart-mask/.cache
+      - name: Install the worker from the exact lock
+        run: |
+          chmod +x .cache/ffmpeg-lgpl/bin/*
+          uv sync --extra cv --extra dev --locked --python "$PYTHON_VERSION"
+      - name: Record the run
+        run: |
+          jq -s --arg run "${{ github.run_id }}" --arg sha "${{ github.sha }}" --arg label "${{ inputs.label }}" \
+            --arg tile "${{ inputs.tile }}" --arg nproc "$(nproc)" --arg mem "$(free -g | awk '/Mem:/{print $2}')" \
+            --arg cpu "$(lscpu | sed -n 's/^Model name: *//p')" \
+            '{workflowRunId: $run, commit: $sha, label: $label, tileRequested: ($tile|tonumber),
+              runner: {image: "ubuntu-latest", vcpus: ($nproc|tonumber), memGiB: ($mem|tonumber), cpu: $cpu},
+              windowSecondsPerFrame: env.FRAMEPILOT_SMART_MASK_WINDOW_SECONDS_PER_FRAME,
+              memoryCeilingMiB: env.FRAMEPILOT_SMART_MASK_MEMORY_CEILING_MIB, jobs: .}' \
+            .cache/ci-meta/*__*.json > .cache/ci/ci-run.json
+          jq '{workflowRunId, label, tileRequested, runner, fallbacks: [.jobs[] | select(.tileUsed != .tileRequested)]}' .cache/ci/ci-run.json
+      - name: Score
+        run: |
+          STEM="$(date -u +%Y-%m-%d)-linux-x64-ci-${{ inputs.label }}"
+          echo "STEM=$STEM" >> "$GITHUB_ENV"
+          uv run --no-sync python eval/run_eval.py score --stem "$STEM" \
+            --provenance .cache/ci/graphs.json --provenance .cache/ci/ci-run.json \
+            --provenance .cache/pilot-br3/pilot-provenance.json
+      - name: Gate summary
+        run: |
+          {
+            echo "### Smart Mask matte eval — ${STEM}"
+            echo "linux-x64 CPU evidence of pipeline accuracy, not the release gate (06: darwin-arm64, win32-x64)."
+            echo
+            echo "| Gate | Threshold | Status | Value |"
+            echo "| --- | --- | --- | --- |"
+            jq -r '.gates[] | "| \(.gate) | \(.threshold) | \(.status) | \(.value | tostring | .[0:120]) |"' \
+              "../../reports/smart-mask/${STEM}.json"
+          } >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: smart-mask-eval-report-${{ inputs.label }}
+          retention-days: 30
+          path: |
+            reports/smart-mask/${{ env.STEM }}.json
+            reports/smart-mask/${{ env.STEM }}-contact-sheet.jpg

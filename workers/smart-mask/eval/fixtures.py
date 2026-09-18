@@ -59,6 +59,7 @@ class Fixture:
     #: Labels present but not marked human-verified: listed in the report, never scored.
     ignored_labels: list[dict[str, Any]] = field(default_factory=list)
     _truth: npt.NDArray[np.uint8] | None = None
+    _foreground: tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_]] | None = None
 
     @property
     def clip(self) -> Path:
@@ -69,6 +70,22 @@ class Fixture:
         if self.ground_truth == "construction":
             return list(range(self.frames))
         return sorted(self.labels)
+
+    def foreground_truth(
+        self, index: int
+    ) -> tuple[npt.NDArray[np.uint8], npt.NDArray[np.bool_]] | None:
+        """Ground-truth foreground colour and where it is defined, when the fixture has one.
+
+        Construction-true clips rendered since BR7.4 store the subject's own (unpremultiplied)
+        colour in ``gt_foreground.npz``; ``valid`` excludes pixels another layer covers.
+        """
+        path = self.directory / "gt_foreground.npz"
+        if self.ground_truth != "construction" or not path.is_file():
+            return None
+        if self._foreground is None:
+            with np.load(path) as data:
+                self._foreground = (data["foreground"], data["valid"])
+        return self._foreground[0][index], self._foreground[1][index]
 
     def truth(self, index: int) -> npt.NDArray[np.uint8]:
         """Ground-truth alpha (uint8) for a frame in :meth:`scored_frames`."""

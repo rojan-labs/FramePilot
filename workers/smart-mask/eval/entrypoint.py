@@ -32,10 +32,14 @@ def tool(name: str) -> str:
     return str(bundled) if bundled.is_file() else name
 
 
-def worker_environment() -> dict[str, str]:
-    """The environment BR3.15 measured with; model and tile settings can be overridden."""
+def worker_environment(extra: dict[str, str] | None = None) -> dict[str, str]:
+    """The environment BR3.15 measured with; model and tile settings can be overridden.
+
+    ``extra`` carries a run variant's eval-only settings (ablations, the estimate dump).
+    """
     return {
         **os.environ,
+        **(extra or {}),
         "FRAMEPILOT_SMART_MASK_MODELS_DIR": os.environ.get(
             "FRAMEPILOT_SMART_MASK_MODELS_DIR", str(PACK / ".cache" / "onnx")
         ),
@@ -70,13 +74,15 @@ def fresh_staging(out: Path) -> Path:
     return staging
 
 
-def run_request(request: dict[str, Any], out: Path) -> dict[str, Any]:
+def run_request(
+    request: dict[str, Any], out: Path, extra_env: dict[str, str] | None = None
+) -> dict[str, Any]:
     """Run one request through the entrypoint; record the terminal line, time and stderr."""
     started = time.time()
     completed = subprocess.run(
         [str(ENTRYPOINT), "--framepilot-worker-runtime"],
         input=json.dumps(request) + "\n",
-        capture_output=True, text=True, env=worker_environment(), check=False,
+        capture_output=True, text=True, env=worker_environment(extra_env), check=False,
     )  # fmt: skip
     lines = [json.loads(line) for line in completed.stdout.splitlines() if line.strip()]
     terminal = lines[-1] if lines else {"type": "failure", "code": "no_output"}

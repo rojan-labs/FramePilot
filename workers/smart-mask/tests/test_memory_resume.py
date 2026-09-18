@@ -52,6 +52,17 @@ def test_window_deadline_breach_and_reset() -> None:
     assert governor.sample() is True and governor.breach == "window_timeout"
 
 
+def test_window_deadline_budget_per_frame_is_injectable() -> None:
+    now = [0.0]
+    governor = MemoryGovernor(10**12, CancellationFlag(), probe=lambda: 1, clock=lambda: now[0],
+                              seconds_per_frame=600.0)  # fmt: skip
+    governor.window_started(10)
+    now[0] = 600 + 600 * 10 - 1
+    assert governor.sample() is False
+    now[0] += 2
+    assert governor.sample() is True and governor.breach == "window_timeout"
+
+
 def test_governor_thread_samples_until_stopped() -> None:
     import time
 

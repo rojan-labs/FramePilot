@@ -36,11 +36,14 @@ rm -rf "libvpx-$VPX_VERSION" && tar xzf "libvpx-$VPX_VERSION.tar.gz"
 echo "$FFMPEG_SHA256  ffmpeg-$FFMPEG_VERSION.tar.xz" | shasum -a 256 -c -
 rm -rf "ffmpeg-$FFMPEG_VERSION" && tar xf "ffmpeg-$FFMPEG_VERSION.tar.xz"
 cd "ffmpeg-$FFMPEG_VERSION"
+# VideoToolbox is macOS-only; the Linux build (the BR7.4 CI eval runner) decodes on the CPU.
+PLATFORM_FLAGS=()
+[[ "$(uname -s)" == "Darwin" ]] && PLATFORM_FLAGS+=(--enable-videotoolbox)
 PKG_CONFIG_PATH="$PREFIX/lib/pkgconfig" ./configure \
   --prefix="$PREFIX" --pkg-config-flags="--static" \
   --extra-cflags="-I$PREFIX/include" --extra-ldflags="-L$PREFIX/lib" \
   --disable-gpl --disable-nonfree --disable-version3 \
-  --disable-autodetect --enable-videotoolbox --enable-zlib \
+  --disable-autodetect "${PLATFORM_FLAGS[@]}" --enable-zlib \
   --disable-doc --disable-network --disable-ffplay --disable-devices \
   --disable-shared --enable-static \
   --enable-libvpx \

@@ -100,8 +100,10 @@ class MemoryGovernor:
         probe: Callable[[], int] = physical_footprint_bytes,
         clock: Callable[[], float] = time.monotonic,
         interval: float = SAMPLE_SECONDS,
+        seconds_per_frame: float = WINDOW_SECONDS_PER_FRAME,
     ) -> None:
         self.ceiling_bytes = ceiling_bytes
+        self.seconds_per_frame = seconds_per_frame
         self.cancellation = cancellation
         self.probe = probe
         self.clock = clock
@@ -132,7 +134,7 @@ class MemoryGovernor:
 
     def window_started(self, frames: int) -> None:
         with self._lock:
-            self._deadline = self.clock() + WINDOW_SECONDS_BASE + WINDOW_SECONDS_PER_FRAME * frames
+            self._deadline = self.clock() + WINDOW_SECONDS_BASE + self.seconds_per_frame * frames
 
     def window_finished(self) -> None:
         with self._lock:
