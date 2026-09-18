@@ -411,9 +411,8 @@ invert/opacity. `gaussian-legacy` on a matte or a key refuses.
 
 On a matte both implementations run the group on the CPU and are float64-byte-exact
 (`tests/fixtures/mask-raster/finesse.json`). On a key the preview runs it as shader passes,
-because the key's alpha only exists on the GPU; a morphology radius above 16 px costs more
-fetches per pixel than one pass can carry, so the monitor refuses it with a remedy while the
-export renders any radius.
+because the key's alpha only exists on the GPU; the morphology pass is bounded at a 16 px
+radius, so the monitor refuses more than that with a remedy while the export renders any radius.
 
 **Refusals** (before rendering; the export error shows the remedy exactly; codes are stable):
 

@@ -266,8 +266,8 @@ function refusalFor(
  * What the monitor cannot do to a key that the export can (MK6.2).
  *
  * The key's alpha only exists on the GPU, so its finesse runs as shader passes, and a disc of
- * radius r costs (2r+1)² fetches — bounded, or the shader would not compile. 16 px is far past
- * any real matte edge. Saying so is better than drawing a smaller disc than the export renders.
+ * radius r costs (2r+1)² fetches — bounded, or the shader would not compile. The cap is 16 px.
+ * Saying so is better than drawing a smaller disc than the export renders.
  */
 function keyRefusal(mask: KeyMask): string | null {
   if (keyMorphExceedsPass(mask)) {

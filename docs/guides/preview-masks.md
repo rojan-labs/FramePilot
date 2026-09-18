@@ -59,9 +59,11 @@ lands in — so the alpha cut, the effect mix and the debug views never learn wh
 came from. Stacks without a key keep the byte-exact CPU path untouched.
 
 **The one asymmetry, recorded rather than hidden:** a key's finesse morphology runs as shader
-passes, and a disc of radius `r` costs `(2r+1)²` fetches, so the pass is bounded at 16 px. Above
-that the monitor refuses with a remedy while the export renders any radius. A matte's finesse
-runs on the CPU on both sides and is byte-exact at any radius.
+passes, and a disc of radius `r` costs `(2r+1)²` fetches, so the pass is bounded at 16 px (1089
+fetches at the limit). Above that the monitor refuses with a remedy while the export renders any
+radius. Whether real footage ever asks for more than 16 px has not been measured; the cap is a
+stated limit, not a justified one. A matte's finesse runs on the CPU on both sides and is
+byte-exact at any radius.
 
 ## Why it is byte-exact, and the rules that keep it so
 

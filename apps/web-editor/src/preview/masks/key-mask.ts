@@ -333,8 +333,10 @@ void main() {
  * How large a morphology radius one pass carries.
  *
  * A disc of radius r costs (2r+1)² fetches per pixel, so the loop has to be bounded for a
- * shader to compile at all. 16 px is far past any real matte edge; above it the monitor
- * refuses with a remedy rather than drawing a smaller disc than the export renders.
+ * shader to compile at all. The cap is 16 px — 1089 fetches at the limit. Above it the monitor
+ * refuses with a remedy rather than drawing a smaller disc than the export renders; whether any
+ * real matte edge needs more than 16 px has not been measured, so the cap is stated, not
+ * justified.
  */
 export const MAX_KEY_MORPH_PX = 16;
 
