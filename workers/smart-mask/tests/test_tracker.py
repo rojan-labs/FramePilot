@@ -217,7 +217,7 @@ def test_a_single_click_conditions_on_the_whole_subject_not_the_part() -> None:
     candidates[2, :, :] = 8.0  # everything: never the subject
     click = np.array([110.0, 110.0])
     assert whole_object(candidates, np.array([0.95, 0.88, 0.9]), click) == 1
-    assert whole_object(candidates, np.array([0.95, 0.70, 0.9]), click) is None, "too unsure"
+    assert whole_object(candidates, np.array([0.95, 0.60, 0.9]), click) is None, "too unsure"
     assert whole_object(candidates, np.array([0.80, 0.95, 0.5]), click) is None, "SAM's own pick"
     outside = np.array([10.0, 10.0])
     assert whole_object(candidates[:2], np.array([0.95, 0.9]), outside) is None

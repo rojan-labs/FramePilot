@@ -307,6 +307,9 @@ class SamTracker:
         self._maskmem_pos: Float | None = None
         self.decoder_calls = 0
         self.attention_calls = 0
+        #: Per single-click conditioning frame: every candidate's area and predicted IoU, SAM's
+        #: pick and the whole-object choice (report.json, so the rule can be checked on real runs).
+        self.click_choices: list[dict[str, Any]] = []
 
     # conditioning frames ----------------------------------------------------------------------
 
@@ -329,6 +332,14 @@ class SamTracker:
             )
             ious = np.asarray(out.ious, np.float32).reshape(-1)
             chosen = whole_object(candidates, ious, coords[0, 0] * LOW_RES / IMAGE_SIZE)
+            self.click_choices.append(
+                {
+                    "areas": [int((c > 0).sum()) for c in candidates],
+                    "ious": [round(float(v), 4) for v in ious],
+                    "samPick": int(np.argmax(ious)),
+                    "chosen": chosen,
+                }
+            )
             if chosen is not None:
                 whole = resize_bilinear(candidates[chosen], IMAGE_SIZE, IMAGE_SIZE) > 0
                 return self._condition_mask(feats, MaskPrompt(whole))
@@ -465,8 +476,9 @@ class SamTracker:
 
 #: One click selects the whole subject: of SAM's candidates that contain the click and whose
 #: predicted IoU is within this margin of the best, the largest (BR7.4 it0: the best-IoU pick was
-#: a part, a torso or a head, in 4 of 5 categories: one-click IoU 0.53-0.86).
-WHOLE_OBJECT_IOU_MARGIN: Final = 0.15
+#: a part, a torso or a head, in 4 of 5 categories: one-click IoU 0.53-0.86). At 0.15 (it2) the
+#: close-ups still kept a part (hair_busy 0.70, talking_head 0.85); the margin is 0.3 since.
+WHOLE_OBJECT_IOU_MARGIN: Final = 0.3
 #: ... but never a candidate covering more than this fraction of the frame (the background).
 WHOLE_OBJECT_MAX_FRACTION: Final = 0.6
 

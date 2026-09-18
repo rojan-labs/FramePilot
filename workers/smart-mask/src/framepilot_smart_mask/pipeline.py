@@ -378,6 +378,7 @@ class MatteJob:
         self._sam: SamModules | None = None
         self._matting: MattingModel | None = None
         self._tile: TileChoice | None = None
+        self.click_choices: list[dict[str, Any]] = []
 
     # model lifetime: one family in memory at a time ---------------------------------------------
 
@@ -670,6 +671,7 @@ class MatteJob:
             segmentation = segment_window(
                 tracker, count, ctx.height, ctx.width, prompts, on_frame=on_tracked
             )
+            self.click_choices.extend(tracker.click_choices)
             self._timed("segment", started)
 
             birefnet = window.scratch.array("birefnet", (count, ctx.height, ctx.width), np.uint8)
@@ -1086,6 +1088,7 @@ class MatteJob:
                 if not enabled
             ],
             "windowSecondsPerFrame": self.config.window_seconds_per_frame,
+            "clickChoices": self.click_choices[:16],
             "selfCorrectionRounds": self.rounds_used,
             "timingsSeconds": self.timings,
             "tools": self.tools.report,
