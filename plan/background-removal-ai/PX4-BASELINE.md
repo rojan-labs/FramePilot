@@ -4,7 +4,7 @@
 > [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) ("PX4 — the pixel parity oracle").
 
 **Source:** CI only. Workflow `CI`, job `preview-parity-oracle`, run
-[35295665259](https://github.com/rojan-labs/FramePilot/actions/runs/35295665259) at `e97edf69`
+[35353756815](https://github.com/rojan-labs/FramePilot/actions/runs/35353756815) at `5a0c795a`
 (Google Chrome, ubuntu-latest, SwiftShader CPU GL), artifact `preview-parity-results`. This file and
 `tests/e2e/fixtures/preview-parity-baseline.json` were generated from that artifact with
 `node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. Nothing here was run locally: a local
@@ -28,9 +28,15 @@ that newly fails is not listed and fails the job.
 
 ## Summary
 
-- **59 cases. All 59 pass every check** (renderer, pixels, sentinel and pts). Every case renders on
+- **68 cases. All 68 pass every check** (renderer, pixels, sentinel and pts). Every case renders on
   the layer compositor; no case is routed to the DOM player (ADR 0180). The baseline JSON's `cases`
-  map is now empty, so any newly failing check fails the job.
+  map is empty, so any newly failing check fails the job. PX5.10 regenerated this file, the JSON
+  and the PX0 inventory's pixel column from run 35353756815: the nine rows added since the last
+  regeneration now show as measured — PX5.6's `alpha/key-alone` (73.66 dB: the despill sample),
+  `key-shape-stack` and `key-finesse` (inf), MK8.1's `analytic-split-band` and `analytic-gradient`
+  (inf), MK8.2's `layer-text-alpha` and `layer-luma-channels` (inf) and `layer-transformed-target`
+  (95.39 dB) — and `matte-decontaminate` reads 97.78 dB (it draws from its monitor tier since
+  PX5.3; inf when it drew from the masters).
 - **The eight matte rows pass (BR5).** `alpha/matte-edge-modes`, `matte-decontaminate`,
   `matte-shape-stack`, `matte-speed`, `matte-vfr`, `matte-display-space` and `matte-progressive`
   are bit-identical to the export: PSNR inf, 100% within 8/255, 0 sentinel disagreements, presented
@@ -62,12 +68,20 @@ that newly fails is not listed and fails the job.
 
 | Case                                     | Renderer  | Samples | Min PSNR (dB) | Min % within 8/255 | Failing checks | First failure per check |
 | ---------------------------------------- | --------- | ------- | ------------- | ------------------ | -------------- | ----------------------- |
+| `alpha/analytic-gradient`                | WebCodecs | 2       | inf           | 100.000            | none           |                         |
+| `alpha/analytic-split-band`              | WebCodecs | 3       | inf           | 100.000            | none           |                         |
+| `alpha/key-alone`                        | WebCodecs | 2       | 73.66         | 100.000            | none           |                         |
+| `alpha/key-finesse`                      | WebCodecs | 1       | inf           | 100.000            | none           |                         |
+| `alpha/key-shape-stack`                  | WebCodecs | 1       | inf           | 100.000            | none           |                         |
+| `alpha/layer-luma-channels`              | WebCodecs | 2       | inf           | 100.000            | none           |                         |
+| `alpha/layer-text-alpha`                 | WebCodecs | 1       | inf           | 100.000            | none           |                         |
+| `alpha/layer-transformed-target`         | WebCodecs | 2       | 95.39         | 100.000            | none           |                         |
 | `alpha/mask-edges`                       | WebCodecs | 4       | inf           | 100.000            | none           |                         |
 | `alpha/mask-effect-target`               | WebCodecs | 3       | inf           | 100.000            | none           |                         |
 | `alpha/mask-legacy`                      | WebCodecs | 3       | inf           | 100.000            | none           |                         |
 | `alpha/mask-modes`                       | WebCodecs | 6       | inf           | 100.000            | none           |                         |
 | `alpha/mask-shapes`                      | WebCodecs | 2       | inf           | 100.000            | none           |                         |
-| `alpha/matte-decontaminate`              | WebCodecs | 2       | inf           | 100.000            | none           |                         |
+| `alpha/matte-decontaminate`              | WebCodecs | 2       | 97.78         | 100.000            | none           |                         |
 | `alpha/matte-display-space`              | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/matte-edge-modes`                 | WebCodecs | 2       | inf           | 100.000            | none           |                         |
 | `alpha/matte-progressive`                | WebCodecs | 2       | inf           | 100.000            | none           |                         |

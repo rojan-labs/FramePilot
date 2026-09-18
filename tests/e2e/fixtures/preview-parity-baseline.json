@@ -4,6 +4,54 @@
     "bt709-limited": ["webgl"]
   },
   "summary": {
+    "alpha/analytic-gradient": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/analytic-split-band": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/key-alone": {
+      "renderer": "webcodecs",
+      "minPsnr": 73.66,
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/key-finesse": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/key-shape-stack": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/layer-luma-channels": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/layer-text-alpha": {
+      "renderer": "webcodecs",
+      "minPsnr": "Infinity",
+      "minWithinPercent": 100,
+      "failing": []
+    },
+    "alpha/layer-transformed-target": {
+      "renderer": "webcodecs",
+      "minPsnr": 95.39,
+      "minWithinPercent": 100,
+      "failing": []
+    },
     "alpha/mask-edges": {
       "renderer": "webcodecs",
       "minPsnr": "Infinity",
@@ -36,7 +84,7 @@
     },
     "alpha/matte-decontaminate": {
       "renderer": "webcodecs",
-      "minPsnr": "Infinity",
+      "minPsnr": 97.78,
       "minWithinPercent": 100,
       "failing": []
     },
