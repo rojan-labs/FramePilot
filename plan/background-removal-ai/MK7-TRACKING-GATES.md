@@ -33,14 +33,14 @@ cd workers/tracking-lite && uv run --extra cv --no-dev --with pytest pytest -m d
 
 ## Gates
 
-| Gate (plan 06)                                     | Threshold                                                                       | Status                       |
-| -------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------- |
-| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | Measured — see the run below |
-| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | Measured                     |
-| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | Measured                     |
-| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below)  |
-| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open** (below)             |
-| Real clips with hand-labelled corners every 0.5 s  | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Open** (below)             |
+| Gate (plan 06)                                     | Threshold                                                                       | Status                               |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- | ------------------------------------ |
+| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | Measured — see the run below         |
+| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | Measured                             |
+| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | Measured — met by refusal; see below |
+| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below)          |
+| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open** (below)                     |
+| Real clips with hand-labelled corners every 0.5 s  | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Open** (below)                     |
 
 Three warps are measured, because the three motion models the editor can pick have to be right
 for different reasons: a pure **translation**, a **similarity** (translation, uniform scale and
@@ -76,18 +76,58 @@ gives every frame to its nearest constraint), and the rate goes with the real-cl
 
 ## Measured run
 
-<!--
-  Filled from the workflow artifact `tracking-gates-<platform>.json`. Replace the whole block
-  when the numbers are re-measured; do not edit individual figures by hand.
--->
+Workflow run **35294557292** (`Capability Pack — Tracking Lite`, `workflow_dispatch` on
+`plan/background-removal-ai` at `fee85dfa`), both shipped platforms green. Numbers are the
+uploaded `tracking-gates-<platform>.json`; do not retype individual figures.
 
-| Run       | Platform     | Sequence           | Frames | Median px | p95 px | Max px |
-| --------- | ------------ | ------------------ | ------ | --------- | ------ | ------ |
-| _pending_ | darwin-arm64 | planar/translation |        |           |        |        |
-| _pending_ | darwin-arm64 | planar/similarity  |        |           |        |        |
-| _pending_ | darwin-arm64 | planar/perspective |        |           |        |        |
+### Planar reprojection — gate: median ≤ 0.25 px, p95 ≤ 1 px, max ≤ 2 px
 
-| Run       | Platform     | Gate                  | Measured |
-| --------- | ------------ | --------------------- | -------- |
-| _pending_ | darwin-arm64 | drift per 300 frames  |          |
-| _pending_ | darwin-arm64 | low-confidence recall |          |
+| Platform     | Sequence           | Frames | Median px  | p95 px     | Max px     |
+| ------------ | ------------------ | ------ | ---------- | ---------- | ---------- |
+| darwin-arm64 | planar/translation | 60     | **0.0204** | **0.0338** | **0.0376** |
+| darwin-arm64 | planar/similarity  | 60     | **0.0771** | **0.1559** | **0.1673** |
+| darwin-arm64 | planar/perspective | 60     | **0.0698** | **0.1344** | **0.1533** |
+| win32-x64    | planar/translation | 60     | **0.0205** | **0.0338** | **0.0377** |
+| win32-x64    | planar/similarity  | 60     | **0.0771** | **0.1558** | **0.1671** |
+| win32-x64    | planar/perspective | 60     | **0.0698** | **0.1345** | **0.1533** |
+
+Every figure is an order of magnitude inside its threshold, and the two platforms agree to
+within 1e-3 px — the fit is dominated by the image, not by the machine.
+
+### Drift — gate: ≤ 1 px per 300 frames
+
+| Platform     | Frames | Final error px | Extrapolated per 300 frames |
+| ------------ | ------ | -------------- | --------------------------- |
+| darwin-arm64 | 120    | 8.0e-14        | **2.0e-13**                 |
+| win32-x64    | 120    | 1.1e-13        | **2.9e-13**                 |
+
+Effectively zero: the planar tracker anchors every frame to the features it detected on the
+reference frame rather than to the previous frame, so a static scene has nothing to accumulate.
+
+### Low-confidence detection recall — gate: ≥ 99.5 %
+
+| Platform     | Mode        | Recall   | Detail                                       |
+| ------------ | ----------- | -------- | -------------------------------------------- |
+| darwin-arm64 | **refused** | **100%** | target lost after frame 45 (competing plane) |
+| win32-x64    | **refused** | **100%** | target lost after frame 45 (competing plane) |
+
+Read this honestly. The recall gate asks whether a wrong frame reaches the editor flagged, and
+it does — but on every fixture tried it did so by the worker **refusing** rather than by the
+confidence number catching a wrong plane. Four fixtures were attempted:
+
+1. a total occluder — `target_lost`;
+2. a 26 px/frame motion-blurred burst — `target_lost`;
+3. a 9 px/frame blurred burst — every frame inside the 2 px gate, nothing to catch;
+4. a competing plane sliding across a third of the masked region — `target_lost` after 10 frames
+   of intrusion.
+
+The consistent finding is that **this worker refuses far more readily than it reports a wrong
+plane**: its robust fit has an inlier floor (0.5), its point track has a forward/backward
+consistency check, and its policy bounds how long it will hold an unmeasured frame (15). When
+that happens the run fails, nothing is written, and the mask keeps the geometry it had — complete
+detection, by a different route than the confidence number.
+
+What is therefore **not** yet evidenced is the confidence number's own recall on frames the
+tracker measures and gets wrong. That band could not be produced synthetically, and measuring it
+needs the real-clip set, so it travels with the two open rows above rather than being claimed
+here.
