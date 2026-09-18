@@ -685,18 +685,9 @@ export class LayerCompositor {
     picture: RenderTarget | null = null,
   ): RenderTarget {
     const r = this.resources;
-    const out = r.target(source.width, source.height, 'rgba8');
-    const program = r.program('alpha', ALPHA_FRAGMENT);
-    const gl = this.gl;
-    gl.useProgram(program.handle);
-    r.bind(program, 'u_source', 0, source.texture);
-    gl.uniform1f(program.location('u_opacity'), step.opacity ?? 1);
-    const wipe = step.wipe;
-    program.int('u_wipeAxis', wipe === null ? 0 : wipe.axis === 'x' ? 1 : 2);
-    gl.uniform1i(program.location('u_wipeInverted'), wipe?.inverted ? 1 : 0);
-    gl.uniform1f(program.location('u_wipeEdge'), wipe?.edge ?? 1);
-    gl.uniform1f(program.location('u_wipeFeather'), wipe?.feather ?? 1);
-    // The clip's alpha-target stack at the cropped picture's own size (`_attach_mask`).
+    // The clip's alpha-target stack at the cropped picture's own size (`_attach_mask`). Built
+    // BEFORE this pass binds its program: a stack built on the GPU binds and draws its own, and
+    // the uniforms below would otherwise land on whichever of them ran last.
     const mask =
       step.mask === null || step.mask.stack.alpha.length === 0
         ? null
@@ -709,6 +700,17 @@ export class LayerCompositor {
             mattes,
             picture,
           );
+    const out = r.target(source.width, source.height, 'rgba8');
+    const program = r.program('alpha', ALPHA_FRAGMENT);
+    const gl = this.gl;
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_source', 0, source.texture);
+    gl.uniform1f(program.location('u_opacity'), step.opacity ?? 1);
+    const wipe = step.wipe;
+    program.int('u_wipeAxis', wipe === null ? 0 : wipe.axis === 'x' ? 1 : 2);
+    gl.uniform1i(program.location('u_wipeInverted'), wipe?.inverted ? 1 : 0);
+    gl.uniform1f(program.location('u_wipeEdge'), wipe?.edge ?? 1);
+    gl.uniform1f(program.location('u_wipeFeather'), wipe?.feather ?? 1);
     gl.uniform1i(program.location('u_hasMask'), mask === null ? 0 : 1);
     gl.uniform1f(program.location('u_maskScale'), mask?.scale ?? 1);
     // An integer sampler must always see an integer texture, even when the branch skips it.

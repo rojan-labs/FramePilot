@@ -179,6 +179,9 @@ const snapshot = (page: Page): Promise<Telemetry> =>
     (window as unknown as { __fpPreviewEngine: EngineHook }).__fpPreviewEngine.debugTelemetry(),
   );
 
+/** A WebGL error as Chrome reports it (`WebGL: INVALID_OPERATION: …`, `GL_INVALID_…`). */
+const GL_ERROR = /WebGL: [A-Z_]+:|GL_INVALID_|GL_OUT_OF_MEMORY/;
+
 test.describe('PX5 Scale row', () => {
   test.skip(!RUN, 'performance evidence runs only with FRAMEPILOT_RUN_PERF=1');
   test.describe.configure({ mode: 'serial' });
@@ -191,9 +194,14 @@ test.describe('PX5 Scale row', () => {
         'no Scale fixture: run `pnpm px5:fixture` first',
       ).toBe(true);
       const problems: string[] = [];
+      // PX5.3: every GL error, not just the first 20 problems. A pass that sets uniforms on the
+      // wrong program or draws into the wrong attachment type still "presents" a frame, so
+      // only the driver's own complaint shows it (a key stack drew that way from MK6.1 on).
+      const glErrors: string[] = [];
       page.on('console', (message) => {
         if (message.type() === 'error' || message.type() === 'warning') {
           problems.push(`${message.type()}: ${message.text().slice(0, 300)}`);
+          if (GL_ERROR.test(message.text())) glErrors.push(message.text().slice(0, 300));
         }
       });
       page.on('pageerror', (error) => problems.push(`pageerror: ${error.message.slice(0, 300)}`));
@@ -307,6 +315,7 @@ test.describe('PX5 Scale row', () => {
       });
 
       // --- invariants: the algorithm's, so the same on any machine ---------------------------
+      expect(glErrors, 'the compositor raised no GL error').toEqual([]);
       expect(result.seekToPresent.count, 'every seek reached the monitor').toBe(SEEKS);
       expect(result.playback.expectedFrames, 'playback ran').toBeGreaterThan(
         PLAY_SECONDS * project.fps * 0.5,
