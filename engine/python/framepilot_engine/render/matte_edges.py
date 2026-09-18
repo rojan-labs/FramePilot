@@ -292,6 +292,52 @@ def to_frame(
     return resample(cropped, width, height, ceiling)
 
 
+def decontaminate_dense(
+    picture: npt.NDArray[Any],
+    alpha_int: npt.NDArray[Any],
+    maximum: int,
+    foreground: npt.NDArray[np.uint8],
+    clip: Any,
+    decoded_size: tuple[int, int] | None = None,
+) -> npt.NDArray[np.uint8]:
+    """:func:`decontaminate` computed over every pixel of the frame: the definition.
+
+    Kept as the reference the fast path is tested against byte for byte
+    (``tests/test_matte_decontaminate_exact.py``), and used for a picture that is not ``uint8``.
+    """
+    height, width = picture.shape[:2]
+    band = ((alpha_int > 0) & (alpha_int < maximum)).astype(np.float64)
+    premultiplied = foreground.astype(np.float64) * band[:, :, None]
+    weight = to_frame(band, clip, width, height, decoded_size)
+    colour = to_frame(premultiplied, clip, width, height, decoded_size, ceiling=255.0)
+    base = picture.astype(np.float64)
+    mixed = base + (colour - base * weight[:, :, None])
+    return np.clip(np.rint(mixed), 0, 255).astype(np.uint8)
+
+
+def _bounds(active: npt.NDArray[np.bool_]) -> tuple[slice, slice] | None:
+    """The smallest row/column box holding every true cell, ``None`` when there is none."""
+    rows = np.flatnonzero(active.any(axis=1))
+    if rows.size == 0:
+        return None
+    cols = np.flatnonzero(active.any(axis=0))
+    return slice(int(rows[0]), int(rows[-1]) + 1), slice(int(cols[0]), int(cols[-1]) + 1)
+
+
+def _mix(
+    picture: npt.NDArray[np.uint8],
+    weight: FloatArray,
+    colour: FloatArray,
+    box: tuple[slice, slice],
+) -> npt.NDArray[np.uint8]:
+    """``picture`` with the definition's arithmetic applied inside ``box`` only."""
+    out = picture.copy()
+    base = picture[box].astype(np.float64)
+    mixed = base + (colour - base * weight[:, :, None])
+    out[box] = np.clip(np.rint(mixed), 0, 255).astype(np.uint8)
+    return out
+
+
 def decontaminate(
     picture: npt.NDArray[Any],
     alpha_int: npt.NDArray[Any],
@@ -306,15 +352,46 @@ def decontaminate(
     colour only there). Band weight and band-premultiplied colour are mapped to the frame
     separately, so a resample never mixes the zeros outside the band into an edge colour:
     ``out = picture + (foreground_premultiplied - picture * band)``.
+
+    WHY this is not computed over the whole frame (PX5, ``PX5-BUDGETS.md``): the dense form
+    (:func:`decontaminate_dense`) builds four frame-sized float64 arrays per frame - 227 ms of a
+    4K export frame, the largest part of what a matte cost. Where the band weight and colour are
+    both zero the formula is ``picture + (0 - picture * 0)``, which is the picture exactly, and
+    a ``uint8`` picture survives ``rint``/``clip``/``astype`` unchanged. So the arithmetic runs
+    only inside the box that holds the band, and the bytes are the same:
+
+    * no resample or crop between the artifact and the frame (the export at source size): the
+      box is taken on the band itself, before anything is converted to float;
+    * otherwise the planes are resampled as before (a resample reads neighbours, so its input
+      is not cut) and the box is taken on the resampled weight and colour.
     """
+    if picture.dtype != np.uint8:
+        return decontaminate_dense(picture, alpha_int, maximum, foreground, clip, decoded_size)
     height, width = picture.shape[:2]
-    band = ((alpha_int > 0) & (alpha_int < maximum)).astype(np.float64)
+    in_band = (alpha_int > 0) & (alpha_int < maximum)
+    source_h, source_w = in_band.shape
+    full_w, full_h = decoded_size if decoded_size is not None else (source_w, source_h)
+    rows, cols = _crop_slices(clip, full_w, full_h)
+    untouched = (
+        (full_w, full_h) == (source_w, source_h)
+        and (rows, cols) == (slice(0, full_h), slice(0, full_w))
+        and (width, height) == (source_w, source_h)
+    )
+    if untouched:
+        box = _bounds(in_band)
+        if box is None:
+            return picture.copy()
+        band = in_band[box].astype(np.float64)
+        premultiplied = foreground[box].astype(np.float64) * band[:, :, None]
+        return _mix(picture, band, premultiplied, box)
+    band = in_band.astype(np.float64)
     premultiplied = foreground.astype(np.float64) * band[:, :, None]
     weight = to_frame(band, clip, width, height, decoded_size)
     colour = to_frame(premultiplied, clip, width, height, decoded_size, ceiling=255.0)
-    base = picture.astype(np.float64)
-    mixed = base + (colour - base * weight[:, :, None])
-    return np.clip(np.rint(mixed), 0, 255).astype(np.uint8)
+    box = _bounds((weight != 0.0) | (colour != 0.0).any(axis=2))
+    if box is None:
+        return picture.copy()
+    return _mix(picture, weight[box], colour[box], box)
 
 
 # --- The matte finesse group (MK6.2) ------------------------------------------------------

@@ -84,11 +84,26 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--window-seconds", type=float, default=10.0)
     parser.add_argument("--assert-budget", action="store_true")
     parser.add_argument("--child", choices=VARIANTS, default=None, help=argparse.SUPPRESS)
+    parser.add_argument(
+        "--profile",
+        choices=VARIANTS,
+        default=None,
+        help="cProfile ONE variant's export and print the engine's hottest functions",
+    )
     args = parser.parse_args(argv)
     logging.basicConfig(level=logging.WARNING, format="%(message)s")
     if not (args.fixture / "manifest.json").exists():
         print(f"no Scale fixture at {args.fixture}: run `pnpm px5:fixture` first")
         return 2
+    if args.profile is not None:
+        import cProfile
+        import pstats
+
+        profiler = cProfile.Profile()
+        profiler.runcall(export_once, args.fixture, args.profile, args.window_seconds)
+        stats = pstats.Stats(profiler).sort_stats("cumulative")
+        stats.print_stats(r"framepilot_engine|numpy|PIL|scipy", 35)
+        return 0
     if args.child is not None:
         print(
             "PX5_EXPORT " + json.dumps(export_once(args.fixture, args.child, args.window_seconds))
