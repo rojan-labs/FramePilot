@@ -277,14 +277,15 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 - [x] AM1.6 (475b7749: numbers bound to units or shape/position words in the current request only) Tighten the geometry-source rule: a typed shape counts as user-given only when its numbers are bound to geometry in the CURRENT request (units or shape words next to them), not merely present anywhere the editor wrote in the conversation (found in AM verification)
 
-### AM2 — Target resolution `[~]` (needs MD-6; AM2.4 partial)
+### AM2 — Target resolution `[~]` (needs MD-6; AM2.4 partial; AM2.6 real-weights colour check open)
 
 - [x] AM2.1 Host-side target resolution: detection + SigLIP re-ranking (when installed), `needs_click` for out-of-vocabulary targets; ranking with identity clusters, ledger facts, temporal persistence
 - [x] AM2.2 `ambiguous_target` with thumbnails; sidebar picker; recalled candidate ids
 - [x] AM2.3 Identity-aware requests ("everyone except the host") behind per-project face-recognition consent; `needs_face_selection` picker without consent; delete-identity-data action
 - [~] AM2.4 (mask half of follow_subject done; text half blocked on MO-14; create_shape_mask/mask_with_layer unavailable until MK8 renders them) `create_shape_mask`, `mask_with_layer`, `follow_subject` tools
 
-- [ ] AM2.5 Object classes on Subject Intelligence detections (the pinned YOLOX already computes COCO classes and discards them) and colour-aware SigLIP re-ranking of candidate crops, so object requests resolve instead of asking; installed users get it with the next signed pack release (MO-1..MO-5)
+- [x] AM2.5 (eb1e3d9d…c4bcd41a; Subject Intelligence 1.1.0 + Visual Embed 1.1.0, negotiated per installed release) Object classes on Subject Intelligence detections (the pinned YOLOX already computes COCO classes and discards them) and colour-aware SigLIP re-ranking of candidate crops, so object requests resolve instead of asking; installed users get it with the next signed pack release (MO-1..MO-5)
+- [ ] AM2.6 Colour re-ranking on real weights: run the Visual Embed real-inference proof including the new crop path (it was skipped in CI), measure colour-pick accuracy on real crops, and measure/cut the cost (SigLIP is loaded twice per colour request; the prompt-vector cache is not passed)
 
 ### AM3 — Verification `[x]` (no `verified` field reaches the model, e10fe4c7)
 
@@ -298,11 +299,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] AM4.2 `skills/masking-and-compositing.md` (editing-skills-expert), description within the 300-char cap
 - [x] AM4.3 Token-golden regeneration (3 commands) and review of the measured delta
 
-### AM5 — AI masking eval `[~]` (harness in CI; 3 of 5 gates pass — target accuracy and unnecessary asks miss → AM2.5)
+### AM5 — AI masking eval `[x]` (all five gates pass with the 1.1 packs, run 35334744723; installed 1.0 packs ask instead — needs the signed releases, MO-1..MO-5)
 
 - [x] AM5.1 (92 requests, 18 synthetic scenes, labels by construction) Labelled request set (faces, people, plates, signs, vehicles, sky, products, pets, exclusions, crowds, ambiguous phrasing)
 - [x] AM5.2 Harness through recorded runs; report committed
-- [~] AM5.3 (run 35329323404: target accuracy 67.6% ✗, unnecessary asks 32% ✗, ambiguous asks 100% ✓, confident-wrong 0 ✓, invented geometry 0 ✓) **Every AI masking gate in `06` passes**, or the numbers go to the maintainer
+- [x] AM5.3 (run 35334744723: target accuracy 100%, unnecessary asks 0%, ambiguous asks 100%, confident-wrong 0, invented geometry 0, adversarial 10/10) **Every AI masking gate in `06` passes**, or the numbers go to the maintainer
 
 **DoD (AM):** AM5 gates pass; ai-sdk tests for touched files pass; goldens reviewed.
 

@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 (object classes + colour re-rank) running to lift AM5 target accuracy. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -104,6 +104,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- AM5 after AM2.5 (run 35334744723, 1.1 packs): target accuracy 37/37 = 100% ✓, unnecessary asks 0% ✓, ambiguous asks 21/21 ✓, confident-wrong 0 ✓, invented geometry 0 ✓, adversarial 10/10. Replayed as 1.0 packs: no wrong picks, objects ask. Colour path proven only on synthetic vectors (AM2.6)
 
 - AM5 (run 35329323404, 92 requests): ambiguous asks 21/21 ✓, confident-wrong 0 ✓, invented geometry 0 ✓, needs_click on out-of-vocabulary 22/22, face picker 7/7, adversarial 10/10. **Target accuracy 25/37 = 67.6% ✗ (≥ 99%), unnecessary asks 12/37 = 32% ✗ (≤ 3%)** — all 12 misses ask safely; 11 are objects reported as generic "object", 1 needs colour
 
