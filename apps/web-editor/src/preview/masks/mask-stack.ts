@@ -39,7 +39,13 @@ import {
   type DisplaySize,
   type TrackArtifact,
 } from '@framepilot/editor-core';
-import { masksOf, type Asset, type Clip, type MaskLayer } from '@framepilot/timeline-schema';
+import {
+  masksOf,
+  type Asset,
+  type Clip,
+  type MaskLayer,
+  type MaskLegacySpec,
+} from '@framepilot/timeline-schema';
 import { createLogger } from '@framepilot/shared-types';
 
 import {
@@ -697,7 +703,93 @@ function recoverFraction(
   return best ?? estimate;
 }
 
-/** `_legacy_spec`: the v21 frame-fraction spec a legacy mask is, at source `s`. */
+/**
+ * `_legacy_value`: a v21 spec value from a mask's `legacySpec` at source `s`, or `null`.
+ *
+ * Read without arithmetic, so the engine reads the identical value: the static field when the
+ * value never animated, the value AT a keyframe instant, the end value outside the keyframes,
+ * or the value of a hold. Between two different values there is no v21 value, so `null`.
+ */
+function legacyValue(
+  legacy: MaskLegacySpec,
+  name: 'x' | 'y' | 'width' | 'height' | 'feather',
+  s: number,
+): number | null {
+  const points = legacy.keyframes
+    .filter((point) => point.property === name)
+    .sort((a, b) => a.sourceTime - b.sourceTime);
+  if (points.length === 0) return legacy[name];
+  for (const point of points) if (point.sourceTime === s) return point.value;
+  if (s < points[0]!.sourceTime) return points[0]!.value;
+  if (s > points[points.length - 1]!.sourceTime) return points[points.length - 1]!.value;
+  for (let i = 0; i + 1 < points.length; i += 1) {
+    const before = points[i]!;
+    const after = points[i + 1]!;
+    if (before.sourceTime < s && s < after.sourceTime) {
+      return before.value === after.value ? before.value : null;
+    }
+  }
+  return null;
+}
+
+/** The migration's own forward expressions for one legacy mask (`_legacy_spec`'s `to_*`). */
+interface LegacyForward {
+  readonly toX: (fraction: number) => number;
+  readonly toY: (fraction: number) => number;
+  readonly toW: (fraction: number) => number;
+  readonly toH: (fraction: number) => number;
+  readonly toFeather: (fraction: number) => number;
+}
+
+/**
+ * `_stored_v21_spec`: the v21 spec a migrated mask stored (`legacySpec`) at `s`, if it still
+ * maps bit for bit onto the geometry stored at `s`; `null` sends the caller to recovery.
+ */
+function storedV21Spec(
+  mask: ShapeMask,
+  s: number,
+  forward: LegacyForward,
+): Omit<LegacyMaskSpec, 'opacity' | 'invert'> | null {
+  const legacy = mask.legacySpec;
+  if (legacy === undefined) return null;
+  const scalar = (name: string): number => maskScalar(mask, name, s);
+  const feather = legacyValue(legacy, 'feather', s);
+  if (feather === null || forward.toFeather(feather) !== scalar('featherOuterPx')) return null;
+  if (mask.kind === 'path') {
+    if (legacy.points === undefined) return null;
+    const { points } = pathKeyframeAt(mask, s);
+    if (points.length !== 6 * legacy.points.length) return null;
+    for (let index = 0; index < legacy.points.length; index += 1) {
+      const [px, py] = legacy.points[index]!;
+      if (forward.toX(px) !== points[6 * index] || forward.toY(py) !== points[6 * index + 1]) {
+        return null;
+      }
+    }
+    const polygon = legacy.points.map(([px, py]): [number, number] => [px, py]);
+    return { shape: 'polygon', x: 0, y: 0, width: 1, height: 1, feather, points: polygon };
+  }
+  const x = legacyValue(legacy, 'x', s);
+  const y = legacyValue(legacy, 'y', s);
+  const width = legacyValue(legacy, 'width', s);
+  const height = legacyValue(legacy, 'height', s);
+  if (x === null || y === null || width === null || height === null) return null;
+  const ellipse = mask.kind === 'ellipse';
+  const holds =
+    forward.toW(width) === scalar(ellipse ? 'rx' : 'width') &&
+    forward.toH(height) === scalar(ellipse ? 'ry' : 'height') &&
+    forward.toX(x + width / 2) === scalar('cx') &&
+    forward.toY(y + height / 2) === scalar('cy');
+  if (!holds) return null;
+  return { shape: mask.kind, x, y, width, height, feather, points: [] };
+}
+
+/**
+ * `_legacy_spec`: the v21 frame-fraction spec a legacy mask is, at source `s`.
+ *
+ * A migrated mask's stored v21 spec (`legacySpec`, MK2.5) draws whenever it still maps onto the
+ * stored geometry; the stored centre and size are not one-to-one with v21's fractions, so only
+ * that is exact. A mask edited since falls back to the ulp recovery.
+ */
 export function legacySpec(
   mask: ShapeMask,
   clip: Clip,
@@ -715,20 +807,30 @@ export function legacySpec(
   const cropWidth = cropW * scaleW;
   const cropHeight = cropH * scaleH;
   const featherScale = normalized ? 1.0 : Math.min(cropWidth, cropHeight);
+  const ellipse = mask.kind === 'ellipse';
+  const half = ellipse ? 0.5 : 1.0;
   const toX = (f: number): number => (normalized ? f : (cropX + f * cropW) * scaleW);
   const toY = (f: number): number => (normalized ? f : (cropY + f * cropH) * scaleH);
+  const toW = (f: number): number => (normalized ? f : f * cropWidth) * half;
+  const toH = (f: number): number => (normalized ? f : f * cropHeight) * half;
+  const toFeather = (f: number): number => (normalized ? f : f * featherScale);
   const fromX = (px: number): number => (normalized ? px : (px / scaleW - cropX) / cropW);
   const fromY = (py: number): number => (normalized ? py : (py / scaleH - cropY) / cropH);
   const scalar = (name: string): number => maskScalar(mask, name, s);
+  const opacity = scalar('opacity');
+
+  const stored = storedV21Spec(mask, s, { toX, toY, toW, toH, toFeather });
+  if (stored !== null) return { ...stored, opacity, invert: mask.invert };
+
   const recover = (name: string, estimate: number, forward: (f: number) => number): number =>
     recoverFraction(estimate, forward, scalar(name));
 
   const storedFeather = scalar('featherOuterPx');
   let feather = featherScale > 0 ? storedFeather / featherScale : 0.0;
   if (featherScale > 0) {
-    feather = recover('featherOuterPx', feather, (f) => (normalized ? f : f * featherScale));
+    feather = recover('featherOuterPx', feather, toFeather);
   }
-  const common = { feather, opacity: scalar('opacity'), invert: mask.invert };
+  const common = { feather, opacity, invert: mask.invert };
   if (mask.kind === 'path') {
     const { points } = pathKeyframeAt(mask, s);
     const polygon: [number, number][] = [];
@@ -740,16 +842,14 @@ export function legacySpec(
     }
     return { shape: 'polygon', x: 0, y: 0, width: 1, height: 1, ...common, points: polygon };
   }
-  const ellipse = mask.kind === 'ellipse';
   const sizeW = ellipse ? 'rx' : 'width';
   const sizeH = ellipse ? 'ry' : 'height';
   const storedW = scalar(sizeW);
   const storedH = scalar(sizeH);
   const boxW = ellipse ? storedW * 2.0 : storedW;
   const boxH = ellipse ? storedH * 2.0 : storedH;
-  const half = ellipse ? 0.5 : 1.0;
-  const fw = recover(sizeW, boxW / scaleW / cropW, (f) => (normalized ? f : f * cropWidth) * half);
-  const fh = recover(sizeH, boxH / scaleH / cropH, (f) => (normalized ? f : f * cropHeight) * half);
+  const fw = recover(sizeW, boxW / scaleW / cropW, toW);
+  const fh = recover(sizeH, boxH / scaleH / cropH, toH);
   const cx = scalar('cx');
   const cy = scalar('cy');
   const fx = recoverFraction(fromX(cx) - fw / 2, (f) => toX(f + fw / 2), cx);

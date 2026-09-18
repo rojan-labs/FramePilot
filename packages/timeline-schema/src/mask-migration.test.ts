@@ -9,6 +9,7 @@ import { SCHEMA_VERSION, parseProject, type MaskLayer } from './index.js';
 import {
   MASK_DISABLED_EXTRA_NOTE,
   MASK_MEASURE_MEDIA_NOTE,
+  maskLayerFromLegacyMaskEffect,
   migrateMaskEffectsToStack,
 } from './mask-migration.js';
 import { migrateToCurrent, type RawProject } from './migrations.js';
@@ -434,6 +435,74 @@ describe('v21 → v22 mask effects → mask stack', () => {
     );
     expect(masks[0]!.keyframes).toEqual([]);
     expect(masks[0]!.migrationNote).toContain('never animated');
+  });
+
+  it('keeps the v21 spec verbatim, because the stored centre is not one-to-one with it (MK2.5)', () => {
+    // x = 0.2 and 0.19999999999999996 store ONE centre, yet v21 drew the left edge at x * width.
+    expect((0.19999999999999996 + 0.5 / 2) * 320).toBe((0.2 + 0.5 / 2) * 320);
+    const x: TimedCurvePoint[] = [
+      { time: 0, value: 0, easing: 'linear' },
+      { time: 2, value: 0.5, easing: 'ease-in-out' },
+    ];
+    const { masks } = migrated(
+      v21Project({
+        start: 4,
+        end: 5,
+        sourceStart: 1,
+        sourceEnd: 2,
+        effects: [
+          maskEffect({ shape: 'ellipse', bounds: { x: 0, y: 0.25, width: 0.5, height: 0.5 } }, [
+            { id: 'a', time: 0, property: 'x', value: 0, easing: 'linear' },
+            { id: 'b', time: 2, property: 'x', value: 0.5, easing: 'ease-in-out' },
+          ]),
+        ],
+      }),
+    );
+    const spec = masks[0]!.legacySpec!;
+    expect({ ...spec, keyframes: [] }).toEqual({
+      x: 0,
+      y: 0.25,
+      width: 0.5,
+      height: 0.5,
+      feather: 0,
+      keyframes: [],
+    });
+    // Only x animated; it is written at every rendered frame's source instant, as v21 read it.
+    expect(new Set(spec.keyframes.map((keyframe) => keyframe.property))).toEqual(new Set(['x']));
+    const frames = Array.from({ length: 30 }, (_, index) => (120 + index) / 30 - 4);
+    expect(spec.keyframes.map((keyframe) => keyframe.sourceTime)).toEqual(
+      frames.map((time) => 1 + time),
+    );
+    expect(spec.keyframes.map((keyframe) => keyframe.value)).toEqual(
+      frames.map((time) => v21At(x, time)),
+    );
+    expect(spec.keyframes.map((keyframe) => keyframe.value)).toContain(0.19999999999999996);
+  });
+
+  it("keeps a polygon's points, and writes no spec for a mask authored today", () => {
+    const points = [
+      [0.1, 0.1],
+      [0.9, 0.2],
+      [0.6, 0.95],
+    ];
+    const { masks } = migrated(
+      v21Project({ effects: [maskEffect({ shape: 'polygon', points, feather: 0.01 })] }),
+    );
+    expect(masks[0]!.legacySpec).toEqual({
+      x: 0,
+      y: 0,
+      width: 1,
+      height: 1,
+      feather: 0.01,
+      points,
+      keyframes: [],
+    });
+    const authored = maskLayerFromLegacyMaskEffect(
+      maskEffect({ shape: 'rectangle', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } }),
+      { id: 'c1', start: 0, end: 4, sourceStart: 3, sourceEnd: 7 },
+      { width: WIDTH, height: HEIGHT },
+    );
+    expect(authored).not.toHaveProperty('legacySpec');
   });
 
   it('leaves a project without mask effects byte-identical and passes malformed shapes through', () => {

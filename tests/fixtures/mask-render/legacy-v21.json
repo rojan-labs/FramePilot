@@ -1,5 +1,5 @@
 {
-  "description": "v21 clips with mask effects (MK2.4). legacy-v21.migrated.json is the TS v21->v22 migration of each (written by packages/timeline-schema/src/mask-legacy-render-fixture.test.ts with vitest -u); engine/python/tests/test_mask_legacy_render.py requires the v22 stack to rasterise byte-identically to the v21 renderer at every frame the export renders (clip-local n / fps - start).",
+  "description": "v21 clips with mask effects (MK2.4). legacy-v21.migrated.json is the TS v21->v22 migration of each (written by packages/timeline-schema/src/mask-legacy-render-fixture.test.ts with vitest -u); engine/python/tests/test_mask_legacy_render.py requires the v22 stack to rasterise byte-identically to the v21 renderer at every frame the export renders (clip-local n / fps - start). The keyframed-ellipse-mid-timeline case is the E2E.5 clip exactly (start 4 s, 1 s long); `timings` re-times every moving case to 1 s clips that start mid-timeline at other frame rates (MK2.5), migrated into legacy-v21.timings.migrated.json by the same test.",
   "media": {
     "width": 320,
     "height": 240
@@ -483,7 +483,96 @@
           }
         ]
       }
+    },
+    {
+      "id": "keyframed-ellipse-mid-timeline",
+      "clip": {
+        "effects": [
+          {
+            "id": "c1__mask",
+            "type": "mask",
+            "params": {
+              "shape": "ellipse",
+              "bounds": {
+                "x": 0.0,
+                "y": 0.25,
+                "width": 0.5,
+                "height": 0.5
+              }
+            },
+            "keyframes": [
+              {
+                "id": "a",
+                "time": 0.0,
+                "property": "x",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "b",
+                "time": 2.0,
+                "property": "x",
+                "value": 0.5,
+                "easing": "ease-in-out"
+              },
+              {
+                "id": "c",
+                "time": 0.0,
+                "property": "feather",
+                "value": 0.0,
+                "easing": "linear"
+              },
+              {
+                "id": "d",
+                "time": 2.0,
+                "property": "feather",
+                "value": 0.05,
+                "easing": "linear"
+              }
+            ]
+          }
+        ],
+        "start": 4,
+        "end": 5,
+        "sourceStart": 1,
+        "sourceEnd": 2
+      }
     }
   ],
+  "timings": {
+    "cases": [
+      "keyframed-ellipse",
+      "double-speed-keyframed",
+      "reverse-keyframed",
+      "ramped-keyframed"
+    ],
+    "duration": 1,
+    "variants": [
+      {
+        "start": 4,
+        "fps": 30
+      },
+      {
+        "start": 1.37,
+        "fps": 30
+      },
+      {
+        "start": 7.5,
+        "fps": 24
+      },
+      {
+        "start": 3.1,
+        "fps": 29.97
+      },
+      {
+        "start": 10.05,
+        "fps": 60
+      },
+      {
+        "start": 0.7,
+        "fps": 23.976
+      }
+    ]
+  },
   "fps": 30
 }

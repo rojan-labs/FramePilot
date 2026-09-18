@@ -178,11 +178,24 @@ def _legacy_document() -> dict[str, Any]:
 
 
 def _frame_times(clip: dict[str, Any], fps: float) -> list[float]:
-    """Up to four clip-local frame times: first, two interior, last."""
+    """Up to four clip-local frame times the export renders: first, two interior, last.
+
+    MoviePy's own arithmetic (``n / fps - start`` for the global frames in [start, end)), so a
+    clip that starts mid-timeline is sampled at its real, non-round instants (MK2.5); for a clip
+    at 0 s this is ``index / fps``, as before.
+    """
     start, end = float(clip["start"]), float(clip["end"])
-    count = max(1, math.ceil((end - start) * fps - 1e-9))
+    frames: list[int] = []
+    frame = max(0, math.floor(start * fps) - 1)
+    while frame / fps < end:
+        if frame / fps >= start:
+            frames.append(frame)
+        frame += 1
+    if not frames:
+        return [0.0]
+    count = len(frames)
     picks = sorted({0, count // 3, (2 * count) // 3, count - 1})
-    return [index / fps for index in picks]
+    return [frames[index] / fps - start for index in picks]
 
 
 def _migrated_clip_cases() -> list[dict[str, Any]]:

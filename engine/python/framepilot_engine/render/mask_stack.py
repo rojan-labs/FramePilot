@@ -31,7 +31,7 @@ from __future__ import annotations
 import logging
 import math
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from itertools import pairwise
 from typing import Any
 
@@ -311,16 +311,48 @@ def _recover_fraction(estimate: float, forward: Callable[[float], float], stored
     return min(exact, key=lambda value: (len(repr(value)), abs(value - estimate)))
 
 
+def _legacy_value(legacy: Any, name: str, s: float) -> float | None:
+    """A v21 spec value from a mask's ``legacySpec`` at source ``s``, or ``None``.
+
+    Read without arithmetic, so the preview reads the identical value: the static field when the
+    value never animated, the value AT a keyframe instant (every rendered frame of a moving
+    curve), the end value outside the keyframes, or the value of a hold (two neighbours with one
+    value, which is how the migration collapses runs). Between two different values there is no
+    v21 value to reproduce, so ``None``.
+    """
+    points = sorted(
+        (point for point in legacy.keyframes if point.property.value == name),
+        key=lambda point: point.source_time,
+    )
+    if not points:
+        return float(getattr(legacy, name))
+    for point in points:
+        if point.source_time == s:
+            return float(point.value)
+    if s < points[0].source_time:
+        return float(points[0].value)
+    if s > points[-1].source_time:
+        return float(points[-1].value)
+    for before, after in pairwise(points):
+        if before.source_time < s < after.source_time:
+            return float(before.value) if before.value == after.value else None
+    return None
+
+
 def _legacy_spec(
     mask: Any, clip: Any, media_size: tuple[float, float] | None, s: float
 ) -> MaskSpec:
     """The v21 :class:`MaskSpec` (cropped-frame fractions) this legacy mask is, at source ``s``.
 
     It inverts ``packages/timeline-schema/src/mask-migration.ts`` expression for expression.
-    Every value read at the source instant is recovered exactly (:func:`_recover_fraction`):
-    static values, and animated values at a keyframe instant, which is every rendered frame of a
-    mask migrated from a speed-ramped clip. A migrated mask therefore draws the identical Pillow
-    raster it drew as a v21 ``mask`` effect.
+    A migrated mask carries the v21 spec itself (``legacySpec``, MK2.5): the stored centre and
+    size are not one-to-one with v21's fractions (x = 0.2 and x = 0.19999999999999996 store the
+    same centre, yet v21 drew ``x * width``, 64.0 vs 63.99999999999999), so no inverse can be
+    exact. Those values are drawn whenever the migration's own arithmetic maps them onto the
+    geometry stored at ``s``, which holds for every rendered frame of an unedited mask, so it
+    draws the identical Pillow raster it drew as a v21 ``mask`` effect by construction. A mask
+    edited since (or one with no spec) falls back to recovering each fraction from the stored
+    pixels (:func:`_recover_fraction`).
     """
     normalized = mask.units == "normalized"
     if normalized:
@@ -351,20 +383,34 @@ def _legacy_spec(
     def from_y(py: float) -> float:
         return py if normalized else (py / scale_h - crop_y) / crop_h
 
+    def to_feather(fraction: float) -> float:
+        return fraction if normalized else fraction * feather_scale
+
+    ellipse = mask.kind == "ellipse"
+    size_w, size_h = ("rx", "ry") if ellipse else ("width", "height")
+    half = 0.5 if ellipse else 1.0
+
+    def to_w(fraction: float) -> float:
+        return (fraction if normalized else fraction * crop_width) * half
+
+    def to_h(fraction: float) -> float:
+        return (fraction if normalized else fraction * crop_height) * half
+
+    opacity = _scalar(mask, "opacity", s)
+    stored = _stored_v21_spec(mask, s, to_x, to_y, to_w, to_h, to_feather)
+    if stored is not None:
+        return replace(stored, opacity=opacity, invert=mask.invert)
+    if mask.legacy_spec is not None:
+        _log.debug("legacy mask %s: stored v21 spec no longer maps at s=%r; recovering", mask.id, s)
+
     def recover(name: str, estimate: float, forward: Callable[[float], float]) -> float:
         return _recover_fraction(estimate, forward, _scalar(mask, name, s))
 
     stored_feather = _scalar(mask, "featherOuterPx", s)
     feather = stored_feather / feather_scale if feather_scale > 0 else 0.0
     if feather_scale > 0:
-        feather = recover(
-            "featherOuterPx", feather, lambda f: f if normalized else f * feather_scale
-        )
-    common: dict[str, Any] = {
-        "feather": feather,
-        "opacity": _scalar(mask, "opacity", s),
-        "invert": mask.invert,
-    }
+        feather = recover("featherOuterPx", feather, to_feather)
+    common: dict[str, Any] = {"feather": feather, "opacity": opacity, "invert": mask.invert}
     if mask.kind == "path":
         points, _ = path_keyframe_at(mask, s)
         polygon = tuple(
@@ -375,24 +421,64 @@ def _legacy_spec(
             for i in range(0, len(points), 6)
         )
         return MaskSpec(shape="polygon", points=polygon, **common)
-    ellipse = mask.kind == "ellipse"
-    size_w, size_h = ("rx", "ry") if ellipse else ("width", "height")
     stored_w = _scalar(mask, size_w, s)
     stored_h = _scalar(mask, size_h, s)
     box_w = stored_w * 2.0 if ellipse else stored_w
     box_h = stored_h * 2.0 if ellipse else stored_h
-    half = 0.5 if ellipse else 1.0
-    fw = recover(
-        size_w, box_w / scale_w / crop_w, lambda f: (f if normalized else f * crop_width) * half
-    )
-    fh = recover(
-        size_h, box_h / scale_h / crop_h, lambda f: (f if normalized else f * crop_height) * half
-    )
+    fw = recover(size_w, box_w / scale_w / crop_w, to_w)
+    fh = recover(size_h, box_h / scale_h / crop_h, to_h)
     cx = _scalar(mask, "cx", s)
     cy = _scalar(mask, "cy", s)
     fx = _recover_fraction(from_x(cx) - fw / 2, lambda f: to_x(f + fw / 2), cx)
     fy = _recover_fraction(from_y(cy) - fh / 2, lambda f: to_y(f + fh / 2), cy)
     return MaskSpec(shape=mask.kind, x=fx, y=fy, width=fw, height=fh, **common)
+
+
+def _stored_v21_spec(
+    mask: Any,
+    s: float,
+    to_x: Callable[[float], float],
+    to_y: Callable[[float], float],
+    to_w: Callable[[float], float],
+    to_h: Callable[[float], float],
+    to_feather: Callable[[float], float],
+) -> MaskSpec | None:
+    """The v21 spec a migrated mask stored (``legacySpec``) at ``s``, if it still holds.
+
+    It holds when every value maps, through the migration's own expressions (the ``to_*``
+    callables), onto the geometry stored at ``s``, bit for bit; anything else means the mask was
+    edited after the migration, and ``None`` sends the caller to recovery. Opacity and invert
+    are the caller's: the migration stored those directly.
+    """
+    legacy = mask.legacy_spec
+    if legacy is None:
+        return None
+    feather = _legacy_value(legacy, "feather", s)
+    if feather is None or to_feather(feather) != _scalar(mask, "featherOuterPx", s):
+        return None
+    if mask.kind == "path":
+        if legacy.points is None:
+            return None
+        points, _ = path_keyframe_at(mask, s)
+        if len(points) != 6 * len(legacy.points):
+            return None
+        for index, (px, py) in enumerate(legacy.points):
+            if to_x(px) != points[6 * index] or to_y(py) != points[6 * index + 1]:
+                return None
+        return MaskSpec(shape="polygon", points=tuple(legacy.points), feather=feather)
+    x, y, width, height = (_legacy_value(legacy, name, s) for name in ("x", "y", "width", "height"))
+    if x is None or y is None or width is None or height is None:
+        return None
+    size_w, size_h = ("rx", "ry") if mask.kind == "ellipse" else ("width", "height")
+    holds = (
+        to_w(width) == _scalar(mask, size_w, s)
+        and to_h(height) == _scalar(mask, size_h, s)
+        and to_x(x + width / 2) == _scalar(mask, "cx", s)
+        and to_y(y + height / 2) == _scalar(mask, "cy", s)
+    )
+    if not holds:
+        return None
+    return MaskSpec(shape=mask.kind, x=x, y=y, width=width, height=height, feather=feather)
 
 
 def matte_alpha(

@@ -386,6 +386,43 @@ class MaskFinesse(BaseModel):
     model_config = {"populate_by_name": True}
 
 
+class MaskLegacyProperty(StrEnum):
+    """The v21 ``mask`` spec values a :class:`MaskLegacyKeyframe` can carry."""
+
+    X = "x"
+    Y = "y"
+    WIDTH = "width"
+    HEIGHT = "height"
+    FEATHER = "feather"
+
+
+class MaskLegacyKeyframe(BaseModel):
+    """One v21 spec value at a source instant (the instants of the mask's own keyframes)."""
+
+    source_time: float = Field(alias="sourceTime")
+    property: MaskLegacyProperty
+    value: float
+
+    model_config = {"populate_by_name": True}
+
+
+class MaskLegacySpec(BaseModel):
+    """The v21 ``mask`` spec a ``gaussian-legacy`` mask was migrated from, verbatim (MK2.5).
+
+    The v22 centre-and-size geometry is not one-to-one with v21's fractions (two fractions an
+    ulp apart store the same centre, and v21 drew ``x * width``), so the migration keeps the
+    fractions v21 drew with. Mirrors the TS ``MaskLegacySpecSchema``.
+    """
+
+    x: float
+    y: float
+    width: float
+    height: float
+    feather: float
+    points: list[tuple[float, float]] | None = None
+    keyframes: list[MaskLegacyKeyframe] = Field(default_factory=list)
+
+
 class MaskLayerBase(BaseModel):
     """Fields every mask kind carries (mirrors the TS ``maskLayerBaseShape``)."""
 
@@ -415,6 +452,7 @@ class MaskLayerBase(BaseModel):
     keyframes: list[MaskKeyframe] = Field(default_factory=list)
     tracking: MaskTracking | None = None
     migration_note: str | None = Field(default=None, alias="migrationNote")
+    legacy_spec: MaskLegacySpec | None = Field(default=None, alias="legacySpec")
 
     model_config = {"populate_by_name": True}
 

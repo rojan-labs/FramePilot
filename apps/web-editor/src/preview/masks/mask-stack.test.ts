@@ -13,6 +13,7 @@ import { setPillowFloatContraction } from './legacy-mask';
 import {
   MaskStackRasterCache,
   clipMaskStack,
+  legacySpec,
   pythonReprLength,
   stackAlphaAt,
   stackReadsPicture,
@@ -182,6 +183,39 @@ describe('frame-space clip masks (MK9.1, float64-exact vs the export)', () => {
     expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0.5, null, at(0))).toBe(first);
     expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0, null, at(8))).not.toBe(first);
     expect(cache.raster(stack, { kind: 'alpha' }, 64, 36, 0)).toBeNull();
+  });
+});
+
+describe('legacy spec (MK2.5)', () => {
+  const migrated = document.cases.find(
+    (entry) => entry.id === 'migrated/keyframed-ellipse-mid-timeline',
+  )!;
+  // E2E.5's frame 144 at 30 fps: 0.7999999999999998 s into a clip that starts at 4 s, where v21
+  // drew x = 0.19999999999999996 — the same stored centre as x = 0.2, a pixel apart at 320 wide.
+  const t = 144 / 30 - 4;
+  const size = { width: 320, height: 240 };
+
+  it('draws the stored v21 fraction the centre alone cannot tell apart', () => {
+    const clip = parseClip(migrated.clip);
+    const mask = clip.masks![0] as Parameters<typeof legacySpec>[0];
+    const s = clip.sourceStart + t;
+    expect(legacySpec(mask, clip, size, s).x).toBe(0.19999999999999996);
+    const { legacySpec: _stored, ...withoutSpec } = mask;
+    expect(legacySpec(withoutSpec as typeof mask, clip, size, s).x).toBe(0.2);
+  });
+
+  it('falls back to recovery once the geometry no longer matches the stored spec', () => {
+    const raw = JSON.parse(JSON.stringify(migrated.clip)) as {
+      masks: { cx?: number; keyframes: { property: string; value: number }[] }[];
+    };
+    for (const keyframe of raw.masks[0]!.keyframes) {
+      if (keyframe.property === 'cx') keyframe.value += 10;
+    }
+    const clip = parseClip(raw);
+    const mask = clip.masks![0] as Parameters<typeof legacySpec>[0];
+    const x = legacySpec(mask, clip, size, clip.sourceStart + t).x;
+    expect(x).not.toBe(0.19999999999999996);
+    expect(x).toBeCloseTo(0.2 + 10 / 320, 12);
   });
 });
 

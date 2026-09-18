@@ -75,6 +75,9 @@ from framepilot_engine.timeline.models import (
     MaskFinesse,
     MaskKeyframe,
     MaskKeyRange,
+    MaskLegacyKeyframe,
+    MaskLegacyProperty,
+    MaskLegacySpec,
     MaskMode,
     MaskPathKeyframe,
     MaskReview,
@@ -633,6 +636,12 @@ def test_mask_nested_fields_match(project_schema: dict[str, Any]) -> None:
         BezierHandles
     )
 
+    legacy = _object_node(rectangle, "legacySpec")
+    assert _schema_property_names(legacy) == _model_field_names(MaskLegacySpec)
+    assert _schema_property_names(_array_item_node(legacy, "keyframes")) == _model_field_names(
+        MaskLegacyKeyframe
+    )
+
     tracking = _object_node(rectangle, "tracking")
     assert _schema_property_names(tracking) == _model_field_names(MaskTracking)
     assert _schema_property_names(_object_node(tracking, "artifact")) == _model_field_names(
@@ -698,6 +707,8 @@ def test_mask_enum_members_match(project_schema: dict[str, Any]) -> None:
     assert _enum_property(rectangle, "mode") == {m.value for m in MaskMode}
     assert _enum_property(rectangle, "falloff") == {m.value for m in MaskFalloff}
     assert _enum_property(rectangle, "featherModel") == {m.value for m in MaskFeatherModel}
+    legacy_keyframe = _array_item_node(_object_node(rectangle, "legacySpec"), "keyframes")
+    assert _enum_property(legacy_keyframe, "property") == {m.value for m in MaskLegacyProperty}
     assert _enum_property(rectangle, "space") == {m.value for m in MaskSpace}
     keyframe = _array_item_node(rectangle, "keyframes")
     assert _enum_property(keyframe, "property") == {m.value for m in MaskScalarProperty}

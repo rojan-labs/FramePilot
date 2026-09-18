@@ -385,6 +385,40 @@ const DEFAULT_FINESSE = {
   cleanWhite: 1,
 } as const;
 
+/** The v21 `mask` spec values a {@link MaskLegacySpecSchema} keyframe can carry. */
+export const MaskLegacyPropertySchema = z.enum(['x', 'y', 'width', 'height', 'feather']);
+
+/** One v21 spec value at a source instant (the instants of the mask's own keyframes). */
+export const MaskLegacyKeyframeSchema = z.object({
+  sourceTime: z.number().nonnegative(),
+  property: MaskLegacyPropertySchema,
+  value: z.number(),
+});
+
+/**
+ * The v21 `mask` effect spec a `gaussian-legacy` mask was migrated from, verbatim (MK2.5).
+ *
+ * WHY: the v22 geometry is a centre and a size in source pixels, and that is not one-to-one
+ * with the v21 fractions: x = 0.2 and x = 0.19999999999999996 store the same centre, yet
+ * v21 drew the left edge at `x * width` (64.0 vs 63.99999999999999), a pixel apart once
+ * Pillow truncates it. No inverse can tell them apart, so the migration keeps the fractions
+ * v21 drew with: the static bounds, feather and polygon, and at every instant a v21 value
+ * animated, that value. The renderer and the preview draw from these only while they still
+ * map, through the migration's own arithmetic, onto the stored geometry at that instant; a
+ * mask edited since falls back to recovering fractions from its geometry. Written only by the
+ * v21 → v22 migration; nothing else reads it.
+ */
+export const MaskLegacySpecSchema = z.object({
+  x: z.number(),
+  y: z.number(),
+  width: z.number(),
+  height: z.number(),
+  feather: z.number(),
+  /** A polygon's points (fractions of the cropped frame); absent for a rectangle/ellipse. */
+  points: z.array(z.tuple([z.number(), z.number()])).optional(),
+  keyframes: z.array(MaskLegacyKeyframeSchema).default([]),
+});
+
 /**
  * Fields every mask kind carries. Defaults describe a fresh, visible, additive,
  * unfeathered alpha mask in source space.
@@ -423,6 +457,8 @@ const maskLayerBaseShape = {
   tracking: MaskTrackingSchema.optional(),
   /** Why the v21 → v22 migration produced this mask the way it did, when that matters. */
   migrationNote: z.string().optional(),
+  /** The exact v21 spec a `gaussian-legacy` mask was migrated from (MK2.5). */
+  legacySpec: MaskLegacySpecSchema.optional(),
 };
 
 /** Rectangle: centre, size, rotation (degrees, clockwise), corner roundness 0..1. */
@@ -1782,6 +1818,8 @@ export type MaskSpace = z.infer<typeof MaskSpaceSchema>;
 export type MaskTarget = z.infer<typeof MaskTargetSchema>;
 export type MaskScalarProperty = z.infer<typeof MaskScalarPropertySchema>;
 export type MaskKeyframe = z.infer<typeof MaskKeyframeSchema>;
+export type MaskLegacySpec = z.infer<typeof MaskLegacySpecSchema>;
+export type MaskLegacyKeyframe = z.infer<typeof MaskLegacyKeyframeSchema>;
 export type SourceTimeRange = z.infer<typeof SourceTimeRangeSchema>;
 export type MaskReview = z.infer<typeof MaskReviewSchema>;
 export type MaskTracking = z.infer<typeof MaskTrackingSchema>;

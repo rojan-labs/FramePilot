@@ -1417,6 +1417,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "rectangle"
@@ -1835,6 +1910,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "ellipse"
@@ -2245,6 +2395,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -2734,6 +2959,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -3547,6 +3847,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "key"
@@ -4108,6 +4483,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "linear"
@@ -4514,6 +4964,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -4926,6 +5451,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -5348,6 +5948,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -6367,6 +7042,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "rectangle"
@@ -6785,6 +7535,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "ellipse"
@@ -7195,6 +8020,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -7684,6 +8584,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -8497,6 +9472,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "key"
@@ -9058,6 +10108,81 @@
                               "migrationNote": {
                                 "type": "string"
                               },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
+                              },
                               "kind": {
                                 "type": "string",
                                 "const": "linear"
@@ -9464,6 +10589,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -9876,6 +11076,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -10298,6 +11573,81 @@
                               },
                               "migrationNote": {
                                 "type": "string"
+                              },
+                              "legacySpec": {
+                                "type": "object",
+                                "properties": {
+                                  "x": {
+                                    "type": "number"
+                                  },
+                                  "y": {
+                                    "type": "number"
+                                  },
+                                  "width": {
+                                    "type": "number"
+                                  },
+                                  "height": {
+                                    "type": "number"
+                                  },
+                                  "feather": {
+                                    "type": "number"
+                                  },
+                                  "points": {
+                                    "type": "array",
+                                    "items": {
+                                      "type": "array",
+                                      "prefixItems": [
+                                        {
+                                          "type": "number"
+                                        },
+                                        {
+                                          "type": "number"
+                                        }
+                                      ]
+                                    }
+                                  },
+                                  "keyframes": {
+                                    "default": [],
+                                    "type": "array",
+                                    "items": {
+                                      "type": "object",
+                                      "properties": {
+                                        "sourceTime": {
+                                          "type": "number",
+                                          "minimum": 0
+                                        },
+                                        "property": {
+                                          "type": "string",
+                                          "enum": [
+                                            "x",
+                                            "y",
+                                            "width",
+                                            "height",
+                                            "feather"
+                                          ]
+                                        },
+                                        "value": {
+                                          "type": "number"
+                                        }
+                                      },
+                                      "required": [
+                                        "sourceTime",
+                                        "property",
+                                        "value"
+                                      ],
+                                      "additionalProperties": false
+                                    }
+                                  }
+                                },
+                                "required": [
+                                  "x",
+                                  "y",
+                                  "width",
+                                  "height",
+                                  "feather",
+                                  "keyframes"
+                                ],
+                                "additionalProperties": false
                               },
                               "kind": {
                                 "type": "string",
@@ -10870,6 +12220,81 @@
                         "migrationNote": {
                           "type": "string"
                         },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
+                        },
                         "kind": {
                           "type": "string",
                           "const": "rectangle"
@@ -11288,6 +12713,81 @@
                         "migrationNote": {
                           "type": "string"
                         },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
+                        },
                         "kind": {
                           "type": "string",
                           "const": "ellipse"
@@ -11698,6 +13198,81 @@
                         },
                         "migrationNote": {
                           "type": "string"
+                        },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
                         },
                         "kind": {
                           "type": "string",
@@ -12187,6 +13762,81 @@
                         },
                         "migrationNote": {
                           "type": "string"
+                        },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
                         },
                         "kind": {
                           "type": "string",
@@ -13000,6 +14650,81 @@
                         "migrationNote": {
                           "type": "string"
                         },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
+                        },
                         "kind": {
                           "type": "string",
                           "const": "key"
@@ -13561,6 +15286,81 @@
                         "migrationNote": {
                           "type": "string"
                         },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
+                        },
                         "kind": {
                           "type": "string",
                           "const": "linear"
@@ -13967,6 +15767,81 @@
                         },
                         "migrationNote": {
                           "type": "string"
+                        },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
                         },
                         "kind": {
                           "type": "string",
@@ -14379,6 +16254,81 @@
                         },
                         "migrationNote": {
                           "type": "string"
+                        },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
                         },
                         "kind": {
                           "type": "string",
@@ -14801,6 +16751,81 @@
                         },
                         "migrationNote": {
                           "type": "string"
+                        },
+                        "legacySpec": {
+                          "type": "object",
+                          "properties": {
+                            "x": {
+                              "type": "number"
+                            },
+                            "y": {
+                              "type": "number"
+                            },
+                            "width": {
+                              "type": "number"
+                            },
+                            "height": {
+                              "type": "number"
+                            },
+                            "feather": {
+                              "type": "number"
+                            },
+                            "points": {
+                              "type": "array",
+                              "items": {
+                                "type": "array",
+                                "prefixItems": [
+                                  {
+                                    "type": "number"
+                                  },
+                                  {
+                                    "type": "number"
+                                  }
+                                ]
+                              }
+                            },
+                            "keyframes": {
+                              "default": [],
+                              "type": "array",
+                              "items": {
+                                "type": "object",
+                                "properties": {
+                                  "sourceTime": {
+                                    "type": "number",
+                                    "minimum": 0
+                                  },
+                                  "property": {
+                                    "type": "string",
+                                    "enum": [
+                                      "x",
+                                      "y",
+                                      "width",
+                                      "height",
+                                      "feather"
+                                    ]
+                                  },
+                                  "value": {
+                                    "type": "number"
+                                  }
+                                },
+                                "required": [
+                                  "sourceTime",
+                                  "property",
+                                  "value"
+                                ],
+                                "additionalProperties": false
+                              }
+                            }
+                          },
+                          "required": [
+                            "x",
+                            "y",
+                            "width",
+                            "height",
+                            "feather",
+                            "keyframes"
+                          ],
+                          "additionalProperties": false
                         },
                         "kind": {
                           "type": "string",

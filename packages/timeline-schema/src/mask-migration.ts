@@ -423,6 +423,58 @@ function geometryFor(crop: Crop, dims: Dimensions | null): Geometry {
 
 const clamp01 = (value: number): number => (value <= 0 ? 0 : value >= 1 ? 1 : value);
 
+/** The v21 spec values a legacy mask keeps verbatim (`MaskLegacySpecSchema`). */
+const LEGACY_SPEC_PROPERTIES = ['x', 'y', 'width', 'height', 'feather'] as const;
+
+/**
+ * The v21 spec the migrated mask was drawn from, verbatim (`legacySpec`, MK2.5).
+ *
+ * WHY: the stored centre and size are not one-to-one with v21's fractions (x = 0.2 and
+ * x = 0.19999999999999996 store the same centre in pixels), and v21 drew its edges as
+ * `x * width`, so the one ulp decides a pixel. Each animated v21 value is written at exactly the
+ * instants the mask's own keyframes use (every rendered frame for a moving curve, the same
+ * holds collapsed), through the same clock mapping, so the renderer reads the fraction v21 used
+ * at the instant it evaluates instead of inverting the geometry.
+ */
+function legacySpecOf(
+  bounds: {
+    readonly x: number;
+    readonly y: number;
+    readonly width: number;
+    readonly height: number;
+  },
+  feather: number,
+  polygon: readonly (readonly [number, number])[] | null,
+  legacy: readonly LegacyKeyframe[],
+  clock: ClipClock,
+  frames: readonly number[] | undefined,
+): RawRecord {
+  const statics: Readonly<Record<(typeof LEGACY_SPEC_PROPERTIES)[number], number>> = {
+    ...bounds,
+    feather,
+  };
+  const keyframes: RawRecord[] = [];
+  for (const property of LEGACY_SPEC_PROPERTIES) {
+    // A polygon ignored its bounds in v21; only its feather animates.
+    if (polygon !== null && property !== 'feather') continue;
+    const draft = deriveKeyframes(
+      legacy,
+      [{ property, fallback: statics[property] }],
+      property,
+      ([value]) => value!,
+      frames,
+    ).keyframes;
+    for (const point of toSourceClock(draft, clock).keyframes) {
+      keyframes.push({ sourceTime: Math.max(0, point.time), property, value: point.value });
+    }
+  }
+  return {
+    ...statics,
+    ...(polygon !== null ? { points: polygon.map(([px, py]) => [px, py]) } : {}),
+    keyframes,
+  };
+}
+
 /** Convert one v21 `mask` effect into a v22 mask layer. */
 function migrateOneMask(
   effect: RawRecord,
@@ -602,6 +654,20 @@ function migrateOneMask(
     ...(normalized ? { units: 'normalized' } : {}),
     keyframes,
     ...(notes.length > 0 ? { migrationNote: notes.join(' ') } : {}),
+    // Only a migrated mask has a v21 export to reproduce; one authored in the v21 vocabulary
+    // today (`fps === null`) keeps editable, re-timed keyframes and no spec.
+    ...(fps !== null
+      ? {
+          legacySpec: legacySpecOf(
+            { x: fx, y: fy, width: fw, height: fh },
+            staticFeather,
+            kind === 'path' ? polygon : null,
+            legacy,
+            clock,
+            frames,
+          ),
+        }
+      : {}),
   };
 
   if (kind === 'path') {
