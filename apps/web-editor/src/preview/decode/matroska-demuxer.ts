@@ -181,6 +181,14 @@ export class MatroskaVideoIndex {
     return this.frames[index];
   }
 
+  /**
+   * Whether every frame is a key frame, so any frame decodes on its own. The pack writes its
+   * masters intra-only (`-g 1`); PX5.3 decodes such a file on several workers at once.
+   */
+  get intraOnly(): boolean {
+    return this.frames.every((frame) => frame.keyframe);
+  }
+
   /** The key frame at or before `index` (FFV1 carries coder state across non-key frames). */
   keyframeAtOrBefore(index: number): number {
     for (let i = Math.min(index, this.frames.length - 1); i >= 0; i--) {

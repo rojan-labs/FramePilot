@@ -16,7 +16,8 @@
  * text-behind-subject stack decodes its frame once).
  *
  * Mattes (BR5.1): a clip's `matte` layers are read at the SAME source frame its picture decodes
- * (`masks/matte-source.ts`), decoded in the same worker and held in the same byte-bounded cache.
+ * (`masks/matte-source.ts`), decoded on their own workers (PX5.3: `decode/matte-decode-pool.ts`,
+ * never in the picture decoders' worker) and held in the same byte-bounded cache.
  * A frame not decoded yet holds the previous presentation like a missing picture; a frame the
  * artifact does not hold (still processing) leaves that layer out and the monitor says so.
  *
@@ -28,6 +29,7 @@ import { framePlanAt, type FramePlan, type FramePlanLayer } from '@framepilot/ed
 import type { Asset, Clip, Timeline, TranscriptWord } from '@framepilot/timeline-schema';
 import { createLogger, type PreviewTextRasterRequest } from '@framepilot/shared-types';
 import { DecodeWorkerClient } from '../decode/worker-client.js';
+import { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import type { FrameEffectInstance } from './gl/frame-effects.js';
@@ -193,6 +195,8 @@ function timelineForCanvas(timeline: Timeline, ratio: number): Timeline {
 
 export class LayerPreviewEngine {
   private readonly client = new DecodeWorkerClient();
+  /** PX5.3: matte artifact files decode here, off the picture decoders' worker. */
+  private readonly matteDecoders = new MatteDecodePool();
   private readonly ctx2d: CanvasRenderingContext2D;
   private compositor: LayerCompositor | null = null;
   private project: LayerEngineProject | null = null;
@@ -215,7 +219,7 @@ export class LayerPreviewEngine {
   /** `.cube` tables by the `lut` effect's stored path. */
   private readonly luts = new Map<string, CubeLut>();
   private readonly cache = new Map<string, CacheEntry>();
-  /** BR5.1: matte artifact frames, decoded in the same worker into the same cache. */
+  /** BR5.1: matte artifact frames, decoded on the matte pool into the same cache. */
   private readonly mattes: MatteSource;
   private lastMatteProcessing = false;
   /** BR5.2: review ranges per artifact key (`undefined` while `report.json` is being read). */
@@ -274,22 +278,28 @@ export class LayerPreviewEngine {
     this.engineTexts = new EngineTextRasters(resolveTextRasterSource(), (approximate) =>
       this.callbacks.onTextApproximateChange?.(approximate),
     );
-    this.mattes = new MatteSource(this.client, resolveMatteArtifactLocator, {
-      get: (key) => {
-        const entry = this.cache.get(key);
-        if (entry?.kind !== 'matte') return undefined;
-        entry.lastUsed = ++this.useCounter;
-        return entry.frame;
+    this.mattes = new MatteSource(
+      this.matteDecoders,
+      resolveMatteArtifactLocator,
+      {
+        get: (key) => {
+          const entry = this.cache.get(key);
+          if (entry?.kind !== 'matte') return undefined;
+          entry.lastUsed = ++this.useCounter;
+          return entry.frame;
+        },
+        put: (key, frame) => {
+          const previous = this.cache.get(key);
+          if (previous !== undefined) this.releaseEntry(key, previous);
+          const entry: CacheEntry = { kind: 'matte', frame, lastUsed: ++this.useCounter };
+          this.cache.set(key, entry);
+          this.cacheBytes += entryBytes(entry);
+          this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
+        },
       },
-      put: (key, frame) => {
-        const previous = this.cache.get(key);
-        if (previous !== undefined) this.releaseEntry(key, previous);
-        const entry: CacheEntry = { kind: 'matte', frame, lastUsed: ++this.useCounter };
-        this.cache.set(key, entry);
-        this.cacheBytes += entryBytes(entry);
-        this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
-      },
-    });
+      undefined,
+      (ms) => this.telemetry.record('matteDecode', ms),
+    );
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
     this.compositor.setTelemetry(this.telemetry);
@@ -1404,6 +1414,7 @@ export class LayerPreviewEngine {
     this.disposed = true;
     for (const [key, entry] of [...this.cache]) this.releaseEntry(key, entry);
     this.client.dispose();
+    this.matteDecoders.dispose();
     this.compositor?.dispose();
     this.compositor = null;
     this.lastBitmap?.close();

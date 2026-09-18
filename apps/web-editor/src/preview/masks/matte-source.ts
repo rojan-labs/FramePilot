@@ -15,9 +15,10 @@
  * Proxy decision (docs/guides/preview-masks.md, "Mattes"): the monitor decodes the lossless FFV1
  * masters (`matte.mkv`, `foreground.mkv`), not the VP9 `preview.webm` files. A 540p VP9 matte
  * measured 32.44 dB and 98.34 % within 8/255 on a hard-edged composite, below the PX4 gates, and
- * Chromium has no WebM demuxer or FFV1 decoder to fall back on. The masters decode in the shared
- * decode worker (`decode/matte-decode-session.ts`) under the same decoder pool as pictures, and
- * decoded frames live in the engine's byte-bounded picture cache.
+ * Chromium has no WebM demuxer or FFV1 decoder to fall back on. The masters decode on their own
+ * workers (`decode/matte-decode-pool.ts`, PX5.3: never in the picture decoders' worker, and
+ * frame-parallel for an intra-only file), and decoded frames live in the engine's byte-bounded
+ * picture cache.
  *
  * The large masters' digests are not re-hashed here (a 4K foreground is gigabytes): desktop
  * project-media validation checks them on open and the export checks them before rendering, so
@@ -26,7 +27,7 @@
  */
 import { createLogger } from '@framepilot/shared-types';
 
-import type { DecodeWorkerClient } from '../decode/worker-client.js';
+import type { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import type { MatteMask } from './mask-stack.js';
 import type { MatteFrameData } from './matte-edges.js';
 
@@ -218,16 +219,29 @@ interface ArtifactState {
 const sourceIdOf = (key: string, file: 'matte' | 'foreground'): string => `matte:${key}:${file}`;
 export const matteCacheKey = (key: string, index: number): string => `matte:${key}@${index}`;
 
+/** What {@link MatteSource} needs of a decoder: open a file, decode a frame, close it. */
+export type MatteDecoder = Pick<MatteDecodePool, 'loadMatte' | 'decodeMatte' | 'unloadSource'>;
+
+/** A foreground that could not be read: the refusal the frame is failed with. */
+interface ForegroundRefused {
+  readonly refusal: MatteRefusalCode;
+}
+
 export class MatteSource {
   private readonly artifacts = new Map<string, ArtifactState>();
   private readonly inFlight = new Map<string, Promise<void>>();
   private readonly failedFrames = new Map<string, MatteRefusalCode>();
 
+  /**
+   * @param onFrameDecoded - PX5.3 telemetry: milliseconds from asking for a matte frame to its
+   *   planes in the cache, queueing included (`matteDecode`).
+   */
   constructor(
-    private readonly client: Pick<DecodeWorkerClient, 'loadMatte' | 'decodeMatte' | 'unloadSource'>,
+    private readonly client: MatteDecoder,
     private readonly locate: () => MatteArtifactLocator | null,
     private readonly cache: MatteFrameCache,
     private readonly fetchBytes: (url: string) => Promise<Uint8Array | null> = fetchFileBytes,
+    private readonly onFrameDecoded: ((ms: number) => void) | null = null,
   ) {}
 
   /**
@@ -441,7 +455,7 @@ export class MatteSource {
     if (locator === null) throw new MatteArtifactError('matte_unavailable');
     const url = locator(artifact.key, `${file}.mkv`);
     if (url === null) throw new MatteArtifactError('matte_missing');
-    let info: Awaited<ReturnType<DecodeWorkerClient['loadMatte']>>;
+    let info: Awaited<ReturnType<MatteDecoder['loadMatte']>>;
     try {
       info = await this.client.loadMatte(sourceIdOf(artifact.key, file), url, frameCount);
     } catch (error) {
@@ -476,39 +490,30 @@ export class MatteSource {
     return state.foreground;
   }
 
+  /**
+   * Decode matte frame `index` into the cache. PX5.3: the alpha and the foreground are asked
+   * for together, so on the matte pool they decode on two workers at once instead of in turn.
+   */
   private decode(state: ArtifactState, index: number, wantForeground: boolean): Promise<void> {
     const flightKey = `${state.key}@${index}@${wantForeground ? 'fg' : 'alpha'}`;
     const pending = this.inFlight.get(flightKey);
     if (pending !== undefined) return pending;
     const run = (async () => {
       const cacheKey = matteCacheKey(state.key, index);
+      const started = performance.now();
       try {
-        let alpha = this.cache.get(cacheKey);
-        let foreground = alpha?.foreground ?? null;
-        if (alpha === undefined) {
-          const message = await this.client.decodeMatte(sourceIdOf(state.key, 'matte'), index);
-          alpha = {
-            id: `${state.key}@${index}`,
-            width: message.width,
-            height: message.height,
-            maximum: message.format === 'gray16' ? 65535 : 255,
-            alpha:
-              message.format === 'gray16'
-                ? new Uint16Array(message.data)
-                : new Uint8Array(message.data),
-            foreground: null,
-          };
-        }
-        if (wantForeground && foreground === null) {
-          const refusal = await this.foregroundReady(state);
-          if (refusal !== null) {
-            this.failedFrames.set(`${state.key}@${index}`, refusal);
-            return;
-          }
-          const message = await this.client.decodeMatte(sourceIdOf(state.key, 'foreground'), index);
-          foreground = new Uint8Array(message.data);
+        const cached = this.cache.get(cacheKey);
+        const known = cached?.foreground ?? null;
+        const [alpha, foreground] = await Promise.all([
+          cached ?? this.decodeAlpha(state, index),
+          wantForeground && known === null ? this.decodeForeground(state, index) : known,
+        ]);
+        if (foreground !== null && !(foreground instanceof Uint8Array)) {
+          this.failedFrames.set(`${state.key}@${index}`, foreground.refusal);
+          return;
         }
         this.cache.put(cacheKey, { ...alpha, foreground });
+        this.onFrameDecoded?.(performance.now() - started);
       } catch (error) {
         this.failedFrames.set(`${state.key}@${index}`, 'matte_unreadable');
         log.warn('matte frame could not be decoded', {
@@ -522,6 +527,31 @@ export class MatteSource {
     })();
     this.inFlight.set(flightKey, run);
     return run;
+  }
+
+  /** One `matte.mkv` frame as samples, without a foreground. */
+  private async decodeAlpha(state: ArtifactState, index: number): Promise<MatteFrameData> {
+    const message = await this.client.decodeMatte(sourceIdOf(state.key, 'matte'), index);
+    return {
+      id: `${state.key}@${index}`,
+      width: message.width,
+      height: message.height,
+      maximum: message.format === 'gray16' ? 65535 : 255,
+      alpha:
+        message.format === 'gray16' ? new Uint16Array(message.data) : new Uint8Array(message.data),
+      foreground: null,
+    };
+  }
+
+  /** One `foreground.mkv` frame, or the refusal that opening the file met. */
+  private async decodeForeground(
+    state: ArtifactState,
+    index: number,
+  ): Promise<Uint8Array | ForegroundRefused> {
+    const refusal = await this.foregroundReady(state);
+    if (refusal !== null) return { refusal };
+    const message = await this.client.decodeMatte(sourceIdOf(state.key, 'foreground'), index);
+    return new Uint8Array(message.data);
   }
 }
 

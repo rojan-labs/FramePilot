@@ -20,6 +20,8 @@ export interface MatteFileInfo {
   readonly height: number;
   readonly format: Ffv1Picture['format'];
   readonly frameCount: number;
+  /** Every frame decodes on its own (no FFV1 coder state carried between frames). */
+  readonly intraOnly: boolean;
 }
 
 /**
@@ -88,6 +90,7 @@ export class MatteDecodeSession implements PooledDecoderHolder {
       height: index.track.height,
       format: probe.format,
       frameCount: index.frameCount,
+      intraOnly: index.intraOnly,
     };
   }
 

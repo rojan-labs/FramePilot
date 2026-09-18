@@ -87,6 +87,7 @@ function harness(files: Map<string, Uint8Array>, info = { width: 8, height: 4 })
       ...info,
       format: 'gray8' as const,
       frameCount: FRAMES.pts.length,
+      intraOnly: true,
     })),
     decodeMatte: vi.fn(async (_id: string, frame: number) => ({
       type: 'matteFrame' as const,

@@ -191,6 +191,7 @@ export interface MatteLoadedResponse {
   height: number;
   format: Ffv1Picture['format'];
   frameCount: number;
+  intraOnly: boolean;
 }
 
 export interface MatteFrameResponse {
