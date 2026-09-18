@@ -731,6 +731,8 @@
 }
 
 .inspector-pro .inspector-effect-list code {
+  /* Takes the slack, so the mask count and the "Add mask" button keep their own width. */
+  flex: 1 1 auto;
   min-width: 0;
   overflow: hidden;
   color: var(--text-tertiary);
@@ -755,10 +757,6 @@
 }
 
 /* MK5.1: the effect row's mask affordance and the count of masks already limiting it. */
-.inspector-pro .inspector-effect-list code {
-  flex: 1 1 auto;
-}
-
 .inspector-pro .inspector-effect-masked {
   flex: 0 0 auto;
   color: var(--text-tertiary);
