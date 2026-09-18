@@ -9,7 +9,14 @@ name: Preview performance — full export row (PX5.11)
 #
 # The fixture is generated in the job, deterministically, by the same script the PR job uses
 # (engine/python/tests/px5_scale_fixture.py); nothing is committed or downloaded.
+#
+# The `pull_request` trigger exists only so GitHub registers this file while it lives on a
+# branch (a workflow_dispatch workflow is not dispatchable until GitHub has seen it); the job's
+# `if:` skips every pull_request run, so a PR push never starts the two-hour export.
 on:
+  pull_request:
+    paths:
+      - '.github/workflows/preview-perf-full.yml'
   workflow_dispatch:
     inputs:
       window_seconds:
@@ -34,6 +41,7 @@ env:
 jobs:
   export-ratio-full:
     name: Export ratio, full Scale row (P13)
+    if: github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     # GitHub-hosted jobs stop at 360 minutes. Two full 4K exports plus the fixture measured
     # ~2.5 h from CI's 4 s windows (78.7 s plain, 106.1 s matte per 4 s in run 35366379149).
