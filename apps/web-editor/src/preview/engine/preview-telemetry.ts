@@ -42,10 +42,10 @@
  * session. `keyStack` stays submission time either way.
  */
 
+import { projectFrameIndex } from '../clock/project-frame.js';
+
 /** Samples kept per channel; old ones are dropped. */
 const RING_SIZE = 4096;
-/** Slack when turning a clock time into a frame index (a tick a hair before a frame boundary). */
-const FRAME_INDEX_EPSILON = 1e-6;
 
 export type PreviewTelemetryChannel =
   | 'frameInterval'
@@ -195,7 +195,7 @@ export class PreviewTelemetry {
    */
   tick(timeSec: number, presented: boolean): void {
     if (this.fps === 0) return;
-    const index = Math.floor(timeSec * this.fps + FRAME_INDEX_EPSILON);
+    const index = projectFrameIndex(timeSec, this.fps);
     if (this.firstDueIndex === null) {
       this.firstDueIndex = index;
       // Frames before the first tick were never due in this run.

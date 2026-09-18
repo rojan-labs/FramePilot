@@ -55,6 +55,12 @@ const CACHE_BUDGET_BYTES = 384 * 1024 * 1024;
  * (`DECODE_WINDOW`). Bounded by the timeline, not by how long it plays.
  */
 const PINNED_FRAMES = 13 + 8;
+/**
+ * PX5.5: composites per presented project frame may exceed 1 only by what can legitimately draw
+ * a frame again (a matte or text raster arriving after it first drew). Measured 653 / 654 on
+ * `scale-path`; 1.7 before playback snapped to the project frame grid.
+ */
+const COMPOSITES_PER_FRAME_SLACK = 1.1;
 
 interface ChannelSummary {
   count: number;
@@ -496,6 +502,17 @@ test.describe('PX5 Scale row', () => {
         DECODER_POOL_CAPACITY,
       );
       expect(layersWhilePlaying, 'load shedding never removes a layer').toBe(4);
+      // PX5.5: playback plans at the project frame's own instant, so a frame is composited once
+      // however many display refreshes it spans (1.7 composites per presented frame before, on
+      // a 60 Hz display). The slack covers what may legitimately draw a frame again: a render
+      // scale step, a matte or text raster that arrives after the frame first drew.
+      expect(
+        result.composite.count,
+        'a project frame is composited once, not once per display refresh',
+      ).toBeLessThanOrEqual(
+        Math.ceil(result.playback.presentedFrames * COMPOSITES_PER_FRAME_SLACK) +
+          result.playback.renderScaleChanges,
+      );
       if (played.playback.renderScaleChanges === midway.playback.renderScaleChanges) {
         expect(
           result.gauges.glPoolBytes.current,

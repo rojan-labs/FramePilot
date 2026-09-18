@@ -33,6 +33,7 @@ import type { WorkerStageReport } from '../decode/decode-worker.js';
 import { MatteDecodePool } from '../decode/matte-decode-pool.js';
 import { rotateI420, type DecodedPicture } from '../decode/decoded-picture.js';
 import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
+import { projectFrameTime } from '../clock/project-frame.js';
 import type { FrameEffectInstance } from './gl/frame-effects.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
@@ -1310,11 +1311,15 @@ export class LayerPreviewEngine {
         this.telemetry.record('frameInterval', tickAtMs - this.lastTickAtMs);
       }
       this.lastTickAtMs = tickAtMs;
-      const plan = this.planAt(nowSec, this.renderSize());
+      // PX5.5: the frame the export shows now, at the instant the export composites it, so
+      // the monitor presents the export's source frames and a project frame is composited
+      // once however many display refreshes it spans (`clock/project-frame.ts`).
+      const frameSec = projectFrameTime(nowSec, this.project?.projectFps ?? DEFAULT_FPS);
+      const plan = this.planAt(frameSec, this.renderSize());
       if (plan) {
         const started = performance.now();
         const drawsBefore = this.dbg.sourceDraws;
-        const presented = this.present(plan, nowSec, false);
+        const presented = this.present(plan, frameSec, false);
         if (presented) {
           const compositeMs = performance.now() - started;
           this.dbg.presented++;
@@ -1324,7 +1329,7 @@ export class LayerPreviewEngine {
           this.dbg.missing++;
         }
         this.telemetry.tick(nowSec, presented);
-        this.pumpAhead(nowSec);
+        this.pumpAhead(frameSec);
       }
       this.callbacks.onTimeUpdate?.(nowSec);
       this.rafHandle = requestAnimationFrame(tick);
