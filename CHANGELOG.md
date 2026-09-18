@@ -22,7 +22,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   **Delete identity data** removes everything it stored in one step. After a mask lands, the
   sidebar says how many moments need a look and opens the Inspector's review list. A blur limited
   to a mask, split-screen and shape masks, and a title that follows a tracked subject are not
-  available yet, and the assistant says so rather than approximating one. Desktop app only.
+  available yet, and the assistant says so rather than approximating one. A grade the assistant
+  limits to a mask is the clip's ordinary grade, so the Inspector's sliders change it. Desktop
+  app only. Support can switch the whole feature off with `FRAMEPILOT_AI_MASKING=off` (desktop,
+  read at runtime) or `VITE_FRAMEPILOT_AI_MASKING=off` (browser build); it is on in development
+  and off in packaged releases for now. Off, the assistant is not offered the masking tools in
+  any mode, including Cmd+K and suggestions, and masks already in a project are untouched.
 
 - **Remove the background from a shot.** Inspector → Mask → **Remove background** cuts the subject
   out so something else can sit behind it. It runs entirely on your computer, through the Smart

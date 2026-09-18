@@ -68,12 +68,8 @@ import type { Project, Timeline, TranscriptWord } from '@framepilot/timeline-sch
 import { getBridge } from './bridge.js';
 import { type BrowserAiConfig, loadBrowserAiConfig } from './aiConfigStorage.js';
 import { readProjectUnderstanding, type UnderstandingReads } from './projectUnderstanding.js';
-import {
-  LedgerClient,
-  MASKING_HOST_TOOL_NAMES,
-  aiMaskingUnroutableTools,
-  type LedgerSnapshot,
-} from '@framepilot/ai-sdk';
+import { LedgerClient, MASKING_HOST_TOOL_NAMES, type LedgerSnapshot } from '@framepilot/ai-sdk';
+import { aiMaskingDisabledTools } from './ai-masking-flag.js';
 import { createVisualIndexClient } from './visualIndex.js';
 import { createBrowserRunStoreIO } from './browser-run-store.js';
 import {
@@ -86,18 +82,6 @@ import {
 function configuredEngineBaseUrl(): string | undefined {
   const env = (import.meta as { env?: Record<string, string | undefined> }).env;
   return env?.['VITE_FRAMEPILOT_PYTHON_API_URL']?.trim() || undefined;
-}
-
-/** Read `VITE_FRAMEPILOT_AI_MASKING` (RD2.1 kill switch); `undefined` when unset. */
-function aiMaskingEnvValue(): string | undefined {
-  const env = (import.meta as { env?: Record<string, string | undefined> }).env;
-  return env?.['VITE_FRAMEPILOT_AI_MASKING'];
-}
-
-/** A dev or test build — the same test the compositor and mask-tools flags use. */
-function isDevelopmentBuild(): boolean {
-  const env = (import.meta as { env?: { DEV?: boolean; MODE?: string } }).env;
-  return env?.DEV === true || env?.MODE === 'test';
 }
 
 /**
@@ -129,6 +113,9 @@ let warnedMissingEngineUrl = false;
  * failure instead of fabricating success — see `apps/web-editor/.env.example`.
  */
 function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator>[1] {
+  // RD2.1 kill switch. On the orchestrator, not the executor: without a sidecar URL there is
+  // no executor, and the switch must hold there as well (`ai-masking-flag.ts`).
+  const switchedOff = { disabledTools: () => aiMaskingDisabledTools() };
   const baseUrl = configuredEngineBaseUrl();
   if (!baseUrl) {
     if (import.meta.env.DEV && !warnedMissingEngineUrl) {
@@ -139,9 +126,10 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
           '(see apps/web-editor/.env.example).',
       );
     }
-    return {};
+    return switchedOff;
   }
   return {
+    ...switchedOff,
     executor: createSidecarExecutor({
       baseUrl,
       // Routed only by the desktop's Capability Pack tracking executor. Offered here, both
@@ -152,11 +140,6 @@ function browserOrchestratorOptions(): ConstructorParameters<typeof Orchestrator
         'detect_subjects',
         'track_subject_automatically',
         ...MASKING_HOST_TOOL_NAMES,
-        // RD2.1 kill switch: off removes the in-process masking tools too.
-        ...aiMaskingUnroutableTools({
-          explicit: aiMaskingEnvValue(),
-          development: isDevelopmentBuild(),
-        }),
       ],
     }),
   };

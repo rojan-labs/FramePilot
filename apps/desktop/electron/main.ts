@@ -104,6 +104,7 @@ import {
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
+import { desktopAiMaskingDisabledTools } from './ai/ai-masking-switch.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
   IpcChannels,
@@ -255,7 +256,6 @@ import { StockQuotaStore } from './media/stock-quota.js';
 import {
   IdentityClient,
   LedgerClient,
-  aiMaskingUnroutableTools,
   hostedTranscriptionUnavailable,
   silhouetteMasksToTrackSamples,
   localMusicAssetRefusal,
@@ -2890,14 +2890,12 @@ function registerIpcHandlers(): void {
       faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
     },
   });
-  // RD2.1 kill switch for the AI masking tools. Read at RUNTIME, per call, so support can
-  // switch a shipped build off without a rebuild; unset means on when unpackaged and off in a
-  // release until RD3 flips the default (`masking/feature-flag.ts`).
+  // RD2.1 kill switch for the AI masking tools, read at RUNTIME on every call so support can
+  // switch a shipped build off without a rebuild (`ai/ai-masking-switch.ts`). It reaches the
+  // orchestrator as `disabledTools` below; the routing check here keeps a switched-off call
+  // from reaching a pack worker by any other road.
   const aiMaskingOff = (): readonly string[] =>
-    aiMaskingUnroutableTools({
-      explicit: process.env.FRAMEPILOT_AI_MASKING,
-      development: !app.isPackaged,
-    });
+    desktopAiMaskingDisabledTools({ env: process.env, packaged: app.isPackaged });
   const toolExecutor: HostToolExecutor = {
     async run(call, ctx, signal) {
       if (call.name === AUTOMATIC_TRACKING_TOOL_NAME || call.name === DETECT_SUBJECTS_TOOL_NAME) {
@@ -2913,8 +2911,7 @@ function registerIpcHandlers(): void {
     // Forwarded, not re-derived: the sidecar executor owns the list of tools this surface
     // cannot route, and a wrapper that swallowed it would leave the desktop advertising
     // `render_preview` to a model that then calls it — eight times in one captured run.
-    unroutableTools: () =>
-      new Set([...(sidecarToolExecutor.unroutableTools?.() ?? []), ...aiMaskingOff()]),
+    unroutableTools: () => sidecarToolExecutor.unroutableTools?.() ?? new Set<string>(),
   };
   const temporalEvidence = createTemporalEvidenceAcquirer({
     baseUrl: engineBaseUrl,
@@ -2978,6 +2975,7 @@ function registerIpcHandlers(): void {
     // (invariant 6, R1).
     const orchestratorOptions = {
       executor: toolExecutor,
+      disabledTools: aiMaskingOff,
       ...(effectObserver === undefined ? {} : { effectObserver }),
       ...(name === 'mock' ? {} : buildTierProviders(name)),
     };

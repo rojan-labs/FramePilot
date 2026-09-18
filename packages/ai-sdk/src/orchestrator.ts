@@ -302,7 +302,7 @@ import {
   sanitizeToolArgs,
 } from './tool-dispatch.js';
 import { type HostToolExecutor, type HostToolOutcome } from './tool-executor.js';
-import type { RefusalCause } from './tool-refusal.js';
+import { ToolRefusalError, type RefusalCause } from './tool-refusal.js';
 import { withToolInputContract } from './tool-input-contract.js';
 import { toolContract } from './tool-contract.js';
 import { concurrencySafe, getTool, toolDescriptors } from './tool-registry.js';
@@ -567,6 +567,17 @@ const USER_WAIT_TIMEOUT_MS = 24 * 60 * 60 * 1_000;
 /** The default when no executor declares anything unroutable: nothing is withheld. */
 const EMPTY_TOOL_NAMES: ReadonlySet<string> = new Set();
 const AGENT_LOG_RECENT = 6;
+
+/**
+ * The refusal for a call that names a tool this host does not offer (unroutable here, or
+ * switched off). Keyed by the tool's name only, so a repeat is one guard key.
+ */
+function toolNotOnThisSurfaceNote(name: string): string {
+  return (
+    `"${name}" is not available here, so nothing was changed. Use only the tools you were ` +
+    'offered, and tell the editor if what they asked for needs this one.'
+  );
+}
 
 /**
  * How many model turns the question route (`streamChat`) may spend on tools (E5.5)
@@ -1735,6 +1746,18 @@ export interface OrchestratorOptions {
    * calls fail honestly — the orchestrator NEVER fabricates a host result.
    */
   readonly executor?: HostToolExecutor;
+  /**
+   * Tools this host has switched OFF — a kill switch such as RD2.1's AI masking flag
+   * (`masking/feature-flag.ts`). Read on every request, so a switch flipped at runtime holds
+   * from the next one.
+   *
+   * Unioned with the executor's `unroutableTools` and enforced in EVERY mode: not offered to
+   * the model in agent, question, edit or autocomplete, and refused if a call names one
+   * anyway. It is not an executor method because a host may have no executor (the browser
+   * with no sidecar configured), and a kill switch that depended on one would switch nothing
+   * there.
+   */
+  readonly disabledTools?: () => Iterable<string>;
   /**
    * Dev/debug affordance (P7.3, plan/AGENT-NATIVE-COMPLETION-PLAN.md): when true, every
    * effect an agent run executes is captured via
@@ -3507,6 +3530,8 @@ function unknownClipHelp(project: Project, issues: readonly ValidationIssue[]): 
 
 export class Orchestrator {
   private readonly executor: HostToolExecutor | undefined;
+  /** See {@link OrchestratorOptions.disabledTools}. */
+  private readonly disabledTools: (() => Iterable<string>) | undefined;
   /** P7.3 dev/debug affordance — see {@link OrchestratorOptions.recordEffects}. */
   private readonly recordEffects: boolean;
   private readonly onRecording: ((recording: RunRecording) => void) | undefined;
@@ -3520,6 +3545,7 @@ export class Orchestrator {
     options: OrchestratorOptions = {},
   ) {
     this.executor = options.executor;
+    this.disabledTools = options.disabledTools;
     this.recordEffects = options.recordEffects ?? false;
     this.onRecording = options.onRecording;
     this.replayRuntime = options.replayRuntime;
@@ -3730,7 +3756,29 @@ export class Orchestrator {
    * the live planner path's `propose_edit` task uses the exact same logic.
    */
   private operationsFor(call: ToolCall, ctx: ToolContext): AnyOperation[] {
+    // The offer is filtered too; this holds for a model that names a tool it was not shown.
+    if (this.unroutableToolNames().has(call.name)) {
+      throw new ToolRefusalError(toolNotOnThisSurfaceNote(call.name));
+    }
     return operationsForCall(call, ctx);
+  }
+
+  /**
+   * What this host cannot or will not run: the executor's unroutable tools plus the ones the
+   * host switched off ({@link OrchestratorOptions.disabledTools}). The executor's own set is
+   * returned untouched when nothing is switched off, so the common path allocates nothing.
+   */
+  private unroutableToolNames(): ReadonlySet<string> {
+    const fromExecutor = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
+    const disabled = [...(this.disabledTools?.() ?? [])];
+    if (disabled.length === 0) return fromExecutor;
+    return new Set([...fromExecutor, ...disabled]);
+  }
+
+  /** The mutating tools the single-shot modes (edit, variations, autocomplete) offer. */
+  private mutatingToolsOnOffer(): ReturnType<typeof toolDescriptors> {
+    const unroutable = this.unroutableToolNames();
+    return toolDescriptors((tool) => tool.mutates && !unroutable.has(tool.name));
   }
 
   /** Build + validate + diff a patch from a set of operations. */
@@ -3829,7 +3877,7 @@ export class Orchestrator {
 
   /** Cmd+K small reviewable edit → returns a validated, diffable patch (PRD §7.2). */
   public async edit(input: ContextInput): Promise<EditResult> {
-    const editTools = toolDescriptors((t) => t.mutates);
+    const editTools = this.mutatingToolsOnOffer();
     const response = await this.provider.complete({
       messages: buildContext(this.budgeted(input, toolSchemaCost(editTools))),
       tools: editTools,
@@ -3867,7 +3915,7 @@ export class Orchestrator {
     readonly variants: readonly EditResult[];
     readonly cost: { tokens: number; usd: number };
   }> {
-    const tools = toolDescriptors((t) => t.mutates);
+    const tools = this.mutatingToolsOnOffer();
     const messages = buildContext(this.budgeted(input, toolSchemaCost(tools)));
     const ctx = this.toolContext(input);
     const variants: EditResult[] = [];
@@ -3914,7 +3962,7 @@ export class Orchestrator {
 
   /** Next-best-edit suggestions: each tool call becomes its own small patch (PRD §7.5). */
   public async autocomplete(input: ContextInput): Promise<EditResult[]> {
-    const suggestTools = toolDescriptors((t) => t.mutates);
+    const suggestTools = this.mutatingToolsOnOffer();
     const response = await this.provider.complete({
       messages: buildContext(this.budgeted(input, toolSchemaCost(suggestTools))),
       tools: suggestTools,
@@ -4001,7 +4049,7 @@ export class Orchestrator {
     // guard: a tool the model can see, it will call. Run 6 of 2026-09-05 called
     // `render_preview` eight times on a surface with no route for it, and paid the two
     // render descriptors' schema on every one of its 308 requests besides.
-    const unroutable = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
+    const unroutable = this.unroutableToolNames();
     const offered = toolDescriptors((tool) => {
       if (unroutable.has(tool.name)) return false;
       // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
@@ -8355,7 +8403,7 @@ export class Orchestrator {
     }
     const emit = createTurnEmitter(options);
     yield emit.status('editing');
-    const editTools = toolDescriptors((t) => t.mutates);
+    const editTools = this.mutatingToolsOnOffer();
     const assembled = assembleContext({
       ...input,
       budget: resolveContextBudget(input, this.provider, toolSchemaCost(editTools)),
@@ -8436,7 +8484,7 @@ export class Orchestrator {
       budget: resolveContextBudget(
         input,
         this.provider,
-        toolSchemaCost(toolDescriptors((t) => t.mutates)),
+        toolSchemaCost(this.mutatingToolsOnOffer()),
       ),
     });
     yield* trimNotices(emit, assembled.trimmed);

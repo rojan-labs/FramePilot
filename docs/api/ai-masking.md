@@ -256,14 +256,23 @@ cannot enable the tools in a release.
 | Desktop (the orchestrator runs in Electron main) | `FRAMEPILOT_AI_MASKING`      | At runtime, per call — support can switch a shipped build off without a rebuild |
 | Browser build                                    | `VITE_FRAMEPILOT_AI_MASKING` | Baked in by Vite                                                                |
 
-Off adds every tool `domain-tools/masking.ts` registers to the host's `unroutableTools`, so no
-run is offered them and a call by name is refused by scope. The `load_tools` domain index is
-rebuilt from what is actually on offer (`domainIndexFor`), so `masking` stops promising
-"remove backgrounds" when no offered tool can; with nothing unroutable the index is byte-identical
-and the token goldens do not move. The two tools folded in from `tracking`
-(`professional_tracking_mask`, `track_subject_automatically`) are **not** switched — a kill switch
-for a new feature must not take an old one with it. Masks already in a project still preview,
-export and edit by hand: the flag gates an agent capability, never a frame of output.
+Each host reads its variable in one small module (`apps/desktop/electron/ai/ai-masking-switch.ts`,
+`apps/web-editor/src/editor/ai-masking-flag.ts`) and hands the result to the orchestrator as
+`OrchestratorOptions.disabledTools`. Not through the executor's `unroutableTools`: the browser
+without a sidecar URL has no executor, and a switch that lived there would switch nothing.
+
+Off, the orchestrator unions those names with the executor's unroutable set and enforces them in
+**every** mode. Agent and question runs are not offered them and a call by name is withheld by
+scope; edit, variations and autocomplete are not offered them either, and a call that names one
+anyway is refused with one fixed sentence (`"<tool>" is not available here, so nothing was
+changed.`). The desktop's executor also stops routing them to the masking executor, so no road
+reaches a pack worker. The `load_tools` domain index is rebuilt from what is actually on offer
+(`domainIndexFor`), so `masking` stops promising "remove backgrounds" when no offered tool can;
+with nothing switched off the index is byte-identical and the token goldens do not move. The two
+tools folded in from `tracking` (`professional_tracking_mask`, `track_subject_automatically`) are
+**not** switched — a kill switch for a new feature must not take an old one with it. Masks
+already in a project still preview, export and edit by hand: the flag gates an agent capability,
+never a frame of output.
 
 ## Failures
 

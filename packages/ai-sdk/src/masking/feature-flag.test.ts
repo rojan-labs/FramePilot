@@ -1,6 +1,9 @@
 import { describe, expect, it } from 'vitest';
+import { makeProject } from '../__fixtures__/project.js';
 import { Orchestrator } from '../orchestrator.js';
 import { MockProvider } from '../providers/mock.js';
+import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
+import { ToolRefusalError } from '../tool-refusal.js';
 import { DOMAIN_INDEX, LOADABLE_DOMAINS, domainIndexFor } from '../tool-domains.js';
 import type { HostToolExecutor } from '../tool-executor.js';
 import {
@@ -93,5 +96,62 @@ describe('the kill switch, end to end', () => {
   it('changes nothing when nothing is unroutable, so the token goldens cannot move', () => {
     expect(domainIndexFor(new Set())).toBe(DOMAIN_INDEX);
     expect(domainIndexFor(new Set(['render_preview']))).toBe(DOMAIN_INDEX);
+  });
+});
+
+/** Records what a single-shot mode offered, and answers with one scripted call. */
+class OfferRecorder implements AiProvider {
+  public readonly name = 'mock' as const;
+  public readonly offered: string[][] = [];
+  public constructor(private readonly toolName?: string) {}
+  public async complete(request: AiCompletionRequest): Promise<AiResponse> {
+    this.offered.push((request.tools ?? []).map((tool) => tool.name));
+    return this.toolName === undefined
+      ? { text: 'nothing' }
+      : {
+          text: 'as asked',
+          toolCalls: [{ id: 'c1', name: this.toolName, arguments: { clipId: 'x', maskId: 'm' } }],
+        };
+  }
+}
+
+describe('the kill switch on a host with no executor (the browser without a sidecar)', () => {
+  const off = () => aiMaskingUnroutableTools({ explicit: 'off', development: true });
+  const input = { project: makeProject(), userPrompt: 'delete the mask on that clip' };
+
+  it('withholds the tools and shrinks the index from disabledTools alone', () => {
+    const orchestrator = new Orchestrator(new MockProvider(), { disabledTools: off });
+    const tools = orchestrator.agentTools('agent', undefined, everyDomain);
+    for (const name of AI_MASKING_TOOL_NAMES) {
+      expect(tools.map((tool) => tool.name)).not.toContain(name);
+    }
+    expect(tools.find((tool) => tool.name === 'load_tools')!.description).not.toContain(
+      'remove backgrounds',
+    );
+  });
+
+  it('keeps them out of what edit, variations and autocomplete offer', async () => {
+    const provider = new OfferRecorder();
+    const orchestrator = new Orchestrator(provider, { disabledTools: off });
+    await orchestrator.edit(input);
+    await orchestrator.editVariations(input);
+    await orchestrator.autocomplete(input);
+    expect(provider.offered.length).toBeGreaterThanOrEqual(3);
+    for (const names of provider.offered) {
+      expect(names).toContain('trim_clip');
+      for (const name of AI_MASKING_TOOL_NAMES) expect(names).not.toContain(name);
+    }
+    const on = new OfferRecorder();
+    await new Orchestrator(on).edit(input);
+    expect(on.offered[0]).toContain('delete_mask');
+  });
+
+  it('refuses a switched-off tool the model names anyway, and builds nothing', async () => {
+    const orchestrator = new Orchestrator(new OfferRecorder('delete_mask'), {
+      disabledTools: off,
+    });
+    const refused = orchestrator.edit(input);
+    await expect(refused).rejects.toBeInstanceOf(ToolRefusalError);
+    await expect(refused).rejects.toThrow('"delete_mask" is not available here');
   });
 });

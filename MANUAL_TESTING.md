@@ -911,6 +911,16 @@ effect (ADR 0113).
     or a mask appears where you gave no numbers and nothing was detected.
   - Result: **/**/____ · PASS / FAIL · notes:
 
+- [ ] **16.8a The AI masking kill switch** — `AI` · desktop+browser
+  - Do: start the desktop app with `FRAMEPILOT_AI_MASKING=off` (the browser build: build it with
+    `VITE_FRAMEPILOT_AI_MASKING=off`), open a project that already has masks, and ask _"Remove the
+    background of this clip."_ Then press Cmd+K and ask _"Delete the mask on this clip."_
+  - Expect: the assistant says it cannot do that here, in both. No pack job starts, no mask is
+    added or removed, and the existing masks still preview and export. Unset, a dev build is `on`
+    and a packaged release is `off` until RD3.
+  - Fail if: any masking tool card appears, or Cmd+K proposes a mask edit with the switch off.
+  - Result: **/**/____ · PASS / FAIL · notes:
+
 ---
 
 ## 17. Footage understanding and semantic search
