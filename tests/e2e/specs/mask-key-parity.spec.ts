@@ -107,7 +107,10 @@ test.describe('MK6.3 key gate: engine vs preview keyed alpha', () => {
           uniforms: vectorCase.uniforms,
           colours: patches,
         });
-        expect(measured.error ?? null, `${vectorCase.mask.id} ${key}`).toBeNull();
+        // Compared as a string, not `toBeNull()`: the list reporter prints only the label for a
+        // null assertion, and "the page could not run the shader" has to say WHY on the first
+        // failing run, not on a second one added to find out.
+        expect(measured.error ?? 'none', `${vectorCase.mask.id} ${key}`).toBe('none');
         const alpha8 = measured.alpha8!;
         expect(alpha8.length, `${vectorCase.mask.id} ${key}`).toBe(expected.alpha8.length);
         alpha8.forEach((value, index) => {
