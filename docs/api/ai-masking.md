@@ -212,7 +212,7 @@ tracked may exist only in the patch under construction). And the mask-track job 
 | Field                         | Meaning                                                                                    |
 | ----------------------------- | ------------------------------------------------------------------------------------------ |
 | `needsReview`, `flaggedCount` | Source-second ranges the pack or the tracker flagged, plus any the spot check added        |
-| `frames`                      | For a cut-out: frames the pack vouched for and flagged                                     |
+| `frames`                      | For a cut-out: `passedChecks` and `flagged` frame counts (never a `verified` field)        |
 | `trackConfidence`             | For a track: frames measured, worst model residual in source pixels, flagged count         |
 | `validator`                   | `valid` and any non-blocking warnings. An error would have refused the edit                |
 | `spotCheck`                   | The one visual look, when it ran: `yes`, `unsure` or `not_run`, with the reason and frames |

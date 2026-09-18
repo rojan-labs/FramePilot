@@ -189,8 +189,12 @@ export interface MaskReviewReport {
     readonly worstResidualPx: number;
     readonly flaggedCount: number;
   };
-  /** Frames the pack vouched for and flagged, for a cut-out. */
-  readonly frames?: { readonly verified: number; readonly flagged: number };
+  /**
+   * Frames that passed the pack's automatic checks and frames it flagged, for a cut-out. Not
+   * the pack's own `verifiedFrames` name: this object is what the model reads, and a field
+   * called "verified" is an invitation to say the word (plan 11 rule 3).
+   */
+  readonly frames?: { readonly passedChecks: number; readonly flagged: number };
   /** Non-blocking validator warnings ride along; an error would have refused the edit. */
   readonly validator: { readonly valid: boolean; readonly issues: readonly string[] };
   /**

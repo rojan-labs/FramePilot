@@ -475,7 +475,7 @@ describe('the visual spot check (AM3.2)', () => {
     expect(review.asked).toHaveLength(1);
     expect(results(events)[0]?.result).toMatchObject({
       flaggedCount: 1,
-      frames: { verified: 90, flagged: 1 },
+      frames: { passedChecks: 90, flagged: 1 },
     });
   });
 

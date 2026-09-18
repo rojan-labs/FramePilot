@@ -224,7 +224,7 @@ export interface MaskingMeasuredEdit {
   readonly maskId: string;
   readonly needsReview: MaskReviewReport['needsReview'];
   readonly trackConfidence?: MaskReviewReport['trackConfidence'];
-  /** Frames the pack vouched for and flagged, for a cut-out. */
+  /** Frames that passed the pack's checks and frames it flagged, for a cut-out. */
   readonly frames?: MaskReviewReport['frames'];
   /**
    * What a visual spot check would ask, when this edit put a mask ON something. Absent for a
@@ -297,7 +297,7 @@ export function maskingOpsFromMeasurement(
   if (parsed.data.precision === 'cutout') {
     return {
       ...measuredEdit(intent.clipId, built, parsed.data.needsReview),
-      frames: { verified: parsed.data.verifiedFrames, flagged: parsed.data.flaggedFrames },
+      frames: { passedChecks: parsed.data.verifiedFrames, flagged: parsed.data.flaggedFrames },
       target,
     };
   }
