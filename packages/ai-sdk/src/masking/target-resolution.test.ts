@@ -268,12 +268,16 @@ describe('ranking', () => {
   it('demotes, but keeps, a candidate the shot ledger disagrees with', () => {
     const things = [...steady('person', 0.1, 0.2, 0.3), ...steady('object', 0.6, 0.2, 0.3)];
     const plain = resolve('mask the person', things).candidates[0]!.score;
-    const demoted = resolve('mask the person', things, { ledgerSubjectKind: 'product' })
+    const demoted = resolve('mask the person', things, { ledgerSubjectKind: 'vehicle' })
       .candidates[0]!.score;
     expect(demoted).toBeLessThan(plain);
-    expect(resolve('mask the person', things, { ledgerSubjectKind: 'product' }).status).toBe(
+    expect(resolve('mask the person', things, { ledgerSubjectKind: 'vehicle' }).status).toBe(
       'resolved',
     );
+    // A kind with no detector equivalent is no opinion, not disagreement.
+    expect(
+      resolve('mask the person', things, { ledgerSubjectKind: 'place' }).candidates[0]!.score,
+    ).toBe(plain);
   });
 
   it('is deterministic, and re-detecting one frame reproduces a recalled id', () => {

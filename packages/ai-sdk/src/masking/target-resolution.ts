@@ -202,12 +202,18 @@ export interface ResolveTargetsInput {
   readonly engine: string;
 }
 
+/**
+ * The tier-1 `subjectKind` vocabulary (`workers/visual-embed` prompt bank) as detector labels.
+ * `place`, `text`, `none` and anything a newer bank adds have no entry, and so no opinion.
+ */
 const LEDGER_LABEL: Readonly<Record<string, MaskCandidateLabel>> = {
   person: 'person',
   people: 'person',
-  face: 'face',
-  product: 'object',
   object: 'object',
+  screen: 'object',
+  animal: 'object',
+  food: 'object',
+  vehicle: 'object',
 };
 
 function agreement(label: MaskCandidateLabel, ledgerSubjectKind: string | undefined): number {

@@ -16,6 +16,7 @@ import type { CapabilityPackTrackingService } from '../capability-packs/tracking
 import {
   createMaskingExecutor,
   detectionWindows,
+  ledgerEvidence,
   type MaskingExecutorOptions,
 } from './masking-executor.js';
 
@@ -456,5 +457,43 @@ describe('track_mask', () => {
       ctxOf(project),
     );
     expect(misrouted.summary).toContain('routing_error');
+  });
+});
+
+describe('ledger evidence', () => {
+  const clip = { sourceStart: 10, sourceEnd: 14 } as never;
+  const shot = (assetId: string, t0: number, t1: number, value: string, p: number) =>
+    ({
+      assetId,
+      contentHash: 'h',
+      shotIndex: 0,
+      t0,
+      t1,
+      keyframeT: t0,
+      splitOf: false,
+      labelled: { tier1Version: 1, model: 'm', subjectKind: { value, p }, faces: 0, entities: [] },
+    }) as never;
+  const ledgerOf = (shots: never[]) => ({ shots, digests: [], coverage: {} }) as never;
+
+  it('takes the kind the shots the clip SHOWS most agree on', () => {
+    const ledger = ledgerOf([
+      shot('asset', 9, 12, 'person', 0.9),
+      shot('asset', 12, 15, 'person', 0.7),
+      shot('asset', 11, 13, 'vehicle', 0.8),
+    ]);
+    expect(ledgerEvidence({ ledger }, { assetId: 'asset', clip })).toEqual({
+      ledgerSubjectKind: 'person',
+    });
+  });
+
+  it('has no opinion without a ledger, a confident label, or a shot of this clip', () => {
+    expect(ledgerEvidence({}, { assetId: 'asset', clip })).toEqual({});
+    expect(ledgerEvidence({ ledger: null }, { assetId: 'asset', clip })).toEqual({});
+    const elsewhere = ledgerOf([
+      shot('asset', 0, 5, 'person', 0.9),
+      shot('other', 10, 14, 'person', 0.9),
+      shot('asset', 10, 14, 'person', 0.2),
+    ]);
+    expect(ledgerEvidence({ ledger: elsewhere }, { assetId: 'asset', clip })).toEqual({});
   });
 });

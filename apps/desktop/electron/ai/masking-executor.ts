@@ -566,16 +566,30 @@ export function detectionWindows(first: number, lastExclusive: number): [number,
   });
 }
 
-/** What the shot ledger says the clip's subject is, when the run carries a ledger. */
-function ledgerEvidence(ctx: HostExecutionContext, resolved: ResolvedClip): MaskTargetEvidence {
-  const shots = (ctx.ledger?.shots ?? []) as readonly {
-    assetId?: string;
-    subjectKind?: { value?: string } | null;
-  }[];
-  const kind = shots.find(
-    (shot) => shot.assetId === resolved.assetId && shot.subjectKind?.value !== undefined,
-  )?.subjectKind?.value;
-  return kind === undefined ? {} : { ledgerSubjectKind: kind };
+/** A tier-1 label below this is the labeller shrugging, not a fact worth ranking by. */
+const LEDGER_MIN_CONFIDENCE = 0.5;
+
+/**
+ * What the shot ledger says this clip's subject is, when the run carries a ledger.
+ *
+ * Only shots of the clip's asset that overlap the part of the source the clip SHOWS count, and
+ * the kind they most agree on wins. Absent ledger, absent tier or no confident label all yield
+ * `{}`: "not measured", which the resolver treats as no opinion — never as disagreement.
+ */
+export function ledgerEvidence(
+  ctx: Pick<HostExecutionContext, 'ledger'>,
+  resolved: Pick<ResolvedClip, 'assetId' | 'clip'>,
+): MaskTargetEvidence {
+  const votes = new Map<string, number>();
+  for (const shot of ctx.ledger?.shots ?? []) {
+    if (shot.assetId !== resolved.assetId) continue;
+    if (shot.t1 <= resolved.clip.sourceStart || shot.t0 >= resolved.clip.sourceEnd) continue;
+    const kind = shot.labelled?.subjectKind;
+    if (kind === undefined || kind === null || kind.p < LEDGER_MIN_CONFIDENCE) continue;
+    votes.set(kind.value, (votes.get(kind.value) ?? 0) + kind.p);
+  }
+  const [best] = [...votes.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
+  return best === undefined ? {} : { ledgerSubjectKind: best[0] };
 }
 
 function matteOutcome(

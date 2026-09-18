@@ -46,6 +46,61 @@ orchestrator validates the payload against `masking/contracts.ts` and builds the
 (`maskingOpsFromMeasurement`). A payload that fails its schema, or answers a different clip or
 candidate, is refused — never substituted.
 
+## Target resolution
+
+`find_mask_targets` answers "what does the editor mean?" with a ranked candidate list and one of
+five statuses. The measuring is the host's (`masking-executor.ts`); everything that DECIDES is
+pure and lives in `masking/target-resolution.ts`, where it is tested against the gates: ≥ 99% on
+unambiguous requests, ≥ 97% asks on ambiguous ones, and **a confident wrong pick counts as a
+failure, not an ask** — so every tie, every unverifiable class and every identity question asks.
+
+| Status                 | When                                                                                                                         | What happens next                                       |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------- |
+| `resolved`             | One candidate (or, for "all the faces", every one) is decisively meant                                                       | Pass `chosenCandidateIds` to `create_mask`              |
+| `ambiguous_target`     | Several match and nothing separates them; a selector or re-ranker margin is thin; or an object's class cannot be vouched for | The editor picks in the sidebar                         |
+| `needs_click`          | The target is outside the detector's vocabulary ("the sky", "the sign", a licence plate)                                     | The editor clicks it once; matte precision is identical |
+| `needs_face_selection` | WHO matters ("everyone except the host")                                                                                     | The editor picks faces                                  |
+| `no_candidates`        | Nothing of that class is on screen                                                                                           | The agent says so; it never offers something else       |
+
+**How it ranks.** Detections are grouped into things that persist (greedy IoU across frames);
+flicker seen on under 15% of the sampled frames is dropped. `score = grounding × agreement ×
+persistence`, where grounding is the re-ranker's similarity when there is one and the detector's
+confidence otherwise, agreement demotes (never removes) a candidate the shot ledger's
+`subjectKind` disagrees with, and persistence is the share of sampled frames it was seen on. A
+long clip is sampled in three 48-frame windows rather than detected on every frame.
+
+**The score only ranks.** A decision needs one of: a single candidate of a class the detector can
+vouch for; a positional selector ("on the left") whose winner leads by a tenth of the frame; a
+size selector ("the main subject") whose winner is 1.5× the runner-up; or a re-ranker whose best
+match is plausible (≥ 0.5) and 1.25× the runner-up.
+
+**No text-grounding model** (MD-6). The vocabulary table (`masking/target-vocabulary.ts`) is that
+decision written down, including the out-of-vocabulary list that makes "the sky" a designed
+`needs_click` rather than a miss.
+
+### Two limits of the shipped packs, and what the resolver does about them
+
+- **Objects have no class.** Subject Intelligence reports every non-person COCO class as the one
+  label `object` (`opencv_backend.py`). So "the red car" with one `object` on screen is still
+  unverified — it may be a dog — and resolves to `ambiguous_target` with that one thumbnail.
+- **SigLIP cannot score a crop.** `visual.embed` embeds a whole keyframe per shot; the worker
+  protocol has no crop parameter, so the re-ranking MD-6 names has nothing to call. The executor
+  takes a `rerank` evidence source and the resolver uses its margin when one is supplied (tested
+  with a fake); the desktop supplies none, and the result says `reranker: "none"`.
+
+Together these mean a described OBJECT always asks today. Faces and people resolve normally. The
+unnecessary-asks gate (≤ 3% inside the vocabulary) will therefore fail for objects until the
+packs change: either class names on detections, or a crop parameter on `visual.embed`. Both are
+signed-pack releases and are not part of this work.
+
+### Candidate ids
+
+An id is a pure function of the measurement — asset, frame, label, and the box quantised to a
+thousandth of the picture (`masking/candidate-id.ts`) — e.g. `f48_1a2b3c4d`. The agent log keeps
+only the two freshest payloads, so an id used ten turns later must resolve with no payload: the
+host re-detects the one frame the id names and reproduces it. Ids survive an app restart for the
+same reason.
+
 ## Intent, not numbers
 
 `masking/intent-tables.ts` maps what the model says to numbers, scaled by the picture's smaller
