@@ -237,6 +237,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **A background removal whose files are gone shows it as soon as the project opens.** When a
+  project opens, FramePilot already checks that every background removal's files are there and
+  readable. The Inspector and the export dialog now show that result straight away, with the same
+  "run Remove background again" sentence the export uses, instead of only after their own slower
+  re-check answers (BR4.15).
+
 - **The export reads background-removal mattes as untrusted files.** The files a background
   removal leaves in the project are written by a Capability Pack, so the export now opens them the
   way it already opened them for frame checks and the monitor's copy: local files only, Matroska

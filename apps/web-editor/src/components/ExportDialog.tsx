@@ -45,7 +45,8 @@ import { CreditsSection } from './CreditsSection.js';
 import { Select } from './Select.js';
 import { Tooltip } from './Tooltip.js';
 import { Download, ICON_SIZE, X } from './icons.js';
-import { matteAssetIds, uncheckedMattes } from '../editor/matteReview.js';
+import { currentMatteIssues, matteAssetIds, uncheckedMattes } from '../editor/matteReview.js';
+import { useOpenedMatteIssues } from '../editor/openedMattes.js';
 import { maskToolStore } from './inspector/masks/useMaskTools.js';
 import { getBridge } from '../editor/bridge.js';
 import { exportJobEndPayload } from '../editor/export-telemetry.js';
@@ -349,22 +350,31 @@ export function ExportDialog({
   // exact and free; STALE and BROKEN come from main, which is the only side that can hash media.
   const unchecked = timeline === undefined ? [] : uncheckedMattes(timeline);
   const uncheckedMoments = unchecked.reduce((sum, entry) => sum + entry.moments, 0);
-  const [matteIssues, setMatteIssues] = useState<readonly MatteValidationIssueWire[]>([]);
+  // `null` until main's re-check answers; until then (and if it cannot answer) the dialog shows
+  // what main found when the project opened (BR4.15), so a BROKEN matte is never absent here.
+  const [checkedIssues, setCheckedIssues] = useState<readonly MatteValidationIssueWire[] | null>(
+    null,
+  );
+  const openedIssues = useOpenedMatteIssues();
+  const matteIssues =
+    checkedIssues ?? (timeline === undefined ? [] : currentMatteIssues(timeline, openedIssues));
   useEffect(() => {
     if (!open || timeline === undefined) return;
+    setCheckedIssues(null);
     const assetIds = matteAssetIds(timeline);
     const recheck = getBridge()?.matteRecheckMedia;
-    if (assetIds.length === 0 || recheck === undefined) {
-      setMatteIssues([]);
+    if (assetIds.length === 0) {
+      setCheckedIssues([]);
       return;
     }
+    if (recheck === undefined) return;
     let live = true;
     void recheck({ assetIds })
       .then((result) => {
-        if (live) setMatteIssues(result.ok ? result.issues : []);
+        if (live) setCheckedIssues(result.ok ? result.issues : null);
       })
       .catch(() => {
-        if (live) setMatteIssues([]);
+        if (live) setCheckedIssues(null);
       });
     return () => {
       live = false;

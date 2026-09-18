@@ -12,7 +12,9 @@ import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline
 import type {
   CapabilityPackInstalledEventWire,
   CapabilityPackStatusWire,
+  MatteValidationIssueWire,
 } from '@framepilot/shared-types';
+import { OpenedMatteIssuesProvider } from '../../../editor/openedMattes.js';
 import { useEditor } from '../../../editor/useEditor.js';
 import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
 import { MatteJobStore } from './matteJobStore.js';
@@ -590,5 +592,63 @@ describe('BackgroundRemovalRow', () => {
     expect(subject.textContent).toContain('Auto (main subject)');
     const edges = screen.getByRole('combobox', { name: 'background removal edges' });
     expect(edges.textContent).toContain('Smooth (hair and soft edges)');
+  });
+
+  describe('mattes main found broken when the project opened (BR4.15)', () => {
+    const MISSING_REMEDY = 'Background removal data is missing — run Remove background again.';
+    const broken = (artifactKey = 'a'.repeat(64)): MatteValidationIssueWire => ({
+      clipId: 'c1',
+      maskId: 'c1__mask',
+      artifactKey,
+      code: 'matte_missing',
+      status: 'broken',
+      remedy: MISSING_REMEDY,
+    });
+
+    /** Main's re-check answers only when the test says so. */
+    function pendingRecheck(): (answer: unknown) => void {
+      let answer: (value: unknown) => void = () => {};
+      bridge.matteRecheckMedia.mockImplementation(
+        () => new Promise((resolve) => (answer = resolve)),
+      );
+      return (value) => answer(value);
+    }
+
+    function renderOpened(issues: readonly MatteValidationIssueWire[]): void {
+      render(
+        <OpenedMatteIssuesProvider issues={issues}>
+          <Harness jobs={jobs} withMatte />
+        </OpenedMatteIssuesProvider>,
+      );
+    }
+
+    it('shows BROKEN with the remedy on the first paint, before the re-check answers', () => {
+      pendingRecheck();
+      renderOpened([broken()]);
+      expect(screen.getByText(MISSING_REMEDY)).toBeTruthy();
+      expect(bridge.matteRecheckMedia).toHaveBeenCalledWith({ assetIds: ['a1'] });
+    });
+
+    it('keeps it when the re-check cannot answer', async () => {
+      const answer = pendingRecheck();
+      renderOpened([broken()]);
+      await act(async () =>
+        answer({ ok: false, code: 'no_project', error: 'No project is open.' }),
+      );
+      expect(screen.getByText(MISSING_REMEDY)).toBeTruthy();
+    });
+
+    it("lets main's answer replace it", async () => {
+      const answer = pendingRecheck();
+      renderOpened([broken()]);
+      await act(async () => answer({ ok: true, issues: [] }));
+      expect(screen.queryByText(MISSING_REMEDY)).toBeNull();
+    });
+
+    it('ignores a finding about an artifact the clip no longer uses', () => {
+      pendingRecheck();
+      renderOpened([broken('c'.repeat(64))]);
+      expect(screen.queryByText(MISSING_REMEDY)).toBeNull();
+    });
   });
 });

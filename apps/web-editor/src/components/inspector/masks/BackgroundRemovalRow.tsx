@@ -24,7 +24,8 @@ import type { MattePromptRefWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import { runMaskCommand } from '../../../editor/mask-editing.js';
-import { hasPictureBehind } from '../../../editor/matteReview.js';
+import { currentMatteIssues, hasPictureBehind } from '../../../editor/matteReview.js';
+import { useOpenedMatteIssues } from '../../../editor/openedMattes.js';
 import {
   MATTE_HANDLE_SECONDS,
   estimateMatteJob,
@@ -128,10 +129,14 @@ export function BackgroundRemovalRow({
   const running = job !== null;
   const matte = masksOf(clip).find((mask) => mask.kind === 'matte') ?? null;
   const applied = matte !== null;
-  const detected = useMatteIssues(
+  const checked = useMatteIssues(
     applied ? clip.assetId : null,
     matte?.kind === 'matte' ? matte.artifact.key : undefined,
   );
+  // Until main's re-check answers, what it found when the project opened (BR4.15): a deleted
+  // matte is BROKEN from the first paint, not only once the re-check comes back.
+  const opened = useOpenedMatteIssues();
+  const detected = checked ?? currentMatteIssues(editor.state.timeline, opened);
   const issue = [...issues, ...detected].find((candidate) => candidate.clipId === clip.id) ?? null;
 
   const run = (): void => {

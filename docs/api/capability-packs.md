@@ -643,6 +643,15 @@ The engine repeats the same check before an export draws a matte (`render/matte_
 refuses `matte_media_changed` with the size-change sentence ("Media changed since background
 removal ran — run Remove background again."). Mattes without a host record are not re-checked.
 
+**Broken mattes at open (BR4.15).** Opening a project runs the quick artifact check (missing,
+resized or unparseable files) in main and returns it as `ProjectOpenResult.mattes`: per matte the
+clip, mask, artifact key, engine code, `broken`/`stale` and the engine's remedy sentence. The web
+editor keeps it in `OpenedMatteIssuesProvider` (`editor/openedMattes.tsx`), and the Inspector's
+background-removal row and the export dialog show it from the first paint. Each surface still asks
+`matteRecheckMedia`; an answer replaces the open-time finding, while no answer (browser build, in
+flight, failed) keeps it. A finding whose clip no longer carries that mask with that artifact key
+(re-run, mask removed) is dropped (`currentMatteIssues`).
+
 **Job scheduler (`job-scheduler.ts`, BR4.9).** One GPU inference job at a time; interactive >
 focused clip > background, FIFO within. Pre-emption, user pauses and export pauses act only at a
 checkpoint between windows; ExportHub reports running exports so inference pauses while exporting.

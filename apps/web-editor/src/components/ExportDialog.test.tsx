@@ -1,7 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { MaskLayerSchema, type Asset, type Timeline } from '@framepilot/timeline-schema';
+import type { MatteValidationIssueWire } from '@framepilot/shared-types';
 import { ExportDialog } from './ExportDialog.js';
+import { OpenedMatteIssuesProvider } from '../editor/openedMattes.js';
 import { maskToolStore } from './inspector/masks/useMaskTools.js';
 import type { ExportProgressMessage, RendererBridge } from '../editor/bridge.js';
 
@@ -777,5 +779,111 @@ describe('ExportDialog', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Review' }));
     expect(maskToolStore.getState().reviewRequest?.clipId).toBe('c1');
+  });
+});
+
+describe('ExportDialog — mattes main found broken when the project opened (BR4.15)', () => {
+  const KEY = 'a'.repeat(64);
+  const MISSING_REMEDY = 'Background removal data is missing — run Remove background again.';
+
+  function matteTimeline(): Timeline {
+    const matte = MaskLayerSchema.parse({
+      id: 'm1',
+      kind: 'matte',
+      artifact: {
+        key: KEY,
+        files: [{ name: 'matte.mkv', sha256: 'b'.repeat(64) }],
+        width: 64,
+        height: 36,
+        coverage: { sourceStart: 0, sourceEnd: 4 },
+        packId: 'smart-mask',
+        packVersion: '1',
+        modelDigests: ['b'.repeat(64)],
+      },
+      review: { flagged: [], approved: [], locked: [] },
+    });
+    return {
+      revision: 1,
+      tracks: [
+        {
+          id: 'v1',
+          type: 'video',
+          clips: [
+            {
+              id: 'c1',
+              assetId: 'a1',
+              trackId: 'v1',
+              start: 0,
+              end: 4,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [],
+              keyframes: [],
+              masks: [matte],
+            },
+          ],
+        },
+      ],
+    } as unknown as Timeline;
+  }
+
+  const broken = (artifactKey = KEY): MatteValidationIssueWire => ({
+    clipId: 'c1',
+    maskId: 'm1',
+    artifactKey,
+    code: 'matte_missing',
+    status: 'broken',
+    remedy: MISSING_REMEDY,
+  });
+
+  /** A desktop bridge whose re-check answers only when the test says so. */
+  function installRecheck(): (answer: unknown) => void {
+    installBridge();
+    let answer: (value: unknown) => void = () => {};
+    const recheck = vi.fn(() => new Promise((resolve) => (answer = resolve)));
+    Object.assign(window.framepilot!, { matteRecheckMedia: recheck });
+    return (value) => answer(value);
+  }
+
+  function renderOpened(issues: readonly MatteValidationIssueWire[]): void {
+    render(
+      <OpenedMatteIssuesProvider issues={issues}>
+        <ExportDialog
+          frame={FRAME}
+          durationSeconds={30}
+          assets={[]}
+          timeline={matteTimeline()}
+          ensureSaved={vi.fn()}
+          onReveal={vi.fn()}
+        />
+      </OpenedMatteIssuesProvider>,
+    );
+    openExportMenu();
+  }
+
+  it("shows the remedy at once, before main's re-check answers", () => {
+    installRecheck();
+    renderOpened([broken()]);
+    expect(screen.getByRole('alert').textContent).toBe(MISSING_REMEDY);
+  });
+
+  it('keeps showing it when the re-check cannot answer', async () => {
+    const answer = installRecheck();
+    renderOpened([broken()]);
+    await act(async () => answer({ ok: false, code: 'no_project', error: 'No project is open.' }));
+    expect(screen.getByRole('alert').textContent).toBe(MISSING_REMEDY);
+  });
+
+  it("lets main's answer replace the open-time finding, never adding a second copy", async () => {
+    const answer = installRecheck();
+    renderOpened([broken()]);
+    await act(async () => answer({ ok: true, issues: [] }));
+    expect(screen.queryByRole('alert')).toBeNull();
+  });
+
+  it('drops a finding about an artifact the clip no longer uses (re-run since open)', () => {
+    installRecheck();
+    renderOpened([broken('c'.repeat(64))]);
+    expect(screen.queryByRole('alert')).toBeNull();
   });
 });
