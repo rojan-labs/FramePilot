@@ -29,7 +29,7 @@ from __future__ import annotations
 import bisect
 import logging
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from typing import Any
 
 from framepilot_engine.effects.speed_curve import has_speed_ramp, source_time_at
@@ -41,6 +41,7 @@ from framepilot_engine.timeline.models import (
     Clip,
     Effect,
     EffectLayer,
+    LayerMaskClipSource,
     MaskLayer,
     Project,
     Track,
@@ -309,8 +310,63 @@ def _mask_plan_json(clip: Clip, local: float, source_frame: int | None) -> dict[
         }
         if mask.kind == "matte":
             layer["matte"] = {"artifactKey": mask.artifact.key, "sourceFrame": source_frame}
+        if mask.kind == "layer":
+            layer["layer"] = {"source": layer_source_json(mask), "channel": str(mask.channel)}
         layers.append(layer)
     return {"sourceTime": mask_source_time(clip, local), "layers": layers}
+
+
+def layer_source_json(mask: Any) -> dict[str, str]:
+    """A ``layer`` mask's source as the plan (and the schema) spells it."""
+    source = mask.source
+    if isinstance(source, LayerMaskClipSource):
+        return {"kind": "clip", "clipId": source.clip_id}
+    return {"kind": "track", "trackId": str(source.track_id)}
+
+
+@dataclass(frozen=True)
+class LayerMatteSources:
+    """What enabled track mattes consume (MK8.2): clips and whole tracks drawn ONLY as a matte.
+
+    A clip or track another clip reads as its ``layer`` mask is its matte, not part of the
+    picture — Premiere's Track Matte Key and CapCut's text-as-mask both hide it — so the export
+    renders it for the matte and does not composite it. Only video clips on visible video tracks
+    draw a stack (the compiler's rule), so only their layer masks consume anything.
+    """
+
+    clip_ids: frozenset[str] = frozenset()
+    track_ids: frozenset[str] = frozenset()
+
+    def consumes(self, track_id: str, clip_id: str | None, for_clip_id: str | None) -> bool:
+        """Whether a plan layer (a clip's own layer, or an under-layer for one) is a matte."""
+        if track_id in self.track_ids:
+            return True
+        return (clip_id is not None and for_clip_id is None and clip_id in self.clip_ids) or (
+            for_clip_id is not None and for_clip_id in self.clip_ids
+        )
+
+
+def layer_matte_sources(
+    project: Project, asset_kinds: Mapping[str, str | None]
+) -> LayerMatteSources:
+    """The clips and tracks consumed as track mattes by enabled ``layer`` masks."""
+    clip_ids: set[str] = set()
+    track_ids: set[str] = set()
+    for track in project.timeline.tracks:
+        if track.type != TrackType.VIDEO or track.hidden:
+            continue
+        for clip in track.clips:
+            if clip_kind(clip, asset_kinds) != "video":
+                continue
+            for mask in enabled_masks(clip):
+                if mask.kind != "layer":
+                    continue
+                source = mask.source
+                if source.kind == "clip":
+                    clip_ids.add(source.clip_id)
+                else:
+                    track_ids.add(source.track_id)
+    return LayerMatteSources(frozenset(clip_ids), frozenset(track_ids))
 
 
 def _layer_mask_plan_json(layer: EffectLayer, t: float) -> dict[str, Any]:
@@ -571,9 +627,14 @@ class PlanLayer:
     effects: list[dict[str, Any]] = field(default_factory=list)
     mask: dict[str, Any] | None = None
     transitions: list[TransitionState] = field(default_factory=list)
+    #: MK8.2: rendered only as another clip's track matte, never composited itself.
+    matte_only: bool = False
 
     def to_json(self) -> dict[str, Any]:
+        # ``matteOnly`` is written only when set, so plans without a track matte are unchanged.
+        extra: dict[str, Any] = {"matteOnly": True} if self.matte_only else {}
         return {
+            **extra,
             "kind": self.kind,
             "role": self.role,
             "trackId": self.track_id,
@@ -622,6 +683,7 @@ class _Context:
     asset_durations: dict[str, float | None]
     source_fps: Mapping[str, float]
     source_frame_times: Mapping[str, Sequence[float]]
+    matte_sources: LayerMatteSources = field(default_factory=LayerMatteSources)
 
 
 def _crop_json(clip: Clip) -> dict[str, float] | None:
@@ -815,7 +877,16 @@ def _blend(clip: Clip) -> str:
 
 
 def _track_layers(ctx: _Context, track: Track) -> list[PlanLayer]:
-    """One track's active layers in the compiler's placement order."""
+    """One track's active layers in the compiler's placement order, track mattes marked."""
+    return [
+        replace(layer, matte_only=True)
+        if ctx.matte_sources.consumes(layer.track_id, layer.clip_id, layer.for_clip_id)
+        else layer
+        for layer in _placed_track_layers(ctx, track)
+    ]
+
+
+def _placed_track_layers(ctx: _Context, track: Track) -> list[PlanLayer]:
     if track.hidden:
         return []
     ordered = clips_in_sequence(track)
@@ -919,6 +990,9 @@ def frame_plan_at(
         asset_durations={asset.id: asset.duration_seconds for asset in project.assets},
         source_fps=dict(source_fps or {}),
         source_frame_times=dict(source_frame_times or {}),
+        matte_sources=layer_matte_sources(
+            project, {asset.id: asset.kind for asset in project.assets}
+        ),
     )
     layers: list[PlanLayer] = []
     for track_layers in back_to_front(

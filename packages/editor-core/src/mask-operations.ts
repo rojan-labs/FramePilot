@@ -352,7 +352,8 @@ export const MASK_ANIMATABLE_PROPERTIES: Readonly<Record<MaskKind, readonly Mask
     band: [...BASE_ANIMATABLE, 'originX', 'originY', 'angle', 'widthPx', 'softnessPx'],
     // A gradient has no edge: expansion and feathers would be controls that do nothing.
     gradient: ['opacity', 'startX', 'startY', 'endX', 'endY'],
-    layer: BASE_ANIMATABLE,
+    // A track matte's edge is its source's: grow and soften it with finesse (MK8.2).
+    layer: ['opacity'],
   };
 
 /** Fields `update_mask` refuses, with the operation that owns each. */

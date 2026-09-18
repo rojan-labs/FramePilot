@@ -336,6 +336,39 @@ describe('draw_mask', () => {
     ).toMatchObject({ status: 'rejected', code: 'not_editable' });
   });
 
+  it('adds a track matte reading another clip or a track, and refuses a loop (MK8.2)', () => {
+    const tl = timeline();
+    // The fixture timeline's second clip (c2) is the source here.
+    const after = applied(tl, {
+      type: 'add_track_matte',
+      source: { kind: 'clip', clipId: 'c2' },
+      channel: 'luma',
+    });
+    expect(masksOn(after)[0]).toMatchObject({
+      kind: 'layer',
+      name: 'Track matte 1',
+      source: { kind: 'clip', clipId: 'c2' },
+      channel: 'luma',
+    });
+    expect(
+      compile(tl, { type: 'add_track_matte', source: { kind: 'clip', clipId: 'c1' } }),
+    ).toMatchObject({ status: 'rejected', code: 'not_editable' });
+    expect(
+      compile(tl, { type: 'add_track_matte', source: { kind: 'track', trackId: 'nope' } }),
+    ).toMatchObject({ status: 'rejected', code: 'missing_track' });
+    const back = compileMaskCommand({
+      timeline: after,
+      assets: ASSETS,
+      command: {
+        type: 'add_track_matte',
+        timelineRevision: 3,
+        clipId: 'c2',
+        source: { kind: 'clip', clipId: 'c1' },
+      },
+    });
+    expect(back).toMatchObject({ status: 'rejected', code: 'invalid_patch' });
+  });
+
   it('refuses a stale timeline revision and a missing clip', () => {
     const result = compileMaskCommand({
       timeline: timeline(),

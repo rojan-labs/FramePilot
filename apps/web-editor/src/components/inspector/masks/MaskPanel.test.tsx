@@ -339,3 +339,61 @@ describe('clipboard and presets (MK4.3)', () => {
     expect(editor.state.timeline.maskPresets).toHaveLength(1);
   });
 });
+
+describe('track matte (MK8.2)', () => {
+  function withTitle(masks: MaskLayerInput[] = []): Timeline {
+    const base = timeline(masks);
+    return {
+      ...base,
+      tracks: [
+        {
+          id: 't1',
+          type: 'video',
+          clips: [
+            {
+              id: 'title',
+              assetId: '__text__',
+              trackId: 't1',
+              start: 2,
+              end: 6,
+              sourceStart: 0,
+              sourceEnd: 4,
+              effects: [{ id: 'tx', type: 'text', params: { text: 'SUMMER' }, keyframes: [] }],
+              keyframes: [],
+            },
+          ],
+        },
+        ...base.tracks,
+      ],
+    } as unknown as Timeline;
+  }
+
+  it('uses a title as the mask in one undoable edit, then switches its channel', () => {
+    function TitleHost({ initial }: { readonly initial: Timeline }): JSX.Element {
+      editor = useEditor(initial, { assets: ASSETS });
+      const clip = editor.state.timeline.tracks[1]!.clips[0]!;
+      return <MaskPanel editor={editor} clip={clip} store={store} />;
+    }
+    render(<TitleHost initial={withTitle()} />);
+    expect(screen.getByRole('combobox', { name: 'Track matte source' }).textContent).toContain(
+      'Text “SUMMER” (track t1)',
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Use as mask' }));
+    const clipMasks = () => masksOf(editor.state.timeline.tracks[1]!.clips[0]!);
+    expect(clipMasks()[0]).toMatchObject({
+      kind: 'layer',
+      source: { kind: 'clip', clipId: 'title' },
+      channel: 'alpha',
+    });
+    expect(editor.history.entries).toHaveLength(1);
+    expect(store.getState().selectedMaskId).toBe('c1__mask');
+    // The properties show the source, the channel and the edge controls, no feathers.
+    expect(screen.queryByRole('spinbutton', { name: /outer feather/i })).toBeNull();
+    fireEvent.click(screen.getByRole('combobox', { name: /Track matte 1 track matte channel/ }));
+    fireEvent.click(screen.getByRole('option', { name: 'Luma, inverted' }));
+    expect(clipMasks()[0]).toMatchObject({ channel: 'inverted-luma' });
+    act(() => editor.undo());
+    act(() => editor.undo());
+    expect(clipMasks()).toHaveLength(0);
+  });
+});

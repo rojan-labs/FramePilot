@@ -60,6 +60,28 @@ A hard split or band is certified against exact polygon clipping (error ≤ 1e-9
 supersampled reference (≤ 1/255) in `test_mask_raster_vectors.py`; the soft split against the
 analytic distance feather (≤ 1/255).
 
+## Track mattes and text as a mask (MK8.2)
+
+A `layer` mask cuts a clip by another picture. The source — one clip, or every picture on a track
+— is marked `matteOnly` in the frame plan on both sides and is never composited itself; it is
+rendered only for the matte:
+
+| Step                                                                  | Engine (`render/layer_mattes.py`, `compiler.py`)                                         | Monitor                                                                                 |
+| --------------------------------------------------------------------- | ---------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| Which layers are the source                                           | `layer_matte_sources` in `frame_plan.py`; the compile hands them to `LayerMatteResolver` | `withTrackMattes` (`engine/track-mattes.ts`) takes them out of the frame's layer list   |
+| The source frame                                                      | `CompositeVideoClip(layers, size)`, no background: straight RGB + alpha                  | `matteSourceFrame`: the same layers, the same passes, composited on a transparent frame |
+| Where the clip's pixels land                                          | `picture_placement_at` (MoviePy's truncated resize and paste, PIL's rotation)            | the layer's own raster step (`resize`, `rotation`, `x`, `y`)                            |
+| Channel at the landed pixel (nearest), inverted after sampling        | `sampled_channel`                                                                        | `MASK_LAYER_FRAGMENT` (`masks/layer-mattes.ts`)                                         |
+| Finesse, then invert and opacity; combined in the stack like any mask | `apply_finesse` → `layer_alpha`                                                          | the key's finesse passes and tail (`gl/alpha-passes.ts`)                                |
+
+The CPU mapping is byte-exact: `layerMatteAlpha` reproduces the engine's float64 channel on every
+placement and channel of `tests/fixtures/mask-raster/layer.json` (identity, offset off the frame,
+up- and down-scaled, rotated 30° and 90°). The shader is float32, so the monitor's track mattes are
+judged by the PX4 oracle's `alpha/layer-*` rows at the unchanged gates. A track matte whose source
+has its own track matte is followed (four levels; loops are refused by the validator and the
+export). The DOM fallback monitor draws a track-matted clip uncut, as it does a key: the layer
+compositor is the path.
+
 ## The key mask, and why its gate is 1/255
 
 Every other kind is rastered from geometry on the CPU, identically on both sides. A `key` is not:
@@ -132,6 +154,7 @@ at engine start). Both modes are tested.
 | `tests/fixtures/mask-raster/{coverage,feather,analytic,stack}.json`      | `mask-raster.test.ts` (and the engine) |
 | `tests/fixtures/mask-raster/legacy.json`                                 | `legacy-mask.test.ts`                  |
 | `tests/fixtures/mask-raster/stack-clips.json` (SHA-256 of float64 alpha) | `mask-stack.test.ts`                   |
+| `tests/fixtures/mask-raster/layer.json` (track matte mapping, MK8.2)     | `layer-mattes.test.ts`                 |
 
 Regenerate after a deliberate engine change with `pnpm mask-raster:vectors`; the engine's
 `test_mask_raster_vectors.py` and `test_mask_stack_vectors.py` fail when the stored files drift.
@@ -146,7 +169,7 @@ does not match, a matte frame whose pts is not the picture's) draws the clip unm
 export's own remedy sentence as the tooltip.
 
 Kinds and settings the export refuses before rendering are refused on the monitor too, never
-drawn approximately and never silently skipped: `layer` (MK8.2), a gradient with expansion or
+drawn approximately and never silently skipped: a gradient or a track matte with expansion or
 feather set, tracked masks (MK7), frame-space masks (MK9), plus project problems the
 export also rejects (media never measured, an effect target that is not on the clip). The clip is
 drawn unmasked and the monitor shows "Mask not previewed yet" with the reason as its tooltip.

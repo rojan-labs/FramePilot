@@ -209,6 +209,18 @@ function structuralIssues(owner: Owner, index: number): Issue[] {
         ),
       );
     }
+    if (
+      mask.kind === 'layer' &&
+      (mask.expansionPx !== 0 || mask.featherInnerPx !== 0 || mask.featherOuterPx !== 0)
+    ) {
+      issues.push(
+        error(
+          'invalid_mask',
+          `Track matte '${mask.id}' on ${owner.label} has expansion or feather set, and a track matte takes its edge from its source. Set them to 0 and use the finesse controls to grow or soften it.`,
+          index,
+        ),
+      );
+    }
   }
   return issues;
 }
@@ -382,6 +394,23 @@ function layerCycleIssues(
           error(
             'missing_reference',
             `Layer mask '${mask.id}' on clip '${start.id}' reads a clip or track that does not exist. Point it at an existing clip or track.`,
+            index,
+          ),
+        );
+      }
+      const sourceTrack =
+        mask.source.kind === 'clip'
+          ? timeline.tracks.find((track) =>
+              track.clips.some(
+                (candidate) => candidate.id === (mask.source as { clipId: string }).clipId,
+              ),
+            )
+          : tracksById.get(mask.source.trackId);
+      if (exists && sourceTrack !== undefined && sourceTrack.type !== 'video') {
+        issues.push(
+          error(
+            'invalid_mask',
+            `Layer mask '${mask.id}' on clip '${start.id}' reads a track that holds no picture. Point it at a clip or track on a video track.`,
             index,
           ),
         );

@@ -121,6 +121,7 @@ from framepilot_engine.render.frame_plan import (
     caption_tracks,
     clips_in_sequence,
     fit_scale,
+    layer_matte_sources,
     layer_opacity_at,
     layer_position_at,
     layer_scale_at,
@@ -140,6 +141,13 @@ from framepilot_engine.render.frame_plan import (
     transition_underlay_window as transition_underlay_window,
 )
 from framepilot_engine.render.key_mask import despill
+from framepilot_engine.render.layer_mattes import (
+    LayerMatteFrame,
+    LayerMatteRefusal,
+    LayerMatteResolver,
+    PicturePlacement,
+    assert_layer_sources,
+)
 from framepilot_engine.render.mask_stack import (
     ClipMaskStacks,
     MaskStackRefusal,
@@ -614,12 +622,78 @@ def _clip_mask_stacks(
     mattes: dict[str, Callable[[float], MatteFrame]] | None = None,
     decoded_size: tuple[int, int] | None = None,
     tracks: dict[str, Any] | None = None,
+    layer_mattes: Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]
+    | None = None,
 ) -> ClipMaskStacks | None:
     """The clip's v22 mask stacks, or a :class:`CompileError` naming why export refuses one."""
     try:
-        return clip_mask_stacks(clip, media_size, mattes, decoded_size, tracks)
+        return clip_mask_stacks(clip, media_size, mattes, decoded_size, tracks, layer_mattes)
     except MaskStackRefusal as exc:
         raise CompileError(str(exc)) from exc
+
+
+def picture_placement_at(
+    clip: Clip,
+    t: float,
+    size: tuple[int, int],
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> PicturePlacement:
+    """Where :func:`_place_video_clip` lands a clip's ``size`` picture at clip-local ``t``.
+
+    The same decisions, as integers: MoviePy's ``Resize`` truncates ``size * scale``,
+    ``compute_position`` truncates the position (``"center"`` is ``(W - w) / 2``), and rotation is
+    PIL's counter-clockwise angle, applied only when the clip animates rotation. A track matte
+    (MK8.2) needs this to know which frame pixel each of the clip's pixels lands on.
+    """
+    clip_w, clip_h = size
+    target_w, target_h = target
+    base_scale = fit_scale((clip_w, clip_h), target, fit_to_frame=True)
+    geo_transition = transition is not None and transitions.affects_geometry(transition)
+    if not has_rendered_transform(clip) and not geo_transition:
+        width, height = (
+            (clip_w, clip_h)
+            if base_scale == 1.0
+            else (int(clip_w * base_scale), int(clip_h * base_scale))
+        )
+        return PicturePlacement(
+            clip_w,
+            clip_h,
+            width,
+            height,
+            0.0,
+            int((target_w - width) / 2),
+            int((target_h - height) / 2),
+        )
+    scale = base_scale * layer_scale_at(clip, t, transition)
+    x, y = layer_position_at(
+        clip, t, (clip_w, clip_h), base_scale, target, (target_w / 2, target_h / 2), transition
+    )
+    rotation = (
+        float(evaluate_clip_transform(clip, t).rotation)
+        if ROTATION in animated_properties(clip)
+        else 0.0
+    )
+    return PicturePlacement(
+        clip_w, clip_h, int(clip_w * scale), int(clip_h * scale), rotation, int(x), int(y)
+    )
+
+
+def _layer_matte_binding(
+    resolver: LayerMatteResolver,
+    clip: Clip,
+    target: tuple[int, int],
+    transition: transitions.Transition | None,
+) -> Callable[[Any, float, int, int], tuple[LayerMatteFrame, PicturePlacement]]:
+    """A clip's track mattes at clip-local ``t``: the source frame and this clip's placement."""
+
+    def matte_at(
+        mask: Any, t: float, width: int, height: int
+    ) -> tuple[LayerMatteFrame, PicturePlacement]:
+        frame = resolver.frame_at(mask.source, clip.start + t)
+        return frame, picture_placement_at(clip, t, (width, height), target, transition)
+
+    return matte_at
 
 
 _log = logging.getLogger(__name__)
@@ -800,6 +874,11 @@ def _refuse_unrenderable_masks(
     prepared: PreparedMattes = {}
     tracks: PreparedTracks = {}
     kinds = _asset_kinds_from_project(project)
+    # MK8.2: a track matte whose source is missing, holds no picture, or loops back refuses here.
+    try:
+        assert_layer_sources(project)
+    except LayerMatteRefusal as exc:
+        raise CompileError(str(exc)) from exc
     for track in project.timeline.tracks:
         for layer in track.effect_layers or []:
             # MK5.2: an adjustment lane's stack is in frame pixels on the layer's own clock;
@@ -872,9 +951,7 @@ def _attach_mask(
     def alpha_at(t: float) -> Any:
         opacity = opacity_at(t)
         picture = (lambda: source.get_frame(t)) if keyed else None
-        stacked = (
-            None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
-        )
+        stacked = None if alpha_stack is None else alpha_stack.alpha_at(t, width, height, picture)
         if stacked is None:
             alpha = np.full((height, width), opacity, dtype=np.float64)
         else:
@@ -1228,6 +1305,10 @@ def compile_timeline(
     total_clips = sum(len(track.clips) for track in project.timeline.tracks)
     prepared = 0
     prepared_mattes, prepared_tracks = _refuse_unrenderable_masks(project, lut_base_dir)
+    # MK8.2: clips and tracks another clip reads as its track matte are rendered for the matte
+    # and never composited (the frame plan marks them `matteOnly`).
+    matte_sources = layer_matte_sources(project, asset_kinds)
+    layer_mattes = LayerMatteResolver(target)
 
     def _prepared_one() -> None:
         nonlocal prepared
@@ -1254,7 +1335,10 @@ def compile_timeline(
                     if kind == "image":
                         picture = _compile_image_clip(ImageClip, path, clip, target, lut_base_dir)
                         opened.append(picture)
-                        track_pictures.append((picture, clip.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, picture)
+                        else:
+                            track_pictures.append((picture, clip.blend_mode))
                     else:
                         # P7.5: when the clip is a plain fit — nothing animated, nothing
                         # cropped, no transition bending its geometry — its displayed size
@@ -1294,6 +1378,9 @@ def compile_timeline(
                             ),
                             (int(reader.size[0]), int(reader.size[1])),
                             prepared_tracks.get(clip.id, {}),
+                            _layer_matte_binding(
+                                layer_mattes, clip, target, legacy_transition(clip)
+                            ),
                         )
                         source = _apply_matte_decontamination(source, stacks)
                         source = _apply_color_grade(source, clip, lut_base_dir, stacks)
@@ -1326,8 +1413,14 @@ def compile_timeline(
                                 opened,
                                 _pixel_aspect_ratio(project, resolved_neighbour),
                             )
-                            track_pictures.append((underlay, resolved_neighbour.blend_mode))
-                        track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
+                            if matte_sources.consumes(track.id, resolved_neighbour.id, clip.id):
+                                layer_mattes.add(track.id, clip.id, underlay)
+                            else:
+                                track_pictures.append((underlay, resolved_neighbour.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, placed.with_start(clip.start))
+                        else:
+                            track_pictures.append((placed.with_start(clip.start), clip.blend_mode))
                 elif kind == "audio":
                     if track.muted:
                         continue
@@ -1344,7 +1437,10 @@ def compile_timeline(
                     text_layer = _compile_text_clip(ImageClip, clip, target)
                     if text_layer is not None:
                         opened.append(text_layer)
-                        track_pictures.append((text_layer, clip.blend_mode))
+                        if matte_sources.consumes(track.id, clip.id, None):
+                            layer_mattes.add(track.id, clip.id, text_layer)
+                        else:
+                            track_pictures.append((text_layer, clip.blend_mode))
             picture_by_track.append(track_pictures)
 
         video_layers: list[tuple[Any, str | None]] = []

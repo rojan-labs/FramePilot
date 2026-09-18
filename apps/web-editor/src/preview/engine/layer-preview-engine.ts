@@ -36,6 +36,7 @@ import { AudioMasterClock, type AudioSegment } from '../clock/audio-clock.js';
 import type { FrameEffectInstance } from './gl/frame-effects.js';
 import { LayerCompositor, type CompositeLayer, type LayerSource } from './layer-compositor.js';
 import { pictureRasterStep, textRasterStep, type PixelSize } from './layer-raster.js';
+import { withTrackMattes } from './track-mattes.js';
 import {
   exportText,
   loadExportTextFont,
@@ -881,11 +882,16 @@ export class LayerPreviewEngine {
     let processing = false;
     for (const layer of plan.layers) {
       if (layer.kind === 'caption' || layer.kind === 'text') {
+    // MK8.2: the plan layer each composite layer came from, so track mattes can be resolved.
+    const origins: FramePlanLayer[] = [];
         const raster =
           layer.kind === 'caption' ? this.captionLayer(layer, size) : this.textLayer(layer, size);
         // An engine raster still on its way: keep the previous presentation, as for a frame.
         if (raster === 'pending') return null;
-        if (raster) layers.push(raster);
+        if (raster) {
+          layers.push(raster);
+          origins.push(layer);
+        }
         continue;
       }
       if (layer.kind !== 'picture' || !layer.source || layer.clipId === null) continue;
@@ -917,6 +923,7 @@ export class LayerPreviewEngine {
         });
         continue;
       }
+        origins.push(layer);
       if (!this.sources.has(asset.id)) {
         // Still loading: wait for it. Failed to load: the monitor already shows the error, and
         // the rest of the frame is still worth drawing.
@@ -1003,13 +1010,14 @@ export class LayerPreviewEngine {
         timestampUs: cached.timestampUs,
       });
     }
-    return { layers, presented, processing };
+    return { layers: withTrackMattes(origins, layers), presented, processing };
   }
 
   /**
    * BR5.2: whether a matte frame at source frame `sourceFrame` needs review: in the pack's
    * `report.json` flags (read once per artifact, digest-verified) or the mask's own review
    * ranges, and not approved. The report arrives asynchronously; the paused frame is presented
+      origins.push(layer);
    * again when it does.
    */
   private isFlagged(

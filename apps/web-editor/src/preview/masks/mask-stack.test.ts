@@ -128,7 +128,6 @@ describe('mask stack refusals', () => {
     clipMaskStack(parseClip({ ...base, ...extra, masks: [mask] }), media)?.refusal ?? null;
 
   it.each([
-    [{ id: 'y', kind: 'layer', source: { kind: 'clip', clipId: 'x' } }, 'MK8'],
     [{ id: 'r', kind: 'rectangle', cx: 10, cy: 10, width: 5, height: 5, space: 'frame' }, 'MK9'],
   ])('names the task that ships %j', (mask, task) => {
     let refused;
@@ -182,6 +181,22 @@ describe('mask stack refusals', () => {
     });
     expect(feathered?.task).toBeNull();
     expect(feathered?.message).toMatch(/no edge to grow or soften/);
+  });
+
+  it('does not refuse a track matte; the compositor builds it from its source (MK8.2)', () => {
+    const stack = clipMaskStack(
+      parseClip({
+        ...base,
+        masks: [{ id: 'y', kind: 'layer', source: { kind: 'clip', clipId: 'x' }, channel: 'luma' }],
+      }),
+      media,
+    );
+    expect(stack?.refusal ?? null).toBeNull();
+    expect(new MaskStackRasterCache().raster(stack!, { kind: 'alpha' }, 16, 16, 0)).toBeNull();
+    expect(
+      refusalOf({ id: 'y', kind: 'layer', source: { kind: 'clip', clipId: 'x' }, expansionPx: 2 })
+        ?.message,
+    ).toMatch(/takes its edge from its source/);
   });
 
   it('does not refuse a key — the compositor qualifies it from the picture (MK6.1)', () => {

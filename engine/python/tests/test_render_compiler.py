@@ -2646,16 +2646,19 @@ def test_fitted_decode_size_is_always_even() -> None:
 
 
 @pytest.mark.usefixtures("require_ffprobe")
-def test_compile_refuses_a_mask_kind_export_cannot_draw_yet(
+def test_compile_refuses_a_mask_export_cannot_draw_yet(
     tmp_project_dir: Path, media_factory: Callable[..., Path]
 ) -> None:
-    """A mask kind whose renderer has not shipped stops the export with a remedy, not a guess."""
+    """A mask whose renderer has not shipped stops the export with a remedy, not a guess.
+
+    Every mask KIND renders since MK8; a frame-space mask on a clip (MK9) is what is left.
+    """
     src = media_factory("r.mp4", seconds=1.0, with_audio=False, color="red", size="320x240")
     (tmp_project_dir / "r.mp4").write_bytes(src.read_bytes())
     clip = _clip("c1", "v", 0, 1, asset="a1")
     clip["masks"] = [
         {"kind": "rectangle", "id": "a", "cx": 160, "cy": 120, "width": 100, "height": 100},
-        {"kind": "linear", "id": "l", "originX": 10.0, "originY": 10.0, "angle": 30.0},
+        {"kind": "linear", "id": "l", "originX": 10.0, "originY": 10.0, "space": "frame"},
     ]
     project = _project(
         [{"id": "v", "type": "video", "clips": [clip]}],

@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Track mattes and text as a mask.** In the Mask tab, **Track matte** uses another clip or a
+  whole track as this clip's mask: put a title above a clip, pick it, and the clip shows only
+  through the letters ("video inside text"). Alpha uses the source's shape, Luma its brightness
+  (white shows, black hides), and either can be inverted. The source stops being drawn on its own
+  — it is the matte now — and the edge can be grown, softened and cleaned. It works with animated
+  and moving titles, scaled or rotated clips, other masks in the same stack, and effects limited to
+  it; a matte that would read itself is refused with a plain explanation. The monitor reads the
+  matte with the export's own placement rules, and on desktop a title matte is drawn by the same
+  engine the export uses.
 - **Shape masks: heart, star, polygon, speech bubble, arrow and rounded frame.** The new
   **Shapes** tool (H) on the monitor's mask toolbar draws any of them into the box you drag —
   pick the number of points for a star or sides for a polygon beside the toolbar. What you get is

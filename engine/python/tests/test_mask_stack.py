@@ -107,7 +107,15 @@ def test_nothing_enabled_means_no_stack() -> None:
             },
             "Switch the mask's feather model",
         ),
-        ({"kind": "layer", "id": "y", "source": {"kind": "track", "trackId": "v2"}}, "track matte"),
+        (
+            {
+                "kind": "layer",
+                "id": "y",
+                "source": {"kind": "track", "trackId": "v2"},
+                "featherOuterPx": 2,
+            },
+            "takes its edge from its source",
+        ),
         (_rect(space="frame"), "frame-space"),
         (
             _rect(

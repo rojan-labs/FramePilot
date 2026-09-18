@@ -275,3 +275,75 @@ describe('framePlanAt mask stack (schema v22)', () => {
     expect(maskSourceTime({ ...base, speed: 2 }, 1)).toBe(4);
   });
 });
+
+describe('track mattes in the plan (MK8.2)', () => {
+  it('marks the source of an enabled layer mask matteOnly and names it on the mask', async () => {
+    const { framePlanAt } = await import('./frame-plan.js');
+    const timeline = {
+      revision: 0,
+      tracks: [
+        {
+          id: 'titles',
+          type: 'video',
+          clips: [
+            {
+              id: 'title',
+              assetId: '__text__',
+              trackId: 'titles',
+              start: 0,
+              end: 2,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [{ id: 't', type: 'text', params: { text: 'HI' } }],
+              keyframes: [],
+            },
+          ],
+        },
+        {
+          id: 'v1',
+          type: 'video',
+          clips: [
+            {
+              id: 'fill',
+              assetId: 'a',
+              trackId: 'v1',
+              start: 0,
+              end: 2,
+              sourceStart: 0,
+              sourceEnd: 2,
+              effects: [],
+              keyframes: [],
+              masks: [
+                {
+                  id: 'tm',
+                  kind: 'layer',
+                  source: { kind: 'clip', clipId: 'title' },
+                  channel: 'luma',
+                  enabled: true,
+                  mode: 'add',
+                  invert: false,
+                  space: 'source',
+                  featherModel: 'distance',
+                  target: { kind: 'alpha' },
+                  keyframes: [],
+                },
+              ],
+            },
+          ],
+        },
+      ],
+    } as unknown as Parameters<typeof framePlanAt>[0];
+    const assets = [
+      { id: 'a', path: 'a.mp4', kind: 'video', media: { width: 1920, height: 1080 } },
+    ] as unknown as Parameters<typeof framePlanAt>[1];
+    const plan = framePlanAt(timeline, assets, 1, { width: 1280, height: 720 });
+    const title = plan.layers.find((layer) => layer.clipId === 'title')!;
+    const fill = plan.layers.find((layer) => layer.clipId === 'fill')!;
+    expect(title.matteOnly).toBe(true);
+    expect(fill.matteOnly).toBeUndefined();
+    expect(fill.mask?.layers[0]?.layer).toEqual({
+      source: { kind: 'clip', clipId: 'title' },
+      channel: 'luma',
+    });
+  });
+});

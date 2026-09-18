@@ -28,6 +28,13 @@ import { InspectorRow } from '../InspectorRow.js';
 import { keyframeStateAt } from '../keyframe-state.js';
 import { MaskKeyControls } from './MaskKeyControls.js';
 import { MaskNumberField } from './MaskNumberField.js';
+import {
+  TRACK_MATTE_CHANNELS,
+  TRACK_MATTE_CHANNEL_LABELS,
+  parseTrackMatteSource,
+  trackMatteOptions,
+  trackMatteValue,
+} from './trackMatteSources.js';
 import { maskToolStore, useMaskTools, type MaskToolStore } from './useMaskTools.js';
 
 interface NumberRow {
@@ -98,6 +105,25 @@ const hasGeometryRows = (kind: MaskLayer['kind']): kind is RowKind =>
 const GRADIENT_EDGE_ROWS: readonly NumberRow[] = EDGE_ROWS.filter(
   (row) => row.property === 'opacity',
 );
+
+/**
+ * A track matte's edge controls (MK8.2): the matte finesse group, which is how a track matte is
+ * grown, softened and cleaned — its edge is its source's, so it has no expansion or feather.
+ */
+const FINESSE_ROWS: readonly {
+  readonly field: 'shrinkGrowPx' | 'blurPx' | 'cleanBlack' | 'cleanWhite' | 'denoise';
+  readonly label: string;
+  readonly step: number;
+  readonly min?: number;
+  readonly max?: number;
+  readonly unit?: string;
+}[] = [
+  { field: 'shrinkGrowPx', label: 'Shrink/grow', step: 1, min: -64, max: 64, unit: 'px' },
+  { field: 'blurPx', label: 'Soften', step: 1, min: 0, max: 64, unit: 'px' },
+  { field: 'cleanBlack', label: 'Clean black', step: 0.01, min: 0, max: 1 },
+  { field: 'cleanWhite', label: 'Clean white', step: 0.01, min: 0, max: 1 },
+  { field: 'denoise', label: 'Denoise', step: 0.01, min: 0, max: 1 },
+];
 
 const GRADIENT_SHAPES = ['linear', 'radial'] as const;
 const GRADIENT_SHAPE_LABELS = ['Linear', 'Radial'] as const;
@@ -216,6 +242,15 @@ export function MaskProperties({
     />
   );
 
+  /** The sources a track matte can switch to, always including the one it reads now. */
+  const sourceOptions = (layer: Extract<MaskLayer, { kind: 'layer' }>) => {
+    const options = trackMatteOptions(editor.state.timeline, clip);
+    const current = trackMatteValue(layer.source);
+    return options.some((option) => option.value === current)
+      ? options
+      : [{ value: current, label: 'The current source (not playing here)' }, ...options];
+  };
+
   const effects = clip.effects.filter(
     (effect) => effect.type !== 'transition' && effect.type !== 'transition_out',
   );
@@ -264,7 +299,69 @@ export function MaskProperties({
           })
         }
       />
-      {(mask.kind === 'gradient' ? GRADIENT_EDGE_ROWS : EDGE_ROWS).map(numberRow)}
+      {(mask.kind === 'gradient' || mask.kind === 'layer' ? GRADIENT_EDGE_ROWS : EDGE_ROWS).map(
+        numberRow,
+      )}
+      {mask.kind === 'layer' && (
+        <>
+          <LabeledSelect
+            caption="Source"
+            label={`${name} track matte source`}
+            value={trackMatteValue(mask.source)}
+            options={sourceOptions(mask).map((option) => option.value)}
+            labels={sourceOptions(mask).map((option) => option.label)}
+            onChange={(value) => {
+              const source = parseTrackMatteSource(value);
+              if (source === null) return;
+              run({
+                type: 'set_mask_properties',
+                clipId: clip.id,
+                maskId: mask.id,
+                sourceTime,
+                changes: { source },
+              });
+            }}
+          />
+          <LabeledSelect
+            caption="Channel"
+            label={`${name} track matte channel`}
+            value={mask.channel}
+            options={TRACK_MATTE_CHANNELS}
+            labels={TRACK_MATTE_CHANNEL_LABELS}
+            onChange={(value) =>
+              run({
+                type: 'set_mask_properties',
+                clipId: clip.id,
+                maskId: mask.id,
+                sourceTime,
+                changes: { channel: value },
+              })
+            }
+          />
+          {FINESSE_ROWS.map((row) => (
+            <MaskNumberField
+              key={row.field}
+              label={row.label}
+              name={`${name} ${row.label.toLowerCase()}`}
+              value={mask.finesse[row.field]}
+              step={row.step}
+              disabled={locked}
+              {...(row.min === undefined ? {} : { min: row.min })}
+              {...(row.max === undefined ? {} : { max: row.max })}
+              {...(row.unit === undefined ? {} : { unit: row.unit })}
+              onCommit={(value) =>
+                run({
+                  type: 'set_mask_properties',
+                  clipId: clip.id,
+                  maskId: mask.id,
+                  sourceTime,
+                  changes: { finesse: { ...mask.finesse, [row.field]: value } },
+                })
+              }
+            />
+          ))}
+        </>
+      )}
       {mask.kind === 'gradient' && (
         <>
           <LabeledSelect
@@ -301,7 +398,7 @@ export function MaskProperties({
           />
         </>
       )}
-      {mask.kind !== 'gradient' && (
+      {mask.kind !== 'gradient' && mask.kind !== 'layer' && (
         <LabeledSelect
           caption="Falloff"
           label={`${name} falloff`}

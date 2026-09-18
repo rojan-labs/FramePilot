@@ -215,6 +215,21 @@ describe('mask validator rules', () => {
       },
     ]);
     expect(disabled.valid).toBe(true);
+    // A track matte takes its edge from its source: expansion and feathers are refused (MK8.2).
+    const feathered = validate(timeline(), [
+      {
+        type: 'add_mask',
+        clipId: 'c1',
+        mask: {
+          kind: 'layer',
+          id: 'f',
+          source: { kind: 'clip', clipId: 'c2' },
+          featherOuterPx: 4,
+        },
+      },
+    ]);
+    expect(codes(feathered)).toEqual(['error:invalid_mask']);
+    expect(feathered.issues[0]!.message).toMatch(/finesse controls/);
   });
 
   it('refuses a trim that plays source frames the matte does not cover, and a matte made for another size', () => {

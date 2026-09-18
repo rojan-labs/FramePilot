@@ -145,6 +145,38 @@ backend-only `transformTrack` field with no renderer behind it is precisely the 
 "schema exists, capability does not" progress the product-discipline rule forbids. Recorded so a
 later agent takes the decision rather than rediscovering the question.
 
+### MK8 amendment (2026-09-18): analytic kinds, track mattes, shape presets
+
+**Split, band and gradient are analytic, not paths.** `linear`, `band` and `gradient` are a
+distance to a line or a centre evaluated per pixel centre by twin float64 functions under the
+rasteriser's determinism rules. A hard split or band is the EXACT area of the pixel square on the
+kept side (a closed-form trapezoid CDF of the square's projection onto the line's unit normal),
+not the one-pixel linear edge a shape gets from its distance field: a straight line is the one
+edge whose exact coverage has a closed form, and taking it keeps the ≤ 1/255-vs-supersample gate
+without a coverage sweep. Softness joins each feather side by half, so the soft edge is the shapes'
+own distance feather. A gradient has no edge: expansion and feathers on one are refused (validator,
+export, monitor) rather than silently ignored.
+
+**A track matte's source is consumed, not drawn.** A clip or track an enabled `layer` mask reads is
+rendered for the matte and never composited itself — Premiere's Track Matte Key and CapCut's text
+mask both hide it, and "video inside text" is impossible otherwise. The frame plan marks such
+layers `matteOnly` on both sides (the key is written only when true, so plans without a track matte
+did not change). The matte is the source composited ALONE on a transparent frame at the same
+instant (`CompositeVideoClip(layers, size)` without a background), read at the frame pixel each of
+the target's cropped-picture pixel centres lands on through the target's own resize, rotation and
+paste (`picture_placement_at`, the integers MoviePy uses), then the key's finesse group, invert and
+opacity. Channels: alpha; luma over transparent black (`luma(rgb) · alpha`); inverted after
+sampling. A track matte has no drawn edge, so expansion and feathers are refused on it (finesse
+grows and softens it). Loops and missing or picture-less sources are refused before rendering.
+The CPU mapping is byte-exact TS↔Python (`layer.json`); the monitor's shader is float32 and is
+judged by the PX4 oracle at unchanged gates. Adjustment lanes refuse a track matte (their stack is
+frame-space and has no clip to read against).
+
+**Shape presets are generators.** Heart, star, n-gon, speech bubble, arrow and rounded frame
+produce ordinary `path` masks (`mask-shape-presets.ts`); a rounded frame is an outer path plus a
+subtracted inner one, because one path with a hole needs a bridge the feather would show. No kind,
+no schema change.
+
 ## Consequences
 
 - Keyframe curve math and the speed curve moved into `timeline-schema` (editor-core re-exports

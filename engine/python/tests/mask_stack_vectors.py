@@ -1096,8 +1096,81 @@ def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
 
+# --- Track mattes (MK8.2) ---------------------------------------------------------------
+
+#: The source frame every layer vector reads: RGBA, straight alpha, a soft disc of varying colour
+#: over a transparent frame with a hard-edged opaque block, so alpha and luma both vary.
+LAYER_FRAME_SIZE = (40, 30)
+
+#: Placements covering identity, an offset partly off the frame, up- and down-scaling, and two
+#: rotations (PIL's counter-clockwise angle about the resized centre).
+_LAYER_PLACEMENTS: list[dict[str, Any]] = [
+    {"id": "identity", "placement": [40, 30, 40, 30, 0.0, 0, 0]},
+    {"id": "offset-off-frame", "placement": [20, 16, 20, 16, 0.0, 27, -5]},
+    {"id": "upscaled", "placement": [10, 8, 40, 30, 0.0, 0, 0]},
+    {"id": "downscaled", "placement": [64, 48, 20, 15, 0.0, 10, 5]},
+    {"id": "rotated-30", "placement": [24, 18, 30, 22, 30.0, 4, 3]},
+    {"id": "rotated-90", "placement": [20, 20, 20, 20, 90.0, 10, 5]},
+]
+
+
+def layer_frame_rgba() -> np.ndarray:
+    """:data:`LAYER_FRAME_SIZE` RGBA uint8 (rows top to bottom)."""
+    width, height = LAYER_FRAME_SIZE
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64)
+    radius = np.hypot((xs - 14.3) / 11.0, (ys - 13.7) / 9.0)
+    alpha = np.clip((1.2 - radius) * 255.0, 0.0, 255.0)
+    alpha = np.where((xs >= 28) & (xs < 36) & (ys >= 4) & (ys < 26), 255.0, alpha)
+    red = 40 + xs * 5
+    green = 250 - ys * 7
+    blue = 30 + (xs + ys) * 3
+    rgba = np.stack([red, green, blue, alpha], axis=-1)
+    return np.clip(np.rint(rgba), 0, 255).astype(np.uint8)
+
+
+def _layer_document() -> dict[str, Any]:
+    from framepilot_engine.render.layer_mattes import (
+        LAYER_CHANNELS,
+        LayerMatteFrame,
+        PicturePlacement,
+        sampled_channel,
+    )
+
+    rgba = layer_frame_rgba()
+    frame = LayerMatteFrame(
+        rgb=rgba[:, :, :3].copy(), alpha=rgba[:, :, 3].astype(np.float64) / 255.0
+    )
+    cases = []
+    for entry in _LAYER_PLACEMENTS:
+        placement = PicturePlacement(*entry["placement"])
+        cases.append(
+            {
+                **entry,
+                "expected": {
+                    channel: _float_digest(sampled_channel(frame, channel, placement))
+                    for channel in LAYER_CHANNELS
+                },
+            }
+        )
+    return {
+        "area": "layer",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/layer_mattes.py sampled_channel. "
+            "placement = [localWidth, localHeight, width, height, rotation, x, y]; expected = "
+            "SHA-256 of the float64 LE channel on the local raster (before finesse)"
+        ),
+        "frame": {
+            "width": LAYER_FRAME_SIZE[0],
+            "height": LAYER_FRAME_SIZE[1],
+            "rgba": base64.b64encode(rgba.tobytes()).decode("ascii"),
+        },
+        "cases": cases,
+    }
+
+
 DOCUMENTS = {
     "legacy": _legacy_document,
+    "layer": _layer_document,
     "stack-clips": _clip_document,
     "matte-clips": _matte_document,
     "frame-layers": _frame_layer_document,

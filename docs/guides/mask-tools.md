@@ -40,6 +40,13 @@ A shape preset (MK8.3) is not a mask kind: it inserts ordinary path masks
 drawn path. A rounded frame is two paths, the outer one added and the inner one subtracted,
 because one path with a hole would need a bridge the feather would show.
 
+**Track matte / text as a mask (MK8.2).** In the Mask tab, **Track matte** lists the clips on other
+video tracks that play while this one does (a title shows as its text) and each whole video track;
+pick one and a channel (Alpha, Luma, or either inverted) and **Use as mask**. The source then stops
+being drawn: it is this clip's matte — "video inside text" is a title above a clip, used as the
+clip's Alpha matte. The selected track matte shows its source and channel, and Shrink/grow, Soften,
+Clean black/white and Denoise instead of expansion and feathers (its edge is its source's).
+
 The Inspector lists the stack top first (drag or Alt+↑/↓ to reorder; colour, blend mode, invert,
 visibility, lock, delete) and, for the selected mask, what it limits (the clip or one effect),
 opacity, expansion, feathers, falloff and typed pixel geometry. Every animatable field has a

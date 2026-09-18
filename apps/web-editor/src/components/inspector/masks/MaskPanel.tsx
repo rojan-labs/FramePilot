@@ -8,7 +8,7 @@
  * drawing path starts from the panel.
  */
 import { useEffect } from 'react';
-import { MEASURE_MEDIA_FIRST, assetDisplaySize } from '@framepilot/editor-core';
+import { MEASURE_MEDIA_FIRST, assetDisplaySize, nextMaskId } from '@framepilot/editor-core';
 import { masksOf, type Clip } from '@framepilot/timeline-schema';
 import type { UseEditor } from '../../../editor/useEditor.js';
 import {
@@ -23,6 +23,7 @@ import { MaskList, maskDisplayName } from './MaskList.js';
 import { MaskReviewPanel } from './MaskReviewPanel.js';
 import { MaskPresets } from './MaskPresets.js';
 import { MaskProperties } from './MaskProperties.js';
+import { TrackMatteRow } from './TrackMatteRow.js';
 import { maskToolStore, useMaskTools, type MaskTool, type MaskToolStore } from './useMaskTools.js';
 
 const DRAW_TOOLS: readonly {
@@ -104,6 +105,22 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
           {MEASURE_MEDIA_FIRST}
         </p>
       )}
+      {/* MK8.2: a title, a graphic or another shot as this clip's mask (text as a mask). */}
+      <TrackMatteRow
+        timeline={editor.state.timeline}
+        clip={clip}
+        onAdd={(source, channel) => {
+          const id = nextMaskId(clip);
+          const refusal = runMaskCommand(editor, {
+            type: 'add_track_matte',
+            clipId: clip.id,
+            source,
+            channel,
+          });
+          store.update({ message: refusal });
+          if (refusal === null) store.selectMask(id);
+        }}
+      />
       <MaskList
         masks={masks}
         selectedMaskId={tools.selectedMaskId}

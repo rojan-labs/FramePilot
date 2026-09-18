@@ -69,6 +69,7 @@ import { TRACK_REMEDIES } from './track-source.js';
 import { previewIdentity } from '../semantic-signature.js';
 import { cleanLevels, matteFrameAlpha, type MatteFrameData } from './matte-edges.js';
 import { keyExceedsPass, keyMorphExceedsPass } from './key-mask.js';
+import { layerMatteRefusal, stackReadsLayers, type LayerMask } from './layer-mattes.js';
 
 const log = createLogger('web-editor:preview:mask-stack');
 
@@ -121,12 +122,23 @@ export function analyticRefusal(mask: MaskLayer): string | null {
 }
 /** A `key` layer: qualified from the PICTURE on the GPU, never rastered from geometry. */
 export type KeyMask = Extract<MaskLayer, { kind: 'key' }>;
-/** Anything a stack may hold: the CPU-drawable kinds, plus the key the compositor qualifies. */
-export type StackMask = DrawnMask | KeyMask;
+/**
+ * Anything a stack may hold: the CPU-drawable kinds, plus the key the compositor qualifies and
+ * the track matte (MK8.2) it reads from another layer's picture.
+ */
+export type StackMask = DrawnMask | KeyMask | LayerMask;
 
 /** Whether these masks read the picture, so the stack must be built by the compositor (MK6.1). */
 export function stackReadsPicture(masks: readonly StackMask[]): boolean {
   return masks.some((mask) => mask.kind === 'key');
+}
+
+/**
+ * Whether the stack can only be built by the compositor's GPU passes: it holds a key (which reads
+ * the clip's own picture) or a track matte (which reads another layer's).
+ */
+export function stackNeedsCompositor(masks: readonly StackMask[]): boolean {
+  return stackReadsPicture(masks) || stackReadsLayers(masks);
 }
 
 /**
@@ -174,9 +186,7 @@ export type MaskStackTarget =
 
 const KIND_REFUSALS: Partial<
   Record<MaskLayer['kind'], { task: MaskPreviewRefusal['task']; what: string }>
-> = {
-  layer: { task: 'MK8', what: 'track matte masks preview once the layer mask renderer ships' },
-};
+> = {};
 
 function refusal(
   clip: Clip,
@@ -265,6 +275,10 @@ function refusalFor(
   if (isAnalytic(mask)) {
     const analytic = analyticRefusal(mask);
     return analytic === null ? null : refusal(clip, mask, null, analytic);
+  }
+  if (mask.kind === 'layer') {
+    const layer = layerMatteRefusal(mask);
+    return layer === null ? null : refusal(clip, mask, null, layer);
   }
   const shape = mask as ShapeMask;
   if (isLegacy(mask) && mask.tracking !== undefined) {
@@ -729,6 +743,10 @@ export function singleMaskAlpha(
     // rasteriser with one means a caller skipped `stackReadsPicture`.
     throw new MaskRasterError('A key mask is qualified on the GPU, not by the rasteriser.');
   }
+  if (drawn.kind === 'layer') {
+    // A track matte reads another layer's composited picture, which only the compositor has.
+    throw new MaskRasterError('A track matte is drawn by the compositor, not by the rasteriser.');
+  }
   if (drawn.kind === 'matte') {
     if (mattes === null) {
       throw new MaskRasterError('A matte frame was not decoded before its stack was drawn.');
@@ -835,6 +853,7 @@ function isAnimated(masks: readonly StackMask[]): boolean {
     (mask) =>
       mask.kind === 'matte' ||
       mask.kind === 'key' ||
+      mask.kind === 'layer' ||
       // A track gives a mask a new transform on every source frame.
       mask.tracking !== undefined ||
       mask.keyframes.length > 0 ||
@@ -887,8 +906,9 @@ export class MaskStackRasterCache {
     // A stack holding a key is qualified from the picture by the compositor's GPU passes; there
     // is nothing for this cache to draw or to keep. Callers with no GL context (the DOM
     // fallback monitor) therefore show the clip uncut, which is why the canvas monitor is the
-    // path a key mask is designed for.
-    if (stackReadsPicture(masks)) return null;
+    // path a key mask is designed for. A track matte (MK8.2) is the same: its source is another
+    // layer's composited picture, which only the compositor draws.
+    if (stackNeedsCompositor(masks)) return null;
     const s = maskSourceTime(stack.clip, clipTime);
     const key = [
       previewIdentity(stack.clip),

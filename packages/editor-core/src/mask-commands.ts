@@ -318,6 +318,21 @@ export interface DrawShapePresetCommand extends MaskCommandBase {
   readonly target?: MaskTarget;
 }
 
+/**
+ * Use another clip or a whole track as this clip's mask (MK8.2): track matte, text as a mask.
+ * The source is then rendered only as the matte (the frame plan marks it `matteOnly`).
+ */
+export interface AddTrackMatteCommand extends MaskCommandBase {
+  readonly type: 'add_track_matte';
+  readonly source:
+    | { readonly kind: 'clip'; readonly clipId: string }
+    | { readonly kind: 'track'; readonly trackId: string };
+  /** `alpha` (default), `luma`, `inverted-alpha` or `inverted-luma`. */
+  readonly channel?: 'alpha' | 'luma' | 'inverted-alpha' | 'inverted-luma';
+  readonly name?: string;
+  readonly target?: MaskTarget;
+}
+
 /** Change a mask's shape at a source instant (a monitor drag, a typed px field). */
 export interface SetMaskGeometryCommand extends MaskCommandBase {
   readonly type: 'set_mask_geometry';
@@ -566,6 +581,7 @@ export type MaskCommand =
   | RemoveMaskPresetCommand
   | DrawMaskCommand
   | DrawShapePresetCommand
+  | AddTrackMatteCommand
   | SetMaskGeometryCommand
   | SetMaskPropertiesCommand
   | ToggleMaskKeyframeCommand
@@ -880,6 +896,39 @@ function buildDrawShapePreset(
   return {
     operations,
     reason: `Add ${MASK_SHAPE_PRESET_NAMES[command.preset].toLowerCase()} mask on "${clip.id}"`,
+  };
+}
+
+function buildAddTrackMatte(input: CompileMaskCommandInput, command: AddTrackMatteCommand): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  const { source } = command;
+  if (source.kind === 'clip') {
+    findClip(input.timeline, source.clipId);
+    if (source.clipId === clip.id) {
+      throw new Rejection(
+        'not_editable',
+        'A clip cannot be its own track matte. Pick another clip.',
+      );
+    }
+  } else if (!input.timeline.tracks.some((track) => track.id === source.trackId)) {
+    throw new Rejection('missing_track', `Track "${source.trackId}" does not exist.`);
+  }
+  const id = nextMaskId(clip);
+  const mask: MaskLayerInput = {
+    id,
+    kind: 'layer',
+    name: command.name ?? `Track matte ${String(masksOf(clip).length + 1)}`,
+    color: nextMaskColor(clip),
+    source:
+      source.kind === 'clip'
+        ? { kind: 'clip', clipId: source.clipId }
+        : { kind: 'track', trackId: source.trackId },
+    channel: command.channel ?? 'alpha',
+    ...(command.target === undefined ? {} : { target: assertTarget(clip, command.target) }),
+  };
+  return {
+    operations: [{ type: 'add_mask', clipId: clip.id, mask, index: 0 }],
+    reason: `Use ${source.kind === 'clip' ? `clip "${source.clipId}"` : `track "${source.trackId}"`} as the mask of "${clip.id}"`,
   };
 }
 
@@ -1391,6 +1440,8 @@ function build(input: CompileMaskCommandInput): Built {
       return buildDraw(input, command);
     case 'draw_shape_preset':
       return buildDrawShapePreset(input, command);
+    case 'add_track_matte':
+      return buildAddTrackMatte(input, command);
     case 'set_mask_geometry':
       return buildSetGeometry(input, command);
     case 'set_mask_properties':

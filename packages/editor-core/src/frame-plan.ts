@@ -112,6 +112,12 @@ export interface FramePlanLayer {
    */
   readonly mask: FramePlanMaskStack | null;
   readonly transitions: readonly FramePlanTransition[];
+  /**
+   * MK8.2: the layer is another clip's track matte — rendered for that clip's `layer` mask and
+   * never composited itself (Premiere's Track Matte Key and CapCut's text-as-mask both hide the
+   * matte). Present only when true, so plans without a track matte are unchanged.
+   */
+  readonly matteOnly?: true;
 }
 
 export interface FramePlanMaskLayer {
@@ -124,6 +130,11 @@ export interface FramePlanMaskLayer {
   readonly target: { kind: 'alpha' } | { kind: 'effect'; effectId: string };
   /** Matte layers only: the artifact, read at the picture's own decoded source frame (BR2). */
   readonly matte?: { readonly artifactKey: string; readonly sourceFrame: number | null };
+  /** Track matte layers only (MK8.2): the clip or track it reads, and which channel. */
+  readonly layer?: {
+    readonly source: { kind: 'clip'; clipId: string } | { kind: 'track'; trackId: string };
+    readonly channel: 'alpha' | 'luma' | 'inverted-alpha' | 'inverted-luma';
+  };
 }
 
 export interface FramePlanMaskStack {
@@ -614,6 +625,44 @@ interface Context {
   readonly sourceFps: ReadonlyMap<string, number>;
   readonly sourceFrameTimes: ReadonlyMap<string, readonly number[]>;
   readonly transcript: readonly TranscriptWord[];
+  readonly matteSources: LayerMatteSources;
+}
+
+/**
+ * What enabled track mattes consume (`LayerMatteSources`, MK8.2): clips and whole tracks drawn
+ * ONLY as another clip's matte. Only video clips on visible video tracks draw a stack.
+ */
+export interface LayerMatteSources {
+  readonly clipIds: ReadonlySet<string>;
+  readonly trackIds: ReadonlySet<string>;
+}
+
+/** `layer_matte_sources`: the clips and tracks consumed by enabled `layer` masks. */
+export function layerMatteSources(
+  timeline: Timeline,
+  assetKinds: ReadonlyMap<string, string>,
+): LayerMatteSources {
+  const clipIds = new Set<string>();
+  const trackIds = new Set<string>();
+  for (const track of timeline.tracks) {
+    if (track.type !== 'video' || track.hidden === true) continue;
+    for (const clip of track.clips) {
+      if (clipKindOf(clip, assetKinds) !== 'video') continue;
+      for (const mask of masksOf(clip)) {
+        if (!mask.enabled || mask.kind !== 'layer') continue;
+        if (mask.source.kind === 'clip') clipIds.add(mask.source.clipId);
+        else trackIds.add(mask.source.trackId);
+      }
+    }
+  }
+  return { clipIds, trackIds };
+}
+
+/** `LayerMatteSources.consumes`: a clip's own layer, or an under-layer for one, is a matte. */
+function consumedAsMatte(sources: LayerMatteSources, layer: FramePlanLayer): boolean {
+  if (sources.trackIds.has(layer.trackId)) return true;
+  if (layer.forClipId !== null) return sources.clipIds.has(layer.forClipId);
+  return layer.clipId !== null && sources.clipIds.has(layer.clipId);
 }
 
 function pictureGeometry(
@@ -786,6 +835,17 @@ function maskPlan(
           ? { kind: 'effect', effectId: mask.target.effectId }
           : { kind: 'alpha' },
       ...(mask.kind === 'matte' ? { matte: { artifactKey: mask.artifact.key, sourceFrame } } : {}),
+      ...(mask.kind === 'layer'
+        ? {
+            layer: {
+              source:
+                mask.source.kind === 'clip'
+                  ? { kind: 'clip' as const, clipId: mask.source.clipId }
+                  : { kind: 'track' as const, trackId: mask.source.trackId },
+              channel: mask.channel,
+            },
+          }
+        : {}),
     })),
   };
 }
@@ -881,7 +941,14 @@ function textLayer(ctx: Context, track: Track, clip: Clip): FramePlanLayer | nul
   };
 }
 
+/** One track's active layers in the compiler's placement order, track mattes marked (MK8.2). */
 function trackLayers(ctx: Context, track: Track): FramePlanLayer[] {
+  return placedTrackLayers(ctx, track).map((layer) =>
+    consumedAsMatte(ctx.matteSources, layer) ? { ...layer, matteOnly: true as const } : layer,
+  );
+}
+
+function placedTrackLayers(ctx: Context, track: Track): FramePlanLayer[] {
   if (track.hidden === true) return [];
   const ordered = [...track.clips].sort((a, b) => a.start - b.start);
   const layers: FramePlanLayer[] = [];
@@ -980,16 +1047,18 @@ export function framePlanAt(
     if (display !== null) assetSizes.set(asset.id, [display.width, display.height]);
     if (asset.durationSeconds !== undefined) assetDurations.set(asset.id, asset.durationSeconds);
   }
+  const assetKinds = new Map(assets.map((asset) => [asset.id, asset.kind]));
   const ctx: Context = {
     t: projectTime,
     width: resolution.width,
     height: resolution.height,
-    assetKinds: new Map(assets.map((asset) => [asset.id, asset.kind])),
+    assetKinds,
     assetSizes,
     assetDurations,
     sourceFps: toMap(options.sourceFps),
     sourceFrameTimes: toMap(options.sourceFrameTimes),
     transcript: options.transcript ?? [],
+    matteSources: layerMatteSources(timeline, assetKinds),
   };
 
   const layers: FramePlanLayer[] = [];

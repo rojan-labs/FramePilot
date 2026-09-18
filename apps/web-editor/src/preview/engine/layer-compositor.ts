@@ -43,6 +43,13 @@ import {
 } from '../masks/mask-stack.js';
 import { maskSourceTime } from '@framepilot/editor-core';
 import {
+  MASK_LAYER_FRAGMENT,
+  layerMatteUniforms,
+  stackReadsLayers,
+  type LayerMask,
+  type PicturePlacement,
+} from '../masks/layer-mattes.js';
+import {
   decontaminate,
   decontaminateFromPlanes,
   planesFit,
@@ -113,6 +120,9 @@ const BACKGROUND: readonly [number, number, number, number] = [0, 0, 0, 1];
 const TRANSITION_TIME_QUANTUM = 1 / 60;
 const OPAQUE_COVERAGE = new Uint8Array([255]);
 
+/** Track mattes whose source has its own track matte, followed this many levels deep (MK8.2). */
+const MAX_MATTE_DEPTH = 4;
+
 /** Combine modes in the order `MASK_COMBINE_FRAGMENT` branches on (`combine`, `mask_raster`). */
 const MASK_COMBINE_MODES = [
   'add',
@@ -146,6 +156,12 @@ export type CompositeLayer =
       readonly mattes?: MatteStackInputs;
       /** BR5.2: under the Flagged view, whether this frame is flagged for review. */
       readonly flagged?: boolean;
+      /**
+       * MK8.2: per `layer` mask id, the layers its source is made of at this instant (back to
+       * front) — the frame plan's `matteOnly` layers, composited alone for the matte. An empty
+       * list is a source that draws nothing here.
+       */
+      readonly layerMattes?: ReadonlyMap<string, readonly CompositeLayer[]>;
     }
   | {
       /** A pre-rasterised RGBA layer (text, captions) placed at an integer position. */
@@ -188,6 +204,17 @@ export class LayerCompositor {
   private luts: ReadonlyMap<string, CubeLut> = new Map();
   private telemetry: PreviewTelemetry | null = null;
   private readonly syncPixel = new Uint8Array(4);
+  /** The frame being composited (a track matte's source is composited at this size, MK8.2). */
+  private frameSize: PixelSize = { width: 0, height: 0 };
+  /** This frame's shared decodes, so a matte source reuses a picture the frame already decoded. */
+  private frameDecodes = new Map<string, RenderTarget>();
+  /** The picture layer being rastered: its track matte sources and where it lands (MK8.2). */
+  private layerContext: {
+    readonly sources: ReadonlyMap<string, readonly CompositeLayer[]>;
+    readonly step: PictureRasterStep;
+  } | null = null;
+  /** How deep track mattes are nested (a matte whose source has its own track matte). */
+  private matteDepth = 0;
 
   /** Where this compositor reports mask raster, key stack and pool numbers (PX5.1). */
   setTelemetry(telemetry: PreviewTelemetry | null): void {
@@ -259,6 +286,8 @@ export class LayerCompositor {
       }
 
       const decodedMemo = new Map<string, RenderTarget>();
+      this.frameSize = size;
+      this.frameDecodes = decodedMemo;
       for (const layer of shown.layers) {
         const placed =
           layer.kind === 'picture'
@@ -269,6 +298,7 @@ export class LayerCompositor {
                 layer.maskView ?? 'off',
                 layer.mattes ?? null,
                 layer.flagged === true,
+                layer.layerMattes ?? null,
               )
             : {
                 target: r.imageTarget(layer.image, layer.width, layer.height),
@@ -339,6 +369,11 @@ export class LayerCompositor {
     }
   }
 
+  /**
+   * One picture layer through the export's steps. A layer with track mattes (MK8.2) makes them
+   * the context its stack is built in, restored afterwards, because a matte's source can itself
+   * be a picture layer with track mattes of its own.
+   */
   private rasterPicture(
     step: PictureRasterStep,
     source: LayerSource,
@@ -346,6 +381,24 @@ export class LayerCompositor {
     view: MaskDebugView = 'off',
     mattes: MatteStackInputs | null = null,
     flagged = false,
+    layerMattes: ReadonlyMap<string, readonly CompositeLayer[]> | null = null,
+  ): { target: RenderTarget; x: number; y: number } | null {
+    const outer = this.layerContext;
+    this.layerContext = layerMattes === null ? null : { sources: layerMattes, step };
+    try {
+      return this.rasterPictureSteps(step, source, decodedMemo, view, mattes, flagged);
+    } finally {
+      this.layerContext = outer;
+    }
+  }
+
+  private rasterPictureSteps(
+    step: PictureRasterStep,
+    source: LayerSource,
+    decodedMemo: Map<string, RenderTarget>,
+    view: MaskDebugView,
+    mattes: MatteStackInputs | null,
+    flagged: boolean,
   ): { target: RenderTarget; x: number; y: number } | null {
     // PX2.4: two layers showing the same frame at the same decode size share one decode.
     const decodeKey =
@@ -783,11 +836,15 @@ export class LayerCompositor {
     const readsPicture = stackReadsPicture(masks);
     // PX5.3: a stack holding a matte is combined on the GPU like one holding a key, so the
     // float64 twin (170 ms of main thread for a 4K matte) never runs during playback. Only a
+    // MK8.2: a track matte reads another layer's composited picture, so its stack is built on
+    // the GPU too, like a key's.
+    const readsLayers = stackReadsLayers(masks);
     // layer whose radii the shaders cannot carry, or a GPU without float targets, keeps it.
     const matteOnGpu =
       !readsPicture &&
       this.mattesCarried(stack, masks, width, height, maskSourceTime(stack.clip, clipTime), mattes);
-    if (!readsPicture && !matteOnGpu) {
+    if (!readsPicture && !readsLayers && !matteOnGpu) {
+      !readsLayers &&
       const drawsBefore = this.maskRasters.drawCount;
       const started = performance.now();
       const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
@@ -807,6 +864,7 @@ export class LayerCompositor {
     }
     const started = performance.now();
     const texture = this.gpuStack(stack, masks, width, height, clipTime, mattes, picture);
+    if (readsLayers && !this.floatTargetsAvailable()) return null;
     // Submission time: the GPU runs the chain later. Its real cost is read from the composite
     // channels with and without the chain (`PX5-BUDGETS.md`), not from this sample.
     this.telemetry?.record(readsPicture ? 'keyStack' : 'matteStack', performance.now() - started);
@@ -896,14 +954,16 @@ export class LayerCompositor {
         mask.kind === 'key'
           ? // `stackCoverage` only builds a key stack with the picture it qualifies in hand.
             this.keyLayer(mask, picture!, maskScalar(mask, 'opacity', s))
-          : ((mask.kind === 'matte'
-              ? this.matteLayer(mask, stack, width, height, s, mattes)
-              : null) ??
-            r.floatPlane(
-              width,
-              height,
-              Float32Array.from(singleMaskAlpha(mask, stack, width, height, s, mattes)),
-            ));
+          : mask.kind === 'layer'
+            ? this.layerMatteLayer(mask, width, height, maskScalar(mask, 'opacity', s))
+            : ((mask.kind === 'matte'
+                ? this.matteLayer(mask, stack, width, height, s, mattes)
+                : null) ??
+              r.floatPlane(
+                width,
+                height,
+                Float32Array.from(singleMaskAlpha(mask, stack, width, height, s, mattes)),
+              ));
       const out = r.target(width, height, 'rgba32f');
       const program = r.program('mask-combine', MASK_COMBINE_FRAGMENT);
       gl.useProgram(program.handle);
@@ -948,6 +1008,109 @@ export class LayerCompositor {
 
   /** `apply_finesse` then `layer_alpha`, in the order `key_mask_alpha` chains them. */
   private keyFinesse(
+  /**
+   * One track matte's alpha (MK8.2): the source composited alone on a transparent frame, read
+   * where each of this clip's pixels lands (`MASK_LAYER_FRAGMENT`), then the key's finesse passes
+   * and tail — `sampled_channel` → `apply_finesse` → `layer_alpha`, as `layer_mask_alpha` chains.
+   */
+  private layerMatteLayer(
+    mask: LayerMask,
+    width: number,
+    height: number,
+    opacity: number,
+  ): WebGLTexture {
+    const r = this.resources;
+    const gl = this.gl;
+    const context = this.layerContext;
+    const source = this.matteSourceFrame(context?.sources.get(mask.id) ?? []);
+    const step = context?.step;
+    const placement: PicturePlacement = {
+      localWidth: width,
+      localHeight: height,
+      width: step?.resize?.width ?? width,
+      height: step?.resize?.height ?? height,
+      rotation: step?.rotation ?? 0,
+      x: step?.x ?? 0,
+      y: step?.y ?? 0,
+    };
+    const uniforms = layerMatteUniforms(placement, mask.channel);
+    const qualified = r.target(width, height, 'rgba32f');
+    const program = r.program('mask-layer', MASK_LAYER_FRAGMENT);
+    gl.useProgram(program.handle);
+    r.bind(program, 'u_matte', 0, source.texture);
+    program.ivec2('u_frameSize', source.width, source.height);
+    gl.uniform2f(program.location('u_local'), ...uniforms.local);
+    gl.uniform2f(program.location('u_resized'), ...uniforms.resized);
+    gl.uniform2f(program.location('u_offset'), ...uniforms.offset);
+    program.int('u_rotated', uniforms.rotated);
+    gl.uniform2f(program.location('u_rotation'), ...uniforms.rotation);
+    program.int('u_channel', uniforms.channel);
+    r.draw(qualified, width, height);
+    const clamped = opacity <= 0 ? 0 : opacity >= 1 ? 1 : opacity;
+    const passes = this.keyPasses;
+    const cleaned = passes.finesse(qualified, mask.finesse, [
+      mask.finesse.cleanBlack,
+      mask.finesse.cleanWhite,
+    ]);
+    return passes.tail(cleaned, {
+      cleanBlack: mask.finesse.cleanBlack,
+      cleanWhite: mask.finesse.cleanWhite,
+      levels: false,
+      ratio: mask.finesse.inOutRatio,
+      invert: mask.invert ? 1 : 0,
+      opacity: clamped,
+      layer: true,
+    }).texture;
+  }
+
+  /**
+   * A track matte's source: its layers composited alone, back to front, on a TRANSPARENT frame
+   * of the output size — `CompositeVideoClip(layers, size)` with no background, as the export
+   * builds it. Nested track mattes are followed (the validator refuses loops); past a depth no
+   * real edit reaches, the source draws nothing rather than recursing without end.
+   */
+  private matteSourceFrame(layers: readonly CompositeLayer[]): RenderTarget {
+    const r = this.resources;
+    const size = this.frameSize;
+    let frame = r.target(size.width, size.height, 'rgba8');
+    const fill = r.program('fill', FILL_FRAGMENT);
+    this.gl.useProgram(fill.handle);
+    fill.vec4('u_color', [0, 0, 0, 0]);
+    r.draw(frame, size.width, size.height);
+    if (this.matteDepth >= MAX_MATTE_DEPTH) {
+      log.warn('track mattes nested too deep; the innermost source draws nothing', {
+        depth: this.matteDepth,
+      });
+      return frame;
+    }
+    this.matteDepth += 1;
+    try {
+      for (const layer of layers) {
+        const placed =
+          layer.kind === 'picture'
+            ? this.rasterPicture(
+                layer.step,
+                layer.source,
+                this.frameDecodes,
+                'off',
+                layer.mattes ?? null,
+                false,
+                layer.layerMattes ?? null,
+              )
+            : {
+                target: r.imageTarget(layer.image, layer.width, layer.height),
+                x: layer.x,
+                y: layer.y,
+              };
+        if (placed === null) continue;
+        frame = this.composite(frame, placed.target, placed.x, placed.y, size);
+      }
+    } finally {
+      this.matteDepth -= 1;
+    }
+    return frame;
+  }
+
     qualified: RenderTarget,
     finesse: KeyMask['finesse'],
     uniforms: ReturnType<typeof keyUniforms>,
