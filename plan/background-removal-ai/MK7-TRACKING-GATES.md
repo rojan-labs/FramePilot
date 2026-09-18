@@ -33,14 +33,14 @@ cd workers/tracking-lite && uv run --extra cv --no-dev --with pytest pytest -m d
 
 ## Gates
 
-| Gate (plan 06)                                     | Threshold                                                        | Status                       |
-| -------------------------------------------------- | ----------------------------------------------------------------- | ---------------------------- |
-| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px | Measured — see the run below |
-| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                    | Measured                     |
-| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                  | Measured                     |
-| Constraint frames                                  | 100 % exact after any re-track                                    | Proved, not sampled (below)  |
-| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open** (below) |
-| Real clips with hand-labelled corners every 0.5 s  | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                 | **Open** (below)             |
+| Gate (plan 06)                                     | Threshold                                                                       | Status                       |
+| -------------------------------------------------- | ------------------------------------------------------------------------------- | ---------------------------- |
+| Planar track on synthetic warps (known homography) | median corner reprojection ≤ 0.25 px, p95 ≤ 1 px, no frame > 2 px               | Measured — see the run below |
+| Drift                                              | ≤ 1 px per 300 frames on static-scene fixtures                                  | Measured                     |
+| Low-confidence detection recall                    | ≥ 99.5 % of frames with error > 2 px are flagged                                | Measured                     |
+| Constraint frames                                  | 100 % exact after any re-track                                                  | Proved, not sampled (below)  |
+| Correction                                         | one constraint frame brings a failing range back within gate in ≥ 95 % of cases | **Open** (below)             |
+| Real clips with hand-labelled corners every 0.5 s  | median ≤ 0.5 px, p95 ≤ 2 px at source resolution                                | **Open** (below)             |
 
 Three warps are measured, because the three motion models the editor can pick have to be right
 for different reasons: a pure **translation**, a **similarity** (translation, uniform scale and
@@ -81,13 +81,13 @@ gives every frame to its nearest constraint), and the rate goes with the real-cl
   when the numbers are re-measured; do not edit individual figures by hand.
 -->
 
-| Run | Platform | Sequence | Frames | Median px | p95 px | Max px |
-| --- | -------- | -------- | ------ | --------- | ------ | ------ |
-| _pending_ | darwin-arm64 | planar/translation | | | | |
-| _pending_ | darwin-arm64 | planar/similarity | | | | |
-| _pending_ | darwin-arm64 | planar/perspective | | | | |
+| Run       | Platform     | Sequence           | Frames | Median px | p95 px | Max px |
+| --------- | ------------ | ------------------ | ------ | --------- | ------ | ------ |
+| _pending_ | darwin-arm64 | planar/translation |        |           |        |        |
+| _pending_ | darwin-arm64 | planar/similarity  |        |           |        |        |
+| _pending_ | darwin-arm64 | planar/perspective |        |           |        |        |
 
-| Run | Platform | Gate | Measured |
-| --- | -------- | ---- | -------- |
-| _pending_ | darwin-arm64 | drift per 300 frames | |
-| _pending_ | darwin-arm64 | low-confidence recall | |
+| Run       | Platform     | Gate                  | Measured |
+| --------- | ------------ | --------------------- | -------- |
+| _pending_ | darwin-arm64 | drift per 300 frames  |          |
+| _pending_ | darwin-arm64 | low-confidence recall |          |

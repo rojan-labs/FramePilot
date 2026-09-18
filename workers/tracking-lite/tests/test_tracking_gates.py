@@ -155,9 +155,7 @@ def sequence(
         assert cv2.imwrite(str(path), warp(image, matrix))
         decoded = cv2.imread(str(path), cv2.IMREAD_GRAYSCALE)
         assert decoded is not None
-        frames.append(
-            DecodedFrame(color=cv2.cvtColor(decoded, cv2.COLOR_GRAY2BGR), gray=decoded)
-        )
+        frames.append(DecodedFrame(color=cv2.cvtColor(decoded, cv2.COLOR_GRAY2BGR), gray=decoded))
     return frames
 
 
@@ -331,38 +329,45 @@ def flagged(error_px: float, confidence: float) -> bool:
 def test_low_confidence_detection_recall_meets_the_gate(tmp_path: Path) -> None:
     """Plan 06: ≥ 99.5 % of frames whose error exceeds 2 px are flagged.
 
-    The failure has to be one the tracker MEASURES and gets wrong, not one it refuses: a total
-    occluder makes the worker report ``target_lost``, which is honest and is already the right
-    product behaviour, but it says nothing about whether the confidence number catches a wrong
-    answer. So the plane instead makes a burst of fast, motion-blurred movement in the middle of
-    the shot — the classic case where flow undershoots and the reported plane lags the real one
-    while the tracker still believes it has a measurement.
+    The failure has to be one the tracker MEASURES and gets wrong. Two obvious fixtures do not
+    produce one, and both findings are worth keeping:
+
+    * a total occluder makes the worker report ``target_lost`` — correct, and silent about
+      whether the confidence number catches a wrong answer;
+    * fast motion alone (up to about 20 px per frame on this plate) is either tracked inside the
+      gate or lost outright; there is almost no confidently-wrong band in between.
+
+    What does produce a measured, wrong plane is a **competing** one: a second, differently
+    textured surface sliding across most of the masked region on its own trajectory. The robust
+    fit then has two hypotheses to choose between and can settle on the intruder with a
+    respectable inlier ratio — which is exactly the real failure (a foreground object crossing a
+    tracked sign) the review list exists to catch.
     """
     count = 90
-    # Tuned so the tracker keeps MEASURING: past roughly 20 px per frame this plate the flow
-    # loses its correspondences outright and the worker reports `target_lost`, which is the
-    # right behaviour but proves nothing about the confidence number.
-    burst = range(40, 52)
-    steps = [9.0 if index in burst else 1.0 for index in range(count)]
-    positions = np.cumsum([0.0, *steps[:-1]])
+    intruding = range(35, 62)
     matrices = [
-        homography(dx=float(positions[index]), dy=0.0, scale=1.0, degrees=0.0, perspective=0.0)
+        homography(dx=1.0 * index, dy=0.0, scale=1.0, degrees=0.0, perspective=0.0)
         for index in range(count)
     ]
     frames = sequence(tmp_path, matrices)
-    for index in burst:
-        # Motion blur along the direction of travel, as a real fast pan would carry.
-        blurred = cv2.blur(frames[index].gray, (11, 1))
-        frames[index] = DecodedFrame(
-            color=cv2.cvtColor(blurred, cv2.COLOR_GRAY2BGR), gray=blurred
-        )
+    rng = np.random.default_rng(770118)
+    patch = cv2.GaussianBlur(rng.random((180, 260), dtype=np.float64), (0, 0), 1.0)
+    patch = ((patch - patch.min()) / (patch.max() - patch.min()) * 220.0 + 10.0).astype(np.uint8)
+    for index in intruding:
+        gray = frames[index].gray.copy()
+        # The intruder travels the other way, so no single plane explains both surfaces.
+        left = int(360 - (index - intruding.start) * 7)
+        left = max(0, min(WIDTH - patch.shape[1], left))
+        top = 100
+        gray[top : top + patch.shape[0], left : left + patch.shape[1]] = patch
+        frames[index] = DecodedFrame(color=cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR), gray=gray)
     samples = track(frames)
     errors, confidences = corner_errors(matrices, samples)
     wrong = [index for index, error in enumerate(errors) if error > MAX_PX]
     caught = [index for index in wrong if flagged(errors[index], confidences[index])]
     recall = 1.0 if not wrong else len(caught) / len(wrong)
     record(
-        "recall/fast-motion",
+        "recall/competing-plane",
         {
             "frames": len(samples),
             "wrongFrames": len(wrong),
