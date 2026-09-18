@@ -10,6 +10,12 @@
  * Indexing: when the file's Cues address every frame (the pack writes intra-only FFV1, one cue
  * per frame) the index comes from the Cues alone; otherwise the clusters are walked header by
  * header. Laced blocks and unknown-size clusters are refused (no muxer we read writes them).
+ *
+ * PX5.3: from the Cues, a frame's block header is read when the frame is, not when the file is
+ * opened. The headers are spread through the whole file, so reading them all up front read the
+ * whole file (148 MB for the Scale row's 4K matte, gigabytes for a camera foreground) - once per
+ * matte worker. The first and last cued blocks are still checked at open, so a file whose Cues
+ * do not point at blocks falls back to the walk there, as before.
  */
 import type { ByteRangeReader } from '../demux/mp4-demuxer.js';
 
@@ -70,6 +76,18 @@ export interface MatroskaFrame {
   readonly size: number;
   readonly keyframe: boolean;
 }
+
+/**
+ * A frame the Cues place (always a key frame): its cluster and its block's offset in the
+ * cluster's data, both parsed when the frame is read.
+ */
+interface CuedFrame {
+  readonly clusterAt: number;
+  readonly relative: number;
+  readonly keyframe: true;
+}
+
+type IndexedFrame = MatroskaFrame | CuedFrame;
 
 interface ElementHeader {
   readonly id: number;
@@ -169,16 +187,12 @@ export class MatroskaVideoIndex {
   private constructor(
     private readonly bytes: WindowedReader,
     readonly track: MatroskaVideoTrack,
-    private readonly frames: readonly MatroskaFrame[],
+    private readonly frames: IndexedFrame[],
   ) {}
 
   /** Frames in file order. */
   get frameCount(): number {
     return this.frames.length;
-  }
-
-  frame(index: number): MatroskaFrame | undefined {
-    return this.frames[index];
   }
 
   /**
@@ -198,9 +212,20 @@ export class MatroskaVideoIndex {
   }
 
   async readFrame(index: number): Promise<Uint8Array> {
-    const frame = this.frames[index];
-    if (frame === undefined) throw new MatroskaError(`Frame ${index} is outside the file.`);
+    const entry = this.frames[index];
+    if (entry === undefined) throw new MatroskaError(`Frame ${index} is outside the file.`);
+    const frame = 'clusterAt' in entry ? await this.parseCued(index, entry) : entry;
     return this.bytes.read(frame.offset, frame.offset + frame.size);
+  }
+
+  /** A cued frame's block, parsed once, on its first read. */
+  private async parseCued(index: number, entry: CuedFrame): Promise<MatroskaFrame> {
+    const frame = await cuedFrameAt(this.bytes, entry, this.track.number);
+    if (frame === null || !frame.keyframe) {
+      throw new MatroskaError(`Cued frame ${index} is not the key frame its cue names.`);
+    }
+    this.frames[index] = frame;
+    return frame;
   }
 
   /**
@@ -274,7 +299,7 @@ export class MatroskaVideoIndex {
     if (track === null) throw new MatroskaError('Matroska file has no video track.');
     if (firstCluster === null) throw new MatroskaError('Matroska file has no frames.');
 
-    let frames: MatroskaFrame[] | null = null;
+    let frames: IndexedFrame[] | null = null;
     if (cuesAt !== null && expectedFrames !== null) {
       frames = await framesFromCues(bytes, cuesAt, segmentData, track.number, expectedFrames);
     }
@@ -406,7 +431,7 @@ async function framesFromCues(
   segmentData: number,
   trackNumber: number,
   expectedFrames: number,
-): Promise<MatroskaFrame[] | null> {
+): Promise<IndexedFrame[] | null> {
   const probe = await bytes.read(cuesAt, cuesAt + HEADER_PROBE_BYTES);
   const header = parseHeader(probe, 0);
   if (header === null || header.id !== ID.Cues || header.size === null) return null;
@@ -437,25 +462,34 @@ async function framesFromCues(
   }
   if (positions.length !== expectedFrames) return null;
   positions.sort((a, b) => a.cluster - b.cluster || a.relative - b.relative);
-  const clusterData = new Map<number, number>();
-  const frames: MatroskaFrame[] = [];
-  for (const position of positions) {
-    let dataStart = clusterData.get(position.cluster);
-    if (dataStart === undefined) {
-      const clusterProbe = await bytes.read(
-        position.cluster,
-        position.cluster + HEADER_PROBE_BYTES,
-      );
-      const cluster = parseHeader(clusterProbe, 0);
-      if (cluster === null || cluster.id !== ID.Cluster) return null;
-      dataStart = position.cluster + cluster.headerLength;
-      clusterData.set(position.cluster, dataStart);
-    }
-    const frame = await frameAt(bytes, dataStart + position.relative, trackNumber);
-    if (frame === null || !frame.keyframe) return null;
-    frames.push(frame);
+  // CueRelativePosition counts from the cluster's DATA, so a frame's block needs its cluster's
+  // header too - read with the frame, from the window the block is in anyway (ffmpeg starts a
+  // cluster at most key frames, so reading every cluster header here read the whole file).
+  const frames: CuedFrame[] = positions.map((position) => ({
+    clusterAt: position.cluster,
+    relative: position.relative,
+    keyframe: true,
+  }));
+  // The ends are checked now, so Cues that do not point at key-frame blocks fall back to the
+  // walk at open; every other block is parsed when its frame is read.
+  for (const frame of [frames[0], frames[frames.length - 1]]) {
+    if (frame === undefined) continue;
+    const parsed = await cuedFrameAt(bytes, frame, trackNumber);
+    if (parsed === null || !parsed.keyframe) return null;
   }
   return frames;
+}
+
+/** The block a cue names: its cluster's header, then the block at the cue's offset. */
+async function cuedFrameAt(
+  bytes: WindowedReader,
+  cued: CuedFrame,
+  trackNumber: number,
+): Promise<MatroskaFrame | null> {
+  const probe = await bytes.read(cued.clusterAt, cued.clusterAt + HEADER_PROBE_BYTES);
+  const cluster = parseHeader(probe, 0);
+  if (cluster === null || cluster.id !== ID.Cluster) return null;
+  return frameAt(bytes, cued.clusterAt + cluster.headerLength + cued.relative, trackNumber);
 }
 
 async function framesByWalking(
