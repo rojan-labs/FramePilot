@@ -27,6 +27,7 @@ import {
   transitionUniforms,
 } from '../transitions/transition-engine.js';
 import { pilCoefficients } from './raster/pil.js';
+import type { PreviewTelemetry } from './preview-telemetry.js';
 import type { CubeLut } from './raster/cube-lut.js';
 import {
   MaskStackRasterCache,
@@ -176,6 +177,12 @@ export class LayerCompositor {
   private effectsUnavailable = false;
   private readonly lutTextures = new Map<CubeLut, WebGLTexture>();
   private luts: ReadonlyMap<string, CubeLut> = new Map();
+  private telemetry: PreviewTelemetry | null = null;
+
+  /** Where this compositor reports mask raster, key stack and pool numbers (PX5.1). */
+  setTelemetry(telemetry: PreviewTelemetry | null): void {
+    this.telemetry = telemetry;
+  }
 
   /** Loaded LUTs by the `lut` effect's stored path. */
   setLuts(luts: ReadonlyMap<string, CubeLut>): void {
@@ -303,12 +310,15 @@ export class LayerCompositor {
       // The frame just drawn, not the last one the browser presented: `drawImage` of a WebGL
       // canvas can return the previous drawing buffer (measured on CI: every read lagged one
       // seek). `transferToImageBitmap` hands over exactly this buffer.
+      if (this.telemetry?.gpuSync === true) this.gl.finish();
       if (typeof OffscreenCanvas !== 'undefined' && this.canvas instanceof OffscreenCanvas) {
         return this.canvas.transferToImageBitmap();
       }
       return this.canvas as HTMLCanvasElement;
     } finally {
       r.endFrame();
+      this.telemetry?.gauge('glPoolBytes', r.poolBytes);
+      this.telemetry?.gauge('glPoolTargets', r.poolTextures);
     }
   }
 
@@ -688,7 +698,14 @@ export class LayerCompositor {
     const masks = drawnMasks(stack, target, mattes);
     if (masks.length === 0) return null;
     if (!stackReadsPicture(masks)) {
+      const drawsBefore = this.maskRasters.drawCount;
+      const started = performance.now();
       const raster = this.maskRasters.raster(stack, target, width, height, clipTime, mattes);
+      if (this.maskRasters.drawCount !== drawsBefore) {
+        this.telemetry?.record('maskRaster', performance.now() - started);
+      } else if (raster !== null) {
+        this.telemetry?.countMaskRasterCacheHit();
+      }
       return raster === null
         ? null
         : { texture: this.resources.plane(width, height, raster.alpha8), scale: raster.scale };
@@ -696,10 +713,13 @@ export class LayerCompositor {
     if (picture === null || picture.width !== width || picture.height !== height) return null;
     // The GPU stack accumulates in float, so it needs the same extension the effect layers do.
     if (!this.floatTargetsAvailable()) return null;
-    return {
-      texture: this.keyStack(stack, masks, width, height, clipTime, mattes, picture),
-      scale: 1,
-    };
+    const started = performance.now();
+    const texture = this.keyStack(stack, masks, width, height, clipTime, mattes, picture);
+    // Measurement mode only: wait for the GPU so the sample is the chain's cost, not its
+    // submission (see `preview-telemetry.ts`).
+    if (this.telemetry?.gpuSync === true) this.gl.finish();
+    this.telemetry?.record('keyStack', performance.now() - started);
+    return { texture, scale: 1 };
   }
 
   /**

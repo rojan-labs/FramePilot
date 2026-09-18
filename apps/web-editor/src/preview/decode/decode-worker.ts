@@ -65,6 +65,12 @@ export interface StatsRequest {
   sourceId: string;
 }
 
+/** PX5.1: live `VideoDecoder`s across every source and matte (the pool is per worker). */
+export interface PoolStatsRequest {
+  type: 'poolStats';
+  requestId: number;
+}
+
 export interface UnloadSourceRequest {
   type: 'unload';
   requestId: number;
@@ -93,6 +99,7 @@ export type WorkerRequest =
   | LoadSourceRequest
   | DecodeRangeRequest
   | StatsRequest
+  | PoolStatsRequest
   | UnloadSourceRequest
   | LoadMatteRequest
   | DecodeMatteRequest;
@@ -168,6 +175,14 @@ export interface StatsResponse {
   reconfigureCount: number;
 }
 
+export interface PoolStatsResponse {
+  type: 'poolStats';
+  requestId: number;
+  liveDecoders: number;
+  peakLiveDecoders: number;
+  capacity: number;
+}
+
 export interface MatteLoadedResponse {
   type: 'matteLoaded';
   requestId: number;
@@ -203,6 +218,7 @@ export type WorkerResponse =
   | DecodedPictureMessage
   | RangeDoneResponse
   | StatsResponse
+  | PoolStatsResponse
   | MatteLoadedResponse
   | MatteFrameResponse
   | ErrorResponse;
@@ -798,6 +814,17 @@ self.onmessage = async (event: MessageEvent<WorkerRequest>) => {
           sourceId: request.sourceId,
           decodeDurationMs,
           reconfigured,
+        },
+        [],
+      );
+    } else if (request.type === 'poolStats') {
+      post(
+        {
+          type: 'poolStats',
+          requestId: request.requestId,
+          liveDecoders: decoderPool.size,
+          peakLiveDecoders: decoderPool.peakSize,
+          capacity: decoderPool.maxSize,
         },
         [],
       );

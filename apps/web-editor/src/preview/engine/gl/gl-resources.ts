@@ -61,6 +61,16 @@ function compile(gl: WebGL2RenderingContext, type: number, source: string): WebG
   return shader;
 }
 
+/** Bytes per texel of each render-target format (for {@link GlResources.poolBytes}). */
+const TARGET_FORMAT_BYTES: Record<TargetFormat, number> = {
+  rgba8: 4,
+  r16i: 2,
+  rgba32f: 16,
+  r8ui: 1,
+};
+const FLOAT_PLANE_BYTES = 4;
+const INT_TABLE_BYTES = 4;
+
 /** Shared GL objects for one context. */
 export class GlResources {
   private readonly programs = new Map<string, Program>();
@@ -71,6 +81,28 @@ export class GlResources {
   private readonly planeTextures = new Map<string, WebGLTexture[]>();
   private readonly planeInUse: WebGLTexture[] = [];
   private readonly inUse: RenderTarget[] = [];
+  private readonly dataTextureBytes = new Map<string, number>();
+  private allocatedBytes = 0;
+  private allocatedTextures = 0;
+
+  /**
+   * Bytes of texture storage this context holds (pooled targets, planes and filter tables), by
+   * the formats' sizes. The pools never shrink before {@link dispose}, so this is also their
+   * high-water mark; PX5 reads it to show the pools stay bounded on a steady timeline.
+   */
+  get poolBytes(): number {
+    return this.allocatedBytes;
+  }
+
+  /** Textures behind {@link poolBytes}. */
+  get poolTextures(): number {
+    return this.allocatedTextures;
+  }
+
+  private account(bytes: number): void {
+    this.allocatedBytes += bytes;
+    this.allocatedTextures += 1;
+  }
 
   constructor(readonly gl: WebGL2RenderingContext) {
     const vertexArray = gl.createVertexArray();
@@ -154,6 +186,7 @@ export class GlResources {
       gl.deleteTexture(texture);
       throw new Error(`Compositor render target ${width}x${height} ${format} is incomplete.`);
     }
+    this.account(width * height * TARGET_FORMAT_BYTES[format]);
     return { texture, framebuffer, width, height, format };
   }
 
@@ -187,6 +220,7 @@ export class GlResources {
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
       setNearest(gl);
+      this.account(width * height);
     } else {
       this.useScratchUnit();
       gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -215,6 +249,7 @@ export class GlResources {
       gl.bindTexture(gl.TEXTURE_2D, texture);
       gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R32F, width, height);
       setNearest(gl);
+      this.account(width * height * FLOAT_PLANE_BYTES);
     } else {
       this.useScratchUnit();
       gl.bindTexture(gl.TEXTURE_2D, texture);
@@ -260,12 +295,17 @@ export class GlResources {
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, gl.RED_INTEGER, gl.INT, build());
     setNearest(gl);
     this.dataTextures.set(key, texture);
+    this.dataTextureBytes.set(key, width * height * INT_TABLE_BYTES);
+    this.account(width * height * INT_TABLE_BYTES);
     // Filter tables are small but one exists per size pair; keep a bound on a long session.
     if (this.dataTextures.size > 256) {
       const oldest = this.dataTextures.keys().next().value;
       if (oldest !== undefined && oldest !== key) {
         gl.deleteTexture(this.dataTextures.get(oldest)!);
         this.dataTextures.delete(oldest);
+        this.allocatedBytes -= this.dataTextureBytes.get(oldest) ?? 0;
+        this.allocatedTextures -= 1;
+        this.dataTextureBytes.delete(oldest);
       }
     }
     return texture;
@@ -334,6 +374,9 @@ export class GlResources {
     this.free.clear();
     this.dataTextures.clear();
     this.planeTextures.clear();
+    this.dataTextureBytes.clear();
+    this.allocatedBytes = 0;
+    this.allocatedTextures = 0;
   }
 }
 

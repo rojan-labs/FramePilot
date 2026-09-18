@@ -67,6 +67,8 @@ import type {
   PreviewEngineCallbacks,
 } from './webcodecs-preview-engine.js';
 
+import { PreviewTelemetry, type PreviewTelemetrySnapshot } from './preview-telemetry.js';
+
 const log = createLogger('web-editor:preview:layer-engine');
 
 /** Byte budget of decoded pictures held for presentation and decode-ahead. */
@@ -250,6 +252,9 @@ export class LayerPreviewEngine {
   private lastPictureKeys: string[] = [];
   /** BR5.4: how every matte layer of the last composite resolved (oracle diagnostic only). */
   private lastMatteStates: MatteDebugState[] = [];
+  /** PX5.1: the engine's own frame-time, dropped-frame, seek and memory numbers. */
+  readonly telemetry = new PreviewTelemetry();
+  private lastTickAtMs: number | null = null;
   private dbg = {
     ticks: 0,
     presented: 0,
@@ -282,10 +287,12 @@ export class LayerPreviewEngine {
         const entry: CacheEntry = { kind: 'matte', frame, lastUsed: ++this.useCounter };
         this.cache.set(key, entry);
         this.cacheBytes += entryBytes(entry);
+        this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
       },
     });
     // Created up front: a monitor that cannot composite should say so now, not on first seek.
     this.compositor = new LayerCompositor();
+    this.compositor.setTelemetry(this.telemetry);
     // Legacy (v21) masks follow the host Pillow's float arithmetic (`masks/legacy-mask.ts`).
     void configureLegacyMaskArithmeticFromHost();
   }
@@ -620,6 +627,7 @@ export class LayerPreviewEngine {
   private releaseEntry(key: string, entry: CacheEntry): void {
     this.cache.delete(key);
     this.cacheBytes -= entryBytes(entry);
+    this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
     if (entry.kind === 'picture' && entry.picture.kind === 'frame') {
       this.client.closeFrame(entry.picture.frame);
     }
@@ -666,7 +674,9 @@ export class LayerPreviewEngine {
   private async decodeRun(assetId: string, from: number, to: number): Promise<void> {
     const started = performance.now();
     const { pictures } = await this.client.decodePictures(assetId, from, to);
-    this.dbg.maxDecodeMs = Math.max(this.dbg.maxDecodeMs, performance.now() - started);
+    const decodeMs = performance.now() - started;
+    this.dbg.maxDecodeMs = Math.max(this.dbg.maxDecodeMs, decodeMs);
+    this.telemetry.record('decode', decodeMs);
     for (const message of pictures) {
       const key = pictureKey(assetId, message.chunkIndex);
       if (this.disposed || !this.sources.has(assetId) || this.cache.has(key)) {
@@ -686,6 +696,7 @@ export class LayerPreviewEngine {
       });
       this.cacheBytes += picture.byteLength;
     }
+    this.telemetry.gauge('pictureCacheBytes', this.cacheBytes);
   }
 
   // --- presentation --------------------------------------------------------------------------
@@ -1095,6 +1106,7 @@ export class LayerPreviewEngine {
     if (this.disposed) return;
     if (this.playing) this.pause();
     const myGeneration = ++this.generation;
+    const seekStarted = performance.now();
     const clamped = Math.min(this.durationSec, Math.max(0, projectTimeSec));
     // The latest REQUESTED time, recorded before any await: a project reload that re-presents
     // `pausedAtSec` while this seek is still waiting on media must land here, not on the time
@@ -1116,7 +1128,10 @@ export class LayerPreviewEngine {
           this.mattes.ensure(this.matteNeedsOf(current)),
         ]);
         if (this.disposed || this.generation !== myGeneration) return;
-        this.present(current, clamped, true, true);
+        // Superseded seeks returned above, so a sample is always a seek that reached the monitor.
+        if (this.present(current, clamped, true, true)) {
+          this.telemetry.record('seekToPresent', performance.now() - seekStarted);
+        }
         this.evict(
           new Set([
             ...this.needsOf(current).map((n) => pictureKey(n.assetId, n.frame)),
@@ -1182,6 +1197,8 @@ export class LayerPreviewEngine {
     this.starting = false;
     this.callbacks.onPlayingChange?.(true);
     this.dbg = { ticks: 0, presented: 0, missing: 0, maxSeekMs: 0, maxDecodeMs: 0, sourceDraws: 0 };
+    this.telemetry.playbackStarted(this.project.projectFps ?? DEFAULT_FPS);
+    this.lastTickAtMs = null;
     const startSec = this.pausedAtSec >= this.durationSec ? 0 : this.pausedAtSec;
     this.audioClock.scheduleSegments(this.audioSegmentsFrom(startSec), startSec * 1_000_000);
 
@@ -1195,15 +1212,24 @@ export class LayerPreviewEngine {
         return;
       }
       this.dbg.ticks++;
+      const tickAtMs = performance.now();
+      if (this.lastTickAtMs !== null) {
+        this.telemetry.record('frameInterval', tickAtMs - this.lastTickAtMs);
+      }
+      this.lastTickAtMs = tickAtMs;
       const plan = this.planAt(nowSec, this.renderSize());
       if (plan) {
         const started = performance.now();
-        if (this.present(plan, nowSec, false)) {
+        const presented = this.present(plan, nowSec, false);
+        if (presented) {
+          const compositeMs = performance.now() - started;
           this.dbg.presented++;
-          this.adaptRenderScale(performance.now() - started);
+          this.telemetry.record('composite', compositeMs);
+          this.adaptRenderScale(compositeMs);
         } else {
           this.dbg.missing++;
         }
+        this.telemetry.tick(nowSec, presented);
         this.pumpAhead(nowSec);
       }
       this.callbacks.onTimeUpdate?.(nowSec);
@@ -1236,6 +1262,7 @@ export class LayerPreviewEngine {
       compositeMs: Math.round(compositeMs * 10) / 10,
       budgetMs: Math.round(budgetMs * 10) / 10,
     });
+    this.telemetry.renderScaleChanged(RENDER_SCALES[next] ?? 1);
     this.callbacks.onRenderScaleChange?.(RENDER_SCALES[next] ?? 1);
   }
 
@@ -1293,6 +1320,7 @@ export class LayerPreviewEngine {
   pause(): void {
     if (!this.playing) return;
     this.playing = false;
+    this.telemetry.playbackStopped();
     this.audioClock?.clear();
     if (this.rafHandle !== undefined) {
       cancelAnimationFrame(this.rafHandle);
@@ -1314,6 +1342,23 @@ export class LayerPreviewEngine {
       cachedFrames: this.cache.size,
       cacheBytes: this.cacheBytes,
     };
+  }
+
+  /**
+   * PX5.1: the engine's telemetry, with the decode worker's live-decoder count read fresh (the
+   * pool lives in the worker, so it is asked rather than mirrored).
+   */
+  async debugTelemetry(): Promise<PreviewTelemetrySnapshot> {
+    try {
+      const pool = await this.client.decoderPoolStats();
+      this.telemetry.gauge('liveDecoders', pool.peakLiveDecoders);
+      this.telemetry.gauge('liveDecoders', pool.liveDecoders);
+    } catch (err) {
+      log.debug('decoder pool stats unavailable', {
+        message: err instanceof Error ? err.message : String(err),
+      });
+    }
+    return this.telemetry.snapshot();
   }
 
   /** The last presented picture layers, back to front (the PX4 oracle's frame identity). */

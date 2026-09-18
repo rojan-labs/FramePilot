@@ -20,6 +20,7 @@ export const MAX_LIVE_DECODERS = 6;
 export class DecoderPool<T extends PooledDecoderHolder> {
   /** Holders with a live decoder, least recently used first. */
   private readonly live = new Set<T>();
+  private peak = 0;
 
   constructor(private readonly capacity: number = MAX_LIVE_DECODERS) {}
 
@@ -38,6 +39,9 @@ export class DecoderPool<T extends PooledDecoderHolder> {
       this.live.delete(other);
       other.releaseDecoder();
     }
+    // After eviction: what stays alive, which is what costs memory. It can exceed the cap only
+    // while every other holder is mid-decode (busy decoders are never taken).
+    this.peak = Math.max(this.peak, this.live.size);
   }
 
   /** `holder` closed its decoder on its own (dispose). */
@@ -47,5 +51,14 @@ export class DecoderPool<T extends PooledDecoderHolder> {
 
   get size(): number {
     return this.live.size;
+  }
+
+  /** The most decoders alive at once since the pool was made (PX5.1 occupancy). */
+  get peakSize(): number {
+    return this.peak;
+  }
+
+  get maxSize(): number {
+    return this.capacity;
   }
 }

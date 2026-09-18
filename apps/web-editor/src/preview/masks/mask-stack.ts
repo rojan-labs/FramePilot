@@ -770,6 +770,12 @@ function matteKey(masks: readonly StackMask[], mattes: MatteStackInputs | null):
 /** Rasterised stacks by semantic signature; static masks are drawn once per size. */
 export class MaskStackRasterCache {
   private readonly entries = new Map<string, MaskStackRaster>();
+  private draws = 0;
+
+  /** Rasters actually drawn (cache misses) so far; PX5 telemetry times only those. */
+  get drawCount(): number {
+    return this.draws;
+  }
 
   constructor(private readonly capacity = RASTER_CACHE_ENTRIES) {}
 
@@ -815,6 +821,7 @@ export class MaskStackRasterCache {
       this.entries.set(key, cached);
       return cached;
     }
+    this.draws++;
     const raster = this.draw(stack, masks, width, height, s, mattes);
     if (this.entries.size >= this.capacity) this.entries.delete(this.entries.keys().next().value!);
     this.entries.set(key, raster);

@@ -271,6 +271,21 @@ export class DecodeWorkerClient {
     }).then(() => undefined);
   }
 
+  /** PX5.1: how many `VideoDecoder`s the worker holds now, its peak, and the pool's cap. */
+  decoderPoolStats(): Promise<{
+    liveDecoders: number;
+    peakLiveDecoders: number;
+    capacity: number;
+  }> {
+    return this.send<Extract<WorkerResponse, { type: 'poolStats' }>>({ type: 'poolStats' }).then(
+      ({ liveDecoders, peakLiveDecoders, capacity }) => ({
+        liveDecoders,
+        peakLiveDecoders,
+        capacity,
+      }),
+    );
+  }
+
   reconfigureCountFor(sourceId: string): Promise<number> {
     return this.send<Extract<WorkerResponse, { type: 'stats' }>>({ type: 'stats', sourceId }).then(
       (r) => r.reconfigureCount,
