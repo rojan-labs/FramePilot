@@ -203,12 +203,32 @@ def write_source(
     subprocess.run(argv, input=payload, check=True, capture_output=True, timeout=60)
 
 
+def frame_pts_expression(values: Sequence[int]) -> str:
+    """An ffmpeg ``setpts`` expression giving frame ``N`` the value ``values[N]``.
+
+    A flat ``eq(N,0)*a+eq(N,1)*b+…`` is one left-leaning chain as deep as the frame count, and
+    ffmpeg 8.1 refuses it past about 90 terms ("Error while parsing expression", reported as
+    "Cannot allocate memory"). Older ffmpeg (CI's Ubuntu build) accepted it, so this only
+    broke on current ffmpeg. The same sum as a balanced tree is only log2(n) deep and gives
+    identical timestamps (checked with ffprobe on 300 frames).
+    """
+    terms = [f"eq(N\\,{index})*{value}" for index, value in enumerate(values)]
+
+    def balanced(part: Sequence[str]) -> str:
+        if len(part) == 1:
+            return part[0]
+        middle = len(part) // 2
+        return f"({balanced(part[:middle])})+({balanced(part[middle:])})"
+
+    return balanced(terms)
+
+
 def write_vfr_source(
     path: Path, frames: Sequence[npt.NDArray[np.uint8]], pts_ms: Sequence[int]
 ) -> None:
     """A variable-frame-rate lossless RGB source: frame ``i`` is presented at ``pts_ms[i]``."""
     height, width = frames[0].shape[:2]
-    expression = "+".join(f"eq(N\\,{i})*{value}" for i, value in enumerate(pts_ms))
+    expression = frame_pts_expression(pts_ms)
     argv = [
         find_ffmpeg(),
         "-nostdin",

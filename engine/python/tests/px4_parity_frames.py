@@ -58,6 +58,8 @@ from fractions import Fraction
 from pathlib import Path
 from typing import Any
 
+from tests.matte_fixtures import frame_pts_expression
+
 _log = logging.getLogger(__name__)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
@@ -286,7 +288,7 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
     restamp = (
         [
             "settb=1/1000",
-            "setpts=" + "+".join(f"eq(N\\,{i})*{ms}" for i, ms in enumerate(spec.frame_times_ms)),
+            "setpts=" + frame_pts_expression(spec.frame_times_ms),
         ]
         if variable
         else []
