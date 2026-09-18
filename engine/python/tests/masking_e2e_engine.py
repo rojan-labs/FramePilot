@@ -28,6 +28,9 @@ It prints exactly one JSON line on stdout (logs go to stderr). Commands:
 ``frame-hashes``
     ``frames``, but only the sha256 of each frame's RGB pixels (the cross-platform archive check,
     E2E.7, compares these between runners).
+``legacy-export``
+    ``export``, with each migrated clip's alpha drawn by the v21 renderer's own functions (the
+    E2E.5 reference; see :func:`cmd_legacy_export`).
 
 Memory: every command opens one composition at a time and the specs use 640x360 media of a
 few seconds, so a call peaks well under 1 GB. Nothing here is safe to point at the Scale row.
@@ -278,12 +281,65 @@ def cmd_export(request: dict[str, Any]) -> dict[str, Any]:
     return result
 
 
+def cmd_legacy_export(request: dict[str, Any]) -> dict[str, Any]:
+    """Export the MIGRATED project with every migrated clip's alpha drawn the v21 way (E2E.5).
+
+    There is no v21 build to render the original file with, so the v21 renderer's one
+    mask-specific step is reconstructed from the functions it used, which the engine still
+    carries: a clip with ``mask`` effects got ``rasterize_mask`` of its FIRST mask effect's spec
+    at clip time (``mask_spec_at`` when keyed), multiplied into the clip alpha by
+    ``_attach_mask``. Everything else (decode, placement, compositing, encode) is the same code
+    either way, so an export of the migrated file that is byte-identical to this one is an export
+    identical to what v21 made. ``tests/test_mask_legacy_render.py`` pins the same equality per
+    frame for every fixture case; this is the whole-file version on a project the editor opened
+    and saved.
+    """
+    from framepilot_engine.render import mask_stack
+    from framepilot_engine.render.masks import (
+        has_mask_keyframes,
+        mask_spec_at,
+        mask_spec_from_params,
+        rasterize_mask,
+    )
+    from framepilot_engine.timeline.models import Effect
+
+    original = json.loads(Path(request["v21Path"]).read_text(encoding="utf-8"))
+    legacy: dict[str, Any] = {}
+    for track in original["timeline"]["tracks"]:
+        for clip in track.get("clips", []):
+            first = next((e for e in clip.get("effects", []) if e.get("type") == "mask"), None)
+            if first is not None:
+                legacy[str(clip["id"])] = Effect.model_validate(first)
+    unpatched = mask_stack.ClipMaskStacks.alpha_at
+
+    def v21_alpha(self: Any, t: float, width: int, height: int, picture: Any = None) -> Any:
+        effect = legacy.get(str(self.clip.id))
+        if effect is None:
+            return unpatched(self, t, width, height, picture)
+        # MoviePy hands the frame function a numpy scalar; the v21 compiler evaluated the spec
+        # at a Python float, and Pillow's blur refuses a numpy radius.
+        t = float(t)
+        spec = (
+            mask_spec_at(effect, t)
+            if has_mask_keyframes(effect)
+            else mask_spec_from_params(effect.params)
+        )
+        return rasterize_mask(spec, width, height)
+
+    mask_stack.ClipMaskStacks.alpha_at = v21_alpha  # type: ignore[method-assign]
+    try:
+        return {**cmd_export(request), "legacyClips": sorted(legacy)}
+    finally:
+        mask_stack.ClipMaskStacks.alpha_at = unpatched  # type: ignore[method-assign]
+
+
 COMMANDS = {
     "media": cmd_media,
     "matte": cmd_matte,
     "frames": cmd_frames,
     "frame-hashes": cmd_frame_hashes,
     "export": cmd_export,
+    "legacy-export": cmd_legacy_export,
 }
 
 

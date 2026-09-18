@@ -116,7 +116,14 @@ export async function runEngine<T>(
     const { stdout } = await run(
       'uv',
       ['run', '--quiet', 'python', '-m', 'tests.masking_e2e_engine', command, file],
-      { cwd: ENGINE_DIR, maxBuffer: 64 * 1024 * 1024, timeout: ENGINE_TIMEOUT_MS },
+      {
+        cwd: ENGINE_DIR,
+        maxBuffer: 64 * 1024 * 1024,
+        timeout: ENGINE_TIMEOUT_MS,
+        // Software encode (`render/encoders.py`): a hardware encoder is not bit-reproducible,
+        // and E2E.5/E2E.7 compare export bytes. CI runners have no hardware encoder anyway.
+        env: { ...process.env, FRAMEPILOT_HW_ENCODE: '0' },
+      },
     );
     const last = stdout.trim().split('\n').pop() ?? '';
     return JSON.parse(last) as T;
@@ -222,6 +229,18 @@ export class Workspace {
       frames: { time: number; width: number; height: number; sha256: string }[];
     }>('frame-hashes', { projectPath, times }, this.requests);
     return result.frames;
+  }
+
+  /**
+   * E2E.5's reference: export `projectPath` (the MIGRATED file) with each clip that had a v21
+   * `mask` effect in `v21Path` drawn by the v21 renderer's own mask functions.
+   */
+  public async legacyExport(name: string, v21Path: string): Promise<EngineExport> {
+    return runEngine<EngineExport>(
+      'legacy-export',
+      { projectPath: this.projectPath, v21Path, output: join(this.projectDir, 'exports', name) },
+      this.requests,
+    );
   }
 
   /** Render the saved project as the desktop export does, into `exports/<name>`. */
