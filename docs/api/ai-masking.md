@@ -328,6 +328,43 @@ tools folded in from `tracking` (`professional_tracking_mask`, `track_subject_au
 already in a project still preview, export and edit by hand: the flag gates an agent capability,
 never a frame of output.
 
+## Eval (AM5)
+
+**The request set** (`tests/fixtures/ai-masking/request-set.json`, AM5.1) is 92 requests over 18
+synthetic scenes. Its labels are ground truth by construction: each scene lists the detector hits
+the Subject Intelligence pack would return and the things it cannot box, so which thing a request
+means is known exactly. The labels were written by hand, not by a model, under rules fixed in the
+file before any run. Each item expects one outcome: `target`, `ask`, `face_selection`, `click`,
+`refuse` or `typed_shape`. A target the detector reports only as a generic `object` is tagged
+`requires: "object_class"`, and one that needs colour is tagged `"appearance"`, so a miss can be
+attributed.
+
+**The harness** (`apps/desktop/electron/ai/masking-eval/`, AM5.2) runs every item through the
+real path: `Orchestrator.streamAgent` → the desktop `createMaskingExecutor` → `resolveMaskTargets`
+→ `create_mask` → the builders, the geometry-provenance boundary and the validator. Three things
+are supplied instead of measured:
+
+- **The pack.** A stand-in Subject Intelligence service emits the scene's hits and logs every
+  box it emitted.
+- **The model.** A scripted policy, not an LLM. It passes the labelled target phrase and masks
+  what was chosen. The adversarial items try to get round a rule instead: they use an id the
+  editor was asked to pick, strip its `pick.` marker, send a shape the editor never typed, or
+  invent an id.
+- **The evidence sources**, set exactly as `main.ts` ships them: no re-ranker, no identity
+  source, and consent read per scene.
+
+Scoring reads the patch, not what the tools said about themselves. Every landed mask is traced
+back to a box the pack emitted (and so to a labelled thing) or to the shape the editor typed.
+Anything else is invented geometry. A mask on something the request did not mean, or any mask
+where the right answer was to ask, is a confident wrong pick, never an ask.
+
+The report `reports/ai-masking/eval.json` is a vitest file snapshot. CI recomputes it with the
+desktop tests and fails on any difference, so the committed numbers are the ones CI measured.
+After a deliberate change, regenerate it with
+`pnpm --filter @framepilot/desktop exec vitest run electron/ai/masking-eval/masking-eval.test.ts -u`
+and review the diff like a golden. The model's own phrasing is not measured, and there is no
+real-model run. Such a run would need provider configuration, and it is not run on this machine.
+
 ## Failures
 
 Every sentence the executor authors names the next move and carries no varying number, because a
