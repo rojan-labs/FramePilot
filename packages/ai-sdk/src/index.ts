@@ -36,6 +36,7 @@ export * from './domain-tools/automatic-tracking.js';
 export * from './domain-tools/masking.js';
 export * from './identity-client.js';
 export * from './masking/candidate-id.js';
+export * from './masking/colour-rerank.js';
 export * from './masking/contracts.js';
 export * from './masking/feature-flag.js';
 export * from './masking/geometry-provenance.js';

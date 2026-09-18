@@ -45,6 +45,7 @@ from .backend import (
     Vector,
 )
 from .models import models_directory, resolve_model, verify_all
+from .protocol import NormalizedBox
 
 #: SigLIP 2 base patch16-224 preprocessing. Transcribed from the model card: square
 #: resize to 224, [0, 1] rescale, then mean/std 0.5 — NOT the ImageNet statistics CLIP
@@ -180,6 +181,19 @@ class OnnxVisualEmbedBackend:
             return frames
         finally:
             capture.release()
+
+    def crop(self, frame: Frame, region: NormalizedBox) -> Frame:
+        """Slice the region out of the decoded BGR frame, at the frame's own resolution.
+
+        SigLIP's own preprocessing then squares it to 224, exactly as it does a whole frame. A
+        contiguous copy, because OpenCV's face detector is handed the same pixels.
+        """
+        height, width = frame.shape[:2]
+        left = min(max(int(region.x * width), 0), width - 1)
+        top = min(max(int(region.y * height), 0), height - 1)
+        right = min(max(round((region.x + region.width) * width), left + 1), width)
+        bottom = min(max(round((region.y + region.height) * height), top + 1), height)
+        return self._numpy.ascontiguousarray(frame[top:bottom, left:right])
 
     def _preprocess(self, frame: Frame) -> Any:
         numpy = self._numpy

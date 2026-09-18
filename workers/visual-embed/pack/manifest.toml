@@ -8,7 +8,7 @@
 
 [pack]
 id = "framepilot.visual-embed"
-version = "1.0.0"
+version = "1.1.0"
 display_name = "Visual Embed"
 description = "Local shot embeddings, zero-shot shot-size/subject/setting labels, and face identity vectors. No key, no network."
 channel = "stable"

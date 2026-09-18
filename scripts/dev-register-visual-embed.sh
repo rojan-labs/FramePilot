@@ -73,7 +73,7 @@ STORE_ROOT="${FRAMEPILOT_DEV_STORE_ROOT:-$HOME/Library/Application Support/@fram
 cat > "$INPUT_JSON" <<JSON
 {
   "packId": "framepilot.visual-embed",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "payloadRoot": "$STAGE",
   "entrypoint": "bin/framepilot-visual-embed",
   "capabilities": ["visual.embed", "visual.text"],
@@ -92,7 +92,7 @@ Done. Restart the desktop app: it resolves the installed pack at startup and sen
 handle on every /brain/visual/index and /brain/visual/search call. For a sidecar-only
 test, export the handle directly:
 
-  FRAMEPILOT_PACK_VISUAL_EMBED='{"packId":"framepilot.visual-embed","version":"1.0.0",
+  FRAMEPILOT_PACK_VISUAL_EMBED='{"packId":"framepilot.visual-embed","version":"1.1.0",
     "releaseDigest":"<sha256 from the register-local result>",
     "entrypoint":"<store>/.../bin/framepilot-visual-embed",
     "capabilities":["visual.embed","visual.text"],

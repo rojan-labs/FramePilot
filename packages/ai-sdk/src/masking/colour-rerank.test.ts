@@ -1,0 +1,147 @@
+import { describe, expect, it } from 'vitest';
+import {
+  COLOUR_RERANK_TEMPERATURE,
+  colourRerankPlan,
+  colourRerankScores,
+  type ColourRerankPlan,
+} from './colour-rerank.js';
+import type { MaskCandidate } from './contracts.js';
+import { resolveMaskTargets, rankCandidates, type TargetDetection } from './target-resolution.js';
+import { COLOUR_WORDS } from './target-vocabulary.js';
+
+const candidate = (
+  candidateId: string,
+  objectClass: MaskCandidate['objectClass'],
+  label: MaskCandidate['label'] = 'object',
+): MaskCandidate => ({
+  candidateId,
+  label,
+  score: 0.8,
+  box: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+  sourceTime: 0,
+  persistence: 1,
+  ...(objectClass === undefined ? {} : { objectClass }),
+});
+
+/** A unit vector on one colour's axis: the synthetic space the harness also uses. */
+const axis = (colour: string): number[] => COLOUR_WORDS.map((each) => (each === colour ? 1 : 0));
+
+describe('colourRerankPlan', () => {
+  const cars = [candidate('o0_a', 'car'), candidate('o0_b', 'car')];
+
+  it('plans one prompt per palette colour, naming the singular noun', () => {
+    const plan = colourRerankPlan('the red car', cars)!;
+    expect(plan.colour).toBe('red');
+    expect(plan.prompts).toHaveLength(COLOUR_WORDS.length);
+    expect(plan.prompts[plan.colourIndex]).toBe('a photo of a red car');
+    expect(plan.candidates.map((each) => each.candidateId)).toEqual(['o0_a', 'o0_b']);
+    const grey = colourRerankPlan('the gray cars', cars)!;
+    expect(grey.colour).toBe('grey');
+    expect(grey.prompts[grey.colourIndex]).toBe('a photo of a grey car');
+  });
+
+  it('never shows SigLIP a candidate the detector did not class as the noun', () => {
+    const plan = colourRerankPlan('the red car', [
+      ...cars,
+      candidate('o0_dog', 'dog'),
+      candidate('o0_unclassed', undefined),
+      candidate('p0_person', 'person', 'person'),
+    ])!;
+    expect(plan.candidates.map((each) => each.candidateId)).toEqual(['o0_a', 'o0_b']);
+  });
+
+  it.each([
+    ['no colour', 'the car'],
+    ['a word that is not a colour', 'the shiny car'],
+    ['a colour and another word', 'the red shiny car'],
+    ['two colours', 'the red and white car'],
+    ['a person', 'the man in red'],
+    ['out of vocabulary', 'the red sign'],
+  ])('has no plan for %s', (_why, description) => {
+    expect(colourRerankPlan(description, cars)).toBeUndefined();
+  });
+
+  it('has no plan with fewer than two candidates of the class', () => {
+    expect(colourRerankPlan('the red car', [candidate('o0_a', 'car')])).toBeUndefined();
+    expect(
+      colourRerankPlan('the red car', [candidate('o0_a', 'car'), candidate('o0_b', 'dog')]),
+    ).toBeUndefined();
+  });
+});
+
+describe('colourRerankScores', () => {
+  const plan = colourRerankPlan('the red car', [
+    candidate('o0_red', 'car'),
+    candidate('o0_grey', 'car'),
+    candidate('o0_blue', 'car'),
+  ])!;
+  const prompts = COLOUR_WORDS.map(axis);
+
+  it('scores each crop by the named colour’s share of its colour classification', () => {
+    const scores = colourRerankScores(plan, [axis('red'), axis('grey'), axis('blue')], prompts);
+    expect(scores.get('o0_red')).toBeGreaterThan(0.99);
+    expect(scores.get('o0_grey')).toBeLessThan(0.01);
+    expect(scores.get('o0_blue')).toBeLessThan(0.01);
+  });
+
+  it('uses the pack’s own label temperature', () => {
+    expect(COLOUR_RERANK_TEMPERATURE).toBe(0.01);
+  });
+
+  it('refuses vectors that do not answer the plan', () => {
+    expect(() => colourRerankScores(plan, [axis('red')], prompts)).toThrow(/3 crop vectors/);
+    expect(() => colourRerankScores(plan, [axis('red'), axis('red'), axis('red')], [])).toThrow(
+      /prompt vectors/,
+    );
+    expect(() => colourRerankScores(plan, [[1], [1], [1]], prompts)).toThrow(/Cannot compare/);
+  });
+});
+
+describe('colour re-ranking decides only what it can', () => {
+  const FRAMES = [0, 8, 16, 24];
+  const car = (x: number): TargetDetection[] =>
+    FRAMES.map((frame) => ({
+      frame,
+      label: 'object',
+      box: { x, y: 0.4, width: 0.4, height: 0.35 },
+      confidence: 0.9,
+      objectClass: 'car',
+      classScore: 0.9,
+    }));
+  const input = {
+    clipId: 'shot',
+    assetId: 'asset',
+    fps: 24,
+    sampledFrames: FRAMES,
+    detections: [...car(0.05), ...car(0.55)],
+    engine: 'test',
+  };
+  const scored = (colours: readonly [string, string]) => {
+    const plain = rankCandidates({ ...input, description: 'the red car' });
+    const plan: ColourRerankPlan = colourRerankPlan('the red car', plain)!;
+    const byId = new Map(plain.map((each, index) => [each.candidateId, colours[index]!]));
+    const rerank = colourRerankScores(
+      plan,
+      plan.candidates.map((each) => axis(byId.get(each.candidateId)!)),
+      COLOUR_WORDS.map(axis),
+    );
+    return {
+      plain,
+      result: resolveMaskTargets({ ...input, description: 'the red car', evidence: { rerank } }),
+    };
+  };
+
+  it('picks the red car when one of two cars is red', () => {
+    const { plain, result } = scored(['red', 'grey']);
+    expect(result.status).toBe('resolved');
+    expect(result.chosenCandidateIds).toEqual([plain[0]!.candidateId]);
+  });
+
+  it('asks when neither car is red — the closer colour is not a match', () => {
+    expect(scored(['blue', 'grey']).result.status).toBe('ambiguous_target');
+  });
+
+  it('asks when both cars are red', () => {
+    expect(scored(['red', 'red']).result.status).toBe('ambiguous_target');
+  });
+});

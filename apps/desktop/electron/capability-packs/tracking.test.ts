@@ -10,6 +10,7 @@ import type {
   InstalledCapabilityPack,
 } from '@framepilot/capability-packs';
 import type { CapabilityPackProposalResultWire } from '@framepilot/shared-types';
+import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
 import {
   CapabilityPackTrackingService,
   SUBJECT_PACK_ID,
@@ -508,6 +509,69 @@ describe('CapabilityPackTrackingService', () => {
     it('new host, new pack: a 1.1 pack is asked for classes', async () => {
       expect(await sentBy('1.1.0')).toMatchObject({ classes: true });
       expect(await sentBy('2.0.0')).toMatchObject({ classes: true });
+    });
+  });
+
+  describe('AM2.5: Visual Embed crops for the colour re-ranker', () => {
+    const embedAt = (version: string): InstalledCapabilityPack => ({
+      ...installed(),
+      identity: { ...identity(version), id: VISUAL_EMBED_PACK_ID, artifactDigest: 'f'.repeat(64) },
+      installRelativePath: `${VISUAL_EMBED_PACK_ID}/${version}/darwin-arm64`,
+    });
+    const crops = (): CapabilityPackWorkerRequest =>
+      request({
+        capability: 'visual.embed',
+        parameters: {
+          promptBankVersion: 1,
+          shots: [{ shotIndex: 0, keyframeT: 1, region: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 } }],
+        },
+      } as Partial<CapabilityPackWorkerRequest>);
+
+    it('runs visual.embed with the installed Visual Embed pack and its model root', async () => {
+      const seen: { entrypoint?: string; env?: Record<string, string> } = {};
+      const { service } = harness({
+        records: [embedAt('1.1.0')],
+        runWorker: async (input) => {
+          const typed = input as { entrypoint: string; extraEnvironment: Record<string, string> };
+          seen.entrypoint = typed.entrypoint;
+          seen.env = typed.extraEnvironment;
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome.status).toBe('completed');
+      expect(seen.entrypoint).toBe(
+        `${STORAGE_ROOT}/${VISUAL_EMBED_PACK_ID}/1.1.0/darwin-arm64/bin/framepilot-visual-embed`,
+      );
+      expect(seen.env?.FRAMEPILOT_CAPABILITY_PACK_ROOT).toBe(
+        `${STORAGE_ROOT}/${VISUAL_EMBED_PACK_ID}/1.1.0/darwin-arm64`,
+      );
+    });
+
+    it('refuses a crop to a 1.0 pack before spawning it: a whole frame is not a crop', async () => {
+      let spawned = 0;
+      const { service, leases } = harness({
+        records: [embedAt('1.0.0')],
+        runWorker: async () => {
+          spawned += 1;
+          return result();
+        },
+      });
+      const outcome = await service.run(crops(), { projectRevision: 12, mediaRoot: MEDIA_ROOT });
+      expect(outcome).toMatchObject({ status: 'failed', code: 'pack_outdated' });
+      expect(spawned).toBe(0);
+      expect(leases.acquired).toBe(0);
+    });
+
+    it('answers pack_absent without building an install proposal when the caller skips', async () => {
+      const { service, propose } = harness({ records: [installed()] });
+      const outcome = await service.run(crops(), {
+        projectRevision: 12,
+        mediaRoot: MEDIA_ROOT,
+        whenMissing: 'skip',
+      });
+      expect(outcome).toMatchObject({ status: 'failed', code: 'pack_absent' });
+      expect(propose).not.toHaveBeenCalled();
     });
   });
 });

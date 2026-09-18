@@ -135,6 +135,12 @@ def embed_shots(
                 "media_unreadable",
                 f"decoder returned {len(frames)} frames for {len(window)} keyframes.",
             )
+        # A shot with a region is a detection's crop (AM2.5): only that part is embedded, and
+        # its faces are counted inside it. Without a region the whole keyframe, as before.
+        frames = [
+            frame if shot.region is None else backend.crop(frame, shot.region)
+            for shot, frame in zip(window, frames, strict=True)
+        ]
         vectors = backend.encode_images(frames)
         if len(vectors) != len(window):
             raise ProtocolError(

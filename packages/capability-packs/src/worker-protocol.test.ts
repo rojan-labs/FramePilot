@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   COCO_CLASS_NAMES,
   SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION,
+  VISUAL_EMBED_REGION_MIN_PACK_VERSION,
   negotiatePackRequest,
   packVersionAtLeast,
   CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
@@ -748,6 +749,48 @@ describe('Capability Pack worker protocol', () => {
       expect(packVersionAtLeast('2.0.0', '1.1.0')).toBe(true);
       expect(packVersionAtLeast('1.0.9', '1.1.0')).toBe(false);
       expect(packVersionAtLeast('1.1.0-rc.1', '1.1.0')).toBe(true);
+    });
+  });
+
+  describe('AM2.5: a visual.embed shot may name a crop region', () => {
+    const embed = (shots: readonly Record<string, unknown>[]) => ({
+      ...base,
+      capability: 'visual.embed',
+      parameters: { promptBankVersion: 1, shots },
+    });
+    const region = { x: 0.05, y: 0.4, width: 0.4, height: 0.35 };
+
+    it('accepts a shot with and without a region', () => {
+      expect(
+        CapabilityPackWorkerRequestSchema.parse(
+          embed([
+            { shotIndex: 0, keyframeT: 1.5, region },
+            { shotIndex: 1, keyframeT: 1.5 },
+          ]),
+        ),
+      ).toMatchObject({ parameters: { shots: [{ region }, { shotIndex: 1 }] } });
+    });
+
+    it('refuses a region outside the frame', () => {
+      expect(() =>
+        CapabilityPackWorkerRequestSchema.parse(
+          embed([{ shotIndex: 0, keyframeT: 1.5, region: { ...region, x: 0.8 } }]),
+        ),
+      ).toThrow(/inside the frame/);
+    });
+
+    it('refuses to send a crop to a pack that would embed the whole frame instead', () => {
+      const request = CapabilityPackWorkerRequestSchema.parse(
+        embed([{ shotIndex: 0, keyframeT: 1.5, region }]),
+      );
+      expect(negotiatePackRequest(request, '1.0.0')).toMatchObject({
+        status: 'pack_outdated',
+        detail: expect.stringContaining(VISUAL_EMBED_REGION_MIN_PACK_VERSION),
+      });
+      expect(negotiatePackRequest(request, '1.1.0')).toEqual({ status: 'ready', request });
+      // A whole-frame request (the ledger's) is untouched on any release.
+      const whole = CapabilityPackWorkerRequestSchema.parse(embed([{ shotIndex: 0, keyframeT: 1.5 }]));
+      expect(negotiatePackRequest(whole, '1.0.0')).toEqual({ status: 'ready', request: whole });
     });
   });
 });

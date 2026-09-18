@@ -116,14 +116,35 @@ The request's head noun maps to COCO classes through `OBJECT_CLASS_SYNONYMS`
 A colour word before a noun is an adjective ("the orange car" is a car, not the fruit). Candidates
 carry `objectClass` when it was measured.
 
-### What the shipped packs still limit
+### Colour re-ranking (AM2.5)
 
-- **SigLIP cannot score a crop.** `visual.embed` embeds a whole keyframe per shot; the worker
-  protocol has no crop parameter, so the re-ranking MD-6 names has nothing to call. The executor
-  takes a `rerank` evidence source and the resolver uses its margin when one is supplied (tested
-  with a fake); the desktop supplies none, and the result says `reranker: "none"`.
-- **Installed packs are 1.0.** Classes reach users only with a new signed Subject Intelligence
-  release (maintainer action, MO-1..MO-5). Until then described objects ask.
+"The red car" with two cars on screen: the detector says both are `car`. When the request's only
+descriptive word is one colour and at least two candidates survive the class filter, the desktop's
+`rerank` source (`apps/desktop/electron/ai/crop-reranker.ts`) asks Visual Embed to embed each
+candidate's crop (`visual.embed` shot `region`) and "a photo of a {colour} {noun}" for every colour
+in the palette (`visual.text`). Each crop's score is the named colour's softmax share at the pack's
+own label temperature (0.01); the resolver then needs the usual margin (≥ 0.5 and 1.25× the
+runner-up). Planning and scoring are pure (`masking/colour-rerank.ts`).
+
+- **It re-ranks, never finds.** Only candidates already classed as the noun are cropped; an
+  unclassed or other-class candidate is never shown to SigLIP and a score cannot vouch for a class.
+- **A classification, not a nearest colour.** A blue car and a grey car asked about as "the red
+  car" both score low, so the resolver asks instead of picking the closer one.
+- **Only colour.** "The shiny car", two colours, or a colour on a person get no re-rank and ask.
+- **Optional.** No Visual Embed, one older than 1.1.0 (it cannot crop; the host refuses the request
+  as `pack_outdated` before spawning), or a failed job: no evidence, and the resolver asks. A
+  missing pack is never proposed for install from here.
+- **Unmeasured.** The calibration is the pack's zero-shot label temperature, not a value measured on
+  crops of real footage; no colour accuracy is claimed. The AM5 eval exercises the path with
+  synthetic vectors (ground truth by construction), which proves the wiring and the decision rules,
+  not SigLIP.
+
+### What installed users get today
+
+Classes and crops arrive only with new signed releases: **Subject Intelligence 1.1.0** and
+**Visual Embed 1.1.0**. Signing and publishing them is a maintainer action (MO-1..MO-5). Until
+then every installed pack is 1.0: the `classes` flag is negotiated away, the crop request is
+refused as `pack_outdated`, and described objects ask as before.
 
 ### Candidate ids
 

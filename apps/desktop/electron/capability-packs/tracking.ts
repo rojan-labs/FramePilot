@@ -34,6 +34,7 @@ import type {
 } from '@framepilot/capability-packs';
 import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import { compareSemver, resolveInside } from './pack-paths.js';
+import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
 
 const log = createLogger('desktop:capability-packs:tracking');
 
@@ -48,7 +49,13 @@ export type TrackingCapability = (typeof TRACKING_CAPABILITIES)[number];
 export const SUBJECT_PACK_ID = 'framepilot.subject-intelligence';
 export const SUBJECT_CAPABILITIES = ['subject.detect', 'subject.segment'] as const;
 export type SubjectCapability = (typeof SUBJECT_CAPABILITIES)[number];
-export type PackJobCapability = TrackingCapability | SubjectCapability;
+/**
+ * Visual Embed run directly by the host — only for scoring detection crops against a text query
+ * (AM2.5 colour re-ranking). Shot-ledger indexing still runs the pack through the engine.
+ */
+export const VISUAL_EMBED_CAPABILITIES = ['visual.embed', 'visual.text'] as const;
+export type VisualEmbedCapability = (typeof VISUAL_EMBED_CAPABILITIES)[number];
+export type PackJobCapability = TrackingCapability | SubjectCapability | VisualEmbedCapability;
 
 interface PackJobBinding {
   readonly packId: string;
@@ -72,6 +79,16 @@ const PACK_BY_CAPABILITY: Readonly<Record<PackJobCapability, PackJobBinding>> = 
   'subject.segment': {
     packId: SUBJECT_PACK_ID,
     entrypointByPlatform: ENTRYPOINT('framepilot-subject-intelligence'),
+    extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+  },
+  'visual.embed': {
+    packId: VISUAL_EMBED_PACK_ID,
+    entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
+    extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
+  },
+  'visual.text': {
+    packId: VISUAL_EMBED_PACK_ID,
+    entrypointByPlatform: ENTRYPOINT('framepilot-visual-embed'),
     extraEnvironment: (installRoot) => ({ FRAMEPILOT_CAPABILITY_PACK_ROOT: installRoot }),
   },
 };
@@ -102,6 +119,12 @@ export interface TrackingRunOptions {
   readonly mediaRoot: string;
   readonly signal?: AbortSignal;
   readonly onProgress?: (progress: CapabilityPackWorkerProgress) => void;
+  /**
+   * What a missing pack means to this caller. `propose` (the default) builds the signed install
+   * proposal for the editor. `skip` is for OPTIONAL evidence the editor never asked for — the
+   * colour re-ranker — which answers `pack_absent` without touching the catalog.
+   */
+  readonly whenMissing?: 'propose' | 'skip';
 }
 
 export type TrackingRunOutcome =
@@ -122,6 +145,8 @@ export type TrackingFailureCode =
   | 'cancelled'
   | 'stale_revision'
   | 'pack_unhealthy'
+  /** No such pack is installed, and the caller asked not to be offered one (`whenMissing`). */
+  | 'pack_absent'
   | 'pack_incomplete'
   /** The installed release predates a request field the host needs (AM2.5 negotiation). */
   | 'pack_outdated'
@@ -171,6 +196,9 @@ export class CapabilityPackTrackingService {
           `The installed ${binding.packId} pack is quarantined, being removed, or failed its health check. Repair it in Settings › Storage.`,
           false,
         );
+      }
+      if (options.whenMissing === 'skip') {
+        return failed('pack_absent', `${binding.packId} is not installed.`, false);
       }
       return { status: 'pack_missing', proposal: await this.options.propose(request.capability) };
     }

@@ -104,6 +104,7 @@ import {
 } from '@framepilot/ai-sdk';
 import { createAutomaticTrackingExecutor } from './ai/automatic-tracking-executor.js';
 import { createMaskingExecutor, MASKING_EXECUTOR_TOOLS } from './ai/masking-executor.js';
+import { createCropReranker } from './ai/crop-reranker.js';
 import { desktopAiMaskingDisabledTools } from './ai/ai-masking-switch.js';
 import { recordAutoAcceptedMemory } from './ai/auto-accept-memory.js';
 import {
@@ -2884,10 +2885,15 @@ function registerIpcHandlers(): void {
     evidence: {
       // Per-project opt-in, read from the project brain on every resolution (P15, MD-7): an
       // editor who withdraws consent mid-session is honoured on the very next call. No
-      // `identities` or `rerank` source is supplied, because the shipped packs cannot produce
-      // either for a detection crop (docs/api/ai-masking.md) — so identity questions go to
-      // the face picker with or without consent, and consent gates nothing it should not.
+      // `identities` source is supplied, because the shipped packs cannot produce one for a
+      // detection crop (docs/api/ai-masking.md) — so identity questions go to the face picker
+      // with or without consent, and consent gates nothing it should not.
       faceRecognitionConsent: async (project) => (await identityClient.state(project.id)).consent,
+      // AM2.5: "the red car" among classed cars — Visual Embed (>= 1.1.0) scores each crop's
+      // colour. Absent, outdated or failing, it answers nothing and the resolver asks.
+      rerank: createCropReranker({
+        tracking: async () => (await capabilityPackService).tracking(),
+      }),
     },
   });
   // RD2.1 kill switch for the AI masking tools, read at RUNTIME on every call so support can

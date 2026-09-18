@@ -375,6 +375,13 @@ const ShotPromptSchema = z
   .object({
     shotIndex: z.number().int().nonnegative(),
     keyframeT: z.number().finite().nonnegative(),
+    /**
+     * Embed only this part of the keyframe — a detection's crop (AM2.5), so the host can score a
+     * text query against each candidate. Additive: a pack older than
+     * {@link VISUAL_EMBED_REGION_MIN_PACK_VERSION} refuses it, so {@link negotiatePackRequest}
+     * refuses the request instead of sending it.
+     */
+    region: NormalizedBoxSchema.optional(),
   })
   .strict();
 
@@ -985,6 +992,8 @@ export function negotiateCapabilityPackCapability(
 
 /** The first Subject Intelligence release that understands `subject.detect` `classes`. */
 export const SUBJECT_DETECT_CLASSES_MIN_PACK_VERSION = '1.1.0';
+/** The first Visual Embed release that understands a `visual.embed` shot `region`. */
+export const VISUAL_EMBED_REGION_MIN_PACK_VERSION = '1.1.0';
 
 /** Whether `version` is at least `minimum`, by the numeric `major.minor.patch` core. */
 export function packVersionAtLeast(version: string, minimum: string): boolean {
@@ -1014,6 +1023,8 @@ export type CapabilityPackRequestNegotiation =
  *
  * - `subject.detect` `classes` is an ENRICHMENT: an older pack answers the same request without
  *   it, and the result simply carries no class (the resolver's pre-AM2.5 behaviour).
+ * - `visual.embed` shot `region` is a REQUIREMENT: without it a whole frame would be embedded
+ *   and scored as if it were the crop, so an older pack is `pack_outdated` and nothing runs.
  */
 export function negotiatePackRequest(
   request: CapabilityPackWorkerRequest,
@@ -1026,6 +1037,16 @@ export function negotiatePackRequest(
   ) {
     const { classes: _classes, ...parameters } = request.parameters;
     return { status: 'ready', request: { ...request, parameters } };
+  }
+  if (
+    request.capability === 'visual.embed' &&
+    request.parameters.shots.some((shot) => shot.region !== undefined) &&
+    !packVersionAtLeast(packVersion, VISUAL_EMBED_REGION_MIN_PACK_VERSION)
+  ) {
+    return {
+      status: 'pack_outdated',
+      detail: `Visual Embed ${packVersion} cannot embed a crop; ${VISUAL_EMBED_REGION_MIN_PACK_VERSION} or newer can.`,
+    };
   }
   return { status: 'ready', request };
 }

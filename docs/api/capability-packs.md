@@ -465,9 +465,10 @@ a request key it predates, and a host refuses a result key it predates. So an ad
   resolved). An enrichment is dropped for an older release, which then answers as before; a field
   the host cannot do without is refused as `pack_outdated` before anything spawns.
 
-| Field                                                                                     | Since                          | Older release                                 |
-| ----------------------------------------------------------------------------------------- | ------------------------------ | --------------------------------------------- |
-| `subject.detect` `parameters.classes` → `class`, `classScore` on person/object detections | Subject Intelligence **1.1.0** | Flag dropped; detections carry the label only |
+| Field                                                                                     | Since                          | Older release                                      |
+| ----------------------------------------------------------------------------------------- | ------------------------------ | -------------------------------------------------- |
+| `subject.detect` `parameters.classes` → `class`, `classScore` on person/object detections | Subject Intelligence **1.1.0** | Flag dropped; detections carry the label only      |
+| `visual.embed` shot `region` (embed only that crop of the keyframe)                       | Visual Embed **1.1.0**         | Request refused as `pack_outdated`; nothing spawns |
 
 `class` is one of the pinned YOLOX-S model's 80 COCO names (`COCO_CLASS_NAMES`, mirrored by the
 worker's `coco_classes.py`; provenance in that pack's `LICENSES.md`), and `classScore` is the model's
@@ -475,7 +476,14 @@ conditional probability for it (`confidence` stays the joint objectness × class
 carries a class; a class without a score, a score without a class, or a name off the list is refused
 on both sides.
 
-**Installed users get classes only after a new signed Subject Intelligence release (1.1.0).** Signing
+A crop is a requirement, not an enrichment: an older Visual Embed would embed the whole frame and
+the host would score it as if it were the crop. The host runs `visual.embed` / `visual.text`
+directly (through `CapabilityPackTrackingService`) only for the AI masking colour re-ranker; shot
+ledger indexing still runs the pack through the engine. That caller passes `whenMissing: 'skip'`,
+so a missing Visual Embed answers `pack_absent` without building an install proposal.
+
+**Installed users get classes only after a new signed Subject Intelligence release (1.1.0), and
+crops only after a new signed Visual Embed release (1.1.0).** Signing
 and publishing it is a maintainer action (MO-1..MO-5); until then every installed pack is 1.0.0,
 the flag is negotiated away, and object requests keep asking the editor to pick.
 

@@ -16,6 +16,8 @@ from __future__ import annotations
 from collections.abc import Sequence
 from typing import Any, Protocol, runtime_checkable
 
+from .protocol import NormalizedBox
+
 #: An opaque decoded frame. Only the backend interprets it.
 Frame = Any
 #: An L2-normalised embedding. The policy layer assumes unit length and never re-normalises
@@ -60,6 +62,13 @@ class VisualEmbedBackend(Protocol):
         :raises MediaUnreadableError: If the file cannot be opened, or a timestamp cannot
             be decoded. A missing frame is never silently replaced by its neighbour: the
             label would then describe a picture the host did not ask about.
+        """
+
+    def crop(self, frame: Frame, region: NormalizedBox) -> Frame:
+        """The part of ``frame`` inside ``region`` (normalised), at the frame's own resolution.
+
+        At least one pixel on each side, so a sliver-thin detection still embeds something
+        rather than an empty array the image tower would reject.
         """
 
     def encode_images(self, frames: Sequence[Frame]) -> Sequence[Vector]: ...

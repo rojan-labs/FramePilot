@@ -20,6 +20,7 @@ from framepilot_visual_embed.backend import (
     Vector,
 )
 from framepilot_visual_embed.prompt_bank import PROMPT_GROUPS, all_prompts
+from framepilot_visual_embed.protocol import NormalizedBox
 
 DIM = 8
 FACE_DIM = 4
@@ -52,12 +53,16 @@ class FakeBackend:
         image_vectors: dict[float, Vector] | None = None,
         faces_per_frame: int = 0,
         unreadable_at: float | None = None,
+        region_vectors: dict[tuple[float, float, float, float], Vector] | None = None,
     ) -> None:
         self._image_vectors = image_vectors or {}
         self._faces_per_frame = faces_per_frame
         self._unreadable_at = unreadable_at
+        self._region_vectors = region_vectors or {}
         self.decoded: list[float] = []
         self.text_calls: list[list[str]] = []
+        self.crops: list[tuple[float, NormalizedBox]] = []
+        self.encoded: list[Frame] = []
 
     @property
     def model_digests(self) -> dict[str, str]:
@@ -72,8 +77,18 @@ class FakeBackend:
             frames.append({"t": timestamp, "path": path})
         return frames
 
+    def crop(self, frame: Frame, region: NormalizedBox) -> Frame:
+        self.crops.append((frame["t"], region))
+        return {**frame, "region": (region.x, region.y, region.width, region.height)}
+
     def encode_images(self, frames: Sequence[Frame]) -> Sequence[Vector]:
-        return [self._image_vectors.get(frame["t"], unit(1.0)) for frame in frames]
+        self.encoded.extend(frames)
+        return [
+            self._region_vectors.get(frame["region"], unit(1.0))
+            if "region" in frame
+            else self._image_vectors.get(frame["t"], unit(1.0))
+            for frame in frames
+        ]
 
     def encode_texts(self, texts: Sequence[str]) -> Sequence[Vector]:
         self.text_calls.append(list(texts))
