@@ -49,6 +49,7 @@ export * from './mask-builders.js';
 export * from './mask-path-editing.js';
 export * from './mask-curve-fit.js';
 export * from './mask-commands.js';
+export * from './mask-shape-presets.js';
 // The transform-track artifact a tracked mask points at, and the host policy that builds one
 // out of tracker measurements (MK7).
 export * from './mask-track.js';

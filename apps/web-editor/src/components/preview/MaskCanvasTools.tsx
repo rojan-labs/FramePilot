@@ -51,8 +51,12 @@ import {
   transformVertices,
   verticesBounds,
   verticesInRect,
+  MASK_SHAPE_PRESETS,
+  MASK_SHAPE_PRESET_NAMES,
+  shapePresetPaths,
   type AnalyticMaskGeometry,
   type MaskGeometry,
+  type MaskShapePreset,
   type MaskPathVertex,
   type PixelPoint,
   type SnapTargets,
@@ -78,6 +82,7 @@ import {
   Ban,
   Blend,
   Circle,
+  Shapes,
   FlipVertical2,
   SquareSplitHorizontal,
   Diamond,
@@ -152,6 +157,7 @@ const TOOL_KEYS: Readonly<Record<string, MaskTool>> = {
   s: 'split',
   m: 'mirror',
   g: 'gradient',
+  h: 'shape',
   o: 'ai-object',
   b: 'ai-brush',
 };
@@ -170,6 +176,8 @@ const TOOLS: readonly { readonly tool: MaskTool; readonly label: string; readonl
     { tool: 'split', label: 'Split tool', key: 'S' },
     { tool: 'mirror', label: 'Mirror band tool', key: 'M' },
     { tool: 'gradient', label: 'Gradient tool (Alt-drag for radial)', key: 'G' },
+    // Shape presets (MK8.3): drag a box; the path is ordinary and editable afterwards.
+    { tool: 'shape', label: 'Shape preset tool', key: 'H' },
     // Subject hints (BR6.3): they say which subject the next background removal keeps.
     { tool: 'ai-object', label: 'AI Object tool', key: 'O' },
     { tool: 'ai-brush', label: 'AI Brush tool', key: 'B' },
@@ -187,6 +195,7 @@ const TOOL_ICONS = {
   split: SquareSplitHorizontal,
   mirror: FlipVertical2,
   gradient: Blend,
+  shape: Shapes,
   'feature-point': Diamond,
   exclude: Ban,
   'ai-object': Sparkles,
@@ -251,7 +260,7 @@ type Gesture =
   | {
       readonly kind: 'draw-box';
       readonly pointerId: number;
-      readonly shape: 'rectangle' | 'ellipse';
+      readonly shape: 'rectangle' | 'ellipse' | 'preset';
       readonly start: PixelPoint;
       current: PixelPoint;
     }
@@ -307,6 +316,8 @@ type Gesture =
 /** What the overlay draws for a gesture that is not a live mask geometry. */
 interface Draft {
   readonly box?: { readonly shape: 'rectangle' | 'ellipse'; readonly geometry: MaskGeometry };
+  /** A shape preset being dragged out: its path(s), drawn as outlines (MK8.3). */
+  readonly preset?: readonly (readonly MaskPathVertex[])[];
   readonly marquee?: {
     readonly x: number;
     readonly y: number;
@@ -991,12 +1002,13 @@ export function MaskCanvasTools({
         beginSelect(event, point);
         return;
       case 'rectangle':
-      case 'ellipse': {
+      case 'ellipse':
+      case 'shape': {
         const start = snapped(point, event, null).point;
         gesture.current = {
           kind: 'draw-box',
           pointerId: event.pointerId,
-          shape: tools.tool,
+          shape: tools.tool === 'shape' ? 'preset' : tools.tool,
           start,
           current: start,
         };
@@ -1178,6 +1190,14 @@ export function MaskCanvasTools({
           square: event.shiftKey,
           fromCentre: event.altKey,
         });
+        if (active.shape === 'preset') {
+          setDraft({
+            preset: presetDraft(box),
+            guideX: target.guideX,
+            guideY: target.guideY,
+          });
+          return;
+        }
         const geometry: MaskGeometry =
           active.shape === 'rectangle'
             ? {
@@ -1511,8 +1531,21 @@ export function MaskCanvasTools({
     }
   };
 
+  /** The preset's outlines inside a dragged box, or none while the box is under a pixel. */
+  const presetDraft = (box: {
+    cx: number;
+    cy: number;
+    width: number;
+    height: number;
+  }): (readonly MaskPathVertex[])[] => {
+    if (box.width < 1 || box.height < 1) return [];
+    return shapePresetPaths(tools.shapePreset, box, { points: tools.shapePoints }).map(
+      (path) => path.vertices,
+    );
+  };
+
   const commitBox = (
-    shape: 'rectangle' | 'ellipse',
+    shape: 'rectangle' | 'ellipse' | 'preset',
     start: PixelPoint,
     end: PixelPoint,
     modifiers: { shiftKey: boolean; altKey: boolean },
@@ -1523,6 +1556,28 @@ export function MaskCanvasTools({
       return;
     }
     const id = nextMaskId(clip);
+    if (shape === 'preset') {
+      const target = tools.pendingTarget;
+      const drawn = run({
+        type: 'draw_shape_preset',
+        clipId: clip.id,
+        preset: tools.shapePreset,
+        box: { cx: box.cx, cy: box.cy, width: box.width, height: box.height },
+        options: { points: tools.shapePoints },
+        sourceTime,
+        ...(target === null ? {} : { target }),
+      });
+      if (drawn) {
+        store.update({
+          selectedMaskId: id,
+          selectedVertices: [],
+          tool: 'select',
+          ...(target === null ? {} : { pendingTarget: null }),
+        });
+        setAnnouncement(`${MASK_SHAPE_PRESET_NAMES[tools.shapePreset]} mask added`);
+      }
+      return;
+    }
     const geometry: MaskGeometry =
       shape === 'rectangle'
         ? {
@@ -1695,14 +1750,17 @@ export function MaskCanvasTools({
             setAnnouncement('Mask added');
           }
         }
-      } else if (tools.tool === 'rectangle' || tools.tool === 'ellipse') {
+      } else if (tools.tool === 'rectangle' || tools.tool === 'ellipse' || tools.tool === 'shape') {
         if (boxAnchor === null) {
           setBoxAnchor(at);
           setAnnouncement(
             `Corner set at ${describePoint(at)}. Move the crosshair and press Space again.`,
           );
         } else {
-          commitBox(tools.tool, boxAnchor, at, { shiftKey: false, altKey: false });
+          commitBox(tools.tool === 'shape' ? 'preset' : tools.tool, boxAnchor, at, {
+            shiftKey: false,
+            altKey: false,
+          });
           setBoxAnchor(null);
         }
       }
@@ -1873,6 +1931,47 @@ export function MaskCanvasTools({
             <Magnet size={ICON_SIZE.sm} aria-hidden="true" />
           </button>
         </Tooltip>
+        {tools.tool === 'shape' && (
+          <>
+            <label className="mask-canvas-zoom">
+              <span className="sr-only">Shape preset</span>
+              <select
+                aria-label="Shape preset"
+                value={tools.shapePreset}
+                onChange={(event) =>
+                  store.update({ shapePreset: event.target.value as MaskShapePreset })
+                }
+              >
+                {MASK_SHAPE_PRESETS.map((preset) => (
+                  <option key={preset} value={preset}>
+                    {MASK_SHAPE_PRESET_NAMES[preset]}
+                  </option>
+                ))}
+              </select>
+            </label>
+            {(tools.shapePreset === 'star' || tools.shapePreset === 'polygon') && (
+              <label className="mask-canvas-zoom">
+                <span className="sr-only">
+                  {tools.shapePreset === 'star' ? 'Star points' : 'Polygon sides'}
+                </span>
+                <input
+                  type="number"
+                  aria-label={tools.shapePreset === 'star' ? 'Star points' : 'Polygon sides'}
+                  min={3}
+                  max={64}
+                  step={1}
+                  value={tools.shapePoints}
+                  onChange={(event) => {
+                    const value = Math.round(Number(event.target.value));
+                    if (Number.isFinite(value)) {
+                      store.update({ shapePoints: Math.min(64, Math.max(3, value)) });
+                    }
+                  }}
+                />
+              </label>
+            )}
+          </>
+        )}
         <label className="mask-canvas-zoom">
           <span className="sr-only">Mask zoom</span>
           <select
@@ -2007,6 +2106,16 @@ export function MaskCanvasTools({
               fill="none"
             />
           )}
+          {draft.preset?.map((vertices, index) => (
+            <path
+              key={`preset-${String(index)}`}
+              className="mask-canvas-draft"
+              data-testid="mask-preset-draft"
+              d={outlinePathData(outlineVertices({ kind: 'path', vertices }))}
+              vectorEffect="non-scaling-stroke"
+              fill="none"
+            />
+          ))}
           {draft.stroke !== undefined && (
             <path
               className="mask-canvas-draft"

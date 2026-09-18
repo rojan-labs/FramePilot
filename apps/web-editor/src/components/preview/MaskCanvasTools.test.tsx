@@ -603,9 +603,7 @@ describe('analytic mask tools (MK8.1)', () => {
   });
 
   it('dragging a split line moves it; arrows nudge it; Delete removes it', () => {
-    mount(
-      timeline([{ kind: 'linear', id: 'c1__mask', originX: 1920, originY: 1080, angle: 0 }]),
-    );
+    mount(timeline([{ kind: 'linear', id: 'c1__mask', originX: 1920, originY: 1080, angle: 0 }]));
     act(() => store.selectMask('c1__mask'));
     drag([700, 540], [700, 600]);
     expect(masks()[0]).toMatchObject({ originX: 1920, originY: 1200 });
@@ -613,5 +611,42 @@ describe('analytic mask tools (MK8.1)', () => {
     expect(masks()[0]).toMatchObject({ originX: 1921 });
     fireEvent.keyDown(canvas(), { key: 'Delete' });
     expect(masks()).toHaveLength(0);
+  });
+});
+
+describe('shape presets (MK8.3)', () => {
+  it('Shapes: pick a preset, drag a box, get an ordinary editable path in one undo', () => {
+    mount(timeline());
+    fireEvent.click(screen.getByRole('button', { name: 'Shape preset tool' }));
+    fireEvent.change(screen.getByRole('combobox', { name: 'Shape preset' }), {
+      target: { value: 'star' },
+    });
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'Star points' }), {
+      target: { value: '6' },
+    });
+    const target = canvas();
+    fireEvent.pointerDown(target, at(100, 100));
+    fireEvent.pointerMove(target, at(300, 300));
+    expect(screen.getAllByTestId('mask-preset-draft')).toHaveLength(1);
+    expect(historyLength()).toBe(0);
+    fireEvent.pointerUp(target, at(300, 300));
+    expect(historyLength()).toBe(1);
+    const star = masks()[0] as PathMask;
+    expect(star).toMatchObject({ kind: 'path', name: 'Star' });
+    expect(maskPathVerticesAt(star, 0)).toHaveLength(12);
+    expect(store.getState()).toMatchObject({ tool: 'select', selectedMaskId: 'c1__mask' });
+    act(() => editor.undo());
+    expect(masks()).toHaveLength(0);
+  });
+
+  it('a rounded frame is an outer path and a subtracted inner one', () => {
+    mount(timeline());
+    act(() => store.update({ tool: 'shape', shapePreset: 'rounded-frame' }));
+    drag([100, 100], [500, 400]);
+    expect(masks().map((mask) => [mask.kind, mask.mode])).toEqual([
+      ['path', 'add'],
+      ['path', 'subtract'],
+    ]);
+    expect(historyLength()).toBe(1);
   });
 });

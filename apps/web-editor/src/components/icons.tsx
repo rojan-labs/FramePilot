@@ -125,6 +125,8 @@ export {
   SquareSplitHorizontal,
   FlipVertical2,
   Blend,
+  // Shape presets (MK8.3).
+  Shapes,
 } from 'lucide-react';
 export type { LucideIcon } from 'lucide-react';
 

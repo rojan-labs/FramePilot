@@ -8,6 +8,12 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Shape masks: heart, star, polygon, speech bubble, arrow and rounded frame.** The new
+  **Shapes** tool (H) on the monitor's mask toolbar draws any of them into the box you drag —
+  pick the number of points for a star or sides for a polygon beside the toolbar. What you get is
+  an ordinary path mask: move its points, bend its curves, feather, keyframe or track it like
+  anything you drew by hand. The rounded frame is two masks, the outer shape and a subtracted
+  inner one, so its border can be feathered without a seam.
 - **Split, mirror and gradient masks.** Three new tools on the monitor's mask toolbar: **Split**
   (S) cuts the picture along a line you drag — the classic split screen; **Mirror** (M) keeps a
   band between two parallel lines, for filmstrip and mirror looks; **Gradient** (G) fades the

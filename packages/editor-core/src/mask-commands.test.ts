@@ -292,6 +292,50 @@ describe('draw_mask', () => {
     expect(JSON.stringify(result)).toMatch(/no edge to grow or soften/);
   });
 
+  it('inserts a shape preset as ordinary path masks, a frame as two in one undo (MK8.3)', () => {
+    let tl = applied(timeline([rect({ id: 'existing' })]), {
+      type: 'draw_shape_preset',
+      preset: 'star',
+      box: { cx: 1920, cy: 1080, width: 800, height: 800 },
+      options: { points: 6 },
+      sourceTime: 2,
+    });
+    const star = masksOn(tl)[0] as PathMask;
+    expect(star).toMatchObject({ kind: 'path', name: 'Star', mode: 'add' });
+    expect(star.pathKeyframes[0]!.vertexTypes).toHaveLength(12);
+    expect(star.pathKeyframes[0]!.sourceTime).toBe(2);
+    const result = compile(tl, {
+      type: 'draw_shape_preset',
+      preset: 'rounded-frame',
+      box: { cx: 1920, cy: 1080, width: 3000, height: 1800 },
+      sourceTime: 2,
+    });
+    expect(result.status).toBe('compiled');
+    tl = applied(tl, {
+      type: 'draw_shape_preset',
+      preset: 'rounded-frame',
+      box: { cx: 1920, cy: 1080, width: 3000, height: 1800 },
+      sourceTime: 2,
+    });
+    const [outer, inner] = masksOn(tl);
+    expect(outer).toMatchObject({ kind: 'path', name: 'Rounded frame (outer)', mode: 'add' });
+    expect(inner).toMatchObject({
+      kind: 'path',
+      name: 'Rounded frame (inner)',
+      mode: 'subtract',
+    });
+    expect(outer!.id).not.toBe(inner!.id);
+    expect(outer!.color).not.toBe(inner!.color);
+    expect(
+      compile(timeline(), {
+        type: 'draw_shape_preset',
+        preset: 'heart',
+        box: { cx: 1, cy: 1, width: 0, height: 10 },
+        sourceTime: 0,
+      }),
+    ).toMatchObject({ status: 'rejected', code: 'not_editable' });
+  });
+
   it('refuses a stale timeline revision and a missing clip', () => {
     const result = compileMaskCommand({
       timeline: timeline(),

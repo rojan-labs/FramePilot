@@ -12,7 +12,7 @@
  * history never sees the intermediate positions.
  */
 import { useSyncExternalStore } from 'react';
-import type { MaskClipboard, MaskGeometry } from '@framepilot/editor-core';
+import type { MaskClipboard, MaskGeometry, MaskShapePreset } from '@framepilot/editor-core';
 import type { MaskTarget } from '@framepilot/timeline-schema';
 
 /** The hand tools on the monitor. */
@@ -36,6 +36,8 @@ export type MaskTool =
   | 'split'
   | 'mirror'
   | 'gradient'
+  // Shape presets (MK8.3): drag a box, get an ordinary path shaped like the chosen preset.
+  | 'shape'
   | 'feature-point'
   | 'exclude'
   | 'ai-object'
@@ -81,6 +83,9 @@ export interface MaskToolState {
   readonly frameScale: number;
   readonly live: LiveMaskEdit | null;
   readonly liveScalars: LiveMaskScalars | null;
+  /** The preset the Shapes tool draws, and a star's points or a polygon's sides (MK8.3). */
+  readonly shapePreset: MaskShapePreset;
+  readonly shapePoints: number;
   readonly clipboard: MaskClipboard | null;
   /**
    * What the NEXT mask drawn on the monitor limits (MK5.1). `null` = the clip's alpha.
@@ -173,6 +178,8 @@ const INITIAL: MaskToolState = {
   frameScale: 1,
   live: null,
   liveScalars: null,
+  shapePreset: 'heart',
+  shapePoints: 5,
   clipboard: null,
   pendingTarget: null,
   eyedropper: false,

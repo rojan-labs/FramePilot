@@ -39,6 +39,14 @@ import {
 } from './mask-geometry.js';
 import { withConstraint } from './mask-track-review.js';
 import {
+  MASK_SHAPE_PRESET_NAMES,
+  ShapePresetError,
+  shapePresetPaths,
+  type MaskShapePreset,
+  type ShapePresetBox,
+  type ShapePresetOptions,
+} from './mask-shape-presets.js';
+import {
   MASK_ANIMATABLE_PROPERTIES,
   MIN_MASK_PATH_VERTICES,
   clampMaskScalar,
@@ -293,6 +301,23 @@ export interface DrawMaskCommand extends MaskCommandBase {
   readonly target?: MaskTarget;
 }
 
+/**
+ * Insert a shape preset (MK8.3): heart, star, polygon, speech bubble, arrow or rounded frame,
+ * generated as ordinary `path` masks the editor then edits like any drawn path. One patch, one
+ * undo, even for the rounded frame's two paths.
+ */
+export interface DrawShapePresetCommand extends MaskCommandBase {
+  readonly type: 'draw_shape_preset';
+  readonly preset: MaskShapePreset;
+  /** Bounding box, display-corrected source pixels; rotation clockwise degrees. */
+  readonly box: ShapePresetBox;
+  readonly options?: ShapePresetOptions;
+  /** Source instant each path's first keyframe sits at. */
+  readonly sourceTime: number;
+  readonly name?: string;
+  readonly target?: MaskTarget;
+}
+
 /** Change a mask's shape at a source instant (a monitor drag, a typed px field). */
 export interface SetMaskGeometryCommand extends MaskCommandBase {
   readonly type: 'set_mask_geometry';
@@ -540,6 +565,7 @@ export type MaskCommand =
   | ApplyMaskPresetCommand
   | RemoveMaskPresetCommand
   | DrawMaskCommand
+  | DrawShapePresetCommand
   | SetMaskGeometryCommand
   | SetMaskPropertiesCommand
   | ToggleMaskKeyframeCommand
@@ -811,6 +837,51 @@ const isAnalyticGeometry = (
   geometry: MaskGeometry | AnalyticMaskGeometry,
 ): geometry is AnalyticMaskGeometry =>
   geometry.kind === 'linear' || geometry.kind === 'band' || geometry.kind === 'gradient';
+
+function buildDrawShapePreset(
+  input: CompileMaskCommandInput,
+  command: DrawShapePresetCommand,
+): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  clipDisplaySize(clip, input.assets);
+  let paths;
+  try {
+    paths = shapePresetPaths(command.preset, command.box, command.options ?? {});
+  } catch (error) {
+    if (error instanceof ShapePresetError) throw new Rejection('not_editable', error.message);
+    throw error;
+  }
+  const target = command.target === undefined ? undefined : assertTarget(clip, command.target);
+  const title = command.name ?? MASK_SHAPE_PRESET_NAMES[command.preset];
+  const operations: MaskOperation[] = [];
+  let masks = masksOf(clip);
+  paths.forEach((path, index) => {
+    const id = nextMaskId({ id: clip.id, masks: [...masks] });
+    const mask: MaskLayerInput = {
+      id,
+      kind: 'path',
+      name: path.part === undefined ? title : `${title} (${path.part})`,
+      color: nextMaskColor({ masks: [...masks] }),
+      mode: path.mode,
+      ...(target === undefined ? {} : { target }),
+      pathKeyframes: [
+        {
+          id: `${id}__path__0`,
+          sourceTime: Math.max(0, command.sourceTime),
+          ...encodeMaskPath(path.vertices),
+        },
+      ],
+    };
+    // Each path lands below the one before it, all at the top of the stack: a frame's hole
+    // must be evaluated after the outer shape it subtracts from.
+    operations.push({ type: 'add_mask', clipId: clip.id, mask, index });
+    masks = [...masks.slice(0, index), mask as MaskLayer, ...masks.slice(index)];
+  });
+  return {
+    operations,
+    reason: `Add ${MASK_SHAPE_PRESET_NAMES[command.preset].toLowerCase()} mask on "${clip.id}"`,
+  };
+}
 
 function buildSetGeometry(input: CompileMaskCommandInput, command: SetMaskGeometryCommand): Built {
   const clip = findClip(input.timeline, command.clipId);
@@ -1318,6 +1389,8 @@ function build(input: CompileMaskCommandInput): Built {
     }
     case 'draw_mask':
       return buildDraw(input, command);
+    case 'draw_shape_preset':
+      return buildDrawShapePreset(input, command);
     case 'set_mask_geometry':
       return buildSetGeometry(input, command);
     case 'set_mask_properties':

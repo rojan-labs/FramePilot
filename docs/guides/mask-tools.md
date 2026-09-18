@@ -8,16 +8,17 @@ monitor rasterises the stack) is in [preview-masks.md](./preview-masks.md); deci
 Select a video or image clip, open **Inspector → Mask**. While that tab is open the program monitor
 shows the mask toolbar and draws the clip's masks over the picture.
 
-| Tool      | Key | Mouse                                                                                                             | Keyboard (focus the monitor canvas)                                                                     |
-| --------- | --- | ----------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Selection | V   | drag a mask to move it; drag points and tangents; click an edge to add a point; drag empty space to select points | arrows nudge 1 px, Shift+arrows 10 px; `[` `]` step through points; Delete removes points (or the mask) |
-| Rectangle | R   | drag; Shift for a square, Alt from the centre                                                                     | Space sets a corner, arrows move, Space again draws                                                     |
-| Ellipse   | E   | as Rectangle                                                                                                      | as Rectangle                                                                                            |
-| Pen       | P   | click for corners, drag for smooth tangents, Shift for 45° segments, click the first point or Enter to close      | Space adds a point at the crosshair, Enter closes, Escape cancels                                       |
-| Freehand  | F   | draw a closed stroke; it is fitted to a smooth path                                                               | —                                                                                                       |
-| Split     | S   | press where the line goes and drag along it (a click lays it level; Shift in 15° steps)                           | Space sets the start, arrows move, Space again places                                                   |
-| Mirror    | M   | as Split; the band starts a quarter of the picture's smaller side wide                                            | as Split                                                                                                |
-| Gradient  | G   | drag from where it is opaque to where it is clear; Alt-drag for a radial gradient                                 | as Split (Alt with the second Space for radial)                                                         |
+| Tool      | Key | Mouse                                                                                                                                                                       | Keyboard (focus the monitor canvas)                                                                     |
+| --------- | --- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
+| Selection | V   | drag a mask to move it; drag points and tangents; click an edge to add a point; drag empty space to select points                                                           | arrows nudge 1 px, Shift+arrows 10 px; `[` `]` step through points; Delete removes points (or the mask) |
+| Rectangle | R   | drag; Shift for a square, Alt from the centre                                                                                                                               | Space sets a corner, arrows move, Space again draws                                                     |
+| Ellipse   | E   | as Rectangle                                                                                                                                                                | as Rectangle                                                                                            |
+| Pen       | P   | click for corners, drag for smooth tangents, Shift for 45° segments, click the first point or Enter to close                                                                | Space adds a point at the crosshair, Enter closes, Escape cancels                                       |
+| Freehand  | F   | draw a closed stroke; it is fitted to a smooth path                                                                                                                         | —                                                                                                       |
+| Split     | S   | press where the line goes and drag along it (a click lays it level; Shift in 15° steps)                                                                                     | Space sets the start, arrows move, Space again places                                                   |
+| Mirror    | M   | as Split; the band starts a quarter of the picture's smaller side wide                                                                                                      | as Split                                                                                                |
+| Gradient  | G   | drag from where it is opaque to where it is clear; Alt-drag for a radial gradient                                                                                           | as Split (Alt with the second Space for radial)                                                         |
+| Shapes    | H   | pick Heart, Star, Polygon, Speech bubble, Arrow or Rounded frame beside the toolbar (points/sides for star and polygon), then drag a box; Shift square, Alt from the centre | as Rectangle                                                                                            |
 
 On the selected mask: the transform box scales (Shift keeps the aspect, Alt from the centre) and
 its top handle rotates (Shift in 15° steps); Alt on a tangent breaks a smooth pair; Cmd/Ctrl-click
@@ -33,6 +34,11 @@ line (move), a square one along it (angle, Shift in 15° steps) and a knob on th
 its start and end (drag either, or the axis to move both). Click a line to select its mask; arrows
 nudge it; Delete removes it. The Inspector types the same fields in pixels and degrees, and a
 gradient's Shape (linear/radial) and Curve.
+
+A shape preset (MK8.3) is not a mask kind: it inserts ordinary path masks
+(`packages/editor-core/src/mask-shape-presets.ts`) that are edited, keyframed and tracked like any
+drawn path. A rounded frame is two paths, the outer one added and the inner one subtracted,
+because one path with a hole would need a bridge the feather would show.
 
 The Inspector lists the stack top first (drag or Alt+↑/↓ to reorder; colour, blend mode, invert,
 visibility, lock, delete) and, for the selected mask, what it limits (the clip or one effect),
