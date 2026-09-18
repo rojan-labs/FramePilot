@@ -237,6 +237,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Fixed
 
+- **Variable-frame-rate clips export in the same colours as every other clip.** The export
+  decoded phone and screen-recording (variable-frame-rate) clips with whatever ffmpeg was
+  installed on the machine, and every other clip with the ffmpeg bundled with the render engine.
+  The two convert colour slightly differently, so on a Mac with Homebrew's ffmpeg those clips came
+  out a few levels off the monitor. Every decode the export does (including background-removal
+  mattes) now uses the bundled one (BR2.8).
+
 - **On Apple Silicon Macs the monitor shows the colours the export writes.** The export's decoder
   on those Macs turns video into RGB slightly differently from the one the monitor copied (up to 3
   levels per channel), so every clip was a shade off in the monitor, and a colour key could cut a

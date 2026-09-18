@@ -76,6 +76,21 @@ Reproduce with `test_mask_legacy_render.py` (add the clip's start/fps to `timing
 `tests/fixtures/mask-render/legacy-v21.json`, then regenerate with
 `vitest -u src/mask-legacy-render-fixture.test.ts` in `packages/timeline-schema`).
 
+## Recurring failure mode: one clip's colours a level or three off the rest
+
+Symptom: on one machine, a variable-frame-rate clip (or a cut-out's matte) is a few levels off in
+colour against the monitor while constant-rate clips match; on CI it matches. The cause is two
+ffmpeg builds inside one export: MoviePy decodes with `moviepy.config.FFMPEG_BINARY`
+(imageio-ffmpeg's bundled build), and anything that called `find_ffmpeg()` got
+`FRAMEPILOT_FFMPEG`, then whatever `ffmpeg` is on `PATH` (Homebrew's, on a Mac). Builds convert
+YUV to RGB differently (the bundled macOS arm64 7.1 uses libswscale's C tables). Every decode the
+export does outside MoviePy - `PtsVideoReader` (VFR), the matte cursor, the matte tier's master
+decode, the encoder probe - must call `find_export_ffmpeg()` in `media/ffmpeg.py` (BR2.8).
+`FRAMEPILOT_FFMPEG` does not move the export; set MoviePy's `FFMPEG_BINARY` (or imageio's
+`IMAGEIO_FFMPEG_EXE`) to change it, which moves every export decode together. Check which binary
+ran with `ps -o args` during a render, or `test_media_ffmpeg.py` /
+`test_render_pts_reader.py::test_variable_rate_decode_runs_moviepys_ffmpeg_not_path_or_override`.
+
 ## Recurring failure mode: "applies but doesn't render"
 
 A distinct class of bug from the checklist above — the op **validates and applies** (it
