@@ -256,6 +256,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Changed
 
+- **Masking diagnostics carry no identifying details.** The events that report background
+  removal, tracking, AI Object hover, pack health and export time now pass through one allow-list
+  of counts, codes and durations: the pack worker no longer logs its request id and a committed
+  track no longer logs the clip and mask it belongs to. Exports now log how long they took and how
+  many masks and mattes they carried (never which ones), so export time with mattes can be watched
+  in the beta. The events, and the dashboards a maintainer can build from them, are listed in
+  `docs/runbooks/masking-observability.md`.
 - **Relink media, and background removal knows when footage changed.** On desktop, the media bin
   can point a clip's media at another file (undoable). FramePilot then compares the frames of the new
   file with the ones a background removal was made from; if they differ, the removal is marked out

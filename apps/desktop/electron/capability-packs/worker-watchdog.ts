@@ -22,7 +22,7 @@
 import { execFile } from 'node:child_process';
 import { lstat, readdir } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 
 const log = createLogger('desktop:capability-packs:worker-watchdog');
 
@@ -130,7 +130,7 @@ export class WorkerWatchdog {
     if (this.breached !== undefined) return;
     this.breached = breach;
     this.stop();
-    log.action('workerWatchdogBreach', { breach });
+    log.action('workerWatchdogBreach', maskingEventPayload('workerWatchdogBreach', { breach }));
     this.options.onBreach(breach);
   }
 }

@@ -18,7 +18,7 @@
  * multi-gigabyte model is not resident while nobody is hovering.
  */
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 import {
   CAPABILITY_PACK_WORKER_MAX_LINE_BYTES,
   CapabilityPackWorkerCancelSchema,
@@ -325,7 +325,7 @@ export class CapabilityPackWarmWorker {
   private kill(reason: string): void {
     const child = this.child;
     if (child === undefined) return;
-    log.warn('warmWorkerKilled', { reason });
+    log.warn('warmWorkerKilled', maskingEventPayload('warmWorkerKilled', { reason }));
     this.child = undefined;
     this.clearIdle();
     killWorkerGroup(child.pid);

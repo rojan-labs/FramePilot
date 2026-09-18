@@ -8,6 +8,7 @@ export * from './active-transcription-ipc.js';
 export * from './project-patch-transport.js';
 export * from './logger.js';
 export * from './matte-estimate.js';
+export * from './masking-telemetry.js';
 
 export type Brand<T, B extends string> = T & { readonly __brand: B };
 export type ProjectId = Brand<string, 'ProjectId'>;

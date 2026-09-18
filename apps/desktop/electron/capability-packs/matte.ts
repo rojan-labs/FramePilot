@@ -35,7 +35,7 @@ import {
   runCapabilityPackWorker,
   type CapabilityPackLease,
 } from '@framepilot/capability-packs/node';
-import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { MatteInspectorError, type MatteMediaInspector, type MatteVideoTiming } from './matte-media-inspector.js';
 import { estimateMatteBytes, freeDiskBytes } from './matte-disk.js';
@@ -311,7 +311,7 @@ export class CapabilityPackMatteService {
     this.jobs.set(intent.requestId, controller);
     if (intent.previousArtifactKey !== undefined) this.previousKeys.set(intent.requestId, intent.previousArtifactKey);
     const started = Date.now();
-    log.action('matteJobStart', { prompts: intent.prompts.length, rerun: intent.previousArtifactKey !== undefined });
+    log.action('matteJobStart', maskingEventPayload('matteJobStart', { prompts: intent.prompts.length, rerun: intent.previousArtifactKey !== undefined }));
     // Phase timings: host phases are marked in runJob; worker phases from progress transitions.
     const phases: Record<string, number> = {};
     let workerPhase: { name: string; at: number } | undefined;
@@ -330,7 +330,7 @@ export class CapabilityPackMatteService {
       const outcome = await this.runJob(intent, trackedContext, controller.signal, phases);
       if (workerPhase !== undefined) addPhase(phases, `worker.${workerPhase.name}`, Date.now() - workerPhase.at);
       const report = matteJobReport(outcome, phases, Date.now() - started, (this.options.now?.() ?? new Date()).toISOString());
-      log.action('matteJobEnd', report);
+      log.action('matteJobEnd', maskingEventPayload('matteJobEnd', report));
       try {
         this.options.observer?.(report);
       } catch (error) {
@@ -519,20 +519,26 @@ export class CapabilityPackMatteService {
       frameCount: media.frameCount,
     })
       .then((tier) => {
-        log.action('matteMonitorTier', {
-          status: tier.status,
-          width: tier.width,
-          height: tier.height,
-          alpha: tier.alpha,
-          elapsedMs: Date.now() - started,
-        });
+        log.action(
+          'matteMonitorTier',
+          maskingEventPayload('matteMonitorTier', {
+            status: tier.status,
+            width: tier.width,
+            height: tier.height,
+            alpha: tier.alpha,
+            elapsedMs: Date.now() - started,
+          }),
+        );
       })
       .catch((error: unknown) => {
         // Codes only: a message could carry a path.
-        log.warn('matteMonitorTierFailed', {
-          code: error instanceof MatteInspectorError ? error.code : 'error',
-          elapsedMs: Date.now() - started,
-        });
+        log.warn(
+          'matteMonitorTierFailed',
+          maskingEventPayload('matteMonitorTierFailed', {
+            code: error instanceof MatteInspectorError ? error.code : 'error',
+            elapsedMs: Date.now() - started,
+          }),
+        );
       })
       .finally(() => this.tierJobs.delete(job));
     this.tierJobs.add(job);
@@ -560,7 +566,7 @@ export class CapabilityPackMatteService {
       return undefined;
     }
     if (free >= estimate.requiredBytes) return undefined;
-    log.action('matteDiskPreflightRefused', { requiredBytes: estimate.requiredBytes, freeBytes: free });
+    log.action('matteDiskPreflightRefused', maskingEventPayload('matteDiskPreflightRefused', { requiredBytes: estimate.requiredBytes, freeBytes: free }));
     return {
       status: 'failed',
       code: 'insufficient_disk',

@@ -16,7 +16,7 @@
  *   match; jobs it rejects are dropped, the rest are queued and marked `resumed`.
  * - **Quit prompt.** `hasActiveJobs()` drives `createQuitGuard`.
  */
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 
 const log = createLogger('desktop:capability-packs:job-scheduler');
 
@@ -316,12 +316,12 @@ export class CapabilityPackJobScheduler {
             this.settle(next, 'cancelled', new JobCancelledError());
             return;
           }
-          log.action('jobCompleted', { kind: next.descriptor.kind, elapsedMs: Date.now() - started });
+          log.action('jobCompleted', maskingEventPayload('jobCompleted', { kind: next.descriptor.kind, elapsedMs: Date.now() - started }));
           this.settle(next, 'completed', undefined, value);
         },
         (error: unknown) => {
           const cancelled = next.controller.signal.aborted || error instanceof JobCancelledError;
-          log.action('jobEnded', { kind: next.descriptor.kind, state: cancelled ? 'cancelled' : 'failed' });
+          log.action('jobEnded', maskingEventPayload('jobEnded', { kind: next.descriptor.kind, state: cancelled ? 'cancelled' : 'failed' }));
           this.settle(next, cancelled ? 'cancelled' : 'failed', cancelled ? new JobCancelledError() : error);
         },
       );

@@ -32,7 +32,11 @@ import type {
   CapabilityPackWorkerRequest,
   CapabilityPackWorkerResult,
 } from '@framepilot/capability-packs';
-import { createLogger, type CapabilityPackProposalResultWire } from '@framepilot/shared-types';
+import {
+  createLogger,
+  maskingEventPayload,
+  type CapabilityPackProposalResultWire,
+} from '@framepilot/shared-types';
 import { compareSemver, resolveInside } from './pack-paths.js';
 import { VISUAL_EMBED_PACK_ID } from './visual-packs.js';
 
@@ -223,6 +227,7 @@ export class CapabilityPackTrackingService {
       return failed('pack_incomplete', errorMessage(error), false);
     }
     const lease = await this.options.store.acquireLease(record.identity);
+    const started = Date.now();
     try {
       const runWorker = this.options.runWorker ?? runCapabilityPackWorker;
       const runOne = (
@@ -244,13 +249,17 @@ export class CapabilityPackTrackingService {
         sent.capability === 'subject.segment'
           ? await runSegmentationInChunks(sent, runOne, options.onProgress)
           : await runOne(sent, options.onProgress);
-      log.action('trackingComplete', {
-        capability: request.capability,
-        pack: record.identity.version,
-        samples: 'samples' in result ? result.samples.length : 0,
-        detections: 'detections' in result ? result.detections.length : 0,
-        masks: 'masks' in result ? result.masks.length : 0,
-      });
+      log.action(
+        'trackingComplete',
+        maskingEventPayload('trackingComplete', {
+          capability: request.capability,
+          pack: record.identity.version,
+          samples: 'samples' in result ? result.samples.length : 0,
+          detections: 'detections' in result ? result.detections.length : 0,
+          masks: 'masks' in result ? result.masks.length : 0,
+          elapsedMs: Date.now() - started,
+        }),
+      );
       return { status: 'completed', identity: record.identity, result };
     } catch (error) {
       return failed(...classify(error));

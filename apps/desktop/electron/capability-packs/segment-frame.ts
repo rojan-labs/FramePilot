@@ -29,7 +29,7 @@ import {
   type CapabilityPackWarmWorkerOptions,
   type SegmentFrameWorkerResult,
 } from '@framepilot/capability-packs/node';
-import { createLogger, type MatteSegmentFrameResultWire } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload, type MatteSegmentFrameResultWire } from '@framepilot/shared-types';
 import type { Project } from '@framepilot/timeline-schema';
 import { displaySizeOf, frameAt, type CapabilityPackMatteService } from './matte.js';
 import type { MatteMediaInspector, MatteVideoTiming } from './matte-media-inspector.js';
@@ -198,14 +198,14 @@ export class CapabilityPackSegmentFrameService {
     } catch (error) {
       if (signal.aborted) return failure('superseded', 'A newer hover replaced this one.');
       const code = error instanceof CapabilityPackWorkerRuntimeError ? error.code : 'worker_failed';
-      log.warn('segmentFrameFailed', { code });
+      log.warn('segmentFrameFailed', maskingEventPayload('segmentFrameFailed', { code }));
       return failure(
         code === 'media_escape' ? 'media_rejected' : 'worker_failed',
         'The Smart Mask pack could not read that frame.',
       );
     }
     const verified = verifySegmentFrame(result, pts, expected);
-    log.debug('segmentFrame', { ok: verified.ok, elapsedMs: Date.now() - started });
+    log.debug('segmentFrame', maskingEventPayload('segmentFrame', { ok: verified.ok, elapsedMs: Date.now() - started }));
     return verified;
   }
 

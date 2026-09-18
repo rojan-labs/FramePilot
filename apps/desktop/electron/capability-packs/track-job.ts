@@ -44,7 +44,7 @@ import type {
   CapabilityPackWorkerProgress,
   CapabilityPackWorkerResult,
 } from '@framepilot/capability-packs';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 
 import {
   commitMatteStaging,
@@ -458,17 +458,22 @@ export async function writeTrackArtifact(input: WriteTrackInput): Promise<TrackJ
       TRACKS_RELATIVE_DIR,
     );
     const worst = built.residualPx.reduce((left, right) => (right > left ? right : left), 0);
-    log.action('trackCommitted', {
-      clipId: request.clipId,
-      maskId: request.maskId,
-      method: request.method,
-      frames: built.artifact.pts.length,
-    });
+    const flagged = flaggedTrackRanges(built.artifact);
+    // No clip or mask id: catalogued events carry no ids (RD2.2).
+    log.action(
+      'trackCommitted',
+      maskingEventPayload('trackCommitted', {
+        method: request.method,
+        frames: built.artifact.pts.length,
+        flaggedRanges: flagged.length,
+        worstResidualPx: worst,
+      }),
+    );
     return {
       status: 'completed',
       key: input.key,
       sha256,
-      flagged: flaggedTrackRanges(built.artifact),
+      flagged,
       frames: built.artifact.pts.length,
       worstResidualPx: worst,
     };

@@ -29,7 +29,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { useModalFocusTrap } from './ai/useModalFocusTrap.js';
 import { useViewPreference } from '../editor/useViewPreference.js';
 import type { Asset, Timeline } from '@framepilot/timeline-schema';
-import type { MatteValidationIssueWire } from '@framepilot/shared-types';
+import { createLogger, type MatteValidationIssueWire } from '@framepilot/shared-types';
 import { Button } from '@framepilot/ui';
 import {
   type ExportProgressMessage,
@@ -48,6 +48,7 @@ import { Download, ICON_SIZE, X } from './icons.js';
 import { matteAssetIds, uncheckedMattes } from '../editor/matteReview.js';
 import { maskToolStore } from './inspector/masks/useMaskTools.js';
 import { getBridge } from '../editor/bridge.js';
+import { exportJobEndPayload } from '../editor/export-telemetry.js';
 
 /** Loudness normalization targets (mirrors the engine's audio presets). */
 const LOUDNESS_OPTIONS = [
@@ -285,6 +286,8 @@ export interface ExportHistoryEntry {
 }
 const EXPORT_HISTORY_LIMIT = 10;
 
+const log = createLogger('web-editor:export');
+
 export function coerceExportHistory(raw: unknown): ExportHistoryEntry[] | undefined {
   if (!Array.isArray(raw)) return undefined;
   const entries = raw.filter(
@@ -431,6 +434,9 @@ export function ExportDialog({
   // stream's subscribe-before-start pattern (editor/ai.ts's DesktopAiSession) so a
   // push that races ahead of `exportVideoStart`'s resolution is never dropped.
   const activeRequestId = useRef<string | null>(null);
+  /** When the render was requested, for `exportJobEnd`'s wall time (RD2.2). */
+  const exportStartedAt = useRef<number | null>(null);
+  const exportCancelled = useRef(false);
   const inbox = useRef<ExportProgressMessage[]>([]);
 
   // Ask where to save the finished render; `null` means the user dismissed the
@@ -446,6 +452,20 @@ export function ExportDialog({
   const finish = useCallback(
     (result: ExportResult) => {
       activeRequestId.current = null;
+      if (exportStartedAt.current !== null) {
+        const fps = exportFrameFor(settings, frame, null).fps;
+        log.action(
+          'exportJobEnd',
+          exportJobEndPayload(
+            result.ok ? 'completed' : exportCancelled.current ? 'cancelled' : 'failed',
+            performance.now() - exportStartedAt.current,
+            durationSeconds * fps,
+            settings.resolution,
+            timeline,
+          ),
+        );
+        exportStartedAt.current = null;
+      }
       if (!result.ok) {
         setPhase({
           kind: 'error',
@@ -470,7 +490,7 @@ export function ExportDialog({
         );
       })();
     },
-    [promptSaveAs, setHistory, settings.container, settings.resolution],
+    [promptSaveAs, setHistory, settings, frame, durationSeconds, timeline],
   );
 
   const handleMessage = useCallback(
@@ -516,6 +536,8 @@ export function ExportDialog({
       setPhase({ kind: 'error', message: 'Could not save the project before exporting.' });
       return;
     }
+    exportStartedAt.current = performance.now();
+    exportCancelled.current = false;
     const requestId = await exportVideoStart({
       projectPath,
       settings: {
@@ -534,6 +556,7 @@ export function ExportDialog({
       ...(compression ? { compression: 'voice' } : {}),
     });
     if (!requestId) {
+      exportStartedAt.current = null;
       setPhase({
         kind: 'error',
         message: 'Export requires the FramePilot desktop app (the render engine runs there).',
@@ -560,6 +583,7 @@ export function ExportDialog({
   const cancelExport = useCallback(() => {
     if (!activeRequestId.current) return;
     setPhase({ kind: 'cancelling' });
+    exportCancelled.current = true;
     exportVideoCancel(activeRequestId.current);
   }, []);
 

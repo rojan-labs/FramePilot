@@ -2,7 +2,7 @@
 import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process';
 import { lstat, realpath } from 'node:fs/promises';
 import path from 'node:path';
-import { createLogger } from '@framepilot/shared-types';
+import { createLogger, maskingEventPayload } from '@framepilot/shared-types';
 import {
   CAPABILITY_PACK_OUTPUT_HANDLE_CAPABILITIES,
   CAPABILITY_PACK_WORKER_MAX_LINE_BYTES,
@@ -414,11 +414,14 @@ export async function runCapabilityPackWorker(
           );
           return;
         }
-        log.action('workerComplete', {
-          requestId: request.requestId,
-          capability: request.capability,
-          samples: terminalSampleCount(result),
-        });
+        // The request id is not logged: catalogued events carry no ids (RD2.2).
+        log.action(
+          'workerComplete',
+          maskingEventPayload('workerComplete', {
+            capability: request.capability,
+            samples: terminalSampleCount(result),
+          }),
+        );
         finish(undefined, result);
       });
     };
