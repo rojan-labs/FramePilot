@@ -636,11 +636,9 @@ export class Ffv1Decoder {
       previous[3 + w] = previous[3 + w - 1]!;
       this.decodeLine(slice, c, bits, w, current, previous, 0, depth, ac);
       const row = (slice.y + y) * this.width + slice.x;
-      if (depth === 16) {
-        for (let x = 0; x < w; x++) (out as Uint16Array)[row + x] = current[3 + x]! & 0xffff;
-      } else {
-        for (let x = 0; x < w; x++) out[row + x] = current[3 + x]!;
-      }
+      // `set` converts Int16 → Uint16/Uint8 modulo 2^16/2^8, the same as `& 0xffff` and the
+      // byte store the per-sample loops did, in one native copy.
+      out.set(current.subarray(3, 3 + w), row);
     }
   }
 
@@ -789,10 +787,14 @@ export class Ffv1Decoder {
             }
           }
           if (current[3 + x - 1] === previous[3 + x - 1]) {
-            while (runCount > 1 && w - x > 1) {
-              current[3 + x] = previous[3 + x]!;
-              x++;
-              runCount--;
+            // A run over a row that repeats the one above: one block copy of the samples the
+            // per-sample loop `while (runCount > 1 && w - x > 1)` would copy (PX5.3: a matte is
+            // mostly such runs, and the loop was most of its decode time).
+            const span = Math.min(runCount - 1, w - x - 1);
+            if (span > 0) {
+              current.set(previous.subarray(3 + x, 3 + x + span), 3 + x);
+              x += span;
+              runCount -= span;
             }
           } else {
             while (runCount > 1 && w - x > 1) {
