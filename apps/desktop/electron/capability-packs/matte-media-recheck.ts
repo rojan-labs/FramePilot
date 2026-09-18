@@ -15,6 +15,7 @@
  * Re-proxying never changes the source file, so a proxy regeneration keeps mattes as they are;
  * the check exists for the file the matte was made from.
  */
+import path from 'node:path';
 import { createLogger } from '@framepilot/shared-types';
 import type { MatteArtifactRecord } from '@framepilot/capability-packs';
 import type { MatteMediaInspector } from './matte-media-inspector.js';
@@ -81,7 +82,11 @@ export async function recheckProjectMatteMedia(
         // shown to match is STALE, never silently kept (BR4.12 re-review).
         verdicts.set(verdictKey, 'changed');
       } else {
-        verdicts.set(verdictKey, await recheckMatteSource(record, asset.path, inspector, options.signal));
+        // A saved project may store media relative to its folder; the engine's export and the
+        // fp-media handler resolve it there, so the re-check must measure the same file (not one
+        // relative to main's working directory, which is never the project and reads as STALE).
+        const mediaPath = path.resolve(projectDir, asset.path);
+        verdicts.set(verdictKey, await recheckMatteSource(record, mediaPath, inspector, options.signal));
       }
     }
     if (verdicts.get(verdictKey) !== 'changed') continue;

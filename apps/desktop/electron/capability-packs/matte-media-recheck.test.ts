@@ -104,6 +104,12 @@ describe('matte media re-check after relink or replace', () => {
     expect(await recheckProjectMatteMedia(projectDir, project, inspector, { assetIds: ['other'] })).toEqual([]);
   });
 
+  it('resolves a project-relative media path against the project folder, as the export does', async () => {
+    const { projectDir, project, inspector } = await setup();
+    const relative = { ...project, assets: [{ ...project.assets[0]!, path: 'shot.mp4' }] };
+    expect(await recheckProjectMatteMedia(projectDir, relative, inspector)).toEqual([]);
+  });
+
   it('treats undecodable or unreadable media as changed', async () => {
     const { projectDir, project, inspector, mediaPath, sources } = await setup();
     await writeFile(mediaPath, 'truncated');
