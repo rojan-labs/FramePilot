@@ -376,8 +376,12 @@ export class LayerCompositor {
       current = this.alpha(current, step, mattes, keyed);
     }
     // MK6.1: despill runs AFTER the stack is attached, because the qualifier has to read the
-    // colour the camera recorded (`_apply_key_despill`).
-    for (const mask of despillingKeys(step.mask?.stack ?? null)) {
+    // colour the camera recorded (`_apply_key_despill`). A refused stack despills nothing: the
+    // export refuses the render outright, so half-applying it here would be a picture neither
+    // side would produce.
+    const despilling =
+      step.mask === null || step.mask.stack.refusal !== null ? [] : despillingKeys(step.mask.stack);
+    for (const mask of despilling) {
       current = this.despill(current, mask.despill as 'green' | 'blue');
     }
     for (const half of step.transitions) {
