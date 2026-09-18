@@ -150,6 +150,8 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** key gates pass; oracle rows green.
 
+- [ ] MK6.4 Key finesse on Metal: the local oracle on an M1 Pro (real GPU) gives `alpha/key-finesse` 99.494% within 8/255 (gate ≥ 99.5%) though it passes on CI's SwiftShader; find the drifting GPU stage and fix it at the unchanged gate. Also make the PX4 baseline renderer-aware (the bt709-limited WebGL known failure is SwiftShader-only and passes on Metal)
+
 ### MK7 — Mask tracking `[~]` (MK7.1–MK7.5 shipped, pack run 35294557292 green on both platforms; MK7.6 → MO-14; two gate rows open, see `MK7-TRACKING-GATES.md`)
 
 - [x] MK7.1 Transform-track artifact (per-frame 3×3, digest-pinned, project-owned) and host job via Tracking Lite

@@ -92,6 +92,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
+- Local run on the M1 Pro (maintainer allowed local tests 2026-09-19): build ✓, E2E smoke 99/99 ✓, rendered proofs ✓, oracle 291 ✓ with the sidecar; real-GPU findings: key-finesse 99.494% ✗ (gate 99.5%) and a SwiftShader-only baseline entry that passes on Metal → MK6.4 agent. Also fixed: ffmpeg 8.1 refuses the flat VFR setpts chain (3edf4cd3)
+
 - "Masking end to end" green in run 35381220944 (80cc9bf6) after fixes: E2E.5 was a spec bug (playhead off the clip); E2E.2 found two product bugs — relative media paths resolved against the app cwd so every reopened matte read STALE (971fb714), and a deleted matte showed no BROKEN until export refused (80cc9bf6). E2E.5's keyframed case was a real one-ulp legacy-migration miss → fixed by MK2.5 (legacySpec; MO-19 asks the maintainer to confirm the field)
 
 - none open (run 35351484628 at 6b77de0e: 12/12 green)
