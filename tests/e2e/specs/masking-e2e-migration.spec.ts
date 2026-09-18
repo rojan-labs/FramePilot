@@ -23,6 +23,7 @@ import { expect, test, type Page, type TestInfo } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 import { readFile } from 'node:fs/promises';
 import { join } from 'node:path';
+import { seekTo } from './helpers.js';
 import { REPO, Workspace } from './masking/workspace.js';
 import {
   attachDiagnostics,
@@ -44,6 +45,9 @@ const WIDTH = 320;
 const HEIGHT = 240;
 const MEDIA_SECONDS = 8;
 
+/** The timeline clip id `v21Project` gives a fixture case. */
+const clipIdOf = (caseId: string): string => `c_${caseId.replace(/-/g, '_')}`;
+
 /** A v21 project: one clip per fixture case, one second each, end to end over a background. */
 function v21Project(name: string, caseIds: readonly string[], firstStart: number): string {
   const clips = caseIds.map((caseId, index) => {
@@ -53,7 +57,7 @@ function v21Project(name: string, caseIds: readonly string[], firstStart: number
     return {
       ...FIXTURE.clipTemplate,
       ...fixture.clip,
-      id: `c_${caseId.replace(/-/g, '_')}`,
+      id: clipIdOf(caseId),
       assetId: 'shot',
       trackId: 'v1',
       start,
@@ -152,7 +156,12 @@ async function migrateAndExport(
   const backup = join(workspace.projectDir, 'project.v21.backup.fp.json');
   expect(await readFile(backup, 'utf8')).toBe(original);
 
-  // The migrated stack is what the editor shows.
+  // The migrated stack is what the editor shows. The monitor's mask canvas is mounted only for
+  // the selected clip drawn under the playhead, so park the playhead inside that clip first
+  // (each case clip is one second long, starting at `firstStart + index`).
+  const maskedIndex = caseIds.findIndex((caseId) => clipIdOf(caseId) === maskedClip);
+  if (maskedIndex < 0) throw new Error(`${maskedClip} is not one of the case clips.`);
+  await seekTo(page, firstStart + maskedIndex + 0.5);
   await openMaskTab(page, maskedClip);
   await expect(
     page.getByRole('listbox', { name: 'Masks', exact: true }).locator('li.mask-list-row'),
