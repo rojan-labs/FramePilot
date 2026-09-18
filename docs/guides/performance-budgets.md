@@ -389,6 +389,19 @@ mid-run. So:
   size, copies in flight) and the last messages each way, and fails naming the stuck step. The
   engine also logs any stage open for 10 s (`preview stage stuck`) in a real session.
 
+**PX5.5: one composite per project frame, at the export's instant.** The export composites
+`t = k / fps` and reads each layer's source frame there, so a 60 fps source in a 30 fps project
+contributes every other frame. Playback used the audio clock's continuous time: it showed the frames
+in between, and on a 60 Hz display composited (and rastered an animated mask for) every project
+frame twice, because the layers' local times differed between the two ticks. The playback tick now
+plans, presents and decodes ahead at `projectFrameTime(t) = floor(t · fps + 1e-6) / fps`
+(`preview/clock/project-frame.ts`, shared with the dropped-frame ledger); seeks keep their exact
+time. On `scale-path/proxy`: composites per presented frame 1.50–1.70 → 1.00, and the display's tick
+interval p50 20.6–21.6 → 17.1–18.8 ms, because the tick between two composites is now free. Guard:
+the Scale spec's invariant `composites ≤ ⌈1.1 · presented⌉ + render-scale steps` (it fails the
+reverted code). Evidence the monitor now shows the export's frames: `project-frame.test.ts` and
+`test_export_frame_grid.py`.
+
 ## How they're measured
 
 - **Interaction:** `performance.now()` around the store's `commit` path and React

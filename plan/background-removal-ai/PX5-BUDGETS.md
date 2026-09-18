@@ -154,7 +154,7 @@ Frame-parallel FFV1 decode (the files are intra-only) would fix the decode side 
 then, a clip with a 4K matte cannot be played in the monitor; it can be scrubbed at ~0.6 s a
 frame. This is a product decision, so nothing here changes it.
 
-### Every project frame is composited twice on a 60 Hz display
+### Every project frame is composited twice on a 60 Hz display (fixed in PX5.5, below)
 
 `composite` has ~1,200 samples for ~600 project frames: the plan is evaluated at the audio clock's
 continuous time on each animation frame, the layers' `localTime` differs between the two ticks of
@@ -272,8 +272,8 @@ matte's monitor tier present; without it, it still fails on dropped frames).
    `decontaminate` 324 ms in Node at 4K → 960×540) plus 101 ms of single-threaded FFV1 decode per
    frame. Target: a composite with a 4K matte ≤ 25 ms (the load-shed threshold) and ≤ 33 ms of
    decode per frame. Judge with the PX4 oracle; the guard is `scale/proxy` with `PX5_ASSERT=budgets`.
-2. **Two composites per project frame at 60 Hz** — quantise playback time to the frame grid.
-   Halves `maskRaster` and `composite` samples per second. Needs a maintainer decision (above).
+2. **Two composites per project frame at 60 Hz** — DONE in PX5.5 (below): playback plans at
+   the project frame's own instant, the export's; one composite per presented frame.
 3. **GL pools never shrink** — 190 MB after a key with finesse. Release targets of a size not
    used for N frames. Guard: the `glPoolBytes` gauge.
 4. **Export, the last 5–10%** — two more exact cuts, neither taken here: at source size mix only
@@ -581,3 +581,73 @@ Not measured: the packaged Electron app (the host call itself is covered by `mat
 a camera-footage matte (a subject filling the frame costs about twice this disc per frame), and a
 second artifact queued behind a running tier (the route answers 503 and the host retries for ~8
 minutes, then gives up without a tier).
+
+## PX5.5 — one composite per project frame, at the export's instant
+
+**What the export does for a source whose rate is not the project's.** `export_video` composites
+`t = k / fps` for every project frame `k` (`fps` = the project's unless the export settings name
+another) and reads each layer's source frame at that instant: `reader_frame_index(video_source_time(
+clip, k / fps - start))`, i.e. `int(sourceFps * sourceTime + 1e-5)` for a constant-rate source, by
+pts for a variable-rate one (`compiler._export_source_frames`, which the matte alignment check
+reads too). So a **60 fps source in a 30 fps project contributes every other frame** (the
+`mixed-frame-rates` vector's clip `c2`, played from 1 s: source frames 60, 62, …, 178), a 24 fps
+source repeats a frame every fourth project frame, and frame `k` is what the file shows from
+`k / fps` to `(k + 1) / fps`. `test_export_frame_grid.py` pins that the export's list equals
+`frame_plan_at(project, k / fps)`'s source frame for 60, 30 and 24 fps sources.
+
+**What the monitor did.** Playback evaluated the plan at the audio clock's continuous time. With a
+60 fps source it presented the 60 source frames the export skips (frame 61 at 1/60 s); and on a 60
+Hz display the two ticks of one project frame had different layer `localTime`s, so the "unchanged"
+signature never matched and every project frame was composited (and an animated mask rastered)
+twice.
+
+**What changed** (`5a0c795a`). The playback tick plans, presents and decodes ahead at
+`projectFrameTime(t) = floor(t · fps + 1e-6) / fps` (`preview/clock/project-frame.ts`), the same
+division the export performs; the telemetry's dropped-frame index uses the same helper, so the two
+cannot disagree about which frame is due. The audio clock and the playhead stay continuous; a
+paused seek keeps its exact time (the frame grab and the PX4 oracle compare arbitrary instants, so
+the oracle is unaffected: 68/68 at run 35353756815). The legacy single-track
+`WebCodecsPreviewEngine` (the monitor without the layer flag) was not changed. Judge:
+`project-frame.test.ts` presents, at every 60 Hz and 144 Hz tick inside frame `k` and a tick a hair
+before the next boundary, exactly the export's frames (60, 62, …, 178), and shows the old
+continuous time naming frame 61.
+
+**Measured** (`scale-path/proxy`: the row plus an animated feathered 200-vertex path, whose raster
+runs inside every composite; M1 Pro, Chrome, ANGLE/Metal, `px5-local-run.py`, one 20-second run
+each; "before" = the same tree with only the snap reverted; pairs run back to back):
+
+| Run                   | Load  | Presented / expected | Dropped | Composites (= mask rasters) | Per presented frame | rAF ticks | Frame interval p50 |
+| --------------------- | ----- | -------------------- | ------- | --------------------------- | ------------------- | --------- | ------------------ |
+| recorded before PX5.5 | n/a   | 607 / 608            | 1       | 1,032                       | 1.70                | 1,035     | n/a (p95 21.4 ms)  |
+| before 1              | 19    | 611 / 614            | 3       | 914                         | 1.50                | 919       | 21.6 ms            |
+| after 1               | 16–21 | 654 / 658            | 4       | 653                         | 1.00                | 1,457     | 17.1 ms            |
+| after 2               | 16    | 593 / 606            | 13      | 592                         | 1.00                | 1,152     | 18.8 ms            |
+| before 2              | 11    | 603 / 609            | 6       | 944                         | 1.57                | 949       | 20.6 ms            |
+| after 3               | 12    | 594 / 595            | 1       | 593                         | 1.00                | 1,200     | 17.5 ms            |
+
+Composites per presented project frame: **1.50–1.70 → 1.00** in every run. The frame interval
+shows the second effect: before, a 16 ms raster on every tick kept the main thread busy enough to
+stretch the display's ticks to ~21 ms (46–48 Hz); after, the tick between two composites is free
+and the display runs at 60 Hz. Dropped frames are within this shared machine's noise on both sides
+(after 2's 13 came with a load spike; after 3 dropped 1). The paired runs share the working tree,
+which held a peer's uncommitted preview edits (MK9) in both arms.
+
+**Guard.** `preview-scale-perf.spec.ts` asserts, as an invariant on every machine,
+`composites ≤ ⌈1.1 · presented⌉ + render-scale steps` (the slack covers a matte or text raster that
+arrives after a frame first drew). It failed both "before" runs above (914 > 673, 944 > 664) and
+passed every "after" run; on CI's seven completed variants of run 35353756815 it held (e.g.
+`scale-plain` 59 composites for 60 presented frames).
+
+## PX5.10 — the parity baseline regenerated from CI
+
+CI run 35353756815 at `5a0c795a` (the PX5.4 + PX5.5 head), job `Preview/export parity oracle
+(PX4)`: **68/68 cases pass every check** at the unchanged gates. `px4-baseline.mjs
+--write-baseline` over its `preview-parity-results` artifact rewrote
+`tests/e2e/fixtures/preview-parity-baseline.json` (failing-case list still empty; the one colour
+entry, Chromium's own BT.709-limited texture path at 9/255, still fails and stays listed),
+`PX4-BASELINE.md` and the PX0 inventory's pixel column (`650efe54`). The nine rows added since the
+previous regeneration now show as measured instead of "not measured (PX4.3)": `alpha/key-alone`
+73.66 dB (the despill sample), `key-shape-stack` and `key-finesse` inf, `analytic-split-band` and
+`analytic-gradient` inf, `layer-text-alpha` and `layer-luma-channels` inf,
+`layer-transformed-target` 95.39 dB. `matte-decontaminate` reads 97.78 dB: it draws from its
+monitor tier since PX5.3 (inf when it drew from the masters).

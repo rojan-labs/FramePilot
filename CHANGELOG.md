@@ -190,6 +190,13 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Performance
 
+- **Playback in the monitor shows the frames the export renders, and draws each one once.** The
+  monitor now draws each frame of the project at the same instant the export does. A 60 fps clip
+  in a 30 fps project used to show frames in between that the exported video never contains; it
+  now shows exactly the exported frames. On a 60 Hz display each project frame used to be drawn
+  twice; it is now drawn once. On a 4K test timeline with an animated mask that is a third less
+  drawing work per second, and the display keeps its full 60 Hz where it used to slow to about
+  48 Hz. Scrubbing and paused frames are unchanged.
 - **Exports with a background-removal matte are about a third faster.** Cleaning the colour fringe
   around a cut-out subject used to do arithmetic on every pixel of every frame to change only the
   thin edge; it now works on the edge alone. On a 4K test timeline the export went from 1.98× the
