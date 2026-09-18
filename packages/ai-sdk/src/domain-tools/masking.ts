@@ -553,6 +553,7 @@ function maskRow(mask: MaskLayer): Record<string, unknown> {
     inverted: mask.invert,
     enabled: mask.enabled,
     tracked: mask.tracking !== undefined,
+    space: mask.space,
     // Never "verified": the Inspector's review list is the only place that word is earned.
     review:
       review === undefined
@@ -572,6 +573,8 @@ const RefineMaskArgsSchema = z
     grow: z.enum(MASK_GROW_INTENTS).optional(),
     mode: z.enum(['add', 'subtract', 'intersect']).optional(),
     invert: boolean().optional(),
+    /** MK9.4: `frame` holds a shape still on the output frame while the picture moves under it. */
+    space: z.enum(['source', 'frame']).optional(),
   })
   .strict();
 
@@ -595,19 +598,27 @@ function refineMaskOps(args: z.infer<typeof RefineMaskArgsSchema>, ctx: ToolCont
   }
   if (args.mode !== undefined) changes.mode = args.mode;
   if (args.invert !== undefined) changes.invert = args.invert;
-  if (Object.keys(changes).length === 0) {
+  const moveSpace = args.space !== undefined && args.space !== mask.space;
+  if (Object.keys(changes).length === 0 && !moveSpace) {
     throw new ToolRefusalError(
-      'refine_mask was given nothing to change. Pass edge, grow, mode or invert.',
+      'refine_mask was given nothing to change. Pass edge, grow, mode, invert or space.',
     );
   }
   const chain = new MaskCommandChain(ctx.project);
-  chain.run({
-    type: 'set_mask_properties',
-    clipId: clip.id,
-    maskId: mask.id,
-    sourceTime: clip.sourceStart,
-    changes,
-  });
+  if (Object.keys(changes).length > 0) {
+    chain.run({
+      type: 'set_mask_properties',
+      clipId: clip.id,
+      maskId: mask.id,
+      sourceTime: clip.sourceStart,
+      changes,
+    });
+  }
+  // The Inspector's "Fixed to" toggle: the same command, so the same refusals (a key, a
+  // cut-out or a tracked mask follows the picture).
+  if (moveSpace) {
+    chain.run({ type: 'set_mask_space', clipId: clip.id, maskId: mask.id, space: args.space! });
+  }
   return chain.operations;
 }
 
@@ -815,8 +826,9 @@ export const MASKING_TOOLS: readonly ToolSpec[] = [
       name: 'refine_mask',
       description:
         'Adjust an existing mask by intent: edge (exact, soft, very_soft), grow (tighter, ' +
-        'looser — one step per call), mode (add, subtract, intersect) or invert. FramePilot ' +
-        'picks the numbers.',
+        'looser — one step per call), mode (add, subtract, intersect), invert, or space ' +
+        '(frame: a shape stays still on the frame while the picture moves; source: it moves ' +
+        'with the picture). FramePilot picks the numbers.',
       capabilities: ['masking'],
       hostUiOnly: true,
     },

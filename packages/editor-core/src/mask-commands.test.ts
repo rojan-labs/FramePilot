@@ -17,6 +17,7 @@ import {
   maskGeometryAt,
   maskKeyframeTimes,
   maskPathVerticesAt,
+  frameSpaceRefusal,
   nextMaskColor,
   type MaskCommand,
 } from './mask-commands.js';
@@ -908,6 +909,109 @@ describe('effect-target masks', () => {
         target: { kind: 'effect', effectId: 'not-here' },
       }),
     ).toMatchObject({ code: 'missing_effect' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// MK9.4 — fixing a clip mask to the frame (the Inspector toggle and the agent's `space`)
+// ---------------------------------------------------------------------------
+
+describe('set_mask_space', () => {
+  it('fixes a shape to the frame and back, keeping its numbers, one undo step each', () => {
+    const tl = timeline([rect()]);
+    const fixed = applied(tl, { type: 'set_mask_space', maskId: 'c1__mask', space: 'frame' });
+    expect(masksOn(fixed)[0]).toMatchObject({ space: 'frame', cx: 1920, cy: 1080, width: 800 });
+    const result = compile(tl, { type: 'set_mask_space', maskId: 'c1__mask', space: 'frame' });
+    expect(result.status === 'compiled' && result.patch.operations).toEqual([
+      { type: 'set_mask_space', clipId: 'c1', maskId: 'c1__mask', space: 'frame' },
+    ]);
+    const back = applied(fixed, { type: 'set_mask_space', maskId: 'c1__mask', space: 'source' });
+    expect(masksOn(back)[0]!.space).toBe('source');
+  });
+
+  it('fixes a split to the frame', () => {
+    const split = {
+      kind: 'linear',
+      id: 'c1__mask',
+      originX: 1920,
+      originY: 1080,
+      angle: 0,
+    } as unknown as MaskLayerInput;
+    const fixed = applied(timeline([split]), {
+      type: 'set_mask_space',
+      maskId: 'c1__mask',
+      space: 'frame',
+    });
+    expect(masksOn(fixed)[0]!.space).toBe('frame');
+  });
+
+  it('says nothing changed when the mask is already in that space', () => {
+    expect(
+      compile(timeline([rect()]), { type: 'set_mask_space', maskId: 'c1__mask', space: 'source' }),
+    ).toMatchObject({ status: 'rejected', code: 'nothing_to_change' });
+  });
+
+  it('refuses what follows the picture, with the remedy the export gives', () => {
+    const key = {
+      kind: 'key',
+      id: 'c1__mask',
+      model: 'hsl',
+      ranges: [{ channel: 'hue', low: 0.2, high: 0.4, softness: 0.05 }],
+    } as unknown as MaskLayerInput;
+    const refused = compile(timeline([key]), {
+      type: 'set_mask_space',
+      maskId: 'c1__mask',
+      space: 'frame',
+    });
+    expect(refused).toMatchObject({ status: 'rejected', code: 'not_editable' });
+    expect(refused.status === 'rejected' ? refused.detail : '').toContain('follows the picture');
+    const legacy = MaskLayerSchema.parse(rect({ featherModel: 'gaussian-legacy' }));
+    expect(frameSpaceRefusal(legacy)).toContain('Redraw it first');
+    expect(frameSpaceRefusal(MaskLayerSchema.parse(rect()))).toBeNull();
+    const tracked = MaskLayerSchema.parse({
+      ...rect(),
+      tracking: {
+        artifact: { key: 'a'.repeat(64), sha256: 'b'.repeat(64) },
+        method: 'position',
+        referenceSourceTime: 3,
+      },
+    });
+    expect(frameSpaceRefusal(tracked)).toContain('Clear the track');
+  });
+
+  it('refuses on an adjustment lane, whose masks are always fixed to the frame', () => {
+    const tl = {
+      ...timeline(),
+      tracks: [
+        {
+          id: 'fx',
+          type: 'effect',
+          clips: [],
+          effectLayers: [
+            {
+              id: 'lane',
+              effectId: 'soft-veil',
+              kind: 'blur-gaussian',
+              start: 1,
+              end: 3,
+              params: { radius: 8 },
+              keyframes: [],
+              masks: [MaskLayerSchema.parse({ ...rect({ id: 'lane__mask' }), space: 'frame' })],
+            },
+          ],
+        },
+        ...timeline().tracks,
+      ],
+    } as unknown as Timeline;
+    expect(
+      compile(tl, {
+        type: 'set_mask_space',
+        clipId: 'lane',
+        owner: 'effect_layer',
+        maskId: 'lane__mask',
+        space: 'source',
+      }),
+    ).toMatchObject({ status: 'rejected', code: 'not_editable' });
   });
 });
 

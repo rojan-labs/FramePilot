@@ -203,6 +203,40 @@ describe('properties', () => {
     });
   });
 
+  it('fixes a clip mask to the frame and back through set_mask_space, undoably (MK9.4)', () => {
+    render(<Host initial={timeline([rect()])} />);
+    expect(screen.queryByText(/Stays put on the frame/)).toBeNull();
+    const before = history();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Face space' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Frame' }));
+    expect(masks()[0]).toMatchObject({ space: 'frame', cx: 960, width: 400 });
+    expect(history()).toBe(before + 1);
+    expect(screen.getByText(/Stays put on the frame/)).toBeTruthy();
+    act(() => editor.undo());
+    expect(masks()[0]!.space).toBe('source');
+    act(() => editor.redo());
+    fireEvent.click(screen.getByRole('combobox', { name: 'Face space' }));
+    fireEvent.click(screen.getByRole('option', { name: 'Picture' }));
+    expect(masks()[0]!.space).toBe('source');
+  });
+
+  it('offers no frame toggle for a mask that follows the picture (a key)', () => {
+    render(
+      <Host
+        initial={timeline([
+          {
+            kind: 'key',
+            id: 'k1',
+            name: 'Green',
+            model: 'hsl',
+            ranges: [{ channel: 'hue', low: 0.2, high: 0.4, softness: 0.05 }],
+          } as unknown as MaskLayerInput,
+        ])}
+      />,
+    );
+    expect(screen.queryByRole('combobox', { name: 'Green space' })).toBeNull();
+  });
+
   it('adds and removes a keyframe at the playhead source time and navigates between keyframes', () => {
     render(
       <Host

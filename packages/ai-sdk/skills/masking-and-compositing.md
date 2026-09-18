@@ -55,7 +55,9 @@ coordinates. Every mask comes from a detection, a pack measurement, or numbers t
 - `track_mask` makes an existing shape follow its subject; `create_mask` with `track: true` does
   it in one step. A cut-out needs no tracking: it is measured on every frame.
 - `refine_mask` adjusts by intent: `edge` (exact, soft, very_soft), `grow` (tighter, looser — one
-  step per call), `mode`, `invert`. FramePilot picks the numbers.
+  step per call), `mode`, `invert`, `space`. FramePilot picks the numbers. `space: "frame"` holds a
+  shape, split, band or gradient still on the frame while the picture moves under it (a window
+  the shot slides through); `"source"` makes it move with the picture again.
 - `create_shape_mask` (preset, placement, purpose, edge): `split` (side it keeps), `mirror` band
   (`direction`), `gradient` (side that stays opaque), `radial_gradient`, and the shapes `heart`,
   `star` / `polygon` (`points`), `speech_bubble`, `arrow`, `rounded_frame`. Place it on a

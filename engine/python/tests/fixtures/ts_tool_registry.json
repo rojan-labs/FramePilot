@@ -3539,6 +3539,15 @@
               "intersect",
               "subtract"
             ]
+          },
+          "space": {
+            "type": [
+              "string"
+            ],
+            "enum": [
+              "frame",
+              "source"
+            ]
           }
         }
       }

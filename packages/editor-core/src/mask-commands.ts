@@ -24,6 +24,7 @@ import {
   type MaskLayerInput,
   type MaskReviewInput,
   type MaskScalarProperty,
+  type MaskSpace,
   type MaskTrackingInput,
   type MaskTarget,
   type PathMask,
@@ -418,6 +419,16 @@ export interface SetMaskTargetCommand extends MaskCommandBase {
   readonly target: MaskTarget;
 }
 
+/**
+ * Fix a clip mask to the output frame or back to the picture (MK9.4). The geometry keeps its
+ * numbers: in `frame` space they are output-frame pixels, in `source` space source pixels.
+ */
+export interface SetMaskSpaceCommand extends MaskCommandBase {
+  readonly type: 'set_mask_space';
+  readonly maskId: string;
+  readonly space: MaskSpace;
+}
+
 export interface DuplicateMaskCommand extends MaskCommandBase {
   readonly type: 'duplicate_mask';
   readonly maskId: string;
@@ -601,6 +612,7 @@ export type MaskCommand =
   | RemoveMaskCommand
   | ReorderMasksCommand
   | SetMaskTargetCommand
+  | SetMaskSpaceCommand
   | DuplicateMaskCommand
   | PasteMasksCommand;
 
@@ -1217,6 +1229,62 @@ function buildMoveKeyframes(
   };
 }
 
+/**
+ * Mask kinds a CLIP mask can be fixed to the frame as: the ones drawn from geometry. A matte and
+ * a key read the clip's own picture and a track matte is already a frame picture (the engine's
+ * `_assert_frame_space_drawable`, the monitor's `FRAME_SPACE_KINDS`).
+ */
+const FRAME_SPACE_KINDS: ReadonlySet<MaskLayer['kind']> = new Set<MaskLayer['kind']>([
+  'rectangle',
+  'ellipse',
+  'path',
+  'linear',
+  'band',
+  'gradient',
+]);
+
+/**
+ * Why a clip mask cannot be fixed to the output frame, or `null` when it can (MK9.4). The
+ * sentences are the export's and the monitor's refusals, so the toggle, the agent and a render
+ * explain the same limit the same way.
+ *
+ * @param mask - The clip mask to fix to the frame.
+ * @returns The plain reason with its remedy, or `null`.
+ */
+export function frameSpaceRefusal(mask: MaskLayer): string | null {
+  if (!FRAME_SPACE_KINDS.has(mask.kind)) {
+    return 'Only shapes, splits, bands and gradients can be fixed to the frame. A background removal, a key or a track matte follows the picture.';
+  }
+  if (mask.tracking !== undefined) {
+    return 'This mask is tracked, and a track follows the picture. Clear the track to fix the mask to the frame.';
+  }
+  if (mask.units === 'normalized' || mask.featherModel === 'gaussian-legacy') {
+    return 'This mask was migrated from an older project and cannot be fixed to the frame. Redraw it first.';
+  }
+  return null;
+}
+
+function buildSetSpace(input: CompileMaskCommandInput, command: SetMaskSpaceCommand): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  const mask = findMask(clip, command.maskId);
+  if (mask.space === command.space) {
+    throw new Rejection('nothing_to_change', 'The mask is already in that space.');
+  }
+  if (command.space === 'frame') {
+    const refusal = frameSpaceRefusal(mask);
+    if (refusal !== null) throw new Rejection('not_editable', refusal);
+  }
+  return {
+    operations: [
+      { type: 'set_mask_space', clipId: clip.id, maskId: mask.id, space: command.space },
+    ],
+    reason:
+      command.space === 'frame'
+        ? `Fix mask "${mask.name || mask.id}" to the frame`
+        : `Make mask "${mask.name || mask.id}" follow the picture`,
+  };
+}
+
 function buildDuplicate(input: CompileMaskCommandInput, command: DuplicateMaskCommand): Built {
   const clip = findClip(input.timeline, command.clipId);
   const mask = findMask(clip, command.maskId);
@@ -1516,6 +1584,8 @@ function build(input: CompileMaskCommandInput): Built {
         reason: `Change what mask "${mask.name || mask.id}" limits`,
       };
     }
+    case 'set_mask_space':
+      return buildSetSpace(input, command);
     case 'duplicate_mask':
       return buildDuplicate(input, command);
     case 'paste_masks':

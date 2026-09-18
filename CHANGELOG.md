@@ -8,6 +8,15 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
 
 ### Added
 
+- **Fix a clip's mask to the frame from the Mask tab.** A shape, split, band or gradient on a
+  clip now has a **Fixed to** control: **Frame** holds it still on the output frame while the
+  picture moves, scales or rotates under it; **Picture** makes it move with the shot again. While a
+  frame-fixed mask is selected, the monitor draws and edits it in frame pixels, and the clip's
+  other masks stay visible as dashed outlines. The assistant can do the same ("keep that window
+  still while the shot pans"). A background removal, key, track matte or tracked mask follows the
+  picture and cannot be fixed to the frame; the control says so by not offering it, and the
+  assistant is told why. The mask keeps its numbers when it changes space, so on a moved or scaled
+  clip it lands in a different place; drag it back on the monitor.
 - **Outlines, glows and shadows for cut-outs.** Once a clip is cut out (background removal, a
   drawn shape or a key), the Mask tab's new **Edge style** section adds a CapCut-style outline, an
   outer glow or a drop shadow around the subject: pick a preset (White Outline, Sticker, Neon Glow,

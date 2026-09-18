@@ -11,6 +11,7 @@
 import { Switch } from '@framepilot/ui';
 import {
   MASK_ANIMATABLE_PROPERTIES,
+  frameSpaceRefusal,
   maskGeometryAt,
   maskScalarAt,
   type MaskGeometry,
@@ -129,6 +130,10 @@ const GRADIENT_SHAPES = ['linear', 'radial'] as const;
 const GRADIENT_SHAPE_LABELS = ['Linear', 'Radial'] as const;
 
 const FALLOFFS = ['linear', 'smooth', 'gaussian'] as const;
+
+/** MK9.4: where a clip mask is held — on the picture (moves with it) or on the output frame. */
+const MASK_SPACES = ['source', 'frame'] as const;
+const MASK_SPACE_LABELS = ['Picture', 'Frame'] as const;
 const FALLOFF_LABELS = ['Linear', 'Smooth', 'Gaussian'] as const;
 
 export interface MaskPropertiesProps {
@@ -314,6 +319,29 @@ export function MaskProperties({
           })
         }
       />
+      )}
+      {/* MK9.4: a clip mask can stay put on the frame while the picture moves under it. Shown
+          for the kinds that can be (a key, matte or track matte follows the picture), and always
+          for a mask already on the frame, so it can be put back. */}
+      {!onLane && (mask.space === 'frame' || frameSpaceRefusal(mask) === null) && (
+        <>
+          <LabeledSelect
+            caption="Fixed to"
+            label={`${name} space`}
+            value={mask.space}
+            options={MASK_SPACES}
+            labels={MASK_SPACE_LABELS}
+            onChange={(space) =>
+              run({ type: 'set_mask_space', clipId: clip.id, maskId: mask.id, space })
+            }
+          />
+          {mask.space === 'frame' && (
+            <p className="inspector-empty inspector-empty-inline" role="note">
+              Stays put on the frame while the picture moves under it. Its position and size are
+              frame pixels.
+            </p>
+          )}
+        </>
       )}
       {(mask.kind === 'gradient' || mask.kind === 'layer' ? GRADIENT_EDGE_ROWS : EDGE_ROWS).map(
         numberRow,

@@ -56,6 +56,27 @@ is float64-exact with the engine (`frame-clips.json`); the compositor caches the
 placement, so a still clip under a static frame mask is drawn once. The legacy canvas and DOM
 monitors do not know where the picture lands and draw such a stack uncut.
 
+**Setting it (MK9.4).** The Mask tab's **Fixed to** row (Picture / Frame) runs the
+`set_mask_space` command (`compileMaskCommand`), which compiles to the `set_mask_space` operation
+(apply + invert, one undo step). The agent's `refine_mask` tool takes the same `space` argument and
+runs the same command, so both get the same refusals from one function, `frameSpaceRefusal`
+(`editor-core` `mask-commands.ts`): a matte, key or track matte, a tracked mask, and a migrated
+(normalised or `gaussian-legacy`) mask stay in source space, in the export's words. The row is not
+shown for those kinds, and it is always shown for a mask already in frame space so it can be put
+back. A lane refuses the command: its masks are always frame-space. The geometry keeps its numbers
+across the switch (frame pixels one way, source pixels the other). No conversion through the
+placement is attempted, because the placement can animate and a keyframed path has no single
+answer; on a transformed clip the mask moves, and the editor drags it back.
+
+**On the monitor.** `MaskCanvasTools` edits in the space of what is selected: with a clip's
+frame-space mask selected and the Select tool active, the edit group's map is `frameMonitorSpace`
+(the identity, output-frame pixels), so dragging, handles and snapping work in frame pixels and
+write frame pixels. Any drawing tool goes back to picture space, because new masks are drawn on the
+picture. The masks of the other space are drawn as dashed, non-interactive outlines through their
+own map (`data-testid="mask-other-space"`), so a frame-space window stays visible while the
+picture's masks are edited, and the other way round. Analytic guides (split, band, gradient) in
+the other space are not drawn as outlines.
+
 ## Edge styles: outline, glow and shadow (MK9.2)
 
 The Mask tab's **Edge style** section (shown once a mask cuts the clip) adds an outline, an outer

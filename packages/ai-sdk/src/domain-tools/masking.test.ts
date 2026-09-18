@@ -536,6 +536,29 @@ describe('in-process masking tools', () => {
     });
   });
 
+  it('fixes a shape to the frame through set_mask_space, the Inspector toggle (MK9.4)', () => {
+    const p = project([ellipse]);
+    const ops = tool('refine_mask').buildOps!(
+      { clipId: 'shot', maskId: 'm1', space: 'frame' },
+      ctxOf(p),
+    ) as Operation[];
+    expect(ops).toEqual([
+      { type: 'set_mask_space', clipId: 'shot', maskId: 'm1', space: 'frame' },
+    ]);
+    expect(masksOf(clipOf(land(p, ops)))[0]!.space).toBe('frame');
+    // Already there: nothing to change.
+    expect(() =>
+      tool('refine_mask').buildOps!({ clipId: 'shot', maskId: 'm1', space: 'source' }, ctxOf(p)),
+    ).toThrow(/nothing to change/);
+    // A cut-out follows the picture: the command's own refusal.
+    expect(() =>
+      tool('refine_mask').buildOps!(
+        { clipId: 'shot', maskId: 'mt', space: 'frame' },
+        ctxOf(project([matte])),
+      ),
+    ).toThrow(/follows the picture/);
+  });
+
   it('refuses an empty refinement and an unknown mask', () => {
     const p = project([ellipse]);
     expect(() => tool('refine_mask').buildOps!({ clipId: 'shot', maskId: 'm1' }, ctxOf(p))).toThrow(

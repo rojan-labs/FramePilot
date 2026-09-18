@@ -376,8 +376,8 @@ const describePoint = (point: PixelPoint): string =>
 
 /**
  * The masks the monitor edits in the space it draws: a clip's picture space, or the frame for an
- * adjustment lane. A clip's frame-space mask (MK9.1) is not drawn over the picture, where its
- * frame-pixel numbers would land in the wrong place.
+ * adjustment lane or a clip's selected frame-space mask (MK9.4). A mask of the other space is
+ * never edited through this space's map, where its numbers would land in the wrong place.
  */
 function editableMasks(
   clip: Clip,
@@ -400,8 +400,13 @@ export function MaskCanvasTools({
   owner = 'clip',
 }: MaskCanvasToolsProps): JSX.Element | null {
   const onLane = owner === 'effect_layer';
-  const maskSpace = onLane ? 'frame' : 'source';
   const tools = useMaskTools(store);
+  // MK9.4: a clip mask fixed to the frame (`space: 'frame'`) is edited in OUTPUT-frame pixels,
+  // exactly as a lane's is, while it is selected and the hand is on Select. Every drawing tool
+  // draws on the picture, so picking one returns the monitor to picture space.
+  const selectedSpace = masksOf(clip).find((mask) => mask.id === tools.selectedMaskId)?.space;
+  const editsFrame = onLane || (selectedSpace === 'frame' && tools.tool === 'select');
+  const maskSpace = editsFrame ? 'frame' : 'source';
   const svgRef = useRef<SVGSVGElement>(null);
   const gesture = useRef<Gesture | null>(null);
   const pendingPointerTs = useRef<number | null>(null);
@@ -436,12 +441,18 @@ export function MaskCanvasTools({
 
   const { playhead, timeline } = editor.state;
   const sourceTime = clipSourceTimeAt(clip, playhead);
+  const pictureSpace = useMemo(
+    () => (onLane ? null : monitorPictureSpace(timeline, assets, playhead, resolution, clip.id)),
+    [onLane, timeline, assets, playhead, resolution, clip.id],
+  );
+  // A clip's frame-space mask is edited only while the clip draws a picture here: off screen it
+  // cuts nothing, as the monitor shows.
   const space = useMemo(
     () =>
-      onLane
+      editsFrame && (onLane || pictureSpace !== null)
         ? frameMonitorSpace(resolution)
-        : monitorPictureSpace(timeline, assets, playhead, resolution, clip.id),
-    [onLane, timeline, assets, playhead, resolution, clip.id],
+        : pictureSpace,
+    [editsFrame, onLane, resolution, pictureSpace],
   );
   // BR6.11: with AI Object armed, the object a click would select is tinted before the click.
   // The pack answers from its warm worker; nothing is added to the project until the click.
@@ -458,6 +469,13 @@ export function MaskCanvasTools({
     [subjectHover.mask],
   );
   const masks = useMemo(() => editableMasks(clip, maskSpace), [clip, maskSpace]);
+  // MK9.4: the clip's shapes in the OTHER space, drawn as passive outlines through their own map
+  // so a frame-space mask shows where it cuts while the picture's masks are edited, and back.
+  const otherSpaceMasks = useMemo(
+    () => (onLane ? [] : editableMasks(clip, editsFrame ? 'source' : 'frame')),
+    [onLane, clip, editsFrame],
+  );
+  const otherSpaceMap = editsFrame ? pictureSpace?.toFrame : frameMonitorSpace(resolution).toFrame;
   // Splits, mirror bands and gradients (MK8.1): edited by their own handles, not a box.
   const analyticLayers = useMemo(
     () =>
@@ -2099,7 +2117,39 @@ export function MaskCanvasTools({
         onKeyDown={onKeyDown}
         onKeyUp={onKeyUp}
       >
-        <g transform={affineAttribute(space.toFrame)}>
+        {otherSpaceMap !== undefined && otherSpaceMasks.length > 0 && (
+          <g
+            transform={affineAttribute(otherSpaceMap)}
+            data-testid="mask-other-space"
+            data-space={editsFrame ? 'source' : 'frame'}
+            pointerEvents="none"
+          >
+            {otherSpaceMasks.map((mask) => {
+              const geometry = geometryOf(mask);
+              if (geometry === null) return null;
+              return (
+                <path
+                  key={mask.id}
+                  className="mask-canvas-outline"
+                  data-passive
+                  data-enabled={mask.enabled || undefined}
+                  d={outlinePathData(outlineVertices(geometry))}
+                  stroke={mask.color}
+                  strokeWidth={strokeWidth}
+                  strokeDasharray="6 4"
+                  vectorEffect="non-scaling-stroke"
+                  fill="none"
+                  data-mask-id={mask.id}
+                />
+              );
+            })}
+          </g>
+        )}
+        <g
+          transform={affineAttribute(space.toFrame)}
+          data-testid="mask-edit-space"
+          data-space={maskSpace}
+        >
           {zoomPercent >= PIXEL_GRID_MIN_ZOOM && (
             <>
               <defs>

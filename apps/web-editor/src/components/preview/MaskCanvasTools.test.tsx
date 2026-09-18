@@ -705,6 +705,65 @@ describe('shape presets (MK8.3)', () => {
   });
 });
 
+describe('frame-space clip masks (MK9.4)', () => {
+  // The picture is 3840×2160 fitted to a 1920×1080 frame: one frame pixel = two source pixels.
+  const fixed: MaskLayerInput = {
+    kind: 'rectangle',
+    id: 'framed',
+    cx: 960,
+    cy: 540,
+    width: 400,
+    height: 200,
+    space: 'frame',
+  } as MaskLayerInput;
+  const onPicture: MaskLayerInput = { ...rect, id: 'picture' };
+
+  const group = (testId: string): Element => screen.getByTestId(testId);
+
+  it('edits a selected frame-space mask in output-frame pixels, one undoable patch', () => {
+    mount(timeline([onPicture, fixed]));
+    act(() => store.update({ selectedMaskId: 'framed' }));
+    expect(group('mask-edit-space').getAttribute('data-space')).toBe('frame');
+    expect(group('mask-edit-space').getAttribute('transform')).toBe('matrix(1 0 0 1 0 0)');
+    drag([960, 540], [970.5, 545.25], { altKey: true });
+    expect(historyLength()).toBe(1);
+    // Frame pixels, not source pixels: the move is not doubled.
+    expect(masks().find((mask) => mask.id === 'framed')).toMatchObject({
+      cx: 970.5,
+      cy: 545.25,
+      space: 'frame',
+    });
+    expect(masks().find((mask) => mask.id === 'picture')).toMatchObject({ cx: 1920, cy: 1080 });
+    act(() => editor.undo());
+    expect(masks().find((mask) => mask.id === 'framed')).toMatchObject({ cx: 960, cy: 540 });
+  });
+
+  it("draws the other space's masks as passive outlines through their own map", () => {
+    mount(timeline([onPicture, fixed]));
+    act(() => store.update({ selectedMaskId: 'picture' }));
+    // Editing the picture's masks: the frame-space one is drawn over the frame, identity map.
+    expect(group('mask-edit-space').getAttribute('data-space')).toBe('source');
+    const passive = group('mask-other-space');
+    expect(passive.getAttribute('data-space')).toBe('frame');
+    expect(passive.getAttribute('transform')).toBe('matrix(1 0 0 1 0 0)');
+    expect(passive.querySelector('[data-mask-id="framed"]')).not.toBeNull();
+    // And the other way round: the picture's mask through the picture's map (½ scale here).
+    act(() => store.update({ selectedMaskId: 'framed' }));
+    const back = group('mask-other-space');
+    expect(back.getAttribute('data-space')).toBe('source');
+    expect(back.getAttribute('transform')).toBe('matrix(0.5 0 0 0.5 0 0)');
+    expect(back.querySelector('[data-mask-id="picture"]')).not.toBeNull();
+  });
+
+  it('returns to picture space when a drawing tool is picked', () => {
+    mount(timeline([fixed]));
+    act(() => store.update({ selectedMaskId: 'framed' }));
+    expect(group('mask-edit-space').getAttribute('data-space')).toBe('frame');
+    fireEvent.click(screen.getByRole('button', { name: 'Rectangle tool' }));
+    expect(group('mask-edit-space').getAttribute('data-space')).toBe('source');
+  });
+});
+
 describe('adjustment lane (MK9.1)', () => {
   function laneTimeline(): Timeline {
     return {
