@@ -41,7 +41,7 @@ import numpy.typing as npt
 
 from . import MATTE_PIPELINE_VERSION, PACK_VERSION
 from .backend import MattingModel, MediaUnreadableError, ModelProvider, SamModules, VideoInfo
-from .consensus import consensus, edge_radius, iou
+from .consensus import consensus, edge_radius, iou, snap_to_image
 from .embeddings import EmbeddingCache
 from .encode import concat_segments, decode_gray_frames, encode_stream, packet_count
 from .flow import flow as dis_flow
@@ -810,7 +810,11 @@ class MatteJob:
         for i in range(window.count):
             self._check()
             result = consensus(
-                segmentation.masks(i), segmentation.mean_logits(i), birefnet[i], None, radius
+                snap_to_image(segmentation.masks(i), window.store[i]),
+                segmentation.mean_logits(i),
+                birefnet[i],
+                None,
+                radius,
             )
             masks.append(result.majority)
             scores.append(result.score["score"])
@@ -876,7 +880,7 @@ class MatteJob:
             warped = warp(alphas[i - 1].astype(np.float32), flows(i - 1, i)) if i > 0 else None
             frame_prompt = ctx.resolved.frames.get(window.start + i)
             result = consensus(
-                segmentation.masks(i),
+                snap_to_image(segmentation.masks(i), window.store[i]),
                 segmentation.mean_logits(i),
                 birefnet[i],
                 warped,

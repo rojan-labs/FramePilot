@@ -202,3 +202,18 @@ def test_dark_crops_are_brightened_for_matting_and_normal_ones_are_not() -> None
     assert bright[0, 0, 0] == round(80 * 0.9 * 255 / 80) and bright[10, 10, 0] > 40
     black = np.full((8, 8, 3), 5, np.uint8)
     assert normalise_exposure(black).max() <= 5 * MAX_GAIN + 1, "the gain is bounded"
+
+
+def test_sam_masks_snap_to_the_image_edge() -> None:
+    from framepilot_smart_mask.consensus import snap_to_image
+
+    frame = np.full((720, 1280, 3), 40, np.uint8)
+    frame[200:600, 500:700] = (220, 190, 160)  # the subject, on a contrasting background
+    truth = np.zeros((720, 1280), bool)
+    truth[200:600, 500:700] = True
+    coarse = cv2.dilate(truth.astype(np.uint8), np.ones((7, 7), np.uint8)).astype(bool)
+    (snapped,) = snap_to_image([coarse], frame)
+    wrong_before = int((coarse ^ truth).sum())
+    wrong_after = int((snapped ^ truth).sum())
+    assert wrong_after < wrong_before // 3, (wrong_before, wrong_after)
+    assert snap_to_image([], frame) == []

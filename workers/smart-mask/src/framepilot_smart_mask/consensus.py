@@ -65,6 +65,28 @@ def edge_radius(height: int) -> int:
     return max(2, round(EDGE_RADIUS_1080P * height / 1080))
 
 
+#: SAM's masks are upsampled from 256² logits, so their edges sit up to a low-res cell off the
+#: image edge. A guided filter (He et al.) with the frame as guide snaps them to it before the
+#: vote. Fitted on the BR7.4 it1 calibration split (radius 6 px at 720p, eps 0.01 of the unit
+#: range); held out: talking_head BF 0.974 -> 0.993, crossing IoU 0.898 -> 0.903, walk_pan
+#: 0.979 -> 0.981; a larger radius cost similar_colour (subject and background alike).
+GUIDED_RADIUS_1080P: Final = 9
+GUIDED_EPS: Final = 0.01
+
+
+def snap_to_image(masks: list[Bool], frame: npt.NDArray[np.uint8]) -> list[Bool]:
+    """Each SAM mask guided-filtered with the frame, re-thresholded at one half."""
+    if not masks:
+        return masks
+    guide = frame.astype(np.float32) / 255.0
+    radius = _scaled(GUIDED_RADIUS_1080P, frame.shape[0])
+    snapped: list[Bool] = []
+    for mask in masks:
+        filtered = cv2.ximgproc.guidedFilter(guide, mask.astype(np.float32), radius, GUIDED_EPS)
+        snapped.append(filtered >= 0.5)
+    return snapped
+
+
 def _scaled(px_1080p: float, height: int) -> int:
     return max(2, round(px_1080p * height / 1080))
 
@@ -220,4 +242,5 @@ __all__ = [
     "edge_radius",
     "frame_score",
     "iou",
+    "snap_to_image",
 ]
