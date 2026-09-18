@@ -4002,100 +4002,98 @@ export class Orchestrator {
     // `render_preview` eight times on a surface with no route for it, and paid the two
     // render descriptors' schema on every one of its 308 requests besides.
     const unroutable = this.executor?.unroutableTools?.() ?? EMPTY_TOOL_NAMES;
-    return withDomainIndexFor(
-      unroutable,
-      toolDescriptors((tool) => {
-        if (unroutable.has(tool.name)) return false;
-        // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
-        // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
-        // only in `selectTools` — so the ONE surface with a live editor in front of it offered
-        // `index_media` as an ordinary call, and a model could start a paced, billable indexing
-        // job inside a run whose budget assumed it could not.
-        if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
-        if (!sighted && tool.capabilities?.includes('vision')) return false;
-        // `recall_evidence` survives the recovery turn. Everything else read-shaped is
-        // withheld there on purpose — the run has gathered enough and must act — but this
-        // one returns what it ALREADY gathered, costs no engine work, and cannot change
-        // under it. Withholding it made the turn unsurvivable: the instruction says to
-        // recall rather than re-read, so the model looked for the tool, found it missing,
-        // and built forty-six clips on asset durations it inferred from clip-id suffixes
-        // because the media bin it had read twice was no longer reachable.
-        if (scope === 'action-recovery') {
-          // `effectClass`, not `kind`. The registry kind of `add_stock`/`add_music` is
-          // `analysis` — they are reached through a search — but each one downloads a file
-          // and places a clip through a reversible patch, which `tool-contract.ts` has
-          // always declared. Filtering on `kind` here refused the one call that could put
-          // picture into an empty project, and told the model it was "redundant": run
-          // `e30c1fe9` asked for exactly one clip it had already found, was refused, and
-          // built a reel with no footage in it. A recovery turn demands an ACTION; these
-          // are actions.
-          //
-          // `sourcing` rides alongside, which completes the same correction one step
-          // earlier. Admitting `add_stock` while withholding `search_stock` is a whole
-          // surface only for a run that has already searched. A run on an EMPTY project has
-          // nothing to add BY `remoteId`, and the only thing that mints a `remoteId` is the
-          // search it was just refused — so run `f1d5285e` was told to stop looking and make
-          // the edit, could reach nothing but `recall_evidence`, and was ended by the memo
-          // hit that answer counts as. The guard produced the outcome it exists to prevent
-          // (ADR 0147, amending ADR 0143).
-          //
-          // Reconnaissance over material the project ALREADY holds — the transcript, the
-          // footage map, silence, scenes — stays withheld, which is what the turn is for.
-          // And `state.actionRecoveryPending` is set for the whole recovery turn, so one
-          // that spends this allowance without acting falls straight through to the
-          // convergence guard rather than earning another.
-          //
-          // A look at the run's OWN edit is not reconnaissance either
-          // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
-          // `render_preview` on a recovery turn, and was told the turn was for acting.
-          //
-          // Progressive disclosure still holds here. This branch returned before the
-          // `loadedDomains` filter below, so a recovery turn advertised EVERY mutation in the
-          // registry — 62 tools against the 39 the run had been working with — which both
-          // re-billed the whole prompt prefix (the tool block sits above it in the cache) and
-          // handed a run that had loaded nothing the caption, colour, motion and tracking
-          // mutations it had never asked for. A domain the run has not loaded is as absent on
-          // a recovery turn as on any other, and `load_tools` rides along so a run that needs
-          // one can still ask for it — it costs no engine work and gathers nothing.
-          if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) {
-            return false;
-          }
-          const effect = toolContract(tool).effectClass;
-          return (
-            effect === 'mutation' ||
-            tool.kind === 'ask' ||
-            tool.name === 'load_tools' ||
-            tool.name === 'recall_evidence' ||
-            EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
-            toolRole(tool.name, tool.mutates) === 'sourcing'
-          );
-        }
-        // A run holding unspent candidates may not fetch more (05/02). Withholding is
-        // narrow on purpose, and every exclusion below is a deadlock this would otherwise
-        // cause:
+    const offered = toolDescriptors((tool) => {
+      if (unroutable.has(tool.name)) return false;
+      // Lifecycle work the orchestrator owns is never model-selectable. `tool-scope.ts`
+      // declares this and `autonomous-tool-contract.ts` throws over it, but the filter lived
+      // only in `selectTools` — so the ONE surface with a live editor in front of it offered
+      // `index_media` as an ordinary call, and a model could start a paced, billable indexing
+      // job inside a run whose budget assumed it could not.
+      if ((IMPLICIT_ONLY_TOOL_NAMES as readonly string[]).includes(tool.name)) return false;
+      if (!sighted && tool.capabilities?.includes('vision')) return false;
+      // `recall_evidence` survives the recovery turn. Everything else read-shaped is
+      // withheld there on purpose — the run has gathered enough and must act — but this
+      // one returns what it ALREADY gathered, costs no engine work, and cannot change
+      // under it. Withholding it made the turn unsurvivable: the instruction says to
+      // recall rather than re-read, so the model looked for the tool, found it missing,
+      // and built forty-six clips on asset durations it inferred from clip-id suffixes
+      // because the media bin it had read twice was no longer reachable.
+      if (scope === 'action-recovery') {
+        // `effectClass`, not `kind`. The registry kind of `add_stock`/`add_music` is
+        // `analysis` — they are reached through a search — but each one downloads a file
+        // and places a clip through a reversible patch, which `tool-contract.ts` has
+        // always declared. Filtering on `kind` here refused the one call that could put
+        // picture into an empty project, and told the model it was "redundant": run
+        // `e30c1fe9` asked for exactly one clip it had already found, was refused, and
+        // built a reel with no footage in it. A recovery turn demands an ACTION; these
+        // are actions.
         //
-        // - `recall_evidence` is NEVER withheld. The agent log keeps payloads for two turns
-        //   (`AGENT_LOG_PAYLOAD_FRESH`) and a stock `remoteId` exists nowhere else, so
-        //   refusing a recall does not force commitment — it removes the only route to the
-        //   argument `add_stock` takes, which is the ADR 0143 failure ADR 0147 reversed.
-        // - Inspection stays open. A run whose downloads all failed, or whose placement is
-        //   refused for want of a free span, has to be able to read the timeline and say so.
-        // - Only the CATALOGUE SEARCHES go. They are what mints more candidates, and more
-        //   candidates is precisely what the run does not need.
+        // `sourcing` rides alongside, which completes the same correction one step
+        // earlier. Admitting `add_stock` while withholding `search_stock` is a whole
+        // surface only for a run that has already searched. A run on an EMPTY project has
+        // nothing to add BY `remoteId`, and the only thing that mints a `remoteId` is the
+        // search it was just refused — so run `f1d5285e` was told to stop looking and make
+        // the edit, could reach nothing but `recall_evidence`, and was ended by the memo
+        // hit that answer counts as. The guard produced the outcome it exists to prevent
+        // (ADR 0147, amending ADR 0143).
         //
-        // The scope is entered only when a search has already banked results (so an empty
-        // project can always search) and released by the first successful placement.
-        if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
-        if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
-        // Progressive disclosure. The core set plus whatever this run has asked for; see
-        // `tool-domains.ts` for the measurement that made this necessary. Applied last so
-        // every narrowing above still holds — a domain being loaded never re-admits a tool
-        // the stage, the recovery turn, or the commit-only scope has withheld.
-        if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains))
+        // Reconnaissance over material the project ALREADY holds — the transcript, the
+        // footage map, silence, scenes — stays withheld, which is what the turn is for.
+        // And `state.actionRecoveryPending` is set for the whole recovery turn, so one
+        // that spends this allowance without acting falls straight through to the
+        // convergence guard rather than earning another.
+        //
+        // A look at the run's OWN edit is not reconnaissance either
+        // (`EDIT_LOOK_TOOL_NAMES`): run `cc907070` was asked for a preview, called
+        // `render_preview` on a recovery turn, and was told the turn was for acting.
+        //
+        // Progressive disclosure still holds here. This branch returned before the
+        // `loadedDomains` filter below, so a recovery turn advertised EVERY mutation in the
+        // registry — 62 tools against the 39 the run had been working with — which both
+        // re-billed the whole prompt prefix (the tool block sits above it in the cache) and
+        // handed a run that had loaded nothing the caption, colour, motion and tracking
+        // mutations it had never asked for. A domain the run has not loaded is as absent on
+        // a recovery turn as on any other, and `load_tools` rides along so a run that needs
+        // one can still ask for it — it costs no engine work and gathers nothing.
+        if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) {
           return false;
-        return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
-      }),
-    );
+        }
+        const effect = toolContract(tool).effectClass;
+        return (
+          effect === 'mutation' ||
+          tool.kind === 'ask' ||
+          tool.name === 'load_tools' ||
+          tool.name === 'recall_evidence' ||
+          EDIT_LOOK_TOOL_NAMES.has(tool.name) ||
+          toolRole(tool.name, tool.mutates) === 'sourcing'
+        );
+      }
+      // A run holding unspent candidates may not fetch more (05/02). Withholding is
+      // narrow on purpose, and every exclusion below is a deadlock this would otherwise
+      // cause:
+      //
+      // - `recall_evidence` is NEVER withheld. The agent log keeps payloads for two turns
+      //   (`AGENT_LOG_PAYLOAD_FRESH`) and a stock `remoteId` exists nowhere else, so
+      //   refusing a recall does not force commitment — it removes the only route to the
+      //   argument `add_stock` takes, which is the ADR 0143 failure ADR 0147 reversed.
+      // - Inspection stays open. A run whose downloads all failed, or whose placement is
+      //   refused for want of a free span, has to be able to read the timeline and say so.
+      // - Only the CATALOGUE SEARCHES go. They are what mints more candidates, and more
+      //   candidates is precisely what the run does not need.
+      //
+      // The scope is entered only when a search has already banked results (so an empty
+      // project can always search) and released by the first successful placement.
+      if (scope === 'commit-only' && isCatalogueSearch(tool.name)) return false;
+      if (questionScope !== undefined && !questionScope.has(tool.name)) return false;
+      // Progressive disclosure. The core set plus whatever this run has asked for; see
+      // `tool-domains.ts` for the measurement that made this necessary. Applied last so
+      // every narrowing above still holds — a domain being loaded never re-admits a tool
+      // the stage, the recovery turn, or the commit-only scope has withheld.
+      if (loadedDomains !== undefined && !toolIsAdvertised(tool.name, loadedDomains)) return false;
+      return stage === undefined || stageAllowsTool(stage, tool.name, tool.mutates);
+    });
+    // `load_tools` names every domain; it must not name one this host cannot offer.
+    return withDomainIndexFor(unroutable, offered);
   }
 
   /**
