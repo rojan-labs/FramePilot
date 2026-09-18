@@ -85,8 +85,8 @@ interface PoolSource {
   readonly intraOnly: boolean;
   /** The worker that opened the file first; the only one a non-intra file uses. */
   readonly home: number;
-  /** Workers that hold the file open. */
-  readonly opened: Set<number>;
+  /** Per worker: the file opened there, or being opened (`false` once it failed). */
+  readonly opened: Map<number, Promise<boolean>>;
   /** Workers that could not open it: its frames never go there again. */
   readonly unavailable: Set<number>;
 }
@@ -119,7 +119,8 @@ export class MatteDecodePool {
 
   /**
    * Open a matte artifact file. It is opened on ONE worker here, whose answer (or refusal) is
-   * the file's; other workers open it when they are first given one of its frames.
+   * the file's. For an intra-only file the other workers then open it in the background, so
+   * the first frames a seek sends them do not wait for an index read.
    */
   async loadMatte(sourceId: string, url: string, expectedFrames: number): Promise<MatteLoaded> {
     const workers = this.ensureWorkers();
@@ -127,15 +128,19 @@ export class MatteDecodePool {
     const home = this.nextHome;
     this.nextHome = (this.nextHome + 1) % workers.length;
     const info = await workers[home]!.client.loadMatte(sourceId, url, expectedFrames);
-    this.sources.set(sourceId, {
+    const source: PoolSource = {
       url,
       expectedFrames,
       intraOnly: info.intraOnly,
       home,
-      opened: new Set([home]),
+      opened: new Map([[home, Promise.resolve(true)]]),
       unavailable: new Set(),
-    });
+    };
+    this.sources.set(sourceId, source);
     log.debug('matte file opened', { intraOnly: info.intraOnly, workers: workers.length });
+    if (info.intraOnly) {
+      workers.forEach((worker, index) => void this.openOn(worker, sourceId, source, index));
+    }
     this.pump();
     return info;
   }
@@ -168,7 +173,7 @@ export class MatteDecodePool {
     const workers = this.workers;
     this.pump();
     await Promise.all(
-      [...source.opened].map((index) =>
+      [...source.opened.keys()].map((index) =>
         workers[index]!.client.unloadSource(sourceId).catch(() => undefined),
       ),
     );
@@ -264,13 +269,25 @@ export class MatteDecodePool {
   }
 
   /** Open `source` on worker `index` once; `false` (never a throw) when it cannot be. */
-  private async openOn(
+  private openOn(
     worker: PoolWorker,
     sourceId: string,
     source: PoolSource,
     index: number,
   ): Promise<boolean> {
-    if (source.opened.has(index)) return true;
+    const existing = source.opened.get(index);
+    if (existing !== undefined) return existing;
+    const attempt = this.open(worker, sourceId, source, index);
+    source.opened.set(index, attempt);
+    return attempt;
+  }
+
+  private async open(
+    worker: PoolWorker,
+    sourceId: string,
+    source: PoolSource,
+    index: number,
+  ): Promise<boolean> {
     try {
       await worker.client.loadMatte(sourceId, source.url, source.expectedFrames);
     } catch (error) {
@@ -287,7 +304,6 @@ export class MatteDecodePool {
       source.unavailable.add(index);
       return false;
     }
-    source.opened.add(index);
     return true;
   }
 

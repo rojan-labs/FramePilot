@@ -147,6 +147,15 @@ describe('MatteDecodePool', () => {
     await Promise.all(frames.slice(0, 3));
   });
 
+  it('opens an intra-only file on every worker before any frame is asked for', async () => {
+    const { decoders, workers } = pool(3, { intraOnly: true });
+    await decoders.loadMatte('m', 'u', 100);
+    await settle();
+    // A seek's first frames then find every worker ready, not reading an index first.
+    expect(workers.map((worker) => worker.opened)).toEqual([['m'], ['m'], ['m']]);
+    expect(workers.map((worker) => worker.decoded)).toEqual([[], [], []]);
+  });
+
   it('keeps a file with non-key frames on the worker that opened it', async () => {
     const { decoders, workers } = pool(4, { intraOnly: false });
     await decoders.loadMatte('m', 'u', 100);

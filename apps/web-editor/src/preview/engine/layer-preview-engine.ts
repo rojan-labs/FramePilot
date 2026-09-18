@@ -1141,8 +1141,12 @@ export class LayerPreviewEngine {
       const plan = this.planAt(clamped);
       if (plan) {
         // PX5.3: this seek's matte frames replace whatever was waiting to decode (a superseded
-        // seek's, or the decode-ahead window's when playback paused), so they are next.
-        this.mattes.want(this.matteNeedsOf(plan));
+        // seek's, or the decode-ahead window's when playback paused), so they are next - and
+        // they start now, on the matte workers, while the pictures decode, not after them. The
+        // re-plan below asks again, so a frame number that changes meanwhile is still covered.
+        const matteNeeds = this.matteNeedsOf(plan);
+        this.mattes.want(matteNeeds);
+        if (matteNeeds.length > 0) void this.mattes.ensure(matteNeeds);
         const needs = this.needsOf(plan);
         const started = performance.now();
         await this.ensureFrames(needs);
