@@ -58,7 +58,9 @@ the shipped falloff table):
 
 A hard split or band is certified against exact polygon clipping (error ≤ 1e-9) and a 256×256
 supersampled reference (≤ 1/255) in `test_mask_raster_vectors.py`; the soft split against the
-analytic distance feather (≤ 1/255).
+analytic distance feather (≤ 1/255). Whole frames are the PX4 oracle's `alpha/analytic-split-band`
+and `alpha/analytic-gradient` rows (a keyframed band angle, a radial gradient limiting a grade),
+and the engine's render goldens (`tests/fixtures/golden/mask_render.json`, `analytic-*`).
 
 ## Track mattes and text as a mask (MK8.2)
 
@@ -77,7 +79,12 @@ rendered only for the matte:
 The CPU mapping is byte-exact: `layerMatteAlpha` reproduces the engine's float64 channel on every
 placement and channel of `tests/fixtures/mask-raster/layer.json` (identity, offset off the frame,
 up- and down-scaled, rotated 30° and 90°). The shader is float32, so the monitor's track mattes are
-judged by the PX4 oracle's `alpha/layer-*` rows at the unchanged gates. A track matte whose source
+judged by the PX4 oracle's `alpha/layer-*` rows at the unchanged gates: text as a mask
+(`layer-text-alpha`), luma and inverted luma from a numpy-made grey ramp read as a clip and as a
+whole track (`layer-luma-channels`, the ramp a lossless PNG source, never a lavfi pattern), and an
+inverted-alpha matte of a masked clip onto a scaled target, then a title onto a rotating one
+(`layer-transformed-target`). The engine's render goldens add every channel and a track source
+with finesse (`layer-*`). A track matte whose source
 has its own track matte is followed (four levels; loops are refused by the validator and the
 export). The DOM fallback monitor draws a track-matted clip uncut, as it does a key: the layer
 compositor is the path.

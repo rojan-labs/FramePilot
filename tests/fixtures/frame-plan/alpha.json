@@ -7830,6 +7830,1999 @@
           "frameEffects": []
         }
       ]
+    },
+    {
+      "id": "analytic-split-band",
+      "row": "Alpha: split and mirror band masks (MK8.1)",
+      "description": "A soft diagonal split, then a subtracted feathered band with a keyframed angle over a split, on a clip over a base.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30
+        }
+      },
+      "project": {
+        "id": "fp-analytic-split-band",
+        "name": "analytic-split-band",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "s1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "split",
+                      "kind": "linear",
+                      "originX": 960,
+                      "originY": 540,
+                      "angle": 24,
+                      "softnessPx": 60
+                    }
+                  ]
+                },
+                {
+                  "id": "s2",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "half",
+                      "kind": "linear",
+                      "originX": 0,
+                      "originY": 540,
+                      "angle": 90,
+                      "expansionPx": -300
+                    },
+                    {
+                      "id": "strip",
+                      "kind": "band",
+                      "mode": "subtract",
+                      "originX": 1100,
+                      "originY": 540,
+                      "angle": 10,
+                      "widthPx": 260,
+                      "softnessPx": 40,
+                      "featherOuterPx": 12,
+                      "falloff": "gaussian",
+                      "keyframes": [
+                        {
+                          "id": "a0",
+                          "sourceTime": 1.0,
+                          "property": "angle",
+                          "value": 10
+                        },
+                        {
+                          "id": "a1",
+                          "sourceTime": 2.0,
+                          "property": "angle",
+                          "value": 80,
+                          "easing": "ease-in-out"
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b",
+                  "assetId": "port",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.5,
+        1.25,
+        1.75
+      ],
+      "expected": [
+        {
+          "time": 0.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "s1",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 0.5,
+                "layers": [
+                  {
+                    "id": "split",
+                    "kind": "linear",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.25,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.25,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.25,
+                "frame": 37
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "s2",
+              "forClipId": null,
+              "localTime": 0.25,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.25,
+                "frame": 37
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.25,
+                "layers": [
+                  {
+                    "id": "half",
+                    "kind": "linear",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  },
+                  {
+                    "id": "strip",
+                    "kind": "band",
+                    "mode": "subtract",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.75,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.75,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.75,
+                "frame": 52
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "s2",
+              "forClipId": null,
+              "localTime": 0.75,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.75,
+                "frame": 52
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.75,
+                "layers": [
+                  {
+                    "id": "half",
+                    "kind": "linear",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  },
+                  {
+                    "id": "strip",
+                    "kind": "band",
+                    "mode": "subtract",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "analytic-gradient",
+      "row": "Alpha: gradient masks, linear and radial, alpha and effect target (MK8.1)",
+      "description": "A linear smooth gradient fades a clip into the base; a radial gaussian gradient limits a grade on a second clip, intersected with a split.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30
+        }
+      },
+      "project": {
+        "id": "fp-analytic-gradient",
+        "name": "analytic-gradient",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "g1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "fade",
+                      "kind": "gradient",
+                      "shape": "linear",
+                      "startX": 400,
+                      "startY": 300,
+                      "endX": 1600,
+                      "endY": 800,
+                      "curve": "smooth"
+                    }
+                  ]
+                },
+                {
+                  "id": "g2",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [
+                    {
+                      "id": "grade",
+                      "type": "color_grade",
+                      "params": {
+                        "exposure": -1.5,
+                        "saturation": -1
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "spot",
+                      "kind": "gradient",
+                      "shape": "radial",
+                      "invert": true,
+                      "target": {
+                        "kind": "effect",
+                        "effectId": "grade"
+                      },
+                      "startX": 960,
+                      "startY": 540,
+                      "endX": 1500,
+                      "endY": 540,
+                      "curve": "gaussian"
+                    },
+                    {
+                      "id": "cut",
+                      "kind": "linear",
+                      "mode": "intersect",
+                      "target": {
+                        "kind": "effect",
+                        "effectId": "grade"
+                      },
+                      "originX": 960,
+                      "originY": 0,
+                      "angle": 90,
+                      "softnessPx": 100
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b",
+                  "assetId": "port",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.5,
+        1.5
+      ],
+      "expected": [
+        {
+          "time": 0.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "g1",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 0.5,
+                "layers": [
+                  {
+                    "id": "fade",
+                    "kind": "gradient",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "g2",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [
+                {
+                  "type": "color_grade",
+                  "params": {
+                    "exposure": -1.5,
+                    "saturation": -1
+                  }
+                }
+              ],
+              "mask": {
+                "sourceTime": 1.5,
+                "layers": [
+                  {
+                    "id": "spot",
+                    "kind": "gradient",
+                    "mode": "add",
+                    "invert": true,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "effect",
+                      "effectId": "grade"
+                    }
+                  },
+                  {
+                    "id": "cut",
+                    "kind": "linear",
+                    "mode": "intersect",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "effect",
+                      "effectId": "grade"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "layer-text-alpha",
+      "row": "Alpha: text as a mask — a title as a clip's alpha track matte (MK8.2)",
+      "description": "A large white title on the top track is the alpha matte of a clip below it: the clip shows through the letters over the base, and the title itself is not drawn.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30
+        }
+      },
+      "project": {
+        "id": "fp-layer-text-alpha",
+        "name": "layer-text-alpha",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "titles",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "title",
+                  "assetId": "__text__",
+                  "trackId": "titles",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [
+                    {
+                      "id": "title__text",
+                      "type": "text",
+                      "params": {
+                        "text": "MATTE",
+                        "fontSizePercent": 34,
+                        "color": "#ffffff"
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "fill",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "tm",
+                      "kind": "layer",
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "title"
+                      },
+                      "channel": "alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b",
+                  "assetId": "port",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        1.0
+      ],
+      "expected": [
+        {
+          "time": 1.0,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "fill",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.0,
+                "frame": 30
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.0,
+                "layers": [
+                  {
+                    "id": "tm",
+                    "kind": "layer",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    },
+                    "layer": {
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "title"
+                      },
+                      "channel": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            },
+            {
+              "matteOnly": true,
+              "kind": "text",
+              "role": "clip",
+              "trackId": "titles",
+              "clipId": "title",
+              "forClipId": null,
+              "localTime": 1.0,
+              "source": null,
+              "text": "MATTE",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "layer-luma-channels",
+      "row": "Alpha: luma and inverted-luma track mattes from a clip and from a track (MK8.2)",
+      "description": "A numpy-made grey ramp (lossless PNG source) is the luma matte of one clip, then, read as a whole track, the inverted-luma matte of the next.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30,
+          "lumaramp": 30
+        }
+      },
+      "project": {
+        "id": "fp-layer-luma-channels",
+        "name": "layer-luma-channels",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "lumaramp",
+            "path": "media/lumaramp.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1280,
+              "height": 720,
+              "proxyPath": "proxies/lumaramp.mp4"
+            },
+            "durationSeconds": 10.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "mattes",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "ramp",
+                  "assetId": "lumaramp",
+                  "trackId": "mattes",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "l1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "luma",
+                      "kind": "layer",
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "ramp"
+                      },
+                      "channel": "luma"
+                    }
+                  ]
+                },
+                {
+                  "id": "l2",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "inv",
+                      "kind": "layer",
+                      "source": {
+                        "kind": "track",
+                        "trackId": "mattes"
+                      },
+                      "channel": "inverted-luma",
+                      "finesse": {
+                        "blurPx": 6
+                      }
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b",
+                  "assetId": "port",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.5,
+        1.5
+      ],
+      "expected": [
+        {
+          "time": 0.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "l1",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 0.5,
+                "layers": [
+                  {
+                    "id": "luma",
+                    "kind": "layer",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    },
+                    "layer": {
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "ramp"
+                      },
+                      "channel": "luma"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            },
+            {
+              "matteOnly": true,
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "mattes",
+              "clipId": "ramp",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "lumaramp",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "l2",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.5,
+                "layers": [
+                  {
+                    "id": "inv",
+                    "kind": "layer",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    },
+                    "layer": {
+                      "source": {
+                        "kind": "track",
+                        "trackId": "mattes"
+                      },
+                      "channel": "inverted-luma"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            },
+            {
+              "matteOnly": true,
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "mattes",
+              "clipId": "ramp",
+              "forClipId": null,
+              "localTime": 1.5,
+              "source": {
+                "assetId": "lumaramp",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
+    },
+    {
+      "id": "layer-transformed-target",
+      "row": "Alpha: inverted-alpha track matte of a masked clip onto a scaled and a rotated clip (MK8.2)",
+      "description": "A clip cut to an ellipse is the inverted-alpha matte of a scaled, offset clip, stacked with a rectangle; then a title is the alpha matte of a rotating clip.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30,
+          "port": 30,
+          "square": 30
+        }
+      },
+      "project": {
+        "id": "fp-layer-transformed-target",
+        "name": "layer-transformed-target",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "port",
+            "path": "media/port.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1920,
+              "proxyPath": "proxies/port.mp4"
+            },
+            "durationSeconds": 60.0
+          },
+          {
+            "id": "square",
+            "path": "media/square.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1080,
+              "height": 1080,
+              "proxyPath": "proxies/square.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "mattes",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "disc",
+                  "assetId": "square",
+                  "trackId": "mattes",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "e",
+                      "kind": "ellipse",
+                      "cx": 540,
+                      "cy": 540,
+                      "rx": 420,
+                      "ry": 300,
+                      "featherOuterPx": 20
+                    }
+                  ]
+                },
+                {
+                  "id": "word",
+                  "assetId": "__text__",
+                  "trackId": "mattes",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [
+                    {
+                      "id": "word__text",
+                      "type": "text",
+                      "params": {
+                        "text": "SPIN",
+                        "fontSizePercent": 34,
+                        "color": "#ffffff"
+                      },
+                      "keyframes": []
+                    }
+                  ],
+                  "keyframes": []
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "t1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 1.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 1.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "s0",
+                      "time": 0.0,
+                      "property": "scale",
+                      "value": 0.7,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "x0",
+                      "time": 0.0,
+                      "property": "x",
+                      "value": 120,
+                      "easing": "linear"
+                    }
+                  ],
+                  "masks": [
+                    {
+                      "id": "inv",
+                      "kind": "layer",
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "disc"
+                      },
+                      "channel": "inverted-alpha"
+                    },
+                    {
+                      "id": "r",
+                      "kind": "rectangle",
+                      "mode": "intersect",
+                      "cx": 960,
+                      "cy": 540,
+                      "width": 1500,
+                      "height": 900
+                    }
+                  ]
+                },
+                {
+                  "id": "t2",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 1.0,
+                  "end": 2.0,
+                  "sourceStart": 1.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "r0",
+                      "time": 0.0,
+                      "property": "rotation",
+                      "value": -8,
+                      "easing": "linear"
+                    },
+                    {
+                      "id": "r1",
+                      "time": 1.0,
+                      "property": "rotation",
+                      "value": 12,
+                      "easing": "linear"
+                    }
+                  ],
+                  "masks": [
+                    {
+                      "id": "w",
+                      "kind": "layer",
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "word"
+                      },
+                      "channel": "alpha"
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v2",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "b",
+                  "assetId": "port",
+                  "trackId": "v2",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 2.0,
+                  "effects": [],
+                  "keyframes": []
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [
+        0.5,
+        1.5
+      ],
+      "expected": [
+        {
+          "time": 0.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "t1",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.4666666666666666,
+                "anchorX": 760.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 312.00000000000006,
+                "top": 108.00000000000003,
+                "width": 895.9999999999999,
+                "height": 503.99999999999994
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 0.5,
+                "layers": [
+                  {
+                    "id": "inv",
+                    "kind": "layer",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    },
+                    "layer": {
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "disc"
+                      },
+                      "channel": "inverted-alpha"
+                    }
+                  },
+                  {
+                    "id": "r",
+                    "kind": "rectangle",
+                    "mode": "intersect",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            },
+            {
+              "matteOnly": true,
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "mattes",
+              "clipId": "disc",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "square",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 280.0,
+                "top": 0.0,
+                "width": 720.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 0.5,
+                "layers": [
+                  {
+                    "id": "e",
+                    "kind": "ellipse",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        },
+        {
+          "time": 1.5,
+          "width": 1280,
+          "height": 720,
+          "background": [
+            0,
+            0,
+            0
+          ],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v2",
+              "clipId": "b",
+              "forClipId": null,
+              "localTime": 1.5,
+              "source": {
+                "assetId": "port",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.375,
+                "scale": 0.375,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 437.5,
+                "top": 0.0,
+                "width": 405.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            },
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "t2",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6666666666666666,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 2.0,
+                "left": 0.0,
+                "top": 0.0,
+                "width": 1280.0,
+                "height": 720.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": {
+                "sourceTime": 1.5,
+                "layers": [
+                  {
+                    "id": "w",
+                    "kind": "layer",
+                    "mode": "add",
+                    "invert": false,
+                    "space": "source",
+                    "featherModel": "distance",
+                    "target": {
+                      "kind": "alpha"
+                    },
+                    "layer": {
+                      "source": {
+                        "kind": "clip",
+                        "clipId": "word"
+                      },
+                      "channel": "alpha"
+                    }
+                  }
+                ]
+              },
+              "transitions": []
+            },
+            {
+              "matteOnly": true,
+              "kind": "text",
+              "role": "clip",
+              "trackId": "mattes",
+              "clipId": "word",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": null,
+              "text": "SPIN",
+              "crop": null,
+              "geometry": {
+                "baseScale": 1.0,
+                "scale": 1.0,
+                "anchorX": 640.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": null,
+                "top": null,
+                "width": null,
+                "height": null
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": []
+        }
+      ]
     }
   ]
 }

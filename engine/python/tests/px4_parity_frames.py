@@ -136,6 +136,8 @@ class VideoSpec:
     frame_times_ms: tuple[int, ...] = ()
     #: PX5.6: every frame is :func:`key_picture` (through a lossless PNG) instead of a sentinel.
     key_picture: bool = False
+    #: MK8.4: every frame is :func:`luma_picture` (through a lossless PNG) instead of a sentinel.
+    luma_picture: bool = False
 
 
 def input_hash() -> str:
@@ -289,10 +291,13 @@ def encode_video(ffmpeg: str, out_dir: Path, spec: VideoSpec) -> None:
         if variable
         else []
     )
-    if spec.key_picture:
-        # PX5.6: the numpy still through a lossless PNG (never a lavfi test source).
+    if spec.key_picture or spec.luma_picture:
+        # PX5.6 / MK8.4: the numpy still through a lossless PNG (never a lavfi test source).
         still = out.with_suffix(".source.png")
-        write_key_picture(still, spec.width, spec.height)
+        if spec.luma_picture:
+            write_luma_picture(still, spec.width, spec.height)
+        else:
+            write_key_picture(still, spec.width, spec.height)
         source = [
             f"movie={still}:loop=0,setpts=N/({spec.fps:g}*TB),fps={spec.fps:g}",
             f"trim=duration={frames_seconds:g}",
@@ -460,6 +465,41 @@ def write_key_picture(target: Path, width: int, height: int) -> None:
     Image.fromarray(key_picture(width, height), mode="RGB").save(target, format="PNG")
 
 
+#: MK8.4: the grey picture the ``layer-*`` rows read as a LUMA track matte. Never visible itself:
+#: the frame plan marks its clip ``matteOnly``, so both renderers draw it only as a matte.
+LUMA_PICTURE_ASSET = "lumaramp"
+
+
+def luma_picture(width: int, height: int) -> Any:
+    """The luma track matte's still (MK8.4): numpy, deterministic, stored as a lossless PNG.
+
+    A left-to-right grey ramp (black to white), a bright soft disc on the upper right and two
+    black bars on the lower left, so a luma matte crosses every level, a smooth edge and two
+    hard ones. Grey (R = G = B), so its luma is its level whatever the coefficients' rounding.
+    """
+    import numpy as np
+
+    y, x = np.mgrid[0:height, 0:width].astype(np.float64)
+    level = 255.0 * x / max(width - 1, 1)
+    radius = np.hypot((x - width * 0.72) / (width * 0.14), (y - height * 0.32) / (height * 0.22))
+    disc = np.clip((1.0 - radius) * 3.0, 0.0, 1.0)
+    level = level + (255.0 - level) * disc
+    bars = (y > height * 0.62) & (
+        ((x > width * 0.1) & (x < width * 0.16)) | ((x > width * 0.24) & (x < width * 0.3))
+    )
+    level = np.where(bars, 0.0, level)
+    grey = np.clip(np.rint(level), 0, 255).astype(np.uint8)
+    return np.repeat(grey[:, :, None], 3, axis=2)
+
+
+def write_luma_picture(target: Path, width: int, height: int) -> None:
+    """:func:`luma_picture` as a lossless RGB PNG, the still the luma asset's video is made from."""
+    from PIL import Image
+
+    target.parent.mkdir(parents=True, exist_ok=True)
+    Image.fromarray(luma_picture(width, height), mode="RGB").save(target, format="PNG")
+
+
 def write_audio_asset(ffmpeg: str, out_dir: Path, rel_path: str, seconds: float) -> None:
     """A silent WAV: audio assets draw nothing, they only have to exist."""
     target = out_dir / rel_path
@@ -514,9 +554,12 @@ def collect_media(
             media = asset.get("media") or {}
             if asset["kind"] == "video":
                 keyed = asset["id"] == KEY_PICTURE_ASSET
-                if not keyed and asset["id"] not in SENTINELS:
+                luma = asset["id"] == LUMA_PICTURE_ASSET
+                if not keyed and not luma and asset["id"] not in SENTINELS:
                     raise KeyError(f"No sentinel colour for video asset {asset['id']!r}")
-                primary, secondary = ((0, 0, 0), (0, 0, 0)) if keyed else SENTINELS[asset["id"]]
+                primary, secondary = (
+                    ((0, 0, 0), (0, 0, 0)) if keyed or luma else SENTINELS[asset["id"]]
+                )
                 spec = VideoSpec(
                     rel_path=rel,
                     width=int(media["width"]),
@@ -532,6 +575,7 @@ def collect_media(
                         for value in case["probe"].get("frameTimes", {}).get(asset["id"], [])
                     ),
                     key_picture=keyed,
+                    luma_picture=luma,
                 )
                 if videos.setdefault(rel, spec) != spec:
                     raise ValueError(f"Cases disagree about the media facts of {rel!r}")

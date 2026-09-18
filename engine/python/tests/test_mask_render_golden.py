@@ -28,7 +28,11 @@ def test_the_golden_covers_every_kind_mode_and_target() -> None:
         for case in goldens.CASES
         for mask in case["masks"]
     }
-    assert kinds == {"rectangle", "ellipse", "path"}
+    assert kinds == {"rectangle", "ellipse", "path", "linear", "band", "gradient", "layer"}
+    channels = {
+        mask["channel"] for case in goldens.CASES for mask in case["masks"] if "channel" in mask
+    }
+    assert channels == {"alpha", "luma", "inverted-alpha", "inverted-luma"}
     assert modes == {"add", "subtract", "intersect", "difference", "lighten", "darken"}
     assert targets == {"alpha", "effect"}
 
@@ -52,3 +56,11 @@ def test_masks_change_the_picture(rendered: dict[str, list[list[list[float]]]]) 
     assert float(np.abs(pictures["mode-add"] - pictures["mode-subtract"]).max()) > 20.0
     assert float(np.abs(pictures["mode-intersect"] - pictures["mode-add"]).max()) > 20.0
     assert float(np.abs(pictures["effect-target-grade"] - pictures["invert-opacity"]).max()) > 20.0
+    # MK8.4: the analytic kinds and every track matte channel draw different pictures.
+    assert float(np.abs(pictures["layer-alpha"] - pictures["layer-inverted-alpha"]).max()) > 20.0
+    assert float(np.abs(pictures["layer-luma"] - pictures["layer-inverted-luma"]).max()) > 20.0
+    assert float(np.abs(pictures["layer-alpha"] - pictures["layer-luma"]).max()) > 5.0
+    assert (
+        float(np.abs(pictures["analytic-gradient-linear"] - pictures["analytic-split-soft"]).max())
+        > 20.0
+    )

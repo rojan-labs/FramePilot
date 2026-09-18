@@ -1,4 +1,4 @@
-"""Render goldens for the v22 mask stack (MK2.4): every shape kind, mode and target.
+"""Render goldens for the v22 mask stack (MK2.4, MK8.4): every kind, mode and target.
 
 Each case compiles a real timeline (``compile_timeline``: speed stage, grade, mask stack,
 compositing) over a numpy-synthesised picture written losslessly (PNG frames, RGB, no YUV
@@ -206,6 +206,121 @@ CASES: list[dict[str, Any]] = [
 ]
 
 
+#: MK8.4: the matte a ``layer`` case reads is this picture again, on a track above the clip:
+#: reversed in time (so the matte is not the clip's own frame) and cut to an ellipse (so its alpha
+#: varies). The masked clip is never drawn over by it: the source is consumed as the matte.
+_MATTE_SOURCE = {
+    "id": "matte",
+    "assetId": "a1",
+    "trackId": "top",
+    "start": 0.0,
+    "end": SECONDS,
+    "sourceStart": 0.0,
+    "sourceEnd": SECONDS,
+    "speed": -1.0,
+    "effects": [],
+    "masks": [_ellipse("disc", cx=40, cy=30, rx=30, ry=20, featherOuterPx=5)],
+}
+
+CASES += [
+    {
+        "id": "analytic-split-soft",
+        "masks": [
+            {
+                "kind": "linear",
+                "id": "m",
+                "originX": 48,
+                "originY": 36,
+                "angle": 30,
+                "softnessPx": 10,
+            }
+        ],
+    },
+    {
+        "id": "analytic-band-subtract-keyframed",
+        "masks": [
+            *_STACK,
+            {
+                "kind": "band",
+                "id": "m",
+                "mode": "subtract",
+                "originX": 48,
+                "originY": 36,
+                "angle": 0,
+                "widthPx": 14,
+                "featherOuterPx": 3,
+                "keyframes": [
+                    {"id": "a", "sourceTime": 0.0, "property": "angle", "value": 0},
+                    {"id": "b", "sourceTime": 0.5, "property": "angle", "value": 60},
+                ],
+            },
+        ],
+    },
+    {
+        "id": "analytic-gradient-linear",
+        "masks": [
+            {
+                "kind": "gradient",
+                "id": "m",
+                "shape": "linear",
+                "startX": 10,
+                "startY": 10,
+                "endX": 86,
+                "endY": 62,
+                "curve": "smooth",
+            }
+        ],
+    },
+    {
+        "id": "analytic-gradient-radial-effect",
+        "effects": [{"id": "grade", "type": "color_grade", "params": {"exposure": 1.2}}],
+        "masks": [
+            {
+                "kind": "gradient",
+                "id": "m",
+                "shape": "radial",
+                "target": {"kind": "effect", "effectId": "grade"},
+                "startX": 48,
+                "startY": 36,
+                "endX": 88,
+                "endY": 36,
+                "curve": "gaussian",
+            }
+        ],
+    },
+    *[
+        {
+            "id": f"layer-{channel}",
+            "extraTracks": [{"id": "top", "type": "video", "clips": [_MATTE_SOURCE]}],
+            "masks": [
+                {
+                    "kind": "layer",
+                    "id": "m",
+                    "source": {"kind": "clip", "clipId": "matte"},
+                    "channel": channel,
+                }
+            ],
+        }
+        for channel in ("alpha", "luma", "inverted-alpha", "inverted-luma")
+    ],
+    {
+        "id": "layer-track-finesse-stacked",
+        "extraTracks": [{"id": "top", "type": "video", "clips": [_MATTE_SOURCE]}],
+        "masks": [
+            _rect("r", width=80, height=60),
+            {
+                "kind": "layer",
+                "id": "m",
+                "mode": "intersect",
+                "source": {"kind": "track", "trackId": "top"},
+                "channel": "luma",
+                "finesse": {"blurPx": 4, "shrinkGrowPx": -1},
+            },
+        ],
+    },
+]
+
+
 def source_frames() -> list[np.ndarray]:
     """The picture: colour gradients, a checkerboard, and a bar that moves one step per frame.
 
@@ -260,7 +375,13 @@ def case_project(case: dict[str, Any]) -> Project:
                     "media": {"width": WIDTH, "height": HEIGHT},
                 }
             ],
-            "timeline": {"tracks": [{"id": "v", "type": "video", "clips": [clip]}]},
+            # `tracks[0]` is the front: a layer case's matte source sits above the clip.
+            "timeline": {
+                "tracks": [
+                    *case.get("extraTracks", []),
+                    {"id": "v", "type": "video", "clips": [clip]},
+                ]
+            },
         }
     )
 
