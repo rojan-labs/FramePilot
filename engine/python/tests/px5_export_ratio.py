@@ -25,7 +25,9 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import os
 import platform
+import resource
 import subprocess
 import sys
 import time
@@ -112,6 +114,7 @@ def main(argv: list[str] | None = None) -> int:
 
     runs: dict[str, Any] = {}
     for variant in VARIANTS:
+        before = resource.getrusage(resource.RUSAGE_CHILDREN)
         child = subprocess.run(
             [
                 sys.executable,
@@ -131,13 +134,22 @@ def main(argv: list[str] | None = None) -> int:
         if child.returncode != 0 or line is None:
             print(child.stdout[-1500:], child.stderr[-1500:])
             return 1
+        after = resource.getrusage(resource.RUSAGE_CHILDREN)
         runs[variant] = json.loads(line.removeprefix("PX5_EXPORT "))
+        # CPU seconds of the export's whole process tree (its ffmpeg decoders included): on a
+        # shared machine wall time moves with everyone else's load, CPU time far less.
+        runs[variant]["cpuSeconds"] = round(
+            (after.ru_utime - before.ru_utime) + (after.ru_stime - before.ru_stime), 2
+        )
+        runs[variant]["loadAverageAfter"] = [round(value, 1) for value in os.getloadavg()]
     ratio = runs["scale"]["seconds"] / runs["scale-plain"]["seconds"]
+    cpu_ratio = runs["scale"]["cpuSeconds"] / max(runs["scale-plain"]["cpuSeconds"], 1e-9)
     result = {
         "machine": f"{platform.system()} {platform.machine()}",
         "windowSeconds": args.window_seconds,
         "runs": runs,
         "ratio": round(ratio, 3),
+        "cpuRatio": round(cpu_ratio, 3),
         "budget": BUDGET_RATIO,
         "withinBudget": ratio <= BUDGET_RATIO,
     }
