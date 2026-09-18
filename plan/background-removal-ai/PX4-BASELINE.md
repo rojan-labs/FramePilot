@@ -4,14 +4,16 @@
 > [`09-PREVIEW-EXPORT-PARITY.md`](./09-PREVIEW-EXPORT-PARITY.md) ("PX4 — the pixel parity oracle").
 
 **Source:** CI only. Workflow `CI`, job `preview-parity-oracle`, run
-[35277293144](https://github.com/rojan-labs/FramePilot/actions/runs/35277293144) at `93935ddd`
+[35295665259](https://github.com/rojan-labs/FramePilot/actions/runs/35295665259) at `e97edf69`
 (Google Chrome, ubuntu-latest, SwiftShader CPU GL), artifact `preview-parity-results`. This file and
 `tests/e2e/fixtures/preview-parity-baseline.json` were generated from that artifact with
 `node tests/e2e/scripts/px4-baseline.mjs [--write-baseline]`. Nothing here was run locally: a local
 full run exhausted a workstation's memory, and the harness documents that it is CI-only. The
 first baseline (run 35140382484 at `700f4e7d`, today's preview before PX2) listed 42 failing
 cases; the layer compositor (PX2) brought it to 2, the exact mask stack pass (MK3) to 1, and the
-matte pass (BR5) to none.
+matte pass (BR5) to none. MK5.2 added `effects/effect-kinds-masked` — every catalog render kind
+limited by a frame-space mask — and it landed passing (249/249 checks in run 35295665259), above
+the unmasked case it mirrors.
 
 **Gates (unchanged from 09, tightened only):** PSNR ≥ 40 dB whole frame; max per-channel error ≤
 8/255 on ≥ 99.5% of pixels; sentinel layer colours exact (same visible set, no pixel that is solidly
@@ -78,6 +80,7 @@ that newly fails is not listed and fails the job.
 | `colour/grade`                           | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `colour/lut`                             | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `effects/effect-kinds`                   | WebCodecs | 41      | 60.19         | 100.000            | none           |                         |
+| `effects/effect-kinds-masked`            | WebCodecs | 41      | 68.52         | 100.000            | none           |                         |
 | `effects/effect-layer-between`           | WebCodecs | 1       | 64.77         | 100.000            | none           |                         |
 | `geometry/anamorphic-pixel-aspect`       | WebCodecs | 1       | inf           | 100.000            | none           |                         |
 | `geometry/crop`                          | WebCodecs | 1       | inf           | 100.000            | none           |                         |
