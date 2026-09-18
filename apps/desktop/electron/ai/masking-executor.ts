@@ -37,7 +37,7 @@ import {
   candidatesOnFrame,
   createMaskRequest,
   parseCandidateId,
-  removeBackgroundIntent,
+  removeBackgroundRequest,
   resolveMaskTargets,
   type CreateMaskIntent,
   type CreateMaskMeasurement,
@@ -127,7 +127,7 @@ export function createMaskingExecutor(options: MaskingExecutorOptions): HostTool
           case TRACK_MASK_TOOL_NAME:
             return await run.trackMask(call.arguments);
           case REMOVE_BACKGROUND_TOOL_NAME:
-            return await run.createMask(removeBackgroundIntent(call.arguments));
+            return await run.createMask(removeBackgroundRequest(call.arguments));
           default:
             return await run.createMask(createMaskRequest(call.arguments));
         }

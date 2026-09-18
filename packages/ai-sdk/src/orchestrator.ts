@@ -271,10 +271,19 @@ import { rebaseEditorInteractionContext } from './editor-context/interaction-con
 import { MAX_IDENTITY_KEY_CHARS, boundedKeySegment } from './stable-key.js';
 import type { ToolContext } from './tool-context.js';
 import { stockCutawayCapRefusal } from './domain-tools/timeline.js';
-import { maskingOpsFromMeasurement, UnusableMaskingPayloadError } from './domain-tools/masking.js';
+import {
+  maskingOpsFromMeasurement,
+  preflightMaskingCall,
+  UnusableMaskingPayloadError,
+} from './domain-tools/masking.js';
 import { MASKING_HOST_MUTATION_TOOL_NAMES, type MaskReviewReport } from './masking/contracts.js';
 import { assertMaskGeometrySourced, numbersIn } from './masking/geometry-provenance.js';
-import { maskReviewSentence, maskTargetsDigest } from './masking/review-report.js';
+import { candidateIdsIn } from './masking/candidate-id.js';
+import {
+  maskReviewSentence,
+  maskTargetsDigest,
+  maskTargetsForRecall,
+} from './masking/review-report.js';
 import {
   ToolInvocationError,
   describeArgValidationError,
@@ -2456,6 +2465,10 @@ const SOURCING_RECORD_KEY: Record<string, string> = {
  * just without the dead weight — and it means the run's memory holds what the run can use.
  */
 export function evidencePayload(toolName: string, value: unknown): unknown {
+  // The model never handles coordinates (plan 11 rule 1), so a recalled target list carries
+  // the ids, labels and scores it can act on and not the boxes it cannot. The sidebar picker
+  // reads the full result from the tool event, which this projection does not touch.
+  if (toolName === 'find_mask_targets') return maskTargetsForRecall(value);
   const recordKey = SOURCING_RECORD_KEY[toolName];
   if (recordKey === undefined || typeof value !== 'object' || value === null) return value;
   const obj = value as Record<string, unknown>;
@@ -3648,8 +3661,12 @@ export class Orchestrator {
     const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
-      // The only numbers a `userShape` may carry (masking/geometry-provenance.ts).
-      userNumbers: numbersIn(objective),
+      // What the EDITOR wrote, across the whole conversation — not the model, not a tool. It
+      // is the one source two masking rules trust: the only numbers a `userShape` may carry
+      // (masking/geometry-provenance.ts), and the only way a pick-required candidate becomes
+      // usable (masking/candidate-id.ts) — the sidebar picker writes the id into a message.
+      userNumbers: numbersIn(editorWords(input)),
+      userPickedCandidateIds: candidateIdsIn(editorWords(input)),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),
       // The turn number is the conversation's own clock: the user's messages so far
@@ -4636,6 +4653,26 @@ export class Orchestrator {
           data: note,
           deterministicFailure: true,
         };
+      }
+      // A masking call that cannot land is refused BEFORE a pack worker runs for it: numbers
+      // the editor never typed, or a candidate they were asked to choose and have not. Both
+      // are verdicts over the conversation, which only this side holds (plan 11 rules 1, 2).
+      if (MASKING_HOST_MUTATION_TOOL_NAMES.includes(call.name)) {
+        try {
+          preflightMaskingCall(call.name, args, ctx);
+        } catch (cause) {
+          const reason = cause instanceof Error ? cause.message : String(cause);
+          const note = `Rejected "${call.name}" — ${reason}`;
+          return {
+            ops: [],
+            note,
+            summary: note,
+            status: 'failed',
+            data: reason,
+            deterministicFailure: true,
+            rejectedOpCount: 1,
+          };
+        }
       }
       const result = await host.effectRuntime.run(
         {
@@ -10196,6 +10233,14 @@ function maskingOutcomeFromMeasurement(
       rejectedOpCount: 1,
     };
   }
+}
+
+/** Everything the editor has written in this conversation, the current request included. */
+function editorWords(input: Pick<ContextInput, 'userPrompt' | 'history'>): string {
+  const earlier = (input.history ?? [])
+    .filter((message) => message.role === 'user')
+    .map((message) => message.content);
+  return [...earlier, input.userPrompt].join('\n');
 }
 
 /** Patch reasons for the host-measured masking tools, in the editor's words. */

@@ -7,7 +7,7 @@ import { describe, expect, it } from 'vitest';
 import { parseProject, type Project } from '@framepilot/timeline-schema';
 import type { ContextInput } from '../context-builder.js';
 import type { AiEvent } from '../events.js';
-import { Orchestrator, type StreamOptions } from '../orchestrator.js';
+import { Orchestrator, evidencePayload, type StreamOptions } from '../orchestrator.js';
 import type { AiCompletionRequest, AiProvider, AiResponse } from '../providers/types.js';
 import type { HostToolExecutor, HostToolOutcome } from '../tool-executor.js';
 
@@ -220,6 +220,67 @@ describe('create_mask through the orchestrator', () => {
     expect(statusOf(typed)).toBe('completed');
   });
 
+  it('refuses a candidate the editor has not picked BEFORE any pack job runs, and admits it once they have', async () => {
+    const pick = `pick.${FACE.candidateId}`;
+    const args = { ...createArgs, candidateId: pick };
+    let hostCalls = 0;
+    const counting: HostToolExecutor = {
+      run: async () => {
+        hostCalls += 1;
+        return {
+          status: 'completed',
+          summary: 'Fitted the face.',
+          data: {
+            kind: 'create_mask',
+            precision: 'shape',
+            clipId: 'shot',
+            candidate: { ...FACE, candidateId: pick },
+          },
+        };
+      },
+    };
+    const guessed = await run([call('create_mask', args), done], counting, 'hide the face');
+    expect(statusOf(guessed)).toBe('failed');
+    expect(results(guessed)[0]?.summary).toContain('the editor has to choose');
+    expect(hostCalls).toBe(0);
+    const picked = await run(
+      [call('create_mask', args), done],
+      counting,
+      `Use ${pick} for "the face" on clip shot.`,
+    );
+    expect(statusOf(picked)).toBe('completed');
+    expect(hostCalls).toBe(1);
+  });
+
+  it('remembers the editor’s pick from an earlier message of the conversation', async () => {
+    const pick = `pick.${FACE.candidateId}`;
+    const executor = host({
+      status: 'completed',
+      summary: 'Fitted.',
+      data: {
+        kind: 'create_mask',
+        precision: 'shape',
+        clipId: 'shot',
+        candidate: { ...FACE, candidateId: pick },
+      },
+    });
+    const events: AiEvent[] = [];
+    const input: ContextInput = {
+      project: project(),
+      userPrompt: 'now make it softer too',
+      history: [
+        { role: 'user', content: `Use ${pick} on clip shot.` },
+        { role: 'assistant', content: 'On it.' },
+      ],
+    };
+    for await (const event of new Orchestrator(
+      new ScriptedProvider([call('create_mask', { ...createArgs, candidateId: pick }), done]),
+      { executor },
+    ).streamAgent(input, opts(), {}))
+      events.push(event);
+    expect(statusOf(events)).toBe('completed');
+  });
+
   it('keeps a pack_missing failure a failure, carrying the proposal for the install card', async () => {
     const proposal = { ok: true, proposal: { proposalId: 'p1', displayName: 'Smart Mask' } };
     const events = await run(
@@ -234,5 +295,22 @@ describe('create_mask through the orchestrator', () => {
     expect(statusOf(events)).toBe('failed');
     expect(result?.result).toEqual({ code: 'pack_missing', proposal });
     expect(events.some((e) => e.type === 'diff')).toBe(false);
+  });
+});
+
+describe('what the run can recall about its targets', () => {
+  it('stores ids and scores for recall_evidence, and never a box', () => {
+    const stored = evidencePayload('find_mask_targets', {
+      kind: 'mask_targets',
+      clipId: 'shot',
+      description: 'her face',
+      status: 'resolved',
+      candidates: [FACE],
+      chosenCandidateIds: [FACE.candidateId],
+      reranker: 'none',
+      engine: 'framepilot.subject-intelligence@1.0.0',
+    });
+    expect(JSON.stringify(stored)).toContain(FACE.candidateId);
+    expect(JSON.stringify(stored)).not.toContain('box');
   });
 });

@@ -9,10 +9,12 @@ import {
 import { masksOf, parseProject, type Project } from '@framepilot/timeline-schema';
 import { ZodError } from 'zod/v4';
 import {
+  CANDIDATE_NEEDS_EDITOR_PICK,
   MASKING_TOOLS,
   UnusableMaskingPayloadError,
   createMaskIntent,
   maskingOpsFromMeasurement,
+  removeBackgroundIntent,
 } from './masking.js';
 import type { MaskCandidate } from '../masking/contracts.js';
 import {
@@ -386,6 +388,38 @@ describe('create_mask arguments', () => {
       tool('create_mask').parse({ ...base, candidateId: 'f1_aa', bounds: { x: 0 } }),
     ).toThrow(ZodError);
     expect(() => tool('find_mask_targets').parse({ clipId: 'shot' })).toThrow(ZodError);
+  });
+});
+
+describe('a candidate the editor was asked to choose', () => {
+  const pick = 'pick.f24_ab12cd34';
+  const base = { clipId: 'shot', candidateId: pick, precision: 'shape', purpose: 'hide' };
+
+  it('is refused until the editor’s own message names it', () => {
+    expect(() => createMaskIntent(base, {})).toThrow(CANDIDATE_NEEDS_EDITOR_PICK);
+    expect(() => createMaskIntent(base, { userPickedCandidateIds: ['pick.f24_00000000'] })).toThrow(
+      CANDIDATE_NEEDS_EDITOR_PICK,
+    );
+    expect(createMaskIntent(base, { userPickedCandidateIds: [pick] }).candidateId).toBe(pick);
+  });
+
+  it('is the same rule for remove_background, and no rule at all for a resolved id', () => {
+    expect(() => removeBackgroundIntent({ clipId: 'shot', candidateId: pick }, {})).toThrow(
+      CANDIDATE_NEEDS_EDITOR_PICK,
+    );
+    expect(
+      removeBackgroundIntent(
+        { clipId: 'shot', candidateId: pick },
+        { userPickedCandidateIds: [pick] },
+      ).candidateId,
+    ).toBe(pick);
+    expect(createMaskIntent({ ...base, candidateId: 'f24_ab12cd34' }, {}).candidateId).toBe(
+      'f24_ab12cd34',
+    );
+  });
+
+  it('carries no number, so a repeat is one guard key', () => {
+    expect(CANDIDATE_NEEDS_EDITOR_PICK).not.toMatch(/\d/);
   });
 });
 

@@ -1392,20 +1392,6 @@ describe('mutating tools — build valid operations', () => {
         durationSeconds: 0.5,
       })[0]?.type,
     ).toBe('add_transition');
-    // Schema v22: the shape lands as a whole-frame mask in the media's source pixels.
-    const measured: ToolContext = {
-      project: makeProject({
-        assets: [
-          {
-            id: 'asset_1',
-            path: 'media/a.mp4',
-            kind: 'video',
-            durationSeconds: 30,
-            media: { width: 1920, height: 1080 },
-          },
-        ],
-      }),
-    };
     expect(build('track_object', { clipId: 'clip_a', target: 'face' })[0]).toEqual({
       type: 'track_object',
       clipId: 'clip_a',

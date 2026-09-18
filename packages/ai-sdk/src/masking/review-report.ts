@@ -46,8 +46,12 @@ const TARGET_STATUS_GUIDANCE: Readonly<Record<string, string>> = {
 };
 
 /**
- * `find_mask_targets` as the model reads it: the status, what to do about it, and one line per
- * candidate carrying the `candidateId` it has to pass on. Boxes are deliberately absent — the
+ * `find_mask_targets` as the model reads it.
+ *
+ * The FIRST line is written to stand alone: the state briefing keeps a result's head as the
+ * run's durable fact (`kernel/briefing.ts#distil`) and the agent log clears payloads after two
+ * turns, so the chosen `candidateId` has to be in that line or it is gone by the time
+ * `create_mask` needs it. One line per candidate follows. Boxes are deliberately absent — the
  * model never handles coordinates, so showing them would only invite it to.
  *
  * @returns The digest, or `undefined` when the payload is not a targets result.
@@ -55,15 +59,29 @@ const TARGET_STATUS_GUIDANCE: Readonly<Record<string, string>> = {
 export function maskTargetsDigest(value: unknown): string | undefined {
   const parsed = MaskTargetsResultSchema.safeParse(value);
   if (!parsed.success) return undefined;
-  const { status, candidates, chosenCandidateIds, clipId } = parsed.data;
+  const { status, candidates, chosenCandidateIds, clipId, description } = parsed.data;
   const chosen = new Set(chosenCandidateIds);
+  const head =
+    status === 'resolved'
+      ? `"${description}" on ${clipId} resolved to ${chosenCandidateIds.join(', ')}. ${TARGET_STATUS_GUIDANCE.resolved}`
+      : `"${description}" on ${clipId}: ${status}. ${TARGET_STATUS_GUIDANCE[status] ?? ''}`.trim();
   const rows = candidates.map(
     (candidate) =>
       `${candidate.candidateId} · ${candidate.label} · score ${candidate.score.toFixed(2)} · on ` +
       `screen ${Math.round(candidate.persistence * 100)}% of the range` +
-      `${chosen.has(candidate.candidateId) ? ' · CHOSEN' : ''}`,
+      `${chosen.has(candidate.candidateId) ? ' · CHOSEN' : ' · the editor must pick this one'}`,
   );
-  return [`${status} on ${clipId}. ${TARGET_STATUS_GUIDANCE[status] ?? ''}`.trim(), ...rows].join(
-    '\n',
-  );
+  return [head, ...rows].join('\n');
+}
+
+/** A targets result as the evidence store keeps it: everything actionable, no coordinates. */
+export function maskTargetsForRecall(value: unknown): unknown {
+  const parsed = MaskTargetsResultSchema.safeParse(value);
+  if (!parsed.success) return value;
+  return {
+    ...parsed.data,
+    candidates: parsed.data.candidates.map(
+      ({ box: _box, thumbnailRef: _thumbnail, ...rest }) => rest,
+    ),
+  };
 }

@@ -2050,6 +2050,9 @@ export const AiSidebar = forwardRef<AiSidebarHandle, AiSidebarProps>(function Ai
         // through the SAME `retry` callback the action bar uses below — never a
         // second retry implementation.
         {...(node.kind === 'notice' ? { onRetryNotice: retry, retryDisabled: running } : {})}
+        // A mask target pick is an ordinary message through the SAME `runTurn` the composer
+        // uses, so the conversation records the choice in words the next turn can read.
+        {...(node.kind === 'tool' ? { onSendMessage: (text: string) => void runTurn(text) } : {})}
         {...(node.kind === 'user'
           ? { dismissedReferenceIds, onDismissReference: dismissReference }
           : {})}

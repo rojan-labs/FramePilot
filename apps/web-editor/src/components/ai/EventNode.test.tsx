@@ -737,6 +737,39 @@ describe('EventNode', () => {
     expect(card.textContent).toContain('Media never leaves this machine.');
   });
 
+  it('shows the target picker on an ambiguous find_mask_targets, and sends the pick once the run ends', () => {
+    const onSendMessage = vi.fn();
+    const candidate = (candidateId: string, x: number) => ({
+      candidateId,
+      label: 'face',
+      box: { x, y: 0.4, width: 0.1, height: 0.2 },
+      sourceTime: 1,
+    });
+    const node: ToolNode = {
+      kind: 'tool',
+      id: 'targets',
+      ts: 0,
+      turnId: 't',
+      toolName: 'find_mask_targets',
+      status: 'warning',
+      result: toolResult({
+        kind: 'mask_targets',
+        clipId: 'shot',
+        description: 'the face',
+        status: 'ambiguous_target',
+        candidates: [candidate('pick.f1_aaaaaaaa', 0.1), candidate('pick.f1_bbbbbbbb', 0.8)],
+      }),
+    };
+    const { rerender } = render(<EventNode node={node} onSendMessage={onSendMessage} />);
+    const option = (): HTMLButtonElement =>
+      screen.getByRole('button', { name: 'Pick the face at the left' }) as HTMLButtonElement;
+    // Still running: the pick is its own message, so it waits.
+    expect(option().disabled).toBe(true);
+    rerender(<EventNode node={node} onSendMessage={onSendMessage} runEnded />);
+    fireEvent.click(option());
+    expect(onSendMessage).toHaveBeenCalledWith(expect.stringContaining('pick.f1_aaaaaaaa'));
+  });
+
   it('offers a long cut-out to the editor instead of showing it as a dead failure', () => {
     render(
       <EventNode

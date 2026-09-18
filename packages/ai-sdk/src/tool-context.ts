@@ -61,4 +61,12 @@ export interface ToolContext {
    * numbers" from becoming a side door for coordinates the model made up.
    */
   readonly userNumbers?: readonly number[];
+  /**
+   * Candidate ids the editor's own messages contain — how the sidebar picker's choice arrives.
+   *
+   * `find_mask_targets` marks every candidate it could not decide between as pick-required,
+   * and `create_mask` accepts such an id only when it is here. "Resolve the target or ask,
+   * never guess" is thereby a property of the tool rather than of the model's restraint.
+   */
+  readonly userPickedCandidateIds?: readonly string[];
 }

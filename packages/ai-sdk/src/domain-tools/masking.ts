@@ -29,6 +29,7 @@ import {
   MaskCandidateIdSchema,
   type MaskReviewReport,
 } from '../masking/contracts.js';
+import { parseCandidateId } from '../masking/candidate-id.js';
 import { USER_NUMBERS_NOT_TYPED, numbersWereTyped } from '../masking/geometry-provenance.js';
 import {
   MASK_EDGE_INTENTS,
@@ -117,9 +118,10 @@ const REFUSE_USER_CUTOUT =
  */
 export function createMaskIntent(
   rawArgs: unknown,
-  ctx: Pick<ToolContext, 'userNumbers'>,
+  ctx: Pick<ToolContext, 'userNumbers' | 'userPickedCandidateIds'>,
 ): CreateMaskIntent {
   const intent = createMaskRequest(rawArgs);
+  assertCandidateUsable(intent.candidateId, ctx);
   if (intent.userShape !== undefined) {
     const { x, y, width, height } = intent.userShape;
     if (!numbersWereTyped([x, y, width, height], ctx.userNumbers ?? [])) {
@@ -159,8 +161,39 @@ export function createMaskRequest(rawArgs: unknown): CreateMaskIntent {
   };
 }
 
+/** The refusal for a candidate the editor was asked to choose and has not chosen. */
+export const CANDIDATE_NEEDS_EDITOR_PICK =
+  'That candidate is one the editor has to choose: find_mask_targets could not tell which ' +
+  'thing they meant, and FramePilot has shown them the choices. Nothing was masked. Wait for ' +
+  'their pick — it arrives as their next message — and do not choose for them.';
+
+/**
+ * A pick-required id is usable only once the editor has written it (the sidebar picker does).
+ *
+ * @throws ToolRefusalError when the editor has not picked it.
+ */
+export function assertCandidateUsable(
+  candidateId: string | undefined,
+  ctx: Pick<ToolContext, 'userPickedCandidateIds'>,
+): void {
+  if (candidateId === undefined) return;
+  if (parseCandidateId(candidateId)?.pickRequired !== true) return;
+  if ((ctx.userPickedCandidateIds ?? []).includes(candidateId)) return;
+  throw new ToolRefusalError(CANDIDATE_NEEDS_EDITOR_PICK);
+}
+
 /** `remove_background` is `create_mask` with its answers filled in. */
-export function removeBackgroundIntent(rawArgs: unknown): CreateMaskIntent {
+export function removeBackgroundIntent(
+  rawArgs: unknown,
+  ctx: Pick<ToolContext, 'userPickedCandidateIds'>,
+): CreateMaskIntent {
+  const intent = removeBackgroundRequest(rawArgs);
+  assertCandidateUsable(intent.candidateId, ctx);
+  return intent;
+}
+
+/** The structural half of {@link removeBackgroundIntent}, for the desktop executor. */
+export function removeBackgroundRequest(rawArgs: unknown): CreateMaskIntent {
   const args = RemoveBackgroundArgsSchema.parse(rawArgs);
   return {
     clipId: args.clipId,
@@ -170,6 +203,17 @@ export function removeBackgroundIntent(rawArgs: unknown): CreateMaskIntent {
     edge: 'soft',
     track: false,
   };
+}
+
+/**
+ * Everything about a host-measured masking call that can be refused BEFORE the host is asked,
+ * so a call that cannot land never spends a pack job — minutes of one, for a track or a matte.
+ *
+ * @throws ToolRefusalError with the remedy.
+ */
+export function preflightMaskingCall(toolName: string, rawArgs: unknown, ctx: ToolContext): void {
+  if (toolName === CREATE_MASK_TOOL_NAME) createMaskIntent(rawArgs, ctx);
+  else if (toolName === REMOVE_BACKGROUND_TOOL_NAME) removeBackgroundIntent(rawArgs, ctx);
 }
 
 /** A host-measured masking result, ready for the orchestrator to assemble. */
@@ -216,7 +260,7 @@ export function maskingOpsFromMeasurement(
   }
   const intent =
     toolName === REMOVE_BACKGROUND_TOOL_NAME
-      ? removeBackgroundIntent(rawArgs)
+      ? removeBackgroundIntent(rawArgs, ctx)
       : createMaskIntent(rawArgs, ctx);
   const parsed = CreateMaskMeasurementSchema.safeParse(payload);
   if (!parsed.success) throw new UnusableMaskingPayloadError();

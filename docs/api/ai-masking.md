@@ -101,6 +101,28 @@ only the two freshest payloads, so an id used ten turns later must resolve with 
 host re-detects the one frame the id names and reproduces it. Ids survive an app restart for the
 same reason.
 
+### Asking the editor
+
+An ask is enforced by the tool, not left to the model's restraint. Every candidate a result lists
+that was NOT chosen — every candidate of an ask, and the runners-up of a resolution — carries a
+`pick.` prefix, and `create_mask` / `remove_background` accept a `pick.` id only when it appears
+in the **editor's own messages** (`ToolContext.userPickedCandidateIds`, read from every user
+message of the conversation). The check runs before the host is asked, so a guessed id costs no
+pack job.
+
+The sidebar's `MaskTargetPicker` renders on the `find_mask_targets` result itself: thumbnails
+cropped in the renderer from the clip's own media (no new IPC, no thumbnail files), the label and
+where it sits in frame. Picking sends an ordinary message — `For "the face" on clip shot, use
+pick.f48_… (the face at the left).` — through the composer's own `runTurn`, once the run that
+asked has ended. `needs_face_selection` collects several faces before sending; `needs_click`
+points at the Inspector's Remove background subject tool.
+
+What the model can recall later is deliberately narrow. The digest's FIRST line carries the
+chosen id, because the state briefing keeps a result's head as the run's durable fact and the
+agent log clears payloads after two turns. The evidence store keeps ids, labels and scores for
+`recall_evidence` and drops the boxes (`maskTargetsForRecall`): the model never handles
+coordinates.
+
 ## Intent, not numbers
 
 `masking/intent-tables.ts` maps what the model says to numbers, scaled by the picture's smaller
