@@ -11,7 +11,7 @@ Read this first after a context reset. Updated after every commit.
 **CI fully green at 6b77de0e (run 35351484628, 12/12 jobs).** Three fresh agents closing out the rest (maintainer, 2026-09-18: "close out others end to end"; don't resume old agents):
 - BR7.4 — matte eval + accuracy iteration moved to a dispatch-only CI workflow (local memory can't hold BiRefNet at 2048²)
 - E2E + DOC.1: agent stopped by the maintainer. Committed E2E.1 (c55a5366, 63be864b), E2E.2 (17a58563), E2E.5 (f55f23ce), E2E.8 (7dddc8eb, ac424e66); unfinished and uncommitted: tests/e2e/specs/masking-e2e-pro-masking.spec.ts (E2E.3). Not started: E2E.3 finish, E2E.4, E2E.6, E2E.7, DOC.1. Not ticked until CI proves them
-- MK9.4, PX5.11 (full-row export ratio in CI), RD2.2 dashboards
+- MK9.4 (c9819c88, d2ba0a48) and RD2.2 (eb6edac2) committed; PX5.11 full-row run 35369857493 in progress
 Then: E2E.1–E2E.8 + DOC.1, RD2.2 dashboards, AM2.6 real-weights colour, MK7.5 real clips. RD3 and everything in MAINTAINER_ONLY_ACTIONS.md stay with the maintainer.
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`, never stage others' files; no stash, force-push or trailers; don't edit plan files.
 
@@ -91,6 +91,8 @@ Agent rules to paste into every prompt: single-file tests with `--no-file-parall
 PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
+
+- Run 35375391238 (df9a5155): only "Masking end to end" red — E2E.2 (reopen) and E2E.5 (migration) specs committed by the stopped agent fail; E2E.1 + all E2E.8 rows pass. A fresh agent is fixing exactly those two. Every other job green
 
 - none open (run 35351484628 at 6b77de0e: 12/12 green)
 
