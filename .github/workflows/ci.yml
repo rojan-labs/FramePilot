@@ -126,7 +126,7 @@ jobs:
         run: uv sync --extra dev
       - name: Rasteriser vectors
         working-directory: engine/python
-        run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py tests/test_mask_stack_vectors.py -q
+        run: uv run pytest tests/test_mask_raster_vectors.py tests/test_mask_raster.py tests/test_mask_stack_vectors.py tests/test_key_mask_vectors.py -q
       - uses: pnpm/action-setup@v6
         with:
           version: ${{ env.PNPM_VERSION }}
@@ -141,9 +141,13 @@ jobs:
         run: |
           pnpm exec turbo run build --filter=@framepilot/timeline-schema...
           pnpm --filter @framepilot/editor-core exec tsc -b
+      # Every vector set that claims byte-equality with the engine, on every runtime the plan
+      # names (plan 10, "Determinism rules"): shapes and the legacy blur, whole clip stacks,
+      # the frame-space stacks of an adjustment lane (MK5.2), the matte finesse group (MK6.2),
+      # and the key's colour charts (MK6.3, exact on the CPU twin).
       - name: Preview rasteriser vectors (TypeScript)
         working-directory: apps/web-editor
-        run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts src/preview/masks/legacy-mask.test.ts src/preview/masks/mask-stack.test.ts
+        run: pnpm exec vitest run src/preview/masks/mask-raster.test.ts src/preview/masks/legacy-mask.test.ts src/preview/masks/mask-stack.test.ts src/preview/masks/frame-masks.test.ts src/preview/masks/matte-edges.test.ts src/preview/masks/key-mask.test.ts
 
   # ── Cross-runtime professional-operation proof ─────────────────────────────────────
   professional-rendered-evals:
