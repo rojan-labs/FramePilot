@@ -69,9 +69,19 @@ const TARGET_FORMAT_BYTES: Record<TargetFormat, number> = {
   r32f: 4,
   r8ui: 1,
 };
-/** Uploaded source textures kept by key ({@link GlResources.keyedTexture}): a few matte frames. */
-const KEYED_TEXTURE_CAPACITY = 8;
+/**
+ * Uploaded source textures kept by key ({@link GlResources.keyedTexture}): two matte frames
+ * (alpha + foreground each), enough for the two composites a 60 Hz display runs per frame.
+ */
+const KEYED_TEXTURE_CAPACITY = 4;
 const FLOAT_PLANE_BYTES = 4;
+
+interface KeyedTexture {
+  readonly texture: WebGLTexture;
+  readonly bytes: number;
+  /** Layout and size: which spare list it returns to. */
+  readonly shape: string;
+}
 const INT_TABLE_BYTES = 4;
 
 /** Shared GL objects for one context. */
@@ -85,7 +95,9 @@ export class GlResources {
   private readonly planeInUse: WebGLTexture[] = [];
   private readonly inUse: RenderTarget[] = [];
   private readonly dataTextureBytes = new Map<string, number>();
-  private readonly keyedTextures = new Map<string, { texture: WebGLTexture; bytes: number }>();
+  private readonly keyedTextures = new Map<string, KeyedTexture>();
+  /** Evicted keyed textures by storage shape, re-filled instead of re-created (PX5.3). */
+  private readonly spareKeyed = new Map<string, WebGLTexture[]>();
   private allocatedBytes = 0;
   private allocatedTextures = 0;
 
@@ -335,61 +347,44 @@ export class GlResources {
       return cached.texture;
     }
     const gl = this.gl;
-    const texture = gl.createTexture();
-    if (!texture) throw new Error('WebGL2 could not allocate a source texture.');
-    this.useScratchUnit();
-    gl.bindTexture(gl.TEXTURE_2D, texture);
-    if (layout === 'rgb8') {
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.RGB8UI, width, height);
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        width,
-        height,
-        gl.RGB_INTEGER,
-        gl.UNSIGNED_BYTE,
-        data,
-      );
-    } else if (layout === 'r16') {
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R16UI, width, height);
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        width,
-        height,
-        gl.RED_INTEGER,
-        gl.UNSIGNED_SHORT,
-        data,
-      );
-    } else {
-      gl.texStorage2D(gl.TEXTURE_2D, 1, gl.R8UI, width, height);
-      gl.texSubImage2D(
-        gl.TEXTURE_2D,
-        0,
-        0,
-        0,
-        width,
-        height,
-        gl.RED_INTEGER,
-        gl.UNSIGNED_BYTE,
-        data,
-      );
-    }
-    setNearest(gl);
+    const shape = `${layout}:${width}x${height}`;
     const bytes = width * height * (layout === 'rgb8' ? 3 : layout === 'r16' ? 2 : 1);
-    this.keyedTextures.set(key, { texture, bytes });
-    this.account(bytes);
+    const format =
+      layout === 'rgb8'
+        ? { internal: gl.RGB8UI, upload: gl.RGB_INTEGER, type: gl.UNSIGNED_BYTE }
+        : layout === 'r16'
+          ? { internal: gl.R16UI, upload: gl.RED_INTEGER, type: gl.UNSIGNED_SHORT }
+          : { internal: gl.R8UI, upload: gl.RED_INTEGER, type: gl.UNSIGNED_BYTE };
+    // A matte frame is replaced by the next one of the same shape about 30 times a second.
+    // Creating and deleting a 25 MB texture at that rate lets the driver's deferred frees pile
+    // up (PX5.3 measured the footprint doing it), so an evicted texture is re-filled instead.
+    let texture = this.spareKeyed.get(shape)?.pop() ?? null;
+    this.useScratchUnit();
+    if (texture === null) {
+      texture = gl.createTexture();
+      if (!texture) throw new Error('WebGL2 could not allocate a source texture.');
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+      gl.texStorage2D(gl.TEXTURE_2D, 1, format.internal, width, height);
+      setNearest(gl);
+      this.account(bytes);
+    } else {
+      gl.bindTexture(gl.TEXTURE_2D, texture);
+    }
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, width, height, format.upload, format.type, data);
+    this.keyedTextures.set(key, { texture, bytes, shape });
     while (this.keyedTextures.size > KEYED_TEXTURE_CAPACITY) {
       const oldest = this.keyedTextures.keys().next().value!;
       const entry = this.keyedTextures.get(oldest)!;
-      gl.deleteTexture(entry.texture);
       this.keyedTextures.delete(oldest);
-      this.allocatedBytes -= entry.bytes;
-      this.allocatedTextures -= 1;
+      const spares = this.spareKeyed.get(entry.shape) ?? [];
+      if (spares.length < KEYED_TEXTURE_CAPACITY) {
+        spares.push(entry.texture);
+        this.spareKeyed.set(entry.shape, spares);
+      } else {
+        gl.deleteTexture(entry.texture);
+        this.allocatedBytes -= entry.bytes;
+        this.allocatedTextures -= 1;
+      }
     }
     return texture;
   }
@@ -482,6 +477,9 @@ export class GlResources {
     for (const texture of this.dataTextures.values()) gl.deleteTexture(texture);
     for (const entry of this.keyedTextures.values()) gl.deleteTexture(entry.texture);
     this.keyedTextures.clear();
+    for (const list of this.spareKeyed.values())
+      for (const texture of list) gl.deleteTexture(texture);
+    this.spareKeyed.clear();
     for (const list of this.planeTextures.values())
       for (const texture of list) gl.deleteTexture(texture);
     for (const texture of this.planeInUse) gl.deleteTexture(texture);
