@@ -8,7 +8,7 @@ Read this first after a context reset. Updated after every commit.
 
 ## Current
 
-**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
+**Resumed 2026-09-18 01:59.** Fresh agents (maintainer: don't resume old ones): (1) finish PX5.3 from the uncommitted GPU matte pass on disk; AM verification + AM4 + AM1.6 + AM5 harness done; AM2.5 done: all AM5 gates pass. PX5.3 done in code (desktop tier trigger → MO-17). Next: MK8 (analytic kinds, track matte, presets — also unblocks AM2.4's two tools), BR6.10–6.12, AM2.6. PX5.1/5.2 done: matte rows miss. MK5, MK6 done; MK7 done bar MK7.6 (MO-14). BR5 and MK4 done; CI green at c46d104d (run 35285412166, 11/11 jobs) (pointer-to-paint budget, MK flag, schema v22/v23 verdict, CI reds). Perf tests now gated behind `FRAMEPILOT_RUN_PERF=1` (4038be4b) after they starved the coverage run and timed out an unrelated editor-core test.
 On resume, read ONLY this file first, then the specific plan file for the task you start. Don't re-read 00–12 wholesale.
 
 1. CI: `gh run list --branch plan/background-removal-ai --workflow CI -L 3`. Runs 35245865537 (6ec24d91), 35245714147 and 35245248405 were in flight. Fix any red before new work.
@@ -20,6 +20,8 @@ Next after those: MK5 (effect-target masks), MK6 (key), MK7 (tracking) → BR6 (
 Agent rules to paste into every prompt: single-file tests with `--no-file-parallelism`; no local Playwright or oracle (CI only; poll CI yourself in bounded rounds, never end a turn "waiting"); watchdog for model runs; explicit `git add`; no stash, force-push or trailers; don't edit plan files.
 
 ## Done
+
+- PX5.3 (f0addf60…791a8422, ADR 0181): GPU matte pass, separate matte decode workers, host-derived monitor tier, index-only matte open (was reading 149 MB per 4K matte). Found and fixed: key drawn with the wrong GPU program in the monitor since MK6.1; the pointer regression was BR6.6 subscribing Editor/Inspector to the whole mask-tools store (work p95 back to 9.0 ms)
 
 - AM1–AM4 + RD2.1 (4e99f000…014f7e18): verified by a second agent, which fixed five problems — a masked grade wrote to a second, never-rendered grade; the model saw a `verified` field; the kill switch leaked into Cmd+K/suggestions and did nothing in the browser build; MANUAL_TESTING still pointed at `generate_mask`; an unused parameter broke tsc. Masking skill (284/300 chars) +115 tokens per request with masking on, zero without masks. Open: AM1.6 geometry-source loophole; MO-16 face grouping without consent
 
@@ -88,9 +90,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 
 ## CI reds
 
-- Python mypy in engine/python/tests/test_matte_tier.py and px4_parity_frames.py (PX5.3 agent's)
+- save-budget.perf.test.ts failed once at 252.7 ms vs 250 ms (dispatch run 35332745167); passed on the same commit in the PR run — watch for a flake
 
-- E2E smoke: `mask-tools.spec.ts` 4K pointer-to-paint budget fails all 3 retries since the PX5.3 monitor changes (was a first-attempt flake at 837fe985) — PX5.3 agent owns it
 
 - none open (run 35304699655 at 2dde0422: 11/11 green)
 - (earlier) none open (run 35285412166 at c46d104d: 11/11 green)
@@ -104,6 +105,8 @@ PX0 → PX1 → PX4 → PX2; MK1 → MK2; BR0; RD0.
 - Note: the Claude Code process restarted twice; agents resumed via SendMessage, their on-disk work survived
 
 ## Gate numbers
+
+- PX5.3 (M1 Pro, Chrome/Metal, scale/proxy): with the monitor tier 1/601 dropped (0.17%) ✓, seek p95 49.9–52.5 ms ✓, no main-thread matte work in playback; masters only: seek 90.6 ms ✓ but 8.4% dropped ✗ (the desktop can't make the tier until MO-17). Oracle 59/59 (runs 35324781183, 35329323404)
 
 - AM5 after AM2.5 (run 35334744723, 1.1 packs): target accuracy 37/37 = 100% ✓, unnecessary asks 0% ✓, ambiguous asks 21/21 ✓, confident-wrong 0 ✓, invented geometry 0 ✓, adversarial 10/10. Replayed as 1.0 packs: no wrong picks, objects ask. Colour path proven only on synthetic vectors (AM2.6)
 
