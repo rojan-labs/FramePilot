@@ -80,6 +80,11 @@ test.describe('visual regression @visual', () => {
   });
 
   test('mask inspector panel (clip selected)', async ({ page }) => {
+    // The Mask tab outgrew the pinned 800 px window once track mattes, background removal
+    // and tracking rows landed. An element screenshot of a panel taller than the window
+    // captures the Inspector's status bar drawn over it and black past the window edge, so
+    // this one test gets a window tall enough for the whole panel to be on screen.
+    await page.setViewportSize({ width: 1280, height: 1200 });
     await openEditor(page);
     await selectClip(page, 'clip_intro');
     await page.getByRole('tab', { name: 'Inspector' }).click();
