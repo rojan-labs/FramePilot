@@ -19,6 +19,7 @@ import {
   CapabilityPackMatteService,
   frameAt,
   frameRange,
+  layeredBrush,
   sampleSourcePts,
   SMART_MASK_PACK_ID,
   type MatteAutoPrompt,
@@ -31,7 +32,7 @@ import {
   type MatteMediaInspector,
   type MatteVideoTiming,
 } from './matte-media-inspector.js';
-import { encodeGrayPng } from './matte-png.js';
+import { decodeGrayPng, encodeGrayPng } from './matte-png.js';
 import { matteArtifactDirectory, matteStagingRoot } from './matte-staging.js';
 import { readMatteRecord, saveMatteInput } from './matte-store.js';
 
@@ -350,6 +351,59 @@ describe('CapabilityPackMatteService lifecycle', () => {
       retryable: true,
       detail: 'Disk full or folder not writable. Free up space and try again.',
     });
+  });
+
+  it('layers a second brush fix on the same frame instead of refusing it (BR7 convergence)', async () => {
+    const h = await harness();
+    const first = await h.service.run(h.intent(), h.context());
+    if (first.status !== 'completed') throw new Error('expected completion');
+    const fix = (value: number, from: number) => {
+      const pixels = new Uint8Array(64 * 36).fill(128);
+      pixels.fill(value, from, from + 64);
+      return saveMatteInput(h.projectDir, encodeGrayPng(64, 36, pixels), { width: 64, height: 36, kind: 'brush' });
+    };
+    const keep = await fix(255, 0);
+    const edge = await fix(64, 64 * 10);
+    const rerun = await h.service.run(
+      h.intent({
+        requestId: 'fix2',
+        previousArtifactKey: first.artifact.key,
+        prompts: [
+          { kind: 'brush', sourceTime: 1, sha256: keep.sha256 },
+          { kind: 'brush', sourceTime: 1, sha256: edge.sha256 },
+        ],
+      }),
+      h.context(),
+    );
+    expect(rerun, JSON.stringify(rerun)).toMatchObject({ status: 'completed' });
+    const request = h.requests.at(-1)!;
+    if (request.capability !== 'subject.matte') throw new Error('expected matte');
+    // One correction file for the frame, and one brush prompt.
+    expect(request.parameters.inputs?.files.filter((file) => file.startsWith('corrections/'))).toEqual(['corrections/15360.png']);
+    expect(request.parameters.prompts.filter((prompt) => prompt.kind === 'brush')).toHaveLength(1);
+    // Two locks on one frame still contradict each other.
+    const lock = await saveMatteInput(h.projectDir, encodeGrayPng(64, 36, new Uint8Array(64 * 36)), { width: 64, height: 36, kind: 'lock' });
+    expect(
+      await h.service.run(
+        h.intent({
+          requestId: 'twolocks',
+          previousArtifactKey: first.artifact.key,
+          prompts: [
+            { kind: 'lock', sourceTime: 1, sha256: lock.sha256 },
+            { kind: 'lock', sourceTime: 1, sha256: lock.sha256 },
+          ],
+        }),
+        h.context(),
+      ),
+    ).toMatchObject({ status: 'failed', code: 'invalid_intent' });
+  });
+
+  it('layeredBrush: later fixes win where they say something, and sizes must agree', () => {
+    const image = (pixels: number[]) => ({ width: 4, height: 1, pixels: Buffer.from(pixels) });
+    const layered = layeredBrush([image([255, 255, 128, 0]), image([128, 64, 0, 128])]);
+    expect([...layered.image.pixels]).toEqual([255, 64, 0, 0]);
+    expect([...decodeGrayPng(layered.bytes).pixels]).toEqual([255, 64, 0, 0]);
+    expect(() => layeredBrush([image([128, 128, 128, 128]), { width: 2, height: 2, pixels: Buffer.alloc(4) }])).toThrow(/different sizes/u);
   });
 
   it('re-runs from a previous artifact with locked frames kept bit-identical', async () => {

@@ -46,7 +46,7 @@ import {
   WorkerWatchdog,
   type WatchdogBreach,
 } from './worker-watchdog.js';
-import { grayPixelSha256 } from './matte-png.js';
+import { BRUSH_UNTOUCHED, encodeGrayPng, grayPixelSha256, type GrayPng } from './matte-png.js';
 import {
   commitMatteStaging,
   createMatteStaging,
@@ -364,7 +364,7 @@ export class CapabilityPackMatteService {
     if (pack.status !== 'ready') return pack.outcome;
 
     let prompts: MattePrompt[];
-    let inputSha: Map<string, string>;
+    let inputSha: Map<string, readonly string[]>;
     try {
       ({ prompts, inputSha } = this.workerPrompts(intent, media));
     } catch (error) {
@@ -664,11 +664,16 @@ export class CapabilityPackMatteService {
 
   /**
    * Convert intent prompts (source seconds) into worker prompts (source pts), and remember which
-   * stored PNG each brush or lock file comes from (`corrections/<pts>.png` → sha256).
+   * stored PNGs each brush or lock file comes from (`corrections/<pts>.png` → sha256s).
+   *
+   * A second brush fix on the same frame is the normal way to refine a fix ("≤ 3 actions", plan
+   * 06), so brushes on one frame are LAYERED in the order they were applied: one staged PNG where a
+   * later stroke wins wherever it says something (not untouched). Two locks on one frame are still
+   * refused: a lock is the frame's final alpha, and two of them contradict each other.
    */
-  private workerPrompts(intent: MatteRunIntent, media: ResolvedMedia): { prompts: MattePrompt[]; inputSha: Map<string, string> } {
+  private workerPrompts(intent: MatteRunIntent, media: ResolvedMedia): { prompts: MattePrompt[]; inputSha: Map<string, readonly string[]> } {
     const prompts: MattePrompt[] = [];
-    const inputSha = new Map<string, string>();
+    const inputSha = new Map<string, string[]>();
     for (const prompt of intent.prompts) {
       if (prompt.kind === 'candidate') continue;
       const pts = ptsInRange(media, prompt.sourceTime);
@@ -676,8 +681,13 @@ export class CapabilityPackMatteService {
       else if (prompt.kind === 'box') prompts.push({ kind: 'box', pts, box: prompt.box });
       else {
         const file = `${prompt.kind === 'brush' ? 'corrections' : 'locked'}/${pts}.png`;
-        if (inputSha.has(file)) throw new Error('Two corrections of the same kind target one frame.');
-        inputSha.set(file, prompt.sha256);
+        const layers = inputSha.get(file);
+        if (layers !== undefined) {
+          if (prompt.kind === 'lock') throw new Error('Two locks target one frame.');
+          layers.push(prompt.sha256);
+          continue;
+        }
+        inputSha.set(file, [prompt.sha256]);
         prompts.push({ kind: prompt.kind, pts, file });
       }
     }
@@ -688,7 +698,7 @@ export class CapabilityPackMatteService {
     intent: MatteRunIntent,
     media: ResolvedMedia,
     prompts: readonly MattePrompt[],
-    inputSha: ReadonlyMap<string, string>,
+    inputSha: ReadonlyMap<string, readonly string[]>,
     staging: MatteStaging,
     projectDir: string,
   ): Promise<
@@ -703,9 +713,10 @@ export class CapabilityPackMatteService {
     const locks: MatteLockCheck[] = [];
     for (const prompt of prompts) {
       if (prompt.kind !== 'brush' && prompt.kind !== 'lock') continue;
-      const sha = inputSha.get(prompt.file)!;
+      const shas = inputSha.get(prompt.file)!;
       try {
-        const input = await readMatteInput(projectDir, sha);
+        const layers = await Promise.all(shas.map((sha) => readMatteInput(projectDir, sha)));
+        const input = layers.length === 1 ? layers[0]! : layeredBrush(layers.map((layer) => layer.image));
         if (
           media.displaySize !== undefined &&
           (input.image.width !== media.displaySize.width || input.image.height !== media.displaySize.height)
@@ -955,7 +966,7 @@ export function matteCacheKey(parts: {
 }
 
 /** Prompts sorted and rounded to 1e-4; brushes and locks by the sha256 of their PNG. */
-function canonicalPrompts(prompts: readonly MattePrompt[], inputSha: ReadonlyMap<string, string>): unknown[] {
+function canonicalPrompts(prompts: readonly MattePrompt[], inputSha: ReadonlyMap<string, readonly string[]>): unknown[] {
   const round = (value: number): number => Math.round(value * 10_000) / 10_000;
   return prompts
     .map((prompt) => {
@@ -969,12 +980,37 @@ function canonicalPrompts(prompts: readonly MattePrompt[], inputSha: ReadonlyMap
             box: { x: round(prompt.box.x), y: round(prompt.box.y), width: round(prompt.box.width), height: round(prompt.box.height) },
           };
         default:
-          return { kind: prompt.kind, pts: prompt.pts, sha256: inputSha.get(prompt.file) ?? null };
+          // One sha for a single fix (the key every earlier artifact was cached under); the layered
+          // fixes of one frame in the order they were applied.
+          return { kind: prompt.kind, pts: prompt.pts, sha256: inputSha.get(prompt.file)?.join('+') ?? null };
       }
     })
     .map((prompt) => canonicalJson(prompt))
     .sort()
     .map((text) => JSON.parse(text) as unknown);
+}
+
+/**
+ * Layer several brush fixes for one frame into the one PNG the worker reads: later fixes win
+ * wherever they mark keep, remove or edge; untouched pixels let earlier fixes show through.
+ *
+ * @throws MatteStoreError `correction_invalid`-mapped when the layers differ in size.
+ */
+export function layeredBrush(images: readonly GrayPng[]): { readonly bytes: Buffer; readonly image: GrayPng } {
+  const [first, ...rest] = images;
+  if (first === undefined) throw new MatteStoreError('input_missing', 'No brush fix to layer.');
+  const pixels = Buffer.from(first.pixels);
+  for (const image of rest) {
+    if (image.width !== first.width || image.height !== first.height) {
+      throw new MatteStoreError('wrong_size', 'Brush fixes on one frame are different sizes.');
+    }
+    for (let index = 0; index < pixels.length; index += 1) {
+      const value = image.pixels[index]!;
+      if (value !== BRUSH_UNTOUCHED) pixels[index] = value;
+    }
+  }
+  const image: GrayPng = { width: first.width, height: first.height, pixels };
+  return { bytes: encodeGrayPng(first.width, first.height, pixels), image };
 }
 
 /** Decode-order frames covering `[start, end)` source seconds, or `undefined` outside the media. */
