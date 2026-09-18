@@ -321,6 +321,80 @@ CASES += [
 ]
 
 
+#: MK9.1: the picture shrunk and moved, so a frame-space mask (fixed to the output frame) and the
+#: same numbers in source space cut different parts of it.
+_MOVED = [
+    {"id": "s", "time": 0.0, "property": "scale", "value": 0.6},
+    {"id": "x", "time": 0.0, "property": "x", "value": 14},
+]
+
+
+def _edge(kind: str, **params: float) -> dict[str, Any]:
+    return {"id": f"c1__edge_{kind}", "type": "edge_style", "params": {"kind": kind, **params}}
+
+
+CASES += [
+    {
+        "id": "frame-space-on-moved-clip",
+        "keyframes": _MOVED,
+        "masks": [_rect("m", space="frame", cx=30, cy=36, width=40, height=80, featherOuterPx=3)],
+    },
+    {
+        "id": "source-space-on-moved-clip",
+        "keyframes": _MOVED,
+        "masks": [_rect("m", cx=30, cy=36, width=40, height=80, featherOuterPx=3)],
+    },
+    {
+        "id": "frame-space-gradient-with-source-ellipse",
+        "keyframes": _MOVED,
+        "masks": [
+            _ellipse("e"),
+            {
+                "kind": "gradient",
+                "id": "g",
+                "space": "frame",
+                "mode": "intersect",
+                "shape": "linear",
+                "startX": 0,
+                "startY": 0,
+                "endX": 96,
+                "endY": 0,
+                "curve": "linear",
+            },
+        ],
+    },
+    # MK9.2: each edge style around a drawn shape, and all three around a track matte's cut-out
+    # (a raster alpha, as a background removal's is).
+    {
+        "id": "edge-stroke-ellipse",
+        "effects": [_edge("stroke", widthPx=4, red=255, green=255, blue=255)],
+        "masks": [_ellipse("m", rx=24, ry=16)],
+    },
+    {
+        "id": "edge-glow-ellipse",
+        "effects": [_edge("glow", radiusPx=10, red=0, green=240, blue=255, opacity=0.9)],
+        "masks": [_ellipse("m", rx=24, ry=16)],
+    },
+    {
+        "id": "edge-shadow-ellipse",
+        "effects": [_edge("shadow", offsetXPx=6, offsetYPx=5, softnessPx=4, opacity=0.8)],
+        "masks": [_ellipse("m", rx=24, ry=16)],
+    },
+    {
+        "id": "edge-all-over-track-matte",
+        "extraTracks": [{"id": "top", "type": "video", "clips": [_MATTE_SOURCE]}],
+        "effects": [
+            _edge("shadow", offsetXPx=4, offsetYPx=4, softnessPx=2),
+            _edge("glow", radiusPx=6, red=255, green=200, blue=0),
+            _edge("stroke", widthPx=2),
+        ],
+        "masks": [
+            {"kind": "layer", "id": "m", "source": {"kind": "clip", "clipId": "matte"}},
+        ],
+    },
+]
+
+
 def source_frames() -> list[np.ndarray]:
     """The picture: colour gradients, a checkerboard, and a bar that moves one step per frame.
 
@@ -358,7 +432,7 @@ def case_project(case: dict[str, Any]) -> Project:
         "effects": case.get("effects", []),
         "masks": case["masks"],
     }
-    for field in ("crop", "speed"):
+    for field in ("crop", "speed", "keyframes"):
         if field in case:
             clip[field] = case[field]
     return Project.model_validate(

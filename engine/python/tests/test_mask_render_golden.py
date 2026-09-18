@@ -64,3 +64,23 @@ def test_masks_change_the_picture(rendered: dict[str, list[list[list[float]]]]) 
         float(np.abs(pictures["analytic-gradient-linear"] - pictures["analytic-split-soft"]).max())
         > 20.0
     )
+    # MK9.1: a frame-space mask cuts the frame, not the picture, so it differs from the same
+    # numbers in source space on a moved clip.
+    assert (
+        float(
+            np.abs(
+                pictures["frame-space-on-moved-clip"] - pictures["source-space-on-moved-clip"]
+            ).max()
+        )
+        > 20.0
+    )
+    # MK9.2: each edge style draws something the others do not.
+    for first, second in (
+        ("edge-stroke-ellipse", "edge-glow-ellipse"),
+        ("edge-glow-ellipse", "edge-shadow-ellipse"),
+        ("edge-stroke-ellipse", "edge-shadow-ellipse"),
+    ):
+        assert float(np.abs(pictures[first] - pictures[second]).max()) > 20.0, (first, second)
+    assert (
+        float(np.abs(pictures["edge-all-over-track-matte"] - pictures["layer-alpha"]).max()) > 20.0
+    )

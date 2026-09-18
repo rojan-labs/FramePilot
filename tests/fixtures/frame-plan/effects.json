@@ -6568,6 +6568,439 @@
           ]
         }
       ]
+    },
+    {
+      "id": "lane-mask-over-moving-picture",
+      "row": "Effects: an adjustment lane's frame-space mask stays fixed over a moving picture (MK9.1)",
+      "description": "A blur lane limited to a path minus an inverted split, drawn in frame pixels, over a clip that slides and scales under it; a second lane grades inside a keyframed ellipse.",
+      "burnCaptions": false,
+      "probe": {
+        "fps": {
+          "land": 30
+        }
+      },
+      "project": {
+        "id": "fp-lane-mask-over-moving-picture",
+        "name": "lane-mask-over-moving-picture",
+        "version": 1,
+        "fps": 30,
+        "resolution": {
+          "width": 1280,
+          "height": 720
+        },
+        "assets": [
+          {
+            "id": "land",
+            "path": "media/land.mp4",
+            "kind": "video",
+            "media": {
+              "width": 1920,
+              "height": 1080,
+              "proxyPath": "proxies/land.mp4"
+            },
+            "durationSeconds": 60.0
+          }
+        ],
+        "timeline": {
+          "tracks": [
+            {
+              "id": "fx",
+              "type": "effect",
+              "clips": [],
+              "effectLayers": [
+                {
+                  "id": "blur",
+                  "effectId": "deep-blur",
+                  "kind": "blur-gaussian",
+                  "start": 0.0,
+                  "end": 2.0,
+                  "params": {
+                    "radius": 24
+                  },
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "p",
+                      "space": "frame",
+                      "kind": "path",
+                      "featherOuterPx": 16,
+                      "pathKeyframes": [
+                        {
+                          "id": "p0",
+                          "sourceTime": 0.0,
+                          "points": [
+                            200, 120, 0, 0, 120, -40, 1000, 160, 60, -40, 0, 80, 1080, 600, 0, 0, 0,
+                            0, 260, 620, -60, 40, 0, -120
+                          ],
+                          "vertexTypes": [1, 2, 0, 0]
+                        }
+                      ]
+                    },
+                    {
+                      "id": "cut",
+                      "space": "frame",
+                      "kind": "linear",
+                      "mode": "subtract",
+                      "invert": true,
+                      "originX": 640,
+                      "originY": 360,
+                      "angle": 20,
+                      "softnessPx": 30
+                    }
+                  ]
+                },
+                {
+                  "id": "grade",
+                  "effectId": "faded-stock",
+                  "kind": "film-fade",
+                  "start": 2.0,
+                  "end": 4.0,
+                  "params": {},
+                  "keyframes": [],
+                  "masks": [
+                    {
+                      "id": "e",
+                      "space": "frame",
+                      "kind": "ellipse",
+                      "cx": 400,
+                      "cy": 360,
+                      "rx": 260,
+                      "ry": 200,
+                      "featherOuterPx": 40,
+                      "keyframes": [
+                        {
+                          "id": "c0",
+                          "sourceTime": 0.0,
+                          "property": "cx",
+                          "value": 400
+                        },
+                        {
+                          "id": "c1",
+                          "sourceTime": 2.0,
+                          "property": "cx",
+                          "value": 880
+                        }
+                      ]
+                    }
+                  ]
+                }
+              ]
+            },
+            {
+              "id": "v1",
+              "type": "video",
+              "clips": [
+                {
+                  "id": "c1",
+                  "assetId": "land",
+                  "trackId": "v1",
+                  "start": 0.0,
+                  "end": 4.0,
+                  "sourceStart": 0.0,
+                  "sourceEnd": 4.0,
+                  "effects": [],
+                  "keyframes": [
+                    {
+                      "id": "s0",
+                      "time": 0.0,
+                      "property": "scale",
+                      "value": 0.8
+                    },
+                    {
+                      "id": "s1",
+                      "time": 4.0,
+                      "property": "scale",
+                      "value": 1.1
+                    },
+                    {
+                      "id": "x0",
+                      "time": 0.0,
+                      "property": "x",
+                      "value": -160
+                    },
+                    {
+                      "id": "x1",
+                      "time": 4.0,
+                      "property": "x",
+                      "value": 160
+                    }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        "transcript": []
+      },
+      "samples": [0.5, 1.5, 2.5, 3.5],
+      "expected": [
+        {
+          "time": 0.5,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 0.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 0.5,
+                "frame": 15
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.5583333333333333,
+                "anchorX": 520.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": -16.0,
+                "top": 58.5,
+                "width": 1072.0,
+                "height": 603.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": [
+            {
+              "trackId": "fx",
+              "layerId": "blur",
+              "kind": "blur-gaussian",
+              "effectId": "deep-blur",
+              "params": {
+                "radius": 24.0
+              },
+              "intensity": 1.0,
+              "mask": {
+                "localTime": 0.5,
+                "layers": [
+                  {
+                    "id": "p",
+                    "kind": "path",
+                    "mode": "add",
+                    "invert": false,
+                    "featherModel": "distance"
+                  },
+                  {
+                    "id": "cut",
+                    "kind": "linear",
+                    "mode": "subtract",
+                    "invert": true,
+                    "featherModel": "distance"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "time": 1.5,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 1.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 1.5,
+                "frame": 45
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6083333333333334,
+                "anchorX": 600.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 16.0,
+                "top": 31.499999999999943,
+                "width": 1168.0,
+                "height": 657.0000000000001
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": [
+            {
+              "trackId": "fx",
+              "layerId": "blur",
+              "kind": "blur-gaussian",
+              "effectId": "deep-blur",
+              "params": {
+                "radius": 24.0
+              },
+              "intensity": 1.0,
+              "mask": {
+                "localTime": 1.5,
+                "layers": [
+                  {
+                    "id": "p",
+                    "kind": "path",
+                    "mode": "add",
+                    "invert": false,
+                    "featherModel": "distance"
+                  },
+                  {
+                    "id": "cut",
+                    "kind": "linear",
+                    "mode": "subtract",
+                    "invert": true,
+                    "featherModel": "distance"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "time": 2.5,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 2.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 2.5,
+                "frame": 75
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.6583333333333333,
+                "anchorX": 680.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 48.0,
+                "top": 4.5,
+                "width": 1264.0,
+                "height": 711.0
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": [
+            {
+              "trackId": "fx",
+              "layerId": "grade",
+              "kind": "film-fade",
+              "effectId": "faded-stock",
+              "params": {},
+              "intensity": 1.0,
+              "mask": {
+                "localTime": 0.5,
+                "layers": [
+                  {
+                    "id": "e",
+                    "kind": "ellipse",
+                    "mode": "add",
+                    "invert": false,
+                    "featherModel": "distance"
+                  }
+                ]
+              }
+            }
+          ]
+        },
+        {
+          "time": 3.5,
+          "width": 1280,
+          "height": 720,
+          "background": [0, 0, 0],
+          "layers": [
+            {
+              "kind": "picture",
+              "role": "clip",
+              "trackId": "v1",
+              "clipId": "c1",
+              "forClipId": null,
+              "localTime": 3.5,
+              "source": {
+                "assetId": "land",
+                "assetKind": "video",
+                "time": 3.5,
+                "frame": 105
+              },
+              "text": null,
+              "crop": null,
+              "geometry": {
+                "baseScale": 0.6666666666666666,
+                "scale": 0.7083333333333333,
+                "anchorX": 760.0,
+                "anchorY": 360.0,
+                "rotation": 0.0,
+                "left": 80.00000000000011,
+                "top": -22.499999999999943,
+                "width": 1359.9999999999998,
+                "height": 764.9999999999999
+              },
+              "opacity": 1.0,
+              "blendMode": "normal",
+              "effects": [],
+              "mask": null,
+              "transitions": []
+            }
+          ],
+          "frameEffects": [
+            {
+              "trackId": "fx",
+              "layerId": "grade",
+              "kind": "film-fade",
+              "effectId": "faded-stock",
+              "params": {},
+              "intensity": 1.0,
+              "mask": {
+                "localTime": 1.5,
+                "layers": [
+                  {
+                    "id": "e",
+                    "kind": "ellipse",
+                    "mode": "add",
+                    "invert": false,
+                    "featherModel": "distance"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      ]
     }
   ]
 }

@@ -1269,6 +1269,95 @@ def _frame_clip_document() -> dict[str, Any]:
     }
 
 
+# --- Cut-out edge styles (MK9.2) --------------------------------------------------------
+
+#: The raster every edge style vector draws on: a soft blob (a matte-like raster alpha) and a
+#: hard square, so the cut-out has curved, straight and near-threshold edges.
+EDGE_SIZE = (40, 30)
+
+EDGE_CASES: list[dict[str, Any]] = [
+    {"id": "stroke", "scale": 1.0, "opacity": 1.0, "styles": [("stroke", {"widthPx": 3})]},
+    {
+        "id": "stroke-scaled-coloured",
+        "scale": 0.75,
+        "opacity": 0.8,
+        "styles": [("stroke", {"widthPx": 5, "red": 12, "green": 200, "blue": 90, "opacity": 0.7})],
+    },
+    {"id": "glow", "scale": 1.0, "opacity": 1.0, "styles": [("glow", {"radiusPx": 7})]},
+    {
+        "id": "shadow-offset-rounds-half-even",
+        "scale": 0.5,
+        "opacity": 1.0,
+        "styles": [("shadow", {"offsetXPx": 5, "offsetYPx": -3, "softnessPx": 3})],
+    },
+    {
+        "id": "all-three-faded",
+        "scale": 1.0,
+        "opacity": 0.6,
+        "styles": [
+            ("shadow", {"offsetXPx": 3, "offsetYPx": 4, "softnessPx": 0}),
+            ("glow", {"radiusPx": 4, "red": 255, "green": 0, "blue": 128}),
+            ("stroke", {"widthPx": 1.5}),
+        ],
+    },
+]
+
+
+def edge_inputs() -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """The picture (RGB), its attached alpha and the stack alpha every edge vector reads."""
+    width, height = EDGE_SIZE
+    ys, xs = np.mgrid[0:height, 0:width].astype(np.float64)
+    blob = np.clip((1.3 - np.hypot((xs - 13.2) / 8.0, (ys - 14.6) / 6.5)) * 2.0, 0.0, 1.0)
+    square = ((xs >= 26) & (xs < 33) & (ys >= 9) & (ys < 20)).astype(np.float64)
+    stack = np.rint(np.maximum(blob, square) * 255.0) / 255.0
+    rgb = np.stack([60 + xs * 4, 220 - ys * 5, 90 + xs + ys], axis=-1)
+    picture = np.clip(np.rint(rgb), 0, 255).astype(np.uint8)
+    return picture, stack * 0.9, stack
+
+
+def _edge_document() -> dict[str, Any]:
+    from framepilot_engine.render.edge_styles import EdgeStyle, apply_edge_styles
+    from framepilot_engine.render.effect_catalog import clamp_edge_style_params
+
+    picture, alpha, stack = edge_inputs()
+    cases = []
+    for case in EDGE_CASES:
+        styles = tuple(
+            EdgeStyle(kind, clamp_edge_style_params(kind, params))
+            for kind, params in case["styles"]
+        )
+        rgb, out_alpha = apply_edge_styles(
+            picture, alpha, stack, styles, case["scale"], case["opacity"]
+        )
+        cases.append(
+            {
+                "id": case["id"],
+                "scale": case["scale"],
+                "opacity": case["opacity"],
+                "styles": [{"kind": style.kind, "params": style.params} for style in styles],
+                "expected": {
+                    "rgb": hashlib.sha256(np.ascontiguousarray(rgb).tobytes()).hexdigest(),
+                    "alpha": _float_digest(out_alpha),
+                },
+            }
+        )
+    width, height = EDGE_SIZE
+    return {
+        "area": "edge-styles",
+        "spec": (
+            "engine/python/tests/mask_stack_vectors.py; render/edge_styles.py apply_edge_styles. "
+            "picture = RGB bytes, alpha = stack x 0.9, stack = 8-bit levels / 255; expected = "
+            "SHA-256 of the RGB bytes and of the float64 LE alpha"
+        ),
+        "size": {"width": width, "height": height},
+        "picture": base64.b64encode(picture.tobytes()).decode("ascii"),
+        "stack": base64.b64encode(np.rint(stack * 255.0).astype(np.uint8).tobytes()).decode(
+            "ascii"
+        ),
+        "cases": cases,
+    }
+
+
 def serialize(doc: dict[str, Any]) -> str:
     return json.dumps(doc, indent=1, ensure_ascii=False) + "\n"
 
@@ -1353,6 +1442,7 @@ DOCUMENTS = {
     "matte-clips": _matte_document,
     "frame-layers": _frame_layer_document,
     "frame-clips": _frame_clip_document,
+    "edge-styles": _edge_document,
     "finesse": _finesse_document,
 }
 

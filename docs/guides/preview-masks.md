@@ -212,11 +212,16 @@ at engine start). Both modes are tested.
 | `tests/fixtures/mask-raster/stack-clips.json` (SHA-256 of float64 alpha) | `mask-stack.test.ts`                   |
 | `tests/fixtures/mask-raster/layer.json` (track matte mapping, MK8.2)     | `layer-mattes.test.ts`                 |
 | `tests/fixtures/mask-raster/frame-clips.json` (frame-space clip, MK9.1)  | `mask-stack.test.ts`                   |
+| `tests/fixtures/mask-raster/edge-styles.json` (edge styles, MK9.2)       | `edge-styles.test.ts`                  |
 
 Regenerate after a deliberate engine change with `pnpm mask-raster:vectors`; the engine's
 `test_mask_raster_vectors.py` and `test_mask_stack_vectors.py` fail when the stored files drift.
 CI runs the TypeScript vectors in `node-quality` (Linux) and in `mask-raster-vectors` on macOS
-arm64 and Windows x64. Pixel parity of whole frames is the PX4 oracle's `alpha/mask-*` rows.
+arm64 and Windows x64. Pixel parity of whole frames is the PX4 oracle's `alpha/mask-*` rows; MK9 adds
+`alpha/frame-space-clip-mask`, `alpha/edge-styles-shape`, `alpha/edge-styles-matte` and
+`effects/lane-mask-over-moving-picture`, at the same gates. The engine's render goldens
+(`pnpm mask-render:goldens`, numpy-synthesised lossless source) hold frame-space and edge style
+cases too.
 
 ## What the monitor refuses
 

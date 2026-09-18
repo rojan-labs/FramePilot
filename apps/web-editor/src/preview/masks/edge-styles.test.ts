@@ -3,7 +3,11 @@
  * offset rounds like `np.rint`, and the CPU composite leaves the picture's own pixels alone.
  * Byte parity with the engine is pinned by `edge-styles.json` (MK9.3).
  */
+import { createHash } from 'node:crypto';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import type { FramePlanEdgeStyle } from '@framepilot/editor-core';
 import {
   applyEdgeStylesCpu,
   edgeDistanceField,
@@ -80,5 +84,52 @@ describe('edge styles on the monitor', () => {
     expect(Array.from(out.rgb.slice(at(12, 9) * 3, at(12, 9) * 3 + 3))).toEqual([0, 0, 255]);
     expect(out.alpha[at(12, 9)]).toBe(1);
     expect(out.alpha[at(16, 9)]).toBe(0);
+  });
+});
+
+interface EdgeVectors {
+  size: { width: number; height: number };
+  picture: string;
+  stack: string;
+  cases: {
+    id: string;
+    scale: number;
+    opacity: number;
+    styles: FramePlanEdgeStyle[];
+    expected: { rgb: string; alpha: string };
+  }[];
+}
+
+const vectors = JSON.parse(
+  readFileSync(
+    path.join(
+      path.resolve(__dirname, '../../../../..'),
+      'tests/fixtures/mask-raster/edge-styles.json',
+    ),
+    'utf8',
+  ),
+) as EdgeVectors;
+
+const sha = (bytes: Uint8Array): string => createHash('sha256').update(bytes).digest('hex');
+
+describe('edge style vectors (MK9.3, byte-exact vs the export)', () => {
+  it.each(vectors.cases.map((c) => [c.id, c] as const))('%s', (_id, vectorCase) => {
+    const { width, height } = vectors.size;
+    const picture = new Uint8Array(Buffer.from(vectors.picture, 'base64'));
+    const levels = new Uint8Array(Buffer.from(vectors.stack, 'base64'));
+    const stack = Float64Array.from(levels, (level) => level / 255.0);
+    const alpha = Float64Array.from(stack, (value) => value * 0.9);
+    const out = applyEdgeStylesCpu(
+      picture,
+      alpha,
+      stack,
+      width,
+      height,
+      vectorCase.styles,
+      vectorCase.scale,
+      vectorCase.opacity,
+    );
+    expect(sha(out.rgb)).toBe(vectorCase.expected.rgb);
+    expect(sha(new Uint8Array(out.alpha.buffer))).toBe(vectorCase.expected.alpha);
   });
 });
