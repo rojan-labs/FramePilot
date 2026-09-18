@@ -164,7 +164,7 @@ describe('MaskReviewPanel', () => {
   });
 
   it('shows the reason the pipeline gave, in plain words', () => {
-    rememberReviewReasons(KEY, [{ start: 1, end: 1.5, reason: 'edge_disagreement' }]);
+    rememberReviewReasons(KEY, [{ start: 1, end: 1.5, reason: 'edge_misaligned' }]);
     mount(timeline({ flagged: [{ start: 1, end: 1.5 }] }));
     expect(screen.getByText('Edges disagreed')).toBeTruthy();
   });

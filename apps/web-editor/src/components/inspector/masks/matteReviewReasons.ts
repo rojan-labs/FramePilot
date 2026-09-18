@@ -8,15 +8,19 @@
  * a reason invented to fill the space.
  */
 
-/** The reasons the verify stage emits, mapped to words an editor reads (plan 05). */
+/**
+ * The reasons the verify stage emits (`ReviewReason` in the worker's protocol, mirrored by
+ * `MatteReviewReasonSchema` on the host), mapped to words an editor reads (plan 05). These were
+ * keyed by an earlier draft's names, so every real reason fell through to its raw code.
+ */
 const REASON_LABELS: Readonly<Record<string, string>> = {
-  edge_disagreement: 'Edges disagreed',
-  low_confidence: 'The subject was hard to read',
+  edge_misaligned: 'Edges disagreed',
+  estimates_disagree: 'The estimates disagreed',
   occlusion: 'Subject partly hidden',
-  new_object: 'New shape appeared',
-  topology_change: 'The shape changed a lot',
-  flicker: 'The edge flickered',
-  fast_motion: 'The subject moved fast',
+  new_region: 'New shape appeared',
+  subject_lost: 'The subject went out of view',
+  flow_inconsistent: 'The shape jumped between frames',
+  motion_blur: 'The subject moved fast',
 };
 
 /** The fallback for a range whose reason this session never saw. */
