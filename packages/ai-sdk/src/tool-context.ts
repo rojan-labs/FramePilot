@@ -54,7 +54,10 @@ export interface ToolContext {
    */
   readonly stockCutawayCap?: number;
   /**
-   * Every number the editor wrote in this conversation's request (`masking/geometry-provenance.ts`).
+   * The numbers the editor's CURRENT request binds to a size or position — a unit (`20%`,
+   * `200px`) or a shape word (`width 0.5`, `20 from the left`) attached to each
+   * (`masking/geometry-provenance.ts#geometryNumbersIn`, AM1.6). Numbers from earlier messages,
+   * or ones that merely appear ("20 seconds"), are not here.
    *
    * A mask's geometry may come from numbers the editor typed, and only from those: `create_mask`
    * refuses a `userShape` whose numbers are not here, which is what stops "the editor gave

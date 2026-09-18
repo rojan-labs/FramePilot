@@ -12,7 +12,9 @@ this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.htm
   "hide her face", "darken everything but the presenter" or "put the title behind him", and the
   assistant uses the same masks, the same packs and the same review list as the Mask tab. It
   never draws a shape by guessing: a mask comes from something FramePilot detected or measured,
-  or from numbers you typed yourself. It tells you how many moments need a look and never calls a
+  or from numbers you typed yourself as a size or position in that same message ("a box 20%
+  from the left, 50% wide") — a "20" that is a duration, a count, or something you wrote
+  several messages earlier is not taken as a coordinate. It tells you how many moments need a look and never calls a
   mask verified — only your review does that. A long background removal is not started behind
   your back: the sidebar shows roughly how long it will take and a **Start** button, and it then
   runs like any other background removal while you keep editing. If a pack is missing, the

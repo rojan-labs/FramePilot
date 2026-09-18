@@ -187,7 +187,26 @@ model's numbers to a mask therefore fails closed without being added to a list. 
 is keyed on the operation object, so identical numbers built elsewhere are still unsourced.
 
 `userShape` is the one argument that carries a box. It is admitted only when every number in it
-appears in the editor's own request, as written or as a percentage (`ToolContext.userNumbers`).
+is a number the editor's **current** request binds to geometry, as written or as a percentage
+(`ToolContext.userNumbers`, from `geometryNumbersIn`; AM1.6). A number is bound when:
+
+- a unit follows it: `%`, `percent`, `px`, `pixel(s)` (`20%`, `200px`);
+- a shape or position word sits in its phrase, at most three tokens away across filler such as
+  "of", "from", "the", "=" and ":" (`width 0.5`, `x = 20`, `20 from the left`, `0.3 wide`,
+  `radius of about 0.1`); a comma or full stop ends the phrase;
+- it is one side of a dimension (`400x300`, `20 by 50`), or is listed straight after a bound
+  number and nothing else claims it (`position 0.2, 0.3`).
+
+A time or count unit after a number (`20 seconds`, `50 frames`, `2x`, `1080p`) makes it not
+geometry whatever precedes it. Numbers from earlier messages are never a source, so geometry the
+editor typed three turns ago has to be restated. The looser rule it replaced accepted any number
+anywhere in the conversation, so "keep the 20 second intro … 50 cuts" let a model-authored
+`x: 0.2, width: 0.5` through. A refused `userShape` carries the fixed `USER_NUMBERS_NOT_TYPED`
+sentence and its remedy (find a candidate, or ask for the numbers).
+
+Known limit: a pixel size reaches the tool as a fraction of the frame, which no longer matches
+the typed number, so `200px` is refused and the model asks. Converting it needs the frame size
+at the check, which the conversation-level check does not have.
 
 ## Jobs the agent may not start
 

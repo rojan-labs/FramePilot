@@ -7,6 +7,7 @@ import {
   carriesMaskGeometry,
   maskGeometrySourceOf,
   numbersIn,
+  geometryNumbersIn,
   numbersWereTyped,
   unsourcedMaskGeometry,
 } from './geometry-provenance.js';
@@ -107,5 +108,49 @@ describe('typed numbers', () => {
   it('refuses any number the editor did not type', () => {
     expect(numbersWereTyped([0.2, 0.31], [20, 0.5])).toBe(false);
     expect(numbersWereTyped([0.25], [])).toBe(false);
+  });
+});
+
+describe('numbers bound to geometry in the current request (AM1.6)', () => {
+  it('binds a number to a unit written after it', () => {
+    expect(geometryNumbersIn('a box 20% from the left, 10% down, 50% wide and 25% tall')).toEqual([
+      20, 10, 50, 25,
+    ]);
+    expect(geometryNumbersIn('blur a 200px square, 30 pixels in')).toEqual([200, 30]);
+    expect(geometryNumbersIn('10 percent in from the edge')).toEqual([10]);
+  });
+
+  it('binds a number to a shape or position word in its phrase', () => {
+    expect(geometryNumbersIn('rectangle at x 0.2, y 0.1, width 0.5, height 0.25')).toEqual([
+      0.2, 0.1, 0.5, 0.25,
+    ]);
+    expect(geometryNumbersIn('x=0.2 y: 0.1')).toEqual([0.2, 0.1]);
+    expect(geometryNumbersIn('an ellipse 0.3 wide and 0.4 tall')).toEqual([0.3, 0.4]);
+    expect(geometryNumbersIn('radius of about 0.1')).toEqual([0.1]);
+    expect(geometryNumbersIn('start 0.25 from the top')).toEqual([0.25]);
+  });
+
+  it('binds dimension pairs and a coordinate listed after a bound one', () => {
+    expect(geometryNumbersIn('a 400x300 box')).toEqual([400, 300]);
+    expect(geometryNumbersIn('mask 20 by 50 in the corner')).toEqual([20, 50]);
+    expect(geometryNumbersIn('position 0.2, 0.3')).toEqual([0.2, 0.3]);
+  });
+
+  it('refuses coincidental numbers: counts, times and quantities are not coordinates', () => {
+    expect(geometryNumbersIn('cut the 20 second intro and give me 50 versions')).toEqual([]);
+    expect(geometryNumbersIn('I shot 20 takes; keep take 50 and mask the sign')).toEqual([]);
+    expect(geometryNumbersIn('blur the plate at 20 seconds for 50 frames')).toEqual([]);
+    expect(geometryNumbersIn('speed it up 2x and mask the car')).toEqual([]);
+    expect(geometryNumbersIn('export at 1080p, 4k later')).toEqual([]);
+    expect(geometryNumbersIn('mask the 3 people')).toEqual([]);
+  });
+
+  it('does not let a listed partner steal a number something else claims', () => {
+    expect(geometryNumbersIn('width 0.5, 50 versions please')).toEqual([0.5]);
+    expect(geometryNumbersIn('from the left 10 seconds in')).toEqual([]);
+  });
+
+  it('a time unit wins over a position word', () => {
+    expect(geometryNumbersIn('the top 5 seconds')).toEqual([]);
   });
 });

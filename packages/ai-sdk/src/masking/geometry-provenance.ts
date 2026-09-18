@@ -133,7 +133,188 @@ export function assertMaskGeometrySourced(operations: readonly AnyOperation[]): 
 
 /** Every number written in a piece of text, percentages included ("20%" → 20). */
 export function numbersIn(text: string): number[] {
-  return [...text.matchAll(/-?\d+(?:\.\d+)?/gu)].map((match) => Number(match[0]));
+  return [...text.matchAll(NUMBER_PATTERN)].map((match) => Number(match[0]));
+}
+
+const NUMBER_PATTERN = /-?\d+(?:\.\d+)?/gu;
+/** Numbers, words, and the punctuation that binds (`=`, `:`, `×`) or separates (`,`, `.`) them. */
+const TOKEN_PATTERN = /-?\d+(?:\.\d+)?|%|[a-z]+|[=:×,;.!?\n()]/gu;
+
+/** A unit written straight after a number makes it a measurement of the picture. */
+const GEOMETRY_UNITS: ReadonlySet<string> = new Set([
+  '%',
+  'percent',
+  'pct',
+  'px',
+  'pixel',
+  'pixels',
+]);
+
+/** A unit of time or count after a number makes it NOT geometry, whatever word precedes it. */
+const NON_GEOMETRY_UNITS: ReadonlySet<string> = new Set([
+  's',
+  'sec',
+  'secs',
+  'second',
+  'seconds',
+  'ms',
+  'min',
+  'mins',
+  'minute',
+  'minutes',
+  'h',
+  'hr',
+  'hrs',
+  'hour',
+  'hours',
+  'frame',
+  'frames',
+  'fps',
+  'times',
+  'db',
+  'k',
+  'p',
+]);
+
+/** Words that name a shape's size, position or form. */
+const GEOMETRY_WORDS: ReadonlySet<string> = new Set([
+  'x',
+  'y',
+  'width',
+  'wide',
+  'height',
+  'high',
+  'tall',
+  'radius',
+  'diameter',
+  'size',
+  'left',
+  'right',
+  'top',
+  'bottom',
+  'centre',
+  'center',
+  'middle',
+  'corner',
+  'edge',
+  'edges',
+  'offset',
+  'position',
+  'inset',
+  'margin',
+  'across',
+  'down',
+  'box',
+  'rectangle',
+  'rect',
+  'square',
+  'ellipse',
+  'oval',
+  'circle',
+]);
+
+/** Words that sit between a number and the geometry word it belongs to ("20 from the left"). */
+const BINDING_FILLER: ReadonlySet<string> = new Set([
+  '=',
+  ':',
+  'of',
+  'is',
+  'at',
+  'to',
+  'from',
+  'the',
+  'a',
+  'an',
+  'in',
+  'by',
+  'about',
+  'around',
+  'roughly',
+  'approx',
+  'approximately',
+  'its',
+  'and',
+]);
+
+/** Punctuation that ends the phrase a number belongs to. */
+const CLAUSE_BREAKS: ReadonlySet<string> = new Set([',', ';', '.', '!', '?', '\n', '(', ')']);
+
+/** Tokens between two numbers that make them one dimension pair ("200x100", "20 by 50"). */
+const DIMENSION_JOINERS: ReadonlySet<string> = new Set(['x', 'by', '×']);
+
+/** How far (in tokens) a geometry word may sit from its number. */
+const BINDING_REACH = 3;
+
+const isNumberToken = (token: string | undefined): boolean =>
+  token !== undefined && /^-?\d/u.test(token);
+
+/** The nearest word to one side of `index` that is not filler, within one clause and reach. */
+function nearestWord(tokens: readonly string[], index: number, step: 1 | -1): string | undefined {
+  for (let offset = 1; offset <= BINDING_REACH; offset += 1) {
+    const token = tokens[index + step * offset];
+    if (token === undefined || CLAUSE_BREAKS.has(token) || isNumberToken(token)) return undefined;
+    if (!BINDING_FILLER.has(token)) return token;
+  }
+  return undefined;
+}
+
+function boundByItsWords(tokens: readonly string[], index: number): boolean {
+  const next = tokens[index + 1];
+  if (next !== undefined && GEOMETRY_UNITS.has(next)) return true;
+  if (next !== undefined && NON_GEOMETRY_UNITS.has(next)) return false;
+  // "2x speed" is a multiplier; "200x100" is a dimension, which the pair rule binds.
+  if (next === 'x' && !isNumberToken(tokens[index + 2])) return false;
+  const before = nearestWord(tokens, index, -1);
+  const after = nearestWord(tokens, index, 1);
+  return (
+    (before !== undefined && GEOMETRY_WORDS.has(before)) ||
+    (after !== undefined && GEOMETRY_WORDS.has(after))
+  );
+}
+
+/** A listed partner ("x 20, 10") counts only when nothing else claims it ("…, 50 versions"). */
+function endsPhrase(tokens: readonly string[], index: number): boolean {
+  const next = tokens[index + 1];
+  return (
+    next === undefined ||
+    CLAUSE_BREAKS.has(next) ||
+    isNumberToken(next) ||
+    GEOMETRY_UNITS.has(next) ||
+    GEOMETRY_WORDS.has(next)
+  );
+}
+
+/**
+ * The numbers in ONE request that are bound to geometry (AM1.6), percentages included.
+ *
+ * A number counts only when the words attached to it make it a measurement of the picture:
+ * a unit right after it (`20%`, `200px`, `30 pixels`), or a shape or position word within
+ * the same phrase (`width 0.5`, `x = 20`, `20 from the left`, `a 50 wide box`). Two numbers
+ * joined as a dimension (`200x100`, `20 by 50`) are geometry, and a number listed after a
+ * bound one (`x 20, 10`) is its partner. A number followed by a time or count unit
+ * (`20 seconds`, `50 frames`) never is. Everything else — "cut the 20 second intro and give
+ * me 50 versions" — is coincidence, and a `userShape` built from it is refused.
+ *
+ * @param text - The editor's current request only; earlier messages are not a source.
+ * @returns The geometry-bound numbers, in the order written.
+ */
+export function geometryNumbersIn(text: string): number[] {
+  const tokens = [...text.toLowerCase().matchAll(TOKEN_PATTERN)].map((match) => match[0]);
+  const numberIndices = tokens.flatMap((token, index) => (isNumberToken(token) ? [index] : []));
+  const bound = new Set(numberIndices.filter((index) => boundByItsWords(tokens, index)));
+  for (const index of numberIndices) {
+    const joiner = tokens[index + 1];
+    const partner = index + 2;
+    if (joiner === undefined || !isNumberToken(tokens[partner])) continue;
+    const timed = (at: number): boolean => NON_GEOMETRY_UNITS.has(tokens[at + 1] ?? '');
+    if (DIMENSION_JOINERS.has(joiner) && !timed(index) && !timed(partner)) {
+      bound.add(index);
+      bound.add(partner);
+    } else if (joiner === ',' && bound.has(index) && endsPhrase(tokens, partner)) {
+      bound.add(partner);
+    }
+  }
+  return numberIndices.filter((index) => bound.has(index)).map((index) => Number(tokens[index]));
 }
 
 /** Two numbers agree when they are the same value to four places (a typed "0.333"). */

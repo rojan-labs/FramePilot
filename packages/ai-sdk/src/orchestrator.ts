@@ -288,7 +288,7 @@ import {
   type MaskSpotCheckResult,
 } from './masking/spot-check.js';
 import { MASKING_HOST_MUTATION_TOOL_NAMES, type MaskReviewReport } from './masking/contracts.js';
-import { assertMaskGeometrySourced, numbersIn } from './masking/geometry-provenance.js';
+import { assertMaskGeometrySourced, geometryNumbersIn } from './masking/geometry-provenance.js';
 import { candidateIdsIn } from './masking/candidate-id.js';
 import {
   maskReviewSentence,
@@ -3700,11 +3700,13 @@ export class Orchestrator {
     const cap = explicitCutawayCount(objective);
     return {
       project: input.project,
-      // What the EDITOR wrote, across the whole conversation — not the model, not a tool. It
-      // is the one source two masking rules trust: the only numbers a `userShape` may carry
-      // (masking/geometry-provenance.ts), and the only way a pick-required candidate becomes
-      // usable (masking/candidate-id.ts) — the sidebar picker writes the id into a message.
-      userNumbers: numbersIn(editorWords(input)),
+      // What the EDITOR wrote — not the model, not a tool. It is the one source two masking
+      // rules trust. The numbers a `userShape` may carry come from the CURRENT request only,
+      // and only those bound to a size or position there (AM1.6): a "20" from three messages
+      // ago, or one next to "seconds", is not a coordinate (masking/geometry-provenance.ts).
+      // A pick-required candidate becomes usable from any of the editor's messages
+      // (masking/candidate-id.ts), because the sidebar picker writes the id into one.
+      userNumbers: geometryNumbersIn(input.userPrompt),
       userPickedCandidateIds: candidateIdsIn(editorWords(input)),
       ...(cap === undefined ? {} : { stockCutawayCap: cap }),
       ...(input.projectRevision === undefined ? {} : { projectRevision: input.projectRevision }),

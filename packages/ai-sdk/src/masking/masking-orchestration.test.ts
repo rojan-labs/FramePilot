@@ -225,6 +225,49 @@ describe('create_mask through the orchestrator', () => {
     expect(statusOf(typed)).toBe('completed');
   });
 
+  it('refuses numbers that are only coincidentally in the request (AM1.6)', async () => {
+    const userShape = { shape: 'rectangle', x: 0.2, y: 0.1, width: 0.5, height: 0.25 };
+    const args = { clipId: 'shot', userShape, precision: 'shape', purpose: 'hide' };
+    const measured = host({
+      status: 'completed',
+      summary: 'Drew the shape.',
+      data: { kind: 'create_mask', precision: 'shape', clipId: 'shot' },
+    });
+    const coincidental = await run(
+      [call('create_mask', args), done],
+      measured,
+      'keep the 20 second intro, the 10 best takes, 50 cuts in 25 minutes, and hide the sign',
+    );
+    expect(statusOf(coincidental)).toBe('failed');
+    expect(results(coincidental)[0]?.summary).toContain('only for numbers the editor typed');
+  });
+
+  it('refuses geometry typed in an EARLIER message: only the current request is a source (AM1.6)', async () => {
+    const userShape = { shape: 'rectangle', x: 0.2, y: 0.1, width: 0.5, height: 0.25 };
+    const args = { clipId: 'shot', userShape, precision: 'shape', purpose: 'hide' };
+    const measured = host({
+      status: 'completed',
+      summary: 'Drew the shape.',
+      data: { kind: 'create_mask', precision: 'shape', clipId: 'shot' },
+    });
+    const events: AiEvent[] = [];
+    const input: ContextInput = {
+      project: project(),
+      userPrompt: 'now hide the sign too',
+      history: [
+        { role: 'user', content: 'blur a box 20% from the left, 10% down, 50% wide, 25% tall' },
+        { role: 'assistant', content: 'Done.' },
+      ],
+    };
+    for await (const event of new Orchestrator(
+      new ScriptedProvider([call('create_mask', args), done]),
+      { executor: measured },
+    ).streamAgent(input, opts(), {}))
+      events.push(event);
+    expect(statusOf(events)).toBe('failed');
+    expect(results(events)[0]?.summary).toContain('only for numbers the editor typed');
+  });
+
   it('refuses a candidate the editor has not picked BEFORE any pack job runs, and admits it once they have', async () => {
     const pick = `pick.${FACE.candidateId}`;
     const args = { ...createArgs, candidateId: pick };
