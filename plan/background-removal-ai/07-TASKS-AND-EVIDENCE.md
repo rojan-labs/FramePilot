@@ -165,11 +165,11 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [x] MK8.3 Shape presets (heart, star, n-gon, speech bubble, arrow, rounded frame) as path generators
 - [x] MK8.4 Oracle rows green; goldens
 
-### MK9 — Adjustment-lane masks, edge styles `[ ]`
+### MK9 — Adjustment-lane masks, edge styles `[x]` (oracle run 35358866238: frame-space clip mask 90.76 dB, edge styles over shape 67.02 / over matte 60.94 dB, lane mask over moving picture 76.85 dB)
 
-- [ ] MK9.1 `EffectLayer.masks` with `space: 'frame'`; engine, preview and UI on the adjustment lane
-- [ ] MK9.2 Edge-style catalog effects (stroke/outline, outer glow, drop shadow) reading the alpha mask stack
-- [ ] MK9.3 Oracle rows green; parity tests for the new catalog kinds
+- [x] MK9.1 `EffectLayer.masks` with `space: 'frame'`; engine, preview and UI on the adjustment lane
+- [x] MK9.2 Edge-style catalog effects (stroke/outline, outer glow, drop shadow) reading the alpha mask stack
+- [x] MK9.3 Oracle rows green; parity tests for the new catalog kinds
 
 ## BR — Background removal
 
@@ -245,7 +245,7 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 
 **DoD:** oracle rows green in CI.
 
-### BR6 — Background removal row, AI Object/Brush, review `[~]` (BR6.1–BR6.9 shipped, CI run 35304699655 all green; four follow-ups below)
+### BR6 — Background removal row, AI Object/Brush, review `[~]` (BR6.1–BR6.12 shipped; only the HDR notice waits on MO-15)
 
 - [x] BR6.1 `BackgroundRemovalRow` + `usePackStatus`: warning with disabled tools when Smart Mask is missing; install; refresh without restart
 - [x] BR6.2 PACK_UNHEALTHY / UNSUPPORTED_PLATFORM / browser UNAVAILABLE for every pack-backed tool
@@ -256,16 +256,16 @@ tests pass, with the task id in the message (`MK1.3: …`), and push, so CI runs
 - [~] BR6.8 (HDR notice needs MO-15; hover tints the pick, not the object — see BR6.11) Hover highlight for AI Object; progressive results with processing bands; production states from `05` (build can't download, hardware minimum, preparing models, media changed, HDR notice, disk space)
 - [x] BR6.9 Component tests for every state; copy pass (lead-prompt-engineer + unslop); a11y check
 
-- [ ] BR6.10 Edge brush end to end: the correction format is keep/remove/untouched only, so the Edge brush ships disabled with its reason. Extend the format, the worker's handling and host verification, then enable it
-- [ ] BR6.11 Hover highlight tints the object, not the pick: needs `subject.segment_frame` (BR3.13) exposed on the desktop bridge
-- [ ] BR6.12 Mount the `JobsPanel` in the editor layout (BR4.9 built it; nothing renders it)
+- [x] BR6.10 Edge brush end to end: the correction format is keep/remove/untouched only, so the Edge brush ships disabled with its reason. Extend the format, the worker's handling and host verification, then enable it
+- [x] BR6.11 Hover highlight tints the object, not the pick: needs `subject.segment_frame` (BR3.13) exposed on the desktop bridge
+- [x] BR6.12 Mount the `JobsPanel` in the editor layout (BR4.9 built it; nothing renders it)
 
 **DoD:** component tests pass; screenshots of every state in the PR.
 
 ### BR7 — Precision eval + end to end `[ ]`
 
 - [ ] BR7.1 Fixture set + human-labelled alpha keyframes every 0.5 s (marked human-verified)
-- [ ] BR7.2 `eval/run_eval.py` against the installed entrypoint incl. scripted correction convergence; reports committed for darwin-arm64 and win32-x64
+- [~] BR7.2 (harness committed 59826ccc; darwin-arm64 report being finished) `eval/run_eval.py` against the installed entrypoint incl. scripted correction convergence; reports committed for darwin-arm64 and win32-x64
 - [ ] BR7.3 **Every matte gate in `06` passes**, or the numbers go to the maintainer
 
 **DoD:** matte eval reports committed for both platforms.
