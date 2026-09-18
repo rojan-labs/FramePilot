@@ -67,6 +67,7 @@ import { FootageUnderstandingPanel } from './FootageUnderstandingPanel.js';
 import { TranscriptionPanel } from './TranscriptionPanel.js';
 import { Tooltip } from './Tooltip.js';
 import { CommandPalette } from './CommandPalette.js';
+import { useMatteJobCommits } from './inspector/masks/useMatteJob.js';
 import type { SettingsSection } from './SettingsDialog.js';
 import {
   Captions,
@@ -787,6 +788,11 @@ export function Editor({
       selectedEffectLayerIds,
     ],
   );
+
+  // A background-removal job outlives the Inspector row that started it (BR6.4), so the finished
+  // result is committed here, where the component is alive for the whole session, and lands on the
+  // right clip even when the editor has moved on to another one.
+  useMatteJobCommits(editor);
 
   return (
     <WorkspaceShell

@@ -400,7 +400,92 @@ export interface ReviewMaskTrackCommand extends MaskCommandBase {
   readonly review: MaskReviewInput;
 }
 
+/**
+ * A matte artifact exactly as the host reported it (BR6.1).
+ *
+ * Structurally typed rather than the schema's own type, because the host's answer is READ-ONLY and
+ * its file names are strings it verified, not a compile-time union. The schema parse on apply is
+ * what admits it into the project, so nothing here is trusted without validation.
+ */
+export interface MatteArtifactRef {
+  readonly key: string;
+  readonly files: readonly { readonly name: string; readonly sha256: string }[];
+  readonly width: number;
+  readonly height: number;
+  readonly coverage: { readonly sourceStart: number; readonly sourceEnd: number };
+  readonly packId: string;
+  readonly packVersion: string;
+  readonly modelDigests: readonly string[];
+}
+
+/** A prompt reference as the host reported it, same reasoning as {@link MatteArtifactRef}. */
+export type MattePromptRefInput =
+  | {
+      readonly kind: 'points';
+      readonly sourceTime: number;
+      readonly points: readonly {
+        readonly x: number;
+        readonly y: number;
+        readonly label: 'include' | 'exclude';
+      }[];
+    }
+  | {
+      readonly kind: 'box';
+      readonly sourceTime: number;
+      readonly box: {
+        readonly x: number;
+        readonly y: number;
+        readonly width: number;
+        readonly height: number;
+      };
+    }
+  | { readonly kind: 'brush' | 'lock'; readonly sourceTime: number; readonly sha256: string }
+  | { readonly kind: 'candidate'; readonly candidateId: string };
+
+/**
+ * Commit a finished background-removal run as a matte mask (BR6.1).
+ *
+ * The pack measured the alpha and main wrote and verified the artifact; this is where that
+ * measurement becomes a reversible project edit. A re-run names the mask it replaces, so
+ * "fix a moment and run again" stays ONE mask with a new artifact instead of a growing stack,
+ * and undo puts the previous artifact back rather than deleting the mask.
+ */
+export interface AddMatteMaskCommand extends MaskCommandBase {
+  readonly type: 'add_matte_mask';
+  readonly artifact: MatteArtifactRef;
+  readonly prompts?: readonly MattePromptRefInput[];
+  readonly review?: MaskReviewInput;
+  readonly name?: string;
+  /** Replace this matte's artifact instead of adding a mask (a re-run after a fix). */
+  readonly maskId?: string;
+}
+
+/** Approve, re-flag or lock moments of a matte's review (BR6.5). */
+export interface ReviewMatteCommand extends MaskCommandBase {
+  readonly type: 'review_matte';
+  readonly maskId: string;
+  readonly review: MaskReviewInput;
+}
+
+/**
+ * Put text between a subject and its background (BR6.6).
+ *
+ * The same result the editor can build by hand — duplicate the clip, remove the background on
+ * the top copy, put the text between — as one operation with one undo.
+ */
+export interface TextBehindSubjectCommand extends MaskCommandBase {
+  readonly type: 'text_behind_subject';
+  readonly text: string;
+  /** The matte to move onto the front copy; absent ⇒ the clip's first alpha matte. */
+  readonly maskId?: string;
+  /** Extra `text` effect params (font, size, colour, position). */
+  readonly style?: Readonly<Record<string, unknown>>;
+}
+
 export type MaskCommand =
+  | AddMatteMaskCommand
+  | ReviewMatteCommand
+  | TextBehindSubjectCommand
   | SetMaskTrackCommand
   | ClearMaskTrackCommand
   | AddTrackConstraintCommand
@@ -983,9 +1068,110 @@ function buildPaste(input: CompileMaskCommandInput, command: PasteMasksCommand):
   };
 }
 
+/** Commit a finished background-removal run: a new matte, or a re-run of the one named. */
+function buildAddMatte(input: CompileMaskCommandInput, command: AddMatteMaskCommand): Built {
+  const clip = findClip(input.timeline, command.clipId);
+  const review = command.review ?? { flagged: [], approved: [], locked: [] };
+  if (command.maskId !== undefined) {
+    const mask = findMask(clip, command.maskId);
+    if (mask.kind !== 'matte') {
+      throw new Rejection(
+        'not_editable',
+        `Mask "${mask.id}" is not a background removal, so a matte cannot replace it.`,
+      );
+    }
+    return {
+      operations: [
+        {
+          type: 'update_mask',
+          clipId: clip.id,
+          maskId: mask.id,
+          changes: {
+            artifact: command.artifact,
+            ...(command.prompts === undefined ? {} : { prompts: command.prompts }),
+            review,
+          },
+        },
+      ],
+      reason: `Update the background removal on "${clip.id}"`,
+    };
+  }
+  const id = nextMaskId(clip);
+  const mask = {
+    id,
+    name: command.name ?? 'Background removal',
+    color: nextMaskColor(clip),
+    kind: 'matte',
+    artifact: command.artifact,
+    prompts: command.prompts ?? [],
+    review,
+  } as MaskLayerInput;
+  return {
+    operations: [{ type: 'add_mask', clipId: clip.id, mask, index: 0 }],
+    reason: `Remove the background on "${clip.id}"`,
+  };
+}
+
 function build(input: CompileMaskCommandInput): Built {
   const { command } = input;
   switch (command.type) {
+    case 'add_matte_mask':
+      return buildAddMatte(input, command);
+    case 'review_matte': {
+      const clip = findClip(input.timeline, command.clipId);
+      const mask = findMask(clip, command.maskId);
+      if (mask.kind !== 'matte') {
+        throw new Rejection(
+          'not_editable',
+          `Mask "${mask.id}" is not a background removal, so it has nothing to review.`,
+        );
+      }
+      return {
+        operations: [
+          {
+            type: 'review_mask',
+            clipId: clip.id,
+            maskId: mask.id,
+            subject: 'matte',
+            review: command.review,
+          },
+        ],
+        reason: `Review the background removal on "${clip.id}"`,
+      };
+    }
+    case 'text_behind_subject': {
+      const clip = findClip(input.timeline, command.clipId);
+      const matte =
+        command.maskId === undefined
+          ? masksOf(clip).find(
+              (candidate) =>
+                candidate.kind === 'matte' &&
+                candidate.enabled &&
+                candidate.target.kind === 'alpha',
+            )
+          : findMask(clip, command.maskId);
+      if (matte === undefined || matte.kind !== 'matte') {
+        throw new Rejection(
+          'missing_mask',
+          'Remove the background on this clip first, then put text behind the subject.',
+        );
+      }
+      if (command.text.trim() === '') {
+        throw new Rejection('nothing_to_change', 'Type the text to put behind the subject.');
+      }
+      return {
+        operations: [
+          {
+            type: 'add_text_behind_subject',
+            clipId: clip.id,
+            text: command.text,
+            maskId: matte.id,
+            ...(command.style === undefined ? {} : { style: command.style }),
+          },
+        ],
+        reason: `Put text behind the subject on "${clip.id}"`,
+      };
+    }
     case 'set_mask_track': {
       const clip = findClip(input.timeline, command.clipId);
       const mask = findMask(clip, command.maskId);

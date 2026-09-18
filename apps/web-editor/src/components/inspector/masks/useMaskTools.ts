@@ -93,8 +93,24 @@ export interface MaskToolState {
     readonly width: number;
     readonly height: number;
   }[];
+  /**
+   * Where the editor clicked to say "this is the subject" for the next matte (BR6.3).
+   *
+   * Fractions of the picture, with the source instant the click was made at, because the pack
+   * is prompted at a frame. Editor-owned hints like {@link featurePoints}: they steer the NEXT
+   * run and are recorded on the mask only once that run produces an artifact.
+   */
+  readonly subjectPoints: readonly SubjectPoint[];
   /** The last refusal to show, in plain words. */
   readonly message: string | null;
+}
+
+/** One AI Object click: include or exclude, at a source instant, in picture fractions. */
+export interface SubjectPoint {
+  readonly x: number;
+  readonly y: number;
+  readonly label: 'include' | 'exclude';
+  readonly sourceTime: number;
 }
 
 const INITIAL: MaskToolState = {
@@ -114,6 +130,7 @@ const INITIAL: MaskToolState = {
   clipboard: null,
   pendingTarget: null,
   eyedropper: false,
+  subjectPoints: [],
   message: null,
 };
 
@@ -171,6 +188,33 @@ export class MaskToolStore {
   public addExclusion(region: { x: number; y: number; width: number; height: number }): void {
     if (!(region.width > 0) || !(region.height > 0)) return;
     this.update({ exclusions: [...this.state.exclusions, region] });
+  }
+
+  /**
+   * Add an AI Object click, or remove the one already there (BR6.3).
+   *
+   * Toggling rather than only adding, for the same reason as a feature point: clicking the wrong
+   * thing is the common mistake, and taking it back must not clear the others.
+   */
+  public toggleSubjectPoint(point: SubjectPoint, within = 0.02): void {
+    const nearest = this.state.subjectPoints.findIndex(
+      (candidate) =>
+        Math.abs(candidate.x - point.x) <= within &&
+        Math.abs(candidate.y - point.y) <= within &&
+        Math.abs(candidate.sourceTime - point.sourceTime) <= 1e-3,
+    );
+    this.update({
+      subjectPoints:
+        nearest >= 0
+          ? this.state.subjectPoints.filter((_value, index) => index !== nearest)
+          : [...this.state.subjectPoints, point],
+    });
+  }
+
+  /** Forget the subject clicks (a finished run, another clip). */
+  public clearSubjectPoints(): void {
+    if (this.state.subjectPoints.length === 0) return;
+    this.update({ subjectPoints: [] });
   }
 
   /** Forget the tracking hints (a new mask, a new shot). */

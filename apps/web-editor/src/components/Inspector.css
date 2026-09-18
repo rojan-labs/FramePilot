@@ -916,6 +916,54 @@
   }
 }
 
+/* ---- Background removal row (BR6.1) ------------------------------------- */
+.inspector-pro .background-removal {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.inspector-pro .background-removal-warning {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  padding: var(--space-2);
+  border: 1px solid var(--warning);
+  border-radius: var(--radius-sm);
+  background: var(--warning-subtle);
+}
+.inspector-pro .background-removal-warning-headline {
+  margin: 0;
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.inspector-pro .background-removal-warning p {
+  margin: 0;
+}
+.inspector-pro .background-removal-actions {
+  display: flex;
+  gap: var(--space-1);
+  flex-wrap: wrap;
+}
+.inspector-pro .background-removal-subject {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.inspector-pro .background-removal-subject legend {
+  padding: 0;
+  color: var(--text-tertiary);
+  font-size: var(--font-size-xs);
+}
+.inspector-pro .background-removal-subject label {
+  display: flex;
+  align-items: center;
+  gap: var(--space-1);
+  color: var(--text-secondary);
+}
+
 /* ---- Mask tab (MK4.2) --------------------------------------------------- */
 .inspector-pro .mask-panel-tools {
   display: grid;

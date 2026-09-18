@@ -18,6 +18,7 @@ import {
   type MaskCommandInput,
 } from '../../../editor/mask-editing.js';
 import { Circle, ICON_SIZE, Pencil, PenTool, Square } from '../../icons.js';
+import { BackgroundRemovalRow } from './BackgroundRemovalRow.js';
 import { MaskList, maskDisplayName } from './MaskList.js';
 import { MaskPresets } from './MaskPresets.js';
 import { MaskProperties } from './MaskProperties.js';
@@ -78,6 +79,9 @@ export function MaskPanel({ editor, clip, store = maskToolStore }: MaskPanelProp
 
   return (
     <div className="inspector-subpanel mask-panel" aria-label="mask stack">
+      {/* The Mask tab's first action row (plan 05 "Placement"): the preset that adds an AI
+          subject matte, and the front door to every pack-backed tool's warnings. */}
+      <BackgroundRemovalRow editor={editor} clip={clip} store={store} />
       <div className="mask-panel-tools" role="group" aria-label="Draw a mask">
         {DRAW_TOOLS.map(({ tool, label, Icon }) => (
           <button

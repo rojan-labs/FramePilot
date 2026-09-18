@@ -881,3 +881,127 @@ describe('key mask properties', () => {
     expect(mask.opacity).toBe(0.5);
   });
 });
+
+// ---------------------------------------------------------------------------
+// Background removal (BR6): a finished pack run becomes a reversible matte
+// ---------------------------------------------------------------------------
+
+const KEY = 'a'.repeat(64);
+const SHA = 'b'.repeat(64);
+
+const artifact = (over: Record<string, unknown> = {}) => ({
+  key: KEY,
+  files: [{ name: 'matte.mkv', sha256: SHA }],
+  width: 3840,
+  height: 2160,
+  coverage: { sourceStart: 0, sourceEnd: 8 },
+  packId: 'smart-mask',
+  packVersion: '1.0.0',
+  modelDigests: [SHA],
+  ...over,
+});
+
+const matteMask = (over: Partial<MaskLayerInput> = {}): MaskLayerInput =>
+  ({ kind: 'matte', id: 'c1__mask', artifact: artifact(), ...over }) as MaskLayerInput;
+
+const matteOn = (tl: Timeline): (MaskLayer & { kind: 'matte' }) | null => {
+  const found = masksOn(tl).find((mask) => mask.kind === 'matte');
+  return found?.kind === 'matte' ? found : null;
+};
+
+describe('add_matte_mask', () => {
+  it('adds the matte at the top of the stack with its artifact and review', () => {
+    const tl = timeline([rect({ id: 'existing' })]);
+    const after = applied(tl, {
+      type: 'add_matte_mask',
+      artifact: artifact(),
+      prompts: [{ kind: 'points', sourceTime: 2, points: [{ x: 0.5, y: 0.4, label: 'include' }] }],
+      review: { flagged: [{ start: 3, end: 3.5 }], approved: [], locked: [] },
+    });
+    const masks = masksOn(after);
+    expect(masks[0]!.kind).toBe('matte');
+    expect(masks[1]!.id).toBe('existing');
+    const matte = matteOn(after)!;
+    expect(matte.artifact.key).toBe(KEY);
+    expect(matte.review.flagged).toEqual([{ start: 3, end: 3.5 }]);
+    expect(matte.prompts).toHaveLength(1);
+  });
+
+  it('replaces the named matte rather than stacking a second one on a re-run', () => {
+    const tl = timeline([matteMask()]);
+    const after = applied(tl, {
+      type: 'add_matte_mask',
+      maskId: 'c1__mask',
+      artifact: artifact({ key: 'c'.repeat(64) }),
+      review: { flagged: [], approved: [], locked: [] },
+    });
+    expect(masksOn(after)).toHaveLength(1);
+    expect(matteOn(after)!.artifact.key).toBe('c'.repeat(64));
+  });
+
+  it('refuses to replace a shape mask with a matte', () => {
+    const rejected = compile(timeline([rect()]), {
+      type: 'add_matte_mask',
+      maskId: 'c1__mask',
+      artifact: artifact(),
+    });
+    expect(rejected.status).toBe('rejected');
+  });
+});
+
+describe('review_matte', () => {
+  it('records an approval as one reversible edit', () => {
+    const tl = timeline([matteMask({ review: { flagged: [{ start: 3, end: 3.5 }] } })]);
+    const after = applied(tl, {
+      type: 'review_matte',
+      maskId: 'c1__mask',
+      review: { flagged: [], approved: [{ start: 3, end: 3.5 }], locked: [] },
+    });
+    expect(matteOn(after)!.review).toEqual({
+      flagged: [],
+      approved: [{ start: 3, end: 3.5 }],
+      locked: [],
+    });
+  });
+
+  it('refuses a mask that is not a background removal', () => {
+    const rejected = compile(timeline([rect()]), {
+      type: 'review_matte',
+      maskId: 'c1__mask',
+      review: { flagged: [], approved: [], locked: [] },
+    });
+    expect(rejected.status).toBe('rejected');
+  });
+});
+
+describe('text_behind_subject', () => {
+  it('compiles to the composite operation, naming the clip’s matte', () => {
+    const result = compile(timeline([matteMask()]), {
+      type: 'text_behind_subject',
+      text: 'BEHIND',
+    });
+    expect(result.status).toBe('compiled');
+    if (result.status !== 'compiled') return;
+    expect(result.patch.operations[0]).toMatchObject({
+      type: 'add_text_behind_subject',
+      clipId: 'c1',
+      maskId: 'c1__mask',
+      text: 'BEHIND',
+    });
+  });
+
+  it('asks for a background removal first when the clip has none', () => {
+    const rejected = compile(timeline([rect()]), { type: 'text_behind_subject', text: 'HI' });
+    expect(rejected.status).toBe('rejected');
+    if (rejected.status !== 'rejected') return;
+    expect(rejected.detail).toContain('Remove the background');
+  });
+
+  it('refuses empty text instead of creating a blank text clip', () => {
+    const rejected = compile(timeline([matteMask()]), {
+      type: 'text_behind_subject',
+      text: '   ',
+    });
+    expect(rejected.status).toBe('rejected');
+  });
+});
