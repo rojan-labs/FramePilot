@@ -14,6 +14,7 @@
     "test:preview-spike": "playwright test --project=preview-spike",
     "test:parity": "playwright test --project=preview-parity",
     "test:key-parity": "playwright test --project=mask-key-parity",
+    "test:perf": "playwright test --project=preview-perf",
     "report": "playwright show-report ../../reports/e2e",
     "install:browsers": "playwright install --with-deps chromium"
   },

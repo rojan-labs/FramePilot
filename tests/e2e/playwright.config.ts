@@ -57,7 +57,8 @@ export default defineConfig({
   projects: [
     {
       name: 'chromium',
-      testIgnore: /(preview-(spike|webcodecs-p[0-9]+|parity-oracle)|mask-key-parity)\.spec\.ts/,
+      testIgnore:
+        /(preview-(spike|webcodecs-p[0-9]+|parity-oracle|scale-perf)|mask-key-parity)\.spec\.ts/,
       use: { ...devices['Desktop Chrome'] },
     },
     // P0 WebCodecs feasibility spike (plan PREVIEW-WEBCODECS-COMPOSITOR.md).
@@ -102,6 +103,31 @@ export default defineConfig({
       // Memory bound: one browser, one page, one case at a time (see the spec header).
       workers: 1,
       // Deterministic by construction; a retry would re-render a whole case to hide a flake.
+      retries: 0,
+      use: {
+        ...devices['Desktop Chrome'],
+        channel: 'chrome',
+        launchOptions: {
+          args: [
+            '--autoplay-policy=no-user-gesture-required',
+            '--disable-background-timer-throttling',
+            '--disable-renderer-backgrounding',
+            '--disable-backgrounding-occluded-windows',
+            '--enable-unsafe-swiftshader',
+          ],
+        },
+      },
+    },
+    // PX5 performance evidence on the Scale row (plan/background-removal-ai/PX5-BUDGETS.md). Real
+    // Chrome for H.264 WebCodecs decode; SwiftShader allowed so CI can run the invariants. The
+    // spec skips itself unless FRAMEPILOT_RUN_PERF=1 and needs `pnpm px5:fixture` first.
+    // Workstations: ONE --grep'd variant at a time, under the footprint watchdog (spec header).
+    {
+      name: 'preview-perf',
+      testMatch: /preview-scale-perf\.spec\.ts/,
+      fullyParallel: false,
+      workers: 1,
+      // A retry would average a slow run away; the numbers are the point.
       retries: 0,
       use: {
         ...devices['Desktop Chrome'],
