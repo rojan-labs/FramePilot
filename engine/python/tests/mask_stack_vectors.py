@@ -37,7 +37,8 @@ import numpy as np
 from framepilot_engine.render.frame_masks import layer_mask_stack
 from framepilot_engine.render.mask_stack import clip_mask_stacks
 from framepilot_engine.render.masks import MaskSpec, rasterize_mask
-from framepilot_engine.timeline.models import Clip, EffectLayer
+from framepilot_engine.render.matte_edges import apply_finesse, finesse_is_identity
+from framepilot_engine.timeline.models import Clip, EffectLayer, MaskFinesse
 
 _log = logging.getLogger(__name__)
 
@@ -907,7 +908,7 @@ def finesse_alpha() -> np.ndarray:
     y, x = np.mgrid[0:height, 0:width].astype(np.float64)
     disc = np.clip(9.0 - np.hypot(x - 14.0, y - 14.0), 0.0, 1.0)
     ramp = np.clip((x - 28.0) / 10.0, 0.0, 1.0) * np.clip((y - 4.0) / 8.0, 0.0, 1.0)
-    alpha = np.maximum(disc, ramp)
+    alpha: np.ndarray = np.maximum(disc, ramp)
     alpha[14, 14] = 0.0
     alpha[2, 3] = 1.0
     alpha[3, 2] = 0.6
@@ -915,9 +916,6 @@ def finesse_alpha() -> np.ndarray:
 
 
 def _finesse_document() -> dict[str, Any]:
-    from framepilot_engine.render.matte_edges import apply_finesse, finesse_is_identity
-    from framepilot_engine.timeline.models import MaskFinesse
-
     alpha = finesse_alpha()
     width, height = FINESSE_SIZE
     cases = []
